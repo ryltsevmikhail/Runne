@@ -24,14 +24,40 @@ pub(super) fn v30_matches(connection: &Connection, version: i64) -> SqliteResult
     Ok(matches!(marker, (30, 1, 29, 446) | (30, 1, 30, 465)))
 }
 
-fn v30_predecessor_matches(connection: &Connection) -> SqliteResult<bool> {
-    if !v30_v26_base_matches(connection)? || !v29_catalog_matches(connection)? {
+pub(super) fn v30_predecessor_matches(connection: &Connection) -> SqliteResult<bool> {
+    v30_predecessor_matches_with(
+        connection,
+        &v25_trigger(
+            "provider_credential_operation_insert_prepared",
+            V24_TRIGGERS
+                .iter()
+                .find(|(name, _)| *name == "provider_credential_operation_insert_prepared")
+                .expect("V24 insert trigger exists")
+                .1,
+        ),
+    )
+}
+
+pub(super) fn v30_predecessor_matches_with(
+    connection: &Connection,
+    insert_trigger: &str,
+) -> SqliteResult<bool> {
+    if !v30_v26_base_matches_with(connection, insert_trigger)? || !v29_catalog_matches(connection)?
+    {
         return Ok(false);
     }
-    for table in [V26_ISSUANCE_EVIDENCE_TABLE, V26_CLAIM_PROVIDER_TABLE, V26_TABLE] {
-        let actual: Option<String> = connection.query_row(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?1", [table], |row| row.get(0),
-        ).optional()?;
+    for table in [
+        V26_ISSUANCE_EVIDENCE_TABLE,
+        V26_CLAIM_PROVIDER_TABLE,
+        V26_TABLE,
+    ] {
+        let actual: Option<String> = connection
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?1",
+                [table],
+                |row| row.get(0),
+            )
+            .optional()?;
         if actual.is_none_or(|sql| normalize_v24_ddl(&sql) != v26_table_source(table)) {
             return Ok(false);
         }
@@ -44,8 +70,10 @@ fn v30_predecessor_matches(connection: &Connection) -> SqliteResult<bool> {
     }))
 }
 
-fn v30_v26_base_matches(connection: &Connection) -> SqliteResult<bool> {
-    if !v18_global_trigger_matches(connection)? || !v30_trigger_catalog_matches(connection)? {
+fn v30_v26_base_matches_with(connection: &Connection, insert_trigger: &str) -> SqliteResult<bool> {
+    if !v18_global_trigger_matches(connection)?
+        || !v30_trigger_catalog_matches_with(connection, insert_trigger)?
+    {
         return Ok(false);
     }
     let v12 = provider_v12_core_matches(connection)?;
@@ -68,11 +96,26 @@ fn v30_v26_base_matches(connection: &Connection) -> SqliteResult<bool> {
         ("bootstrap_last_observed_clock", MIGRATION_V17),
         ("projects", project_workspace_schema::MIGRATION_V18),
         ("workspaces", project_workspace_schema::MIGRATION_V18),
-        ("root_admission_nonces", project_workspace_schema::MIGRATION_V18),
-        ("project_workspace_command_receipts", project_workspace_schema::MIGRATION_V18),
-        ("workspace_identity_history", project_workspace_schema::MIGRATION_V18),
-        ("task_run_workspace_lineage", project_workspace_schema::MIGRATION_V18),
-        ("aggregate_state_snapshots", replay_promotion_snapshot_schema::MIGRATION_V20),
+        (
+            "root_admission_nonces",
+            project_workspace_schema::MIGRATION_V18,
+        ),
+        (
+            "project_workspace_command_receipts",
+            project_workspace_schema::MIGRATION_V18,
+        ),
+        (
+            "workspace_identity_history",
+            project_workspace_schema::MIGRATION_V18,
+        ),
+        (
+            "task_run_workspace_lineage",
+            project_workspace_schema::MIGRATION_V18,
+        ),
+        (
+            "aggregate_state_snapshots",
+            replay_promotion_snapshot_schema::MIGRATION_V20,
+        ),
         ("process_output", MIGRATION_V21),
         ("approvals", MIGRATION_V23),
     ] {
@@ -89,8 +132,14 @@ fn v30_v26_base_matches(connection: &Connection) -> SqliteResult<bool> {
         }
     }
     for (name, source) in [
-        ("aggregate_state_snapshots_bind_insert", replay_snapshot_schema::SNAPSHOT_INSERT_TRIGGER),
-        ("aggregate_state_snapshots_bind_update", replay_snapshot_schema::SNAPSHOT_UPDATE_TRIGGER),
+        (
+            "aggregate_state_snapshots_bind_insert",
+            replay_snapshot_schema::SNAPSHOT_INSERT_TRIGGER,
+        ),
+        (
+            "aggregate_state_snapshots_bind_update",
+            replay_snapshot_schema::SNAPSHOT_UPDATE_TRIGGER,
+        ),
     ] {
         if !v24_trigger_matches(connection, name, source)? {
             return Ok(false);
@@ -106,7 +155,9 @@ fn v30_v26_base_matches(connection: &Connection) -> SqliteResult<bool> {
         }
     }
     for (name, source) in V24_TRIGGERS {
-        let expected = if V25_REPLACED_TRIGGERS.contains(&name) {
+        let expected = if name == "provider_credential_operation_insert_prepared" {
+            insert_trigger.to_owned()
+        } else if V25_REPLACED_TRIGGERS.contains(&name) {
             v25_trigger(name, source)
         } else {
             source.to_owned()
@@ -121,7 +172,9 @@ fn v30_v26_base_matches(connection: &Connection) -> SqliteResult<bool> {
 fn v30_columns_match(connection: &Connection) -> SqliteResult<bool> {
     let columns = connection
         .prepare("PRAGMA table_info(provider_credential_verification_observations)")?
-        .query_map([], |row| Ok((row.get::<_, String>(1)?, row.get::<_, String>(2)?)))?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+        })?
         .collect::<SqliteResult<Vec<_>>>()?;
     Ok(columns.ends_with(&[
         ("readiness_revision".to_owned(), "INTEGER".to_owned()),
@@ -129,18 +182,35 @@ fn v30_columns_match(connection: &Connection) -> SqliteResult<bool> {
     ]))
 }
 
-fn v30_trigger_catalog_matches(connection: &Connection) -> SqliteResult<bool> {
-    let additional = V27_TRIGGERS.map(|name| (name, v27_trigger_source(name))).into_iter()
+fn v30_trigger_catalog_matches_with(
+    connection: &Connection,
+    insert_trigger: &str,
+) -> SqliteResult<bool> {
+    let additional = V27_TRIGGERS
+        .map(|name| (name, v27_trigger_source(name)))
+        .into_iter()
         .chain(V28_TRIGGERS.map(|name| (name, v28_trigger_source(name))))
         .chain(V29_TRIGGERS.map(|name| (name, v29_trigger_source(name))))
         .chain(V30_TRIGGERS.map(|name| (name, v30_trigger_source(name))))
         .collect::<Vec<_>>();
-    v26_trigger_catalog::matches_with_additional(connection, &additional)
+    v26_trigger_catalog::matches_with_replacements(
+        connection,
+        &additional,
+        &[(
+            "provider_credential_operation_insert_prepared",
+            insert_trigger,
+        )],
+    )
 }
 
 fn v30_trigger_source(name: &str) -> &'static str {
-    let start = MIGRATION_V30.find(&format!("CREATE TRIGGER {name}"))
+    let start = MIGRATION_V30
+        .find(&format!("CREATE TRIGGER {name}"))
         .expect("V30 trigger exists");
-    let end = MIGRATION_V30[start..].find("END;").expect("V30 trigger ends") + start + 4;
+    let end = MIGRATION_V30[start..]
+        .find("END;")
+        .expect("V30 trigger ends")
+        + start
+        + 4;
     &MIGRATION_V30[start..end]
 }

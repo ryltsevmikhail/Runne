@@ -1,6 +1,6 @@
 #[test]
 fn v28_remains_a_released_schema_version() {
-    assert_eq!(CURRENT_SCHEMA_VERSION, 30);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 31);
 }
 
 #[test]
@@ -60,8 +60,8 @@ fn production_store_open_migrates_v28_to_v30() {
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&migrated).unwrap());
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&migrated).unwrap());
     let connection = Connection::open(&migrated).unwrap();
-    assert_eq!(current_schema_marker(&connection), 30);
-    assert!(v30_matches(&connection, 30).unwrap());
+    assert_eq!(current_schema_marker(&connection), 31);
+    assert!(v31_matches(&connection, 31).unwrap());
 }
 
 #[test]

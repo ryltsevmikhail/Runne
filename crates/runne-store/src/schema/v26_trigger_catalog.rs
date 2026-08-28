@@ -8,6 +8,14 @@ pub(super) fn matches_with_additional(
     connection: &Connection,
     additional: &[(&str, &str)],
 ) -> SqliteResult<bool> {
+    matches_with_replacements(connection, additional, &[])
+}
+
+pub(super) fn matches_with_replacements(
+    connection: &Connection,
+    additional: &[(&str, &str)],
+    replacements: &[(&str, &str)],
+) -> SqliteResult<bool> {
     let mut expected = Vec::new();
     for table in authoritative_v12_tables(connection)? {
         for operation in ["insert", "update", "delete"] {
@@ -37,7 +45,12 @@ pub(super) fn matches_with_additional(
         expected.push(name.to_owned());
     }
     for (name, source) in V24_TRIGGERS {
-        let source = if V25_REPLACED_TRIGGERS.contains(&name) {
+        let source = if let Some((_, replacement)) = replacements
+            .iter()
+            .find(|(replacement, _)| *replacement == name)
+        {
+            (*replacement).to_owned()
+        } else if V25_REPLACED_TRIGGERS.contains(&name) {
             v25_trigger(name, source)
         } else {
             source.to_owned()

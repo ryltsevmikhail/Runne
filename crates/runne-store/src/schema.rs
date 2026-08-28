@@ -7,9 +7,9 @@
 //! - `events` — committed event rows
 //! - `command_receipts` — idempotency receipt store
 
-use rand::RngCore;
 use rand::rngs::OsRng;
-use runne_domain::id::{EventLogLineageId, validate_uuid_v7_bytes};
+use rand::RngCore;
+use runne_domain::id::{validate_uuid_v7_bytes, EventLogLineageId};
 use std::{
     fmt, fs,
     path::{Path, PathBuf},
@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 30;
+pub const CURRENT_SCHEMA_VERSION: i64 = 31;
 
 /// Fail-closed reason returned before a file-backed database is made writable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,6 +110,8 @@ include!("schema/migrations/v29_provider_credential_attachment.rs");
 include!("schema/provider_credential_v29_schema.rs");
 include!("schema/migrations/v30_provider_credential_verification_binding.rs");
 include!("schema/provider_credential_v30_schema.rs");
+include!("schema/migrations/v31_provider_credential_legacy_cutover.rs");
+include!("schema/provider_credential_v31_schema.rs");
 mod project_workspace_backfill;
 mod project_workspace_schema;
 pub(crate) mod provider_schema;

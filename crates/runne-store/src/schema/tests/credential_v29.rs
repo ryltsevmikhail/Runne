@@ -1,6 +1,6 @@
 #[test]
 fn v29_remains_a_released_schema_boundary() {
-    assert_eq!(CURRENT_SCHEMA_VERSION, 30);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 31);
 }
 
 #[test]
@@ -44,5 +44,5 @@ fn production_store_open_creates_and_reopens_v30() {
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&path).unwrap());
 
     let connection = Connection::open(path).unwrap();
-    assert!(v30_matches(&connection, 30).unwrap());
+    assert!(v31_matches(&connection, 31).unwrap());
 }
