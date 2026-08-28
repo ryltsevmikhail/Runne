@@ -35,6 +35,10 @@ impl VerifiedProtectedCredentialEnrollmentRequest {
         self.binding.command_identity_binding
     }
     #[must_use]
+    pub const fn native_intent_digest(&self) -> [u8; 32] {
+        self.binding.native_intent_digest
+    }
+    #[must_use]
     pub const fn sequence(&self) -> u64 {
         self.sequence
     }

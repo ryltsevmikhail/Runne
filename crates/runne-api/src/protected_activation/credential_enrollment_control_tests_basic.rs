@@ -26,6 +26,7 @@ fn enrollment_frames_round_trip_only_for_the_exact_current_binding() {
     assert_eq!(verified.authenticated_tauri_peer_binding(), [5; 32]);
     assert_eq!(verified.native_confirmation_digest(), [6; 32]);
     assert_eq!(verified.broker_process_evidence_digest(), [7; 32]);
+    assert_eq!(request.native_intent_digest(), [8; 32]);
     assert_eq!(verified.sequence(), 2);
 }
 
@@ -33,7 +34,7 @@ fn enrollment_frames_round_trip_only_for_the_exact_current_binding() {
 fn enrollment_frames_have_the_exact_fixed_width_contract() {
     let authenticator = authenticator(7);
     let (binding, request_frame) = request_frame(&authenticator);
-    assert_eq!(request_frame.len(), 4 + 305 + 32);
+    assert_eq!(request_frame.len(), 4 + 337 + 32);
     let request = authenticator
         .decode_request(&request_frame, &binding, 0, 150)
         .unwrap();

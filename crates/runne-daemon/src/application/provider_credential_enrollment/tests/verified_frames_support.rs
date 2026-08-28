@@ -78,6 +78,7 @@ pub(crate) fn session_with(
         [5; 32],
         [6; 32],
         [7; 32],
+        runne_api::protected_credential_native_intent_digest(command.native_intent_id()),
         *intent.action_provider_revision_digest(),
         *intent.command_identity_digest(),
         issued_at,

@@ -120,6 +120,7 @@ fn verified_enrollment_claims_at(
         [7; 32],
         [8; 32],
         [9; 32],
+        [10; 32],
         issued_at_unix_millis,
         expires_at_unix_millis,
     )
