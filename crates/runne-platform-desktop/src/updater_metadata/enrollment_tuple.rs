@@ -1,3 +1,10 @@
+use std::fs::File;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+
+use runne_platform_ports::provider_credential_broker::{
+    VerifiedWriterArtifact, VerifiedWriterArtifactError,
+};
 use sha2::{Digest, Sha256};
 
 /// Signed bindings for the four native artifacts required by credential
@@ -53,6 +60,30 @@ impl NativeEnrollmentTupleV1 {
             && artifacts.contract_sha256 == self.contract_sha256
     }
 
+    /// Admits only an exact signed tuple that matches the independently
+    /// measured installed package. Absence or any mismatch remains closed.
+    #[must_use]
+    pub fn qualify(
+        &self,
+        target: &UpdateTargetV2,
+        artifacts: &MeasuredNativeEnrollmentArtifactsV1,
+    ) -> NativeEnrollmentQualification {
+        let binding = self.matches_installed(target, artifacts).then(|| {
+            decode_digest(&self.writer_sha256)
+                .zip(decode_digest(&self.tuple_sha256))
+                .map(
+                    |(writer_sha256, release_tuple_sha256)| NativeEnrollmentQualificationBinding {
+                        writer_sha256,
+                        release_tuple_sha256,
+                    },
+                )
+        });
+        match binding {
+            Some(Some(binding)) => NativeEnrollmentQualification::Qualified(binding),
+            _ => NativeEnrollmentQualification::Unqualified,
+        }
+    }
+
     fn matches_target(&self, target: &UpdateTargetV2) -> bool {
         digests_valid([
             self.candidate_sha256.as_str(),
@@ -91,6 +122,65 @@ impl NativeEnrollmentTupleV1 {
         }
         hex::encode(hasher.finalize())
     }
+}
+
+/// Closed release admission state for the native credential flow.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NativeEnrollmentQualification {
+    Unqualified,
+    Qualified(NativeEnrollmentQualificationBinding),
+}
+
+impl NativeEnrollmentQualification {
+    /// Re-measures a staged regular writer before yielding an artifact usable
+    /// by the direct native launcher. Paths, symlinks and metadata alone never
+    /// establish trust.
+    pub fn verified_writer(
+        self,
+        executable: PathBuf,
+    ) -> Result<VerifiedWriterArtifact, VerifiedWriterArtifactError> {
+        let Self::Qualified(binding) = self else {
+            return Err(VerifiedWriterArtifactError::Unavailable);
+        };
+        let measured =
+            measure_regular_file(&executable).ok_or(VerifiedWriterArtifactError::Rejected)?;
+        (measured == binding.writer_sha256)
+            .then_some(())
+            .ok_or(VerifiedWriterArtifactError::Rejected)?;
+        VerifiedWriterArtifact::new(
+            executable,
+            binding.writer_sha256,
+            binding.release_tuple_sha256,
+        )
+    }
+}
+
+/// Non-serializable binding carried from release admission to native launch.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NativeEnrollmentQualificationBinding {
+    writer_sha256: [u8; 32],
+    release_tuple_sha256: [u8; 32],
+}
+
+fn measure_regular_file(path: &Path) -> Option<[u8; 32]> {
+    let metadata = std::fs::symlink_metadata(path).ok()?;
+    if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+        return None;
+    }
+    let mut file = File::open(path).ok()?;
+    let mut hasher = Sha256::new();
+    let mut chunk = [0_u8; 16 * 1024];
+    loop {
+        let read = file.read(&mut chunk).ok()?;
+        if read == 0 {
+            return Some(hasher.finalize().into());
+        }
+        hasher.update(&chunk[..read]);
+    }
+}
+
+fn decode_digest(value: &str) -> Option<[u8; 32]> {
+    hex::decode(value).ok()?.try_into().ok()
 }
 
 /// Independently measured installed artifacts. This contains no paths or

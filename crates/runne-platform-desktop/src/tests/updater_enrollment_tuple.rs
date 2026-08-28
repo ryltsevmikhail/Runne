@@ -1,4 +1,5 @@
 use super::super::{MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentTupleV1, UpdateTargetV2};
+use sha2::{Digest as _, Sha256};
 
 fn target() -> UpdateTargetV2 {
     UpdateTargetV2 {
@@ -83,4 +84,39 @@ fn enrollment_tuple_rejects_missing_reused_and_swapped_role_artifacts() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn exact_qualification_remeasures_regular_writer_before_launch() {
+    let directory = tempfile::tempdir().unwrap();
+    let writer = directory.path().join("runne");
+    std::fs::write(&writer, b"measured writer").unwrap();
+    let writer_digest = hex::encode(Sha256::digest(b"measured writer"));
+    let target = target();
+    let tuple = NativeEnrollmentTupleV1::new(
+        target.release_candidate_sha256.clone(),
+        writer_digest.clone(),
+        "f".repeat(64),
+        target.bundle_sha256.clone(),
+        &target,
+    )
+    .unwrap();
+    let artifacts = MeasuredNativeEnrollmentArtifactsV1::new(
+        target.artifact_sha256.clone(),
+        writer_digest,
+        "f".repeat(64),
+        target.bundle_sha256.clone(),
+    )
+    .unwrap();
+    let qualified = tuple.qualify(&target, &artifacts);
+
+    assert!(qualified.verified_writer(writer.clone()).is_ok());
+    #[cfg(unix)]
+    {
+        let link = directory.path().join("runne-link");
+        std::os::unix::fs::symlink(&writer, &link).unwrap();
+        assert!(qualified.verified_writer(link).is_err());
+    }
+    std::fs::write(&writer, b"modified writer").unwrap();
+    assert!(qualified.verified_writer(writer).is_err());
 }
