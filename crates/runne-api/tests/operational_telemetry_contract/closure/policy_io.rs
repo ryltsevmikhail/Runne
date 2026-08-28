@@ -6,6 +6,7 @@ const HTTP_HOST: &str = "crates/runne-http/src/secure_local_host.rs";
 const HTTP_TELEMETRY: &str = "crates/runne-http/src/operational_telemetry.rs";
 const HTTP_STARTUP: &str = "crates/runne-daemon/src/application/http_startup.rs";
 const COMPOSITION: &str = "crates/runne-daemon/src/canonical_provider/composition.rs";
+const COMPOSITION_INPUT: &str = "crates/runne-daemon/src/canonical_provider/composition/input.rs";
 const AGGREGATES: &str = "crates/runne-store/src/provider/operational_telemetry/aggregates.rs";
 const PART_01: &str = "crates/runne-runtime/src/provider_execution_parts/part_01.rs";
 const SECURE_HOSTS: &[&str] = &[
@@ -250,7 +251,7 @@ fn is_rusqlite_value(path: &str, tokens: &[Token], index: usize) -> bool {
 fn is_legacy_string(path: &str, tokens: &[Token], index: usize) -> bool {
     let field = index.checked_sub(2).and_then(|at| ident(tokens, at));
     (path == PART_01 && matches!(field, Some("currency" | "application_idempotency_key")))
-        || (path == COMPOSITION && field == Some("db_path"))
+        || (matches!(path, COMPOSITION | COMPOSITION_INPUT) && field == Some("db_path"))
 }
 
 fn follows_dyn_error(tokens: &[Token], index: usize) -> bool {
