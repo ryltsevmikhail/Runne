@@ -27,16 +27,16 @@ fn daemon_owned_endpoint_transfers_only_to_the_bound_writer_channel() {
     assert_eq!(frame, *b"claim");
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 #[test]
-fn daemon_owned_endpoint_reaches_the_fixed_writer_without_tauri_broker_io() {
+fn daemon_owned_writer_launch_has_one_inherited_channel_and_zero_secret_fds() {
     use std::os::unix::fs::PermissionsExt as _;
 
     let directory = tempfile::tempdir().unwrap();
     let executable = directory.path().join("writer-fixture");
     std::fs::write(
         &executable,
-        "#!/bin/sh\nIFS= read -r control || exit 12\nprintf reply >&2\nIFS= read -r secret <&1 || exit 13\n[ \"$control\" = control ] && [ \"$secret\" = secret ] || exit 14\n",
+        "#!/bin/sh\nIFS= read -r control || exit 12\nIFS= read -r secret <&1 2>/dev/null && exit 13\n[ \"$control\" = control ] || exit 14\nprintf reply >&2\n",
     )
     .unwrap();
     std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -67,14 +67,53 @@ fn daemon_owned_endpoint_reaches_the_fixed_writer_without_tauri_broker_io() {
     daemon.read_exact(&mut reply).unwrap();
     assert_eq!(reply, *b"reply");
     assert_eq!(evidence.channel_binding(), binding);
-    endpoints
-        .send_secret(
+    assert_eq!(
+        endpoints.send_control(b"tauri-control"),
+        Err(BrokerHandoffError::Rejected)
+    );
+    assert_eq!(
+        endpoints.send_secret(
             runne_platform_ports::provider_credential_prompt::SecureCredentialMaterial::new(
                 b"secret".to_vec(),
             )
             .unwrap()
             .into_pipe_bytes(),
-        )
-        .unwrap();
+        ),
+        Err(BrokerHandoffError::Rejected)
+    );
     process.reap_retained_child().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn daemon_fixture_emits_no_reply_when_stdout_contains_readable_secret_data() {
+    use std::os::fd::OwnedFd;
+    use std::os::unix::fs::PermissionsExt as _;
+    use std::process::{Command, Stdio};
+
+    let directory = tempfile::tempdir().unwrap();
+    let executable = directory.path().join("writer-fixture");
+    std::fs::write(
+        &executable,
+        "#!/bin/sh\nIFS= read -r control || exit 12\nIFS= read -r secret <&1 2>/dev/null && exit 13\n[ \"$control\" = control ] || exit 14\nprintf reply >&2\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let (mut daemon, child_control) = std::os::unix::net::UnixStream::pair().unwrap();
+    let child_stderr = child_control.try_clone().unwrap();
+    let (mut readable_stdout, child_stdout) = std::os::unix::net::UnixStream::pair().unwrap();
+    let mut child = Command::new(executable)
+        .stdin(Stdio::from(OwnedFd::from(child_control)))
+        .stderr(Stdio::from(OwnedFd::from(child_stderr)))
+        .stdout(Stdio::from(OwnedFd::from(child_stdout)))
+        .spawn()
+        .unwrap();
+
+    daemon.write_all(b"control\n").unwrap();
+    readable_stdout.write_all(b"secret\n").unwrap();
+    let status = child.wait().unwrap();
+    let mut reply = [0; 1];
+
+    assert_eq!(status.code(), Some(13));
+    assert_eq!(daemon.read(&mut reply).unwrap(), 0);
 }
