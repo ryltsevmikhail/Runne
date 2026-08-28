@@ -4113,6 +4113,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "runne-macos-process-identity"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "sha2",
+]
+
+[[package]]
 name = "runne-mcp"
 version = "0.1.0"
 dependencies = [
@@ -4188,6 +4196,7 @@ dependencies = [
  "rand 0.8.7",
  "reqwest 0.12.28",
  "runne-api",
+ "runne-macos-process-identity",
  "runne-platform-ports",
  "runne-runtime-client",
  "runne-windows-native-handle",

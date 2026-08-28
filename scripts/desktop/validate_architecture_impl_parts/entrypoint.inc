@@ -60,6 +60,7 @@ def main() -> int:
     violations += find_provider_terminal_persistence_violations(root)
     violations += find_provider_terminal_test_feature_violations(metadata["packages"])
     violations += find_protected_admission_surface_violations(root)
+    violations += find_macos_process_identity_dependency_violations(metadata["packages"])
     if violations:
         for violation in violations:
             print(f"ERROR: {violation}")

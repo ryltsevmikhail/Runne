@@ -3,5 +3,5 @@ from pathlib import Path
 
 
 parts = Path(__file__).with_name("validate_architecture_impl_parts")
-for name in ("checks.inc", "entrypoint.inc"):
+for name in ("checks.inc", "native_process_identity.inc", "entrypoint.inc"):
     exec((parts / name).read_text(encoding="utf-8"))

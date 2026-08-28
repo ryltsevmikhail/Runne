@@ -10,12 +10,17 @@ use runne_platform_ports::provider_credential_broker::VerifiedWriterLaunchSpec;
 use runne_platform_ports::provider_credential_prompt::CredentialPipeBytes;
 #[cfg(target_os = "linux")]
 use rustix::pipe::{PipeFlags, pipe_with};
-#[cfg(target_os = "linux")]
-use sha2::{Digest, Sha256};
 
 use super::{RetainedWriterProcess, WriterProcessEvidence, writer_command};
 
 const MAX_CONTROL_FRAME_BYTES: usize = 4 * 1024;
+
+mod process_start_identity;
+use process_start_identity::observed_start_identity;
+
+#[cfg(test)]
+#[path = "unix/process_start_identity_tests.rs"]
+mod process_start_identity_tests;
 
 /// Tauri-owned halves of one writer's inherited control and secret channels.
 ///
@@ -153,7 +158,7 @@ pub(super) fn secret_pipe() -> Result<(File, File), BrokerHandoffError> {
 }
 
 #[cfg(not(target_os = "linux"))]
-pub(super) fn secret_pipe() -> Result<(File, File), BrokerHandoffError> {
+pub(super) const fn secret_pipe() -> Result<(File, File), BrokerHandoffError> {
     Err(BrokerHandoffError::Unavailable)
 }
 
@@ -234,28 +239,4 @@ pub fn spawn_unix_writer(
         endpoints.channel_binding(),
     )?;
     Ok((endpoints, process, evidence))
-}
-
-#[cfg(target_os = "linux")]
-fn observed_start_identity(pid: u32) -> Result<[u8; 32], BrokerHandoffError> {
-    let process_stat = std::fs::read_to_string(format!("/proc/{pid}/stat"))
-        .map_err(|_| BrokerHandoffError::Rejected)?;
-    let tail = process_stat
-        .rsplit_once(')')
-        .map(|(_, tail)| tail)
-        .ok_or(BrokerHandoffError::Rejected)?;
-    let start_time = tail
-        .split_whitespace()
-        .nth(19)
-        .ok_or(BrokerHandoffError::Rejected)?;
-    let mut digest = Sha256::new();
-    digest.update(b"gocode.provider-credential-writer.start.v1");
-    digest.update(pid.to_be_bytes());
-    digest.update(start_time.as_bytes());
-    Ok(digest.finalize().into())
-}
-
-#[cfg(not(target_os = "linux"))]
-fn observed_start_identity(_pid: u32) -> Result<[u8; 32], BrokerHandoffError> {
-    Err(BrokerHandoffError::Unavailable)
 }
