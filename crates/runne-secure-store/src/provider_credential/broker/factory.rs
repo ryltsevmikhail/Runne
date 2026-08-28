@@ -6,7 +6,18 @@ use super::readback::{
     ProviderCredentialDispatchMaterializer, ProviderCredentialReadback,
     VersionStoreDispatchMaterializer, VersionStoreReadback,
 };
+use super::verification_readback::{
+    ProviderCredentialVerificationReadback, VersionStoreVerificationReadback,
+};
 use crate::{NativeProviderCredentialStore, ProviderCredentialAccessPolicy};
+
+/// Reader-only parts exposed to daemon composition.
+pub type NativeProviderCredentialReaderParts = (
+    CredentialLifecycleAuthority,
+    Arc<dyn ProviderCredentialReadback>,
+    Arc<dyn ProviderCredentialDispatchMaterializer>,
+    Arc<dyn ProviderCredentialVerificationReadback>,
+);
 
 /// Construction-separated native readers for daemon composition.
 ///
@@ -17,6 +28,7 @@ pub struct NativeProviderCredentialReaders {
     lifecycle_authority: CredentialLifecycleAuthority,
     readback: Arc<dyn ProviderCredentialReadback>,
     dispatch: Arc<dyn ProviderCredentialDispatchMaterializer>,
+    verification: Arc<dyn ProviderCredentialVerificationReadback>,
 }
 
 impl NativeProviderCredentialReaders {
@@ -29,6 +41,10 @@ impl NativeProviderCredentialReaders {
             access.clone(),
         );
         let dispatch = VersionStoreDispatchMaterializer::new(
+            NativeProviderCredentialStore::new_versioned(native_authority.clone()),
+            access.clone(),
+        );
+        let verification = VersionStoreVerificationReadback::new(
             NativeProviderCredentialStore::new_versioned(native_authority),
             access,
         );
@@ -36,26 +52,31 @@ impl NativeProviderCredentialReaders {
             lifecycle_authority,
             readback: Arc::new(readback),
             dispatch: Arc::new(dispatch),
+            verification: Arc::new(verification),
         }
     }
 
-    /// Separates the store-owned issuer from the two reader-only values.
+    /// Separates the store-owned issuer from the reader-only values.
     #[must_use]
     pub fn into_parts(
         self,
-    ) -> (
-        CredentialLifecycleAuthority,
-        Arc<dyn ProviderCredentialReadback>,
-        Arc<dyn ProviderCredentialDispatchMaterializer>,
-    ) {
-        (self.lifecycle_authority, self.readback, self.dispatch)
+    ) -> NativeProviderCredentialReaderParts {
+        (
+            self.lifecycle_authority,
+            self.readback,
+            self.dispatch,
+            self.verification,
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use runne_provider::{
-        CredentialAuthorityPair, CredentialLease, CredentialVersionRef, ProviderId,
+        BeginCredentialVerification, CredentialAuthorityPair, CredentialBindingDigest,
+        CredentialEnrollmentAuthorityPair, CredentialFence, CredentialLease,
+        CredentialLifecycleRevision, CredentialOperationId, CredentialReadinessRevision,
+        CredentialVerificationKind, CredentialVerifierRevision, CredentialVersionRef, ProviderId,
     };
 
     use super::*;
@@ -63,7 +84,7 @@ mod tests {
 
     #[test]
     fn stale_dispatch_capability_cannot_materialize() {
-        let (_, _, materializer) = NativeProviderCredentialReaders::new(access()).into_parts();
+        let (_, _, materializer, _) = NativeProviderCredentialReaders::new(access()).into_parts();
         let (foreign, _) = CredentialAuthorityPair::new().split();
         let reference = CredentialVersionRef::new(ProviderId::new("openai").unwrap(), 1).unwrap();
         let capability =
@@ -71,6 +92,16 @@ mod tests {
 
         assert_eq!(
             materializer.materialize_active(&capability).unwrap_err(),
+            SecureStoreError::CredentialAccessDenied
+        );
+    }
+
+    #[test]
+    fn verification_reader_rejects_remote_leases_before_native_access() {
+        let (_, _, _, reader) = NativeProviderCredentialReaders::new(access()).into_parts();
+
+        assert_eq!(
+            reader.verify_local(&remote_lease()).unwrap_err(),
             SecureStoreError::CredentialAccessDenied
         );
     }
@@ -85,5 +116,27 @@ mod tests {
             std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o500)).unwrap();
         }
         ProviderCredentialAccessPolicy::new(&executable, &executable).unwrap()
+    }
+
+    fn remote_lease() -> runne_provider::CredentialVerificationLease {
+        let provider = ProviderId::new("openai").unwrap();
+        let reference = CredentialVersionRef::new(provider.clone(), 1).unwrap();
+        let begin = BeginCredentialVerification::new(
+            CredentialOperationId::from_bytes([4; 16]).unwrap(),
+            None,
+            provider,
+            CredentialVerificationKind::Remote,
+            CredentialLifecycleRevision::new(1).unwrap(),
+            CredentialFence::new(1).unwrap(),
+            CredentialReadinessRevision::new(1).unwrap(),
+            CredentialBindingDigest::from_measured([4; 32]).unwrap(),
+            CredentialBindingDigest::from_measured([5; 32]).unwrap(),
+            CredentialVerifierRevision::new(1).unwrap(),
+            1,
+            2,
+        )
+        .unwrap();
+        let (store, _) = CredentialEnrollmentAuthorityPair::new().split();
+        store.issue_credential_verification_lease(begin, reference)
     }
 }

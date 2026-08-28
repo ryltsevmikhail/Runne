@@ -6,10 +6,11 @@ mod migration;
 mod migration_identity;
 mod readback;
 mod readback_observation;
+mod verification_readback;
 #[cfg(feature = "provider-credential-broker-writer")]
 mod writer;
 
-pub use factory::NativeProviderCredentialReaders;
+pub use factory::{NativeProviderCredentialReaderParts, NativeProviderCredentialReaders};
 #[cfg(feature = "provider-credential-broker-writer")]
 pub use migration::{
     BrokeredCreateInput, BrokeredDeleteInput, BrokeredLegacySourceDeleteInput,
@@ -25,6 +26,7 @@ pub use readback::{
     ProviderCredentialDispatchMaterializer, ProviderCredentialReadback,
     ProviderCredentialVerificationMaterializer,
 };
+pub use verification_readback::ProviderCredentialVerificationReadback;
 #[cfg(feature = "provider-credential-broker-writer")]
 pub use writer::{BrokeredProviderCredentialWriter, NativeProviderCredentialWriters};
 

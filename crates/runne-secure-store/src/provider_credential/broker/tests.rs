@@ -1,10 +1,18 @@
 use runne_provider::{
-    CredentialDispatchCapability, CredentialGcClaim, CredentialNativeCreateClaim,
-    CredentialVersionRef, NativeCredentialDeletionProof, ProviderId,
+    BeginCredentialVerification, CredentialBindingDigest, CredentialDispatchCapability,
+    CredentialEnrollmentAuthorityPair, CredentialFence, CredentialGcClaim,
+    CredentialLifecycleRevision, CredentialNativeCreateClaim, CredentialOperationId,
+    CredentialReadinessRevision, CredentialVerificationKind, CredentialVerificationLease,
+    CredentialVerificationResult, CredentialVerifierRevision, CredentialVersionRef,
+    NativeCredentialDeletionProof, ProviderId,
 };
 
 use super::readback::{LegacyCredentialSourceReadback, VersionStoreReadback};
-use super::{ExactAbsenceReadback, ExactVersionReadback, ProviderCredentialReadback};
+use super::verification_readback::VersionStoreVerificationReadback;
+use super::{
+    ExactAbsenceReadback, ExactVersionReadback, ProviderCredentialReadback,
+    ProviderCredentialVerificationReadback,
+};
 use crate::{
     NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy,
     ProviderCredentialMaterial, ProviderCredentialStatus, SecureStoreError,
@@ -39,6 +47,16 @@ fn brokered_provider_credential_proves_legacy_source_absence() {
         .readback_exact_absence(ExactAbsenceReadback::new(command).unwrap())
         .unwrap();
     assert!(!observation.present());
+}
+
+#[test]
+fn local_verification_reads_only_the_store_issued_exact_version_metadata() {
+    let reader = VersionStoreVerificationReadback::new(ConfiguredVersionStore, access());
+
+    assert_eq!(
+        reader.verify_local(&local_verification_lease()).unwrap(),
+        CredentialVerificationResult::Verified
+    );
 }
 
 #[test]
@@ -127,6 +145,28 @@ fn command(operation: u8, version: u64) -> runne_provider::CredentialBrokerComma
         None,
     )
     .unwrap()
+}
+
+fn local_verification_lease() -> CredentialVerificationLease {
+    let provider = ProviderId::new("openai").unwrap();
+    let reference = CredentialVersionRef::new(provider.clone(), 1).unwrap();
+    let begin = BeginCredentialVerification::new(
+        CredentialOperationId::from_bytes([9; 16]).unwrap(),
+        None,
+        provider,
+        CredentialVerificationKind::Local,
+        CredentialLifecycleRevision::new(1).unwrap(),
+        CredentialFence::new(1).unwrap(),
+        CredentialReadinessRevision::new(1).unwrap(),
+        CredentialBindingDigest::from_measured([1; 32]).unwrap(),
+        CredentialBindingDigest::from_measured([2; 32]).unwrap(),
+        CredentialVerifierRevision::new(1).unwrap(),
+        1,
+        2,
+    )
+    .unwrap();
+    let (store, _) = CredentialEnrollmentAuthorityPair::new().split();
+    store.issue_credential_verification_lease(begin, reference)
 }
 
 #[cfg(feature = "provider-credential-broker-writer")]

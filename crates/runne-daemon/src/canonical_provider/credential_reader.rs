@@ -19,7 +19,7 @@ pub(super) fn compose(
     connection: ManagedConnection,
     access: ProviderCredentialAccessPolicy,
 ) -> Result<ComposedCredentialReaders, DaemonError> {
-    let (lifecycle_authority, readback, dispatch) =
+    let (lifecycle_authority, readback, dispatch, _) =
         NativeProviderCredentialReaders::new(access).into_parts();
     let store = SqliteProviderCredentialLifecycleStore::open_with_connection_and_authority(
         connection,
