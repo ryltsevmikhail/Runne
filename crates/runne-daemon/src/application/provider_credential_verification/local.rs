@@ -17,6 +17,7 @@ use super::super::provider_credential_enrollment::{
     ProviderCredentialAdmission, ProviderCredentialOperationHandleIssuer,
     ProviderCredentialVerificationHost,
 };
+use super::profiles::{RemoteVerificationProfile, remote_profile};
 
 /// Explicit local-only credential verifier with no materialization or transport.
 pub(crate) struct LocalProviderCredentialVerification<'a, S: ?Sized, R: ?Sized> {
@@ -64,7 +65,11 @@ where
         self.admission
             .require_verify_command(&authority, &proof, &command, &context)?;
         if command.verification_kind() != ProviderCredentialVerificationKindV2::Local {
-            return Err(ProviderCredentialEnrollmentHostError::Unsupported);
+            return match remote_profile(command.provider()) {
+                RemoteVerificationProfile::NoQualifiedAuthenticationProbe => {
+                    Err(ProviderCredentialEnrollmentHostError::Unsupported)
+                }
+            };
         }
         let provider = provider(command.provider())?;
         let current = self

@@ -1,4 +1,5 @@
 mod local;
+mod profiles;
 
 #[cfg_attr(
     not(test),
@@ -8,3 +9,6 @@ mod local;
     )
 )]
 pub(crate) use local::LocalProviderCredentialVerification;
+
+#[cfg(test)]
+mod tests;
