@@ -75,12 +75,13 @@ fn remote_verify_is_rejected_before_the_local_native_reader() {
     let directory = tempfile::tempdir().unwrap();
     let (lifecycle_authority, _) = CredentialAuthorityPair::new().split();
     let (enrollment_authority, measurements) = CredentialEnrollmentAuthorityPair::new().split();
-    let store = runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_authorities(
-        &directory.path().join("remote-rejected.sqlite"),
-        lifecycle_authority,
-        enrollment_authority,
-    )
-    .unwrap();
+    let store =
+        runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_authorities(
+            &directory.path().join("remote-rejected.sqlite"),
+            lifecycle_authority,
+            enrollment_authority,
+        )
+        .unwrap();
     let verifier = crate::application::provider_credential_verification::LocalProviderCredentialVerification::new(
         ProviderCredentialAdmission::new(verifier, measurements),
         super::super::operation_handle::ProviderCredentialOperationHandleIssuer::new([9; 32]),

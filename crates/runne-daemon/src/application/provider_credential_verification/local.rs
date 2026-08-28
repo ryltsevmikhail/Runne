@@ -101,7 +101,10 @@ where
                 .map_err(|_| ProviderCredentialEnrollmentHostError::InvalidRequest)?,
             )
             .map_err(map_store)?;
-        let result = self.reader.verify_local(&lease).unwrap_or_else(map_reader_error);
+        let result = self
+            .reader
+            .verify_local(&lease)
+            .unwrap_or_else(map_reader_error);
         self.store
             .complete_verification(CompleteCredentialVerification::new(
                 CredentialVerificationObservation::new(
@@ -129,7 +132,9 @@ where
     }
 }
 
-fn provider(value: ProviderCredentialProviderV2) -> Result<ProviderId, ProviderCredentialEnrollmentHostError> {
+fn provider(
+    value: ProviderCredentialProviderV2,
+) -> Result<ProviderId, ProviderCredentialEnrollmentHostError> {
     ProviderId::new(match value {
         ProviderCredentialProviderV2::OpenAi => "openai",
         ProviderCredentialProviderV2::DeepSeek => "deepseek",
@@ -142,37 +147,65 @@ fn observation_id() -> Result<CredentialOperationId, ProviderCredentialEnrollmen
     OsRng
         .try_fill_bytes(&mut bytes)
         .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
-    CredentialOperationId::from_bytes(bytes).map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)
+    CredentialOperationId::from_bytes(bytes)
+        .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)
 }
 
-fn map_store(error: runne_provider::CredentialLifecycleError) -> ProviderCredentialEnrollmentHostError {
+fn map_store(
+    error: runne_provider::CredentialLifecycleError,
+) -> ProviderCredentialEnrollmentHostError {
     match error {
         runne_provider::CredentialLifecycleError::Conflict
-        | runne_provider::CredentialLifecycleError::StaleLease => ProviderCredentialEnrollmentHostError::Conflict,
-        runne_provider::CredentialLifecycleError::LifecycleClosed => ProviderCredentialEnrollmentHostError::Unsupported,
-        runne_provider::CredentialLifecycleError::InvalidInput => ProviderCredentialEnrollmentHostError::InvalidRequest,
-        runne_provider::CredentialLifecycleError::CorruptState => ProviderCredentialEnrollmentHostError::InvariantViolation,
+        | runne_provider::CredentialLifecycleError::StaleLease => {
+            ProviderCredentialEnrollmentHostError::Conflict
+        }
+        runne_provider::CredentialLifecycleError::LifecycleClosed => {
+            ProviderCredentialEnrollmentHostError::Unsupported
+        }
+        runne_provider::CredentialLifecycleError::InvalidInput => {
+            ProviderCredentialEnrollmentHostError::InvalidRequest
+        }
+        runne_provider::CredentialLifecycleError::CorruptState => {
+            ProviderCredentialEnrollmentHostError::InvariantViolation
+        }
         _ => ProviderCredentialEnrollmentHostError::Unavailable,
     }
 }
 
 fn map_reader_error(error: SecureStoreError) -> CredentialVerificationResult {
     match error {
-        SecureStoreError::CredentialAccessDenied | SecureStoreError::CredentialIdentityMismatch
-        | SecureStoreError::CredentialAclMigrationRequired => CredentialVerificationResult::AccessDenied,
-        SecureStoreError::UnsupportedSecureStoreBackend => CredentialVerificationResult::Unsupported,
+        SecureStoreError::CredentialAccessDenied
+        | SecureStoreError::CredentialIdentityMismatch
+        | SecureStoreError::CredentialAclMigrationRequired => {
+            CredentialVerificationResult::AccessDenied
+        }
+        SecureStoreError::UnsupportedSecureStoreBackend => {
+            CredentialVerificationResult::Unsupported
+        }
         SecureStoreError::ProviderCredentialNotFound => CredentialVerificationResult::Failed,
         _ => CredentialVerificationResult::Unavailable,
     }
 }
 
-const fn disposition(result: CredentialVerificationResult) -> Option<ProviderCredentialLastDispositionV2> {
+const fn disposition(
+    result: CredentialVerificationResult,
+) -> Option<ProviderCredentialLastDispositionV2> {
     match result {
-        CredentialVerificationResult::Verified => Some(ProviderCredentialLastDispositionV2::Completed),
-        CredentialVerificationResult::Unsupported => Some(ProviderCredentialLastDispositionV2::Unsupported),
-        CredentialVerificationResult::Unavailable => Some(ProviderCredentialLastDispositionV2::Unavailable),
-        CredentialVerificationResult::AccessDenied => Some(ProviderCredentialLastDispositionV2::AccessDenied),
-        CredentialVerificationResult::Conflict => Some(ProviderCredentialLastDispositionV2::Conflict),
+        CredentialVerificationResult::Verified => {
+            Some(ProviderCredentialLastDispositionV2::Completed)
+        }
+        CredentialVerificationResult::Unsupported => {
+            Some(ProviderCredentialLastDispositionV2::Unsupported)
+        }
+        CredentialVerificationResult::Unavailable => {
+            Some(ProviderCredentialLastDispositionV2::Unavailable)
+        }
+        CredentialVerificationResult::AccessDenied => {
+            Some(ProviderCredentialLastDispositionV2::AccessDenied)
+        }
+        CredentialVerificationResult::Conflict => {
+            Some(ProviderCredentialLastDispositionV2::Conflict)
+        }
         CredentialVerificationResult::Failed => None,
     }
 }
