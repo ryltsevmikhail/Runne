@@ -1,7 +1,7 @@
 use crate::provider_credential::{
-    generate_provider_credential_source_revision, ProviderCredentialAccessPolicy,
-    ProviderCredentialId, ProviderCredentialMaterial, ProviderCredentialSource,
-    ProviderCredentialStatus, ProviderCredentialStore, StoredProviderCredential,
+    ProviderCredentialAccessPolicy, ProviderCredentialId, ProviderCredentialMaterial,
+    ProviderCredentialSource, ProviderCredentialStatus, ProviderCredentialStore,
+    StoredProviderCredential, generate_provider_credential_source_revision,
 };
 use crate::{NativeKeyringStore, NativeProviderCredentialVersionStore, SecureStoreError};
 use runne_provider::{

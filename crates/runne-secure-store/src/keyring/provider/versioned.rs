@@ -1,9 +1,10 @@
 use super::{
     CredentialDispatchCapability, CredentialGcClaim, CredentialNativeCreateClaim,
     CredentialVersionRef, NativeCredentialDeletionProof, NativeKeyringStore,
-    NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy, ProviderCredentialMaterial,
-    ProviderCredentialStatus, SecureStoreError, StoredProviderCredential, access_digest,
-    provider_id, validate_reader_or_writer, validate_stored,
+    NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy,
+    ProviderCredentialMaterial, ProviderCredentialStatus, SecureStoreError,
+    StoredProviderCredential, access_digest, provider_id, validate_reader_or_writer,
+    validate_stored,
 };
 
 impl NativeProviderCredentialVersionStore for NativeKeyringStore {
