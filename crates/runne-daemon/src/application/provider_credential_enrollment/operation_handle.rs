@@ -6,6 +6,7 @@ use zeroize::Zeroizing;
 
 #[allow(dead_code)]
 const HANDLE_DOMAIN: &[u8] = b"gocode/provider-credential-operation-handle/v2\0";
+const RENDEZVOUS_DOMAIN: &[u8] = b"gocode/provider-credential-broker-rendezvous/v1\0";
 
 /// Daemon-owned issuer for opaque public operation handles.
 #[allow(dead_code)]
@@ -29,25 +30,45 @@ impl ProviderCredentialOperationHandleIssuer {
         &self,
         operation_id: CredentialOperationId,
     ) -> ProviderCredentialOperationHandleV2 {
-        let operation = operation_id.as_bytes();
-        let mut bytes = [0_u8; 48];
-        bytes[..16].copy_from_slice(&operation);
-        bytes[16..].copy_from_slice(&self.tag(&operation));
+        let bytes = self.tagged_bytes(HANDLE_DOMAIN, operation_id);
         ProviderCredentialOperationHandleV2::from_bytes(bytes)
             .expect("non-zero operation id always produces a non-zero public handle")
+    }
+
+    /// Issues the distinct opaque identifier used only by the broker rendezvous.
+    pub(crate) fn issue_broker_rendezvous_id(&self, operation_id: CredentialOperationId) -> String {
+        hex::encode(self.tagged_bytes(RENDEZVOUS_DOMAIN, operation_id))
     }
 
     pub(super) fn resolve(
         &self,
         handle: ProviderCredentialOperationHandleV2,
     ) -> Result<CredentialOperationId, ProviderCredentialEnrollmentHostError> {
-        let bytes = handle.as_bytes();
+        self.resolve_tagged_bytes(HANDLE_DOMAIN, handle.as_bytes())
+    }
+
+    pub(crate) fn resolve_broker_rendezvous_id(
+        &self,
+        rendezvous_id: &str,
+    ) -> Result<CredentialOperationId, ProviderCredentialEnrollmentHostError> {
+        let bytes: [u8; 48] = hex::decode(rendezvous_id)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?
+            .try_into()
+            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        self.resolve_tagged_bytes(RENDEZVOUS_DOMAIN, &bytes)
+    }
+
+    fn resolve_tagged_bytes(
+        &self,
+        domain: &[u8],
+        bytes: &[u8; 48],
+    ) -> Result<CredentialOperationId, ProviderCredentialEnrollmentHostError> {
         let operation: [u8; 16] = bytes[..16]
             .try_into()
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
         let mut mac =
             Hmac::<Sha256>::new_from_slice(self.key.as_ref()).expect("fixed HMAC key length");
-        mac.update(HANDLE_DOMAIN);
+        mac.update(domain);
         mac.update(&operation);
         mac.verify_slice(&bytes[16..])
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
@@ -55,11 +76,15 @@ impl ProviderCredentialOperationHandleIssuer {
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
     }
 
-    fn tag(&self, operation: &[u8; 16]) -> [u8; 32] {
+    fn tagged_bytes(&self, domain: &[u8], operation_id: CredentialOperationId) -> [u8; 48] {
+        let operation = operation_id.as_bytes();
         let mut mac =
             Hmac::<Sha256>::new_from_slice(self.key.as_ref()).expect("fixed HMAC key length");
-        mac.update(HANDLE_DOMAIN);
-        mac.update(operation);
-        mac.finalize().into_bytes().into()
+        mac.update(domain);
+        mac.update(&operation);
+        let mut bytes = [0_u8; 48];
+        bytes[..16].copy_from_slice(&operation);
+        bytes[16..].copy_from_slice(&mac.finalize().into_bytes());
+        bytes
     }
 }

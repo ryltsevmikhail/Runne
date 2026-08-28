@@ -108,4 +108,19 @@ async fn composed_host_begins_then_resumes_the_same_safe_operation() {
         resumed.state(),
         ProviderCredentialOperationStateV2::Prepared
     );
+    let rendezvous: [u8; 48] = hex::decode(begun.broker_rendezvous_id().unwrap())
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let forged_resume =
+        runne_api::ProviderCredentialOperationHandleV2::from_bytes(rendezvous).unwrap();
+    let rendezvous_authority = issuer
+        .issue_base([1; 32], [2; 32], [3; 32], 1, [4; 32], 1, [5; 32])
+        .unwrap();
+
+    assert!(
+        host.resume(rendezvous_authority, context(), forged_resume)
+            .await
+            .is_err()
+    );
 }

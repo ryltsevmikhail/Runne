@@ -119,6 +119,23 @@ fn operation_handle_requires_the_daemon_hmac_before_store_lookup() {
     );
 }
 
+#[test]
+fn broker_rendezvous_id_has_a_separate_hmac_domain_from_resume_handles() {
+    let issuer = ProviderCredentialOperationHandleIssuer::new([9; 32]);
+    let operation_id = CredentialOperationId::from_bytes([7; 16]).unwrap();
+    let handle = issuer.issue(operation_id);
+    let rendezvous_id = issuer.issue_broker_rendezvous_id(operation_id);
+
+    assert_eq!(
+        issuer.resolve_broker_rendezvous_id(&rendezvous_id),
+        Ok(operation_id)
+    );
+    assert_eq!(
+        issuer.resolve_broker_rendezvous_id(&hex::encode(handle.as_bytes())),
+        Err(ProviderCredentialEnrollmentHostError::AccessDenied)
+    );
+}
+
 mod begin;
 mod begin_admission;
 #[path = "tests/begin_admission_support.rs"]

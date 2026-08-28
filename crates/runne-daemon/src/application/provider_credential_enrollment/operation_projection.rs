@@ -24,9 +24,10 @@ pub(super) fn snapshot(
     readiness_revision: u64,
 ) -> Result<ProviderCredentialOperationSnapshotV2, ProviderCredentialEnrollmentHostError> {
     let handle = handles.issue(operation.operation_id());
+    let rendezvous_id = handles.issue_broker_rendezvous_id(operation.operation_id());
     ProviderCredentialOperationSnapshotV2::new(
         handle,
-        Some(hex::encode(handle.as_bytes())),
+        Some(rendezvous_id),
         provider(operation.provider().as_str())?,
         kind(operation.action())?,
         state(operation.state()),

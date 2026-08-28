@@ -82,5 +82,9 @@ fn begin_recovers_then_returns_the_exact_idempotent_prepared_projection() {
     assert_eq!(first.state(), ProviderCredentialOperationStateV2::Prepared);
     assert_eq!(first.lifecycle_revision(), 1);
     assert_eq!(first.readiness_revision(), 1);
-    assert!(first.broker_rendezvous_id().is_some());
+    let operation_handle = hex::encode(first.operation_handle().as_bytes());
+    assert_ne!(
+        first.broker_rendezvous_id(),
+        Some(operation_handle.as_str())
+    );
 }
