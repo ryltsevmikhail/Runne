@@ -22,16 +22,39 @@ struct CliState {
     arguments: Vec<OsString>,
 }
 
-#[tokio::main]
-async fn main() {
-    let outcome = match parse_global_options(std::env::args_os().skip(1).collect()) {
+fn main() {
+    let arguments = std::env::args_os().skip(1).collect();
+    let outcome = run_entrypoint(arguments);
+    write_process_outcome(&outcome);
+}
+
+fn run_entrypoint(arguments: Vec<OsString>) -> ProcessOutcome {
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == runne_provider::PROVIDER_CREDENTIAL_BROKER_MODE_V1)
+    {
+        return process_outcome(
+            run_provider_credential_broker(VecDeque::from(arguments)),
+            OutputFormat::Text,
+        );
+    }
+    let result = tokio::runtime::Runtime::new()
+        .map_or((Err(CliError::Runtime), OutputFormat::Text), |runtime| {
+            runtime.block_on(run_after_broker_bootstrap(arguments))
+        });
+    process_outcome(result.0, result.1)
+}
+
+async fn run_after_broker_bootstrap(
+    arguments: Vec<OsString>,
+) -> (Result<String, CliError>, OutputFormat) {
+    match parse_global_options(arguments) {
         Ok(state) => {
             let format = state.format;
-            process_outcome(run(state.arguments, format).await, format)
+            (run(state.arguments, format).await, format)
         }
-        Err(error) => process_outcome(Err(error), OutputFormat::Text),
-    };
-    write_process_outcome(&outcome);
+        Err(error) => (Err(error), OutputFormat::Text),
+    }
 }
 
 fn parse_global_options(arguments: Vec<OsString>) -> Result<CliState, CliError> {

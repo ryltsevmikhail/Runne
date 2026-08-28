@@ -194,7 +194,7 @@ impl CredentialBackend for FakeBackend {
     }
 }
 #[tokio::test]
-async fn internal_broker_mode_rejects_direct_invocation_and_argv_material() {
+async fn broker_mode_is_not_reachable_from_async_dispatch() {
     assert!(matches!(
         run(
             vec![OsString::from(
@@ -203,7 +203,7 @@ async fn internal_broker_mode_rejects_direct_invocation_and_argv_material() {
             OutputFormat::Text
         )
         .await,
-        Err(CliError::UnsupportedCredentialBackend)
+        Err(CliError::Usage)
     ));
     assert!(matches!(
         run(

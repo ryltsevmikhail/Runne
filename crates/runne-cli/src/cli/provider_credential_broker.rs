@@ -5,6 +5,13 @@
 /// inherited channel evidence; direct invocation stays closed in the meantime.
 #[path = "provider_credential_broker/secret.rs"]
 mod secret;
+#[cfg(unix)]
+#[path = "provider_credential_broker/bootstrap.rs"]
+mod bootstrap;
+
+#[cfg(all(test, unix))]
+#[path = "provider_credential_broker/bootstrap_tests.rs"]
+mod bootstrap_tests;
 
 #[cfg(test)]
 use secret::{BrokerClaimed, read_secret_after_claim};
@@ -16,5 +23,7 @@ fn run_provider_credential_broker(
 ) -> Result<String, CliError> {
     expect_token(&mut arguments, PROVIDER_CREDENTIAL_BROKER_MODE_V1)?;
     expect_end(&arguments)?;
+    #[cfg(unix)]
+    let _endpoint = bootstrap::receive_prepared_daemon_endpoint_from_stdin()?;
     Err(CliError::UnsupportedCredentialBackend)
 }

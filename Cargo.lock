@@ -3857,6 +3857,7 @@ dependencies = [
  "runne-release-authority",
  "runne-runtime-client",
  "runne-secure-store",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",
