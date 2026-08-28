@@ -141,8 +141,12 @@ mod begin_admission;
 #[path = "tests/begin_admission_support.rs"]
 pub(crate) mod begin_admission_support;
 mod broker;
+#[path = "tests/broker_effect_exchange.rs"]
+mod broker_effect_exchange;
 mod broker_exchange;
 mod broker_issue;
+#[path = "tests/broker_publication.rs"]
+mod broker_publication;
 #[path = "tests/broker_support.rs"]
 mod broker_support;
 mod host;

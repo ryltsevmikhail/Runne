@@ -6,11 +6,13 @@ use std::{
 
 use runne_api::ProviderCredentialEnrollmentHostError;
 use runne_domain::id::{CommandId, IdempotencyKey};
+use runne_provider::daemon_credential_publication::CredentialSecretPublicationSigner;
 use runne_provider::{
     BeginCredentialOperation, BeginCredentialOperationOutcome, ClaimCredentialOperation,
-    CredentialAuthorityPair, CredentialEnrollmentAuthorityPair, CredentialFence,
-    CredentialLifecycleRevision, CredentialMeasurementSnapshot, CredentialOperationAction,
-    CredentialOperationId, ProviderCredentialEnrollmentStore, ProviderId,
+    CredentialAuthorityPair, CredentialBrokerCommand, CredentialEnrollmentAuthorityPair,
+    CredentialFence, CredentialLifecycleRevision, CredentialMeasurementSnapshot,
+    CredentialOperationAction, CredentialOperationId, CredentialSecretClaimOffer,
+    ProviderCredentialEnrollmentStore, ProviderId,
 };
 use zeroize::Zeroizing;
 
@@ -142,30 +144,97 @@ pub(crate) fn claim_measurements_for(
     .unwrap()
 }
 
-#[derive(Default)]
 pub(crate) struct RecordingChannel {
     pub(crate) frames: Vec<Vec<u8>>,
     received: VecDeque<Zeroizing<Vec<u8>>>,
+    fail_send: bool,
+    binding: runne_provider::CredentialBindingDigest,
+    signer: Option<CredentialSecretPublicationSigner>,
+    publication_public_key: [u8; 32],
+    pub(crate) sign_invocations: u8,
+    pub(crate) receive_calls: u8,
 }
 
 impl RecordingChannel {
+    pub(crate) fn with_channel_binding(binding: [u8; 32]) -> Self {
+        let signer = CredentialSecretPublicationSigner::generate(binding).unwrap();
+        let publication_public_key = signer.public_key();
+        Self {
+            frames: Vec::new(),
+            received: VecDeque::new(),
+            fail_send: false,
+            binding: runne_provider::CredentialBindingDigest::from_measured(binding).unwrap(),
+            signer: Some(signer),
+            publication_public_key,
+            sign_invocations: 0,
+            receive_calls: 0,
+        }
+    }
+
     pub(crate) fn queue_received(&mut self, frame: Zeroizing<Vec<u8>>) {
         self.received.push_back(frame);
+    }
+
+    pub(crate) fn fail_next_send(&mut self) {
+        self.fail_send = true;
+    }
+
+    pub(crate) const fn publication_public_key(&self) -> [u8; 32] {
+        self.publication_public_key
+    }
+}
+
+impl Default for RecordingChannel {
+    fn default() -> Self {
+        Self::with_channel_binding([21; 32])
     }
 }
 
 impl CredentialBrokerChannel for RecordingChannel {
+    fn binding_digest(&self) -> runne_provider::CredentialBindingDigest {
+        self.binding
+    }
+
     fn send(
         &mut self,
         frame: Zeroizing<Vec<u8>>,
     ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        if std::mem::take(&mut self.fail_send) {
+            return Err(ProviderCredentialEnrollmentHostError::Unavailable);
+        }
         self.frames.push(frame.to_vec());
         Ok(())
     }
 
     fn receive(&mut self) -> Result<Zeroizing<Vec<u8>>, ProviderCredentialEnrollmentHostError> {
+        self.receive_calls = self.receive_calls.saturating_add(1);
         self.received
             .pop_front()
             .ok_or(ProviderCredentialEnrollmentHostError::Unavailable)
     }
+
+    fn sign_publication(
+        &mut self,
+        offer: CredentialSecretClaimOffer,
+    ) -> Result<runne_provider::CredentialSecretPublication, ProviderCredentialEnrollmentHostError>
+    {
+        let signer = self
+            .signer
+            .take()
+            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        self.sign_invocations = self.sign_invocations.saturating_add(1);
+        Ok(signer.sign(offer))
+    }
+}
+
+pub(crate) fn pair_offer(
+    receipt: &runne_provider::IssuedCredentialTicketAttempt,
+    binding: runne_provider::CredentialBindingDigest,
+) -> CredentialSecretClaimOffer {
+    let command =
+        CredentialBrokerCommand::from_operation(receipt.operation(), receipt.ticket_attempt())
+            .unwrap();
+    CredentialSecretClaimOffer::prepare(&command, binding)
+        .unwrap()
+        .0
 }

@@ -1,8 +1,7 @@
-use std::io::{Read, Write};
-
-use zeroize::Zeroizing;
-
-use super::{CredentialBrokerCommand, CredentialBrokerCommandCodec, CredentialBrokerFrame};
+use super::{
+    CredentialBrokerCommand, CredentialBrokerCommandCodec, CredentialBrokerFrame,
+    CredentialSecretOfferCodec,
+};
 use crate::credential::enrollment::{
     CredentialBindingDigest, CredentialDisposition, CredentialEnrollmentError,
     CredentialOperationId, CredentialTicketAttempt, RawCredentialTicket,
@@ -11,9 +10,11 @@ use crate::credential::enrollment::{
 /// Strict versioned codec for the inherited credential broker channel.
 pub struct CredentialBrokerFrameCodec;
 
+mod stream;
+
 impl CredentialBrokerFrameCodec {
     /// The only supported broker codec version.
-    pub const VERSION: u8 = 3;
+    pub const VERSION: u8 = 4;
     /// Upper bound including version, kind, and all payload fields.
     pub const MAX_FRAME_BYTES: usize = 4 * 1024;
 
@@ -45,12 +46,29 @@ impl CredentialBrokerFrameCodec {
                 attempt,
                 ticket,
                 binding,
+                secret_offer,
             } => {
                 bytes.push(2);
                 id(&mut bytes, operation_id);
                 encode_attempt(&mut bytes, attempt);
                 bytes.extend_from_slice(ticket.bytes());
                 digest(&mut bytes, binding);
+                let slot = match secret_offer {
+                    Some(offer)
+                        if offer.operation_id == operation_id
+                            && offer.attempt == attempt
+                            && offer.claim_binding == binding =>
+                    {
+                        bytes.push(1);
+                        CredentialSecretOfferCodec::encode(&offer)
+                    }
+                    Some(_) => return Err(CredentialEnrollmentError::InvalidFrame),
+                    None => {
+                        bytes.push(0);
+                        [0; CredentialSecretOfferCodec::BYTES]
+                    }
+                };
+                bytes.extend_from_slice(&slot);
             }
             CredentialBrokerFrame::ClaimAccepted {
                 operation_id,
@@ -105,6 +123,7 @@ impl CredentialBrokerFrameCodec {
                 attempt: read_attempt(bytes, &mut cursor)?,
                 ticket: read_ticket(bytes, &mut cursor)?,
                 binding: read_digest(bytes, &mut cursor)?,
+                secret_offer: read_secret_offer(bytes, &mut cursor)?,
             },
             3 => CredentialBrokerFrame::ClaimAccepted {
                 operation_id: read_id(bytes, &mut cursor)?,
@@ -126,77 +145,25 @@ impl CredentialBrokerFrameCodec {
             },
             _ => return Err(CredentialEnrollmentError::InvalidFrame),
         };
-        if cursor != bytes.len() || !valid_issue_command(&frame) {
+        if cursor != bytes.len() || !valid_frame(&frame) {
             return Err(CredentialEnrollmentError::InvalidFrame);
         }
         Ok(frame)
     }
 
-    /// Reads exactly one canonical frame from an inherited control stream.
-    ///
-    /// The frame type determines its exact fixed length, so a short frame or a
-    /// stream prefix with an unknown kind cannot be interpreted as a different
-    /// broker message.
+    /// Reads one exact canonical frame from an inherited control stream.
     pub fn read_from(
-        reader: &mut impl Read,
+        reader: &mut impl std::io::Read,
     ) -> Result<CredentialBrokerFrame, CredentialEnrollmentError> {
-        let mut prefix = [0; 2];
-        reader
-            .read_exact(&mut prefix)
-            .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
-        let length = exact_frame_length(prefix)?;
-        let mut bytes = Zeroizing::new(vec![0; length]);
-        bytes[..2].copy_from_slice(&prefix);
-        reader
-            .read_exact(&mut bytes[2..])
-            .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
-        if prefix[1] == 1 {
-            let command_length = usize::from(u16::from_be_bytes(
-                bytes[length - 2..]
-                    .try_into()
-                    .map_err(|_| CredentialEnrollmentError::InvalidFrame)?,
-            ));
-            if command_length == 0
-                || command_length > CredentialBrokerCommandCodec::MAX_COMMAND_BYTES
-                || length
-                    .checked_add(command_length)
-                    .ok_or(CredentialEnrollmentError::InvalidFrame)?
-                    > Self::MAX_FRAME_BYTES
-            {
-                return Err(CredentialEnrollmentError::InvalidFrame);
-            }
-            bytes.resize(length + command_length, 0);
-            reader
-                .read_exact(&mut bytes[length..])
-                .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
-        }
-        Self::decode(&bytes)
+        stream::read_from(reader)
     }
 
-    /// Writes one canonical frame to an inherited control stream and flushes it.
+    /// Writes one canonical frame and flushes the inherited control stream.
     pub fn write_to(
-        writer: &mut impl Write,
+        writer: &mut impl std::io::Write,
         frame: CredentialBrokerFrame,
     ) -> Result<(), CredentialEnrollmentError> {
-        let bytes = Zeroizing::new(Self::encode(frame)?);
-        writer
-            .write_all(&bytes)
-            .and_then(|()| writer.flush())
-            .map_err(|_| CredentialEnrollmentError::InvalidFrame)
-    }
-}
-
-fn exact_frame_length(prefix: [u8; 2]) -> Result<usize, CredentialEnrollmentError> {
-    if prefix[0] != CredentialBrokerFrameCodec::VERSION {
-        return Err(CredentialEnrollmentError::InvalidFrame);
-    }
-    match prefix[1] {
-        1 => Ok(2 + 16 + 8 + 32 + 32 + 32 + 2),
-        2 => Ok(2 + 16 + 8 + 32 + 32),
-        3 => Ok(2 + 16 + 8),
-        4 => Ok(2 + 16 + 8 + 1),
-        5 => Ok(2 + 16 + 32),
-        _ => Err(CredentialEnrollmentError::InvalidFrame),
+        stream::write_to(writer, frame)
     }
 }
 
@@ -268,6 +235,20 @@ fn read_ticket(
             .map_err(|_| CredentialEnrollmentError::InvalidFrame)?,
     )
 }
+fn read_secret_offer(
+    bytes: &[u8],
+    cursor: &mut usize,
+) -> Result<Option<super::CredentialSecretClaimOffer>, CredentialEnrollmentError> {
+    let flag = *take(bytes, cursor, 1)?
+        .first()
+        .ok_or(CredentialEnrollmentError::InvalidFrame)?;
+    let slot = take(bytes, cursor, CredentialSecretOfferCodec::BYTES)?;
+    match flag {
+        0 if slot.iter().all(|byte| *byte == 0) => Ok(None),
+        1 => CredentialSecretOfferCodec::decode(slot).map(Some),
+        _ => Err(CredentialEnrollmentError::InvalidFrame),
+    }
+}
 fn encode_command(
     bytes: &mut Vec<u8>,
     command: CredentialBrokerCommand,
@@ -293,8 +274,25 @@ fn read_command(
     }
     CredentialBrokerCommandCodec::decode(take(bytes, cursor, length)?)
 }
-fn valid_issue_command(frame: &CredentialBrokerFrame) -> bool {
-    matches!(frame, CredentialBrokerFrame::IssueTicket { operation_id, attempt, command, .. }
-        if command.operation_id() == *operation_id && command.ticket_attempt() == *attempt)
-        || !matches!(frame, CredentialBrokerFrame::IssueTicket { .. })
+fn valid_frame(frame: &CredentialBrokerFrame) -> bool {
+    match frame {
+        CredentialBrokerFrame::IssueTicket {
+            operation_id,
+            attempt,
+            command,
+            ..
+        } => command.operation_id() == *operation_id && command.ticket_attempt() == *attempt,
+        CredentialBrokerFrame::Claim {
+            operation_id,
+            attempt,
+            binding,
+            secret_offer: Some(offer),
+            ..
+        } => {
+            offer.operation_id == *operation_id
+                && offer.attempt == *attempt
+                && offer.claim_binding == *binding
+        }
+        _ => true,
+    }
 }

@@ -8,7 +8,7 @@ use runne_provider::{
 use zeroize::Zeroizing;
 
 use super::broker_support::{
-    RecordingChannel, claim_measurements, fixture, issue_context, issue_context_for,
+    RecordingChannel, claim_measurements, fixture, issue_context, issue_context_for, pair_offer,
 };
 
 #[test]
@@ -109,6 +109,7 @@ fn broker_claim_binding_admits_only_the_exact_issued_ticket() {
             attempt,
             ticket,
             binding,
+            secret_offer: Some(pair_offer(&receipt, binding)),
         })
         .unwrap(),
     );
@@ -127,7 +128,7 @@ fn broker_claim_binding_admits_only_the_exact_issued_ticket() {
         .unwrap();
 
     assert!(matches!(
-        CredentialBrokerFrameCodec::decode(&accepted),
+        CredentialBrokerFrameCodec::decode(accepted.acknowledgement()),
         Ok(CredentialBrokerFrame::ClaimAccepted {
             operation_id: actual,
             attempt: actual_attempt,
@@ -181,11 +182,12 @@ fn broker_claim_binding_rejects_command_substitution_before_store_claim() {
             attempt,
             ticket,
             binding,
+            secret_offer: None,
         })
         .unwrap(),
     );
 
-    assert_eq!(
+    assert!(matches!(
         fixture.broker.claim_ticket(
             receipt,
             fixture.continuation,
@@ -196,7 +198,7 @@ fn broker_claim_binding_rejects_command_substitution_before_store_claim() {
             &fixture.store,
         ),
         Err(ProviderCredentialEnrollmentHostError::AccessDenied)
-    );
+    ));
     assert_eq!(
         fixture
             .store
@@ -271,20 +273,22 @@ fn broker_reissue_tombstones_the_old_ticket_before_a_new_attempt() {
             attempt,
             ticket,
             binding,
+            secret_offer: Some(pair_offer(&first, binding)),
         })
         .unwrap(),
     );
 
-    assert_eq!(
-        fixture.broker.claim_ticket(
+    channel.queue_received(frame);
+    assert!(matches!(
+        fixture.broker.claim_ticket_from_channel(
             first,
             fixture.continuation,
             7,
             8,
             evidence,
-            frame,
             &fixture.store,
+            &mut channel,
         ),
         Err(ProviderCredentialEnrollmentHostError::Conflict)
-    );
+    ));
 }

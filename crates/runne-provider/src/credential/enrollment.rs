@@ -52,6 +52,11 @@ pub use operation::{
 pub use operation_metadata::{CredentialMigrationMetadata, CredentialOperationMetadata};
 #[allow(unused_imports)]
 pub use projection::{CredentialSafeSnapshot, CredentialVerificationSnapshot};
+#[doc(hidden)]
+pub use protocol::daemon_credential_publication;
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub use protocol::daemon_credential_publication_test_support;
 pub use protocol::{
     CredentialBrokerCommand, CredentialBrokerCommandCodec, CredentialBrokerFrame,
     CredentialBrokerFrameCodec, CredentialBrokerTarget, CredentialSecretClaimOffer,

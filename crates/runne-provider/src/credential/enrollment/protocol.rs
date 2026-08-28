@@ -13,6 +13,9 @@ mod command_tests;
 mod secret;
 
 #[cfg(test)]
+#[path = "protocol/codec_claim_tests.rs"]
+mod codec_claim_tests;
+#[cfg(test)]
 mod tests;
 
 pub use codec::CredentialBrokerFrameCodec;
@@ -23,6 +26,34 @@ pub use secret::{
     CredentialSecretPublication, CredentialSecretPublicationCodec, PendingCredentialSecretOpening,
     SealedCredentialEnvelope,
 };
+
+/// Deliberately narrow daemon-only publication adapter.
+#[doc(hidden)]
+pub mod daemon_credential_publication {
+    pub use super::secret::DaemonCredentialSecretPublicationSigner as CredentialSecretPublicationSigner;
+}
+
+/// Test-only verifier for asserting the sealed daemon publication boundary.
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub mod daemon_credential_publication_test_support {
+    use super::{CredentialSecretClaimOffer, CredentialSecretPublication};
+    use crate::credential::enrollment::CredentialEnrollmentError;
+
+    pub fn verify(
+        daemon_public_key: [u8; 32],
+        channel_binding: [u8; 32],
+        offer: CredentialSecretClaimOffer,
+        publication: CredentialSecretPublication,
+    ) -> Result<(), CredentialEnrollmentError> {
+        super::secret::verify_publication_for_test(
+            daemon_public_key,
+            channel_binding,
+            offer,
+            publication,
+        )
+    }
+}
 
 /// The only non-secret argv token accepted by the packaged credential writer.
 ///
@@ -36,10 +67,6 @@ use super::{
 };
 
 /// Closed broker-control frames; native claims and credential bytes are absent.
-#[expect(
-    clippy::large_enum_variant,
-    reason = "the bounded IssueTicket wire frame keeps ticket, channel, and binding bytes zero-copy"
-)]
 pub enum CredentialBrokerFrame {
     /// Daemon sends a one-shot raw ticket over the inherited channel.
     IssueTicket {
@@ -66,6 +93,8 @@ pub enum CredentialBrokerFrame {
         ticket: RawCredentialTicket,
         /// Immutable claim-binding digest.
         binding: CredentialBindingDigest,
+        /// Pair-only writer public offer; never contains credential material.
+        secret_offer: Option<CredentialSecretClaimOffer>,
     },
     /// Daemon accepted the claimed ticket attempt.
     ClaimAccepted {

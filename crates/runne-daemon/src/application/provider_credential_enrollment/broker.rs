@@ -5,8 +5,8 @@ use runne_provider::{
     ClaimCredentialOperation, CredentialBindingDigest, CredentialBrokerFrame,
     CredentialBrokerFrameCodec, CredentialEnrollmentMeasurementAuthority,
     CredentialMeasurementSnapshot, CredentialNativeEffectDisposition, CredentialOperationId,
-    CredentialOperationSnapshot, IssuedCredentialTicketAttempt, ObserveNativeEffect,
-    ProviderCredentialEnrollmentStore,
+    CredentialOperationSnapshot, CredentialSecretClaimOffer, CredentialSecretPublication,
+    IssuedCredentialTicketAttempt, ObserveNativeEffect, ProviderCredentialEnrollmentStore,
 };
 use zeroize::Zeroizing;
 
@@ -27,6 +27,9 @@ mod unix;
     )
 )]
 pub(super) trait CredentialBrokerChannel {
+    /// Exact measured binding for the authenticated, daemon-owned control channel.
+    fn binding_digest(&self) -> CredentialBindingDigest;
+
     /// Sends exactly one canonical broker frame to the authenticated writer endpoint.
     fn send(
         &mut self,
@@ -35,6 +38,12 @@ pub(super) trait CredentialBrokerChannel {
 
     /// Receives the one writer response admitted by the surrounding exchange.
     fn receive(&mut self) -> Result<Zeroizing<Vec<u8>>, ProviderCredentialEnrollmentHostError>;
+
+    /// Consumes the channel-owned signer for exactly one inert publication.
+    fn sign_publication(
+        &mut self,
+        offer: CredentialSecretClaimOffer,
+    ) -> Result<CredentialSecretPublication, ProviderCredentialEnrollmentHostError>;
 }
 
 /// Move-only authority for the one post-claim possible-effect diagnostic.
@@ -42,6 +51,53 @@ pub(super) trait CredentialBrokerChannel {
 pub(super) struct ClaimedBrokerEffect {
     operation_id: CredentialOperationId,
     binding: CredentialBindingDigest,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "publication handoff follows in the next sealed-relay slice"
+        )
+    )]
+    publication: Option<CredentialSecretPublication>,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "publication handoff follows in the next sealed-relay slice"
+        )
+    )]
+    publication_taken: bool,
+}
+
+pub(super) struct AcceptedBrokerClaim {
+    acknowledgement: Vec<u8>,
+    pending_publication: Option<CredentialSecretClaimOffer>,
+}
+
+impl AcceptedBrokerClaim {
+    #[cfg(test)]
+    pub(super) fn acknowledgement(&self) -> &[u8] {
+        &self.acknowledgement
+    }
+}
+
+impl ClaimedBrokerEffect {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "publication handoff follows in the next sealed-relay slice"
+        )
+    )]
+    pub(super) fn take_secret_publication(
+        &mut self,
+    ) -> Result<Option<CredentialSecretPublication>, ProviderCredentialEnrollmentHostError> {
+        if self.publication_taken {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        self.publication_taken = true;
+        Ok(self.publication.take())
+    }
 }
 
 /// Daemon coordinator for digest-first credential-ticket issuance.
@@ -80,7 +136,7 @@ impl ProviderCredentialBroker {
         evidence: CredentialMeasurementSnapshot,
         frame: Zeroizing<Vec<u8>>,
         store: &S,
-    ) -> Result<Vec<u8>, ProviderCredentialEnrollmentHostError> {
+    ) -> Result<AcceptedBrokerClaim, ProviderCredentialEnrollmentHostError> {
         let expected_operation = receipt.operation().operation_id();
         let expected_attempt = receipt.ticket_attempt();
         let CredentialBrokerFrame::Claim {
@@ -88,12 +144,20 @@ impl ProviderCredentialBroker {
             attempt,
             ticket,
             binding,
+            secret_offer,
         } = CredentialBrokerFrameCodec::decode(&frame)
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?
         else {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         };
         if operation_id != expected_operation || attempt != expected_attempt {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        if !secret_offer_matches_action(
+            receipt.operation().action(),
+            receipt.operation().allocated_credential_version().is_some(),
+            secret_offer.is_some(),
+        ) {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
         let draft = ClaimCredentialOperation::new(
@@ -110,11 +174,16 @@ impl ProviderCredentialBroker {
             .seal_claim_operation(evidence, draft)
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
         store.claim(claim).map_err(map_store)?;
-        CredentialBrokerFrameCodec::encode(CredentialBrokerFrame::ClaimAccepted {
-            operation_id: expected_operation,
-            attempt: expected_attempt,
+        let acknowledgement =
+            CredentialBrokerFrameCodec::encode(CredentialBrokerFrame::ClaimAccepted {
+                operation_id: expected_operation,
+                attempt: expected_attempt,
+            })
+            .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?;
+        Ok(AcceptedBrokerClaim {
+            acknowledgement,
+            pending_publication: secret_offer,
         })
-        .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)
     }
 
     /// Receives one claim, commits its durable CAS, then returns only its acknowledgement.
@@ -132,6 +201,9 @@ impl ProviderCredentialBroker {
         store: &S,
         channel: &mut C,
     ) -> Result<ClaimedBrokerEffect, ProviderCredentialEnrollmentHostError> {
+        if channel.binding_digest() != evidence.broker_channel_binding_digest() {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
         let operation_id = receipt.operation().operation_id();
         let claim = channel.receive()?;
         let accepted = self.claim_ticket(
@@ -147,10 +219,16 @@ impl ProviderCredentialBroker {
         let binding = operation
             .process_release_binding_digest()
             .ok_or(ProviderCredentialEnrollmentHostError::InvariantViolation)?;
-        channel.send(Zeroizing::new(accepted))?;
+        channel.send(Zeroizing::new(accepted.acknowledgement))?;
+        let publication = accepted
+            .pending_publication
+            .map(|offer| channel.sign_publication(offer))
+            .transpose()?;
         Ok(ClaimedBrokerEffect {
             operation_id,
             binding,
+            publication,
+            publication_taken: false,
         })
     }
 
@@ -182,5 +260,16 @@ impl ProviderCredentialBroker {
                 CredentialNativeEffectDisposition::PossibleEffect,
             ))
             .map_err(map_store)
+    }
+}
+
+pub(super) fn secret_offer_matches_action(
+    action: runne_provider::CredentialOperationAction,
+    has_allocated_version: bool,
+    has_offer: bool,
+) -> bool {
+    match action {
+        runne_provider::CredentialOperationAction::Pair => has_allocated_version && has_offer,
+        _ => !has_offer,
     }
 }

@@ -1,16 +1,18 @@
 use runne_api::ProviderCredentialEnrollmentHostError;
-use runne_platform_desktop::provider_credential_broker::{
-    UnixReceivedWriterControl, WriterProcessEvidence,
+use runne_platform_desktop::provider_credential_broker::WriterProcessEvidence;
+use runne_provider::daemon_credential_publication::CredentialSecretPublicationSigner;
+use runne_provider::{
+    CredentialBindingDigest, CredentialBrokerFrame, CredentialBrokerFrameCodec,
+    CredentialSecretClaimOffer, CredentialSecretPublication,
 };
-use runne_provider::{CredentialBrokerFrame, CredentialBrokerFrameCodec};
 use zeroize::Zeroizing;
 
 use super::CredentialBrokerChannel;
 
-/// Daemon-owned half of a control socket accepted by the native handoff.
+/// Daemon-owned half of the control socket created by the rendezvous authority.
 ///
-/// Construction consumes [`UnixReceivedWriterControl`], so ordinary daemon
-/// callers cannot supply a pathname, raw descriptor, or serializable handle.
+/// Construction consumes the opaque daemon authority plus verified process
+/// evidence, so ordinary callers cannot substitute an endpoint or signer.
 #[cfg_attr(
     not(test),
     expect(
@@ -18,10 +20,17 @@ use super::CredentialBrokerChannel;
         reason = "the Task 11 protected control dispatcher constructs this only after its native prompt and handoff are composed"
     )
 )]
+#[cfg_attr(
+    all(test, not(target_os = "linux")),
+    allow(dead_code, reason = "the descriptor-transfer fixture is Linux-scoped")
+)]
 pub(super) struct UnixCredentialBrokerChannel {
-    control: std::os::unix::net::UnixStream,
-    _evidence: WriterProcessEvidence,
-    received_frames: u8,
+    pub(super) control: std::os::unix::net::UnixStream,
+    pub(super) _evidence: WriterProcessEvidence,
+    pub(super) binding: CredentialBindingDigest,
+    pub(super) signer: Option<CredentialSecretPublicationSigner>,
+    pub(super) publication_public_key: [u8; 32],
+    pub(super) received_frames: u8,
 }
 
 #[cfg_attr(
@@ -31,16 +40,11 @@ pub(super) struct UnixCredentialBrokerChannel {
         reason = "the Task 11 protected control dispatcher consumes this exact one-shot channel"
     )
 )]
+#[cfg_attr(
+    all(test, not(target_os = "linux")),
+    allow(dead_code, reason = "the descriptor-transfer fixture is Linux-scoped")
+)]
 impl UnixCredentialBrokerChannel {
-    pub(super) fn from_authenticated_handoff(handoff: UnixReceivedWriterControl) -> Self {
-        let (control, evidence) = handoff.into_parts();
-        Self {
-            control,
-            _evidence: evidence,
-            received_frames: 0,
-        }
-    }
-
     /// Sends one canonical daemon-to-writer frame.
     pub(super) fn send_frame(
         &mut self,
@@ -67,6 +71,10 @@ impl UnixCredentialBrokerChannel {
 }
 
 impl CredentialBrokerChannel for UnixCredentialBrokerChannel {
+    fn binding_digest(&self) -> CredentialBindingDigest {
+        self.binding
+    }
+
     fn send(
         &mut self,
         frame: Zeroizing<Vec<u8>>,
@@ -82,104 +90,18 @@ impl CredentialBrokerChannel for UnixCredentialBrokerChannel {
             .map(Zeroizing::new)
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
     }
-}
 
-#[cfg(all(test, target_os = "linux"))]
-mod tests {
-    use std::os::unix::fs::PermissionsExt as _;
-
-    use runne_api::{CredentialBrokerTransferAuthenticator, LaunchSecret};
-    use runne_platform_desktop::provider_credential_broker::{
-        RetainedWriterProcess, receive_unix_writer_control, spawn_unix_writer,
-        transfer_unix_writer_control,
-    };
-    use runne_platform_ports::provider_credential_broker::{
-        VerifiedWriterArtifact, VerifiedWriterLaunchSpec,
-    };
-    use runne_provider::{
-        CredentialBrokerCommand, CredentialBrokerFrame, CredentialBrokerFrameCodec,
-        CredentialBrokerTarget, CredentialFence, CredentialLifecycleRevision,
-        CredentialOperationAction, CredentialOperationId, CredentialTicketAttempt,
-        CredentialVersionRef, ProviderId, RawCredentialTicket,
-    };
-
-    use super::UnixCredentialBrokerChannel;
-
-    #[test]
-    fn authenticated_handoff_channel_exchanges_one_exact_broker_frame() {
-        let directory = tempfile::tempdir().unwrap();
-        let executable = directory.path().join("writer-fixture");
-        let expected = CredentialBrokerFrameCodec::encode(issue_ticket()).unwrap();
-        std::fs::write(
-            &executable,
-            format!(
-                "#!/bin/sh\n[ \"$1\" = \"__provider-credential-broker-v1\" ] || exit 11\ndd bs=1 count={} >&2 2>/dev/null\n",
-                expected.len()
-            ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let artifact = VerifiedWriterArtifact::new(executable, [1; 32], [2; 32]).unwrap();
-        let (mut endpoints, mut process, evidence) =
-            spawn_unix_writer(&VerifiedWriterLaunchSpec::new(artifact)).unwrap();
-        let (mut sender, mut receiver) = std::os::unix::net::UnixStream::pair().unwrap();
-        let keys = LaunchSecret::from_bytes([7; 32]).unwrap().derive_keys();
-        let sender_authenticator =
-            CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
-        let receiver_authenticator =
-            CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
-        let binding = evidence.channel_binding();
-        let receiver_thread = std::thread::spawn(move || {
-            receive_unix_writer_control(&mut receiver, &receiver_authenticator, binding)
-        });
-        transfer_unix_writer_control(
-            &mut sender,
-            &mut endpoints,
-            &sender_authenticator,
-            &evidence,
-        )
-        .unwrap();
-        let received = receiver_thread.join().unwrap().unwrap();
-        let mut channel = UnixCredentialBrokerChannel::from_authenticated_handoff(received);
-
-        channel
-            .send_frame(CredentialBrokerFrameCodec::decode(&expected).unwrap())
-            .unwrap();
-        let echoed = channel.receive_once().unwrap();
-        assert_eq!(
-            CredentialBrokerFrameCodec::encode(echoed).unwrap(),
-            expected
-        );
-        assert!(matches!(
-            channel.receive_once(),
-            Err(runne_api::ProviderCredentialEnrollmentHostError::AccessDenied)
-        ));
-        drop(channel);
-        process.reap_retained_child().unwrap();
-    }
-
-    fn issue_ticket() -> CredentialBrokerFrame {
-        let operation_id = CredentialOperationId::from_bytes([3; 16]).unwrap();
-        let attempt = CredentialTicketAttempt::new(1).unwrap();
-        CredentialBrokerFrame::IssueTicket {
-            operation_id,
-            attempt,
-            ticket: RawCredentialTicket::generate().unwrap(),
-            channel_binding: [3; 32],
-            binding: runne_provider::CredentialBindingDigest::from_measured([4; 32]).unwrap(),
-            command: CredentialBrokerCommand::new(
-                operation_id,
-                attempt,
-                ProviderId::new("openai").unwrap(),
-                CredentialOperationAction::Pair,
-                CredentialBrokerTarget::Version(
-                    CredentialVersionRef::new(ProviderId::new("openai").unwrap(), 1).unwrap(),
-                ),
-                CredentialLifecycleRevision::new(1).unwrap(),
-                CredentialFence::new(1).unwrap(),
-                None,
-            )
-            .unwrap(),
+    fn sign_publication(
+        &mut self,
+        offer: CredentialSecretClaimOffer,
+    ) -> Result<CredentialSecretPublication, ProviderCredentialEnrollmentHostError> {
+        let signer = self
+            .signer
+            .take()
+            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        if signer.public_key() != self.publication_public_key {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
+        Ok(signer.sign(offer))
     }
 }

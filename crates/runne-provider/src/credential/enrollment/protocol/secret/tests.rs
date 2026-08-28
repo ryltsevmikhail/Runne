@@ -17,6 +17,7 @@ mod eligibility;
 mod kat;
 #[path = "tests/publication.rs"]
 mod publication;
+mod signer;
 
 #[test]
 fn sealed_credential_is_relayed_only_after_exact_claim_accepted() {

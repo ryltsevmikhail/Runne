@@ -91,7 +91,7 @@ fn credential_enrollment_codec_rejects_a_truncated_control_stream_frame() {
 
 #[test]
 fn credential_enrollment_codec_rejects_unknown_version_kind_and_oversized_frames() {
-    assert_eq!(CredentialBrokerFrameCodec::VERSION, 3);
+    assert_eq!(CredentialBrokerFrameCodec::VERSION, 4);
     for frame in [
         vec![1, 1],
         vec![2, 1],

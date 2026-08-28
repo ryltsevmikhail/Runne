@@ -1,4 +1,8 @@
-use ring::signature;
+use ring::{
+    rand::{SecureRandom as _, SystemRandom},
+    signature,
+};
+use zeroize::Zeroizing;
 
 use crate::credential::enrollment::{
     BrokerChannelBinding, CredentialBindingDigest, CredentialEnrollmentError,
@@ -22,6 +26,12 @@ pub struct CredentialSecretPublication {
     channel: CredentialBindingDigest,
     daemon_public_key: [u8; 32],
     signature: [u8; 64],
+}
+
+/// Daemon-only one-shot signer bound to one rendezvous channel.
+pub struct CredentialSecretPublicationSigner {
+    key_pair: signature::Ed25519KeyPair,
+    channel: CredentialBindingDigest,
 }
 
 /// Verifies publications from one authenticated rendezvous public key and channel.
@@ -78,6 +88,75 @@ impl CredentialSecretPublicationVerifier {
             .map_err(|_| CredentialEnrollmentError::InvalidEvidence)?;
         Ok(VerifiedCredentialSecretOffer { offer })
     }
+}
+
+impl CredentialSecretPublicationSigner {
+    /// Generates a fresh signer without exposing seed material.
+    pub fn generate(channel_binding: [u8; 32]) -> Result<Self, CredentialEnrollmentError> {
+        let channel = CredentialBindingDigest::from_measured(channel_binding)?;
+        let mut seed = Zeroizing::new([0; 32]);
+        SystemRandom::new()
+            .fill(seed.as_mut())
+            .map_err(|_| CredentialEnrollmentError::EntropyUnavailable)?;
+        let key_pair = signature::Ed25519KeyPair::from_seed_unchecked(seed.as_ref())
+            .map_err(|_| CredentialEnrollmentError::EntropyUnavailable)?;
+        Ok(Self { key_pair, channel })
+    }
+
+    /// Returns only the public key for this signer.
+    #[must_use]
+    pub fn public_key(&self) -> [u8; 32] {
+        use ring::signature::KeyPair as _;
+        self.key_pair
+            .public_key()
+            .as_ref()
+            .try_into()
+            .expect("ed25519 key width")
+    }
+
+    /// Consumes this one-shot authority to sign one inert publication.
+    #[must_use]
+    pub fn sign(self, offer: CredentialSecretClaimOffer) -> CredentialSecretPublication {
+        let daemon_public_key = self.public_key();
+        let signature = self.key_pair.sign(&message(
+            offer.operation_id,
+            offer.attempt,
+            offer.claim_binding,
+            offer.offer_binding,
+            offer.writer_public_key,
+            self.channel,
+            daemon_public_key,
+        ));
+        CredentialSecretPublication {
+            operation: offer.operation_id,
+            attempt: offer.attempt,
+            claim: offer.claim_binding,
+            offer: offer.offer_binding,
+            writer: offer.writer_public_key,
+            channel: self.channel,
+            daemon_public_key,
+            signature: signature
+                .as_ref()
+                .try_into()
+                .expect("ed25519 signature width"),
+        }
+    }
+}
+
+#[cfg(feature = "test-support")]
+pub(crate) fn verify_for_test(
+    daemon_public_key: [u8; 32],
+    channel_binding: [u8; 32],
+    offer: CredentialSecretClaimOffer,
+    publication: CredentialSecretPublication,
+) -> Result<(), CredentialEnrollmentError> {
+    let channel = CredentialBindingDigest::from_measured(channel_binding)?;
+    CredentialSecretPublicationVerifier {
+        daemon_public_key,
+        channel,
+    }
+    .verify(offer, publication)
+    .map(|_| ())
 }
 
 impl CredentialSecretPublicationCodec {

@@ -67,6 +67,10 @@
 //! let _ = CredentialSecretClaimOffer {};
 //! ```
 //! ```compile_fail
+//! use runne_provider::CredentialSecretPublicationSigner;
+//! let _ = CredentialSecretPublicationSigner::generate([1; 32]);
+//! ```
+//! ```compile_fail
 //! fn cannot_expose(envelope: runne_provider::SealedCredentialEnvelope) {
 //!     let _ = envelope.into_vec();
 //! }
@@ -117,6 +121,11 @@ pub use coordination::{
     ProviderPreEffectRejection, ProviderRepositoryClaimOutcome, ProviderRepositoryError,
     ProviderRepositoryState,
 };
+#[doc(hidden)]
+pub use credential::daemon_credential_publication;
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub use credential::daemon_credential_publication_test_support;
 pub use credential::{
     AttachCredentialProcess, BeginCredentialOperation, BeginCredentialOperationOutcome,
     BeginCredentialVerification, BindCredentialReadback, BrokerChannelBinding,

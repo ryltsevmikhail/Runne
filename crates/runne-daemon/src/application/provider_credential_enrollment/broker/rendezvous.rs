@@ -5,6 +5,12 @@ use rand::{RngCore, rngs::OsRng};
 #[cfg(feature = "desktop-protected")]
 use runne_api::CredentialBrokerTransferAuthenticator;
 use runne_api::ProviderCredentialEnrollmentHostError;
+#[cfg(feature = "desktop-protected")]
+use runne_provider::CredentialBindingDigest;
+use runne_provider::daemon_credential_publication::CredentialSecretPublicationSigner;
+
+#[cfg(feature = "desktop-protected")]
+use super::unix::UnixCredentialBrokerChannel;
 
 const RENDEZVOUS_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -23,6 +29,106 @@ pub(super) struct DaemonOwnedUnixBrokerRendezvous {
     daemon: Option<UnixStream>,
     writer: Option<UnixStream>,
     channel_binding: [u8; 32],
+    signer: Option<CredentialSecretPublicationSigner>,
+    publication_public_key: [u8; 32],
+}
+
+/// Opaque daemon-owned endpoint and matching one-shot publication authority.
+#[cfg_attr(
+    not(feature = "desktop-protected"),
+    allow(dead_code, reason = "the protected channel adapter is feature-gated")
+)]
+pub(super) struct DaemonBrokerAuthority {
+    endpoint: UnixStream,
+    channel_binding: [u8; 32],
+    signer: Option<CredentialSecretPublicationSigner>,
+    publication_public_key: [u8; 32],
+}
+
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the protected control dispatcher consumes opaque daemon authority"
+    )
+)]
+impl DaemonBrokerAuthority {
+    #[must_use]
+    pub(super) const fn publication_public_key(&self) -> [u8; 32] {
+        self.publication_public_key
+    }
+
+    #[cfg(test)]
+    pub(super) fn into_parts(
+        mut self,
+    ) -> Result<
+        (
+            UnixStream,
+            [u8; 32],
+            CredentialSecretPublicationSigner,
+            [u8; 32],
+        ),
+        ProviderCredentialEnrollmentHostError,
+    > {
+        Ok((
+            self.endpoint,
+            self.channel_binding,
+            self.signer
+                .take()
+                .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?,
+            self.publication_public_key,
+        ))
+    }
+
+    /// Consumes matching authority into its sole authenticated control channel.
+    #[cfg(feature = "desktop-protected")]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "protected native composition exercises this outside unit tests"
+        )
+    )]
+    pub(super) fn into_authenticated_channel(
+        mut self,
+        evidence: runne_platform_desktop::provider_credential_broker::WriterProcessEvidence,
+    ) -> Result<UnixCredentialBrokerChannel, ProviderCredentialEnrollmentHostError> {
+        if evidence.channel_binding() != self.channel_binding {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        let signer = self
+            .signer
+            .take()
+            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        Ok(UnixCredentialBrokerChannel {
+            control: self.endpoint,
+            _evidence: evidence,
+            binding: CredentialBindingDigest::from_measured(self.channel_binding)
+                .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?,
+            signer: Some(signer),
+            publication_public_key: self.publication_public_key,
+            received_frames: 0,
+        })
+    }
+}
+
+#[cfg_attr(
+    all(test, not(target_os = "linux")),
+    allow(dead_code, reason = "the descriptor-transfer fixture is Linux-scoped")
+)]
+#[cfg(test)]
+impl DaemonBrokerAuthority {
+    pub(super) fn for_test(binding: [u8; 32]) -> Self {
+        let (endpoint, _) = UnixStream::pair().unwrap();
+        let signer = CredentialSecretPublicationSigner::generate(binding).unwrap();
+        let publication_public_key = signer.public_key();
+        Self {
+            endpoint,
+            channel_binding: binding,
+            signer: Some(signer),
+            publication_public_key,
+        }
+    }
 }
 
 #[cfg_attr(
@@ -46,10 +152,15 @@ impl DaemonOwnedUnixBrokerRendezvous {
         if channel_binding == [0; 32] {
             return Err(ProviderCredentialEnrollmentHostError::Unavailable);
         }
+        let signer = CredentialSecretPublicationSigner::generate(channel_binding)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
+        let publication_public_key = signer.public_key();
         Ok(Self {
             daemon: Some(daemon),
             writer: Some(writer),
             channel_binding,
+            signer: Some(signer),
+            publication_public_key,
         })
     }
 
@@ -59,13 +170,25 @@ impl DaemonOwnedUnixBrokerRendezvous {
         self.channel_binding
     }
 
-    /// Moves the daemon endpoint into the post-handoff broker only once.
-    pub(super) fn take_daemon_endpoint(
+    /// Returns the public key that can later verify an inert daemon publication.
+    #[must_use]
+    pub(super) fn publication_public_key(&self) -> [u8; 32] {
+        self.publication_public_key
+    }
+
+    /// Moves endpoint and signing authority together; neither can be obtained twice.
+    pub(super) fn take_daemon_authority(
         &mut self,
-    ) -> Result<UnixStream, ProviderCredentialEnrollmentHostError> {
-        self.daemon
-            .take()
-            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)
+    ) -> Result<DaemonBrokerAuthority, ProviderCredentialEnrollmentHostError> {
+        if self.daemon.is_none() || self.signer.is_none() {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        Ok(DaemonBrokerAuthority {
+            endpoint: self.daemon.take().expect("checked"),
+            channel_binding: self.channel_binding,
+            signer: self.signer.take(),
+            publication_public_key: self.publication_public_key,
+        })
     }
 
     /// Moves the writer endpoint into the authenticated Tauri descriptor transfer once.
@@ -105,32 +228,8 @@ fn configure(stream: &UnixStream) -> Result<(), ProviderCredentialEnrollmentHost
 }
 
 #[cfg(test)]
-mod tests {
-    use std::io::{Read, Write};
-
-    use super::*;
-
-    #[test]
-    fn daemon_owned_rendezvous_moves_each_endpoint_once_and_binds_the_pair() {
-        let mut rendezvous = DaemonOwnedUnixBrokerRendezvous::create().unwrap();
-        assert_ne!(rendezvous.channel_binding(), [0; 32]);
-        let mut daemon = rendezvous.take_daemon_endpoint().unwrap();
-        let mut writer = rendezvous.take_writer_endpoint().unwrap();
-        assert!(matches!(
-            rendezvous.take_daemon_endpoint(),
-            Err(ProviderCredentialEnrollmentHostError::AccessDenied)
-        ));
-        assert!(matches!(
-            rendezvous.take_writer_endpoint(),
-            Err(ProviderCredentialEnrollmentHostError::AccessDenied)
-        ));
-
-        writer.write_all(b"claim").unwrap();
-        let mut frame = [0; 5];
-        daemon.read_exact(&mut frame).unwrap();
-        assert_eq!(frame, *b"claim");
-    }
-}
+#[path = "../tests/broker_rendezvous.rs"]
+mod tests;
 
 #[cfg(all(test, feature = "desktop-protected"))]
 mod protected_tests {
