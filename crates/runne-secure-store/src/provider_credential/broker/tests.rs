@@ -20,7 +20,7 @@ use crate::{
 
 #[test]
 fn brokered_provider_credential_readback_returns_only_metadata() {
-    let reader = VersionStoreReadback::new(ConfiguredVersionStore, access());
+    let reader = VersionStoreReadback::new(ConfiguredVersionStore([7; 16]), access());
     let observation = reader
         .readback_exact_version(ExactVersionReadback::new(command(1, 1)).unwrap())
         .unwrap();
@@ -29,8 +29,22 @@ fn brokered_provider_credential_readback_returns_only_metadata() {
 }
 
 #[test]
+fn legacy_import_readback_binds_the_retained_source_revision() {
+    let first = VersionStoreReadback::new(ConfiguredVersionStore([7; 16]), access())
+        .readback_exact_version(ExactVersionReadback::new(legacy_import_command(1, 1)).unwrap())
+        .unwrap();
+    let second = VersionStoreReadback::new(ConfiguredVersionStore([8; 16]), access())
+        .readback_exact_version(ExactVersionReadback::new(legacy_import_command(1, 1)).unwrap())
+        .unwrap();
+
+    assert!(first.present());
+    assert!(second.present());
+    assert_ne!(first.binding(), second.binding());
+}
+
+#[test]
 fn brokered_provider_credential_proves_legacy_source_absence() {
-    let reader = VersionStoreReadback::new(ConfiguredVersionStore, access());
+    let reader = VersionStoreReadback::new(ConfiguredVersionStore([7; 16]), access());
     let provider = ProviderId::new("openai").unwrap();
     let command = runne_provider::CredentialBrokerCommand::new(
         runne_provider::CredentialOperationId::from_bytes([7; 16]).unwrap(),
@@ -51,7 +65,7 @@ fn brokered_provider_credential_proves_legacy_source_absence() {
 
 #[test]
 fn local_verification_reads_only_the_store_issued_exact_version_metadata() {
-    let reader = VersionStoreVerificationReadback::new(ConfiguredVersionStore, access());
+    let reader = VersionStoreVerificationReadback::new(ConfiguredVersionStore([7; 16]), access());
 
     assert_eq!(
         reader.verify_local(&local_verification_lease()).unwrap(),
@@ -82,7 +96,7 @@ fn runned_cannot_call_writer() {
     );
 }
 
-struct ConfiguredVersionStore;
+struct ConfiguredVersionStore([u8; 16]);
 
 struct MissingVersionStore;
 
@@ -103,6 +117,14 @@ impl NativeProviderCredentialVersionStore for ConfiguredVersionStore {
         _access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialStatus, SecureStoreError> {
         Ok(ProviderCredentialStatus::Configured)
+    }
+
+    fn version_source_revision(
+        &self,
+        _reference: &CredentialVersionRef,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<crate::ProviderCredentialSourceRevision, SecureStoreError> {
+        crate::ProviderCredentialSourceRevision::new(self.0)
     }
 
     fn create_version(
@@ -184,6 +206,23 @@ fn command(operation: u8, version: u64) -> runne_provider::CredentialBrokerComma
         provider.clone(),
         runne_provider::CredentialOperationAction::Pair,
         runne_provider::CredentialBrokerTarget::Version(
+            CredentialVersionRef::new(provider, version).unwrap(),
+        ),
+        runne_provider::CredentialLifecycleRevision::new(1).unwrap(),
+        runne_provider::CredentialFence::new(1).unwrap(),
+        None,
+    )
+    .unwrap()
+}
+
+fn legacy_import_command(operation: u8, version: u64) -> runne_provider::CredentialBrokerCommand {
+    let provider = ProviderId::new("openai").unwrap();
+    runne_provider::CredentialBrokerCommand::new(
+        runne_provider::CredentialOperationId::from_bytes([operation; 16]).unwrap(),
+        runne_provider::CredentialTicketAttempt::new(1).unwrap(),
+        provider.clone(),
+        runne_provider::CredentialOperationAction::MigrateLegacy,
+        runne_provider::CredentialBrokerTarget::LegacyImport(
             CredentialVersionRef::new(provider, version).unwrap(),
         ),
         runne_provider::CredentialLifecycleRevision::new(1).unwrap(),

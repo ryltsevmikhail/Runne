@@ -5,7 +5,9 @@ use runne_provider::{
 };
 
 use super::errors::BrokerError;
-use super::readback_observation::{legacy_observation, version_observation};
+use super::readback_observation::{
+    legacy_import_observation, legacy_observation, version_observation,
+};
 use crate::{
     NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
     ProviderCredentialMaterial, ProviderCredentialStatus, ProviderCredentialStore,
@@ -174,9 +176,18 @@ where
         input: ExactVersionReadback,
     ) -> Result<CredentialReadbackObservation, SecureStoreError> {
         match self.native.version_status(&input.reference, &self.access)? {
-            ProviderCredentialStatus::Configured => {
-                version_observation(&input.command, &input.reference, true)
-            }
+            ProviderCredentialStatus::Configured => match input.command.action() {
+                CredentialOperationAction::Pair => {
+                    version_observation(&input.command, &input.reference, true)
+                }
+                CredentialOperationAction::MigrateLegacy => legacy_import_observation(
+                    &input.command,
+                    &input.reference,
+                    self.native
+                        .version_source_revision(&input.reference, &self.access)?,
+                ),
+                _ => Err(BrokerError::AccessDenied.into()),
+            },
             ProviderCredentialStatus::Missing => Err(BrokerError::Missing.into()),
             ProviderCredentialStatus::Unsupported => Err(BrokerError::Unsupported.into()),
         }

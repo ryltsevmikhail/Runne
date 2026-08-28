@@ -1,7 +1,7 @@
 use crate::provider_credential::{
-    ProviderCredentialAccessPolicy, ProviderCredentialId, ProviderCredentialMaterial,
-    ProviderCredentialSource, ProviderCredentialStatus, ProviderCredentialStore,
-    StoredProviderCredential, generate_provider_credential_source_revision,
+    generate_provider_credential_source_revision, ProviderCredentialAccessPolicy,
+    ProviderCredentialId, ProviderCredentialMaterial, ProviderCredentialSource,
+    ProviderCredentialStatus, ProviderCredentialStore, StoredProviderCredential,
 };
 use crate::{NativeKeyringStore, NativeProviderCredentialVersionStore, SecureStoreError};
 use runne_provider::{
@@ -115,6 +115,32 @@ impl NativeProviderCredentialVersionStore for NativeKeyringStore {
         Ok(ProviderCredentialStatus::Configured)
     }
 
+    #[cfg(not(target_os = "macos"))]
+    fn version_source_revision(
+        &self,
+        reference: &CredentialVersionRef,
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<crate::ProviderCredentialSourceRevision, SecureStoreError> {
+        provider_id(reference)?;
+        validate_reader_or_writer(access)?;
+        let encoded =
+            Self::read_version(reference)?.ok_or(SecureStoreError::ProviderCredentialNotFound)?;
+        let stored = StoredProviderCredential::decode(&encoded)?;
+        validate_stored(&stored, access)?;
+        stored
+            .source_revision()
+            .ok_or(SecureStoreError::ProviderCredentialSourceRevisionUnavailable)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn version_source_revision(
+        &self,
+        _reference: &CredentialVersionRef,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<crate::ProviderCredentialSourceRevision, SecureStoreError> {
+        Err(SecureStoreError::ProviderCredentialSourceRevisionUnavailable)
+    }
+
     fn create_version(
         &self,
         claim: CredentialNativeCreateClaim,
@@ -140,8 +166,14 @@ impl NativeProviderCredentialVersionStore for NativeKeyringStore {
         if authorization.version_ref() != &reference {
             return Err(SecureStoreError::CredentialAccessDenied);
         }
+        let source_revision = *claim.source_revision_id();
         drop(authorization);
-        let encoded = StoredProviderCredential::encode(credential, access, access_digest(access))?;
+        let encoded = StoredProviderCredential::encode_with_revision(
+            credential,
+            access,
+            access_digest(access),
+            crate::ProviderCredentialSourceRevision::new(source_revision)?,
+        )?;
         Self::write_version(&reference, &encoded)
     }
 

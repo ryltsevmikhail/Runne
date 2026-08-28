@@ -8,6 +8,7 @@ use crate::SecureStoreError;
 const READBACK_DOMAIN: &[u8] = b"runne/provider-credential-readback/v1\0";
 const VERSION_TARGET: u8 = 1;
 const LEGACY_SOURCE_TARGET: u8 = 2;
+const LEGACY_IMPORT_TARGET: u8 = 3;
 
 pub(super) fn version_observation(
     command: &CredentialBrokerCommand,
@@ -28,6 +29,20 @@ pub(super) fn legacy_observation(
     let mut digest = base_digest(command, false);
     digest.update([LEGACY_SOURCE_TARGET]);
     finish(digest, false)
+}
+
+pub(super) fn legacy_import_observation(
+    command: &CredentialBrokerCommand,
+    reference: &CredentialVersionRef,
+    source_revision: crate::ProviderCredentialSourceRevision,
+) -> Result<CredentialReadbackObservation, SecureStoreError> {
+    let mut digest = base_digest(command, true);
+    digest.update([LEGACY_IMPORT_TARGET]);
+    digest.update(reference.provider().as_str().as_bytes());
+    digest.update(reference.version().to_be_bytes());
+    digest.update(reference.ref_digest());
+    digest.update(source_revision.as_bytes());
+    finish(digest, true)
 }
 
 fn base_digest(command: &CredentialBrokerCommand, present: bool) -> Sha256 {

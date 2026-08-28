@@ -48,6 +48,11 @@ impl CredentialNativeCreateClaim {
     pub const fn version_ref(&self) -> &CredentialVersionRef {
         &self.reference
     }
+
+    /// Returns the authority-issued non-secret source revision for this create.
+    pub const fn source_revision_id(&self) -> &[u8; 16] {
+        &self.source_revision_id
+    }
 }
 
 impl core::fmt::Debug for CredentialNativeCreateClaim {
