@@ -164,6 +164,17 @@ def project_owner_store_declaration_errors(packages: list[dict]) -> list[str]:
             if is_owner:
                 owners += 1
                 continue
+            is_test_support_dev_dependency = (
+                dependency.get("kind") == "dev"
+                and dependency.get("target") is None
+                and dependency.get("rename") is None
+                and dependency.get("optional") is False
+                and dependency.get("uses_default_features") is False
+                and features == {"test-support"}
+                and dependency.get("path", "").endswith("/crates/runne-secure-store")
+            )
+            if is_test_support_dev_dependency:
+                continue
             if dependency.get("uses_default_features", True):
                 errors.append(f"FAIL: {package_name} must disable runne-secure-store default features")
             if package_name == PROJECT_OWNER_STORE_OWNER:

@@ -57,8 +57,12 @@ class CheckDepsTests(unittest.TestCase):
         enabled = []
         for manifest in manifests:
             text = manifest.read_text(encoding="utf-8")
+            _, marker, remainder = text.partition("[dependencies]")
+            if not marker:
+                continue
+            dependencies = remainder.split("\n[", 1)[0]
             dependency_lines = [
-                line for line in text.splitlines()
+                line for line in dependencies.splitlines()
                 if line.startswith("runne-secure-store =")
             ]
             if not dependency_lines:
@@ -90,6 +94,32 @@ class CheckDepsTests(unittest.TestCase):
         ):
             package = {"name": mutation.pop("name"), "dependencies": [{"name": "runne-secure-store", **mutation}]}
             self.assertTrue(checker.project_owner_store_declaration_errors([package]))
+
+    def test_non_owner_dev_test_support_declaration_is_allowed(self) -> None:
+        owner = {
+            "name": "runne-cli",
+            "dependencies": [{
+                "name": "runne-secure-store", "kind": None, "target": None,
+                "rename": None, "optional": False, "uses_default_features": False,
+                "path": "/repo/crates/runne-secure-store",
+                "features": [checker.PROJECT_OWNER_STORE_FEATURE],
+            }],
+        }
+        package = {
+            "name": "runne-app-core",
+            "dependencies": [{
+                "name": "runne-secure-store", "kind": "dev", "target": None,
+                "rename": None, "optional": False, "uses_default_features": False,
+                "path": "/repo/crates/runne-secure-store", "features": ["test-support"],
+            }],
+        }
+        self.assertFalse(
+            checker.project_owner_store_declaration_errors([owner, package])
+        )
+        package["dependencies"][0]["kind"] = None
+        self.assertTrue(
+            checker.project_owner_store_declaration_errors([owner, package])
+        )
 
     def test_owner_consumer_scan_rejects_all_metadata_target_consumers(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
