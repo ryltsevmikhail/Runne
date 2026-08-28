@@ -1,3 +1,4 @@
+mod admission_registry;
 mod begin;
 mod broker;
 mod coordinator;

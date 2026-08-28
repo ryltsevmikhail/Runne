@@ -27,6 +27,10 @@ impl VerifiedProtectedCredentialEnrollmentRequest {
         self.binding.request_id
     }
     #[must_use]
+    pub const fn protected_session_id(&self) -> [u8; 16] {
+        self.binding.protected_session_id
+    }
+    #[must_use]
     pub const fn action_provider_revision_binding(&self) -> [u8; 32] {
         self.binding.action_provider_revision_binding
     }
