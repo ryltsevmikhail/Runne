@@ -19,7 +19,6 @@ mod ticket;
 pub mod writer;
 
 pub use legacy_import::CredentialLegacyImportAuthorization;
-
 #[derive(Debug)]
 pub(crate) struct EnrollmentAuthoritySeal;
 
