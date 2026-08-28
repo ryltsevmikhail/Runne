@@ -165,6 +165,7 @@ mod tests {
             operation_id,
             attempt,
             ticket: RawCredentialTicket::generate().unwrap(),
+            channel_binding: [3; 32],
             binding: runne_provider::CredentialBindingDigest::from_measured([4; 32]).unwrap(),
             command: CredentialBrokerCommand::new(
                 operation_id,

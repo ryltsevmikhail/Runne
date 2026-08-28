@@ -95,6 +95,7 @@ pub(crate) fn issue_context_for(
         .broker
         .claim_issue_context(
             claim_measurements_for(&fixture.measurements, continuation, 8),
+            [21; 32],
             continuation,
             7,
             8,

@@ -21,6 +21,7 @@ use crate::application::provider_credential_enrollment::effect_authority::map_st
 )]
 pub(crate) struct ClaimIssueContext {
     measurements: CredentialMeasurementSnapshot,
+    channel_binding: [u8; 32],
     database_generation: u64,
     desktop_supervisor_generation: u64,
 }
@@ -36,14 +37,19 @@ impl ClaimIssueContext {
     /// Rejects zero generation values before a ticket attempt can be persisted.
     fn new(
         measurements: CredentialMeasurementSnapshot,
+        channel_binding: [u8; 32],
         database_generation: u64,
         desktop_supervisor_generation: u64,
     ) -> Result<Self, ProviderCredentialEnrollmentHostError> {
-        if database_generation == 0 || desktop_supervisor_generation == 0 {
+        if channel_binding == [0; 32]
+            || database_generation == 0
+            || desktop_supervisor_generation == 0
+        {
             return Err(ProviderCredentialEnrollmentHostError::InvalidRequest);
         }
         Ok(Self {
             measurements,
+            channel_binding,
             database_generation,
             desktop_supervisor_generation,
         })
@@ -62,11 +68,16 @@ impl ProviderCredentialBroker {
     pub(crate) fn claim_issue_context(
         &self,
         measurements: CredentialMeasurementSnapshot,
+        channel_binding: [u8; 32],
         continuation: CredentialBindingDigest,
         database_generation: u64,
         desktop_supervisor_generation: u64,
     ) -> Result<ClaimIssueContext, ProviderCredentialEnrollmentHostError> {
-        if measurements.continuation_binding_digest() != continuation {
+        if measurements.continuation_binding_digest() != continuation
+            || CredentialBindingDigest::from_measured(channel_binding)
+                .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?
+                != measurements.broker_channel_binding_digest()
+        {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
         self.measurements
@@ -74,6 +85,7 @@ impl ProviderCredentialBroker {
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
         ClaimIssueContext::new(
             measurements,
+            channel_binding,
             database_generation,
             desktop_supervisor_generation,
         )
@@ -182,6 +194,7 @@ impl ProviderCredentialBroker {
                 operation_id: receipt.operation().operation_id(),
                 attempt: receipt.ticket_attempt(),
                 ticket,
+                channel_binding: context.channel_binding,
                 binding,
                 command,
             })

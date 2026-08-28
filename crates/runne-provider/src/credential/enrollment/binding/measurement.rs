@@ -238,6 +238,11 @@ impl CredentialMeasurementSnapshot {
         self.continuation_binding_digest.digest()
     }
 
+    /// Returns the exact measured broker-channel binding digest.
+    pub const fn broker_channel_binding_digest(&self) -> CredentialBindingDigest {
+        self.broker_channel_binding.digest()
+    }
+
     pub(crate) fn belongs_to(&self, seal: &Arc<EnrollmentAuthoritySeal>) -> bool {
         self.candidate_source_identity.belongs_to(seal)
     }

@@ -13,7 +13,7 @@ pub struct CredentialBrokerFrameCodec;
 
 impl CredentialBrokerFrameCodec {
     /// The only supported broker codec version.
-    pub const VERSION: u8 = 2;
+    pub const VERSION: u8 = 3;
     /// Upper bound including version, kind, and all payload fields.
     pub const MAX_FRAME_BYTES: usize = 4 * 1024;
 
@@ -25,6 +25,7 @@ impl CredentialBrokerFrameCodec {
                 operation_id,
                 attempt,
                 ticket,
+                channel_binding,
                 binding,
                 command,
             } => {
@@ -35,6 +36,7 @@ impl CredentialBrokerFrameCodec {
                 id(&mut bytes, operation_id);
                 encode_attempt(&mut bytes, attempt);
                 bytes.extend_from_slice(ticket.bytes());
+                bytes.extend_from_slice(&channel_binding);
                 digest(&mut bytes, binding);
                 encode_command(&mut bytes, command)?;
             }
@@ -94,6 +96,7 @@ impl CredentialBrokerFrameCodec {
                 operation_id: read_id(bytes, &mut cursor)?,
                 attempt: read_attempt(bytes, &mut cursor)?,
                 ticket: read_ticket(bytes, &mut cursor)?,
+                channel_binding: read_bytes(bytes, &mut cursor)?,
                 binding: read_digest(bytes, &mut cursor)?,
                 command: read_command(bytes, &mut cursor)?,
             },
@@ -188,7 +191,7 @@ fn exact_frame_length(prefix: [u8; 2]) -> Result<usize, CredentialEnrollmentErro
         return Err(CredentialEnrollmentError::InvalidFrame);
     }
     match prefix[1] {
-        1 => Ok(2 + 16 + 8 + 32 + 32 + 2),
+        1 => Ok(2 + 16 + 8 + 32 + 32 + 32 + 2),
         2 => Ok(2 + 16 + 8 + 32 + 32),
         3 => Ok(2 + 16 + 8),
         4 => Ok(2 + 16 + 8 + 1),
@@ -205,6 +208,11 @@ fn encode_attempt(bytes: &mut Vec<u8>, value: CredentialTicketAttempt) {
 }
 fn digest(bytes: &mut Vec<u8>, value: CredentialBindingDigest) {
     bytes.extend_from_slice(&value.as_bytes());
+}
+fn read_bytes(bytes: &[u8], cursor: &mut usize) -> Result<[u8; 32], CredentialEnrollmentError> {
+    take(bytes, cursor, 32)?
+        .try_into()
+        .map_err(|_| CredentialEnrollmentError::InvalidFrame)
 }
 fn take<'a>(
     bytes: &'a [u8],

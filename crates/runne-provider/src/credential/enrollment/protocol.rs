@@ -26,6 +26,10 @@ use super::{
 };
 
 /// Closed broker-control frames; native claims and credential bytes are absent.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the bounded IssueTicket wire frame keeps ticket, channel, and binding bytes zero-copy"
+)]
 pub enum CredentialBrokerFrame {
     /// Daemon sends a one-shot raw ticket over the inherited channel.
     IssueTicket {
@@ -35,6 +39,8 @@ pub enum CredentialBrokerFrame {
         attempt: CredentialTicketAttempt,
         /// Opaque raw ticket.
         ticket: RawCredentialTicket,
+        /// Exact inherited control-channel binding, available only on the live channel.
+        channel_binding: [u8; 32],
         /// Precomputed complete claim binding for this exact ticket attempt.
         binding: CredentialBindingDigest,
         /// Canonical non-secret native effect command for this exact attempt.

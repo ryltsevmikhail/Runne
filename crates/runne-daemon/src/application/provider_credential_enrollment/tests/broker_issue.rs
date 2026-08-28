@@ -11,7 +11,7 @@ fn issued_ticket_carries_the_exact_precomputed_claim_binding() {
     let measurements = claim_measurements_for(&fixture.measurements, fixture.continuation, 8);
     let context = fixture
         .broker
-        .claim_issue_context(measurements.clone(), fixture.continuation, 7, 8)
+        .claim_issue_context(measurements.clone(), [21; 32], fixture.continuation, 7, 8)
         .unwrap();
     let mut channel = RecordingChannel::default();
     let receipt = fixture
@@ -26,11 +26,15 @@ fn issued_ticket_carries_the_exact_precomputed_claim_binding() {
         )
         .unwrap();
     let CredentialBrokerFrame::IssueTicket {
-        ticket, binding, ..
+        ticket,
+        channel_binding,
+        binding,
+        ..
     } = CredentialBrokerFrameCodec::decode(&channel.frames.pop().unwrap()).unwrap()
     else {
         panic!("broker must issue a ticket frame");
     };
+    assert_eq!(channel_binding, [21; 32]);
     let draft = ClaimCredentialOperation::new(
         receipt,
         ticket.binding_digest(),
@@ -59,13 +63,26 @@ fn foreign_claim_issue_context_is_rejected_before_ticket_persistence() {
     assert!(
         fixture
             .broker
-            .claim_issue_context(foreign, fixture.continuation, 7, 8)
+            .claim_issue_context(foreign, [21; 32], fixture.continuation, 7, 8)
+            .is_err()
+    );
+    assert!(
+        fixture
+            .broker
+            .claim_issue_context(
+                claim_measurements_for(&fixture.measurements, fixture.continuation, 8),
+                [22; 32],
+                fixture.continuation,
+                7,
+                8,
+            )
             .is_err()
     );
     let context = fixture
         .broker
         .claim_issue_context(
             claim_measurements_for(&fixture.measurements, fixture.continuation, 8),
+            [21; 32],
             fixture.continuation,
             7,
             8,
@@ -97,6 +114,7 @@ fn substituted_continuation_is_rejected_before_ticket_persistence() {
         .broker
         .claim_issue_context(
             claim_measurements_for(&fixture.measurements, fixture.continuation, 8),
+            [21; 32],
             fixture.continuation,
             7,
             8,
