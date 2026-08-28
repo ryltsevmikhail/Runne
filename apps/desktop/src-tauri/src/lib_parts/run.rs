@@ -22,6 +22,11 @@ fn fence_page_load<R: tauri::Runtime>(
         {
             intents.invalidate_window(webview.label());
         }
+        if let Some(intents) = webview
+            .try_state::<crate::provider_credential_enrollment::CredentialIntentRegistry>()
+        {
+            intents.invalidate_window(webview.label());
+        }
     }
 }
 
@@ -35,6 +40,13 @@ fn directory_managers() -> (
         .expect("fixed directory selection lifetime is valid");
     let prepared = selections.prepared_workspaces();
     (selections, prepared)
+}
+
+fn credential_intent_registry() -> crate::provider_credential_enrollment::CredentialIntentRegistry {
+    crate::provider_credential_enrollment::CredentialIntentRegistry::new(
+        std::time::Duration::from_secs(30),
+    )
+    .expect("fixed credential intent lifetime is valid")
 }
 
 fn handle_window_event(window: &tauri::Window, event: &WindowEvent) {
@@ -65,6 +77,11 @@ fn handle_window_event(window: &tauri::Window, event: &WindowEvent) {
             }
             if let Some(intents) =
                 window.try_state::<crate::destructive_intent::ApprovalIntentManager>()
+            {
+                intents.invalidate_window(window.label());
+            }
+            if let Some(intents) = window
+                .try_state::<crate::provider_credential_enrollment::CredentialIntentRegistry>()
             {
                 intents.invalidate_window(window.label());
             }
@@ -152,6 +169,8 @@ fn handle_run_event(app: &tauri::AppHandle, event: &RunEvent) {
         .clear_pending();
     app.state::<crate::destructive_intent::ApprovalIntentManager>()
         .clear_pending();
+    app.state::<crate::provider_credential_enrollment::CredentialIntentRegistry>()
+        .clear_pending();
     app.state::<ConversationSubscriptionManager>().shutdown();
     app.state::<TaskRunSubscriptionManager>().shutdown();
     lifecycle.stop_owned_runtime();
@@ -173,11 +192,13 @@ pub fn run() {
     let approval_intents =
         crate::destructive_intent::ApprovalIntentManager::new(std::time::Duration::from_secs(30))
             .expect("fixed approval intent lifetime is valid");
+    let credential_intents = credential_intent_registry();
     let app = tauri::Builder::default()
         .manage(selections)
         .manage(prepared)
         .manage(destructive_intents)
         .manage(approval_intents)
+        .manage(credential_intents)
         .manage(activations)
         .plugin(tauri_plugin_single_instance::init(
             move |app, args, _cwd| {
