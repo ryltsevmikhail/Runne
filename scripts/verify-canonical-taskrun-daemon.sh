@@ -26,5 +26,7 @@ cargo test -p runne-daemon --all-targets --locked
 cargo test -p runne-runtime-client --all-targets --locked
 cargo test -p runne-cli --all-targets --locked
 cargo test -p runne-app-core --all-targets --features test-support --locked
+node scripts/desktop/stage_bundled_daemon.mjs
+node scripts/desktop/stage_bundled_cli.mjs
 cargo test -p runne-desktop --all-targets --locked
 git diff --check
