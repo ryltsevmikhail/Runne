@@ -70,6 +70,17 @@ pub struct ClaimedWriterAuthorization {
     channel_binding: CredentialBindingDigest,
 }
 
+/// One effect authority admitted before a sealed credential may be opened.
+#[allow(
+    dead_code,
+    reason = "the native Pair writer has not yet consumed the crate-private opening capability"
+)]
+pub(crate) struct AuthorizedCredentialSecretOpening {
+    command: CredentialBrokerCommand,
+    binding: CredentialBindingDigest,
+    channel_binding: CredentialBindingDigest,
+}
+
 /// Process-local consumer that grants exactly one matching native command.
 pub struct CredentialWriterEffectAuthority {
     seal: Arc<WriterAuthoritySeal>,
@@ -119,6 +130,32 @@ impl CredentialWriterClaimIssuer {
 }
 
 impl CredentialWriterEffectAuthority {
+    /// Consumes exact writer authority before any credential decryption.
+    #[allow(
+        dead_code,
+        reason = "the native Pair writer has not yet consumed the crate-private opening capability"
+    )]
+    pub(crate) fn authorize_secret_opening(
+        &self,
+        authorization: ClaimedWriterAuthorization,
+        command: CredentialBrokerCommand,
+        binding: CredentialBindingDigest,
+        channel: &BrokerChannelBinding,
+    ) -> Result<AuthorizedCredentialSecretOpening, CredentialEnrollmentError> {
+        if !Arc::ptr_eq(&self.seal, &authorization.seal)
+            || authorization.command != command
+            || authorization.binding != binding
+            || authorization.channel_binding != channel.digest()
+        {
+            return Err(CredentialEnrollmentError::InvalidEvidence);
+        }
+        Ok(AuthorizedCredentialSecretOpening {
+            command,
+            binding,
+            channel_binding: channel.digest(),
+        })
+    }
+
     /// Consumes one authority and returns only its exact same-channel command.
     pub fn authorize(
         &self,
@@ -135,6 +172,27 @@ impl CredentialWriterEffectAuthority {
             return Err(CredentialEnrollmentError::InvalidEvidence);
         }
         Ok(command)
+    }
+}
+
+impl AuthorizedCredentialSecretOpening {
+    #[allow(
+        dead_code,
+        reason = "the native Pair writer has not yet consumed the crate-private opening capability"
+    )]
+    pub(crate) fn matches(
+        &self,
+        command: &CredentialBrokerCommand,
+        binding: CredentialBindingDigest,
+        channel: CredentialBindingDigest,
+    ) -> bool {
+        self.command == *command && self.binding == binding && self.channel_binding == channel
+    }
+}
+
+impl core::fmt::Debug for AuthorizedCredentialSecretOpening {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.write_str("AuthorizedCredentialSecretOpening(<redacted>)")
     }
 }
 

@@ -6,6 +6,11 @@ mod command_codec;
 #[cfg(test)]
 #[path = "protocol/command_tests.rs"]
 mod command_tests;
+#[allow(
+    dead_code,
+    reason = "sealed credential relay stays crate-private until the native Pair writer consumes it"
+)]
+mod secret;
 
 #[cfg(test)]
 mod tests;
@@ -13,6 +18,11 @@ mod tests;
 pub use codec::CredentialBrokerFrameCodec;
 pub use command::{CredentialBrokerCommand, CredentialBrokerTarget};
 pub use command_codec::CredentialBrokerCommandCodec;
+pub use secret::{
+    CredentialSecretClaimOffer, CredentialSecretEnvelopeCodec, CredentialSecretOfferCodec,
+    CredentialSecretPublication, CredentialSecretPublicationCodec, PendingCredentialSecretOpening,
+    SealedCredentialEnvelope,
+};
 
 /// The only non-secret argv token accepted by the packaged credential writer.
 ///

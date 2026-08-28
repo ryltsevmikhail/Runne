@@ -10,6 +10,7 @@ test-support = []
 [dependencies]
 runne-domain = { path = "../runne-domain" }
 rand = "0.8"
+ring.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

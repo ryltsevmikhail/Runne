@@ -54,7 +54,10 @@ pub use operation_metadata::{CredentialMigrationMetadata, CredentialOperationMet
 pub use projection::{CredentialSafeSnapshot, CredentialVerificationSnapshot};
 pub use protocol::{
     CredentialBrokerCommand, CredentialBrokerCommandCodec, CredentialBrokerFrame,
-    CredentialBrokerFrameCodec, CredentialBrokerTarget, PROVIDER_CREDENTIAL_BROKER_MODE_V1,
+    CredentialBrokerFrameCodec, CredentialBrokerTarget, CredentialSecretClaimOffer,
+    CredentialSecretEnvelopeCodec, CredentialSecretOfferCodec, CredentialSecretPublication,
+    CredentialSecretPublicationCodec, PROVIDER_CREDENTIAL_BROKER_MODE_V1,
+    PendingCredentialSecretOpening, SealedCredentialEnvelope,
 };
 pub use qualified_release::CredentialQualifiedReleaseTuple;
 pub use snapshot::{
