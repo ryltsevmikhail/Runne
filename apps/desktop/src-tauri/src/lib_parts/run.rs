@@ -223,6 +223,7 @@ pub fn run() {
             set_shortcuts,
             get_device_status,
             get_provider_status,
+            get_provider_credential_enrollment_status,
             request_provider_credential_intent,
             get_update_status,
             check_update,

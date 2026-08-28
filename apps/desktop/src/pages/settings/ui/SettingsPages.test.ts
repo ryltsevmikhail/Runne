@@ -142,6 +142,28 @@ describe('ProvidersPage owner projection', () => {
     expect(wrapper.text()).toContain('credential_missing')
     expect(wrapper.text()).not.toContain('token')
   })
+
+  it('adds V2 enrollment state only when the closed status projection is available', async () => {
+    const wrapper = mount(ProvidersPage, {
+      props: {
+        loadProviderStatus: async () => [{
+          providerId: 'openai', mode: 'openai_responses_text_v1',
+          profileId: 'openai-responses-text-v1', profileDigest: '1'.repeat(64),
+          readiness: 'ready', selected: true,
+        }],
+        loadProviderCredentialEnrollmentStatus: async () => ({
+          providerId: 'openai', credentialState: 'configured', readiness: 'ready',
+          lifecycleRevision: 7, readinessRevision: 8, observedAt: 9,
+          verificationState: 'local_verified', verificationRevision: 7,
+          pendingOperation: null, cleanupPending: false, lastDisposition: 'completed',
+        }),
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('local_verified')
+    expect(wrapper.text()).not.toContain('ticket')
+  })
 })
 
 describe('UpdatesPage owner projection', () => {

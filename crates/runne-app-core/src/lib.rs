@@ -51,6 +51,7 @@ include!("lib_parts/settings.rs");
 include!("lib_parts/shortcuts.rs");
 include!("lib_parts/device.rs");
 include!("lib_parts/providers.rs");
+include!("lib_parts/provider_credential_enrollment.rs");
 include!("lib_parts/files.rs");
 include!("lib_parts/diffs.rs");
 include!("lib_parts/processes.rs");
@@ -103,4 +104,5 @@ mod tests {
     include!("lib_parts/production_open_tests.rs");
     include!("lib_parts/device_tests.rs");
     include!("lib_parts/providers_tests.rs");
+    include!("lib_parts/provider_credential_enrollment_tests.rs");
 }
