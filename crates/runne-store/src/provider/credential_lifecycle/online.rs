@@ -24,6 +24,8 @@ mod rows;
 mod safe_projection;
 #[path = "online/verification.rs"]
 mod verification;
+#[path = "online/verification_context.rs"]
+mod verification_context;
 
 use runne_provider::ProviderCredentialEnrollmentStore;
 
@@ -185,6 +187,13 @@ impl ProviderCredentialEnrollmentStore for SqliteProviderCredentialLifecycleStor
     > {
         verification::complete(self, input)
     }
+    fn current_verification_context(
+        &self,
+        provider: &runne_provider::ProviderId,
+    ) -> Result<runne_provider::CredentialVerificationContext, runne_provider::CredentialLifecycleError>
+    {
+        verification_context::load(self, provider)
+    }
     fn reconcile_online(
         &self,
         now: i64,
@@ -248,6 +257,9 @@ mod online_tests;
 #[cfg(test)]
 #[path = "online/ticket_expiry_tests.rs"]
 mod online_ticket_expiry_tests;
+#[cfg(test)]
+#[path = "online/verification_context_tests.rs"]
+mod online_verification_context_tests;
 #[cfg(test)]
 #[path = "online/verification_tests.rs"]
 mod online_verification_tests;

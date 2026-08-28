@@ -6,7 +6,8 @@ use super::{
     ClosePreparedCredentialOperation, CompleteCredentialOperation, CompleteCredentialVerification,
     CredentialBindingDigest, CredentialCompletionReceipt, CredentialLifecycleSnapshot,
     CredentialOperationId, CredentialOperationSnapshot, CredentialRecoveryWork,
-    CredentialSafeSnapshot, CredentialVerificationLease, CredentialVerificationObservation,
+    CredentialSafeSnapshot, CredentialVerificationContext, CredentialVerificationLease,
+    CredentialVerificationObservation,
     FailCredentialOperation, HardFenceProvider, IssueCredentialTicketDigest,
     IssuedCredentialTicketAttempt, ObserveNativeEffect, TombstoneCredentialOperation,
 };
@@ -118,6 +119,16 @@ pub trait ProviderCredentialEnrollmentStore: Send + Sync {
         &self,
         provider: &ProviderId,
     ) -> Result<CredentialSafeSnapshot, CredentialLifecycleError>;
+
+    /// Returns the exact current ready binding required to begin verification.
+    ///
+    /// Stores without durable current-readiness provenance fail closed.
+    fn current_verification_context(
+        &self,
+        _provider: &ProviderId,
+    ) -> Result<CredentialVerificationContext, CredentialLifecycleError> {
+        Err(CredentialLifecycleError::Conflict)
+    }
 
     /// Permanently fences a provider after a post-admission invariant failure.
     fn hard_fence_provider(

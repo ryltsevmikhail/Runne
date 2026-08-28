@@ -6,8 +6,10 @@ use super::{
     CredentialVerificationResult, CredentialVerifierRevision,
 };
 
+mod context;
 mod lease;
 
+pub use context::CredentialVerificationContext;
 pub use lease::{CredentialVerificationCapability, CredentialVerificationLease};
 
 /// Store input that begins a bounded credential verification lease.

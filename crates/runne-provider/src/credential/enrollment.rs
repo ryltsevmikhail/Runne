@@ -69,7 +69,7 @@ pub use state::{
 pub use store::ProviderCredentialEnrollmentStore;
 pub use verification::{
     BeginCredentialVerification, CompleteCredentialVerification, CredentialVerificationCapability,
-    CredentialVerificationLease, CredentialVerificationObservation,
+    CredentialVerificationContext, CredentialVerificationLease, CredentialVerificationObservation,
 };
 
 #[cfg(test)]
