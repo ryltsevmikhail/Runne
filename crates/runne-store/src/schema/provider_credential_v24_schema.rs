@@ -77,6 +77,14 @@ const V24_TRIGGERS: [(&str, &str); 19] = [
     ),
 ];
 
+fn v24_head_active_lifecycle_trigger() -> &'static str {
+    V24_TRIGGERS
+        .iter()
+        .find(|(name, _)| *name == "provider_credential_head_active_lifecycle")
+        .expect("V24 head lifecycle trigger exists")
+        .1
+}
+
 pub(super) fn install_v24_triggers(transaction: &Transaction<'_>) -> SqliteResult<()> {
     for (_, trigger) in V24_TRIGGERS {
         transaction.execute_batch(trigger)?;
@@ -210,6 +218,18 @@ fn v24_catalog_matches(connection: &Connection) -> SqliteResult<bool> {
 }
 
 fn v24_index_matches(connection: &Connection, name: &str) -> SqliteResult<bool> {
+    let expected = MIGRATION_V24
+        .split(';')
+        .map(str::trim)
+        .find(|sql| sql.starts_with(&format!("CREATE UNIQUE INDEX {name}")));
+    v24_index_matches_with_source(connection, name, expected)
+}
+
+fn v24_index_matches_with_source(
+    connection: &Connection,
+    name: &str,
+    expected: Option<&str>,
+) -> SqliteResult<bool> {
     let actual: Option<String> = connection
         .query_row(
             "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?1",
@@ -217,10 +237,6 @@ fn v24_index_matches(connection: &Connection, name: &str) -> SqliteResult<bool> 
             |row| row.get(0),
         )
         .optional()?;
-    let expected = MIGRATION_V24
-        .split(';')
-        .map(str::trim)
-        .find(|sql| sql.starts_with(&format!("CREATE UNIQUE INDEX {name}")));
     Ok(actual.is_some_and(|actual| {
         expected.is_some_and(|expected| normalize_v24_ddl(&actual) == normalize_v24_ddl(expected))
     }))

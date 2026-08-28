@@ -200,6 +200,19 @@ pub(super) fn v26_predecessor_matches_with(
 }
 
 fn inherited_indexes_match(connection: &Connection) -> SqliteResult<bool> {
+    inherited_indexes_match_with_operation_indexes(connection, false)
+}
+
+fn inherited_indexes_match_with_v32_operation_indexes(
+    connection: &Connection,
+) -> SqliteResult<bool> {
+    inherited_indexes_match_with_operation_indexes(connection, true)
+}
+
+fn inherited_indexes_match_with_operation_indexes(
+    connection: &Connection,
+    uses_v32_operation_indexes: bool,
+) -> SqliteResult<bool> {
     Ok(index_sql_matches_v16(connection)?
         && v17_index_matches(connection)?
         && index_matches(
@@ -220,7 +233,11 @@ fn inherited_indexes_match(connection: &Connection) -> SqliteResult<bool> {
             "approvals",
             &["principal_id", "state", "expires_at", "approval_id"],
         )?
-        && v24_index_matches(connection, "provider_credential_one_non_terminal_operation")?)
+        && if uses_v32_operation_indexes {
+            v32_operation_indexes_match(connection)?
+        } else {
+            v24_index_matches(connection, "provider_credential_one_non_terminal_operation")?
+        })
 }
 
 fn v18_global_trigger_matches(connection: &Connection) -> SqliteResult<bool> {

@@ -32,7 +32,7 @@ fn released_v1_v25_migration_bytes_are_unchanged() {
         digest.update(migration.as_bytes());
         format!("{:x}", digest.finalize())
     });
-    assert_eq!(CURRENT_SCHEMA_VERSION, 31);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 32);
     assert_eq!(
         actual,
         [

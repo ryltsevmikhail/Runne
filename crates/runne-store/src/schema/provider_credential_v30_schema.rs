@@ -42,8 +42,41 @@ pub(super) fn v30_predecessor_matches_with(
     connection: &Connection,
     insert_trigger: &str,
 ) -> SqliteResult<bool> {
-    if !v30_v26_base_matches_with(connection, insert_trigger)? || !v29_catalog_matches(connection)?
-    {
+    v30_predecessor_matches_with_successors(
+        connection,
+        insert_trigger,
+        v24_head_active_lifecycle_trigger(),
+        false,
+    )
+}
+
+pub(super) fn v30_predecessor_matches_with_v32(
+    connection: &Connection,
+    insert_trigger: &str,
+    head_trigger: &str,
+) -> SqliteResult<bool> {
+    v30_predecessor_matches_with_successors(connection, insert_trigger, head_trigger, true)
+}
+
+fn v30_predecessor_matches_with_successors(
+    connection: &Connection,
+    insert_trigger: &str,
+    head_trigger: &str,
+    uses_v32_operation_indexes: bool,
+) -> SqliteResult<bool> {
+    if !v30_v26_base_matches_with(
+        connection,
+        insert_trigger,
+        head_trigger,
+        uses_v32_operation_indexes,
+    )? || !v29_catalog_matches_with_credential_operation_indexes(
+        connection,
+        if uses_v32_operation_indexes {
+            v32_operation_index_names()
+        } else {
+            &["provider_credential_one_non_terminal_operation"]
+        },
+    )? {
         return Ok(false);
     }
     for table in [
@@ -70,9 +103,14 @@ pub(super) fn v30_predecessor_matches_with(
     }))
 }
 
-fn v30_v26_base_matches_with(connection: &Connection, insert_trigger: &str) -> SqliteResult<bool> {
+fn v30_v26_base_matches_with(
+    connection: &Connection,
+    insert_trigger: &str,
+    head_trigger: &str,
+    uses_v32_operation_indexes: bool,
+) -> SqliteResult<bool> {
     if !v18_global_trigger_matches(connection)?
-        || !v30_trigger_catalog_matches_with(connection, insert_trigger)?
+        || !v30_trigger_catalog_matches_with(connection, insert_trigger, head_trigger)?
     {
         return Ok(false);
     }
@@ -82,7 +120,11 @@ fn v30_v26_base_matches_with(connection: &Connection, insert_trigger: &str) -> S
     if !v14
         || !provider_schema::v15_base_matches(connection, v14)?
         || !v28_operation_table_matches(connection)?
-        || !v24_index_matches(connection, "provider_credential_one_non_terminal_operation")?
+        || !(if uses_v32_operation_indexes {
+            v32_operation_indexes_match(connection)?
+        } else {
+            v24_index_matches(connection, "provider_credential_one_non_terminal_operation")?
+        })
     {
         return Ok(false);
     }
@@ -123,7 +165,13 @@ fn v30_v26_base_matches_with(connection: &Connection, insert_trigger: &str) -> S
             return Ok(false);
         }
     }
-    if !v22_process_registry_matches(connection)? || !inherited_indexes_match(connection)? {
+    if !v22_process_registry_matches(connection)?
+        || !(if uses_v32_operation_indexes {
+            inherited_indexes_match_with_v32_operation_indexes(connection)?
+        } else {
+            inherited_indexes_match(connection)?
+        })
+    {
         return Ok(false);
     }
     for (name, source) in V16_TRIGGERS.into_iter().chain(V17_TRIGGERS) {
@@ -157,6 +205,8 @@ fn v30_v26_base_matches_with(connection: &Connection, insert_trigger: &str) -> S
     for (name, source) in V24_TRIGGERS {
         let expected = if name == "provider_credential_operation_insert_prepared" {
             insert_trigger.to_owned()
+        } else if name == "provider_credential_head_active_lifecycle" {
+            head_trigger.to_owned()
         } else if V25_REPLACED_TRIGGERS.contains(&name) {
             v25_trigger(name, source)
         } else {
@@ -185,6 +235,7 @@ fn v30_columns_match(connection: &Connection) -> SqliteResult<bool> {
 fn v30_trigger_catalog_matches_with(
     connection: &Connection,
     insert_trigger: &str,
+    head_trigger: &str,
 ) -> SqliteResult<bool> {
     let additional = V27_TRIGGERS
         .map(|name| (name, v27_trigger_source(name)))
@@ -196,10 +247,13 @@ fn v30_trigger_catalog_matches_with(
     v26_trigger_catalog::matches_with_replacements(
         connection,
         &additional,
-        &[(
-            "provider_credential_operation_insert_prepared",
-            insert_trigger,
-        )],
+        &[
+            (
+                "provider_credential_operation_insert_prepared",
+                insert_trigger,
+            ),
+            ("provider_credential_head_active_lifecycle", head_trigger),
+        ],
     )
 }
 

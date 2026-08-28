@@ -7,9 +7,9 @@
 //! - `events` — committed event rows
 //! - `command_receipts` — idempotency receipt store
 
-use rand::rngs::OsRng;
 use rand::RngCore;
-use runne_domain::id::{validate_uuid_v7_bytes, EventLogLineageId};
+use rand::rngs::OsRng;
+use runne_domain::id::{EventLogLineageId, validate_uuid_v7_bytes};
 use std::{
     fmt, fs,
     path::{Path, PathBuf},
@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 31;
+pub const CURRENT_SCHEMA_VERSION: i64 = 32;
 
 /// Fail-closed reason returned before a file-backed database is made writable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,6 +112,8 @@ include!("schema/migrations/v30_provider_credential_verification_binding.rs");
 include!("schema/provider_credential_v30_schema.rs");
 include!("schema/migrations/v31_provider_credential_legacy_cutover.rs");
 include!("schema/provider_credential_v31_schema.rs");
+include!("schema/migrations/v32_provider_credential_legacy_cutover_atomic.rs");
+include!("schema/provider_credential_v32_schema.rs");
 mod project_workspace_backfill;
 mod project_workspace_schema;
 pub(crate) mod provider_schema;
@@ -121,6 +123,17 @@ include!("schema/open.rs");
 include!("schema/authority_identity.rs");
 include!("schema/authority_launch.rs");
 include!("schema/replay.rs");
+
+#[cfg(test)]
+pub(crate) fn restore_v25_credential_triggers_for_test(connection: &Connection) -> SqliteResult<()> {
+    let insert_trigger = V24_TRIGGERS
+        .iter()
+        .find(|(name, _)| *name == "provider_credential_operation_insert_prepared")
+        .expect("V24 insert trigger exists")
+        .1;
+    connection.execute_batch(&v25_trigger("provider_credential_operation_insert_prepared", insert_trigger))?;
+    connection.execute_batch(v24_head_active_lifecycle_trigger())
+}
 
 #[cfg(test)]
 mod tests {
@@ -164,5 +177,6 @@ mod tests {
     include!("schema/tests/credential_v28.rs");
     include!("schema/tests/credential_v29.rs");
     include!("schema/tests/credential_v30.rs");
+    include!("schema/tests/credential_v32.rs");
     include!("schema/tests/frozen_migrations.rs");
 }

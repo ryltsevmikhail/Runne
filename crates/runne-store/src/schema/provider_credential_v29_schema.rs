@@ -50,6 +50,16 @@ fn v29_predecessor_matches(connection: &Connection) -> SqliteResult<bool> {
 }
 
 fn v29_catalog_matches(connection: &Connection) -> SqliteResult<bool> {
+    v29_catalog_matches_with_credential_operation_indexes(
+        connection,
+        &["provider_credential_one_non_terminal_operation"],
+    )
+}
+
+fn v29_catalog_matches_with_credential_operation_indexes(
+    connection: &Connection,
+    credential_operation_indexes: &[&str],
+) -> SqliteResult<bool> {
     let mut tables = RELEASED_V13_TABLES.to_vec();
     tables.extend([
         "provider_effect_starts", "provider_credential_versions", "provider_credential_clock_high_water",
@@ -64,10 +74,14 @@ fn v29_catalog_matches(connection: &Connection) -> SqliteResult<bool> {
     ]);
     let mut indexes = RELEASED_V12_EXPLICIT_INDEXES.to_vec();
     indexes.extend([
-        "provider_credential_one_active", "provider_credential_one_pending_provision",
-        "bootstrap_reservation_unexpired", "idx_aggregate_state_snapshots_head_position",
-        "idx_process_registry_owner", "idx_approvals_pending", "provider_credential_one_non_terminal_operation",
+        "provider_credential_one_active",
+        "provider_credential_one_pending_provision",
+        "bootstrap_reservation_unexpired",
+        "idx_aggregate_state_snapshots_head_position",
+        "idx_process_registry_owner",
+        "idx_approvals_pending",
     ]);
+    indexes.extend_from_slice(credential_operation_indexes);
     released_catalog_matches_with_indexes(connection, &tables, &indexes)
 }
 

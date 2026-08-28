@@ -223,6 +223,17 @@ pub(super) fn upgraded_v25_for_provider(
              DROP TRIGGER provider_credential_attachment_immutable;
              DROP TRIGGER provider_credential_attachment_no_delete;
              DROP TABLE provider_credential_process_attachments;
+             DROP TRIGGER provider_credential_verification_binding_insert;
+             DROP TRIGGER provider_credential_verification_binding_immutable;
+             DROP TRIGGER provider_credential_verification_binding_complete;
+             DROP TRIGGER provider_credential_remote_verification_binding;
+             ALTER TABLE provider_credential_verification_observations DROP COLUMN readiness_revision;
+             ALTER TABLE provider_credential_verification_observations DROP COLUMN release_tuple_digest;
+             DROP TRIGGER provider_credential_head_active_lifecycle;
+             DROP TRIGGER provider_credential_operation_insert_prepared;
+             DROP INDEX provider_credential_one_pending_legacy_source_cleanup;
+             DROP INDEX provider_credential_one_non_terminal_operation;
+             CREATE UNIQUE INDEX provider_credential_one_non_terminal_operation ON provider_credential_operations(provider_id) WHERE state NOT IN ('COMPLETED', 'FAILED', 'EXPIRED', 'CANCELLED', 'TOMBSTONED');
              DROP TRIGGER provider_credential_qualified_release_tuple_insert;
              DROP TRIGGER provider_credential_qualified_release_tuple_immutable;
              DROP TABLE provider_credential_completion_receipts;
@@ -241,6 +252,7 @@ pub(super) fn upgraded_v25_for_provider(
              DELETE FROM schema_version WHERE version >= 26;",
         )
         .unwrap();
+    crate::schema::restore_v25_credential_triggers_for_test(&connection).unwrap();
     assert_eq!(
         connection
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
