@@ -9,14 +9,20 @@ use super::CredentialIntentIpc;
 
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the native prompt consumes bounded intent capacity after trusted prompt wiring")
+    expect(
+        dead_code,
+        reason = "the native prompt consumes bounded intent capacity after trusted prompt wiring"
+    )
 )]
 const MAX_INTENTS: usize = 64;
 const MAX_TTL: Duration = Duration::from_secs(30);
 
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the trusted prompt consumes every binding before daemon handoff")
+    expect(
+        dead_code,
+        reason = "the trusted prompt consumes every binding before daemon handoff"
+    )
 )]
 struct IntentEntry {
     window: String,
@@ -29,7 +35,10 @@ struct IntentEntry {
 /// Host-only one-use native intent; its ID has no Serde representation.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "only the trusted prompt can mint a capability before daemon handoff")
+    expect(
+        dead_code,
+        reason = "only the trusted prompt can mint a capability before daemon handoff"
+    )
 )]
 pub struct NativeCredentialIntent(String);
 
@@ -42,13 +51,19 @@ impl fmt::Debug for NativeCredentialIntent {
 /// Host-only consumed intent accepted only by the protected daemon handoff.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "only the protected daemon handoff receives a consumed native intent")
+    expect(
+        dead_code,
+        reason = "only the protected daemon handoff receives a consumed native intent"
+    )
 )]
 pub struct ConsumedCredentialIntent(String);
 
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "only the protected daemon handoff reads the internal opaque identifier")
+    expect(
+        dead_code,
+        reason = "only the protected daemon handoff reads the internal opaque identifier"
+    )
 )]
 impl ConsumedCredentialIntent {
     pub fn daemon_id(&self) -> &str {
@@ -67,7 +82,10 @@ impl fmt::Debug for ConsumedCredentialIntent {
 pub struct CredentialIntentRegistry {
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "the trusted prompt applies the fixed one-use intent lifetime")
+        expect(
+            dead_code,
+            reason = "the trusted prompt applies the fixed one-use intent lifetime"
+        )
     )]
     ttl: Duration,
     entries: Arc<Mutex<HashMap<String, IntentEntry>>>,
@@ -86,7 +104,10 @@ impl CredentialIntentRegistry {
 
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "the trusted prompt mints this only after native confirmation")
+        expect(
+            dead_code,
+            reason = "the trusted prompt mints this only after native confirmation"
+        )
     )]
     pub fn issue(
         &self,
@@ -123,7 +144,10 @@ impl CredentialIntentRegistry {
 
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "the protected daemon handoff consumes this after native confirmation")
+        expect(
+            dead_code,
+            reason = "the protected daemon handoff consumes this after native confirmation"
+        )
     )]
     pub fn consume(
         &self,
@@ -176,7 +200,10 @@ pub struct CredentialIntentError;
 
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the trusted prompt alone needs random opaque native intent identifiers")
+    expect(
+        dead_code,
+        reason = "the trusted prompt alone needs random opaque native intent identifiers"
+    )
 )]
 fn random_id() -> Result<String, CredentialIntentError> {
     let mut bytes = [0; 32];
@@ -209,11 +236,15 @@ mod tests {
         let request = request();
         let session = [9; 32];
         let intent = registry.issue("main", 4, request, session, now).unwrap();
-        assert!(registry
-            .consume(intent, "other", 4, request, session, now)
-            .is_err());
+        assert!(
+            registry
+                .consume(intent, "other", 4, request, session, now)
+                .is_err()
+        );
         let intent = registry.issue("main", 4, request, session, now).unwrap();
-        let consumed = registry.consume(intent, "main", 4, request, session, now).unwrap();
+        let consumed = registry
+            .consume(intent, "main", 4, request, session, now)
+            .unwrap();
         assert_eq!(consumed.daemon_id().len(), 64);
     }
 
@@ -223,11 +254,24 @@ mod tests {
         let now = Instant::now();
         let request = request();
         let intent = registry.issue("main", 4, request, [9; 32], now).unwrap();
-        assert!(registry
-            .consume(intent, "main", 4, request, [9; 32], now + Duration::from_secs(1))
-            .is_err());
+        assert!(
+            registry
+                .consume(
+                    intent,
+                    "main",
+                    4,
+                    request,
+                    [9; 32],
+                    now + Duration::from_secs(1)
+                )
+                .is_err()
+        );
         let intent = registry.issue("main", 4, request, [9; 32], now).unwrap();
         registry.invalidate_window("main");
-        assert!(registry.consume(intent, "main", 4, request, [9; 32], now).is_err());
+        assert!(
+            registry
+                .consume(intent, "main", 4, request, [9; 32], now)
+                .is_err()
+        );
     }
 }

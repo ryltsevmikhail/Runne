@@ -1,5 +1,5 @@
 use runne_provider::{
-    CredentialVerificationLease, CredentialVerificationResult, CredentialVerificationKind,
+    CredentialVerificationKind, CredentialVerificationLease, CredentialVerificationResult,
 };
 
 use crate::{

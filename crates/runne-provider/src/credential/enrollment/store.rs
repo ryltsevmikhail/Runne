@@ -7,9 +7,9 @@ use super::{
     CredentialBindingDigest, CredentialCompletionReceipt, CredentialLifecycleSnapshot,
     CredentialOperationId, CredentialOperationSnapshot, CredentialRecoveryWork,
     CredentialSafeSnapshot, CredentialVerificationContext, CredentialVerificationLease,
-    CredentialVerificationObservation,
-    FailCredentialOperation, HardFenceProvider, IssueCredentialTicketDigest,
-    IssuedCredentialTicketAttempt, ObserveNativeEffect, TombstoneCredentialOperation,
+    CredentialVerificationObservation, FailCredentialOperation, HardFenceProvider,
+    IssueCredentialTicketDigest, IssuedCredentialTicketAttempt, ObserveNativeEffect,
+    TombstoneCredentialOperation,
 };
 
 /// Durable port for the authoritative online credential enrollment lifecycle.

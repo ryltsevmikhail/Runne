@@ -27,7 +27,6 @@ impl CredentialIntentIpc {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

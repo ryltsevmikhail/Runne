@@ -245,8 +245,7 @@ mod tests {
     #[test]
     fn writer_launch_spec_exposes_only_the_fixed_internal_mode_argument() {
         let artifact =
-            VerifiedWriterArtifact::new(PathBuf::from("/bundle/runne"), [1; 32], [2; 32])
-                .unwrap();
+            VerifiedWriterArtifact::new(PathBuf::from("/bundle/runne"), [1; 32], [2; 32]).unwrap();
 
         let launch = VerifiedWriterLaunchSpec::new(artifact);
 

@@ -125,13 +125,18 @@ include!("schema/authority_launch.rs");
 include!("schema/replay.rs");
 
 #[cfg(test)]
-pub(crate) fn restore_v25_credential_triggers_for_test(connection: &Connection) -> SqliteResult<()> {
+pub(crate) fn restore_v25_credential_triggers_for_test(
+    connection: &Connection,
+) -> SqliteResult<()> {
     let insert_trigger = V24_TRIGGERS
         .iter()
         .find(|(name, _)| *name == "provider_credential_operation_insert_prepared")
         .expect("V24 insert trigger exists")
         .1;
-    connection.execute_batch(&v25_trigger("provider_credential_operation_insert_prepared", insert_trigger))?;
+    connection.execute_batch(&v25_trigger(
+        "provider_credential_operation_insert_prepared",
+        insert_trigger,
+    ))?;
     connection.execute_batch(v24_head_active_lifecycle_trigger())
 }
 

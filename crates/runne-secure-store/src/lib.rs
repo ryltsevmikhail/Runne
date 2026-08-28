@@ -51,12 +51,12 @@ pub use provider_credential::{
 pub use provider_credential::{
     CredentialReadbackObservation, ExactAbsenceReadback, ExactVersionReadback,
     MAX_PROVIDER_CREDENTIAL_BYTES, NativeProviderCredentialReaderParts,
-    NativeProviderCredentialReaders,
-    NativeProviderCredentialVersionStore, PROVIDER_CREDENTIAL_SERVICE,
-    ProviderCredentialAccessPolicy, ProviderCredentialDispatchMaterializer, ProviderCredentialId,
-    ProviderCredentialMaterial, ProviderCredentialReadback, ProviderCredentialSource,
-    ProviderCredentialSourceRevision, ProviderCredentialStatus, ProviderCredentialStore,
-    ProviderCredentialVerificationMaterializer, ProviderCredentialVerificationReadback,
+    NativeProviderCredentialReaders, NativeProviderCredentialVersionStore,
+    PROVIDER_CREDENTIAL_SERVICE, ProviderCredentialAccessPolicy,
+    ProviderCredentialDispatchMaterializer, ProviderCredentialId, ProviderCredentialMaterial,
+    ProviderCredentialReadback, ProviderCredentialSource, ProviderCredentialSourceRevision,
+    ProviderCredentialStatus, ProviderCredentialStore, ProviderCredentialVerificationMaterializer,
+    ProviderCredentialVerificationReadback,
 };
 pub use provider_journal_key::{
     ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,

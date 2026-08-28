@@ -58,9 +58,7 @@ impl NativeProviderCredentialReaders {
 
     /// Separates the store-owned issuer from the reader-only values.
     #[must_use]
-    pub fn into_parts(
-        self,
-    ) -> NativeProviderCredentialReaderParts {
+    pub fn into_parts(self) -> NativeProviderCredentialReaderParts {
         (
             self.lifecycle_authority,
             self.readback,

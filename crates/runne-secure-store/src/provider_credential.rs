@@ -31,9 +31,8 @@ pub use broker::{
 pub use broker::{
     CredentialReadbackObservation, ExactAbsenceReadback, ExactVersionReadback,
     NativeProviderCredentialReaderParts, NativeProviderCredentialReaders,
-    ProviderCredentialDispatchMaterializer,
-    ProviderCredentialReadback, ProviderCredentialVerificationMaterializer,
-    ProviderCredentialVerificationReadback,
+    ProviderCredentialDispatchMaterializer, ProviderCredentialReadback,
+    ProviderCredentialVerificationMaterializer, ProviderCredentialVerificationReadback,
 };
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
 pub mod source_update;
