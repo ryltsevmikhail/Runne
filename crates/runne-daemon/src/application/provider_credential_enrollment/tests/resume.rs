@@ -82,13 +82,13 @@ fn resume_authenticates_the_handle_and_installation_before_recovery() {
     let reader = NoReadback;
     let resume = super::super::resume::ProviderCredentialEnrollmentResume::new(
         ProviderCredentialAdmission::new(verifier, resume_measurements),
-        handles,
+        handles.duplicate(),
         &store,
         &reader,
+        super::super::broker::pending::PendingBrokerRendezvousRegistry::new(handles.duplicate()),
     );
 
     let projection = resume.load(&authority, handle, 100).unwrap();
-
     assert_eq!(projection.operation_handle(), handle);
     assert_eq!(
         projection.operation_kind(),
@@ -98,8 +98,7 @@ fn resume_authenticates_the_handle_and_installation_before_recovery() {
         projection.state(),
         ProviderCredentialOperationStateV2::Prepared
     );
-    assert_eq!(projection.lifecycle_revision(), 1);
-    assert_eq!(projection.readiness_revision(), 1);
+    assert_eq!(projection.broker_rendezvous_id(), None);
     let foreign_authority = issuer
         .issue_base([7; 32], [2; 32], [3; 32], 1, [4; 32], 1, [5; 32])
         .unwrap();

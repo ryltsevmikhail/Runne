@@ -30,6 +30,13 @@ fn provider_credential_enrollment_contract_is_closed_safe_and_v2_only() {
     )
     .unwrap();
     assert!(JSONSchema::compile(&schema).unwrap().is_valid(&golden));
+    let operation = JSONSchema::compile(&schema["$defs"]["operationResponse"]).unwrap();
+    let mut unavailable = golden["operationResponse"].clone();
+    unavailable["brokerRendezvousId"] = Value::Null;
+    assert!(operation.is_valid(&unavailable));
+    unavailable["operationKind"] = Value::String("verify_remote".to_owned());
+    unavailable["brokerRendezvousId"] = Value::String("forbidden-for-verification".to_owned());
+    assert!(!operation.is_valid(&unavailable));
     assert_no_secret_keys(&golden);
     assert!(RUNTIME_CAPABILITY_CATALOG.contains(&"provider.credential-enrollment.v2"));
     assert!(!PUBLISHED_RUNTIME_CAPABILITIES.contains(&"provider.credential-enrollment.v2"));

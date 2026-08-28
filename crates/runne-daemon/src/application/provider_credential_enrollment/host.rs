@@ -23,7 +23,7 @@ use runne_provider::{
 
 use super::{
     CredentialEnrollmentReadback, ProviderCredentialAdmission, ProviderCredentialEnrollmentStatus,
-    begin::ProviderCredentialEnrollmentBegin,
+    begin::ProviderCredentialEnrollmentBegin, broker::pending::PendingBrokerRendezvousRegistry,
     operation_handle::ProviderCredentialOperationHandleIssuer,
     resume::ProviderCredentialEnrollmentResume,
 };
@@ -61,6 +61,7 @@ impl<'a, S: ?Sized, R: ?Sized, V> DaemonProviderCredentialEnrollmentHost<'a, S, 
         verification: V,
         now_high_water: Arc<dyn Fn() -> i64 + Send + Sync>,
     ) -> Self {
+        let rendezvous = PendingBrokerRendezvousRegistry::new(handles.duplicate());
         Self {
             begin: ProviderCredentialEnrollmentBegin::new(
                 ProviderCredentialAdmission::with_legacy_import_authority(
@@ -71,12 +72,14 @@ impl<'a, S: ?Sized, R: ?Sized, V> DaemonProviderCredentialEnrollmentHost<'a, S, 
                 handles.duplicate(),
                 store,
                 reader,
+                rendezvous.clone(),
             ),
             resume: ProviderCredentialEnrollmentResume::new(
                 ProviderCredentialAdmission::new(verifier.clone(), measurements.clone()),
                 handles,
                 store,
                 reader,
+                rendezvous,
             ),
             status: ProviderCredentialEnrollmentStatus::new(
                 ProviderCredentialAdmission::new(verifier, measurements),

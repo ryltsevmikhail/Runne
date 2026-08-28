@@ -197,9 +197,13 @@ fn verification_operation_snapshot_has_no_broker_or_enrollment_action() {
         .as_object_mut()
         .unwrap()
         .insert("operationKind".to_owned(), json!("pair"));
-    assert!(
-        serde_json::from_value::<ProviderCredentialOperationSnapshotV2>(brokerless_pair).is_err()
+    let snapshot: ProviderCredentialOperationSnapshotV2 = serde_json::from_value(brokerless_pair)
+        .expect("safe broker-unavailable operation snapshot");
+    assert_eq!(
+        snapshot.operation_kind(),
+        ProviderCredentialOperationKindV2::Pair
     );
+    assert_eq!(snapshot.broker_rendezvous_id(), None);
 }
 
 fn assert_host_port<T: ProviderCredentialEnrollmentHostPort>() {}

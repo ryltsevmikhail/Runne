@@ -75,7 +75,7 @@
     },
     {
       "path": "schemas/provider-credential-enrollment-v2.schema.json",
-      "sha256": "35cb3dcaa535f562575c47da80da9617d148cdcbc168ea2bedbf47669bb361c5"
+      "sha256": "f06062177a773d8fedddf4f8223f520ef9f897b29304f64fc29e9aa58719f1ae"
     },
     {
       "path": "schemas/provider-credentials-v1.schema.json",

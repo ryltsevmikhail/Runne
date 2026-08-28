@@ -14,6 +14,7 @@ use runne_provider::{CredentialInstallationOwnerId, ProviderCredentialEnrollment
 
 use super::{
     CredentialEnrollmentReadback, CredentialEnrollmentRecoveryGateway, ProviderCredentialAdmission,
+    broker::pending::PendingBrokerRendezvousRegistry,
     operation_handle::ProviderCredentialOperationHandleIssuer, operation_projection,
 };
 
@@ -23,6 +24,7 @@ pub(crate) struct ProviderCredentialEnrollmentResume<'a, S: ?Sized, R: ?Sized> {
     handles: ProviderCredentialOperationHandleIssuer,
     store: &'a S,
     reader: &'a R,
+    rendezvous: PendingBrokerRendezvousRegistry,
 }
 
 impl<'a, S: ?Sized, R: ?Sized> ProviderCredentialEnrollmentResume<'a, S, R> {
@@ -32,12 +34,14 @@ impl<'a, S: ?Sized, R: ?Sized> ProviderCredentialEnrollmentResume<'a, S, R> {
         handles: ProviderCredentialOperationHandleIssuer,
         store: &'a S,
         reader: &'a R,
+        rendezvous: PendingBrokerRendezvousRegistry,
     ) -> Self {
         Self {
             admission,
             handles,
             store,
             reader,
+            rendezvous,
         }
     }
 }
@@ -70,6 +74,8 @@ where
             operation,
             &self.handles,
             lifecycle.readiness_revision().get(),
+            &self.rendezvous,
+            now_high_water,
         )
     }
 }

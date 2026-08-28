@@ -5,7 +5,8 @@ use runne_api::{
     ProviderCredentialProviderV2, ProviderCredentialRequestAuthorityPair,
 };
 use runne_provider::{
-    CredentialAuthorityPair, CredentialEnrollmentAuthorityPair, CredentialOperationSnapshot,
+    CredentialAuthorityPair, CredentialEnrollmentAuthorityPair, CredentialOperationId,
+    CredentialOperationSnapshot, ProviderCredentialEnrollmentStore,
 };
 
 use super::super::{CredentialEnrollmentReadback, ProviderCredentialAdmission};
@@ -60,11 +61,16 @@ fn begin_recovers_then_returns_the_exact_idempotent_prepared_projection() {
         )
         .unwrap();
     let reader = NoReadback;
+    let handles =
+        super::super::operation_handle::ProviderCredentialOperationHandleIssuer::new([9; 32]);
+    let rendezvous =
+        super::super::broker::pending::PendingBrokerRendezvousRegistry::new(handles.duplicate());
     let begin = super::super::begin::ProviderCredentialEnrollmentBegin::new(
         ProviderCredentialAdmission::new(verifier, measurements),
-        super::super::operation_handle::ProviderCredentialOperationHandleIssuer::new([9; 32]),
+        handles.duplicate(),
         &store,
         &reader,
+        rendezvous.clone(),
     );
 
     let first = begin
@@ -87,4 +93,92 @@ fn begin_recovers_then_returns_the_exact_idempotent_prepared_projection() {
         first.broker_rendezvous_id(),
         Some(operation_handle.as_str())
     );
+    let operation = store
+        .load_operation(handles.resolve(first.operation_handle()).unwrap())
+        .unwrap();
+    assert!(rendezvous.has_live(operation.operation_id(), 100));
+    let _handoff = rendezvous
+        .begin_endpoint_handoff(
+            first.broker_rendezvous_id().unwrap(),
+            &operation,
+            &authority,
+            &proof,
+            100,
+        )
+        .unwrap();
+    assert!(!rendezvous.has_live(operation.operation_id(), 100));
+    let consumed_replay = begin
+        .admit(&authority, &proof, &context, &command, 100)
+        .unwrap();
+    assert_eq!(consumed_replay.operation_handle(), first.operation_handle());
+    assert_eq!(consumed_replay.broker_rendezvous_id(), None);
+    assert!(matches!(
+        rendezvous.begin_endpoint_handoff(
+            first.broker_rendezvous_id().unwrap(),
+            &operation,
+            &authority,
+            &proof,
+            100,
+        ),
+        Err(ProviderCredentialEnrollmentHostError::AccessDenied)
+    ));
+
+    let duplicate =
+        super::super::broker::pending::PendingBrokerRendezvousRegistry::new(handles.duplicate());
+    duplicate
+        .register(&operation, &authority, &proof, 100)
+        .unwrap();
+    assert!(matches!(
+        duplicate.register(&operation, &authority, &proof, 100),
+        Err(ProviderCredentialEnrollmentHostError::AccessDenied)
+    ));
+    let foreign_session = issuer
+        .issue_base([1; 32], [2; 32], [7; 32], 1, [4; 32], 1, [5; 32])
+        .unwrap();
+    let foreign_release = issuer
+        .issue_base([1; 32], [8; 32], [3; 32], 1, [4; 32], 1, [5; 32])
+        .unwrap();
+    let rendezvous_id = first.broker_rendezvous_id().unwrap();
+    for (candidate, now) in [
+        (&foreign_session, 100),
+        (&foreign_release, 100),
+        (&authority, 4_000_000_000),
+    ] {
+        let registry = super::super::broker::pending::PendingBrokerRendezvousRegistry::new(
+            handles.duplicate(),
+        );
+        registry
+            .register(&operation, &authority, &proof, 100)
+            .unwrap();
+        assert!(matches!(
+            registry.begin_endpoint_handoff(rendezvous_id, &operation, candidate, &proof, now),
+            Err(ProviderCredentialEnrollmentHostError::AccessDenied)
+        ));
+        assert!(!registry.has_live(operation.operation_id(), 100));
+        assert!(matches!(
+            registry.begin_endpoint_handoff(rendezvous_id, &operation, &authority, &proof, 100),
+            Err(ProviderCredentialEnrollmentHostError::AccessDenied)
+        ));
+    }
+    let substituted = CredentialOperationSnapshot::new(
+        CredentialOperationId::from_bytes([9; 16]).unwrap(),
+        operation.provider().clone(),
+        operation.action(),
+        operation.state(),
+        operation.allocated_credential_version().cloned(),
+        operation.target_credential_version().cloned(),
+        operation.metadata().clone(),
+    )
+    .unwrap();
+    let registry =
+        super::super::broker::pending::PendingBrokerRendezvousRegistry::new(handles.duplicate());
+    registry
+        .register(&operation, &authority, &proof, 100)
+        .unwrap();
+    assert!(!registry.has_live(operation.operation_id(), 0));
+    assert!(matches!(
+        registry.begin_endpoint_handoff(rendezvous_id, &substituted, &authority, &proof, 100),
+        Err(ProviderCredentialEnrollmentHostError::AccessDenied)
+    ));
+    assert!(!registry.has_live(operation.operation_id(), 100));
 }

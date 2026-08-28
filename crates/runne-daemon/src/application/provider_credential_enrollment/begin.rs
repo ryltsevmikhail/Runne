@@ -15,6 +15,7 @@ use runne_provider::{ProviderCredentialEnrollmentStore, ProviderId};
 
 use super::{
     CredentialEnrollmentReadback, CredentialEnrollmentRecoveryGateway, ProviderCredentialAdmission,
+    broker::pending::PendingBrokerRendezvousRegistry,
     operation_handle::ProviderCredentialOperationHandleIssuer, operation_projection,
 };
 
@@ -24,6 +25,7 @@ pub(crate) struct ProviderCredentialEnrollmentBegin<'a, S: ?Sized, R: ?Sized> {
     handles: ProviderCredentialOperationHandleIssuer,
     store: &'a S,
     reader: &'a R,
+    rendezvous: PendingBrokerRendezvousRegistry,
 }
 
 impl<'a, S: ?Sized, R: ?Sized> ProviderCredentialEnrollmentBegin<'a, S, R> {
@@ -33,12 +35,14 @@ impl<'a, S: ?Sized, R: ?Sized> ProviderCredentialEnrollmentBegin<'a, S, R> {
         handles: ProviderCredentialOperationHandleIssuer,
         store: &'a S,
         reader: &'a R,
+        rendezvous: PendingBrokerRendezvousRegistry,
     ) -> Self {
         Self {
             admission,
             handles,
             store,
             reader,
+            rendezvous,
         }
     }
 }
@@ -70,7 +74,14 @@ where
             .find_by_begin_proof(proof_digest)
             .map_err(map_store)?
         {
-            return self.replay(authority, proof_digest, context, command, operation);
+            return self.replay(
+                authority,
+                proof_digest,
+                context,
+                command,
+                operation,
+                now_high_water,
+            );
         }
         let lifecycle = self
             .store
@@ -81,7 +92,10 @@ where
             .admit_begin(authority, proof, command, context, lifecycle, self.store)?
         {
             super::coordinator::ProviderCredentialBeginAdmission::FreshWinner(effect) => {
-                effect.consume()
+                let operation = effect.consume();
+                self.rendezvous
+                    .register(&operation, authority, proof, now_high_water)?;
+                operation
             }
             super::coordinator::ProviderCredentialBeginAdmission::ExactReplay(operation) => {
                 operation
@@ -95,6 +109,8 @@ where
             operation,
             &self.handles,
             lifecycle.readiness_revision().get(),
+            &self.rendezvous,
+            now_high_water,
         )
     }
 
@@ -105,6 +121,7 @@ where
         context: &ProviderCredentialCommandContext,
         command: &BeginProviderCredentialEnrollment,
         operation: runne_provider::CredentialOperationSnapshot,
+        now_high_water: i64,
     ) -> Result<ProviderCredentialOperationSnapshotV2, ProviderCredentialEnrollmentHostError> {
         let owner = runne_provider::CredentialInstallationOwnerId::from_bytes(
             *authority.installation_identity(),
@@ -128,6 +145,8 @@ where
             operation,
             &self.handles,
             lifecycle.readiness_revision().get(),
+            &self.rendezvous,
+            now_high_water,
         )
     }
 }

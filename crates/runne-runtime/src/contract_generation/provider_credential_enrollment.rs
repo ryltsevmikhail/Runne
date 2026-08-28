@@ -97,7 +97,6 @@ fn operation_snapshot_schema(provider: &Value, positive: &Value, handle: &Value)
         ],
     );
     schema.as_object_mut().expect("operation schema").insert("allOf".to_owned(), json!([
-        {"if": {"properties": {"operationKind": {"enum": ["pair", "revoke", "migrate_legacy"]}}}, "then": {"properties": {"brokerRendezvousId": {"not": {"type": "null"}}}}},
         {"if": {"properties": {"operationKind": {"enum": ["verify_local", "verify_remote"]}}}, "then": {"properties": {"brokerRendezvousId": {"type": "null"}}}},
     ]));
     schema

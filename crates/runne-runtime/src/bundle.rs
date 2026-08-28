@@ -16,7 +16,7 @@ pub const GENERATOR_SCHEMA_VERSION: u32 = 1;
 ///
 /// Updated only by the authoritative contract generator.
 pub const PUBLISHED_BUNDLE_HASH: &str =
-    "c211e57be1d5401aba6597aedc776300b8468123343cd3aece0460a894482aa0";
+    "0ba6f71a5fde9f735d2d03c9bec014acd5958f578ed431b904d038ff8093d4fe";
 
 /// Exact additive command/query and Aggregate replay surface mounted by the
 /// current local daemon.

@@ -15,19 +15,26 @@ use runne_provider::{
     CredentialOperationAction, CredentialOperationSnapshot, CredentialOperationState,
 };
 
-use super::operation_handle::ProviderCredentialOperationHandleIssuer;
+use super::{
+    broker::pending::PendingBrokerRendezvousRegistry,
+    operation_handle::ProviderCredentialOperationHandleIssuer,
+};
 
 /// Projects one caller-owned durable operation without exposing native metadata.
 pub(super) fn snapshot(
     operation: CredentialOperationSnapshot,
     handles: &ProviderCredentialOperationHandleIssuer,
     readiness_revision: u64,
+    rendezvous: &PendingBrokerRendezvousRegistry,
+    now_high_water: i64,
 ) -> Result<ProviderCredentialOperationSnapshotV2, ProviderCredentialEnrollmentHostError> {
     let handle = handles.issue(operation.operation_id());
-    let rendezvous_id = handles.issue_broker_rendezvous_id(operation.operation_id());
+    let rendezvous_id = (operation.state() == CredentialOperationState::Prepared
+        && rendezvous.has_live(operation.operation_id(), now_high_water))
+    .then(|| handles.issue_broker_rendezvous_id(operation.operation_id()));
     ProviderCredentialOperationSnapshotV2::new(
         handle,
-        Some(rendezvous_id),
+        rendezvous_id,
         provider(operation.provider().as_str())?,
         kind(operation.action())?,
         state(operation.state()),
