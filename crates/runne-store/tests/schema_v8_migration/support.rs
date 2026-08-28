@@ -80,6 +80,7 @@ fn drop_v13_provider_execution(conn: &Connection) {
          DROP TABLE provider_credential_verification_observations;
          DROP TABLE provider_credential_authority_heads;
          DROP TABLE provider_credential_completion_receipts;
+         DROP TABLE provider_credential_process_attachments;
          DROP TABLE provider_credential_operations;
          DROP TABLE bootstrap_reservation_tombstones;
          DROP TABLE bootstrap_reservations;

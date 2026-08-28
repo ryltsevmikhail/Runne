@@ -107,6 +107,7 @@ fn v16_fixture(
          DROP TABLE IF EXISTS provider_credential_ticket_attempts;
          DROP TABLE IF EXISTS provider_credential_authority_heads;
          DROP TABLE IF EXISTS provider_credential_completion_receipts;
+         DROP TABLE IF EXISTS provider_credential_process_attachments;
          DROP TABLE IF EXISTS provider_credential_operations;
          DELETE FROM schema_version WHERE version >= 19;",
         )
