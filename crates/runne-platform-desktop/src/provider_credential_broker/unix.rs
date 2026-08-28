@@ -8,7 +8,9 @@ use rand::RngCore;
 use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
 use runne_platform_ports::provider_credential_broker::VerifiedWriterLaunchSpec;
 use runne_platform_ports::provider_credential_prompt::CredentialPipeBytes;
+#[cfg(target_os = "linux")]
 use rustix::pipe::{PipeFlags, pipe_with};
+#[cfg(target_os = "linux")]
 use sha2::{Digest, Sha256};
 
 use super::{RetainedWriterProcess, WriterProcessEvidence, writer_command};
@@ -143,10 +145,16 @@ pub fn configure_unix_writer_channels(
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 pub(super) fn secret_pipe() -> Result<(File, File), BrokerHandoffError> {
     let (read, write) =
         pipe_with(PipeFlags::CLOEXEC).map_err(|_| BrokerHandoffError::Unavailable)?;
     Ok((File::from(read), File::from(write)))
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(super) fn secret_pipe() -> Result<(File, File), BrokerHandoffError> {
+    Err(BrokerHandoffError::Unavailable)
 }
 
 /// Exact desktop-held Unix child. The `Child` remains the only kill/reap target.

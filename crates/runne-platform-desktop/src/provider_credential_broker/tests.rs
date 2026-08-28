@@ -122,7 +122,7 @@ fn writer_command_clears_environment_and_uses_only_the_fixed_mode() {
     assert_eq!(command.get_envs().count(), 0);
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[test]
 fn writer_command_binds_control_and_secret_to_fixed_inherited_descriptors() {
     use std::os::unix::fs::PermissionsExt as _;
@@ -161,7 +161,7 @@ fn writer_command_binds_control_and_secret_to_fixed_inherited_descriptors() {
     assert!(child.wait().unwrap().success());
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[test]
 fn writer_control_rejects_oversized_response_before_reading() {
     let (mut endpoints, _child_channels) = UnixWriterBrokerEndpoints::pair().unwrap();
@@ -172,7 +172,36 @@ fn writer_control_rejects_oversized_response_before_reading() {
     );
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
+#[test]
+fn secret_pipe_marks_both_endpoints_close_on_exec() {
+    use rustix::io::{FdFlags, fcntl_getfd};
+    use std::os::fd::AsFd as _;
+
+    let (read, write) = super::unix::secret_pipe().unwrap();
+
+    assert!(
+        fcntl_getfd(read.as_fd())
+            .unwrap()
+            .contains(FdFlags::CLOEXEC)
+    );
+    assert!(
+        fcntl_getfd(write.as_fd())
+            .unwrap()
+            .contains(FdFlags::CLOEXEC)
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn secret_pipe_fails_closed_without_an_atomic_close_on_exec_primitive() {
+    assert!(matches!(
+        super::unix::secret_pipe(),
+        Err(BrokerHandoffError::Unavailable)
+    ));
+}
+
+#[cfg(target_os = "linux")]
 #[test]
 fn unix_handoff_transfers_only_control_and_consumes_its_local_endpoint() {
     use runne_api::{CredentialBrokerTransferAuthenticator, LaunchSecret};
@@ -216,7 +245,7 @@ fn unix_handoff_transfers_only_control_and_consumes_its_local_endpoint() {
     );
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[test]
 fn unix_handoff_rejects_an_untrusted_receiver_before_consuming_control() {
     use runne_api::{CredentialBrokerTransferAuthenticator, LaunchSecret};
