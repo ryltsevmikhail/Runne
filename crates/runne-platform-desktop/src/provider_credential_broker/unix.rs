@@ -31,6 +31,11 @@ impl UnixRetainedWriterProcess {
             start_identity,
         })
     }
+
+    #[cfg(target_os = "macos")]
+    pub(super) const fn pid(&self) -> libc::pid_t {
+        self.pid
+    }
 }
 
 impl RetainedWriterProcess for UnixRetainedWriterProcess {

@@ -10,13 +10,14 @@ use runne_platform_ports::provider_credential_broker::{
     BrokerHandoffError, VerifiedWriterLaunchSpec,
 };
 
-use super::UnixRetainedWriterProcess;
+use super::{UnixRetainedWriterProcess, macos_writer_admission::RetainedMacOsWriterImage};
 
 pub(super) fn spawn_macos_prepared_writer(
     spec: &VerifiedWriterLaunchSpec,
+    image: &RetainedMacOsWriterImage,
     transport: UnixStream,
 ) -> Result<UnixRetainedWriterProcess, BrokerHandoffError> {
-    let executable = CString::new(spec.executable().as_os_str().as_bytes())
+    let executable = CString::new(image.path().as_os_str().as_bytes())
         .map_err(|_| BrokerHandoffError::Rejected)?;
     let mode = CString::new(spec.arguments()[0]).map_err(|_| BrokerHandoffError::Rejected)?;
     let mut actions = PosixSpawnFileActions::init().map_err(|_| BrokerHandoffError::Unavailable)?;

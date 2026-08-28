@@ -49,7 +49,7 @@ fn prepared_daemon_endpoint_reaches_the_fixed_writer_without_tauri_receiving_it(
         publication_key,
     )
     .unwrap();
-    let mut process = spawn_unix_writer_from_prepared_daemon_handoff(&spec, prepared).unwrap();
+    let mut process = unix_daemon::spawn_test_macos_prepared_writer(&spec, prepared).unwrap();
 
     sender_thread.join().unwrap().unwrap();
     process.reap_retained_child().unwrap();
@@ -91,7 +91,7 @@ fn prepared_writer_does_not_inherit_a_non_close_on_exec_sentinel_fd() {
         prepare_daemon_owned_writer_endpoint_handoff(receiver, &authenticator, [1; 32], [2; 32])
             .unwrap();
 
-    let mut process = spawn_unix_writer_from_prepared_daemon_handoff(&spec, prepared).unwrap();
+    let mut process = unix_daemon::spawn_test_macos_prepared_writer(&spec, prepared).unwrap();
 
     process.reap_retained_child().unwrap();
     assert!(marker.exists());

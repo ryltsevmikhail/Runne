@@ -37,11 +37,21 @@ pub struct UnixReceivedDaemonWriterEndpoint {
 pub struct PreparedDaemonWriterEndpointHandoff {
     transport: UnixStream,
     challenge: [u8; CHALLENGE_BYTES],
+    channel_binding: [u8; 32],
+    publication_public_key: [u8; 32],
 }
 
 impl PreparedDaemonWriterEndpointHandoff {
-    pub(super) fn into_parts(self) -> (UnixStream, [u8; CHALLENGE_BYTES]) {
+    pub(super) fn into_receive_parts(self) -> (UnixStream, [u8; CHALLENGE_BYTES]) {
         (self.transport, self.challenge)
+    }
+
+    pub(super) fn into_spawn_parts(self) -> (UnixStream, [u8; 32], [u8; 32]) {
+        (
+            self.transport,
+            self.channel_binding,
+            self.publication_public_key,
+        )
     }
 }
 
@@ -129,7 +139,7 @@ pub fn receive_daemon_owned_writer_endpoint(
         expected_binding,
         expected_publication_public_key,
     )?;
-    let (mut transport, challenge) = prepared.into_parts();
+    let (mut transport, challenge) = prepared.into_receive_parts();
     let (frame, descriptor) = receive_descriptor::<FRAME_BYTES>(&mut transport)?;
     let response_proof: [u8; 32] = frame[RESPONSE_BYTES..]
         .try_into()
@@ -188,6 +198,8 @@ pub fn prepare_daemon_owned_writer_endpoint_handoff(
     Ok(PreparedDaemonWriterEndpointHandoff {
         transport,
         challenge,
+        channel_binding: expected_binding,
+        publication_public_key: expected_publication_public_key,
     })
 }
 

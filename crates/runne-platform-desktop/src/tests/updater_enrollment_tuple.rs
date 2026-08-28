@@ -249,7 +249,11 @@ fn macos_code_identity_is_tuple_bound_and_has_no_generic_launch_fallback() {
     .unwrap();
     let qualified = tuple.qualify(&target, &artifacts);
     assert!(qualified.verified_writer(writer.clone()).is_err());
-    assert!(qualified.verified_macos_writer(writer).is_ok());
+    let launch = qualified.verified_macos_writer(writer).unwrap();
+    assert_eq!(
+        launch.code_requirement(),
+        "identifier \"com.runne.writer\" and anchor apple generic and certificate leaf[subject.OU] = \"RUNNE12345\" and cdhash H\"1111111111111111111111111111111111111111\""
+    );
 
     let original: serde_json::Value = serde_json::to_value(&tuple).unwrap();
     let mut substituted = original.clone();

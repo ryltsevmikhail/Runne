@@ -4,7 +4,10 @@
 mod daemon_evidence;
 #[cfg(unix)]
 mod daemon_rendezvous;
+#[cfg(any(test, not(target_os = "macos")))]
 mod launch;
+#[cfg(target_os = "macos")]
+mod macos_writer_admission;
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
@@ -30,10 +33,15 @@ pub use daemon_rendezvous::{
     prepare_daemon_owned_writer_endpoint_handoff, receive_daemon_owned_writer_endpoint,
     send_daemon_owned_writer_endpoint,
 };
+#[cfg(not(target_os = "macos"))]
 pub use launch::writer_command;
+#[cfg(target_os = "macos")]
+pub use macos_writer_admission::VerifiedMacOsWriterProcess;
 #[cfg(unix)]
 pub use unix::UnixRetainedWriterProcess;
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
+pub use unix_daemon::spawn_macos_verified_writer_from_prepared_daemon_handoff;
+#[cfg(all(unix, not(target_os = "macos")))]
 pub use unix_daemon::spawn_unix_writer_from_prepared_daemon_handoff;
 
 /// Non-serializable process evidence accepted only after platform validation.
@@ -46,8 +54,30 @@ pub struct WriterProcessEvidence {
 }
 
 impl WriterProcessEvidence {
+    #[cfg(target_os = "macos")]
+    fn from_verified_macos_writer(
+        start: [u8; 32],
+        image: [u8; 32],
+        release_tuple: [u8; 32],
+        channel: [u8; 32],
+        publication_public_key: [u8; 32],
+    ) -> Result<Self, BrokerHandoffError> {
+        Self::new_daemon_bound(start, image, release_tuple, channel, publication_public_key)
+    }
+
     #[cfg(all(unix, test))]
     pub(crate) fn from_daemon_owned_writer(
+        start: [u8; 32],
+        image: [u8; 32],
+        release_tuple: [u8; 32],
+        channel: [u8; 32],
+        publication_public_key: [u8; 32],
+    ) -> Result<Self, BrokerHandoffError> {
+        Self::new_daemon_bound(start, image, release_tuple, channel, publication_public_key)
+    }
+
+    #[cfg(any(target_os = "macos", all(unix, test)))]
+    fn new_daemon_bound(
         start: [u8; 32],
         image: [u8; 32],
         release_tuple: [u8; 32],
@@ -255,6 +285,9 @@ mod tests_daemon_rendezvous;
 #[cfg(test)]
 #[path = "provider_credential_broker/tests_macos_descriptor_gate.rs"]
 mod tests_macos_descriptor_gate;
+#[cfg(test)]
+#[path = "provider_credential_broker/tests_macos_writer_admission.rs"]
+mod tests_macos_writer_admission;
 #[cfg(test)]
 #[path = "provider_credential_broker/tests_prepared_daemon_rendezvous.rs"]
 mod tests_prepared_daemon_rendezvous;

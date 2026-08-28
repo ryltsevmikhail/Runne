@@ -57,27 +57,30 @@ impl MacOsWriterCodeIdentityV1 {
 }
 
 /// Opaque macOS launch admitted by one signed release tuple.
-#[expect(
-    dead_code,
-    reason = "the live SecCode admission slice consumes this opaque launch"
-)]
 pub struct VerifiedMacOsWriterLaunch {
     launch: VerifiedWriterLaunchSpec,
-    identity: MacOsWriterCodeIdentityV1,
+    code_requirement: String,
 }
 
-#[expect(
-    dead_code,
-    reason = "the live SecCode admission slice consumes this opaque launch"
-)]
 impl VerifiedMacOsWriterLaunch {
-    pub(super) const fn new(
+    pub(super) fn new(
         artifact: VerifiedWriterArtifact,
-        identity: MacOsWriterCodeIdentityV1,
+        identity: &MacOsWriterCodeIdentityV1,
     ) -> Self {
         Self {
             launch: VerifiedWriterLaunchSpec::new(artifact),
-            identity,
+            code_requirement: identity.requirement(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn test_only(
+        artifact: VerifiedWriterArtifact,
+        code_requirement: String,
+    ) -> Self {
+        Self {
+            launch: VerifiedWriterLaunchSpec::new(artifact),
+            code_requirement,
         }
     }
 
@@ -86,7 +89,15 @@ impl VerifiedMacOsWriterLaunch {
     }
 
     pub(crate) fn code_requirement(&self) -> String {
-        self.identity.requirement()
+        self.code_requirement.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_test_requirement(&self, code_requirement: &str) -> Self {
+        Self {
+            launch: self.launch.clone(),
+            code_requirement: code_requirement.to_owned(),
+        }
     }
 }
 

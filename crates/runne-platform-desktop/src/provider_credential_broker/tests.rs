@@ -89,7 +89,7 @@ fn writer_command_clears_environment_and_uses_only_the_fixed_mode() {
     let spec =
         runne_platform_ports::provider_credential_broker::VerifiedWriterLaunchSpec::new(artifact);
 
-    let command = writer_command(&spec);
+    let command = launch::writer_command(&spec);
 
     assert_eq!(command.get_program(), "/bundle/runne");
     assert_eq!(

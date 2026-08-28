@@ -4202,6 +4202,7 @@ dependencies = [
  "runne-runtime-client",
  "runne-windows-native-handle",
  "rustix",
+ "security-framework",
  "serde",
  "serde_json",
  "sha2",

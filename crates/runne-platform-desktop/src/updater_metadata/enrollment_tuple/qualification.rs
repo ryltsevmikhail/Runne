@@ -44,7 +44,7 @@ impl NativeEnrollmentQualification {
             .clone()
             .ok_or(VerifiedWriterArtifactError::Rejected)?;
         let artifact = verified_writer_artifact(binding, executable)?;
-        Ok(VerifiedMacOsWriterLaunch::new(artifact, identity))
+        Ok(VerifiedMacOsWriterLaunch::new(artifact, &identity))
     }
 }
 
