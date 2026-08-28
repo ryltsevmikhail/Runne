@@ -17,6 +17,7 @@ pub struct CredentialVerificationContext {
     lifecycle: CredentialLifecycleSnapshot,
     active_binding_digest: CredentialBindingDigest,
     release_tuple_digest: CredentialBindingDigest,
+    observed_at_high_water: i64,
 }
 
 impl CredentialVerificationContext {
@@ -30,7 +31,11 @@ impl CredentialVerificationContext {
         lifecycle: CredentialLifecycleSnapshot,
         active_binding_digest: CredentialBindingDigest,
         release_tuple_digest: CredentialBindingDigest,
+        observed_at_high_water: i64,
     ) -> Result<Self, CredentialEnrollmentError> {
+        if observed_at_high_water < 0 {
+            return Err(CredentialEnrollmentError::InvalidInput);
+        }
         let active = lifecycle
             .active_version()
             .ok_or(CredentialEnrollmentError::InvalidInput)?;
@@ -42,6 +47,7 @@ impl CredentialVerificationContext {
             lifecycle,
             active_binding_digest,
             release_tuple_digest,
+            observed_at_high_water,
         })
     }
 
@@ -88,6 +94,12 @@ impl CredentialVerificationContext {
     #[must_use]
     pub const fn release_tuple_digest(&self) -> CredentialBindingDigest {
         self.release_tuple_digest
+    }
+
+    /// Returns the monotonic observation time bound to the readiness proof.
+    #[must_use]
+    pub const fn observed_at_high_water(&self) -> i64 {
+        self.observed_at_high_water
     }
 }
 

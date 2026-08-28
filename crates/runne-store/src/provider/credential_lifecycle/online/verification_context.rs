@@ -61,6 +61,7 @@ pub(super) fn load(
                 .map_err(|_| CredentialLifecycleError::CorruptState)?,
         )
         .map_err(|_| CredentialLifecycleError::CorruptState)?,
+        observed_at,
     )
     .map_err(|_| CredentialLifecycleError::CorruptState)
 }

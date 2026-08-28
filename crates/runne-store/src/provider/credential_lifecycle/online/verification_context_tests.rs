@@ -17,6 +17,7 @@ fn current_verification_context_binds_the_exact_ready_active_version_and_release
     assert_eq!(context.fence().get(), 2);
     assert_eq!(context.readiness_revision().get(), 2);
     assert_eq!(context.release_tuple_digest().as_bytes(), [92; 32]);
+    assert_eq!(context.observed_at_high_water(), 100);
 }
 
 #[test]
