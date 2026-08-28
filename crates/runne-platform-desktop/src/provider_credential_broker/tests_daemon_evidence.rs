@@ -5,6 +5,9 @@ use runne_platform_ports::provider_credential_broker::{
     VerifiedWriterArtifact, VerifiedWriterLaunchSpec,
 };
 
+use super::daemon_evidence::{
+    receive_daemon_owned_writer_evidence, send_daemon_owned_writer_evidence,
+};
 use super::*;
 
 #[cfg(unix)]

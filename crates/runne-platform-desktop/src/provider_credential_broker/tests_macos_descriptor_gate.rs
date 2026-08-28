@@ -3,10 +3,10 @@
 fn macos_descriptor_receive_fails_closed_before_receiving_a_descriptor() {
     let (mut receiver, mut sender) = std::os::unix::net::UnixStream::pair().unwrap();
     let (endpoint, _) = std::os::unix::net::UnixStream::pair().unwrap();
-    super::unix_transfer::send_descriptor(&mut sender, &endpoint, &[0; 160]).unwrap();
+    super::unix_descriptor::send_descriptor(&mut sender, &endpoint, &[0; 160]).unwrap();
 
     assert!(matches!(
-        super::unix_transfer::receive_descriptor::<160>(&mut receiver),
+        super::unix_descriptor::receive_descriptor::<160>(&mut receiver),
         Err(runne_platform_ports::provider_credential_broker::BrokerHandoffError::Unavailable)
     ));
 }

@@ -30,7 +30,7 @@ libc = "0.2"
 rustix = { version = "=1.1.4", features = ["fs", "net", "pipe", "process"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-nix = { version = "=0.31.3", default-features = false, features = ["socket"] }
+nix = { version = "=0.31.3", default-features = false, features = ["fs", "process", "signal", "socket", "term"] }
 runne-macos-process-identity = { path = "../runne-macos-process-identity" }
 
 [target.'cfg(windows)'.dependencies]

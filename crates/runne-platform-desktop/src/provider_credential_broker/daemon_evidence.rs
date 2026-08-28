@@ -22,7 +22,7 @@ const RESPONSE_TAG: &[u8] = b"gocode/provider-credential-broker/daemon-evidence/
 /// # Errors
 ///
 /// Returns a closed failure when the challenge, binding, evidence, or proof is invalid.
-pub fn send_daemon_owned_writer_evidence(
+pub(super) fn send_daemon_owned_writer_evidence(
     mut transport: UnixStream,
     authenticator: &CredentialBrokerTransferAuthenticator,
     evidence: &WriterProcessEvidence,
@@ -70,7 +70,7 @@ pub fn send_daemon_owned_writer_evidence(
 /// # Errors
 ///
 /// Returns a closed failure when the challenge, frame, evidence, or proof is invalid.
-pub fn receive_daemon_owned_writer_evidence(
+pub(super) fn receive_daemon_owned_writer_evidence(
     mut transport: UnixStream,
     authenticator: &CredentialBrokerTransferAuthenticator,
     expected_channel: [u8; 32],

@@ -1,6 +1,6 @@
 //! Desktop-owned broker handoff and exact child cleanup.
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 mod daemon_evidence;
 #[cfg(unix)]
 mod daemon_rendezvous;
@@ -9,8 +9,10 @@ mod launch;
 mod unix;
 #[cfg(unix)]
 mod unix_daemon;
+#[cfg(target_os = "macos")]
+mod unix_daemon_macos;
 #[cfg(unix)]
-mod unix_transfer;
+mod unix_descriptor;
 
 use std::fmt;
 
@@ -19,30 +21,20 @@ use runne_platform_ports::provider_credential_broker::{
     WriterOwnershipState,
 };
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 type DaemonHandoffDigests = ([u8; 32], [u8; 32], [u8; 32], [u8; 32], [u8; 32]);
 
 #[cfg(unix)]
-pub use daemon_evidence::{
-    receive_daemon_owned_writer_evidence, send_daemon_owned_writer_evidence,
-};
-#[cfg(unix)]
 pub use daemon_rendezvous::{
-    UnixReceivedDaemonWriterEndpoint, receive_daemon_owned_writer_endpoint,
+    PreparedDaemonWriterEndpointHandoff, UnixReceivedDaemonWriterEndpoint,
+    prepare_daemon_owned_writer_endpoint_handoff, receive_daemon_owned_writer_endpoint,
     send_daemon_owned_writer_endpoint,
 };
 pub use launch::writer_command;
 #[cfg(unix)]
-pub use unix::{
-    UnixRetainedWriterProcess, UnixWriterBrokerEndpoints, configure_unix_writer_channels,
-    spawn_unix_writer,
-};
+pub use unix::UnixRetainedWriterProcess;
 #[cfg(unix)]
-pub use unix_daemon::spawn_unix_writer_from_daemon_endpoint;
-#[cfg(unix)]
-pub use unix_transfer::{
-    UnixReceivedWriterControl, receive_unix_writer_control, transfer_unix_writer_control,
-};
+pub use unix_daemon::spawn_unix_writer_from_prepared_daemon_handoff;
 
 /// Non-serializable process evidence accepted only after platform validation.
 pub struct WriterProcessEvidence {
@@ -54,26 +46,7 @@ pub struct WriterProcessEvidence {
 }
 
 impl WriterProcessEvidence {
-    #[cfg(unix)]
-    pub(crate) fn from_native_writer(
-        start: [u8; 32],
-        image: [u8; 32],
-        channel: [u8; 32],
-    ) -> Result<Self, BrokerHandoffError> {
-        let evidence = Self {
-            start,
-            image,
-            channel,
-            release_tuple: None,
-            publication_public_key: None,
-        };
-        evidence
-            .is_complete()
-            .then_some(evidence)
-            .ok_or(BrokerHandoffError::Rejected)
-    }
-
-    #[cfg(unix)]
+    #[cfg(all(unix, test))]
     pub(crate) fn from_daemon_owned_writer(
         start: [u8; 32],
         image: [u8; 32],
@@ -136,11 +109,7 @@ impl WriterProcessEvidence {
                 .is_some_and(|public_key| public_key != [0; 32])
     }
 
-    pub(crate) const fn handoff_digests(&self) -> ([u8; 32], [u8; 32], [u8; 32]) {
-        (self.start, self.image, self.channel)
-    }
-
-    #[cfg(unix)]
+    #[cfg(all(unix, test))]
     pub(crate) fn daemon_handoff_digests(&self) -> Option<DaemonHandoffDigests> {
         match (self.release_tuple, self.publication_public_key) {
             (Some(release_tuple), Some(publication_public_key)) if self.is_daemon_bound() => {
@@ -287,5 +256,11 @@ mod tests_daemon_rendezvous;
 #[path = "provider_credential_broker/tests_macos_descriptor_gate.rs"]
 mod tests_macos_descriptor_gate;
 #[cfg(test)]
+#[path = "provider_credential_broker/tests_prepared_daemon_rendezvous.rs"]
+mod tests_prepared_daemon_rendezvous;
+#[cfg(test)]
 #[path = "provider_credential_broker/tests_protocol_tags.rs"]
 mod tests_protocol_tags;
+#[cfg(test)]
+#[path = "provider_credential_broker/tests_unix_descriptor.rs"]
+mod tests_unix_descriptor;

@@ -8,7 +8,7 @@ use rand::{RngCore, rngs::OsRng};
 use runne_api::CredentialBrokerTransferAuthenticator;
 use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
 
-use super::unix_transfer::{receive_descriptor, send_descriptor};
+use super::unix_descriptor::{receive_descriptor, send_descriptor};
 
 const CHALLENGE_BYTES: usize = 96;
 const RESPONSE_BYTES: usize = CHALLENGE_BYTES + 32;
@@ -19,12 +19,30 @@ const RESPONSE_TAG: &[u8] = b"gocode/provider-credential-broker/daemon-endpoint/
 
 /// Writer endpoint authenticated as originating from the protected daemon.
 ///
-/// It has no public stream accessor. The platform launcher may only move it to
-/// the fixed writer's inherited control descriptor.
+/// It has no public stream accessor. It remains a Linux-only protocol-test
+/// primitive; it is not a writer launch input.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub struct UnixReceivedDaemonWriterEndpoint {
     control: UnixStream,
     channel_binding: [u8; 32],
     publication_public_key: [u8; 32],
+}
+
+/// A prepared one-shot handoff transport for one fixed writer.
+///
+/// Tauri only sends an authenticated outbound challenge and closes its write
+/// half. It does not observe or authenticate the daemon's later response. The
+/// opaque transport can be consumed once by the fixed writer launcher before
+/// that writer creates any threads.
+pub struct PreparedDaemonWriterEndpointHandoff {
+    transport: UnixStream,
+    challenge: [u8; CHALLENGE_BYTES],
+}
+
+impl PreparedDaemonWriterEndpointHandoff {
+    pub(super) fn into_parts(self) -> (UnixStream, [u8; CHALLENGE_BYTES]) {
+        (self.transport, self.challenge)
+    }
 }
 
 impl UnixReceivedDaemonWriterEndpoint {
@@ -38,6 +56,7 @@ impl UnixReceivedDaemonWriterEndpoint {
         self.publication_public_key
     }
 
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub(super) fn into_control(self) -> UnixStream {
         self.control
     }
@@ -69,7 +88,10 @@ pub fn send_daemon_owned_writer_endpoint(
         .try_into()
         .map_err(|_| BrokerHandoffError::Rejected)?;
     if challenge[..32] != expected_binding
-        || !authenticator.verifies_transfer(&transcript(CHALLENGE_TAG, &challenge[..64]), &proof)
+        || !authenticator.verifies_transfer(
+            &challenge_transcript(&challenge[..64], publication_public_key),
+            &proof,
+        )
     {
         return Err(BrokerHandoffError::Rejected);
     }
@@ -96,28 +118,19 @@ pub fn send_daemon_owned_writer_endpoint(
 /// Returns a closed failure when the binding, challenge, proof, or descriptor
 /// transfer is missing, altered, stale, or unavailable.
 pub fn receive_daemon_owned_writer_endpoint(
-    mut transport: UnixStream,
+    transport: UnixStream,
     authenticator: &CredentialBrokerTransferAuthenticator,
     expected_binding: [u8; 32],
     expected_publication_public_key: [u8; 32],
 ) -> Result<UnixReceivedDaemonWriterEndpoint, BrokerHandoffError> {
-    if expected_binding == [0; 32] || expected_publication_public_key == [0; 32] {
-        return Err(BrokerHandoffError::Rejected);
-    }
-    configure(&transport)?;
-    let mut challenge = [0; CHALLENGE_BYTES];
-    challenge[..32].copy_from_slice(&expected_binding);
-    OsRng
-        .try_fill_bytes(&mut challenge[32..64])
-        .map_err(|_| BrokerHandoffError::Unavailable)?;
-    let proof = authenticator.authenticate_transfer(&transcript(CHALLENGE_TAG, &challenge[..64]));
-    challenge[64..].copy_from_slice(&proof);
-    transport
-        .write_all(&challenge)
-        .and_then(|()| transport.shutdown(Shutdown::Write))
-        .map_err(|_| BrokerHandoffError::Rejected)?;
+    let prepared = prepare_daemon_owned_writer_endpoint_handoff(
+        transport,
+        authenticator,
+        expected_binding,
+        expected_publication_public_key,
+    )?;
+    let (mut transport, challenge) = prepared.into_parts();
     let (frame, descriptor) = receive_descriptor::<FRAME_BYTES>(&mut transport)?;
-    require_eof(&mut transport)?;
     let response_proof: [u8; 32] = frame[RESPONSE_BYTES..]
         .try_into()
         .map_err(|_| BrokerHandoffError::Rejected)?;
@@ -135,6 +148,53 @@ pub fn receive_daemon_owned_writer_endpoint(
         channel_binding: expected_binding,
         publication_public_key: expected_publication_public_key,
     })
+}
+
+/// Authenticates the one-shot challenge without receiving the daemon endpoint.
+///
+/// The resulting opaque transport is only suitable for direct inheritance by
+/// the fixed writer. Calling the full receiver instead remains unavailable on
+/// macOS because receiving a descriptor in the multithreaded desktop would
+/// require a racy post-receive close-on-exec operation.
+///
+/// # Errors
+///
+/// Returns a closed failure when the expected binding/key are absent or the
+/// authenticated challenge cannot be written and half-closed exactly once.
+pub fn prepare_daemon_owned_writer_endpoint_handoff(
+    mut transport: UnixStream,
+    authenticator: &CredentialBrokerTransferAuthenticator,
+    expected_binding: [u8; 32],
+    expected_publication_public_key: [u8; 32],
+) -> Result<PreparedDaemonWriterEndpointHandoff, BrokerHandoffError> {
+    if expected_binding == [0; 32] || expected_publication_public_key == [0; 32] {
+        return Err(BrokerHandoffError::Rejected);
+    }
+    configure(&transport)?;
+    let mut challenge = [0; CHALLENGE_BYTES];
+    challenge[..32].copy_from_slice(&expected_binding);
+    OsRng
+        .try_fill_bytes(&mut challenge[32..64])
+        .map_err(|_| BrokerHandoffError::Unavailable)?;
+    let proof = authenticator.authenticate_transfer(&challenge_transcript(
+        &challenge[..64],
+        expected_publication_public_key,
+    ));
+    challenge[64..].copy_from_slice(&proof);
+    transport
+        .write_all(&challenge)
+        .and_then(|()| transport.shutdown(Shutdown::Write))
+        .map_err(|_| BrokerHandoffError::Rejected)?;
+    Ok(PreparedDaemonWriterEndpointHandoff {
+        transport,
+        challenge,
+    })
+}
+
+fn challenge_transcript(challenge: &[u8], publication_public_key: [u8; 32]) -> Vec<u8> {
+    let mut result = transcript(CHALLENGE_TAG, challenge);
+    result.extend_from_slice(&publication_public_key);
+    result
 }
 
 fn configure(transport: &UnixStream) -> Result<(), BrokerHandoffError> {
