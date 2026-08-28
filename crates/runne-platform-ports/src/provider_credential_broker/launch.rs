@@ -1,8 +1,11 @@
 use std::path::Path;
 
-use runne_provider::PROVIDER_CREDENTIAL_BROKER_MODE_V1;
-
 use super::VerifiedWriterArtifact;
+
+// This opaque, non-secret wire token is duplicated at the platform boundary so
+// this domain-neutral port does not depend on provider implementation code.
+// Any different argv remains impossible because `arguments` has no inputs.
+const PROVIDER_CREDENTIAL_BROKER_MODE_V1: &str = "__provider-credential-broker-v1";
 
 /// Exact non-secret invocation of the packaged one-shot credential writer.
 ///

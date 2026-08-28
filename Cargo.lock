@@ -4212,7 +4212,6 @@ dependencies = [
 name = "runne-platform-ports"
 version = "0.1.0"
 dependencies = [
- "runne-provider",
  "zeroize",
 ]
 
