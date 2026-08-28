@@ -57,6 +57,7 @@ fn command_binding(
     let mut hasher = Sha256::new();
     hasher.update(VERIFY_COMMAND_DOMAIN);
     push(&mut hasher, command.command_identity().as_bytes());
+    push(&mut hasher, command.native_intent_id().as_bytes());
     push(&mut hasher, context.command_id.as_bytes());
     push(&mut hasher, context.idempotency_key.as_str().as_bytes());
     hasher.finalize().into()

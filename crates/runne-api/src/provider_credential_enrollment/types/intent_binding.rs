@@ -59,6 +59,7 @@ fn command_binding(
     hasher.update(COMMAND_BINDING_DOMAIN);
     push(&mut hasher, command.command_identity().as_bytes());
     push(&mut hasher, command.idempotency_key().as_bytes());
+    push(&mut hasher, command.native_intent_id().as_bytes());
     push(&mut hasher, context.command_id.as_bytes());
     push(&mut hasher, context.idempotency_key.as_str().as_bytes());
     hasher.finalize().into()
