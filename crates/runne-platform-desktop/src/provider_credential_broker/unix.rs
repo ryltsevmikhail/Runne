@@ -20,15 +20,15 @@ const MAX_CONTROL_FRAME_BYTES: usize = 4 * 1024;
 /// The control endpoint is retained for authenticated daemon handoff. The
 /// secret pipe has a single write operation and is closed immediately after it.
 pub struct UnixWriterBrokerEndpoints {
-    control: Option<UnixStream>,
-    secret: Option<File>,
-    channel_binding: [u8; 32],
+    pub(super) control: Option<UnixStream>,
+    pub(super) secret: Option<File>,
+    pub(super) channel_binding: [u8; 32],
 }
 
 /// Private child-side handles consumed while configuring the exact writer.
 pub struct UnixWriterChildChannels {
-    control: UnixStream,
-    secret: File,
+    pub(super) control: UnixStream,
+    pub(super) secret: File,
 }
 
 impl UnixWriterBrokerEndpoints {
@@ -143,7 +143,7 @@ pub fn configure_unix_writer_channels(
     Ok(())
 }
 
-fn secret_pipe() -> Result<(File, File), BrokerHandoffError> {
+pub(super) fn secret_pipe() -> Result<(File, File), BrokerHandoffError> {
     let (read, write) =
         pipe_with(PipeFlags::CLOEXEC).map_err(|_| BrokerHandoffError::Unavailable)?;
     Ok((File::from(read), File::from(write)))
@@ -156,7 +156,7 @@ pub struct UnixRetainedWriterProcess {
 }
 
 impl UnixRetainedWriterProcess {
-    fn from_spawned(mut child: Child) -> Result<Self, BrokerHandoffError> {
+    pub(super) fn from_spawned(mut child: Child) -> Result<Self, BrokerHandoffError> {
         let start_identity = match observed_start_identity(child.id()) {
             Ok(identity) => identity,
             Err(error) => {

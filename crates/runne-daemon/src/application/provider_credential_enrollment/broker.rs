@@ -13,6 +13,8 @@ use zeroize::Zeroizing;
 use super::effect_authority::map_store;
 
 pub(crate) mod issue;
+#[cfg(unix)]
+mod rendezvous;
 #[cfg(all(unix, feature = "desktop-protected"))]
 mod unix;
 

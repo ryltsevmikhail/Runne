@@ -108,7 +108,7 @@ pub fn receive_unix_writer_control(
     transport
         .write_all(&challenge)
         .map_err(|_| BrokerHandoffError::Rejected)?;
-    let (frame, descriptor) = receive_descriptor(transport)?;
+    let (frame, descriptor) = receive_descriptor::<FRAME_BYTES>(transport)?;
     let mut record = [0; RECORD_BYTES];
     record.copy_from_slice(&frame[..RECORD_BYTES]);
     let proof =
@@ -138,10 +138,10 @@ fn configure(stream: &UnixStream) -> Result<(), BrokerHandoffError> {
         .map_err(|_| BrokerHandoffError::Unavailable)
 }
 
-fn send_descriptor(
+pub(super) fn send_descriptor<const FRAME_SIZE: usize>(
     transport: &mut UnixStream,
     control_endpoint: &UnixStream,
-    frame: &[u8; FRAME_BYTES],
+    frame: &[u8; FRAME_SIZE],
 ) -> Result<(), BrokerHandoffError> {
     let descriptors = [control_endpoint.as_fd()];
     let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
@@ -161,10 +161,10 @@ fn send_descriptor(
         .ok_or(BrokerHandoffError::Unavailable)
 }
 
-fn receive_descriptor(
+pub(super) fn receive_descriptor<const FRAME_SIZE: usize>(
     transport: &mut UnixStream,
-) -> Result<([u8; FRAME_BYTES], OwnedFd), BrokerHandoffError> {
-    let mut frame = [0; FRAME_BYTES];
+) -> Result<([u8; FRAME_SIZE], OwnedFd), BrokerHandoffError> {
+    let mut frame = [0; FRAME_SIZE];
     let mut iov = [IoSliceMut::new(&mut frame)];
     let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
     let mut ancillary = RecvAncillaryBuffer::new(&mut space);

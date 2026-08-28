@@ -1,8 +1,12 @@
 //! Desktop-owned broker handoff and exact child cleanup.
 
+#[cfg(unix)]
+mod daemon_rendezvous;
 mod launch;
 #[cfg(unix)]
 mod unix;
+#[cfg(unix)]
+mod unix_daemon;
 #[cfg(unix)]
 mod unix_transfer;
 
@@ -12,12 +16,19 @@ use runne_platform_ports::provider_credential_broker::{
     BrokerHandoffError, ProviderCredentialBrokerPort, WriterOwnership, WriterOwnershipState,
 };
 
+#[cfg(unix)]
+pub use daemon_rendezvous::{
+    UnixReceivedDaemonWriterEndpoint, receive_daemon_owned_writer_endpoint,
+    send_daemon_owned_writer_endpoint,
+};
 pub use launch::writer_command;
 #[cfg(unix)]
 pub use unix::{
     UnixRetainedWriterProcess, UnixWriterBrokerEndpoints, configure_unix_writer_channels,
     spawn_unix_writer,
 };
+#[cfg(unix)]
+pub use unix_daemon::spawn_unix_writer_from_daemon_endpoint;
 #[cfg(unix)]
 pub use unix_transfer::{
     UnixReceivedWriterControl, receive_unix_writer_control, transfer_unix_writer_control,
@@ -174,3 +185,6 @@ impl<P: RetainedWriterProcess> ProviderCredentialBrokerPort for PlatformCredenti
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+#[path = "provider_credential_broker/tests_daemon_rendezvous.rs"]
+mod tests_daemon_rendezvous;
