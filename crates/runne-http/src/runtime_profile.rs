@@ -13,6 +13,23 @@ use runne_api::ProviderStatusSnapshotV1;
 use runne_application::local_session::AuthenticatedRuntimeSession;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
+
+#[derive(Clone)]
+enum ProviderStatuses {
+    Static(Vec<ProviderStatusSnapshotV1>),
+    Dynamic(Arc<dyn Fn() -> Vec<ProviderStatusSnapshotV1> + Send + Sync>),
+}
+
+impl ProviderStatuses {
+    fn current(&self) -> Vec<ProviderStatusSnapshotV1> {
+        match self {
+            Self::Static(statuses) => statuses.clone(),
+            Self::Dynamic(provider) => provider(),
+        }
+    }
+}
+
 /// Immutable exact profile advertised by the running daemon.
 #[derive(Clone)]
 pub struct RuntimeProfileHttpState {
@@ -20,7 +37,7 @@ pub struct RuntimeProfileHttpState {
     schema_hash: &'static str,
     runtime_version: &'static str,
     capabilities: &'static [&'static str],
-    provider_statuses: Vec<ProviderStatusSnapshotV1>,
+    provider_statuses: ProviderStatuses,
 }
 
 impl RuntimeProfileHttpState {
@@ -36,13 +53,23 @@ impl RuntimeProfileHttpState {
             schema_hash,
             runtime_version,
             capabilities,
-            provider_statuses: Vec::new(),
+            provider_statuses: ProviderStatuses::Static(Vec::new()),
         }
     }
 
     #[must_use]
     pub fn with_provider_statuses(mut self, statuses: Vec<ProviderStatusSnapshotV1>) -> Self {
-        self.provider_statuses = statuses;
+        self.provider_statuses = ProviderStatuses::Static(statuses);
+        self
+    }
+
+    /// Reads provider status on each profile request without changing profile identity.
+    #[must_use]
+    pub fn with_dynamic_provider_statuses(
+        mut self,
+        statuses: Arc<dyn Fn() -> Vec<ProviderStatusSnapshotV1> + Send + Sync>,
+    ) -> Self {
+        self.provider_statuses = ProviderStatuses::Dynamic(statuses);
         self
     }
 }
@@ -91,7 +118,7 @@ pub fn runtime_profile_router(state: RuntimeProfileHttpState) -> Router {
                 schema_hash: state.schema_hash,
                 runtime_version: state.runtime_version,
                 capabilities: state.capabilities,
-                provider_statuses: state.provider_statuses,
+                provider_statuses: state.provider_statuses.current(),
             })
         }),
     )
@@ -130,7 +157,7 @@ async fn session_runtime_profile(
         authorization_epoch: ephemeral.authorization_epoch(),
         sensitivity_ceiling: sensitivity_label(ephemeral.sensitivity_ceiling()).to_owned(),
         certificate_sha256: hex::encode(session.binding.certificate_sha256()),
-        provider_statuses: state.provider_statuses,
+        provider_statuses: state.provider_statuses.current(),
     })
     .into_response()
 }

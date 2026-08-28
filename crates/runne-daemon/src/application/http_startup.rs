@@ -165,6 +165,26 @@ pub(super) async fn start_http_and_runtime(
     );
     #[cfg(feature = "desktop-protected")]
     let root_control = command_hosts.root_control.clone();
+    let runtime_profile_state = RuntimeProfileHttpState::new(
+        runne_runtime::bundle::BUNDLE_ID,
+        runne_runtime::bundle::PUBLISHED_BUNDLE_HASH,
+        env!("CARGO_PKG_VERSION"),
+        runtime_capabilities,
+    );
+    let runtime_profile_state = match provider_service.clone() {
+        Some(service) => {
+            let activation = provider_activation.clone();
+            runtime_profile_state.with_dynamic_provider_statuses(Arc::new(move || {
+                super::provider_status::provider_statuses(
+                    &activation,
+                    service.current_provider_readiness(),
+                )
+            }))
+        }
+        None => runtime_profile_state.with_provider_statuses(
+            super::provider_status::provider_statuses(&provider_activation, provider_readiness),
+        ),
+    };
     let http_host = LocalRuntimeTlsHost::bind_with_project_workspace_and_command_reconciliation(
         &config.http_bind,
         Arc::clone(bootstrap.launch_identity.server_config()),
@@ -176,16 +196,7 @@ pub(super) async fn start_http_and_runtime(
         binding.clone(),
         protected_activation,
         Arc::clone(&session_clock),
-        RuntimeProfileHttpState::new(
-            runne_runtime::bundle::BUNDLE_ID,
-            runne_runtime::bundle::PUBLISHED_BUNDLE_HASH,
-            env!("CARGO_PKG_VERSION"),
-            runtime_capabilities,
-        )
-        .with_provider_statuses(super::provider_status::provider_statuses(
-            &provider_activation,
-            provider_readiness,
-        )),
+        runtime_profile_state,
         TaskRunHttpState::new(task_run_host, actor.clone()),
         ConversationHttpState::new(conversation_host, actor.clone()),
         runne_http::project_workspace::ProjectWorkspaceHttpState::new(
