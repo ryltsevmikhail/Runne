@@ -1,10 +1,11 @@
 use runne_domain::id::{CommandId, IdempotencyKey};
 use runne_provider::{
-    BeginCredentialOperation, BindCredentialReadback, CredentialFence,
-    CredentialInstallationOwnerId, CredentialLifecycleRevision, CredentialNativeEffectDisposition,
-    CredentialOperationAction, CredentialOperationState, CredentialReadbackDisposition,
-    CredentialReadinessDisposition, CredentialReadinessObservation, CredentialReadinessRevision,
-    CredentialVersionRef, ObserveNativeEffect, ProviderCredentialEnrollmentStore,
+    BeginCredentialOperation, BindCredentialReadback, ClaimCredentialOperation,
+    CompleteCredentialOperation, CredentialFence, CredentialInstallationOwnerId,
+    CredentialLifecycleRevision, CredentialNativeEffectDisposition, CredentialOperationAction,
+    CredentialOperationState, CredentialReadbackDisposition, CredentialReadinessDisposition,
+    CredentialReadinessObservation, CredentialReadinessRevision, CredentialVersionRef,
+    ObserveNativeEffect, ProviderCredentialEnrollmentStore,
 };
 
 use super::{
@@ -143,6 +144,110 @@ fn legacy_import_rolls_back_the_barrier_when_receipt_validation_rejects_readines
         |row| Ok((row.get(0)?, row.get(1)?)),
     ).unwrap();
     assert_eq!(persisted, (0, 0));
+}
+
+#[test]
+fn linked_legacy_cleanup_completes_without_reopening_the_consumed_barrier() {
+    let store = store();
+    ProviderCredentialEnrollmentStore::begin(&store, authorized_legacy_begin(&store)).unwrap();
+    issue_ticket(&store, ticket(60, 1, 61, 62)).unwrap();
+    ProviderCredentialEnrollmentStore::claim(
+        &store,
+        seal_claim(&store, claim(&store, 60, 1, 61, 62, 63)),
+    )
+    .unwrap();
+    ProviderCredentialEnrollmentStore::mark_native_effect_observed(
+        &store,
+        ObserveNativeEffect::new(
+            operation(60),
+            CredentialNativeEffectDisposition::PossibleEffect,
+        ),
+    )
+    .unwrap();
+    ProviderCredentialEnrollmentStore::bind_readback(
+        &store,
+        BindCredentialReadback::new(
+            operation(60),
+            CredentialReadbackDisposition::ExactVersion,
+            digest(65),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    ProviderCredentialEnrollmentStore::complete_with_receipt(&store, pair_completion(60)).unwrap();
+
+    let cleanup = store
+        .connection
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT legacy_cleanup_operation_id
+             FROM provider_credential_authority_heads WHERE provider_id='openai'",
+            [],
+            |row| row.get::<_, Vec<u8>>(0),
+        )
+        .unwrap();
+    let cleanup =
+        runne_provider::CredentialOperationId::from_bytes(cleanup.try_into().unwrap()).unwrap();
+    let issued = issue_ticket(
+        &store,
+        runne_provider::IssueCredentialTicketDigest::new(cleanup, digest(71), digest(72), 100)
+            .unwrap(),
+    )
+    .unwrap();
+    ProviderCredentialEnrollmentStore::claim(
+        &store,
+        seal_claim(
+            &store,
+            ClaimCredentialOperation::new(issued, digest(71), digest(72), digest(73), 1, 1)
+                .unwrap(),
+        ),
+    )
+    .unwrap();
+    ProviderCredentialEnrollmentStore::mark_native_effect_observed(
+        &store,
+        ObserveNativeEffect::new(cleanup, CredentialNativeEffectDisposition::PossibleEffect),
+    )
+    .unwrap();
+    let readback = BindCredentialReadback::new(
+        cleanup,
+        CredentialReadbackDisposition::ExactAbsence,
+        digest(74),
+    )
+    .unwrap();
+    ProviderCredentialEnrollmentStore::bind_readback(&store, readback).unwrap();
+    ProviderCredentialEnrollmentStore::complete_with_receipt(
+        &store,
+        CompleteCredentialOperation::new(
+            cleanup,
+            BindCredentialReadback::new(
+                cleanup,
+                CredentialReadbackDisposition::ExactAbsence,
+                digest(74),
+            )
+            .unwrap(),
+            CredentialLifecycleRevision::new(2).unwrap(),
+            CredentialFence::new(2).unwrap(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+
+    let persisted: (i64, i64, String) = store
+        .connection
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT head.legacy_import_consumed, head.legacy_cleanup_operation_id=?1, cleanup.state
+             FROM provider_credential_authority_heads AS head
+             JOIN provider_credential_operations AS cleanup
+               ON cleanup.operation_id=head.legacy_cleanup_operation_id
+             WHERE head.provider_id='openai'",
+            [cleanup.as_bytes().as_slice()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(persisted, (1, 1, "COMPLETED".to_owned()));
 }
 
 fn digest_from(version: &CredentialVersionRef) -> runne_provider::CredentialBindingDigest {
