@@ -215,7 +215,7 @@ fn provider_invariant_hard_fence_is_restart_closed() {
 }
 
 #[test]
-fn credential_online_migrate_legacy_is_deferred_without_head_mutation() {
+fn credential_online_migrate_legacy_is_closed_at_public_store_ingress() {
     let store = store();
     let provider = provider();
     let input = BeginCredentialOperation::new(

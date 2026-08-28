@@ -12,6 +12,8 @@ mod complete;
 mod completion_receipt;
 #[path = "online/head.rs"]
 mod head;
+#[path = "online/legacy_cutover.rs"]
+mod legacy_cutover;
 #[path = "online/readback.rs"]
 mod readback;
 #[path = "online/readiness_observation.rs"]
@@ -224,6 +226,9 @@ mod online_head_decoder_tests;
 #[cfg(test)]
 #[path = "online/legacy_cleanup_tests.rs"]
 mod online_legacy_cleanup_tests;
+#[cfg(test)]
+#[path = "online/legacy_cutover_tests.rs"]
+mod online_legacy_cutover_tests;
 #[cfg(test)]
 #[path = "online/migration_provenance_tests.rs"]
 mod online_migration_provenance_tests;

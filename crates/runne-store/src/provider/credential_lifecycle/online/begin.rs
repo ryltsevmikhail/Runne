@@ -34,6 +34,22 @@ pub(super) fn begin(
     store: &SqliteProviderCredentialLifecycleStore,
     input: BeginCredentialOperation,
 ) -> Result<BeginCredentialOperationOutcome, CredentialLifecycleError> {
+    begin_with_legacy_allowed(store, input, false)
+}
+
+#[cfg(test)]
+pub(super) fn begin_legacy_for_test(
+    store: &SqliteProviderCredentialLifecycleStore,
+    input: BeginCredentialOperation,
+) -> Result<BeginCredentialOperationOutcome, CredentialLifecycleError> {
+    begin_with_legacy_allowed(store, input, true)
+}
+
+fn begin_with_legacy_allowed(
+    store: &SqliteProviderCredentialLifecycleStore,
+    input: BeginCredentialOperation,
+    legacy_allowed: bool,
+) -> Result<BeginCredentialOperationOutcome, CredentialLifecycleError> {
     let qualified_release_tuple = input
         .qualified_release_tuple()
         .ok_or(CredentialLifecycleError::Conflict)?;
@@ -57,7 +73,7 @@ pub(super) fn begin(
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(map_sql)?;
-    if input.action() == CredentialOperationAction::MigrateLegacy {
+    if input.action() == CredentialOperationAction::MigrateLegacy && !legacy_allowed {
         return Err(CredentialLifecycleError::LifecycleClosed);
     }
     let now = (store.now)();

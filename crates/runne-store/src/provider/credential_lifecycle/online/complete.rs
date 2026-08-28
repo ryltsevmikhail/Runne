@@ -64,8 +64,14 @@ pub(super) fn complete(
         .validate_transition_command(&command)
         .map_err(|_| CredentialLifecycleError::Conflict)?;
     let head = ensure_head(&transaction, operation.provider())?;
+    if operation.action() == CredentialOperationAction::MigrateLegacy {
+        let result =
+            super::legacy_cutover::complete(&transaction, store, &operation, &input, &head)?;
+        transaction.commit().map_err(map_sql)?;
+        return Ok(result);
+    }
     match operation.action() {
-        CredentialOperationAction::Pair | CredentialOperationAction::MigrateLegacy => {
+        CredentialOperationAction::Pair => {
             if head.hard_fenced
                 || head.lifecycle != input.expected_lifecycle_revision().get() as i64
                 || head.fence != input.expected_prior_fence().get() as i64
