@@ -60,6 +60,16 @@ fn local_verification_reads_only_the_store_issued_exact_version_metadata() {
 }
 
 #[test]
+fn local_verification_records_missing_exact_version_as_failed() {
+    let reader = VersionStoreVerificationReadback::new(MissingVersionStore, access());
+
+    assert_eq!(
+        reader.verify_local(&local_verification_lease()).unwrap(),
+        CredentialVerificationResult::Failed
+    );
+}
+
+#[test]
 fn runned_cannot_call_writer() {
     let daemon_manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -73,6 +83,8 @@ fn runned_cannot_call_writer() {
 }
 
 struct ConfiguredVersionStore;
+
+struct MissingVersionStore;
 
 impl LegacyCredentialSourceReadback for ConfiguredVersionStore {
     fn legacy_source_status(
@@ -91,6 +103,40 @@ impl NativeProviderCredentialVersionStore for ConfiguredVersionStore {
         _access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialStatus, SecureStoreError> {
         Ok(ProviderCredentialStatus::Configured)
+    }
+
+    fn create_version(
+        &self,
+        _claim: CredentialNativeCreateClaim,
+        _credential: &ProviderCredentialMaterial,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
+        unreachable!()
+    }
+
+    fn load_version(
+        &self,
+        _capability: &CredentialDispatchCapability,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
+        unreachable!()
+    }
+
+    fn delete_version(
+        &self,
+        _claim: CredentialGcClaim,
+    ) -> Result<NativeCredentialDeletionProof, SecureStoreError> {
+        unreachable!()
+    }
+}
+
+impl NativeProviderCredentialVersionStore for MissingVersionStore {
+    fn version_status(
+        &self,
+        _reference: &CredentialVersionRef,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialStatus, SecureStoreError> {
+        Ok(ProviderCredentialStatus::Missing)
     }
 
     fn create_version(
