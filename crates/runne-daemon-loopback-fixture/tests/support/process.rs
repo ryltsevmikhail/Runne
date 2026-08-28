@@ -25,6 +25,11 @@ pub fn executable(name: &str, fixture_root: &Path) -> PathBuf {
     #[cfg(unix)]
     std::fs::set_permissions(&destination, std::fs::Permissions::from_mode(0o700))
         .expect("make copied fixture executable owner-private");
+    let writer = fixture_root.join("runne");
+    std::fs::copy(&source, &writer).expect("stage fixture-owned writer identity");
+    #[cfg(unix)]
+    std::fs::set_permissions(&writer, std::fs::Permissions::from_mode(0o700))
+        .expect("make fixture writer owner-private");
 
     destination
 }

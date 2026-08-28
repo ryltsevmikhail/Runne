@@ -2,15 +2,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use runne_domain::id::{CommandId, IdempotencyKey};
 use runne_provider::{
-    BeginCredentialOperation, BindCredentialReadback, ClaimCredentialOperation,
-    CompleteCredentialOperation, CredentialAuthorityPair, CredentialBindingDigest,
-    CredentialEnrollmentAuthorityPair, CredentialEnrollmentMeasurementAuthority, CredentialFence,
-    CredentialInstallationOwnerId, CredentialLifecycleError, CredentialLifecycleRevision,
-    CredentialMeasurementSnapshot, CredentialNativeEffectDisposition, CredentialOperationAction,
-    CredentialOperationId, CredentialReadbackDisposition, CredentialReadinessDisposition,
-    CredentialReadinessObservation, CredentialReadinessRevision, CredentialVersionRef,
-    IssueCredentialTicketDigest, ObserveNativeEffect, ProviderCredentialEnrollmentStore,
-    ProviderId,
+    AttachCredentialProcess, BeginCredentialOperation, BindCredentialReadback,
+    ClaimCredentialOperation, CompleteCredentialOperation, CredentialAuthorityPair,
+    CredentialBindingDigest, CredentialEnrollmentAuthorityPair,
+    CredentialEnrollmentMeasurementAuthority, CredentialFence, CredentialInstallationOwnerId,
+    CredentialLifecycleError, CredentialLifecycleRevision, CredentialMeasurementSnapshot,
+    CredentialNativeEffectDisposition, CredentialOperationAction, CredentialOperationId,
+    CredentialReadbackDisposition, CredentialReadinessDisposition, CredentialReadinessObservation,
+    CredentialReadinessRevision, CredentialVersionRef, IssueCredentialTicketDigest,
+    ObserveNativeEffect, ProviderCredentialEnrollmentStore, ProviderId,
 };
 use runne_store::provider::SqliteProviderCredentialLifecycleStore;
 
@@ -62,6 +62,11 @@ pub fn credential(
         )
         .unwrap()
         .with_qualified_release_tuple(qualified_release),
+    )
+    .unwrap();
+    ProviderCredentialEnrollmentStore::attach_process(
+        &store,
+        AttachCredentialProcess::new(operation, continuation).unwrap(),
     )
     .unwrap();
     let receipt = ProviderCredentialEnrollmentStore::issue_ticket_attempt(

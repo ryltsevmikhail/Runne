@@ -261,7 +261,10 @@
 
             let root = tempfile::Builder::new()
                 .prefix("runne-platform-desktop-")
-                .tempdir_in("/tmp")
+                .tempdir_in(
+                    std::env::var_os("XDG_RUNTIME_DIR")
+                        .map_or_else(std::env::temp_dir, PathBuf::from),
+                )
                 .expect("create owner-private runtime fixture");
             std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700))
                 .expect("protect runtime fixture root");

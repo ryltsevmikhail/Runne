@@ -95,6 +95,9 @@ impl DevelopmentBundledRuntimeLauncher {
         let state_store = ActivationStateStore::open(&runtime_root)?;
         let (launch_executable_path, executable) = state_store
             .stage_trusted_executable(&executable_path, spec.trusted_source_identity())?;
+        if spec.provider_activation().is_some() {
+            state_store.stage_provider_writer(&executable_path)?;
+        }
         let stable = state_store.load_stable()?;
         let pending = state_store.load_pending()?;
 

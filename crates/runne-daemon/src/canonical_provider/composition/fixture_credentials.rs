@@ -2,13 +2,14 @@ use std::sync::Arc;
 
 use runne_domain::id::{CommandId, IdempotencyKey};
 use runne_provider::{
-    BeginCredentialOperation, BindCredentialReadback, ClaimCredentialOperation,
-    CompleteCredentialOperation, CredentialAuthorityPair, CredentialBindingDigest,
-    CredentialEnrollmentAuthorityPair, CredentialLifecycleRevision, CredentialMeasurementSnapshot,
-    CredentialNativeEffectDisposition, CredentialOperationAction, CredentialOperationId,
-    CredentialReadbackDisposition, CredentialReadinessDisposition, CredentialReadinessObservation,
-    CredentialReadinessRevision, CredentialVersionRef, IssueCredentialTicketDigest,
-    ObserveNativeEffect, ProviderCredentialEnrollmentStore, ProviderId,
+    AttachCredentialProcess, BeginCredentialOperation, BindCredentialReadback,
+    ClaimCredentialOperation, CompleteCredentialOperation, CredentialAuthorityPair,
+    CredentialBindingDigest, CredentialEnrollmentAuthorityPair, CredentialLifecycleRevision,
+    CredentialMeasurementSnapshot, CredentialNativeEffectDisposition, CredentialOperationAction,
+    CredentialOperationId, CredentialReadbackDisposition, CredentialReadinessDisposition,
+    CredentialReadinessObservation, CredentialReadinessRevision, CredentialVersionRef,
+    IssueCredentialTicketDigest, ObserveNativeEffect, ProviderCredentialEnrollmentStore,
+    ProviderId,
 };
 use runne_secure_store::ProviderCredentialId;
 use runne_store::provider::SqliteProviderCredentialLifecycleStore;
@@ -81,6 +82,11 @@ fn provision_online(
     .map_err(|_| unavailable())?
     .with_qualified_release_tuple(release);
     ProviderCredentialEnrollmentStore::begin(store, begin).map_err(|_| unavailable())?;
+    ProviderCredentialEnrollmentStore::attach_process(
+        store,
+        AttachCredentialProcess::new(operation, digest(0xD6)).map_err(|_| unavailable())?,
+    )
+    .map_err(|_| unavailable())?;
     let receipt = ProviderCredentialEnrollmentStore::issue_ticket_attempt(
         store,
         IssueCredentialTicketDigest::new(operation, digest(0xD5), digest(0xD6), 600)
