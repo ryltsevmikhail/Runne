@@ -2,7 +2,8 @@ use runne_domain::id::{CommandId, IdempotencyKey};
 
 use super::*;
 use crate::credential::enrollment::{
-    CredentialOperationAction, CredentialOperationSnapshot, CredentialOperationState,
+    CredentialOperationAction, CredentialOperationId, CredentialOperationSnapshot,
+    CredentialOperationState,
 };
 use crate::{CredentialVersionRef, ProviderId};
 
