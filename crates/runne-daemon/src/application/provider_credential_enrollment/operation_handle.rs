@@ -9,23 +9,23 @@ const HANDLE_DOMAIN: &[u8] = b"gocode/provider-credential-operation-handle/v2\0"
 
 /// Daemon-owned issuer for opaque public operation handles.
 #[allow(dead_code)]
-pub(super) struct ProviderCredentialOperationHandleIssuer {
+pub(crate) struct ProviderCredentialOperationHandleIssuer {
     key: Zeroizing<[u8; 32]>,
 }
 
 #[allow(dead_code)]
 impl ProviderCredentialOperationHandleIssuer {
-    pub(super) fn new(key: [u8; 32]) -> Self {
+    pub(crate) fn new(key: [u8; 32]) -> Self {
         Self {
             key: Zeroizing::new(key),
         }
     }
 
-    pub(super) fn duplicate(&self) -> Self {
+    pub(crate) fn duplicate(&self) -> Self {
         Self::new(*self.key)
     }
 
-    pub(super) fn issue(
+    pub(crate) fn issue(
         &self,
         operation_id: CredentialOperationId,
     ) -> ProviderCredentialOperationHandleV2 {

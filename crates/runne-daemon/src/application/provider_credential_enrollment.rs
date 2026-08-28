@@ -12,11 +12,10 @@ mod resume;
 mod status;
 mod verified_frames;
 
-#[allow(unused_imports)]
-pub(super) use coordinator::ProviderCredentialAdmission;
+pub(crate) use coordinator::ProviderCredentialAdmission;
 use effect_authority::ProviderCredentialEffectAuthority;
-#[allow(unused_imports)]
-use operation_handle::ProviderCredentialOperationHandleIssuer;
+pub(crate) use operation_handle::ProviderCredentialOperationHandleIssuer;
+pub(crate) use host::ProviderCredentialVerificationHost;
 pub(crate) use readback::CredentialEnrollmentReadback;
 pub(crate) use recovery::CredentialEnrollmentRecoveryGateway;
 #[cfg(test)]

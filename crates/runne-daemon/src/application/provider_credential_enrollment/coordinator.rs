@@ -29,7 +29,7 @@ pub(crate) struct ProviderCredentialAdmission {
 impl ProviderCredentialAdmission {
     /// Retains the verifier paired with the only protected transport issuer.
     #[allow(dead_code)]
-    pub(super) const fn new(
+    pub(crate) const fn new(
         verifier: ProviderCredentialRequestAuthorityVerifier,
         measurements: CredentialEnrollmentMeasurementAuthority,
     ) -> Self {
@@ -95,7 +95,7 @@ impl ProviderCredentialAdmission {
             reason = "Task 6 admission is prepared before the protected verification host is composed"
         )
     )]
-    pub(super) fn require_verify_command(
+    pub(crate) fn require_verify_command(
         &self,
         authority: &ProviderCredentialBaseRequestAuthority,
         proof: &ProviderCredentialIntentConsumptionProof,
