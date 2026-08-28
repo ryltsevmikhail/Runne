@@ -140,3 +140,29 @@ fn command_substitution_under_a_live_envelope_is_rejected_before_the_store() {
         ProviderCredentialEnrollmentHostError::AccessDenied
     ));
 }
+
+#[test]
+fn native_intent_substitution_under_a_live_envelope_is_rejected_before_the_store() {
+    let substituted = BeginProviderCredentialEnrollment::new(
+        ProviderCredentialEnrollmentActionV2::Pair,
+        ProviderCredentialProviderV2::OpenAi,
+        1,
+        "018f8d23-7f90-7c00-8000-000000000001",
+        "idempotency-a",
+        "intent-b",
+    )
+    .unwrap();
+    let session = session([18; 32]);
+    let bound = fixture([18; 32]);
+    let context = context();
+
+    let error = bound
+        .gate
+        .admit(&session, &substituted, &context, snapshot(), &bound.store)
+        .err()
+        .expect("native intent substitution must be rejected");
+    assert!(matches!(
+        error,
+        ProviderCredentialEnrollmentHostError::AccessDenied
+    ));
+}
