@@ -114,6 +114,17 @@ fn v2_update_requires_two_root_and_two_targets_signatures() {
     let verified = verify_update_v2(&metadata, &trust, &binding, 100, "1.0.0", "1.0.0").unwrap();
     assert_eq!(verified.target().version, "1.2.3");
     assert!(verified.native_enrollment_tuple().is_some());
+    let measured = MeasuredNativeEnrollmentArtifactsV1::new(
+        target.artifact_sha256.clone(),
+        "e".repeat(64),
+        "f".repeat(64),
+        target.bundle_sha256.clone(),
+    )
+    .unwrap();
+    assert!(matches!(
+        verified.qualify_native_enrollment(&measured),
+        NativeEnrollmentQualification::Qualified(_)
+    ));
     assert_eq!(
         verify_update_v2(&metadata, &trust, &binding, 600, "1.0.0", "1.0.0"),
         Err(UpdateV2VerificationError::Expired)

@@ -13,6 +13,15 @@ const ROOT_THRESHOLD: usize = 2;
 const MAX_ARTIFACT_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_SIGNATURES: usize = 8;
 
+#[path = "updater_metadata/enrollment_tuple/macos_identity.rs"]
+mod macos_identity;
+pub use macos_identity::VerifiedMacOsWriterLaunch;
+#[path = "updater_metadata/enrollment_tuple/qualification.rs"]
+mod enrollment_qualification;
+pub use enrollment_qualification::{
+    NativeEnrollmentQualification, NativeEnrollmentQualificationBinding,
+};
+
 include!("updater_metadata/enrollment_tuple.rs");
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -157,6 +166,20 @@ impl VerifiedUpdateV2 {
     #[must_use]
     pub const fn native_enrollment_tuple(&self) -> Option<&NativeEnrollmentTupleV1> {
         self.target.native_enrollment_tuple.as_ref()
+    }
+
+    /// Qualifies installed enrollment artifacts only from threshold-verified metadata.
+    #[must_use]
+    pub fn qualify_native_enrollment(
+        &self,
+        artifacts: &MeasuredNativeEnrollmentArtifactsV1,
+    ) -> NativeEnrollmentQualification {
+        self.target
+            .native_enrollment_tuple
+            .as_ref()
+            .map_or(NativeEnrollmentQualification::Unqualified, |tuple| {
+                tuple.qualify(&self.target, artifacts)
+            })
     }
 }
 

@@ -61,7 +61,7 @@ pub use updater_metadata::{
     NativeEnrollmentQualificationBinding, NativeEnrollmentTupleError, NativeEnrollmentTupleV1,
     UpdateMetadataV2, UpdateRootRoleV2, UpdateSignatureV2, UpdateSnapshotRoleV2, UpdateTargetV2,
     UpdateTargetV2Binding, UpdateTargetsRoleV2, UpdateTimestampRoleV2, UpdateTrustRootV2,
-    UpdateV2VerificationError, VerifiedUpdateV2, verify_update_v2,
+    UpdateV2VerificationError, VerifiedMacOsWriterLaunch, VerifiedUpdateV2, verify_update_v2,
 };
 pub use updater_trust::{UpdateTrustError, UpdateTrustJournal, UpdateTrustState};
 

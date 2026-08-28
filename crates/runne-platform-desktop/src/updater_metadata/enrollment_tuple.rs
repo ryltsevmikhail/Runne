@@ -1,25 +1,16 @@
-use std::fs::File;
-use std::io::Read;
-use std::path::{Path, PathBuf};
-
-use runne_platform_ports::provider_credential_broker::{
-    VerifiedWriterArtifact, VerifiedWriterArtifactError,
-};
 use sha2::{Digest, Sha256};
 
 /// Signed bindings for the four native artifacts required by credential
 /// enrollment. It is evidence only; absence is deliberately unqualified.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[expect(
-    clippy::struct_field_names,
-    reason = "signed wire fields make their digest algorithm explicit"
-)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NativeEnrollmentTupleV1 {
     candidate_sha256: String,
     writer_sha256: String,
     daemon_sha256: String,
     contract_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    writer_code_identity: Option<macos_identity::MacOsWriterCodeIdentityV1>,
     tuple_sha256: String,
 }
 
@@ -37,6 +28,41 @@ impl NativeEnrollmentTupleV1 {
             writer_sha256,
             daemon_sha256,
             contract_sha256,
+            writer_code_identity: None,
+            tuple_sha256: String::new(),
+        };
+        if !tuple.matches_target(target) {
+            return Err(NativeEnrollmentTupleError::Rejected);
+        }
+        tuple.tuple_sha256 = tuple.digest_for(target);
+        Ok(tuple)
+    }
+
+    /// Builds a signed tuple that also pins one exact non-ad-hoc macOS code image.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_macos(
+        candidate_sha256: String,
+        writer_sha256: String,
+        daemon_sha256: String,
+        contract_sha256: String,
+        identifier: impl Into<String>,
+        team_identifier: impl Into<String>,
+        cdhash: impl Into<String>,
+        target: &UpdateTargetV2,
+    ) -> Result<Self, NativeEnrollmentTupleError> {
+        let Some(writer_code_identity) = macos_identity::MacOsWriterCodeIdentityV1::new(
+            identifier,
+            team_identifier,
+            cdhash,
+        ) else {
+            return Err(NativeEnrollmentTupleError::Rejected);
+        };
+        let mut tuple = Self {
+            candidate_sha256,
+            writer_sha256,
+            daemon_sha256,
+            contract_sha256,
+            writer_code_identity: Some(writer_code_identity),
             tuple_sha256: String::new(),
         };
         if !tuple.matches_target(target) {
@@ -63,7 +89,7 @@ impl NativeEnrollmentTupleV1 {
     /// Admits only an exact signed tuple that matches the independently
     /// measured installed package. Absence or any mismatch remains closed.
     #[must_use]
-    pub fn qualify(
+    pub(crate) fn qualify(
         &self,
         target: &UpdateTargetV2,
         artifacts: &MeasuredNativeEnrollmentArtifactsV1,
@@ -75,6 +101,7 @@ impl NativeEnrollmentTupleV1 {
                     |(writer_sha256, release_tuple_sha256)| NativeEnrollmentQualificationBinding {
                         writer_sha256,
                         release_tuple_sha256,
+                        macos_writer_code_identity: self.writer_code_identity.clone(),
                     },
                 )
         });
@@ -93,6 +120,13 @@ impl NativeEnrollmentTupleV1 {
             target.artifact_sha256.as_str(),
         ]) && self.candidate_sha256 == target.release_candidate_sha256
             && self.contract_sha256 == target.bundle_sha256
+            && match target.platform.as_str() {
+                "macos" => self
+                    .writer_code_identity
+                    .as_ref()
+                    .is_some_and(macos_identity::MacOsWriterCodeIdentityV1::valid),
+                _ => self.writer_code_identity.is_none(),
+            }
             && all_distinct([
                 self.writer_sha256.as_str(),
                 self.daemon_sha256.as_str(),
@@ -120,62 +154,15 @@ impl NativeEnrollmentTupleV1 {
             hasher.update(u32::try_from(value.len()).unwrap_or(u32::MAX).to_be_bytes());
             hasher.update(value.as_bytes());
         }
-        hex::encode(hasher.finalize())
-    }
-}
-
-/// Closed release admission state for the native credential flow.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum NativeEnrollmentQualification {
-    Unqualified,
-    Qualified(NativeEnrollmentQualificationBinding),
-}
-
-impl NativeEnrollmentQualification {
-    /// Re-measures a staged regular writer before yielding an artifact usable
-    /// by the direct native launcher. Paths, symlinks and metadata alone never
-    /// establish trust.
-    pub fn verified_writer(
-        self,
-        executable: PathBuf,
-    ) -> Result<VerifiedWriterArtifact, VerifiedWriterArtifactError> {
-        let Self::Qualified(binding) = self else {
-            return Err(VerifiedWriterArtifactError::Unavailable);
-        };
-        let measured =
-            measure_regular_file(&executable).ok_or(VerifiedWriterArtifactError::Rejected)?;
-        (measured == binding.writer_sha256)
-            .then_some(())
-            .ok_or(VerifiedWriterArtifactError::Rejected)?;
-        VerifiedWriterArtifact::new(
-            executable,
-            binding.writer_sha256,
-            binding.release_tuple_sha256,
-        )
-    }
-}
-
-/// Non-serializable binding carried from release admission to native launch.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct NativeEnrollmentQualificationBinding {
-    writer_sha256: [u8; 32],
-    release_tuple_sha256: [u8; 32],
-}
-
-fn measure_regular_file(path: &Path) -> Option<[u8; 32]> {
-    let metadata = std::fs::symlink_metadata(path).ok()?;
-    if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
-        return None;
-    }
-    let mut file = File::open(path).ok()?;
-    let mut hasher = Sha256::new();
-    let mut chunk = [0_u8; 16 * 1024];
-    loop {
-        let read = file.read(&mut chunk).ok()?;
-        if read == 0 {
-            return Some(hasher.finalize().into());
+        if let Some(identity) = &self.writer_code_identity {
+            hasher.update(5_u32.to_be_bytes());
+            hasher.update(b"macos");
+            for value in identity.digest_fields() {
+                hasher.update(u32::try_from(value.len()).unwrap_or(u32::MAX).to_be_bytes());
+                hasher.update(value.as_bytes());
+            }
         }
-        hasher.update(&chunk[..read]);
+        hex::encode(hasher.finalize())
     }
 }
 
