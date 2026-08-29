@@ -39,19 +39,37 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section aria-labelledby="runtime-settings-title">
-    <header class="page-header">
+  <section
+    class="system-page runtime-settings-page"
+    aria-labelledby="runtime-settings-title"
+  >
+    <header class="system-page__header">
       <div>
+        <p class="system-surface__eyebrow">
+          {{ translate('runtimeSettings.implementedReadOnly') }}
+        </p>
         <h1 id="runtime-settings-title">
           {{ translate('runtimeSettings.title') }}
         </h1>
         <p>{{ translate('runtimeSettings.description') }}</p>
       </div>
     </header>
-    <nav class="page-subnav" :aria-label="translate('runtimeSettings.navigation')">
-      <RouterLink to="/settings/runtimes">{{ translate('runtimeSettings.title') }}</RouterLink>
-      <RouterLink to="/settings/appearance">{{ translate('runtimeSettings.appearance') }}</RouterLink>
-      <RouterLink to="/settings/diagnostics">{{ translate('diagnostics.title') }}</RouterLink>
+    <nav
+      class="system-page__nav"
+      :aria-label="translate('runtimeSettings.navigation')"
+    >
+      <RouterLink to="/settings/runtimes">
+        {{ translate('runtimeSettings.title') }}
+      </RouterLink>
+      <RouterLink to="/settings/runtime-configuration">
+        {{ translate('runtimeConfiguration.navigation') }}
+      </RouterLink>
+      <RouterLink to="/settings/appearance">
+        {{ translate('runtimeSettings.appearance') }}
+      </RouterLink>
+      <RouterLink to="/settings/diagnostics">
+        {{ translate('diagnostics.title') }}
+      </RouterLink>
     </nav>
 
     <GcAlert
@@ -84,5 +102,18 @@ onMounted(async () => {
         {{ runtime.runtime }}
       </GcBadge>
     </GcAlert>
+
+    <template v-if="runtime !== null">
+      <dl class="system-fact-grid runtime-settings-page__facts">
+        <div><dt>{{ translate('runtimeSettings.runtimeMode') }}</dt><dd>{{ runtime.runtimeMode }}</dd></div>
+        <div><dt>{{ translate('runtimeSettings.connection') }}</dt><dd>{{ runtime.runtime }}</dd></div>
+        <div><dt>{{ translate('runtimeSettings.lifecycle') }}</dt><dd>{{ runtime.runtimeLifecycle }}</dd></div>
+        <div><dt>{{ translate('runtimeSettings.actionableFailure') }}</dt><dd>{{ runtime.runtimeFailure ?? translate('diagnostics.none') }}</dd></div>
+      </dl>
+      <aside class="system-surface__boundary">
+        <strong>{{ translate('runtimeSettings.implementedReadOnly') }}</strong>
+        <p>{{ translate('runtimeSettings.readOnlyBoundaryMessage') }}</p>
+      </aside>
+    </template>
   </section>
 </template>

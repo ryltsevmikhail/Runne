@@ -1,4 +1,6 @@
 <script setup lang="ts">
+defineOptions({ inheritAttrs: false })
+
 export interface ProjectCard {
   name: string
   path: string
@@ -19,57 +21,70 @@ defineEmits<{
 <template>
   <article
     :class="['gc-project-card', project.status && `gc-project-card--${project.status}`]"
-    @click.self="$emit('click')"
   >
     <button
+      v-bind="$attrs"
       class="gc-project-card-main"
       type="button"
       @click="$emit('click')"
     >
-      <div class="gc-project-card-header">
-        <h3 class="gc-project-card-name">
-          {{ project.name }}
-        </h3>
-        <span
-          v-if="project.status"
-          :class="['gc-project-card-status', `gc-project-card-status--${project.status}`]"
-        >
-          {{ project.status === 'ready' ? 'Ready' : project.status === 'stale' ? 'Attention' : 'Recovery' }}
-        </span>
-      </div>
-      <p class="gc-project-card-path">
-        {{ project.path }}
-      </p>
-    </button>
-    <div class="gc-project-card-footer">
-      <time class="gc-project-card-time">{{ project.modifiedAt }}</time>
-      <div
-        v-if="$slots.actions"
-        class="gc-project-card-actions"
+      <span
+        v-if="$slots.leading"
+        class="gc-project-card-icon"
       >
-        <slot name="actions" />
-      </div>
+        <slot name="leading" />
+      </span>
+      <span class="gc-project-card-copy">
+        <span class="gc-project-card-header">
+          <span class="gc-project-card-name">{{ project.name }}</span>
+          <span
+            v-if="project.status"
+            :class="['gc-project-card-status', `gc-project-card-status--${project.status}`]"
+          >
+            {{ project.status === 'ready' ? 'Ready' : project.status === 'stale' ? 'Attention' : 'Recovery' }}
+          </span>
+        </span>
+        <span class="gc-project-card-path">{{ project.path }}</span>
+        <time class="gc-project-card-time">{{ project.modifiedAt }}</time>
+      </span>
+      <span
+        v-if="$slots.trailing"
+        class="gc-project-card-arrow"
+      >
+        <slot name="trailing" />
+      </span>
+    </button>
+    <div
+      v-if="$slots.actions"
+      class="gc-project-card-actions"
+    >
+      <slot name="actions" />
     </div>
   </article>
 </template>
 
 <style scoped>
 .gc-project-card {
-  background: var(--runne-surface);
+  min-height: 128px;
   border: 1px solid var(--runne-border);
   border-radius: var(--runne-radius-lg);
-  padding: var(--runne-space-lg);
+  background: var(--runne-surface);
   transition: border-color var(--runne-motion-fast), background var(--runne-motion-fast);
 }
 
 .gc-project-card-main {
-  display: block;
+  display: grid;
   width: 100%;
-  padding: 0;
-  color: inherit;
-  text-align: left;
-  background: transparent;
+  min-height: 126px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 15px;
+  padding: 18px;
   border: 0;
+  border-radius: inherit;
+  color: inherit;
+  background: transparent;
+  text-align: left;
   cursor: pointer;
 }
 
@@ -83,72 +98,61 @@ defineEmits<{
   background: var(--runne-surface-raised);
 }
 
+.gc-project-card-icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: var(--runne-radius-md);
+  color: var(--runne-accent);
+  background: var(--runne-surface-raised);
+}
+
+.gc-project-card-copy,
 .gc-project-card-header {
-  display: flex;
+  display: grid;
+  gap: 5px;
+}
+
+.gc-project-card-header {
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--runne-space-sm);
 }
 
 .gc-project-card-name {
-  font-size: 15px;
-  font-weight: 600;
+  overflow: hidden;
   color: var(--runne-text-primary);
-  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .gc-project-card-status {
-  font-size: 11px;
-  font-weight: 500;
   padding: 2px 8px;
   border-radius: var(--runne-radius-sm);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: .5px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
-.gc-project-card-status--ready {
-  background: color-mix(in srgb, var(--runne-lead-green) 15%, transparent);
-  color: var(--runne-lead-green);
-}
+.gc-project-card-status--ready { color: var(--runne-lead-green); background: color-mix(in srgb, var(--runne-lead-green) 15%, transparent); }
+.gc-project-card-status--stale { color: var(--runne-accent); background: color-mix(in srgb, var(--runne-accent) 15%, transparent); }
+.gc-project-card-status--recovery { color: var(--runne-error-coral); background: color-mix(in srgb, var(--runne-error-coral) 15%, transparent); }
+.gc-project-card--stale { border-color: color-mix(in srgb, var(--runne-accent) 30%, transparent); }
+.gc-project-card--recovery { border-color: color-mix(in srgb, var(--runne-error-coral) 30%, transparent); }
 
-.gc-project-card-status--stale {
-  background: color-mix(in srgb, var(--runne-accent) 15%, transparent);
-  color: var(--runne-accent);
-}
-
-.gc-project-card-status--recovery {
-  background: color-mix(in srgb, var(--runne-error-coral) 15%, transparent);
-  color: var(--runne-error-coral);
-}
-
-.gc-project-card--stale {
-  border-color: color-mix(in srgb, var(--runne-accent) 30%, transparent);
-}
-
-.gc-project-card--recovery {
-  border-color: color-mix(in srgb, var(--runne-error-coral) 30%, transparent);
-}
-
-.gc-project-card-path {
-  font-size: 12px;
-  color: var(--runne-ui-subtle);
-  margin: 0 0 var(--runne-space-sm);
-  font-family: var(--runne-font-mono);
-}
-
-.gc-project-card-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
+.gc-project-card-path,
 .gc-project-card-time {
-  font-size: 12px;
+  overflow: hidden;
   color: var(--runne-ui-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.gc-project-card-actions {
-  display: flex;
-  gap: var(--runne-space-sm);
-}
+.gc-project-card-path { font-family: var(--runne-font-mono); color: var(--runne-ui-subtle); }
+.gc-project-card-arrow { display: grid; color: var(--runne-accent); }
+.gc-project-card-actions { display: flex; gap: var(--runne-space-sm); padding: 0 18px 18px; }
 </style>

@@ -77,14 +77,17 @@ describe('conversation chat widget', () => {
       },
     })
     await flushPromises()
-
     expect(calls).toEqual(['connect', `open:${workspaceId}`, `subscribe:${workspaceId}`])
     expect(wrapper.get('[aria-label="Conversation messages"]').text()).toContain('hello')
     expect(wrapper.text()).toContain('Runne local response: hello')
     expect(wrapper.text()).toContain('Runtime live')
+    expect(wrapper.get('.conversation-chat__header h2').text()).toBe('Coding agent')
+    expect(wrapper.get('[aria-label="Conversation runtime status"]').text()).toBe('Runtime live')
+    expect(wrapper.get('label').text()).toBe('Message')
+    expect(wrapper.get('textarea')).toBeTruthy()
   })
 
-  it('submits text once, clears the composer, and renders the returned snapshot', async () => {
+  it('keeps the composer and its sendMessage flow while showing capability controls', async () => {
     const sends: Array<[string, string]> = []
     const wrapper = mount(ConversationChat, {
       props: {
@@ -101,7 +104,8 @@ describe('conversation chat widget', () => {
       },
     })
     await flushPromises()
-
+    expect(wrapper.get('[data-capability="conversation-controls"]')).toBeTruthy()
+    expect(wrapper.get('form.conversation-chat__composer')).toBeTruthy()
     await wrapper.get('textarea').setValue('hello')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
@@ -269,7 +273,6 @@ describe('conversation chat widget', () => {
     expect(wrapper.text()).toContain('Reconnecting')
     expect(wrapper.get('textarea').attributes('disabled')).toBeDefined()
   })
-
   it('never renders an unknown channel field supplied below the widget boundary', async () => {
     let listener: ConversationTimelineListener | undefined
     const wrapper = mount(ConversationChat, {

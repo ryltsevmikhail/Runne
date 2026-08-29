@@ -20,6 +20,11 @@ describe('FileExplorer', () => {
 
     const buttons = wrapper.findAll('button')
     expect(buttons).toHaveLength(1)
+    expect(wrapper.get('ul').classes()).toContain('file-explorer__list')
+    expect(wrapper.findAll('.file-explorer__entry')).toHaveLength(2)
+    expect(wrapper.findAll('.file-explorer__icon svg')).toHaveLength(2)
+    expect(wrapper.get('.file-explorer__path').text()).toBe('src')
+    expect(wrapper.get('.file-explorer__action').text()).toBe('Open')
     await buttons[0]!.trigger('click')
     expect(opened).toBe('src/main.rs')
   })

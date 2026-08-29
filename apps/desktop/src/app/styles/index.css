@@ -1,6 +1,15 @@
 @import "../../../../../docs/desktop/brand/gocode-brand-tokens.css";
 @import "./foundation.css";
 @import "./shell.css";
+@import "./shell-layout.css";
+@import "./shell-navigation.css";
 @import "./workspace-overview.css";
 @import "./workspace-detail.css";
+@import "./workspace-conversation.css";
+@import "./file-explorer.css";
+@import "./projects.css";
+@import "./system-pages.css";
+@import "./target-surfaces.css";
+@import "./runtime-configuration.css";
+@import "./conversation-target.css";
 @import "./responsive.css";

@@ -3,7 +3,7 @@ import { GcAlert } from '@runne/product/shared/ui'
 import { isTauri } from '@tauri-apps/api/core'
 import { onMounted, ref } from 'vue'
 
-import type { DiagnosticsSnapshot } from '@/shared/api/platform/diagnostics'
+import type { DiagnosticsSnapshot as DiagnosticsSnapshotDto } from '@/shared/api/platform/diagnostics'
 import { getDiagnostics } from '@/shared/api/platform/diagnostics'
 import type {
   DiagnosticsExportPreview,
@@ -17,7 +17,10 @@ import type { OperationalTelemetrySnapshot } from '@/shared/api/platform/operati
 import { getOperationalTelemetry } from '@/shared/api/platform/operational-telemetry'
 import { translate } from '@/shared/i18n'
 
-type LoadDiagnostics = () => Promise<DiagnosticsSnapshot>
+import DiagnosticsSnapshot from './DiagnosticsSnapshot.vue'
+import OperationalTelemetry from './OperationalTelemetry.vue'
+
+type LoadDiagnostics = () => Promise<DiagnosticsSnapshotDto>
 type LoadOperationalTelemetry = () => Promise<OperationalTelemetrySnapshot>
 type LoadExportPreview = () => Promise<DiagnosticsExportPreview>
 type ExportReport = () => Promise<DiagnosticsExportResult>
@@ -28,7 +31,7 @@ const props = withDefaults(defineProps<{
   loadExportPreview?: LoadExportPreview
   exportReport?: ExportReport
 }>(), {
-  loadDiagnostics: async (): Promise<DiagnosticsSnapshot> => isTauri()
+  loadDiagnostics: async (): Promise<DiagnosticsSnapshotDto> => isTauri()
     ? getDiagnostics()
     : {
         appVersion: 'development',
@@ -55,7 +58,7 @@ const props = withDefaults(defineProps<{
   },
 })
 
-const diagnostics = ref<DiagnosticsSnapshot | null>(null)
+const diagnostics = ref<DiagnosticsSnapshotDto | null>(null)
 const loading = ref(true)
 const error = ref(false)
 const telemetry = ref<OperationalTelemetrySnapshot | null>(null)
@@ -115,31 +118,36 @@ onMounted(() => {
 </script>
 
 <template>
-  <section aria-labelledby="diagnostics-title">
-    <header class="page-header">
+  <section
+    class="system-page diagnostics-page"
+    aria-labelledby="diagnostics-title"
+  >
+    <header class="system-page__header">
       <div>
         <h1 id="diagnostics-title">
           {{ translate('diagnostics.title') }}
         </h1>
         <p>{{ translate('diagnostics.description') }}</p>
       </div>
-      <button
-        class="primary-button"
-        type="button"
-        :disabled="telemetryLoading"
-        @click="refreshTelemetry"
-      >
-        {{ translate('diagnostics.refresh') }}
-      </button>
-      <button
-        class="secondary-button"
-        data-testid="export-diagnostics"
-        type="button"
-        :disabled="exporting"
-        @click="runExport"
-      >
-        {{ exporting ? translate('diagnostics.prepareExport') : translate('diagnostics.export') }}
-      </button>
+      <div class="system-page__actions">
+        <button
+          class="primary-button"
+          type="button"
+          :disabled="telemetryLoading"
+          @click="refreshTelemetry"
+        >
+          {{ translate('diagnostics.refresh') }}
+        </button>
+        <button
+          class="secondary-button"
+          data-testid="export-diagnostics"
+          type="button"
+          :disabled="exporting"
+          @click="runExport"
+        >
+          {{ exporting ? translate('diagnostics.prepareExport') : translate('diagnostics.export') }}
+        </button>
+      </div>
     </header>
 
     <p
@@ -182,106 +190,15 @@ onMounted(() => {
       {{ translate('diagnostics.unavailableMessage') }}
     </GcAlert>
 
-    <dl
+    <DiagnosticsSnapshot
       v-else
-      class="diagnostics-grid"
-    >
-      <div>
-        <dt>{{ translate('diagnostics.appVersion') }}</dt>
-        <dd>{{ diagnostics.appVersion }}</dd>
-      </div>
-      <div>
-        <dt>{{ translate('diagnostics.platform') }}</dt>
-        <dd>{{ diagnostics.platform }}</dd>
-      </div>
-      <div>
-        <dt>{{ translate('diagnostics.databaseSchema') }}</dt>
-        <dd>{{ diagnostics.databaseSchemaVersion }}</dd>
-      </div>
-      <div>
-        <dt>{{ translate('diagnostics.databaseGeneration') }}</dt>
-        <dd>{{ diagnostics.databaseGeneration }}</dd>
-      </div>
-      <div>
-        <dt>{{ translate('diagnostics.projectCount') }}</dt>
-        <dd>{{ diagnostics.projectCount }}</dd>
-      </div>
-      <div>
-        <dt>{{ translate('diagnostics.runtimeMode') }}</dt>
-        <dd>{{ diagnostics.runtimeMode === 'external_local' ? translate('diagnostics.externalRuntime') : translate('diagnostics.bundledRuntime') }}</dd>
-      </div>
-      <div>
-        <dt>{{ translate('diagnostics.runtimeConnection') }}</dt>
-        <dd>{{ diagnostics.runtime }}</dd>
-      </div>
-      <div>
-        <dt>{{ translate('diagnostics.runtimeLifecycle') }}</dt>
-        <dd>{{ diagnostics.runtimeLifecycle }}</dd>
-      </div>
-      <div v-if="diagnostics.runtimeFailure !== null">
-        <dt>{{ translate('diagnostics.actionableFailure') }}</dt>
-        <dd>{{ diagnostics.runtimeFailure }}</dd>
-      </div>
-    </dl>
+      :snapshot="diagnostics"
+    />
 
-    <section
+    <OperationalTelemetry
       v-if="!telemetryLoading"
-      class="operational-telemetry"
-      aria-labelledby="operational-telemetry-title"
-    >
-      <h2 id="operational-telemetry-title">
-        {{ translate('diagnostics.telemetryTitle') }}
-      </h2>
-      <GcAlert
-        v-if="telemetry === null"
-        level="error"
-        :title="translate('diagnostics.telemetryUnavailable')"
-        role="alert"
-      >
-        {{ translate('diagnostics.telemetryUnavailableMessage') }}
-      </GcAlert>
-      <template v-else>
-        <p
-          v-if="telemetryRefreshFailed"
-          role="status"
-        >
-          {{ translate('diagnostics.telemetryStale') }}
-        </p>
-        <dl class="diagnostics-grid operational-telemetry__grid">
-          <div>
-            <dt>{{ translate('diagnostics.runtimeTelemetry') }}</dt>
-            <dd>{{ telemetry.runtime.snapshot === null ? translate('diagnostics.telemetryUnavailableValue') : translate('diagnostics.telemetryAvailableValue') }}</dd>
-          </div>
-          <div>
-            <dt>{{ translate('diagnostics.freshnessCompleteness') }}</dt>
-            <dd>{{ telemetry.runtime.meta.freshness }} / {{ telemetry.runtime.meta.completeness }}</dd>
-          </div>
-          <div>
-            <dt>{{ translate('diagnostics.hostFreshnessCompleteness') }}</dt>
-            <dd>{{ telemetry.hostLifecycle.meta.freshness }} / {{ telemetry.hostLifecycle.meta.completeness }}</dd>
-          </div>
-          <div>
-            <dt>{{ translate('diagnostics.hostLifecycle') }}</dt>
-            <dd>{{ telemetry.hostLifecycle.current?.lifecycle ?? 'unavailable' }}</dd>
-          </div>
-          <div>
-            <dt>{{ translate('diagnostics.restartOrdinal') }}</dt>
-            <dd>{{ telemetry.hostLifecycle.current?.restartOrdinal ?? 'unavailable' }}</dd>
-          </div>
-          <div>
-            <dt>{{ translate('diagnostics.launchGeneration') }}</dt>
-            <dd>{{ telemetry.hostLifecycle.current?.runtimeLaunchGeneration ?? 'unavailable' }}</dd>
-          </div>
-          <div>
-            <dt>{{ translate('diagnostics.lifecycleEvents') }}</dt>
-            <dd>{{ telemetry.hostLifecycle.events?.length ?? 'unavailable' }} ({{ telemetry.hostLifecycle.eventStatus }})</dd>
-          </div>
-          <div>
-            <dt>{{ translate('diagnostics.droppedEvents') }}</dt>
-            <dd>{{ telemetry.hostLifecycle.producerDroppedEventCount }} / {{ telemetry.hostLifecycle.evictedEventCount }}</dd>
-          </div>
-        </dl>
-      </template>
-    </section>
+      :refresh-failed="telemetryRefreshFailed"
+      :telemetry="telemetry"
+    />
   </section>
 </template>

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { OperationalTelemetrySnapshot } from '@/shared/api/platform/operational-telemetry'
 import type { RuntimeLifecycleStatus } from '@/shared/api/platform/bootstrap'
+import { currentLocale } from '@/shared/i18n'
 
 import DiagnosticsPage from './DiagnosticsPage.vue'
 
@@ -51,6 +52,43 @@ const diagnostics = async () => ({
 })
 
 describe('diagnostics page', () => {
+  it('keeps one visible page title with redaction, boundary, and actions', async () => {
+    const wrapper = mount(DiagnosticsPage, {
+      props: { loadDiagnostics: diagnostics, loadOperationalTelemetry: async () => telemetrySnapshot() },
+    })
+    await flushPromises()
+
+    expect(wrapper.findAll('h1')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('SYSTEM SURFACE')
+    expect(wrapper.find('#diagnostics-snapshot-title').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Paths, content, credentials, and raw internal errors are excluded.')
+    expect(wrapper.text()).toContain('IMPLEMENTED DTO BOUNDARY')
+    expect(wrapper.text()).toContain('Health checks, live event logs, and latency metrics are not available in this DTO.')
+    expect(wrapper.get('[data-testid="diagnostics-runtime-fields"]').text()).toContain('Runtime connection')
+    expect(wrapper.get('[data-testid="diagnostics-runtime-fields"]').text()).toContain('Runtime lifecycle')
+    expect(wrapper.get('button').text()).toContain('Refresh')
+    expect(wrapper.get('[data-testid="export-diagnostics"]').text()).toContain('Export diagnostics')
+  })
+
+  it('localizes Phase 2 diagnostics copy through the owned catalog', async () => {
+    const previousLocale = currentLocale.value
+    currentLocale.value = 'ru'
+    try {
+      const wrapper = mount(DiagnosticsPage, {
+        props: { loadDiagnostics: diagnostics, loadOperationalTelemetry: async () => telemetrySnapshot() },
+      })
+      await flushPromises()
+
+      expect(wrapper.get('[aria-label="Текущий снимок runtime"]').text()).toContain('Обезличенное локальное операционное состояние')
+      expect(wrapper.text()).toContain('ГРАНИЦА РЕАЛИЗОВАННОГО DTO')
+      expect(wrapper.text()).toContain('НАБЛЮДАЕМАЯ ТЕЛЕМЕТРИЯ')
+      expect(wrapper.text()).toContain('Нет')
+    }
+    finally {
+      currentLocale.value = previousLocale
+    }
+  })
+
   it('renders only the bounded redacted snapshot', async () => {
     const wrapper = mount(DiagnosticsPage, {
       props: {
@@ -182,6 +220,33 @@ describe('diagnostics page', () => {
 
     expect(exported).toBe(1)
     expect(wrapper.get('[role="status"]').text()).toContain('saved')
+  })
+
+  it('exports a bounded report while diagnostics is unavailable without leaking the load error', async () => {
+    let exported = 0
+    const wrapper = mount(DiagnosticsPage, {
+      props: {
+        loadDiagnostics: async () => { throw new Error('/Users/private/token=secret') },
+        loadExportPreview: async () => ({
+          schemaVersion: 1,
+          redactionVersion: 1,
+          categories: ['application', 'runtime'],
+          estimatedBytes: 512,
+        }),
+        exportReport: async () => {
+          exported += 1
+          return { status: 'saved' as const }
+        },
+      },
+    })
+    await flushPromises()
+    await wrapper.get('[data-testid="export-diagnostics"]').trigger('click')
+    await flushPromises()
+
+    expect(exported).toBe(1)
+    expect(wrapper.get('[role="status"]').text()).toContain('saved')
+    expect(wrapper.text()).not.toContain('/Users/private')
+    expect(wrapper.text()).not.toContain('secret')
   })
 
   it('fails closed when the export preview is too large', async () => {

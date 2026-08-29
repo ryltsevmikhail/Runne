@@ -26,6 +26,56 @@ function createTestRouter() {
 }
 
 describe('open project page', () => {
+  it('renders the native folder chooser with Lucide icons and a privacy notice', async () => {
+    const router = createTestRouter()
+    await router.push('/projects/open')
+    await router.isReady()
+    const wrapper = mount(OpenProjectPage, {
+      props: { openProject: async () => null },
+      global: { plugins: [router] },
+    })
+
+    expect(wrapper.find('.open-project-page').exists()).toBe(true)
+    expect(wrapper.findAll('[aria-label="Choose project folder"] svg')).toHaveLength(2)
+    expect(wrapper.text()).toContain('Runne stores only the local project record.')
+    expect(wrapper.html()).not.toContain('IMPLEMENTED')
+  })
+
+  it('keeps the title and folder chooser in one centered content shell', async () => {
+    const router = createTestRouter()
+    await router.push('/projects/open')
+    await router.isReady()
+    const wrapper = mount(OpenProjectPage, {
+      props: { openProject: async () => null },
+      global: { plugins: [router] },
+    })
+
+    const content = wrapper.get('.open-project-page__content')
+    expect(content.get('#open-project-title').text()).toBe('Open a project')
+    expect(content.get('[aria-label="Choose project folder"]').attributes('type')).toBe('button')
+  })
+
+  it('disables the chooser while the native picker is opening', async () => {
+    const router = createTestRouter()
+    await router.push('/projects/open')
+    await router.isReady()
+    let resolveOpen: ((result: null) => void) | undefined
+    const wrapper = mount(OpenProjectPage, {
+      props: {
+        openProject: () => new Promise(resolve => { resolveOpen = resolve }),
+      },
+      global: { plugins: [router] },
+    })
+
+    const chooser = wrapper.get('[aria-label="Choose project folder"]')
+    await chooser.trigger('click')
+    expect(chooser.attributes('disabled')).toBeDefined()
+
+    resolveOpen?.(null)
+    await flushPromises()
+    expect(chooser.attributes('disabled')).toBeUndefined()
+  })
+
   it('routes to the opened canonical workspace after protected local import', async () => {
     const router = createTestRouter()
     await router.push('/projects/open')

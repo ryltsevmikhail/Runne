@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { GcButton, GcProjectCard } from '@runne/product/shared/ui'
-import { Clock3, FolderOpen, Plus } from 'lucide-vue-next'
+import { ArrowRight, Clock3, Folder, FolderOpen, FolderPlus } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -70,86 +70,111 @@ async function openProjectDetails(project: CanonicalProject) {
     class="projects-page"
     aria-labelledby="projects-title"
   >
-    <header class="page-header">
+    <header class="projects-page__header">
       <div>
         <h1 id="projects-title">
           {{ translate('projects.title') }}
         </h1>
         <p>{{ translate('projects.subtitle') }}</p>
-        <p class="runtime-summary">{{ translate('projects.runtimeSummary', { status: runtimeStatus }) }}</p>
       </div>
       <GcButton
         :aria-label="translate('projects.openLocalProject')"
         @click="openProjectPicker"
       >
-        <Plus
+        <FolderPlus
           :size="16"
           aria-hidden="true"
         />
-        {{ translate('projects.openProject') }}
+        {{ translate('projects.openLocalProject') }}
       </GcButton>
     </header>
 
-    <div class="content-section">
-      <div class="section-heading">
-        <h2>{{ translate('projects.runtimeCatalog') }}</h2>
-        <span>{{ translate('projects.runtimeAuthority') }}</span>
-      </div>
+    <div class="projects-page__content">
+      <section
+        class="projects-recent"
+        aria-labelledby="recent-projects-title"
+      >
+        <header class="projects-recent__header">
+          <h2 id="recent-projects-title">
+            {{ translate('projects.recent') }}
+          </h2>
+          <p>{{ translate('projects.runtimeAuthority') }}</p>
+        </header>
 
-      <div class="project-grid">
-        <button
-          class="project-card project-card--open"
-          type="button"
-          :aria-label="translate('projects.openLocalProject')"
-          @click="openProjectPicker"
-        >
-          <span class="project-icon">
-            <FolderOpen
-              :size="21"
+        <div class="projects-project-grid">
+          <button
+            class="project-card project-card--open"
+            type="button"
+            :aria-label="translate('projects.openLocalProject')"
+            @click="openProjectPicker"
+          >
+            <span class="projects-card-icon">
+              <FolderOpen
+                :size="21"
+                aria-hidden="true"
+              />
+            </span>
+            <span class="project-copy">
+              <strong>{{ translate('projects.openLocalProject') }}</strong>
+              <small>{{ translate('projects.selectFolder') }}</small>
+            </span>
+            <ArrowRight
+              class="projects-card-arrow"
+              :size="17"
               aria-hidden="true"
             />
-          </span>
-          <span class="project-copy">
-            <strong>{{ translate('projects.openLocalProject') }}</strong>
-            <small>{{ translate('projects.selectFolder') }}</small>
-          </span>
-          <span class="project-arrow">→</span>
-        </button>
-        <GcProjectCard
-          v-for="project in projects"
-          :key="project.projectId"
-          :project="{
-            name: project.displayName,
-            path: project.archived ? translate('projects.archived') : translate('projects.runtimeProject'),
-            slug: project.projectId,
-            modifiedAt: translate('projects.version', { version: project.version }),
-          }"
-          :aria-label="`${translate('projects.openProject')} ${project.displayName}`"
-          @click="openProjectDetails(project)"
-        />
-      </div>
+          </button>
+          <GcProjectCard
+            v-for="project in projects"
+            :key="project.projectId"
+            :project="{
+              name: project.displayName,
+              path: project.archived ? translate('projects.archived') : translate('projects.runtimeProject'),
+              slug: project.projectId,
+              modifiedAt: translate('projects.version', { version: project.version }),
+            }"
+            :aria-label="`${translate('projects.openProject')} ${project.displayName}`"
+            @click="openProjectDetails(project)"
+          >
+            <template #leading>
+              <Folder
+                :size="20"
+                aria-hidden="true"
+              />
+            </template>
+            <template #trailing>
+              <ArrowRight
+                :size="17"
+                aria-hidden="true"
+              />
+            </template>
+          </GcProjectCard>
+        </div>
+      </section>
     </div>
 
-    <div
+    <footer
       v-if="loading"
-      class="empty-state"
+      class="projects-page__state empty-state"
       aria-live="polite"
     >
       <h2>{{ translate('projects.loading') }}</h2>
-    </div>
+    </footer>
 
-    <div
+    <footer
       v-else-if="error"
-      class="empty-state"
+      class="projects-page__state empty-state"
       role="alert"
     >
       <h2>{{ translate('projects.unavailable') }}</h2>
-      <p v-if="error !== null">{{ translate(error) }}</p>
-    </div>
+      <p v-if="error !== null">
+        {{ translate(error) }}
+      </p>
+    </footer>
 
-    <div
+    <footer
       v-else-if="projects.length === 0"
-      class="empty-state"
+      class="projects-page__state empty-state"
     >
       <span class="empty-icon">
         <Clock3
@@ -159,6 +184,6 @@ async function openProjectDetails(project: CanonicalProject) {
       </span>
       <h2>{{ translate('projects.noProjects') }}</h2>
       <p>{{ translate('projects.noProjectsMessage') }}</p>
-    </div>
+    </footer>
   </section>
 </template>

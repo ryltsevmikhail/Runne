@@ -16,10 +16,29 @@ describe('desktop routes', () => {
     expect(taskRun?.path).toBe('/task-runs/:taskRunId')
   })
 
+  it('keeps the TaskRun inventory separate from the detail route', () => {
+    const paths = new Map(routes.map((route) => [route.name, route.path]))
+
+    expect(paths.get('task-run-inventory')).toBe('/task-runs')
+    expect(paths.get('task-run')).toBe('/task-runs/:taskRunId')
+  })
+
+  it('exposes the standalone fail-closed recovery route', () => {
+    const paths = new Map(routes.map((route) => [route.name, route.path]))
+
+    expect(paths.get('recovery')).toBe('/recovery')
+  })
+
   it('exposes the owner-bound appearance settings route', () => {
     const appearance = routes.find(route => route.name === 'appearance-settings')
 
     expect(appearance?.path).toBe('/settings/appearance')
+  })
+
+  it('exposes the unavailable runtime configuration target route', () => {
+    const paths = new Map(routes.map((route) => [route.name, route.path]))
+
+    expect(paths.get('runtime-configuration')).toBe('/settings/runtime-configuration')
   })
 
   it('exposes isolated settings routes for local desktop preferences', () => {

@@ -1,3 +1,7 @@
+import { phase2English } from './phase2'
+import conversationTarget from './english-conversation-target'
+import targetSurfaces from './english-target-surfaces'
+
 const english = {
   'settings.title': 'Settings',
   'settings.loading': 'Loading {page}',
@@ -27,6 +31,7 @@ const english = {
   'projects.runtimeSummary': 'Runtime {status}',
   'projects.openProject': 'Open project',
   'projects.openLocalProject': 'Open local project',
+  'projects.recent': 'Recent',
   'projects.selectFolder': 'Select a folder on this device',
   'projects.runtimeCatalog': 'Runtime catalog',
   'projects.runtimeAuthority': 'Runtime authority',
@@ -88,6 +93,9 @@ const english = {
   'projectDetails.open': 'Open',
   'projectDetails.closed': 'Closed',
   'workspace.loading': 'Loading workspace',
+  'workspace.breadcrumbLabel': 'Workspace breadcrumb',
+  'workspace.breadcrumbProjects': 'Projects',
+  'workspace.breadcrumbWorkspace': 'Workspace',
   'workspace.kicker': 'Runtime workspace',
   'workspace.versionState': 'Version {version} · {state}',
   'workspace.workspaceStatus': 'Runtime {status}',
@@ -279,6 +287,9 @@ const english = {
   'runtime.detail.externalConnected': 'Explicit mode · connected',
   'runtime.detail.externalConnection': 'Explicit mode · {connection}',
   'runtime.detail.unavailable': 'Runtime unavailable',
+  ...phase2English,
+  ...conversationTarget,
+  ...targetSurfaces,
 } as const
 
 export default english

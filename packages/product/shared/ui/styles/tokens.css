@@ -1,25 +1,26 @@
 :root {
   /* Brand identity colors */
-  --runne-graphite: #151616;
-  --runne-sidebar: #292A2C;
-  --runne-warm-white: #F5F5F4;
-  --runne-forge-orange: #EF8039;
+  --runne-graphite: #272A2F;
+  --runne-sidebar: #111214;
+  --runne-warm-white: #FFFFFF;
+  --runne-forge-orange: #315CFF;
   --runne-lead-green: #4DCA81;
   --runne-review-violet: #A75DEE;
   --runne-error-coral: #E56C62;
   --runne-warning: #F59E0B;
 
   /* UI surface colors (from Pen) */
-  --runne-canvas: #111214;
-  --runne-surface: #191B1E;
-  --runne-surface-raised: #222428;
-  --runne-text-primary: #F4F4F5;
-  --runne-text-secondary: #A1A1AA;
-  --runne-accent: #F47832;
-  --runne-text-on-accent: #151616;
-  --runne-border: #34373D;
-  --runne-ui-muted: #9A9CA2;
-  --runne-ui-subtle: #696C72;
+  --runne-canvas: #080808;
+  --runne-workspace: #080808;
+  --runne-surface: #111214;
+  --runne-surface-raised: #272A2F;
+  --runne-text-primary: #FFFFFF;
+  --runne-text-secondary: #A7ABB2;
+  --runne-accent: #315CFF;
+  --runne-text-on-accent: #FFFFFF;
+  --runne-border: #3A3D43;
+  --runne-ui-muted: #A7ABB2;
+  --runne-ui-subtle: #737780;
 
   /* Spacing */
   --runne-space-xs: 4px;
@@ -41,18 +42,22 @@
   --runne-motion-handoff: 360ms;
 
   /* Typography */
-  --runne-font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --runne-font-ui: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --runne-font-mono: 'JetBrains Mono', 'Menlo', 'Monaco', monospace;
 }
 
 [data-theme='light'] {
-  --runne-canvas: #E9E9E7;
-  --runne-surface: #F5F5F4;
-  --runne-surface-raised: #FFFFFF;
-  --runne-text-primary: #151616;
-  --runne-text-secondary: #555654;
-  --runne-text-on-accent: #151616;
-  --runne-border: #D3D3D0;
-  --runne-ui-muted: #555654;
-  --runne-ui-subtle: #747573;
+  --runne-canvas: #E7EAEE;
+  --runne-sidebar: #ECEFF2;
+  --runne-workspace: #EFF1F4;
+  --runne-warm-white: #F5F6F7;
+  --runne-surface: #F4F5F7;
+  --runne-surface-raised: #E9ECF0;
+  --runne-text-primary: #080808;
+  --runne-text-secondary: #272A2F;
+  --runne-text-on-accent: #FFFFFF;
+  --runne-border: #D2D7DE;
+  --runne-ui-muted: #272A2F;
+  --runne-ui-subtle: #737780;
+  --runne-error-coral: #B42318;
 }

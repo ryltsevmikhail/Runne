@@ -3,8 +3,11 @@ import {
   Activity,
   ChevronLeft,
   CircleHelp,
+  FolderKanban,
+  History,
   Moon,
   PanelLeft,
+  Settings,
   Sun,
 } from 'lucide-vue-next'
 import { GcSidebar } from '@runne/product/shared/ui'
@@ -29,8 +32,6 @@ import type {
   RuntimeLifecycleStatus,
   RuntimeMode,
 } from '@/shared/api/platform/bootstrap'
-import brandIcon from '@/shared/assets/gocode-app-icon.png'
-import brandLockup from '@/shared/assets/gocode-lockup.png'
 import { DesktopTitleBar } from '@/widgets/desktop-title-bar'
 import { RuntimeStatus } from '@/widgets/runtime-status'
 import { appTheme } from '@/shared/model/theme'
@@ -57,10 +58,13 @@ const runtimeSession = createRuntimeSessionContext(createRuntimeSessionControlle
 provideRuntimeSession(runtimeSession)
 
 const sidebarItems = computed(() => [
-  { id: 'projects', label: translate('projects.title'), icon: '▦' },
-  { id: 'settings', label: translate('settings.title'), icon: '⚙' },
+  { id: 'projects', label: translate('projects.title'), icon: FolderKanban },
+  { id: 'task-runs', label: translate('taskRunInventory.navigation'), icon: History },
+  { id: 'settings', label: translate('settings.title'), icon: Settings },
 ])
-const activeSidebarItem = computed(() => route.path.startsWith('/settings') ? 'settings' : 'projects')
+const activeSidebarItem = computed(() => route.path.startsWith('/settings')
+  ? 'settings'
+  : route.path.startsWith('/task-runs') ? 'task-runs' : 'projects')
 let runtimePoll: ReturnType<typeof setInterval> | undefined
 let notificationPoll: ReturnType<typeof setInterval> | undefined
 let stopExternalActivation: (() => void) | undefined
@@ -173,7 +177,7 @@ async function toggleTheme() {
 }
 
 async function navigateSidebar(id: string) {
-  await router.push(id === 'settings' ? '/settings/runtimes' : '/')
+  await router.push(id === 'settings' ? '/settings/runtimes' : id === 'task-runs' ? '/task-runs' : '/')
 }
 </script>
 
@@ -189,42 +193,6 @@ async function navigateSidebar(id: string) {
       class="sidebar"
       :class="{ 'sidebar--collapsed': sidebarCollapsed }"
     >
-      <div class="sidebar-header">
-        <RouterLink
-          class="brand"
-          to="/"
-          :aria-label="translate('navigation.home')"
-        >
-          <img
-            class="brand-lockup"
-            :src="brandLockup"
-            alt=""
-          >
-          <img
-            class="brand-icon"
-            :src="brandIcon"
-            alt=""
-          >
-        </RouterLink>
-        <button
-          class="icon-button collapse-button"
-          type="button"
-          :aria-label="sidebarCollapsed ? translate('navigation.expandSidebar') : translate('navigation.collapseSidebar')"
-          @click="sidebarCollapsed = !sidebarCollapsed"
-        >
-          <PanelLeft
-            v-if="sidebarCollapsed"
-            :size="16"
-            aria-hidden="true"
-          />
-          <ChevronLeft
-            v-else
-            :size="16"
-            aria-hidden="true"
-          />
-        </button>
-      </div>
-
       <GcSidebar
         class="app-sidebar-navigation"
         :items="sidebarItems"
@@ -232,7 +200,27 @@ async function navigateSidebar(id: string) {
         :collapsed="sidebarCollapsed"
         :aria-label="translate('navigation.primary')"
         @navigate="navigateSidebar"
-      />
+      >
+        <template #actions>
+          <button
+            class="icon-button collapse-button"
+            type="button"
+            :aria-label="sidebarCollapsed ? translate('navigation.expandSidebar') : translate('navigation.collapseSidebar')"
+            @click="sidebarCollapsed = !sidebarCollapsed"
+          >
+            <PanelLeft
+              v-if="sidebarCollapsed"
+              :size="16"
+              aria-hidden="true"
+            />
+            <ChevronLeft
+              v-else
+              :size="16"
+              aria-hidden="true"
+            />
+          </button>
+        </template>
+      </GcSidebar>
 
       <div class="sidebar-status">
         <RuntimeStatus
