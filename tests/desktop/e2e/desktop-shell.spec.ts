@@ -81,6 +81,7 @@ test('terminal output remains readable in the light theme', async ({ page }) => 
 })
 
 test('Phase 3 routes remain fail-closed while workspace chat remains available', async ({ page }) => {
+  await installDesktopAdapter(page)
   await page.goto('/task-runs')
   await expect(page.getByRole('heading', { name: 'Task runs', exact: true })).toBeVisible()
   await expect(page.locator('[data-capability="task-run-inventory"]')).toBeVisible()
@@ -100,7 +101,6 @@ test('Phase 3 routes remain fail-closed while workspace chat remains available',
   await expect(page.getByRole('tab', { name: 'Devices' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled()
 
-  await installDesktopAdapter(page)
   await page.goto(`/workspaces/${workspace.workspaceId}`)
   const controls = page.locator('[data-capability="conversation-controls"] button')
   await expect(controls).toHaveCount(5)
@@ -109,7 +109,11 @@ test('Phase 3 routes remain fail-closed while workspace chat remains available',
   }
   const message = page.getByRole('textbox', { name: 'Message' })
   await message.fill('route smoke')
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled()
+  const send = page.getByRole('button', { name: 'Send', exact: true })
+  await expect(send).toBeEnabled()
+  await send.click()
+  await expect(message).toHaveValue('')
+  await expect(page.getByLabel('Conversation runtime status')).toHaveText('Runtime live')
 })
 
 test.describe('narrow desktop shell', () => {
