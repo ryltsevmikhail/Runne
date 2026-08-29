@@ -14,7 +14,8 @@
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 12px;
-  min-height: 36px;
+  min-height: 58px;
+  padding: 4px 20px;
 }
 
 .workspace-kicker {

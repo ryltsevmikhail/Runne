@@ -4,7 +4,7 @@
   grid-template-rows: auto 1fr auto;
 }
 
-.workspace:has(> .projects-page) {
+.workspace:has(> .projects-page:not(.open-project-page)) {
   padding: 0;
 }
 
