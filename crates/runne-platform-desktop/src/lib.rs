@@ -7,6 +7,7 @@ mod provider_credential_prompt;
 mod root_handle_broker;
 mod updater;
 mod updater_artifact;
+mod updater_compiled_config;
 mod updater_coordinator;
 mod updater_feed;
 mod updater_install;
@@ -53,6 +54,7 @@ pub use updater::{
     stage_verified_artifact, verify_update,
 };
 pub use updater_artifact::{UpdateArtifactKind, UpdateArtifactKindError};
+pub use updater_compiled_config::CompiledUpdateTrustRootV2;
 pub use updater_coordinator::{
     UpdateCoordinator, UpdateCoordinatorError, UpdateTargetBindingConfig,
 };

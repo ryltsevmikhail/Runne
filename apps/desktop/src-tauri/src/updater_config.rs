@@ -1,6 +1,8 @@
 use std::path::Path;
 
-use runne_platform_desktop::{UpdateCoordinator, UpdateTargetBindingConfig, UpdateTrustRootV2};
+use runne_platform_desktop::{
+    CompiledUpdateTrustRootV2, UpdateCoordinator, UpdateTargetBindingConfig,
+};
 
 pub struct CompiledUpdater {
     pub(crate) endpoint: &'static str,
@@ -9,41 +11,23 @@ pub struct CompiledUpdater {
 }
 
 impl CompiledUpdater {
-    #[allow(clippy::similar_names)]
+    #[must_use]
     pub fn load(profile_directory: &Path) -> Option<Self> {
         let endpoint = option_env!("RUNNE_UPDATE_METADATA_ENDPOINT")?;
         let rollback_floor = option_env!("RUNNE_UPDATE_ROLLBACK_FLOOR")?;
-        let root_a_id = option_env!("RUNNE_UPDATE_ROOT_A_ID")?;
-        let root_b_id = option_env!("RUNNE_UPDATE_ROOT_B_ID")?;
-        let root_c_id = option_env!("RUNNE_UPDATE_ROOT_C_ID")?;
-        let timestamp_id = option_env!("RUNNE_UPDATE_TIMESTAMP_ID")?;
-        let snapshot_id = option_env!("RUNNE_UPDATE_SNAPSHOT_ID")?;
         let profile_id = option_env!("RUNNE_UPDATE_PROFILE_ID")?;
         let bundle_sha256 = option_env!("RUNNE_UPDATE_BUNDLE_SHA256")?;
         let runtime_version = option_env!("RUNNE_UPDATE_RUNTIME_VERSION")?;
         let runtime_digest = option_env!("RUNNE_UPDATE_RUNTIME_DIGEST")?;
         let channel = option_env!("RUNNE_UPDATE_CHANNEL")?;
-        let root_a = key(option_env!("RUNNE_UPDATE_ROOT_A_HEX")?)?;
-        let root_b = key(option_env!("RUNNE_UPDATE_ROOT_B_HEX")?)?;
-        let root_c = key(option_env!("RUNNE_UPDATE_ROOT_C_HEX")?)?;
-        let timestamp = key(option_env!("RUNNE_UPDATE_TIMESTAMP_HEX")?)?;
-        let snapshot = key(option_env!("RUNNE_UPDATE_SNAPSHOT_HEX")?)?;
-        let trust = UpdateTrustRootV2::from_keys(
-            [
-                (root_a_id, root_a),
-                (root_b_id, root_b),
-                (root_c_id, root_c),
-            ],
-            (timestamp_id, timestamp),
-            (snapshot_id, snapshot),
-        );
+        let (platform, arch, min_os) = current_target()?;
         let coordinator = UpdateCoordinator::new(
-            trust,
+            CompiledUpdateTrustRootV2::load()?.into_trust_root(),
             UpdateTargetBindingConfig {
                 product_id: "com.runne.desktop".into(),
-                platform: platform().into(),
-                arch: architecture().into(),
-                min_os: minimum_os().into(),
+                platform: platform.into(),
+                arch: arch.into(),
+                min_os: min_os.into(),
                 profile_id: profile_id.into(),
                 bundle_sha256: bundle_sha256.into(),
                 runtime_version: runtime_version.into(),
@@ -61,35 +45,43 @@ impl CompiledUpdater {
     }
 }
 
-fn key(value: &str) -> Option<[u8; 32]> {
-    let bytes = hex::decode(value).ok()?;
-    bytes.try_into().ok()
-}
-
-const fn platform() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "windows"
-    } else if cfg!(target_os = "macos") {
-        "macos"
+const fn current_target() -> Option<(&'static str, &'static str, &'static str)> {
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        Some(("macos", "arm64", "macos-13"))
+    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        Some(("macos", "x86_64", "macos-13"))
+    } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        Some(("windows", "x86_64", "windows-10-22h2"))
+    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        Some(("linux", "x86_64", "ubuntu-22.04"))
     } else {
-        "linux"
+        None
     }
 }
 
-const fn architecture() -> &'static str {
-    if cfg!(target_arch = "aarch64") {
-        "arm64"
-    } else {
-        "x86_64"
-    }
-}
+#[cfg(test)]
+mod tests {
+    use super::current_target;
 
-const fn minimum_os() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "windows-10-22h2"
-    } else if cfg!(target_os = "macos") {
-        "macos-13"
-    } else {
-        "ubuntu-22.04"
+    #[test]
+    fn compiled_updater_target_exactly_matches_the_build() {
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        assert_eq!(current_target(), Some(("macos", "arm64", "macos-13")));
+        #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+        assert_eq!(current_target(), Some(("macos", "x86_64", "macos-13")));
+        #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+        assert_eq!(
+            current_target(),
+            Some(("windows", "x86_64", "windows-10-22h2"))
+        );
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        assert_eq!(current_target(), Some(("linux", "x86_64", "ubuntu-22.04")));
+        #[cfg(not(any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "macos", target_arch = "x86_64"),
+            all(target_os = "windows", target_arch = "x86_64"),
+            all(target_os = "linux", target_arch = "x86_64"),
+        )))]
+        assert_eq!(current_target(), None);
     }
 }
