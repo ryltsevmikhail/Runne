@@ -25,12 +25,21 @@ pub struct NativeEnrollmentTupleAdmission {
 impl VerifiedUpdateV2 {
     #[must_use]
     pub const fn target(&self) -> &UpdateTargetV2 {
-        &self.target
+        &self.metadata.targets.target
+    }
+
+    #[must_use]
+    pub(crate) const fn metadata(&self) -> &super::UpdateMetadataV2 {
+        &self.metadata
     }
 
     #[must_use]
     pub const fn native_enrollment_tuple(&self) -> Option<&NativeEnrollmentTupleV1> {
-        self.target.native_enrollment_tuple.as_ref()
+        self.metadata
+            .targets
+            .target
+            .native_enrollment_tuple
+            .as_ref()
     }
 
     /// Mints admission for exactly one threshold-verified, measured package tuple.
@@ -39,10 +48,12 @@ impl VerifiedUpdateV2 {
         &self,
         artifacts: &MeasuredNativeEnrollmentArtifactsV1,
     ) -> Option<NativeEnrollmentTupleAdmission> {
-        self.target
+        self.metadata
+            .targets
+            .target
             .native_enrollment_tuple
             .as_ref()
-            .and_then(|tuple| tuple.admit(&self.target, artifacts))
+            .and_then(|tuple| tuple.admit(self.target(), artifacts))
     }
 
     /// Tuple evidence alone cannot qualify the platform enrollment path.

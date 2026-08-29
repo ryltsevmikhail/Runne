@@ -10,6 +10,7 @@ mod updater_artifact;
 mod updater_coordinator;
 mod updater_feed;
 mod updater_install;
+mod updater_installed_metadata;
 mod updater_journal;
 mod updater_metadata;
 mod updater_trust;
@@ -55,6 +56,7 @@ pub use updater_coordinator::{
 };
 pub use updater_feed::{UpdateFeedClient, UpdateFeedError};
 pub use updater_install::{NativeUpdateInstallError, install_staged_update};
+pub use updater_installed_metadata::InstalledUpdateMetadataError;
 pub use updater_journal::{UpdateInstallRecord, UpdateJournal, UpdateJournalError};
 pub use updater_metadata::{
     MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentQualification,

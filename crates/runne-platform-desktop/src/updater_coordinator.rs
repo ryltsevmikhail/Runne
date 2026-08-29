@@ -6,12 +6,18 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
+use crate::updater_installed_metadata::{
+    InstalledUpdateMetadataError, InstalledUpdateMetadataJournal,
+};
 use crate::{
     StagedUpdate, UpdateFeedClient, UpdateFeedError, UpdateInstallError, UpdateInstallPlan,
     UpdateInstallRecord, UpdateInstallState, UpdateJournal, UpdateJournalError,
     UpdateTargetV2Binding, UpdateTrustError, UpdateTrustJournal, UpdateTrustRootV2,
     VerifiedUpdateV2,
 };
+
+#[path = "updater_coordinator/installed_tuple.rs"]
+mod installed_tuple;
 
 const MAX_BINDING_VALUE_BYTES: usize = 512;
 
@@ -38,6 +44,10 @@ pub enum UpdateCoordinatorError {
     Journal(#[source] UpdateJournalError),
     #[error("updater trust operation failed")]
     Trust(#[source] UpdateTrustError),
+    #[error("installed update metadata operation failed")]
+    InstalledMetadata(#[source] InstalledUpdateMetadataError),
+    #[error("installed update metadata verification failed")]
+    Verification(#[source] crate::UpdateV2VerificationError),
     #[error("active task runs require explicit update confirmation")]
     ActiveTaskRuns,
     #[error("updater transaction is already active")]
@@ -54,6 +64,7 @@ pub struct UpdateCoordinator {
     staging_directory: PathBuf,
     journal: UpdateJournal,
     trust_journal: UpdateTrustJournal,
+    installed_metadata: InstalledUpdateMetadataJournal,
 }
 
 impl UpdateCoordinator {
@@ -72,6 +83,9 @@ impl UpdateCoordinator {
             staging_directory: updates.join("staged"),
             journal: UpdateJournal::new(updates.join("install-state.json")),
             trust_journal: UpdateTrustJournal::new(updates.join("trust-state.json")),
+            installed_metadata: InstalledUpdateMetadataJournal::new(
+                updates.join("installed-metadata.json"),
+            ),
         })
     }
 
@@ -133,6 +147,9 @@ impl UpdateCoordinator {
         self.journal
             .record_staged(&target.version, &staged)
             .map_err(UpdateCoordinatorError::Journal)?;
+        self.installed_metadata
+            .persist(update)
+            .map_err(UpdateCoordinatorError::InstalledMetadata)?;
         self.journal
             .read()
             .map_err(UpdateCoordinatorError::Journal)?
@@ -145,6 +162,8 @@ impl UpdateCoordinator {
         confirm_active_task_runs: bool,
     ) -> Result<UpdateInstallRecord, UpdateCoordinatorError> {
         let record = self.current_record()?;
+        installed_tuple::ensure_staged_metadata(&self.installed_metadata, &record)
+            .map_err(UpdateCoordinatorError::InstalledMetadata)?;
         if active_task_runs > 0 && !confirm_active_task_runs {
             return Err(UpdateCoordinatorError::ActiveTaskRuns);
         }
@@ -277,4 +296,5 @@ const fn map_install_error(error: UpdateInstallError) -> UpdateCoordinatorError 
 #[cfg(test)]
 mod tests {
     include!("updater_coordinator/tests.rs");
+    include!("updater_coordinator/installed_tuple_tests.rs");
 }

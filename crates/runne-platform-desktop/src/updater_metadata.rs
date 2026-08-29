@@ -153,7 +153,7 @@ pub struct UpdateTargetV2Binding<'a> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VerifiedUpdateV2 {
-    target: UpdateTargetV2,
+    metadata: UpdateMetadataV2,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
@@ -265,7 +265,7 @@ pub fn verify_update_v2(
         return Err(UpdateV2VerificationError::Rollback);
     }
     Ok(VerifiedUpdateV2 {
-        target: target.clone(),
+        metadata: metadata.clone(),
     })
 }
 
