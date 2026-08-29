@@ -66,14 +66,28 @@ impl runne_application::local_session::EnrollmentLaunchGenerationStore for Store
         generation: u64,
     ) -> Result<(), runne_application::local_session::EnrollmentLaunchGenerationConsumeError> {
         self.consume_enrollment_launch_generation(generation)
-            .map_err(|error| match error {
-                EnrollmentLaunchGenerationError::Unavailable => {
-                    runne_application::local_session::EnrollmentLaunchGenerationConsumeError::Unavailable
-                }
-                EnrollmentLaunchGenerationError::CorruptData => {
-                    runne_application::local_session::EnrollmentLaunchGenerationConsumeError::Rejected
-                }
-            })
+            .map_err(map_enrollment_launch_consume_error)
+    }
+
+    fn reserve_next_enrollment_generation(
+        &self,
+    ) -> Result<u64, runne_application::local_session::EnrollmentLaunchGenerationConsumeError> {
+        self.reserve_enrollment_launch_generation()
+            .map_err(map_enrollment_launch_consume_error)
+    }
+}
+
+fn map_enrollment_launch_consume_error(
+    error: EnrollmentLaunchGenerationError,
+) -> runne_application::local_session::EnrollmentLaunchGenerationConsumeError {
+    use runne_application::local_session::EnrollmentLaunchGenerationConsumeError;
+    match error {
+        EnrollmentLaunchGenerationError::Unavailable => {
+            EnrollmentLaunchGenerationConsumeError::Unavailable
+        }
+        EnrollmentLaunchGenerationError::CorruptData => {
+            EnrollmentLaunchGenerationConsumeError::Rejected
+        }
     }
 }
 

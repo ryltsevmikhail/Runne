@@ -1,4 +1,35 @@
 impl LocalSessionService {
+    /// Reserves the exact authoritative successor of the current launch generation.
+    ///
+    /// Only a `OneTimeProtected` service may reserve, and the authoritative
+    /// store must return exactly the current `launch_generation + 1`. The
+    /// reservation never mutates the in-memory binding; only
+    /// [`LocalSessionService::rotate_protected_enrollment_generation`] consumes
+    /// it once through the same authoritative store.
+    pub fn reserve_protected_enrollment_generation(&self) -> Result<u64, LocalSessionError> {
+        if self.bootstrap_policy != BootstrapPolicy::OneTimeProtected {
+            return Err(LocalSessionError::Unauthorized);
+        }
+        let Some(expected) = self
+            .binding
+            .ephemeral()
+            .launch_generation()
+            .checked_add(1)
+        else {
+            return Err(LocalSessionError::Unauthorized);
+        };
+        match self.enrollment_generation_store.reserve_next_enrollment_generation() {
+            Ok(reserved) if reserved == expected => Ok(reserved),
+            Ok(_) => Err(LocalSessionError::Unauthorized),
+            Err(EnrollmentLaunchGenerationConsumeError::Unavailable) => {
+                Err(LocalSessionError::Unavailable)
+            }
+            Err(EnrollmentLaunchGenerationConsumeError::Rejected) => {
+                Err(LocalSessionError::Unauthorized)
+            }
+        }
+    }
+
     /// Atomically advances one protected enrollment launch to its reserved successor.
     ///
     /// This is intentionally narrower than bootstrap rotation: callers must name the

@@ -3,7 +3,8 @@ use runne_api::{ApiPrincipalId, DaemonInstanceId, RuntimeSessionBinding, StableR
 use runne_application::{
     local_session::{
         BootstrapReservationError, BootstrapReservationStore, ConsumeReservation,
-        ConsumedReservation, LocalSessionService, PreallocateReservation, Reservation,
+        ConsumedReservation, LocalSessionError, LocalSessionService, PreallocateReservation,
+        Reservation,
     },
     ports::RuntimeAuthorityId,
 };
@@ -223,6 +224,67 @@ fn local_session_rotation_consumes_real_store_reservation_once() {
     assert_eq!(service.current_binding(), &next);
     assert_eq!(
         store.consume_enrollment_launch_generation(2),
+        Err(EnrollmentLaunchGenerationError::CorruptData)
+    );
+}
+
+#[test]
+fn local_session_reserve_admits_only_the_exact_successor_and_rotate_consumes_it_once() {
+    let (_directory, store) = store();
+    assert_eq!(store.reserve_enrollment_launch_generation().unwrap(), 1);
+    let current = binding(1, [5; 16]);
+    let service = LocalSessionService::new_protected_with_stores(
+        current.clone(),
+        [1; 16],
+        [2; 32],
+        [0x22; 32],
+        Arc::new(NoopBootstrapStore),
+        Arc::new(store.clone()),
+        std::time::Duration::ZERO,
+        std::time::Duration::from_secs(30),
+    )
+    .unwrap();
+    assert_eq!(service.reserve_protected_enrollment_generation(), Ok(2));
+
+    // A second reservation advances the canonical counter past the pending
+    // exact-successor expectation; the stale reservation fails closed.
+    assert_eq!(
+        service.reserve_protected_enrollment_generation(),
+        Err(LocalSessionError::Unauthorized)
+    );
+    assert_eq!(service.current_binding(), &current);
+
+    // Re-anchor on the canonical counter value and complete the reserved flow.
+    let reanchored = binding(3, [5; 16]);
+    let mut reanchored_service = LocalSessionService::new_protected_with_stores(
+        reanchored.clone(),
+        [1; 16],
+        [2; 32],
+        [0x22; 32],
+        Arc::new(NoopBootstrapStore),
+        Arc::new(store.clone()),
+        std::time::Duration::ZERO,
+        std::time::Duration::from_secs(30),
+    )
+    .unwrap();
+    assert_eq!(
+        reanchored_service.reserve_protected_enrollment_generation(),
+        Ok(4)
+    );
+    assert_eq!(reanchored_service.current_binding(), &reanchored);
+    reanchored_service
+        .rotate_protected_enrollment_generation(
+            &reanchored,
+            binding(4, [9; 16]),
+            [0x33; 32],
+            std::time::Duration::from_secs(1),
+            std::time::Duration::from_secs(30),
+        )
+        .unwrap();
+    assert_eq!(reanchored_service.current_binding(), &binding(4, [9; 16]));
+    // The reservation was consumed exactly once: replay fails closed.
+    assert_eq!(
+        store.consume_enrollment_launch_generation(4),
         Err(EnrollmentLaunchGenerationError::CorruptData)
     );
 }

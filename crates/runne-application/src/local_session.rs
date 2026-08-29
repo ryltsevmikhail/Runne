@@ -195,3 +195,5 @@ include!("local_session/replay_baseline_v2_tests.rs");
 include!("local_session/generation_rotation_tests.rs");
 #[cfg(test)]
 include!("local_session/generation_rotation_p3_tests.rs");
+#[cfg(test)]
+include!("local_session/generation_reservation_tests.rs");

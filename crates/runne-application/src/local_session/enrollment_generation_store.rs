@@ -14,6 +14,15 @@ pub trait EnrollmentLaunchGenerationStore: Send + Sync {
         &self,
         generation: u64,
     ) -> Result<(), EnrollmentLaunchGenerationConsumeError>;
+
+    /// Atomically reserves the durable successor of the canonical generation.
+    ///
+    /// The reservation is the authoritative counter advance itself. Callers
+    /// must admit it only when it equals their exact current `launch_generation
+    /// + 1`; zero, stale, gapped, or overflowed values fail closed.
+    fn reserve_next_enrollment_generation(
+        &self,
+    ) -> Result<u64, EnrollmentLaunchGenerationConsumeError>;
 }
 
 pub(crate) struct UnavailableEnrollmentLaunchGenerationStore;
@@ -23,6 +32,12 @@ impl EnrollmentLaunchGenerationStore for UnavailableEnrollmentLaunchGenerationSt
         &self,
         _: u64,
     ) -> Result<(), EnrollmentLaunchGenerationConsumeError> {
+        Err(EnrollmentLaunchGenerationConsumeError::Unavailable)
+    }
+
+    fn reserve_next_enrollment_generation(
+        &self,
+    ) -> Result<u64, EnrollmentLaunchGenerationConsumeError> {
         Err(EnrollmentLaunchGenerationConsumeError::Unavailable)
     }
 }

@@ -1,23 +1,6 @@
 const ROTATION_AUTHORITY: [u8; 16] = [1, 143, 46, 58, 112, 0, 112, 0, 128, 0, 0, 0, 0, 0, 0, 11];
 const ROTATION_DAEMON: [u8; 16] = [1, 143, 46, 58, 112, 0, 112, 0, 128, 0, 0, 0, 0, 0, 0, 12];
 
-enum FixedGenerationStore {
-    Result(Result<(), EnrollmentLaunchGenerationConsumeError>),
-    Panic,
-}
-
-impl EnrollmentLaunchGenerationStore for FixedGenerationStore {
-    fn consume_reserved_enrollment_generation(
-        &self,
-        _: u64,
-    ) -> Result<(), EnrollmentLaunchGenerationConsumeError> {
-        match self {
-            Self::Result(result) => *result,
-            Self::Panic => panic!("pure local validation must reject before consumption"),
-        }
-    }
-}
-
 fn rotation_binding(
     generation: u64,
     session_id: [u8; 16],
