@@ -42,6 +42,9 @@
       "binaries/runned",
       "binaries/runne"
     ],
+    "resources": {
+      "../../../contracts/gocode-ui-client-2/bundle.json": "contracts/gocode-ui-client-2/bundle.json"
+    },
     "macOS": {
       "hardenedRuntime": true,
       "minimumSystemVersion": "13.0"

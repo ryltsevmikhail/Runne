@@ -87,6 +87,7 @@ fn verified_update() -> VerifiedUpdateV2 {
     target.native_enrollment_tuple = Some(
         NativeEnrollmentTupleV1::new(
             target.release_candidate_sha256.clone(),
+            "b".repeat(64),
             "d".repeat(64),
             "e".repeat(64),
             target.bundle_sha256.clone(),
@@ -151,7 +152,7 @@ fn verified_update() -> VerifiedUpdateV2 {
 
 fn artifacts() -> MeasuredNativeEnrollmentArtifactsV1 {
     MeasuredNativeEnrollmentArtifactsV1::new(
-        "c".repeat(64),
+        "b".repeat(64),
         "d".repeat(64),
         "e".repeat(64),
         "a".repeat(64),

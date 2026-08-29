@@ -23,6 +23,7 @@ fn macos_tuple_requires_exact_non_adhoc_writer_code_identity() {
     assert!(
         NativeEnrollmentTupleV1::new(
             macos.release_candidate_sha256.clone(),
+            "c".repeat(64),
             "e".repeat(64),
             "f".repeat(64),
             macos.bundle_sha256.clone(),
@@ -33,6 +34,7 @@ fn macos_tuple_requires_exact_non_adhoc_writer_code_identity() {
     let valid = || {
         NativeEnrollmentTupleV1::new_macos(
             macos.release_candidate_sha256.clone(),
+            "c".repeat(64),
             "e".repeat(64),
             "f".repeat(64),
             macos.bundle_sha256.clone(),
@@ -49,6 +51,7 @@ fn macos_tuple_requires_exact_non_adhoc_writer_code_identity() {
     assert!(
         NativeEnrollmentTupleV1::new_macos(
             macos.release_candidate_sha256.clone(),
+            "c".repeat(64),
             "e".repeat(64),
             "f".repeat(64),
             macos.bundle_sha256.clone(),
@@ -71,6 +74,7 @@ fn macos_tuple_requires_exact_non_adhoc_writer_code_identity() {
         assert!(
             NativeEnrollmentTupleV1::new_macos(
                 macos.release_candidate_sha256.clone(),
+                "c".repeat(64),
                 "e".repeat(64),
                 "f".repeat(64),
                 macos.bundle_sha256.clone(),
@@ -89,6 +93,7 @@ fn macos_tuple_requires_exact_non_adhoc_writer_code_identity() {
     assert!(
         NativeEnrollmentTupleV1::new_macos(
             linux.release_candidate_sha256.clone(),
+            "c".repeat(64),
             "e".repeat(64),
             "f".repeat(64),
             linux.bundle_sha256.clone(),
@@ -114,6 +119,7 @@ fn verified_macos_tuple_admission_mints_only_a_tuple_bound_launch() {
     macos.native_enrollment_tuple = Some(
         NativeEnrollmentTupleV1::new_macos(
             macos.release_candidate_sha256.clone(),
+            "c".repeat(64),
             writer_digest.clone(),
             "f".repeat(64),
             macos.bundle_sha256.clone(),
@@ -129,7 +135,7 @@ fn verified_macos_tuple_admission_mints_only_a_tuple_bound_launch() {
     );
     let verified = verify_target(&macos).unwrap();
     let artifacts = MeasuredNativeEnrollmentArtifactsV1::new(
-        macos.artifact_sha256.clone(),
+        "c".repeat(64),
         writer_digest,
         "f".repeat(64),
         macos.bundle_sha256,
@@ -152,6 +158,7 @@ fn threshold_signed_macos_tuple_tampering_is_invalid_metadata() {
     let mut macos = target();
     let tuple = NativeEnrollmentTupleV1::new_macos(
         macos.release_candidate_sha256.clone(),
+        "c".repeat(64),
         "e".repeat(64),
         "f".repeat(64),
         macos.bundle_sha256.clone(),
@@ -171,6 +178,9 @@ fn threshold_signed_macos_tuple_tampering_is_invalid_metadata() {
         }),
         tamper(&original, |value| {
             value.as_object_mut().unwrap().remove("daemonCodeIdentity");
+        }),
+        tamper(&original, |value| {
+            value["desktopSha256"] = "3".repeat(64).into();
         }),
         tamper(&original, |value| {
             value["tupleSha256"] = "0".repeat(64).into();

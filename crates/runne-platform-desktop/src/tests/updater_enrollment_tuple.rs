@@ -26,6 +26,7 @@ pub(super) fn target() -> UpdateTargetV2 {
 
 fn legacy_tuple_digest(
     target: &UpdateTargetV2,
+    desktop: &str,
     writer: &str,
     daemon: &str,
     contract: &str,
@@ -40,6 +41,7 @@ fn legacy_tuple_digest(
         target.arch.as_str(),
         target.profile_id.as_str(),
         target.artifact_sha256.as_str(),
+        desktop,
         writer,
         daemon,
         contract,
@@ -56,6 +58,7 @@ fn enrollment_tuple_rejects_missing_reused_and_swapped_role_artifacts() {
     assert!(
         NativeEnrollmentTupleV1::new(
             target.release_candidate_sha256.clone(),
+            "c".repeat(64),
             String::new(),
             "f".repeat(64),
             "b".repeat(64),
@@ -63,9 +66,21 @@ fn enrollment_tuple_rejects_missing_reused_and_swapped_role_artifacts() {
         )
         .is_err()
     );
+    assert!(
+        NativeEnrollmentTupleV1::new(
+            target.release_candidate_sha256.clone(),
+            "e".repeat(64),
+            "e".repeat(64),
+            "f".repeat(64),
+            target.bundle_sha256.clone(),
+            &target,
+        )
+        .is_err()
+    );
 
     let tuple = NativeEnrollmentTupleV1::new(
         target.release_candidate_sha256.clone(),
+        "c".repeat(64),
         "e".repeat(64),
         "f".repeat(64),
         target.bundle_sha256.clone(),
@@ -74,11 +89,11 @@ fn enrollment_tuple_rejects_missing_reused_and_swapped_role_artifacts() {
     .unwrap();
     assert_eq!(
         serde_json::to_value(&tuple).unwrap()["tupleSha256"],
-        legacy_tuple_digest(&target, &"e".repeat(64), &"f".repeat(64), &target.bundle_sha256)
+        legacy_tuple_digest(&target, &"c".repeat(64), &"e".repeat(64), &"f".repeat(64), &target.bundle_sha256)
     );
     assert!(
         MeasuredNativeEnrollmentArtifactsV1::new(
-            target.artifact_sha256.clone(),
+            "c".repeat(64),
             "e".repeat(64),
             "f".repeat(64),
             target.bundle_sha256.clone(),
@@ -87,7 +102,7 @@ fn enrollment_tuple_rejects_missing_reused_and_swapped_role_artifacts() {
     );
     assert!(
         MeasuredNativeEnrollmentArtifactsV1::new(
-            target.artifact_sha256.clone(),
+            "c".repeat(64),
             "f".repeat(64),
             "e".repeat(64),
             target.bundle_sha256.clone(),
@@ -97,6 +112,7 @@ fn enrollment_tuple_rejects_missing_reused_and_swapped_role_artifacts() {
     assert!(
         NativeEnrollmentTupleV1::new(
             target.release_candidate_sha256.clone(),
+            "c".repeat(64),
             "e".repeat(64),
             "e".repeat(64),
             target.bundle_sha256.clone(),
@@ -107,6 +123,7 @@ fn enrollment_tuple_rejects_missing_reused_and_swapped_role_artifacts() {
     assert!(
         NativeEnrollmentTupleV1::new(
             "c".repeat(64),
+            "a".repeat(64),
             "e".repeat(64),
             "f".repeat(64),
             target.bundle_sha256.clone(),
@@ -114,4 +131,44 @@ fn enrollment_tuple_rejects_missing_reused_and_swapped_role_artifacts() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn enrollment_tuple_requires_a_distinct_signed_desktop_digest() {
+    let target = target();
+    let tuple = NativeEnrollmentTupleV1::new(
+        target.release_candidate_sha256.clone(),
+        "c".repeat(64),
+        "e".repeat(64),
+        "f".repeat(64),
+        target.bundle_sha256.clone(),
+        &target,
+    )
+    .unwrap();
+    let mut encoded = serde_json::to_value(tuple).unwrap();
+    encoded.as_object_mut().unwrap().remove("desktopSha256");
+    assert!(serde_json::from_value::<NativeEnrollmentTupleV1>(encoded).is_err());
+}
+
+#[test]
+fn enrollment_tuple_rejects_installer_digest_reused_by_any_installed_role() {
+    for (desktop, writer, daemon, contract) in [
+        ("a".repeat(64), "e".repeat(64), "f".repeat(64), "b".repeat(64)),
+        ("c".repeat(64), "a".repeat(64), "f".repeat(64), "b".repeat(64)),
+        ("c".repeat(64), "e".repeat(64), "a".repeat(64), "b".repeat(64)),
+        ("c".repeat(64), "e".repeat(64), "f".repeat(64), "a".repeat(64)),
+    ] {
+        let target = target();
+        assert!(
+            NativeEnrollmentTupleV1::new(
+                target.release_candidate_sha256.clone(),
+                desktop,
+                writer,
+                daemon,
+                contract,
+                &target,
+            )
+            .is_err()
+        );
+    }
 }

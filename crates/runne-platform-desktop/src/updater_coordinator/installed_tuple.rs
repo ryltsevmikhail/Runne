@@ -1,7 +1,6 @@
 use crate::updater_installed_metadata::{
     InstalledUpdateMetadataError, InstalledUpdateMetadataJournal,
 };
-use crate::updater_metadata::NativeEnrollmentArtifactPathsV1;
 use crate::{
     MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentTupleAdmission, UpdateInstallRecord,
     UpdateInstallState, UpdateTargetV2Binding, verify_update_v2,
@@ -32,26 +31,35 @@ impl UpdateCoordinator {
             .map_err(UpdateCoordinatorError::Journal)
     }
 
-    /// Re-verifies the committed installed release before admitting its tuple.
+    /// Re-verifies the committed installed release from the exact native package layout.
+    #[cfg_attr(test, allow(dead_code))]
     #[cfg_attr(
         not(test),
         expect(
             dead_code,
-            reason = "fixed package-layout resolution is the remaining production integration step"
+            reason = "called only by protected native enrollment composition"
         )
     )]
     pub(crate) fn admit_installed_native_enrollment(
         &self,
-        paths: &NativeEnrollmentArtifactPathsV1,
     ) -> Result<Option<NativeEnrollmentTupleAdmission>, UpdateCoordinatorError> {
         let now_unix_seconds = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| UpdateCoordinatorError::InvalidTransition)?
             .as_secs();
+        let Some(verified) = self.verified_installed_native_update(now_unix_seconds)? else {
+            return Ok(None);
+        };
+        let paths = crate::updater_metadata::NativeEnrollmentArtifactPathsV1::resolve_installed()
+            .map_err(|_| UpdateCoordinatorError::InvalidTransition)?;
         let artifacts = paths
             .measure()
             .map_err(|_| UpdateCoordinatorError::InvalidTransition)?;
-        self.admit_installed_native_enrollment_inner(now_unix_seconds, &artifacts)
+        let admission = verified.admit_native_enrollment(&artifacts);
+        paths
+            .confirm_current()
+            .map_err(|_| UpdateCoordinatorError::InvalidTransition)?;
+        Ok(admission)
     }
 
     #[cfg(test)]
@@ -75,6 +83,15 @@ impl UpdateCoordinator {
         now_unix_seconds: u64,
         artifacts: &MeasuredNativeEnrollmentArtifactsV1,
     ) -> Result<Option<NativeEnrollmentTupleAdmission>, UpdateCoordinatorError> {
+        Ok(self
+            .verified_installed_native_update(now_unix_seconds)?
+            .and_then(|verified| verified.admit_native_enrollment(artifacts)))
+    }
+
+    fn verified_installed_native_update(
+        &self,
+        now_unix_seconds: u64,
+    ) -> Result<Option<crate::VerifiedUpdateV2>, UpdateCoordinatorError> {
         let Some(record) = self.current()? else {
             return Ok(None);
         };
@@ -129,6 +146,6 @@ impl UpdateCoordinator {
         {
             return Ok(None);
         }
-        Ok(verified.admit_native_enrollment(artifacts))
+        Ok(Some(verified))
     }
 }

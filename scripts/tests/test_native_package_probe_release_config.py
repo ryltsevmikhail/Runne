@@ -287,7 +287,10 @@ class BundledSidecarStagingTests(unittest.TestCase):
         config = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
         package = json.loads((ROOT / "apps/desktop/package.json").read_text(encoding="utf-8"))
         self.assertEqual(config["bundle"]["externalBin"], ["binaries/runned", "binaries/runne"])
-        self.assertNotIn("resources", config["bundle"])
+        self.assertEqual(
+            config["bundle"].get("resources"),
+            {"../../../contracts/gocode-ui-client-2/bundle.json": "contracts/gocode-ui-client-2/bundle.json"},
+        )
         self.assertIn("stage:bundled-daemon", config["build"]["beforeBuildCommand"])
         self.assertIn("stage:bundled-cli", config["build"]["beforeBuildCommand"])
         self.assertIn("stage:bundled-cli", package["scripts"])

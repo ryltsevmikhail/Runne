@@ -3,11 +3,13 @@ use sha2::{Digest, Sha256};
 #[path = "enrollment_tuple/measurement.rs"]
 mod enrollment_measurement;
 pub use enrollment_measurement::MeasuredNativeEnrollmentArtifactsV1;
+#[path = "enrollment_tuple/paths.rs"]
+mod enrollment_paths;
 #[expect(
     clippy::redundant_pub_crate,
     reason = "fixed package-layout resolution is the remaining production integration step"
 )]
-pub(crate) use enrollment_measurement::NativeEnrollmentArtifactPathsV1;
+pub(crate) use enrollment_paths::NativeEnrollmentArtifactPathsV1;
 
 /// Signed bindings for the four native artifacts required by credential
 /// enrollment. It is evidence only; absence is deliberately unqualified.
@@ -15,6 +17,7 @@ pub(crate) use enrollment_measurement::NativeEnrollmentArtifactPathsV1;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NativeEnrollmentTupleV1 {
     candidate_sha256: String,
+    desktop_sha256: String,
     writer_sha256: String,
     daemon_sha256: String,
     contract_sha256: String,
@@ -29,6 +32,7 @@ impl NativeEnrollmentTupleV1 {
     /// Builds a self-bound tuple for a target that will be threshold-signed.
     pub fn new(
         candidate_sha256: String,
+        desktop_sha256: String,
         writer_sha256: String,
         daemon_sha256: String,
         contract_sha256: String,
@@ -36,6 +40,7 @@ impl NativeEnrollmentTupleV1 {
     ) -> Result<Self, NativeEnrollmentTupleError> {
         let mut tuple = Self {
             candidate_sha256,
+            desktop_sha256,
             writer_sha256,
             daemon_sha256,
             contract_sha256,
@@ -54,6 +59,7 @@ impl NativeEnrollmentTupleV1 {
     #[allow(clippy::too_many_arguments)]
     pub fn new_macos(
         candidate_sha256: String,
+        desktop_sha256: String,
         writer_sha256: String,
         daemon_sha256: String,
         contract_sha256: String,
@@ -81,6 +87,7 @@ impl NativeEnrollmentTupleV1 {
         };
         let mut tuple = Self {
             candidate_sha256,
+            desktop_sha256,
             writer_sha256,
             daemon_sha256,
             contract_sha256,
@@ -103,7 +110,7 @@ impl NativeEnrollmentTupleV1 {
         artifacts: &MeasuredNativeEnrollmentArtifactsV1,
     ) -> bool {
         self.matches_target(target)
-            && artifacts.desktop_sha256 == target.artifact_sha256
+            && artifacts.desktop_sha256 == self.desktop_sha256
             && artifacts.writer_sha256 == self.writer_sha256
             && artifacts.daemon_sha256 == self.daemon_sha256
             && artifacts.contract_sha256 == self.contract_sha256
@@ -112,6 +119,7 @@ impl NativeEnrollmentTupleV1 {
     fn matches_target(&self, target: &UpdateTargetV2) -> bool {
         digests_valid([
             self.candidate_sha256.as_str(),
+            self.desktop_sha256.as_str(),
             self.writer_sha256.as_str(),
             self.daemon_sha256.as_str(),
             self.contract_sha256.as_str(),
@@ -131,10 +139,11 @@ impl NativeEnrollmentTupleV1 {
                 _ => self.writer_code_identity.is_none() && self.daemon_code_identity.is_none(),
             }
             && all_distinct([
-                self.writer_sha256.as_str(),
-                self.daemon_sha256.as_str(),
-                self.contract_sha256.as_str(),
-                target.artifact_sha256.as_str(),
+            target.artifact_sha256.as_str(),
+            self.writer_sha256.as_str(),
+            self.daemon_sha256.as_str(),
+            self.contract_sha256.as_str(),
+            self.desktop_sha256.as_str(),
             ])
             && (self.tuple_sha256.is_empty() || self.tuple_sha256 == self.digest_for(target))
     }
@@ -150,6 +159,7 @@ impl NativeEnrollmentTupleV1 {
             target.arch.as_str(),
             target.profile_id.as_str(),
             target.artifact_sha256.as_str(),
+            self.desktop_sha256.as_str(),
             self.writer_sha256.as_str(),
             self.daemon_sha256.as_str(),
             self.contract_sha256.as_str(),

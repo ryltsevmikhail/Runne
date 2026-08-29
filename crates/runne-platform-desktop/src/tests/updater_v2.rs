@@ -53,6 +53,7 @@ fn v2_update_requires_two_root_and_two_targets_signatures() {
     target.native_enrollment_tuple = Some(
         NativeEnrollmentTupleV1::new(
             target.release_candidate_sha256.clone(),
+            "e".repeat(64),
             writer_digest.clone(),
             "f".repeat(64),
             target.bundle_sha256.clone(),
@@ -120,7 +121,7 @@ fn v2_update_requires_two_root_and_two_targets_signatures() {
     assert_eq!(verified.target().version, "1.2.3");
     assert!(verified.native_enrollment_tuple().is_some());
     let measured = MeasuredNativeEnrollmentArtifactsV1::new(
-        target.artifact_sha256.clone(),
+        "e".repeat(64),
         writer_digest.clone(),
         "f".repeat(64),
         target.bundle_sha256.clone(),
@@ -137,7 +138,7 @@ fn v2_update_requires_two_root_and_two_targets_signatures() {
     std::fs::write(&writer, b"modified writer").unwrap();
     assert!(admission.verified_writer(writer).is_err());
     let swapped = MeasuredNativeEnrollmentArtifactsV1::new(
-        target.artifact_sha256.clone(),
+        "e".repeat(64),
         "f".repeat(64),
         writer_digest,
         target.bundle_sha256.clone(),
