@@ -1,4 +1,5 @@
 import { phase2English } from './phase2'
+import targetSurfaces from './english-target-surfaces'
 
 const english = {
   'settings.title': 'Settings',
@@ -286,6 +287,7 @@ const english = {
   'runtime.detail.externalConnection': 'Explicit mode · {connection}',
   'runtime.detail.unavailable': 'Runtime unavailable',
   ...phase2English,
+  ...targetSurfaces,
 } as const
 
 export default english

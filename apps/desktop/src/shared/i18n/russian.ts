@@ -1,5 +1,6 @@
 import english from './english'
 import { phase2Russian } from './phase2'
+import targetSurfaces from './russian-target-surfaces'
 
 const russian: Record<keyof typeof english, string> = {
   'settings.title': 'Настройки',
@@ -287,6 +288,7 @@ const russian: Record<keyof typeof english, string> = {
   'runtime.detail.externalConnection': 'Явный режим · {connection}',
   'runtime.detail.unavailable': 'Runtime недоступен',
   ...phase2Russian,
+  ...targetSurfaces,
 }
 
 export default russian

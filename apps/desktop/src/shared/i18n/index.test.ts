@@ -14,4 +14,11 @@ describe('desktop locale catalogs', () => {
     expect(createTranslator('ru')('workspace.breadcrumbProjects')).toBe('Проекты')
     expect(createTranslator('ru')('workspace.breadcrumbWorkspace')).toBe('Workspace')
   })
+
+  it('contains target capability copy in both production catalogs', () => {
+    expect(createTranslator('en')('targetCapability.unavailable')).toBe('Runtime capability unavailable')
+    expect(createTranslator('ru')('targetCapability.unavailableDescription', {
+      capability: 'task-run-inventory',
+    })).toBe('Для этого экрана нужна capability runtime task-run-inventory.')
+  })
 })
