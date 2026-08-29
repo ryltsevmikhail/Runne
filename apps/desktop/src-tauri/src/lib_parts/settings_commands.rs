@@ -85,6 +85,7 @@ async fn get_provider_credential_enrollment_status(
 }
 
 #[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
 fn request_provider_credential_intent(
     window: WebviewWindow,
     selections: tauri::State<'_, DirectorySelectionManager>,
@@ -136,6 +137,7 @@ mod provider_credential_intent_tests {
         assert!(!credential_intent_window_is_current(false, &selections, "main", current));
         assert!(!credential_intent_window_is_current(true, &selections, "main", current + 1));
         assert!(credential_intent_window_is_current(true, &selections, "main", current));
+        drop(selections);
     }
 }
 
