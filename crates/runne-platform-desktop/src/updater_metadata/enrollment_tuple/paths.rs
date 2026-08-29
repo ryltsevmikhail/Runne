@@ -40,10 +40,8 @@ impl NativeEnrollmentArtifactPathsV1 {
     pub(crate) fn resolve_installed() -> Result<Self, NativeEnrollmentTupleError> {
         #[cfg(target_os = "macos")]
         {
-            let paths = Self::from_macos_desktop_executable(
-                std::env::current_exe().map_err(|_| NativeEnrollmentTupleError::Rejected)?,
-                true,
-            )?;
+            let executable = std::env::current_exe().map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+            let paths = Self::from_macos_package_executable(&executable, "runne-desktop", true)?;
             paths.verify_live_desktop()?;
             Ok(paths)
         }
@@ -55,7 +53,7 @@ impl NativeEnrollmentArtifactPathsV1 {
 
     #[cfg(test)]
     pub(crate) fn new(
-        desktop: PathBuf,
+        desktop: &Path,
         writer: &Path,
         daemon: &Path,
         contract: &Path,
@@ -65,7 +63,7 @@ impl NativeEnrollmentArtifactPathsV1 {
             || contract != macos.parent().ok_or(NativeEnrollmentTupleError::Rejected)?.join("Resources/contracts/gocode-ui-client-2/bundle.json") {
             return Err(NativeEnrollmentTupleError::Rejected);
         }
-        let paths = Self::from_macos_desktop_executable(desktop, false)?;
+        let paths = Self::from_macos_package_executable(desktop, "runne-desktop", false)?;
         Ok(paths)
     }
 
@@ -143,11 +141,12 @@ impl NativeEnrollmentArtifactPathsV1 {
             .map_err(|_| NativeEnrollmentTupleError::Rejected)
     }
 
-    fn from_macos_desktop_executable(
-        desktop: PathBuf,
+    pub(super) fn from_macos_package_executable(
+        executable: &Path,
+        expected_name: &str,
         live_desktop: bool,
     ) -> Result<Self, NativeEnrollmentTupleError> {
-        let macos = desktop
+        let macos = executable
             .parent()
             .ok_or(NativeEnrollmentTupleError::Rejected)?
             .to_path_buf();
@@ -159,8 +158,8 @@ impl NativeEnrollmentArtifactPathsV1 {
             .parent()
             .ok_or(NativeEnrollmentTupleError::Rejected)?
             .to_path_buf();
-        if !desktop.is_absolute()
-            || desktop.file_name().is_none_or(|name| name != "runne-desktop")
+        if !executable.is_absolute()
+            || executable.file_name().is_none_or(|name| name != expected_name)
             || macos.file_name().is_none_or(|name| name != "MacOS")
             || contents.file_name().is_none_or(|name| name != "Contents")
             || application.file_name().is_none_or(|name| name != "Runne.app")
@@ -177,6 +176,7 @@ impl NativeEnrollmentArtifactPathsV1 {
         #[cfg(unix)]
         {
             let root = open_absolute_directory(&application)?;
+            let desktop = macos.join("runne-desktop");
             let desktop_file = open_rooted_file(&root, &["Contents", "MacOS", "runne-desktop"])?;
             let writer_file = open_rooted_file(&root, &["Contents", "MacOS", "runne"])?;
             let daemon_file = open_rooted_file(&root, &["Contents", "MacOS", "runned"])?;
@@ -217,6 +217,18 @@ impl NativeEnrollmentArtifactPathsV1 {
         runne_macos_process_identity::MacOsProcessExecutableIdentity::observe(pid, &self.desktop)
             .map_err(|_| NativeEnrollmentTupleError::Rejected)?
             .matches_file(self.desktop_file.metadata())
+            .then_some(())
+            .ok_or(NativeEnrollmentTupleError::Rejected)
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(super) fn verify_live_daemon(&self) -> Result<(), NativeEnrollmentTupleError> {
+        let pid = std::num::NonZeroU32::new(std::process::id())
+            .ok_or(NativeEnrollmentTupleError::Rejected)?;
+        let executable = std::env::current_exe().map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+        runne_macos_process_identity::MacOsProcessExecutableIdentity::observe(pid, &executable)
+            .map_err(|_| NativeEnrollmentTupleError::Rejected)?
+            .matches_file(self.daemon_file.metadata())
             .then_some(())
             .ok_or(NativeEnrollmentTupleError::Rejected)
     }

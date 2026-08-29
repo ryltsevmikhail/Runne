@@ -25,6 +25,10 @@ pub struct MeasuredNativeEnrollmentArtifactsV1 {
 }
 
 impl MeasuredNativeEnrollmentArtifactsV1 {
+    pub(super) fn daemon_and_contract_digests(&self) -> (&str, &str) {
+        (&self.daemon_sha256, &self.contract_sha256)
+    }
+
     #[cfg_attr(test, allow(dead_code))]
     pub(super) fn measure(
         desktop: &OpenedNativeEnrollmentFile,

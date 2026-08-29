@@ -177,3 +177,4 @@ mod updater_enrollment_macos_desktop_identity;
 mod updater_enrollment_macos_identity;
 mod updater_enrollment_qualification;
 mod updater_v2;
+mod updater_daemon_installed_native;

@@ -5,6 +5,8 @@ mod enrollment_measurement;
 pub use enrollment_measurement::MeasuredNativeEnrollmentArtifactsV1;
 #[path = "enrollment_tuple/paths.rs"]
 mod enrollment_paths;
+#[path = "enrollment_tuple/daemon_paths.rs"]
+mod enrollment_daemon_paths;
 #[expect(
     clippy::redundant_pub_crate,
     reason = "fixed package-layout resolution is the remaining production integration step"
@@ -14,6 +16,11 @@ pub(crate) use enrollment_paths::NativeEnrollmentArtifactPathsV1;
 mod enrollment_live_daemon;
 pub use enrollment_live_daemon::{
     ConfirmedInstalledNativeEnrollment, PreparedInstalledNativeEnrollment,
+};
+#[path = "enrollment_tuple/daemon_installed.rs"]
+mod enrollment_daemon_installed;
+pub use enrollment_daemon_installed::{
+    VerifiedDaemonNativeEnrollmentPrepare,
 };
 
 /// Signed bindings for the four native artifacts required by credential

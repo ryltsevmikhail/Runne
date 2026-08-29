@@ -114,7 +114,7 @@ fn retained_prepared(
         std::fs::write(path, bytes).unwrap();
     }
     let retained = crate::updater_metadata::NativeEnrollmentArtifactPathsV1::new(
-        paths[0].clone(), &paths[1], &paths[2], &paths[3],
+        &paths[0], &paths[1], &paths[2], &paths[3],
     ).unwrap();
     verified.admit_native_enrollment(artifacts).unwrap().retain_installed_paths(retained)
 }
