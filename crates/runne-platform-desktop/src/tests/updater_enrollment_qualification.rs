@@ -120,6 +120,33 @@ fn re_signed_candidate_tuple_platform_or_arch_substitution_is_invalid_metadata()
             Err(UpdateV2VerificationError::InvalidMetadata)
         );
     }
+
+    let mut target = super::updater_enrollment_macos_identity::target();
+    let replacement = NativeEnrollmentTupleV2::new_macos(
+        target.release_candidate_sha256.clone(),
+        "8".repeat(64),
+        "e".repeat(64),
+        "f".repeat(64),
+        target.bundle_sha256.clone(),
+        "com.runne.desktop",
+        "RUNNE12345",
+        "3".repeat(40),
+        "com.runne.writer",
+        "RUNNE12345",
+        "1".repeat(40),
+        "com.runne.daemon",
+        "RUNNE12345",
+        "2".repeat(40),
+        &target,
+    )
+    .unwrap();
+    let mut tuple = serde_json::to_value(replacement).unwrap();
+    tuple["nativeEnrollmentQualification"] = qualification;
+    target.native_enrollment_tuple = Some(serde_json::from_value(tuple).unwrap());
+    assert_eq!(
+        super::updater_enrollment_macos_identity::verify_target(&target),
+        Err(UpdateV2VerificationError::InvalidMetadata)
+    );
 }
 
 #[test]
