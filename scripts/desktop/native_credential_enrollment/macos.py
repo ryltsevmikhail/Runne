@@ -10,7 +10,7 @@ import hashlib
 import json
 from collections.abc import Mapping
 
-ARCHITECTURES = frozenset({"arm64", "x86_64"})
+ARCHITECTURES = frozenset({"arm64"})
 REQUIRED_SELECTORS = frozenset({
     "clean_install", "n_to_n_plus_1", "rollback", "mixed_child_manifest_denied",
     "symlink_denied", "hardlink_denied", "pid_reuse_denied", "package_skew_denied",
@@ -59,9 +59,9 @@ def validate_row(row: object) -> list[str]:
 
 
 def validate_expected_tuples(value: object, rows: list[object]) -> list[str]:
-    """Bind independently-run rows to one exact expected tuple per architecture."""
+    """Bind the sole Apple Silicon evidence row to its exact expected tuple."""
     if not isinstance(value, dict) or set(value) != ARCHITECTURES:
-        return ["expected macOS tuples must contain exactly both architectures"]
+        return ["expected macOS tuples must contain exactly one arm64 tuple"]
     errors: list[str] = []
     for architecture in ARCHITECTURES:
         errors.extend(_tuple_errors(value[architecture]))

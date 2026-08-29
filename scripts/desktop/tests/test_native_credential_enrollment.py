@@ -56,7 +56,7 @@ def evidence() -> dict[str, object]:
     return {
         "schema_version": "native-credential-enrollment-evidence.v1",
         "platform": "macos",
-        "rows": [row("arm64", "run-arm64"), row("x86_64", "run-x86")],
+        "rows": [row("arm64", "run-arm64")],
     }
 
 
@@ -186,18 +186,22 @@ class NativeCredentialEnrollmentEvidenceTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["platform"]["enum"], ["macos", "linux", "windows"])
         self.assertIn("linux_row", schema["$defs"])
         self.assertIn("windows_row", schema["$defs"])
+        self.assertEqual(schema["allOf"][0]["then"]["properties"]["rows"]["maxItems"], 1)
+        self.assertEqual(schema["$defs"]["macos_row"]["properties"]["architecture"], {"const": "arm64"})
         self.assertEqual(profile["disposition"], "unsupported")
         self.assertEqual(profile["evidence_rows"], [])
 
-    def test_complete_independent_macos_matrix_is_structurally_valid(self) -> None:
+    def test_complete_apple_silicon_macos_evidence_is_structurally_valid(self) -> None:
         self.assertTrue(validate_evidence(evidence(), "macos"))
         self.assertEqual(validate_evidence(evidence(), "macos", expected_tuples()), [])
 
-    def test_unsigned_ad_hoc_wrong_arch_mixed_tuple_and_missing_selector_fail_closed(self) -> None:
+    def test_unsigned_ad_hoc_non_arm64_mixed_tuple_and_missing_selector_fail_closed(self) -> None:
         cases = {
             "unsigned": lambda value: value["rows"][0]["signing"].update(notarized=False),
             "ad_hoc": lambda value: value["rows"][0]["signing"].update(ad_hoc=True),
+            "intel": lambda value: value["rows"][0].update(architecture="x86_64"),
             "wrong_arch": lambda value: value["rows"][0].update(architecture="amd64"),
+            "universal": lambda value: value["rows"][0].update(architecture="universal"),
             "mixed_tuple": lambda value: value["rows"][0]["tuple"].update(daemon_sha256=digest("other")),
             "missing_selector": lambda value: value["rows"][0]["selectors"].pop("pid_reuse_denied"),
         }
@@ -232,7 +236,7 @@ class NativeCredentialEnrollmentEvidenceTests(unittest.TestCase):
             "changed_digest": lambda rows, expected: expected["arm64"].update(candidate_sha256=digest("other")),
             "recomputed_mixed_tuple": lambda rows, expected: _replace_tuple_digest(expected["arm64"], "other"),
             "row_tuple_mismatch": lambda rows, expected: _replace_tuple_digest(rows[0]["tuple"], "other"),
-            "extra_architecture": lambda rows, expected: expected.update(amd64=expected["arm64"]),
+            "extra_architecture": lambda rows, expected: expected.update(x86_64=expected["arm64"]),
             "malformed_expected": lambda rows, expected: expected.clear() or expected.update(arm64=[]),
         }
         for name, mutate in cases.items():
@@ -265,7 +269,7 @@ class NativeCredentialEnrollmentEvidenceTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse(json.loads(result.stdout)["qualified"])
-            expected.write_text('{"arm64":{},"arm64":{},"x86_64":{}}', encoding="utf-8")
+            expected.write_text('{"arm64":{},"arm64":{}}', encoding="utf-8")
             result = subprocess.run(
                 [*command, "--expected-tuples", str(expected)],
                 capture_output=True,
@@ -276,15 +280,17 @@ class NativeCredentialEnrollmentEvidenceTests(unittest.TestCase):
 
     def test_duplicate_runner_and_secret_like_field_fail_closed(self) -> None:
         value = evidence()
-        value["rows"][1]["runner"]["workflow_run_id"] = "run-arm64"
+        value["rows"].append(row("arm64", "run-arm64"))
         value["rows"][0]["selectors"]["pair_create_readback"]["nativeHandle"] = "forbidden"
         self.assertTrue(validate_evidence(value, "macos", expected_tuples()))
         value = evidence()
         value["rows"][0]["signing"]["unexpected"] = True
         self.assertTrue(validate_evidence(value, "macos", expected_tuples()))
 
-    def test_evidence_directory_requires_both_exact_architecture_rows(self) -> None:
+    def test_evidence_directory_requires_exact_apple_silicon_row(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "macos-13-arm64.json").write_text(json.dumps(evidence()["rows"][0]), encoding="utf-8")
+            self.assertEqual(validate_evidence(root, "macos", expected_tuples()), [])
+            (root / "macos-13-x86_64.json").write_text(json.dumps(row("x86_64", "run-x86")), encoding="utf-8")
             self.assertTrue(validate_evidence(root, "macos", expected_tuples()))

@@ -13,7 +13,7 @@ else:
     from native_credential_enrollment import linux, macos, windows
 
 SCHEMA_VERSION = "native-credential-enrollment-evidence.v1"
-MACOS_ROWS = {"macos-13-arm64.json": "arm64", "macos-13-x86_64.json": "x86_64"}
+MACOS_ROWS = {"macos-13-arm64.json": "arm64"}
 LINUX_ROWS = {
     "linux-ubuntu-22.04-x86_64-appimage.json": "appimage",
     "linux-ubuntu-22.04-x86_64-deb.json": "deb",
@@ -46,6 +46,9 @@ def _directory_errors(root: Path, platform: str, expected_tuples: object | None)
         return ["platform is not implemented"]
     rows: list[object] = []
     errors: list[str] = []
+    for path in root.glob("macos-*.json"):
+        if path.name not in MACOS_ROWS:
+            errors.append(f"unexpected macOS evidence row {path.name}")
     for filename, architecture in MACOS_ROWS.items():
         path = root / filename
         try:
@@ -101,7 +104,7 @@ def _rows_errors(rows: list[object], platform: str, expected_tuples: object | No
         expected = set(WINDOWS_ROWS.values())
     else:
         return ["platform is not implemented"]
-    expected_count = 1 if platform == "windows" else 2
+    expected_count = 1 if platform in {"macos", "windows"} else 2
     if len(rows) != expected_count:
         return [f"{platform} evidence must contain exactly {expected_count} independent rows"]
     errors = [error for row in rows for error in validator(row)]
@@ -113,7 +116,7 @@ def _rows_errors(rows: list[object], platform: str, expected_tuples: object | No
         errors.append(f"{platform} evidence dimensions are incomplete or duplicate")
     runs = [row.get("runner", {}).get("workflow_run_id") for row in rows if isinstance(row, dict)]
     if len(runs) != len(set(runs)) or any(not isinstance(run, str) or not run for run in runs):
-        errors.append("macOS rows must come from independent protected workflow runs")
+        errors.append("macOS row must come from an independent protected workflow run")
     if platform in {"linux", "windows"} and any(
         isinstance(row, dict) and row.get("isolation_class") == "executable_acl" for row in rows
     ):
