@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+import { installDesktopAdapter, workspace } from './replay-resume.support'
+
 function relativeLuminance(color: string): number {
   const channels = color.match(/[\d.]+/g)?.slice(0, 3).map(Number)
   if (channels === undefined || channels.length !== 3) {
@@ -76,6 +78,38 @@ test('terminal output remains readable in the light theme', async ({ page }) => 
   expect(contrastRatio(colors.terminal, colors.heading)).toBeGreaterThanOrEqual(4.5)
   expect(contrastRatio(colors.terminal, colors.status)).toBeGreaterThanOrEqual(4.5)
   expect(contrastRatio(colors.terminal, colors.output)).toBeGreaterThanOrEqual(4.5)
+})
+
+test('Phase 3 routes remain fail-closed while workspace chat remains available', async ({ page }) => {
+  await page.goto('/task-runs')
+  await expect(page.getByRole('heading', { name: 'Task runs', exact: true })).toBeVisible()
+  await expect(page.locator('[data-capability="task-run-inventory"]')).toBeVisible()
+  await expect(page.locator('[data-inventory-control]')).toHaveCount(6)
+  await expect(page.getByRole('searchbox', { name: 'Search task runs' })).toBeDisabled()
+
+  await page.goto('/recovery')
+  await expect(page.getByRole('heading', { name: 'Project recovery', exact: true })).toBeVisible()
+  await page.getByRole('link', { name: 'Back to projects', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Projects', exact: true })).toBeVisible()
+
+  await page.goto('/settings/runtime-configuration')
+  await expect(page.getByRole('heading', { name: 'Runtime configuration', exact: true })).toBeVisible()
+  const categories = page.getByRole('tab')
+  await expect(categories).toHaveCount(6)
+  await categories.first().press('End')
+  await expect(page.getByRole('tab', { name: 'Devices' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled()
+
+  await installDesktopAdapter(page)
+  await page.goto(`/workspaces/${workspace.workspaceId}`)
+  const controls = page.locator('[data-capability="conversation-controls"] button')
+  await expect(controls).toHaveCount(5)
+  for (const control of await controls.all()) {
+    await expect(control).toBeDisabled()
+  }
+  const message = page.getByRole('textbox', { name: 'Message' })
+  await message.fill('route smoke')
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled()
 })
 
 test.describe('narrow desktop shell', () => {
