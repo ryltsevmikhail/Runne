@@ -54,13 +54,11 @@ impl VerifiedDaemonEnrollmentLaunchAuthority {
 }
 
 /// Independently verified native launch shape; never derived from the frame.
-#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) enum DaemonLaunchProtocolExpectation {
     Baseline,
     Enrollment(VerifiedDaemonEnrollmentLaunchAuthority),
 }
 
-#[cfg_attr(not(test), expect(dead_code))]
 impl DaemonLaunchProtocolExpectation {
     pub(crate) const fn baseline() -> Self {
         Self::Baseline

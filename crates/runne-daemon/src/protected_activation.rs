@@ -81,9 +81,25 @@ use crate::provider_activation::ProviderActivation;
 
 #[cfg(target_os = "macos")]
 mod installation_anchor;
+#[cfg(target_os = "macos")]
+pub(crate) use installation_anchor::{VerifiedNativeEnrollmentInstallation, load_read_only};
 #[cfg(all(test, target_os = "macos"))]
 #[path = "protected_activation/installation_anchor_tests.rs"]
 mod installation_anchor_tests;
+
+#[cfg(all(unix, feature = "desktop-protected"))]
+mod enrollment_control_exchange;
+#[cfg(all(test, unix, feature = "desktop-protected"))]
+#[path = "protected_activation/enrollment_control_exchange_negative_tests.rs"]
+mod enrollment_control_exchange_negative_tests;
+#[cfg(all(unix, feature = "desktop-protected"))]
+mod enrollment_control_transition;
+#[cfg(all(test, unix, feature = "desktop-protected"))]
+#[path = "protected_activation/enrollment_control_transition_fixture.rs"]
+mod enrollment_control_transition_fixture;
+#[cfg(all(test, unix, feature = "desktop-protected"))]
+#[path = "protected_activation/enrollment_control_transition_tests.rs"]
+mod enrollment_control_transition_tests;
 
 #[cfg(any(unix, windows))]
 const MAX_FRAME_PAYLOAD_BYTES: usize = 65_536;

@@ -129,4 +129,56 @@ impl DaemonApplication {
             .cloned()
             .ok_or_else(|| DaemonError::Bootstrap("protected root control is unavailable".into()))
     }
+
+    /// Daemon-owned facts for the same-process enrollment control transition.
+    #[cfg(all(
+        target_os = "macos",
+        target_arch = "aarch64",
+        feature = "desktop-protected"
+    ))]
+    pub(crate) fn protected_enrollment_facts(
+        &self,
+    ) -> Result<ProtectedEnrollmentFacts, DaemonError> {
+        if !self.protected_activation {
+            return Err(DaemonError::Bootstrap(
+                "protected enrollment facts are unavailable".into(),
+            ));
+        }
+        let installation =
+            crate::protected_activation::load_read_only(&self.bootstrap).map_err(|_| {
+                DaemonError::Bootstrap("enrollment installation anchor unavailable".into())
+            })?;
+        Ok(ProtectedEnrollmentFacts {
+            endpoint: format!("https://{}", self.local_addr()?),
+            certificate_sha256: *self.bootstrap.launch_identity.certificate_sha256(),
+            certificate_der: self
+                .bootstrap
+                .launch_identity
+                .certificate_der()
+                .as_ref()
+                .to_vec(),
+            capabilities: self
+                .runtime_capabilities
+                .iter()
+                .map(|capability| (*capability).to_owned())
+                .collect(),
+            provider_readiness: self.provider_readiness,
+            installation,
+        })
+    }
+}
+
+/// Readiness-path facts retained only by the protected activation host.
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
+pub(crate) struct ProtectedEnrollmentFacts {
+    pub(crate) endpoint: String,
+    pub(crate) certificate_sha256: [u8; 32],
+    pub(crate) certificate_der: Vec<u8>,
+    pub(crate) capabilities: Vec<String>,
+    pub(crate) provider_readiness: runne_api::ProviderActivationReadinessV1,
+    pub(crate) installation: crate::protected_activation::VerifiedNativeEnrollmentInstallation,
 }

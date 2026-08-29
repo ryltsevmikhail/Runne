@@ -1,6 +1,6 @@
 mod admission_registry;
 mod begin;
-mod broker;
+pub(crate) mod broker;
 mod control_exchange;
 #[cfg(test)]
 mod control_exchange_tests;

@@ -56,7 +56,9 @@ where
             let runtime_root = std::path::Path::new(&launch.config().db_path)
                 .parent()
                 .and_then(Path::parent)
+                .map(Path::to_path_buf)
                 .ok_or_else(protected_activation_error)?;
+            let runtime_root = runtime_root.as_path();
             let (dependencies, _fixture_keepalive) = fixture(runtime_root)
                 .await
                 .map_err(|_| protected_activation_error())?;
@@ -115,6 +117,9 @@ where
                     )
                     .map_err(|_| protected_activation_error())?;
                 let owned = ready.owned_launch();
+                #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+                let enrollment_transition =
+                    enrollment_transition_composition(&application, request, runtime_root)?;
                 tokio::task::spawn_blocking(move || {
                     run_control_loop_v2(
                         channel,
@@ -124,6 +129,8 @@ where
                         clock,
                         #[cfg(feature = "desktop-protected")]
                         roots,
+                        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+                        enrollment_transition,
                     )
                 })
             } else {
@@ -147,6 +154,44 @@ where
 
 fn protected_activation_error() -> DaemonError {
     DaemonError::Bootstrap("protected activation failed".into())
+}
+
+/// Composes the same-process enrollment transition from daemon-owned facts.
+///
+/// `None` means this installation carries no admitted enrollment anchor; a
+/// prepare frame then fails closed as an unknown control frame.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+fn enrollment_transition_composition(
+    application: &crate::application::DaemonApplication,
+    request: &runne_api::ProtectedLaunchRequestV2,
+    runtime_root: &Path,
+) -> Result<
+    Option<(
+        super::enrollment_control_transition::EnrollmentControlComposition,
+        super::installation_anchor::VerifiedNativeEnrollmentInstallation,
+    )>,
+    DaemonError,
+> {
+    use super::enrollment_control_transition::EnrollmentControlComposition;
+
+    let Ok(facts) = application.protected_enrollment_facts() else {
+        return Ok(None);
+    };
+    let Some(profile_directory) = runtime_root.parent() else {
+        return Ok(None);
+    };
+    let composition = EnrollmentControlComposition::new(
+        request.clone(),
+        *facts.installation.installation_identity_digest(),
+        facts.provider_readiness,
+        facts.endpoint,
+        facts.certificate_sha256,
+        facts.certificate_der,
+        facts.capabilities,
+        profile_directory.to_path_buf(),
+        super::control_v3::macos_continuous_ticket_clock(),
+    );
+    Ok(Some((composition, facts.installation)))
 }
 
 #[cfg(feature = "desktop-protected")]

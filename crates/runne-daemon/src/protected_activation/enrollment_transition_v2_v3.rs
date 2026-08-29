@@ -43,13 +43,22 @@ impl VerifiedV2EnrollmentEvidence {
 }
 
 /// Daemon-private, move-only V3 transition prepared from exact V2 evidence.
-#[expect(
-    dead_code,
-    reason = "control-loop integration intentionally follows this admission slice"
-)]
 pub(crate) struct PreparedDaemonEnrollmentTransitionV3 {
     request: DaemonLaunchRequest,
     keys: ProtectedActivationKeys,
+}
+
+impl PreparedDaemonEnrollmentTransitionV3 {
+    pub(crate) const fn keys(&self) -> &ProtectedActivationKeys {
+        &self.keys
+    }
+
+    pub(crate) fn enrollment(&self) -> Option<&ProtectedCredentialEnrollmentLaunchRequestV3> {
+        match &self.request {
+            DaemonLaunchRequest::V3(request) => Some(request),
+            _ => None,
+        }
+    }
 }
 
 pub(crate) struct V2TransitionInput<'a> {
@@ -65,7 +74,7 @@ pub(crate) struct V2TransitionInput<'a> {
 
 impl<'a> V2TransitionInput<'a> {
     #[allow(clippy::too_many_arguments)]
-    const fn new(
+    pub(super) const fn new(
         prepare: &'a ProtectedCredentialEnrollmentPrepareV2,
         signed_prelude: &'a ProtectedCredentialEnrollmentPreludeV2,
         expected_owned: &'a ProtectedOwnedLaunchV2,
@@ -89,10 +98,6 @@ impl<'a> V2TransitionInput<'a> {
 }
 
 /// Revalidates exactly one native V2 peer before accepting its V3 launch.
-#[expect(
-    dead_code,
-    reason = "control-loop integration intentionally follows this admission slice"
-)]
 pub(crate) fn admit_v2_to_v3_transition(
     context: &V2TransitionInput<'_>,
     installation: &VerifiedNativeEnrollmentInstallation,
@@ -122,7 +127,7 @@ pub(crate) fn admit_v2_to_v3_transition(
     )
 }
 
-fn transition_with<F>(
+pub(super) fn transition_with<F>(
     context: &V2TransitionInput<'_>,
     request: ProtectedCredentialEnrollmentLaunchRequestV3,
     native_revalidate: F,

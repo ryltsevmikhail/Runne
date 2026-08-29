@@ -22,36 +22,13 @@ const TAG: [u8; 4] = *b"NEI1";
 const LENGTH: usize = 84;
 const DOMAIN: &[u8] = b"runne/native-enrollment-installation/v1\0";
 
-pub(crate) struct VerifiedNativeEnrollmentInstallation(
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "retained for sealed protected runtime composition"
-        )
-    )]
-    [u8; 32],
-);
+pub(crate) struct VerifiedNativeEnrollmentInstallation([u8; 32]);
 impl VerifiedNativeEnrollmentInstallation {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "reserved for sealed protected runtime composition"
-        )
-    )]
     pub(crate) const fn installation_identity_digest(&self) -> &[u8; 32] {
         &self.0
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "V2 read-only anchor loading awaits protected runtime composition"
-    )
-)]
 pub(crate) fn load_read_only(
     outcome: &BootstrapOutcome,
 ) -> Result<VerifiedNativeEnrollmentInstallation, DaemonError> {

@@ -19,12 +19,47 @@ pub(crate) fn macos_continuous_ticket_clock() -> TicketClock {
 
 /// Serves only enrollment V3 renewal and shutdown frames.
 ///
-/// Root-handle frames have no V3 owned-launch projection, so this loop rejects
-/// them until a separately verified V3 root-admission protocol exists. Once a
-/// renewal rotates the local session, a failed channel write terminates this
-/// loop; callers must terminate the daemon rather than retrying on another path.
-#[cfg_attr(not(test), expect(dead_code))]
+/// Enters the channel, then serves the V3 transcript. Root-handle frames have
+/// no V3 owned-launch projection, so this loop rejects them until a separately
+/// verified V3 root-admission protocol exists.
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "standalone V3 entry awaits a launch-path consumer"
+    )
+)]
 pub(crate) fn run_control_loop_v3(
+    channel: ProtectedActivationChannel,
+    keys: ProtectedActivationKeys,
+    owned_launch: ProtectedCredentialEnrollmentOwnedLaunchV3,
+    local_session_service: Arc<Mutex<LocalSessionService>>,
+    session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+    ticket_clock: TicketClock,
+) -> Result<(), LaunchAuthorityError> {
+    channel.enter_control_loop()?;
+    run_control_loop_v3_entered(
+        channel,
+        keys,
+        owned_launch,
+        local_session_service,
+        session_clock,
+        ticket_clock,
+    )
+}
+
+/// The V3 transcript continuation for a channel that is already entered.
+///
+/// The same-process enrollment transition tail-calls this variant after its
+/// in-place upgrade; calling `enter_control_loop` twice would re-run the entry
+/// handshake on an already-authenticated channel.
+///
+/// Once a renewal rotates the local session, a failed channel write terminates
+/// this loop; callers must terminate the daemon rather than retrying on
+/// another path. V1/V2 frames decode as neither V3 message and fail closed.
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
+pub(crate) fn run_control_loop_v3_entered(
     mut channel: ProtectedActivationChannel,
     keys: ProtectedActivationKeys,
     mut owned_launch: ProtectedCredentialEnrollmentOwnedLaunchV3,
@@ -32,7 +67,6 @@ pub(crate) fn run_control_loop_v3(
     session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
     ticket_clock: TicketClock,
 ) -> Result<(), LaunchAuthorityError> {
-    channel.enter_control_loop()?;
     let mut last_renew_sequence = 0_u64;
     loop {
         let frame = channel.read_control_frame()?;

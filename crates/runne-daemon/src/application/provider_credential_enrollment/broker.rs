@@ -17,7 +17,7 @@ pub(super) mod pending;
 #[cfg(all(unix, feature = "desktop-protected"))]
 mod pending_writer;
 #[cfg(unix)]
-mod rendezvous;
+pub(crate) mod rendezvous;
 #[cfg(all(unix, feature = "desktop-protected"))]
 mod unix;
 

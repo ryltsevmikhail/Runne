@@ -13,14 +13,7 @@ const RENDEZVOUS_TIMEOUT: Duration = Duration::from_secs(30);
 ///
 /// Tauri receives only the writer endpoint through the authenticated protected
 /// control transfer. It never creates this socketpair or reads broker frames.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the protected control dispatcher creates this before writer handoff"
-    )
-)]
-pub(super) struct DaemonOwnedUnixBrokerRendezvous {
+pub(crate) struct DaemonOwnedUnixBrokerRendezvous {
     daemon: Option<UnixStream>,
     writer: Option<UnixStream>,
     channel_binding: [u8; 32],
@@ -33,7 +26,7 @@ pub(super) struct DaemonOwnedUnixBrokerRendezvous {
     not(feature = "desktop-protected"),
     allow(dead_code, reason = "the protected channel adapter is feature-gated")
 )]
-pub(super) struct DaemonBrokerAuthority {
+pub(crate) struct DaemonBrokerAuthority {
     #[cfg_attr(
         all(not(test), feature = "desktop-protected"),
         expect(dead_code, reason = "the kill-capability ACK unlocks this endpoint")
@@ -48,27 +41,24 @@ pub(super) struct DaemonBrokerAuthority {
     publication_public_key: [u8; 32],
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the protected control dispatcher consumes opaque daemon authority"
-    )
-)]
 impl DaemonBrokerAuthority {
     #[cfg(target_os = "macos")]
-    pub(super) const fn endpoint(&self) -> &UnixStream {
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the kill-capability ACK unlocks this endpoint")
+    )]
+    pub(crate) const fn endpoint(&self) -> &UnixStream {
         &self.endpoint
     }
 
     #[must_use]
     #[cfg(feature = "desktop-protected")]
-    pub(super) const fn channel_binding(&self) -> [u8; 32] {
+    pub(crate) const fn channel_binding(&self) -> [u8; 32] {
         self.channel_binding
     }
 
     #[must_use]
-    pub(super) const fn publication_public_key(&self) -> [u8; 32] {
+    pub(crate) const fn publication_public_key(&self) -> [u8; 32] {
         self.publication_public_key
     }
 
@@ -118,16 +108,9 @@ impl DaemonBrokerAuthority {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the protected control dispatcher consumes each endpoint exactly once"
-    )
-)]
 impl DaemonOwnedUnixBrokerRendezvous {
     /// Creates a fresh socketpair owned by the daemon process.
-    pub(super) fn create() -> Result<Self, ProviderCredentialEnrollmentHostError> {
+    pub(crate) fn create() -> Result<Self, ProviderCredentialEnrollmentHostError> {
         let (daemon, writer) =
             UnixStream::pair().map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
         configure(&daemon)?;
@@ -153,18 +136,18 @@ impl DaemonOwnedUnixBrokerRendezvous {
 
     /// Returns the daemon-generated binding for the exact writer channel.
     #[must_use]
-    pub(super) const fn channel_binding(&self) -> [u8; 32] {
+    pub(crate) const fn channel_binding(&self) -> [u8; 32] {
         self.channel_binding
     }
 
     /// Returns the public key that can later verify an inert daemon publication.
     #[must_use]
-    pub(super) fn publication_public_key(&self) -> [u8; 32] {
+    pub(crate) fn publication_public_key(&self) -> [u8; 32] {
         self.publication_public_key
     }
 
     /// Moves endpoint and signing authority together; neither can be obtained twice.
-    pub(super) fn take_daemon_authority(
+    pub(crate) fn take_daemon_authority(
         &mut self,
     ) -> Result<DaemonBrokerAuthority, ProviderCredentialEnrollmentHostError> {
         if self.daemon.is_none() || self.signer.is_none() {
@@ -179,7 +162,7 @@ impl DaemonOwnedUnixBrokerRendezvous {
     }
 
     /// Moves the writer endpoint into the authenticated Tauri descriptor transfer once.
-    pub(super) fn take_writer_endpoint(
+    pub(crate) fn take_writer_endpoint(
         &mut self,
     ) -> Result<UnixStream, ProviderCredentialEnrollmentHostError> {
         self.writer
