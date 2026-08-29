@@ -41,6 +41,20 @@ describe('open project page', () => {
     expect(wrapper.html()).not.toContain('IMPLEMENTED')
   })
 
+  it('keeps the title and folder chooser in one centered content shell', async () => {
+    const router = createTestRouter()
+    await router.push('/projects/open')
+    await router.isReady()
+    const wrapper = mount(OpenProjectPage, {
+      props: { openProject: async () => null },
+      global: { plugins: [router] },
+    })
+
+    const content = wrapper.get('.open-project-page__content')
+    expect(content.get('#open-project-title').text()).toBe('Open a project')
+    expect(content.get('[aria-label="Choose project folder"]').attributes('type')).toBe('button')
+  })
+
   it('disables the chooser while the native picker is opening', async () => {
     const router = createTestRouter()
     await router.push('/projects/open')

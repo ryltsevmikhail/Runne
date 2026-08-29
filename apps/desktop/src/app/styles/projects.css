@@ -98,6 +98,17 @@
   padding: 70px 28px;
 }
 
+.open-project-page__header { display: grid; gap: 7px; }
+
+.open-project-page__header h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -.02em;
+}
+
+.open-project-page__header p { margin: 0; color: var(--text-muted); font-size: 14px; }
 .open-project-page .eyebrow {
   color: var(--primary);
   font-family: var(--runne-font-mono);
@@ -106,9 +117,10 @@
   letter-spacing: .8px;
 }
 
-.open-project-page__choose-card {
-  min-height: 150px !important;
-  padding: 24px !important;
+.projects-page.open-project-page .open-project-page__choose-card {
+  min-height: 120px;
+  height: 120px;
+  padding: 20px;
 }
 
 .open-project-page__choose-card .projects-card-icon {

@@ -44,8 +44,8 @@ async function chooseFolder() {
     class="projects-page open-project-page"
     aria-labelledby="open-project-title"
   >
-    <header class="projects-page__header">
-      <div>
+    <div class="open-project-page__content">
+      <header class="open-project-page__header">
         <p class="eyebrow">
           {{ translate('openProject.localProject') }}
         </p>
@@ -53,10 +53,8 @@ async function chooseFolder() {
           {{ translate('openProject.title') }}
         </h1>
         <p>{{ translate('openProject.description') }}</p>
-      </div>
-    </header>
+      </header>
 
-    <div class="open-project-page__content">
       <button
         class="project-card project-card--open open-project-page__choose-card"
         type="button"
