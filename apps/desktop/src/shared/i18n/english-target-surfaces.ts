@@ -24,6 +24,11 @@ const targetSurfaces = {
   'taskRunInventory.status': 'Status',
   'taskRunInventory.updated': 'Updated',
   'taskRunInventory.tableUnavailable': 'Task run inventory is unavailable until its runtime projection is available.',
+  'recovery.title': 'Project recovery',
+  'recovery.subtitle': 'Recovery guidance is available when the runtime publishes it.',
+  'recovery.ownershipNotice': 'The runtime remains the authoritative owner of recovery state.',
+  'recovery.explanation': 'This route cannot interpret connection flags as recovery steps without the recovery orchestration capability.',
+  'recovery.backToProjects': 'Back to projects',
 } as const
 
 export default targetSurfaces

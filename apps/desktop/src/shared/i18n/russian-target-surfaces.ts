@@ -26,6 +26,11 @@ const targetSurfaces: Record<keyof typeof englishTargetSurfaces, string> = {
   'taskRunInventory.status': 'Статус',
   'taskRunInventory.updated': 'Обновлено',
   'taskRunInventory.tableUnavailable': 'Инвентарь запусков задач недоступен без runtime projection.',
+  'recovery.title': 'Восстановление проекта',
+  'recovery.subtitle': 'Рекомендации по восстановлению доступны, когда их публикует runtime.',
+  'recovery.ownershipNotice': 'Runtime остаётся авторитетным владельцем состояния восстановления.',
+  'recovery.explanation': 'Этот маршрут не может интерпретировать флаги подключения как шаги восстановления без capability recovery orchestration.',
+  'recovery.backToProjects': 'Назад к проектам',
 }
 
 export default targetSurfaces

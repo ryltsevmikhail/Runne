@@ -23,6 +23,12 @@ describe('desktop routes', () => {
     expect(paths.get('task-run')).toBe('/task-runs/:taskRunId')
   })
 
+  it('exposes the standalone fail-closed recovery route', () => {
+    const paths = new Map(routes.map((route) => [route.name, route.path]))
+
+    expect(paths.get('recovery')).toBe('/recovery')
+  })
+
   it('exposes the owner-bound appearance settings route', () => {
     const appearance = routes.find(route => route.name === 'appearance-settings')
 

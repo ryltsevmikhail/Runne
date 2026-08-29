@@ -8,6 +8,7 @@ import { OpenProjectPage } from '@/pages/open-project'
 import { ProjectDetailsPage } from '@/pages/project-details'
 import { ProjectsPage } from '@/pages/projects'
 import { ProvidersPage } from '@/pages/providers'
+import { RecoveryPage } from '@/pages/recovery'
 import { RuntimeSettingsPage } from '@/pages/runtime-settings'
 import { SettingsPage } from '@/pages/settings'
 import { ShortcutsPage } from '@/pages/shortcuts'
@@ -17,6 +18,11 @@ import { UpdatesPage } from '@/pages/updates'
 import { WorkspacePage } from '@/pages/workspace'
 
 export const routes: RouteRecordRaw[] = [
+  {
+    path: '/recovery',
+    name: 'recovery',
+    component: RecoveryPage,
+  },
   {
     path: '/task-runs',
     name: 'task-run-inventory',
