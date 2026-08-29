@@ -5,12 +5,7 @@ import type { DiagnosticsSnapshot as DiagnosticsSnapshotDto } from '@/shared/api
 import { translate } from '@/shared/i18n'
 
 const props = defineProps<{
-  readonly exporting: boolean
   readonly snapshot: DiagnosticsSnapshotDto
-}>()
-
-const emit = defineEmits<{
-  export: []
 }>()
 
 const runtimeMode = computed(() => props.snapshot.runtimeMode === 'external_local'
@@ -32,15 +27,6 @@ const runtimeMode = computed(() => props.snapshot.runtimeMode === 'external_loca
           Current runtime snapshot
         </h2>
       </div>
-      <button
-        class="secondary-button"
-        data-testid="export-diagnostics"
-        type="button"
-        :disabled="exporting"
-        @click="emit('export')"
-      >
-        {{ exporting ? translate('diagnostics.prepareExport') : translate('diagnostics.export') }}
-      </button>
     </header>
 
     <p class="system-surface__notice">

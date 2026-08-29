@@ -198,6 +198,33 @@ describe('diagnostics page', () => {
     expect(wrapper.get('[role="status"]').text()).toContain('saved')
   })
 
+  it('exports a bounded report while diagnostics is unavailable without leaking the load error', async () => {
+    let exported = 0
+    const wrapper = mount(DiagnosticsPage, {
+      props: {
+        loadDiagnostics: async () => { throw new Error('/Users/private/token=secret') },
+        loadExportPreview: async () => ({
+          schemaVersion: 1,
+          redactionVersion: 1,
+          categories: ['application', 'runtime'],
+          estimatedBytes: 512,
+        }),
+        exportReport: async () => {
+          exported += 1
+          return { status: 'saved' as const }
+        },
+      },
+    })
+    await flushPromises()
+    await wrapper.get('[data-testid="export-diagnostics"]').trigger('click')
+    await flushPromises()
+
+    expect(exported).toBe(1)
+    expect(wrapper.get('[role="status"]').text()).toContain('saved')
+    expect(wrapper.text()).not.toContain('/Users/private')
+    expect(wrapper.text()).not.toContain('secret')
+  })
+
   it('fails closed when the export preview is too large', async () => {
     const wrapper = mount(DiagnosticsPage, {
       props: {

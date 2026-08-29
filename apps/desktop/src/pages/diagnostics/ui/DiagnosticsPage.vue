@@ -132,14 +132,25 @@ onMounted(() => {
         </h1>
         <p>{{ translate('diagnostics.description') }}</p>
       </div>
-      <button
-        class="primary-button"
-        type="button"
-        :disabled="telemetryLoading"
-        @click="refreshTelemetry"
-      >
-        {{ translate('diagnostics.refresh') }}
-      </button>
+      <div class="system-page__actions">
+        <button
+          class="primary-button"
+          type="button"
+          :disabled="telemetryLoading"
+          @click="refreshTelemetry"
+        >
+          {{ translate('diagnostics.refresh') }}
+        </button>
+        <button
+          class="secondary-button"
+          data-testid="export-diagnostics"
+          type="button"
+          :disabled="exporting"
+          @click="runExport"
+        >
+          {{ exporting ? translate('diagnostics.prepareExport') : translate('diagnostics.export') }}
+        </button>
+      </div>
     </header>
 
     <p
@@ -184,9 +195,7 @@ onMounted(() => {
 
     <DiagnosticsSnapshot
       v-else
-      :exporting="exporting"
       :snapshot="diagnostics"
-      @export="runExport"
     />
 
     <OperationalTelemetry
