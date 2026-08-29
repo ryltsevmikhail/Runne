@@ -38,6 +38,7 @@ describe('runtime configuration page', () => {
     expect(wrapper.get('[data-capability="runtime-configuration"]').text()).toContain('unavailable')
     expect(wrapper.findAll('[data-config-section]')).toHaveLength(6)
     expect(wrapper.get('[aria-label="Runtime configuration categories"]').attributes('role')).toBe('tablist')
+    expect(wrapper.get('[aria-label="Runtime configuration categories"]').attributes('aria-orientation')).toBe('vertical')
     expect(wrapper.findAll('[data-config-section]').every(button => button.attributes('role') === 'tab')).toBe(true)
     expect(wrapper.get('[data-config-section="agents"]').attributes('aria-selected')).toBe('true')
     expect(wrapper.get('[data-config-section="models-providers"]').attributes('aria-selected')).toBe('false')

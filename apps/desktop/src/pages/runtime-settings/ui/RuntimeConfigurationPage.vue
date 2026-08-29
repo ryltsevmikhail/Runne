@@ -89,6 +89,7 @@ async function focusCategoryFromKeyboard(event: KeyboardEvent, category: Categor
         <nav
           class="runtime-configuration-page__categories"
           role="tablist"
+          aria-orientation="vertical"
           :aria-label="translate('runtimeConfiguration.categories')"
         >
           <button
