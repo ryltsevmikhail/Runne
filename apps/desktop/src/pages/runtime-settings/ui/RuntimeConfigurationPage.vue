@@ -69,6 +69,7 @@ function focusCategory(category: CategoryId) {
       <div class="runtime-configuration-page__columns">
         <nav
           class="runtime-configuration-page__categories"
+          role="tablist"
           :aria-label="translate('runtimeConfiguration.categories')"
         >
           <button
@@ -76,19 +77,21 @@ function focusCategory(category: CategoryId) {
             :id="`runtime-configuration-tab-${category.id}`"
             :key="category.id"
             type="button"
+            role="tab"
             :data-config-section="category.id"
             :class="{ 'runtime-configuration-page__category--focused': focusedCategory === category.id }"
-            :aria-controls="`runtime-configuration-panel-${category.id}`"
-            :aria-pressed="focusedCategory === category.id"
+            aria-controls="runtime-configuration-panel"
+            :aria-selected="focusedCategory === category.id"
+            :tabindex="focusedCategory === category.id ? 0 : -1"
             @click="focusCategory(category.id)"
           >
             {{ category.label }}
           </button>
         </nav>
         <section
-          :id="`runtime-configuration-panel-${focusedDetail.id}`"
+          id="runtime-configuration-panel"
           class="runtime-configuration-page__detail"
-          role="region"
+          role="tabpanel"
           aria-live="polite"
           :aria-label="translate('runtimeConfiguration.details')"
           :aria-labelledby="`runtime-configuration-tab-${focusedDetail.id}`"

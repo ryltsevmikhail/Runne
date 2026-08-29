@@ -5,20 +5,37 @@ import { currentLocale } from '@/shared/i18n'
 
 import RuntimeConfigurationPage from './RuntimeConfigurationPage.vue'
 
+function expectCategoryControlsToResolve(wrapper: ReturnType<typeof mount>) {
+  for (const button of wrapper.findAll('[data-config-section]')) {
+    const panelId = button.attributes('aria-controls')
+
+    expect(panelId).toBeTruthy()
+    expect(wrapper.find(`#${panelId}`).exists()).toBe(true)
+  }
+}
+
 describe('runtime configuration page', () => {
   it('keeps unavailable runtime categories as local presentation only', async () => {
     const wrapper = mount(RuntimeConfigurationPage)
 
     expect(wrapper.get('[data-capability="runtime-configuration"]').text()).toContain('unavailable')
     expect(wrapper.findAll('[data-config-section]')).toHaveLength(6)
+    expect(wrapper.get('[aria-label="Runtime configuration categories"]').attributes('role')).toBe('tablist')
+    expect(wrapper.findAll('[data-config-section]').every(button => button.attributes('role') === 'tab')).toBe(true)
+    expect(wrapper.get('[data-config-section="agents"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('[data-config-section="models-providers"]').attributes('aria-selected')).toBe('false')
     expect(wrapper.get('button[name="save-runtime-configuration"]').attributes('disabled')).toBeDefined()
     expect(wrapper.findAll('input, select, textarea, [role="textbox"]')).toHaveLength(0)
     expect(wrapper.findAll('tr, [role="row"]')).toHaveLength(0)
     expect(wrapper.text()).not.toMatch(/Lead|Builder|Reviewer|Claude|GPT|api[- ]?key|secret|token/i)
+    expectCategoryControlsToResolve(wrapper)
 
     await wrapper.get('[data-config-section="models-providers"]').trigger('click')
 
     expect(wrapper.get('[data-config-detail]').text()).toContain('Models & providers')
+    expectCategoryControlsToResolve(wrapper)
+    expect(wrapper.get('[data-config-section="agents"]').attributes('aria-selected')).toBe('false')
+    expect(wrapper.get('[data-config-section="models-providers"]').attributes('aria-selected')).toBe('true')
     expect(wrapper.emitted('save')).toBeUndefined()
   })
 
