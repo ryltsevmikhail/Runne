@@ -10,6 +10,7 @@ use runne_api::{
     ProtectedShutdownAckV2, ProtectedShutdownV1, ProtectedShutdownV2, ProviderActivationBindingV1,
     ProviderActivationModeV1, ProviderActivationReadinessV1, StableRuntimeBindingV1,
     CredentialBrokerTransferAuthenticator, ProtectedCredentialEnrollmentLaunchBindingV1,
+    DaemonEnrollmentLaunchPreludeV1,
     ProtectedCredentialEnrollmentLaunchRequestV3, ProtectedCredentialEnrollmentReadyV3,
     ProtectedCredentialEnrollmentRenewRequestV3, ProtectedCredentialEnrollmentRenewTicketV3,
     ProtectedCredentialEnrollmentShutdownAckV3, ProtectedCredentialEnrollmentShutdownV3,

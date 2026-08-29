@@ -90,12 +90,12 @@ impl CredentialBrokerTransferAuthenticator {
     #[must_use]
     pub fn enrollment_launch_commitment(
         &self,
-        launch_authority_id: [u8; 16],
+        prelude: &DaemonEnrollmentLaunchPreludeV1,
     ) -> CredentialBrokerTransferCommitment {
         CredentialBrokerTransferCommitment::from_authenticated_bytes(authenticated_mac(
             &self.enrollment_commitment_key,
             CREDENTIAL_BROKER_ENROLLMENT_COMMITMENT_DOMAIN,
-            &launch_authority_id,
+            &prelude.canonical_transcript(),
         ))
     }
 
@@ -175,13 +175,17 @@ mod credential_broker_transfer_authenticator_tests {
     fn enrollment_commitment_is_activation_bound_and_redacted() {
         let keys = LaunchSecret::from_bytes([6; 32]).unwrap().derive_keys();
         let broker = CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
-        let first = broker.enrollment_launch_commitment([1; 16]);
-        assert_eq!(first, broker.enrollment_launch_commitment([1; 16]));
-        assert_ne!(first, broker.enrollment_launch_commitment([2; 16]));
+        let prelude = DaemonEnrollmentLaunchPreludeV1::macos_arm64(
+            [0x71, 1, 1, 1, 1, 1, 0x71, 1, 0x81, 1, 1, 1, 1, 1, 1, 1],
+            [0x72, 2, 2, 2, 2, 2, 0x72, 2, 0x82, 2, 2, 2, 2, 2, 2, 2],
+            [1; 32], [2; 32], [3; 32], [4; 32], [5; 32], 1, 10, 20,
+        ).unwrap();
+        let first = broker.enrollment_launch_commitment(&prelude);
+        assert_eq!(first, broker.enrollment_launch_commitment(&prelude));
         let other = CredentialBrokerTransferAuthenticator::from_protected_activation(
             &LaunchSecret::from_bytes([7; 32]).unwrap().derive_keys(),
         );
-        assert_ne!(first, other.enrollment_launch_commitment([1; 16]));
+        assert_ne!(first, other.enrollment_launch_commitment(&prelude));
         assert!(!format!("{first:?}").contains('1'));
     }
 }

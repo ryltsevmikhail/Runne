@@ -37,8 +37,21 @@ pub(super) fn fixture() -> (
     )
     .unwrap();
     let keys = request.derive_keys();
+    let prelude = DaemonEnrollmentLaunchPreludeV1::macos_arm64(
+        request.launch_authority_id(),
+        request.desktop_host_instance_id(),
+        [10; 32],
+        [11; 32],
+        [12; 32],
+        [6; 32],
+        [9; 32],
+        1,
+        10,
+        20,
+    )
+    .unwrap();
     let commitment = CredentialBrokerTransferAuthenticator::from_protected_activation(&keys)
-        .enrollment_launch_commitment(request.launch_authority_id());
+        .enrollment_launch_commitment(&prelude);
     let binding = ProtectedCredentialEnrollmentLaunchBindingV1::macos_apple_silicon(
         [6; 32], [7; 32], [8; 32], [9; 32], 1, commitment,
     )

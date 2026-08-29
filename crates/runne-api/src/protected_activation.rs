@@ -19,7 +19,11 @@ include!("protected_activation/root_admission.rs");
 include!("protected_activation/root_bind_transport.rs");
 include!("protected_activation/root_admission_authenticator.rs");
 include!("protected_activation/root_handle_transfer_authenticator.rs");
+include!("protected_activation/enrollment_launch_prelude.rs");
 include!("protected_activation/credential_broker_transfer_authenticator.rs");
+#[cfg(test)]
+#[path = "protected_activation/enrollment_launch_prelude_tests.rs"]
+mod enrollment_launch_prelude_tests;
 include!("protected_activation/enrollment_launch_binding.rs");
 include!("protected_activation/enrollment_launch_v3_core.rs");
 include!("protected_activation/enrollment_launch_v3_ready.rs");

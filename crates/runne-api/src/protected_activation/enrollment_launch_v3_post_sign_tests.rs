@@ -151,7 +151,21 @@ fn enrollment_v3_launch_and_ready_constructors_reject_deterministic_provider() {
         [8; 32],
         1,
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys)
-            .enrollment_launch_commitment(request.launch_authority_id()),
+            .enrollment_launch_commitment(
+                &DaemonEnrollmentLaunchPreludeV1::macos_arm64(
+                    request.launch_authority_id(),
+                    request.desktop_host_instance_id(),
+                    [11; 32],
+                    [12; 32],
+                    [13; 32],
+                    [5; 32],
+                    [8; 32],
+                    1,
+                    10,
+                    20,
+                )
+                .unwrap(),
+            ),
     )
     .unwrap();
     assert!(
