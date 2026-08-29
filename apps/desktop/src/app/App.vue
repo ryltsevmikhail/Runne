@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   CircleHelp,
   FolderKanban,
+  History,
   Moon,
   PanelLeft,
   Settings,
@@ -58,9 +59,12 @@ provideRuntimeSession(runtimeSession)
 
 const sidebarItems = computed(() => [
   { id: 'projects', label: translate('projects.title'), icon: FolderKanban },
+  { id: 'task-runs', label: 'Task runs', icon: History },
   { id: 'settings', label: translate('settings.title'), icon: Settings },
 ])
-const activeSidebarItem = computed(() => route.path.startsWith('/settings') ? 'settings' : 'projects')
+const activeSidebarItem = computed(() => route.path.startsWith('/settings')
+  ? 'settings'
+  : route.path.startsWith('/task-runs') ? 'task-runs' : 'projects')
 let runtimePoll: ReturnType<typeof setInterval> | undefined
 let notificationPoll: ReturnType<typeof setInterval> | undefined
 let stopExternalActivation: (() => void) | undefined
@@ -173,7 +177,7 @@ async function toggleTheme() {
 }
 
 async function navigateSidebar(id: string) {
-  await router.push(id === 'settings' ? '/settings/runtimes' : '/')
+  await router.push(id === 'settings' ? '/settings/runtimes' : id === 'task-runs' ? '/task-runs' : '/')
 }
 </script>
 

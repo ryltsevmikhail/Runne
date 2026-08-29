@@ -35,7 +35,7 @@ describe('desktop application shell', () => {
       global: { plugins: [router] },
     })
     const projectsButton = wrapper.get('.gc-sidebar-item')
-    const settingsButton = wrapper.get('.gc-sidebar-item:nth-of-type(2)')
+    const settingsButton = wrapper.get('.gc-sidebar-item:nth-of-type(3)')
 
     expect(projectsButton.text()).toContain('Projects')
     expect(projectsButton.get('svg').attributes('aria-hidden')).toBe('true')
@@ -55,7 +55,7 @@ describe('desktop application shell', () => {
       global: { plugins: [router] },
     })
     const projectsButton = wrapper.get('.gc-sidebar-item')
-    const settingsButton = wrapper.get('.gc-sidebar-item:nth-of-type(2)')
+    const settingsButton = wrapper.get('.gc-sidebar-item:nth-of-type(3)')
 
     await projectsButton.trigger('click')
     await flushPromises()
@@ -63,6 +63,26 @@ describe('desktop application shell', () => {
     await settingsButton.trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.path).toBe('/settings/runtimes')
+  })
+
+  it('routes the Task runs sidebar item through Vue Router', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes,
+    })
+    await router.push('/')
+    await router.isReady()
+
+    const wrapper = mount(App, {
+      global: { plugins: [router] },
+    })
+    const taskRunsButton = wrapper.findAll('.gc-sidebar-item')[1]!
+
+    expect(taskRunsButton.text()).toContain('Task runs')
+    expect(taskRunsButton.get('svg').attributes('aria-hidden')).toBe('true')
+    await taskRunsButton.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/task-runs')
   })
 
   it('uses the canonical Runne brand assets in the desktop shell', async () => {
