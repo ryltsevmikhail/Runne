@@ -219,9 +219,8 @@ async fn broker_mode_is_not_reachable_from_async_dispatch() {
 }
 
 #[test]
-fn broker_secret_reader_requires_claim_and_one_terminated_line() {
-    let claim = BrokerClaimed::for_test();
-    let material = read_secret_after_claim(&claim, &mut std::io::Cursor::new(b"secret\n"))
+fn broker_secret_line_parser_requires_one_terminated_line() {
+    let material = read_secret_line(&mut std::io::Cursor::new(b"secret\n"))
         .expect("one complete credential line");
     material.with_bytes(|value| assert_eq!(value, b"secret"));
 
@@ -233,13 +232,13 @@ fn broker_secret_reader_requires_claim_and_one_terminated_line() {
         b"secret\0\n".as_slice(),
     ] {
         assert!(matches!(
-            read_secret_after_claim(&claim, &mut std::io::Cursor::new(invalid)),
+            read_secret_line(&mut std::io::Cursor::new(invalid)),
             Err(CliError::CredentialOperation)
         ));
     }
     let oversized = [b'a'; runne_secure_store::MAX_PROVIDER_CREDENTIAL_BYTES + 1];
     assert!(matches!(
-        read_secret_after_claim(&claim, &mut std::io::Cursor::new(oversized)),
+        read_secret_line(&mut std::io::Cursor::new(oversized)),
         Err(CliError::CredentialOperation)
     ));
 }

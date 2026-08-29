@@ -1,0 +1,229 @@
+//! Writer-side claim gate for an already authenticated daemon control endpoint.
+
+use std::{
+    io::{Read, Write},
+    sync::Arc,
+};
+
+use runne_provider::{
+    BrokerChannelBinding, ClaimedWriterAuthorization, CredentialBindingDigest,
+    CredentialBrokerCommand, CredentialBrokerFrame, CredentialBrokerFrameCodec,
+    CredentialOperationAction, PendingCredentialSecretOpening,
+};
+use runne_secure_store::{
+    BrokeredProviderCredentialWriter, NativeProviderCredentialWriters, ProviderCredentialMaterial,
+};
+
+use super::{CliError, secret::read_secret_line};
+
+trait BrokerControl {
+    fn read_frame(&mut self) -> Result<CredentialBrokerFrame, CliError>;
+    fn write_frame(&mut self, frame: CredentialBrokerFrame) -> Result<(), CliError>;
+}
+
+impl<T: Read + Write> BrokerControl for T {
+    fn read_frame(&mut self) -> Result<CredentialBrokerFrame, CliError> {
+        CredentialBrokerFrameCodec::read_from(self).map_err(|_| CliError::CredentialOperation)
+    }
+
+    fn write_frame(&mut self, frame: CredentialBrokerFrame) -> Result<(), CliError> {
+        CredentialBrokerFrameCodec::write_to(self, frame).map_err(|_| CliError::CredentialOperation)
+    }
+}
+
+/// Opaque authority for one live, native-admitted daemon control endpoint.
+///
+/// There is deliberately no production constructor. Native admission must mint
+/// it only from retained daemon peer, release tuple and channel evidence. The
+/// first exact `IssueTicket` on that channel is the sole command source.
+pub struct AuthenticatedDaemonControlEndpoint {
+    control: Box<dyn BrokerControl>,
+    channel_bytes: [u8; 32],
+    channel: BrokerChannelBinding,
+}
+
+impl AuthenticatedDaemonControlEndpoint {
+    #[cfg(test)]
+    pub fn for_test<T: Read + Write + 'static>(
+        control: T,
+        channel_bytes: [u8; 32],
+        channel: BrokerChannelBinding,
+    ) -> Self {
+        Self {
+            control: Box::new(control),
+            channel_bytes,
+            channel,
+        }
+    }
+}
+
+/// Move-only claim acknowledgement retaining the exact live control endpoint.
+pub struct ClaimedWriterControl {
+    control: Box<dyn BrokerControl>,
+    writer: Arc<dyn BrokeredProviderCredentialWriter>,
+    authorization: ClaimedWriterAuthorization,
+    command: CredentialBrokerCommand,
+    binding: CredentialBindingDigest,
+    channel: BrokerChannelBinding,
+    pending_pair_secret_opening: Option<PendingCredentialSecretOpening>,
+}
+
+/// Effect authority retaining the same channel for the later exact diagnostic.
+pub struct AuthorizedWriterControl {
+    _control: Box<dyn BrokerControl>,
+    _writer: Arc<dyn BrokeredProviderCredentialWriter>,
+    _authorization: ClaimedWriterAuthorization,
+    command: CredentialBrokerCommand,
+    _binding: CredentialBindingDigest,
+    _channel: BrokerChannelBinding,
+}
+
+/// Pair-only secret and effect authority consumed together exactly once.
+pub struct AuthorizedPairWriterControl {
+    authorized: AuthorizedWriterControl,
+    material: ProviderCredentialMaterial,
+    _pending_opening: PendingCredentialSecretOpening,
+}
+
+impl ClaimedWriterControl {
+    /// Authorizes a non-Pair effect without opening or reading a secret source.
+    pub fn authorize_without_secret(self) -> Result<AuthorizedWriterControl, CliError> {
+        let Self {
+            control,
+            writer,
+            authorization,
+            command,
+            binding,
+            channel,
+            pending_pair_secret_opening,
+        } = self;
+        if pending_pair_secret_opening.is_some() {
+            return Err(CliError::CredentialOperation);
+        }
+        Ok(AuthorizedWriterControl {
+            _control: control,
+            _writer: writer,
+            _authorization: authorization,
+            command,
+            _binding: binding,
+            _channel: channel,
+        })
+    }
+
+    /// Reads one Pair secret only after the exact claim acknowledgement.
+    pub fn read_pair_secret(
+        self,
+        reader: &mut impl Read,
+    ) -> Result<AuthorizedPairWriterControl, CliError> {
+        let Self {
+            control,
+            writer,
+            authorization,
+            command,
+            binding,
+            channel,
+            pending_pair_secret_opening,
+        } = self;
+        let pending_opening = pending_pair_secret_opening.ok_or(CliError::CredentialOperation)?;
+        if command.action() != CredentialOperationAction::Pair {
+            return Err(CliError::CredentialOperation);
+        }
+        let material = read_secret_line(reader)?;
+        Ok(AuthorizedPairWriterControl {
+            authorized: AuthorizedWriterControl {
+                _control: control,
+                _writer: writer,
+                _authorization: authorization,
+                command,
+                _binding: binding,
+                _channel: channel,
+            },
+            material,
+            _pending_opening: pending_opening,
+        })
+    }
+}
+
+#[cfg(test)]
+impl AuthorizedWriterControl {
+    pub const fn command_for_test(&self) -> &CredentialBrokerCommand {
+        &self.command
+    }
+}
+
+#[cfg(test)]
+impl AuthorizedPairWriterControl {
+    pub const fn command_for_test(&self) -> &CredentialBrokerCommand {
+        &self.authorized.command
+    }
+
+    pub fn with_secret_for_test(&self, inspect: impl FnOnce(&[u8])) {
+        self.material.with_bytes(inspect);
+    }
+}
+
+/// Claims one exact issued ticket and returns only a matching post-ack authority.
+pub fn claim_writer_authorization(
+    mut endpoint: AuthenticatedDaemonControlEndpoint,
+    writers: NativeProviderCredentialWriters,
+) -> Result<ClaimedWriterControl, CliError> {
+    if endpoint.channel.digest().as_bytes() != endpoint.channel_bytes {
+        return Err(CliError::CredentialOperation);
+    }
+    let CredentialBrokerFrame::IssueTicket {
+        operation_id,
+        attempt,
+        ticket,
+        channel_binding,
+        binding,
+        command,
+    } = endpoint.control.read_frame()?
+    else {
+        return Err(CliError::CredentialOperation);
+    };
+    if operation_id != command.operation_id()
+        || attempt != command.ticket_attempt()
+        || channel_binding != endpoint.channel_bytes
+    {
+        return Err(CliError::CredentialOperation);
+    }
+
+    let (issuer, writer) = writers.into_parts();
+    let pending_claim = issuer.issue_pending_claim(&command, binding, &endpoint.channel);
+    let (secret_offer, pending_pair_secret_opening) =
+        if command.action() == CredentialOperationAction::Pair {
+            let (offer, pending) =
+                runne_provider::CredentialSecretClaimOffer::prepare(&command, binding)
+                    .map_err(|_| CliError::CredentialOperation)?;
+            (Some(offer), Some(pending))
+        } else {
+            (None, None)
+        };
+    endpoint.control.write_frame(CredentialBrokerFrame::Claim {
+        operation_id,
+        attempt,
+        ticket,
+        binding,
+        secret_offer,
+    })?;
+    let accepted = endpoint.control.read_frame()?;
+    let authorization = issuer
+        .claim_accepted(
+            pending_claim,
+            accepted,
+            &command,
+            binding,
+            &endpoint.channel,
+        )
+        .map_err(|_| CliError::CredentialOperation)?;
+
+    Ok(ClaimedWriterControl {
+        control: endpoint.control,
+        writer,
+        authorization,
+        command,
+        binding,
+        channel: endpoint.channel,
+        pending_pair_secret_opening,
+    })
+}

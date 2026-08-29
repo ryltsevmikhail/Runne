@@ -5,27 +5,7 @@ use zeroize::Zeroizing;
 
 use super::CliError;
 
-/// Private proof that the writer received the exact accepted claim frame.
-///
-/// The authenticated channel runner constructs this only after it has verified
-/// the daemon peer, exact command, ticket, and `ClaimAccepted` response.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the authenticated inherited-channel runner is composed after the platform handoff"
-    )
-)]
-pub struct BrokerClaimed(());
-
-impl BrokerClaimed {
-    #[cfg(test)]
-    pub const fn for_test() -> Self {
-        Self(())
-    }
-}
-
-/// Reads exactly one credential line only after a successful broker claim.
+/// Parses exactly one bounded credential line for the consuming claim state.
 ///
 /// The returned material remains zeroizing. Any partial, invalid, oversized,
 /// or trailing input fails before a native writer effect can begin.
@@ -36,10 +16,7 @@ impl BrokerClaimed {
         reason = "the authenticated inherited-channel runner is composed after the platform handoff"
     )
 )]
-pub fn read_secret_after_claim(
-    _claim: &BrokerClaimed,
-    reader: &mut impl Read,
-) -> Result<ProviderCredentialMaterial, CliError> {
+pub fn read_secret_line(reader: &mut impl Read) -> Result<ProviderCredentialMaterial, CliError> {
     let mut bytes = Zeroizing::new(Vec::with_capacity(MAX_PROVIDER_CREDENTIAL_BYTES));
     loop {
         let mut byte = [0_u8; 1];

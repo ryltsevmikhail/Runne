@@ -14,7 +14,9 @@ fn prepared_daemon_endpoint_requires_one_descriptor() {
     sender
         .write_all(&prepared_response())
         .expect("write response without descriptor");
-    sender.shutdown(std::net::Shutdown::Write).expect("close sender");
+    sender
+        .shutdown(std::net::Shutdown::Write)
+        .expect("close sender");
 
     assert!(receive_prepared_daemon_endpoint(&mut receiver).is_err());
 }
@@ -24,8 +26,12 @@ fn prepared_daemon_endpoint_rejects_trailing_bytes() {
     let (mut sender, mut receiver) = UnixStream::pair().expect("transport pair");
     let mut response = prepared_response().to_vec();
     response.push(1);
-    sender.write_all(&response).expect("write trailing response");
-    sender.shutdown(std::net::Shutdown::Write).expect("close sender");
+    sender
+        .write_all(&response)
+        .expect("write trailing response");
+    sender
+        .shutdown(std::net::Shutdown::Write)
+        .expect("close sender");
 
     assert!(receive_prepared_daemon_endpoint(&mut receiver).is_err());
 }
@@ -35,8 +41,14 @@ fn prepared_daemon_endpoint_rejects_multiple_descriptors() {
     let (mut sender, mut receiver) = UnixStream::pair().expect("transport pair");
     let (first, _) = UnixStream::pair().expect("first endpoint");
     let (second, _) = UnixStream::pair().expect("second endpoint");
-    send_response(&mut sender, &prepared_response(), &[first.as_fd(), second.as_fd()]);
-    sender.shutdown(std::net::Shutdown::Write).expect("close sender");
+    send_response(
+        &mut sender,
+        &prepared_response(),
+        &[first.as_fd(), second.as_fd()],
+    );
+    sender
+        .shutdown(std::net::Shutdown::Write)
+        .expect("close sender");
 
     assert!(receive_prepared_daemon_endpoint(&mut receiver).is_err());
 }
@@ -49,7 +61,9 @@ fn prepared_daemon_endpoint_rejects_descriptors_split_across_frame_reads() {
     let response = prepared_response();
     send_segment(&mut sender, &response[..1], &[first.as_fd()]);
     send_segment(&mut sender, &response[1..], &[second.as_fd()]);
-    sender.shutdown(std::net::Shutdown::Write).expect("close sender");
+    sender
+        .shutdown(std::net::Shutdown::Write)
+        .expect("close sender");
 
     assert!(receive_prepared_daemon_endpoint(&mut receiver).is_err());
 }
@@ -59,7 +73,9 @@ fn prepared_daemon_endpoint_accepts_exact_response_and_one_descriptor() {
     let (mut sender, mut receiver) = UnixStream::pair().expect("transport pair");
     let (endpoint, _) = UnixStream::pair().expect("endpoint");
     send_response(&mut sender, &prepared_response(), &[endpoint.as_fd()]);
-    sender.shutdown(std::net::Shutdown::Write).expect("close sender");
+    sender
+        .shutdown(std::net::Shutdown::Write)
+        .expect("close sender");
 
     let endpoint = receive_prepared_daemon_endpoint(&mut receiver).expect("accepted endpoint");
     assert!(endpoint.has_close_on_exec());
@@ -73,7 +89,9 @@ fn prepared_daemon_endpoint_rejects_zero_binding_or_publication_key() {
         let mut response = prepared_response();
         response[range].fill(0);
         send_response(&mut sender, &response, &[endpoint.as_fd()]);
-        sender.shutdown(std::net::Shutdown::Write).expect("close sender");
+        sender
+            .shutdown(std::net::Shutdown::Write)
+            .expect("close sender");
 
         assert!(receive_prepared_daemon_endpoint(&mut receiver).is_err());
     }

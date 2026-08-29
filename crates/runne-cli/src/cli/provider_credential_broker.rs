@@ -1,26 +1,36 @@
+#[cfg(unix)]
+#[path = "provider_credential_broker/bootstrap.rs"]
+mod bootstrap;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "native daemon admission has not yet minted the writer claim authority"
+    )
+)]
+#[path = "provider_credential_broker/claim.rs"]
+mod claim;
+#[path = "provider_credential_broker/secret.rs"]
+mod secret;
+
+#[cfg(all(test, unix))]
+#[path = "provider_credential_broker/bootstrap_tests.rs"]
+mod bootstrap_tests;
+#[cfg(test)]
+#[path = "provider_credential_broker/claim_tests.rs"]
+mod claim_tests;
+
+#[cfg(test)]
+use secret::read_secret_line;
+
+use runne_provider::PROVIDER_CREDENTIAL_BROKER_MODE_V1;
+
 /// Fixed internal-only entry point for the credential writer broker.
 ///
 /// This token intentionally carries no provider, ticket, path, or secret. The
 /// real writer adapter will be enabled only after Task 11 supplies authenticated
 /// inherited channel evidence; direct invocation stays closed in the meantime.
-#[path = "provider_credential_broker/secret.rs"]
-mod secret;
-#[cfg(unix)]
-#[path = "provider_credential_broker/bootstrap.rs"]
-mod bootstrap;
-
-#[cfg(all(test, unix))]
-#[path = "provider_credential_broker/bootstrap_tests.rs"]
-mod bootstrap_tests;
-
-#[cfg(test)]
-use secret::{BrokerClaimed, read_secret_after_claim};
-
-use runne_provider::PROVIDER_CREDENTIAL_BROKER_MODE_V1;
-
-fn run_provider_credential_broker(
-    mut arguments: VecDeque<OsString>,
-) -> Result<String, CliError> {
+fn run_provider_credential_broker(mut arguments: VecDeque<OsString>) -> Result<String, CliError> {
     expect_token(&mut arguments, PROVIDER_CREDENTIAL_BROKER_MODE_V1)?;
     expect_end(&arguments)?;
     #[cfg(unix)]

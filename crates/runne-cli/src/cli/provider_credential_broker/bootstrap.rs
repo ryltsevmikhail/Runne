@@ -3,12 +3,10 @@
 use std::mem::MaybeUninit;
 use std::os::fd::OwnedFd;
 
-use rustix::io::{FdFlags, fcntl_getfd};
 #[cfg(not(target_os = "linux"))]
 use rustix::io::fcntl_setfd;
-use rustix::net::{
-    RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, ReturnFlags, recvmsg,
-};
+use rustix::io::{FdFlags, fcntl_getfd};
+use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, ReturnFlags, recvmsg};
 
 use super::CliError;
 
@@ -25,8 +23,7 @@ pub struct PreparedDaemonEndpoint {
 impl PreparedDaemonEndpoint {
     #[cfg(test)]
     pub fn has_close_on_exec(&self) -> bool {
-        fcntl_getfd(&self.control)
-            .is_ok_and(|flags| flags.contains(FdFlags::CLOEXEC))
+        fcntl_getfd(&self.control).is_ok_and(|flags| flags.contains(FdFlags::CLOEXEC))
     }
 }
 
@@ -35,8 +32,7 @@ impl PreparedDaemonEndpoint {
 /// The response proof bytes are deliberately opaque here: this fixed writer
 /// has no transfer authenticator. Daemon peer and release-tuple verification
 /// must independently precede the subsequent claim and native effect.
-pub fn receive_prepared_daemon_endpoint_from_stdin(
-) -> Result<PreparedDaemonEndpoint, CliError> {
+pub fn receive_prepared_daemon_endpoint_from_stdin() -> Result<PreparedDaemonEndpoint, CliError> {
     let stdin = std::io::stdin();
     receive_prepared_daemon_endpoint(&mut stdin.lock())
 }
@@ -79,13 +75,8 @@ fn receive_segment(
     let mut iov = [std::io::IoSliceMut::new(bytes)];
     let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(2))];
     let mut ancillary = RecvAncillaryBuffer::new(&mut space);
-    let received = recvmsg(
-        &mut *transport,
-        &mut iov,
-        &mut ancillary,
-        recv_flags(),
-    )
-    .map_err(|_| CliError::CredentialOperation)?;
+    let received = recvmsg(&mut *transport, &mut iov, &mut ancillary, recv_flags())
+        .map_err(|_| CliError::CredentialOperation)?;
     if received
         .flags
         .intersects(ReturnFlags::CTRUNC | ReturnFlags::TRUNC)
