@@ -79,6 +79,12 @@ use crate::config::{BuiltInDefaults, ConfigurationSnapshot};
 #[cfg(any(unix, windows))]
 use crate::provider_activation::ProviderActivation;
 
+#[cfg(target_os = "macos")]
+mod installation_anchor;
+#[cfg(all(test, target_os = "macos"))]
+#[path = "protected_activation/installation_anchor_tests.rs"]
+mod installation_anchor_tests;
+
 #[cfg(any(unix, windows))]
 const MAX_FRAME_PAYLOAD_BYTES: usize = 65_536;
 #[cfg(unix)]

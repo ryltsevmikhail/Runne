@@ -29,6 +29,11 @@ use runne_store::schema::LaunchAuthorityConsumptionError;
 use rusqlite::OptionalExtension;
 use sha2::{Digest, Sha256};
 
+#[cfg(target_os = "macos")]
+mod installation_anchor;
+#[cfg(target_os = "macos")]
+pub(crate) use installation_anchor::{FileIdentity, InstallationAnchorDir};
+
 #[cfg(any(unix, windows))]
 use crate::protected_activation::validate_protected_bootstrap_connection;
 
@@ -72,6 +77,9 @@ pub struct BootstrapOutcome {
     pub launch_generation: u64,
     /// Stable internal replay-integrity key.
     pub replay_integrity_key: ReplayIntegrityKey,
+    /// Bootstrap-retained, owner-private daemon directory for the macOS anchor.
+    #[cfg(target_os = "macos")]
+    pub(crate) installation_anchor_dir: InstallationAnchorDir,
 }
 
 impl std::fmt::Debug for BootstrapOutcome {
@@ -86,6 +94,7 @@ impl std::fmt::Debug for BootstrapOutcome {
             .field("launch_identity", &"<redacted>")
             .field("launch_generation", &self.launch_generation)
             .field("replay_integrity_key", &"<redacted>")
+            .field("installation_anchor_dir", &"<retained>")
             .finish()
     }
 }

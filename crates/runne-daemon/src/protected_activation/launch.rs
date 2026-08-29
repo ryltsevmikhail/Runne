@@ -1,12 +1,12 @@
 #![cfg_attr(not(feature = "desktop-protected"), allow(dead_code))]
-
 use super::first_activation::{
     expected_profile, preflight_existing, preflight_resume_first_activation,
     prepare_first_activation, validate_runtime_root, verify_pending_request,
 };
+#[cfg(target_os = "macos")]
+use super::installation_anchor::{self, VerifiedNativeEnrollmentInstallation};
 use super::request::DaemonLaunchRequest;
 use super::*;
-
 /// Validated protected launch retained only by the daemon native host.
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 pub struct VerifiedProtectedApplicationStart {
@@ -14,42 +14,43 @@ pub struct VerifiedProtectedApplicationStart {
     provider_activation: ProviderActivation,
     launch_authority_id: [u8; 16],
     bootstrap: BootstrapOutcome,
+    #[cfg(target_os = "macos")]
+    #[cfg_attr(not(test), expect(dead_code, reason = "sealed composition"))]
+    installation: Option<VerifiedNativeEnrollmentInstallation>,
 }
-
 /// Opaque verified startup package; its admission keys cannot be substituted.
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 pub struct VerifiedProtectedRuntimeStart {
     application: VerifiedProtectedApplicationStart,
     keys: ProtectedActivationKeys,
 }
-
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 impl VerifiedProtectedRuntimeStart {
     pub(crate) fn into_parts(self) -> (VerifiedProtectedApplicationStart, ProtectedActivationKeys) {
         (self.application, self.keys)
     }
 }
-
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 impl VerifiedProtectedApplicationStart {
     pub(crate) const fn provider_activation(&self) -> &ProviderActivation {
         &self.provider_activation
     }
-
     pub(crate) const fn authority_id(&self) -> [u8; 16] {
         self.bootstrap.authority_id
     }
-
     pub(crate) const fn launch_authority_id(&self) -> [u8; 16] {
         self.launch_authority_id
     }
-
+    #[cfg(target_os = "macos")]
+    #[cfg_attr(not(test), expect(dead_code, reason = "sealed composition"))]
+    pub(crate) const fn installation(&self) -> Option<&VerifiedNativeEnrollmentInstallation> {
+        self.installation.as_ref()
+    }
     pub(crate) fn into_parts(
         self,
     ) -> (ConfigurationSnapshot, BootstrapOutcome, ProviderActivation) {
         (self.config, self.bootstrap, self.provider_activation)
     }
-
     #[cfg(test)]
     pub(crate) fn from_test_parts(
         config: ConfigurationSnapshot,
@@ -62,10 +63,11 @@ impl VerifiedProtectedApplicationStart {
             provider_activation,
             launch_authority_id,
             bootstrap,
+            #[cfg(target_os = "macos")]
+            installation: None,
         }
     }
 }
-
 /// Validated protected launch retained only by the daemon native host.
 pub(crate) struct ProtectedDaemonLaunch {
     request: DaemonLaunchRequest,
@@ -74,7 +76,6 @@ pub(crate) struct ProtectedDaemonLaunch {
     pending_first_activation: Option<PendingFirstActivationV1>,
     provider_activation: ProviderActivation,
 }
-
 #[cfg(any(unix, windows))]
 impl ProtectedDaemonLaunch {
     /// Reads, validates, and—when needed—two-phase commits first activation.
@@ -145,7 +146,6 @@ impl ProtectedDaemonLaunch {
                 Some(pending.as_ref().clone())
             }
         };
-
         Ok(Self {
             request,
             keys,
@@ -154,7 +154,6 @@ impl ProtectedDaemonLaunch {
             provider_activation,
         })
     }
-
     /// Produces the opaque application start only from this authenticated launch.
     #[cfg(feature = "desktop-protected")]
     pub(crate) fn bootstrap_application_start<F>(
@@ -168,14 +167,22 @@ impl ProtectedDaemonLaunch {
         if bootstrap.authority_id == [0; 16] || bootstrap.launch_generation == 0 {
             return Err(LaunchAuthorityError::InvalidContract);
         }
+        #[cfg(target_os = "macos")]
+        let installation = self
+            .request_v2()
+            .is_some()
+            .then(|| installation_anchor::provision_after_provider_bound_v2(&bootstrap))
+            .transpose()
+            .map_err(|_| LaunchAuthorityError::InvalidContract)?;
         Ok(VerifiedProtectedApplicationStart {
             config: self.config.clone(),
             provider_activation: self.provider_activation.clone(),
             launch_authority_id: self.request.launch_authority_id(),
             bootstrap,
+            #[cfg(target_os = "macos")]
+            installation,
         })
     }
-
     /// Produces the only sealed daemon startup package for this verified launch.
     #[cfg(feature = "desktop-protected")]
     pub(crate) fn bootstrap_runtime_start<F>(
@@ -282,8 +289,12 @@ mod tests {
             provider_activation: ProviderActivation::deterministic_v1(),
             launch_authority_id: bootstrap.local_session_authority_id,
             bootstrap,
+            #[cfg(target_os = "macos")]
+            installation: None,
         };
 
+        #[cfg(target_os = "macos")]
+        assert!(start.installation().is_none());
         assert!(DaemonActivationProvenance::from_verified_protected_launch(&start).is_protected());
     }
 }
