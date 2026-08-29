@@ -101,6 +101,13 @@ impl DesktopReady {
     }
 }
 
+const fn provider_readiness_blocks_launch(readiness: ProviderActivationReadinessV1) -> bool {
+    !matches!(
+        readiness,
+        ProviderActivationReadinessV1::Ready | ProviderActivationReadinessV1::CredentialMissing
+    )
+}
+
 #[cfg(any(unix, windows))]
 #[allow(clippy::large_enum_variant)]
 enum ProtectedProcessActivation {

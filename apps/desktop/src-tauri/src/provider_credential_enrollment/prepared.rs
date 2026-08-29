@@ -1,0 +1,300 @@
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the next protected control slice is the sole exchange consumer"
+    )
+)]
+#![cfg_attr(test, allow(dead_code))]
+use super::intent::{CredentialIntentError, NativeCredentialIntent};
+use super::{CredentialIntentIpc, CredentialIntentRegistry};
+use crate::bundled_runtime::NativeCredentialEnrollmentLease;
+use crate::updater_status::enrollment::NativeInstalledEnrollmentLease;
+use runne_api::{
+    ProviderCredentialEnrollmentActionV2, ProviderCredentialProviderV2,
+    ProviderCredentialVerificationKindV2,
+};
+use runne_platform_desktop::{
+    ConfirmedInstalledNativeEnrollment, SecureCredentialMaterial, SecureCredentialPromptDisposition,
+};
+use sha2::{Digest as _, Sha256};
+use std::fmt;
+use std::time::Instant;
+/// Opaque native-only exchange retained for the later daemon control slice.
+///
+/// This value is deliberately neither serializable nor cloneable and exposes no
+/// credential or control-frame surface.
+pub(super) struct PreparedCredentialEnrollmentExchange {
+    _runtime_lease: NativeCredentialEnrollmentLease,
+    _updater_lease: NativeInstalledEnrollmentLease,
+    _installed: ConfirmedInstalledNativeEnrollment,
+    _intent: NativeCredentialIntent,
+    _expires: Instant,
+    _material: Option<SecureCredentialMaterial>,
+    _renderer_binding: [u8; 32],
+    _native_confirmation: [u8; 32],
+}
+/// Trusted native inputs retained outside the renderer boundary.
+pub(super) struct NativeEnrollmentConfirmation {
+    pub(super) window: String,
+    pub(super) request: CredentialIntentIpc,
+    pub(super) installed: ConfirmedInstalledNativeEnrollment,
+    pub(super) runtime_lease: NativeCredentialEnrollmentLease,
+    pub(super) updater_lease: NativeInstalledEnrollmentLease,
+    pub(super) now: Instant,
+}
+impl PreparedCredentialEnrollmentExchange {
+    pub(crate) fn after_prompt(
+        registry: &CredentialIntentRegistry,
+        disposition: SecureCredentialPromptDisposition,
+        confirmation: NativeEnrollmentConfirmation,
+    ) -> Result<Self, PreparedCredentialEnrollmentError> {
+        if confirmation.window.is_empty() || !confirmation.request.valid() {
+            return Err(PreparedCredentialEnrollmentError);
+        }
+        let (material, disposition_tag) =
+            accepted_disposition(confirmation.request.action, disposition)?;
+        confirmation
+            .updater_lease
+            .revalidate_confirmed(&confirmation.installed)
+            .map_err(|()| PreparedCredentialEnrollmentError)?;
+        let intent_session = confirmation.installed.intent_session_binding();
+        let intent = issue_pending_intent(
+            registry,
+            &confirmation.window,
+            confirmation.request,
+            intent_session,
+            confirmation.now,
+        )?;
+        let expires = intent.expires_at();
+        let renderer_binding = renderer_binding_digest(
+            &confirmation.window,
+            confirmation.request.renderer_generation,
+        );
+        let native_confirmation = native_confirmation_digest(
+            confirmation.request,
+            intent_session,
+            renderer_binding,
+            disposition_tag,
+        );
+        Ok(Self {
+            _runtime_lease: confirmation.runtime_lease,
+            _updater_lease: confirmation.updater_lease,
+            _installed: confirmation.installed,
+            _intent: intent,
+            _expires: expires,
+            _material: material,
+            _renderer_binding: renderer_binding,
+            _native_confirmation: native_confirmation,
+        })
+    }
+}
+
+fn issue_pending_intent(
+    registry: &CredentialIntentRegistry,
+    window: &str,
+    request: CredentialIntentIpc,
+    intent_session: [u8; 32],
+    now: Instant,
+) -> Result<NativeCredentialIntent, PreparedCredentialEnrollmentError> {
+    registry
+        .issue(
+            window,
+            request.renderer_generation,
+            request,
+            intent_session,
+            now,
+        )
+        .map_err(Into::into)
+}
+
+impl fmt::Debug for PreparedCredentialEnrollmentExchange {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("PreparedCredentialEnrollmentExchange(<native-only-redacted>)")
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct PreparedCredentialEnrollmentError;
+
+impl From<CredentialIntentError> for PreparedCredentialEnrollmentError {
+    fn from(_: CredentialIntentError) -> Self {
+        Self
+    }
+}
+
+fn accepted_disposition(
+    action: ProviderCredentialEnrollmentActionV2,
+    disposition: SecureCredentialPromptDisposition,
+) -> Result<(Option<SecureCredentialMaterial>, u8), PreparedCredentialEnrollmentError> {
+    match (action, disposition) {
+        (
+            ProviderCredentialEnrollmentActionV2::Pair,
+            SecureCredentialPromptDisposition::Submitted(material),
+        ) => Ok((Some(material), 1)),
+        (
+            ProviderCredentialEnrollmentActionV2::Revoke
+            | ProviderCredentialEnrollmentActionV2::MigrateLegacy,
+            SecureCredentialPromptDisposition::Confirmed,
+        ) => Ok((None, 2)),
+        _ => Err(PreparedCredentialEnrollmentError),
+    }
+}
+
+fn renderer_binding_digest(window: &str, generation: u64) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"gocode/provider-credential-enrollment/renderer/v1\0");
+    hash_framed(&mut hasher, window.as_bytes());
+    hasher.update(generation.to_be_bytes());
+    hasher.finalize().into()
+}
+
+fn native_confirmation_digest(
+    request: CredentialIntentIpc,
+    intent_session: [u8; 32],
+    renderer_binding: [u8; 32],
+    disposition_tag: u8,
+) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"gocode/provider-credential-enrollment/native-confirmation/v1\0");
+    hasher.update(intent_session);
+    hasher.update(renderer_binding);
+    hasher.update([
+        provider_tag(request.provider),
+        action_tag(request.action),
+        disposition_tag,
+    ]);
+    hasher.update(request.expected_revision.to_be_bytes());
+    hasher.update([verification_tag(request.verification_kind)]);
+    hasher.finalize().into()
+}
+
+fn hash_framed(hasher: &mut Sha256, value: &[u8]) {
+    hasher.update(u32::try_from(value.len()).unwrap_or(u32::MAX).to_be_bytes());
+    hasher.update(value);
+}
+
+const fn provider_tag(provider: ProviderCredentialProviderV2) -> u8 {
+    match provider {
+        ProviderCredentialProviderV2::OpenAi => 1,
+        ProviderCredentialProviderV2::DeepSeek => 2,
+    }
+}
+
+const fn action_tag(action: ProviderCredentialEnrollmentActionV2) -> u8 {
+    match action {
+        ProviderCredentialEnrollmentActionV2::Pair => 1,
+        ProviderCredentialEnrollmentActionV2::Revoke => 2,
+        ProviderCredentialEnrollmentActionV2::MigrateLegacy => 3,
+    }
+}
+
+const fn verification_tag(kind: Option<ProviderCredentialVerificationKindV2>) -> u8 {
+    match kind {
+        None => 0,
+        Some(ProviderCredentialVerificationKindV2::Local) => 1,
+        Some(ProviderCredentialVerificationKindV2::Remote) => 2,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn request(action: ProviderCredentialEnrollmentActionV2) -> CredentialIntentIpc {
+        CredentialIntentIpc {
+            provider: ProviderCredentialProviderV2::OpenAi,
+            action,
+            expected_revision: 7,
+            renderer_generation: 3,
+            verification_kind: None,
+        }
+    }
+
+    #[test]
+    fn exchange_rejects_a_secret_action_without_submitted_material() {
+        assert!(
+            accepted_disposition(
+                ProviderCredentialEnrollmentActionV2::Pair,
+                SecureCredentialPromptDisposition::Confirmed,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn exchange_rejects_confirmation_action_with_submitted_material() {
+        let material = SecureCredentialMaterial::new(b"secret".to_vec()).unwrap();
+        assert_eq!(
+            accepted_disposition(
+                ProviderCredentialEnrollmentActionV2::Revoke,
+                SecureCredentialPromptDisposition::Submitted(material),
+            )
+            .map(|_| ()),
+            Err(PreparedCredentialEnrollmentError),
+        );
+    }
+
+    #[test]
+    fn native_confirmation_digest_excludes_submitted_secret_material() {
+        let (_, first_tag) = accepted_disposition(
+            ProviderCredentialEnrollmentActionV2::Pair,
+            SecureCredentialPromptDisposition::Submitted(
+                SecureCredentialMaterial::new(b"first-secret".to_vec()).unwrap(),
+            ),
+        )
+        .unwrap();
+        let (_, second_tag) = accepted_disposition(
+            ProviderCredentialEnrollmentActionV2::Pair,
+            SecureCredentialPromptDisposition::Submitted(
+                SecureCredentialMaterial::new(b"second-secret".to_vec()).unwrap(),
+            ),
+        )
+        .unwrap();
+        let first = native_confirmation_digest(
+            request(ProviderCredentialEnrollmentActionV2::Pair),
+            [1; 32],
+            [2; 32],
+            first_tag,
+        );
+        let second = native_confirmation_digest(
+            request(ProviderCredentialEnrollmentActionV2::Pair),
+            [1; 32],
+            [2; 32],
+            second_tag,
+        );
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn exchange_retains_a_pending_exact_intent_until_dispatch() {
+        let registry = CredentialIntentRegistry::new(std::time::Duration::from_secs(1)).unwrap();
+        let now = Instant::now();
+        let pending = issue_pending_intent(
+            &registry,
+            "main",
+            request(ProviderCredentialEnrollmentActionV2::Pair),
+            [8; 32],
+            now,
+        )
+        .unwrap();
+        assert!(pending.expires_at() > now);
+        assert_eq!(registry.pending_len(), 1);
+    }
+
+    #[test]
+    fn exchange_has_no_serializable_or_credential_debug_surface() {
+        let source = include_str!("prepared.rs");
+        assert!(!source.contains(concat!("derive", "(Serialize")));
+        assert!(!source.contains(concat!("derive", "(Deserialize")));
+        assert!(!source.contains(concat!(
+            "impl Clone for ",
+            "PreparedCredentialEnrollmentExchange"
+        )));
+        assert!(source.contains("_runtime_lease: NativeCredentialEnrollmentLease"));
+        assert!(source.contains("_updater_lease: NativeInstalledEnrollmentLease"));
+        assert!(source.contains("_intent: NativeCredentialIntent"));
+        assert!(source.contains("_expires: Instant"));
+        assert!(source.contains("<native-only-redacted>"));
+    }
+}

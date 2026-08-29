@@ -87,3 +87,19 @@ fn final_confirmation_rejects_replacement_after_measurement() {
     std::fs::rename(replacement, &paths[1]).unwrap();
     assert!(captured.confirm_current().is_err());
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn daemon_confirmation_rejects_a_digest_not_measured_from_the_retained_descriptor() {
+    let directory = tempfile::tempdir().unwrap();
+    let paths = macos_layout(directory.path());
+    let captured = NativeEnrollmentArtifactPathsV1::new(
+        paths[0].clone(),
+        &paths[1],
+        &paths[2],
+        &paths[3],
+    )
+    .unwrap();
+
+    assert!(captured.confirm_current_daemon([0; 32]).is_err());
+}

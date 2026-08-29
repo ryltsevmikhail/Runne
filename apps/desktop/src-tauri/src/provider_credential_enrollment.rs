@@ -3,6 +3,7 @@
 mod command;
 mod host_prompt;
 pub mod intent;
+mod prepared;
 mod projection;
 
 pub use command::CredentialIntentIpc;

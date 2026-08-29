@@ -12,3 +12,11 @@ async fn external_lifecycle_rejects_native_root_admission() {
             .is_err()
     );
 }
+
+#[tokio::test]
+async fn external_lifecycle_rejects_credential_enrollment_lease() {
+    assert!(RuntimeLifecycleManager::external()
+        .acquire_credential_enrollment_lease()
+        .await
+        .is_err());
+}

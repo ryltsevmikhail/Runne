@@ -10,6 +10,11 @@ mod enrollment_paths;
     reason = "fixed package-layout resolution is the remaining production integration step"
 )]
 pub(crate) use enrollment_paths::NativeEnrollmentArtifactPathsV1;
+#[path = "enrollment_tuple/live_daemon.rs"]
+mod enrollment_live_daemon;
+pub use enrollment_live_daemon::{
+    ConfirmedInstalledNativeEnrollment, PreparedInstalledNativeEnrollment,
+};
 
 /// Signed bindings for the four native artifacts required by credential
 /// enrollment. It is evidence only; absence is deliberately unqualified.

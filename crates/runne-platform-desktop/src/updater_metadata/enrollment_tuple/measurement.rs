@@ -26,10 +26,6 @@ pub struct MeasuredNativeEnrollmentArtifactsV1 {
 
 impl MeasuredNativeEnrollmentArtifactsV1 {
     #[cfg_attr(test, allow(dead_code))]
-    #[cfg_attr(not(test), expect(
-        dead_code,
-        reason = "fixed package-layout resolution is the remaining production integration step"
-    ))]
     pub(super) fn measure(
         desktop: &OpenedNativeEnrollmentFile,
         writer: &OpenedNativeEnrollmentFile,
@@ -102,10 +98,14 @@ impl OpenedNativeEnrollmentFile {
             && same_security(&self.metadata, &file.metadata().map_err(|_| NativeEnrollmentTupleError::Rejected)?))
     }
 
+    pub(super) fn matches_opened(&self, other: &Self) -> Result<bool, NativeEnrollmentTupleError> {
+        self.matches_file(&other.file)
+    }
+
     #[cfg(target_os = "macos")]
     pub(super) const fn metadata(&self) -> &Metadata { &self.metadata }
 
-    fn measure(&self) -> Result<String, NativeEnrollmentTupleError> {
+    pub(super) fn measure(&self) -> Result<String, NativeEnrollmentTupleError> {
         let before = self.file.metadata().map_err(|_| NativeEnrollmentTupleError::Rejected)?;
         if !valid_regular(&before) || !same_identity(&self.metadata, &before) || !same_security(&self.metadata, &before) {
             return Err(NativeEnrollmentTupleError::Rejected);

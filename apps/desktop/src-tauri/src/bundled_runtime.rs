@@ -4,6 +4,7 @@
 //! the one-time protected profile directly to `AppCore`, monitors only the
 //! proven-owned child, and maps every failure to a closed renderer-safe code.
 
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -15,11 +16,15 @@ use crate::{
 use runne_api::ProviderActivationReadinessV1;
 use runne_app_core::{
     AppCore, AppCoreError, BundledRuntimeActivationLease, RuntimeAvailability, RuntimeFailureCode,
+    RuntimeMode,
 };
 use runne_platform_desktop::{
     BundledRuntimeLifecycleState, BundledRuntimeStopDisposition, DevelopmentBundledRuntimeLauncher,
     PROTECTED_BUNDLED_SESSION_RENEW_AFTER, ProtectedBundledRuntimeError,
     ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeSupervisor, discover_bundled_runtime,
+};
+use runne_platform_desktop::{
+    ConfirmedInstalledNativeEnrollment, PreparedInstalledNativeEnrollment,
 };
 
 const BUNDLED_CLIENT_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -120,6 +125,86 @@ pub struct BundledRuntimeController {
     operation_fence: Arc<RuntimeOperationFence>,
     renewal_schedule: Mutex<ProtectedSessionRenewalSchedule>,
     shutdown_outcome: Mutex<Option<BundledShutdownOutcome>>,
+}
+
+/// Exclusive native-operation lease retained while a credential prompt is open.
+///
+/// It holds the async operation fence but never a supervisor mutex, so host UI
+/// stays responsive while the exact owned daemon is rechecked after the prompt.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the protected prompt composition owns this lease before control dispatch exists"
+    )
+)]
+#[cfg_attr(test, allow(dead_code))]
+pub struct NativeCredentialEnrollmentLease {
+    supervisor: Arc<Mutex<ProtectedBundledRuntimeSupervisor>>,
+    operation_permit: tokio::sync::OwnedMutexGuard<()>,
+}
+
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the protected prompt composition uses this native lifecycle future"
+    )
+)]
+#[cfg_attr(test, allow(dead_code))]
+pub type CredentialEnrollmentFuture = Pin<
+    Box<
+        dyn Future<Output = Result<NativeCredentialEnrollmentLease, AppCoreError>> + Send + 'static,
+    >,
+>;
+
+impl NativeCredentialEnrollmentLease {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the protected prompt composition confirms this lease after the prompt"
+        )
+    )]
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) async fn confirm(
+        &self,
+        prepared: PreparedInstalledNativeEnrollment,
+    ) -> Result<ConfirmedInstalledNativeEnrollment, AppCoreError> {
+        let supervisor = Arc::clone(&self.supervisor);
+        tauri::async_runtime::spawn_blocking(move || {
+            supervisor
+                .lock()
+                .map_err(|_| AppCoreError::RuntimeUnavailable)?
+                .confirm_installed_native_enrollment(prepared)
+                .map_err(|_| AppCoreError::RuntimeUnavailable)
+        })
+        .await
+        .map_err(|_| AppCoreError::RuntimeUnavailable)?
+    }
+}
+
+impl crate::RuntimeLifecycleManager {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the protected prompt composition acquires this lease before native UI"
+        )
+    )]
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) async fn acquire_credential_enrollment_lease(
+        &self,
+    ) -> Result<NativeCredentialEnrollmentLease, AppCoreError> {
+        if self.is_shutting_down() || self.runtime_mode != RuntimeMode::Bundled {
+            return Err(AppCoreError::RuntimeUnavailable);
+        }
+        self.root_admission
+            .as_ref()
+            .ok_or(AppCoreError::RuntimeUnavailable)?
+            .acquire_credential_enrollment_lease()
+            .await
+    }
 }
 
 include!("bundled_runtime_parts/connect.rs");

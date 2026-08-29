@@ -52,6 +52,73 @@ fn installed_tuple_admission_rejects_non_current_or_substituted_artifacts() {
         .is_none());
 }
 
+#[test]
+fn prepared_enrollment_refresh_rejects_expiry_and_advanced_trust() {
+    let directory = tempfile::tempdir().unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let (coordinator, artifacts, verified) = native_fixture(directory.path(), now + 60, "f".repeat(64));
+    let prepared = retained_prepared(directory.path(), &verified, &artifacts);
+    assert!(coordinator
+        .refresh_installed_native_enrollment_at(prepared, now + 61)
+        .is_err());
+
+    coordinator.trust_journal.commit_install("1.2.1").unwrap();
+    let prepared = retained_prepared(directory.path(), &verified, &artifacts);
+    assert!(coordinator
+        .refresh_installed_native_enrollment_at(prepared, now)
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn confirmed_enrollment_revalidation_is_atomic_against_expiry_and_trust() {
+    let directory = tempfile::tempdir().unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let (coordinator, artifacts, verified) = native_fixture(directory.path(), now + 60, "f".repeat(64));
+    let confirmed = crate::ConfirmedInstalledNativeEnrollment::test_only_from_admission(
+        verified.admit_native_enrollment(&artifacts).unwrap(),
+    );
+    assert!(coordinator
+        .revalidate_confirmed_native_enrollment_at(&confirmed, now, &artifacts)
+        .unwrap());
+    assert!(coordinator
+        .revalidate_confirmed_native_enrollment_at(&confirmed, now + 61, &artifacts)
+        .is_err());
+
+    coordinator.trust_journal.commit_install("1.2.1").unwrap();
+    assert!(!coordinator
+        .revalidate_confirmed_native_enrollment_at(&confirmed, now, &artifacts)
+        .unwrap());
+}
+
+fn retained_prepared(
+    directory: &std::path::Path,
+    verified: &crate::VerifiedUpdateV2,
+    artifacts: &MeasuredNativeEnrollmentArtifactsV1,
+) -> crate::PreparedInstalledNativeEnrollment {
+    let macos = directory.join("refresh/Runne.app/Contents/MacOS");
+    let contract = directory.join("refresh/Runne.app/Contents/Resources/contracts/gocode-ui-client-2/bundle.json");
+    std::fs::create_dir_all(contract.parent().unwrap()).unwrap();
+    std::fs::create_dir_all(&macos).unwrap();
+    let paths = [macos.join("runne-desktop"), macos.join("runne"), macos.join("runned"), contract];
+    for (path, bytes) in paths
+        .iter()
+        .zip([b"desktop".as_slice(), b"writer", b"daemon", b"contract"])
+    {
+        std::fs::write(path, bytes).unwrap();
+    }
+    let retained = crate::updater_metadata::NativeEnrollmentArtifactPathsV1::new(
+        paths[0].clone(), &paths[1], &paths[2], &paths[3],
+    ).unwrap();
+    verified.admit_native_enrollment(artifacts).unwrap().retain_installed_paths(retained)
+}
+
 fn metadata_path(directory: &std::path::Path) -> std::path::PathBuf {
     directory
         .join("updates")

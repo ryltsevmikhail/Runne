@@ -2,7 +2,8 @@ use crate::updater_installed_metadata::{
     InstalledUpdateMetadataError, InstalledUpdateMetadataJournal,
 };
 use crate::{
-    MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentTupleAdmission, UpdateInstallRecord,
+    ConfirmedInstalledNativeEnrollment, MeasuredNativeEnrollmentArtifactsV1,
+    NativeEnrollmentTupleAdmission, PreparedInstalledNativeEnrollment, UpdateInstallRecord,
     UpdateInstallState, UpdateTargetV2Binding, verify_update_v2,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -33,20 +34,46 @@ impl UpdateCoordinator {
 
     /// Re-verifies the committed installed release from the exact native package layout.
     #[cfg_attr(test, allow(dead_code))]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "called only by protected native enrollment composition"
-        )
-    )]
-    pub(crate) fn admit_installed_native_enrollment(
+    pub fn prepare_installed_native_enrollment(
         &self,
-    ) -> Result<Option<NativeEnrollmentTupleAdmission>, UpdateCoordinatorError> {
+    ) -> Result<Option<PreparedInstalledNativeEnrollment>, UpdateCoordinatorError> {
         let now_unix_seconds = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| UpdateCoordinatorError::InvalidTransition)?
             .as_secs();
+        self.prepare_installed_native_enrollment_at(now_unix_seconds)
+    }
+
+    /// Revalidates a prompt-delayed native admission against current updater state.
+    ///
+    /// The original admission is consumed and only fresh retained evidence is returned.
+    pub fn refresh_installed_native_enrollment(
+        &self,
+        prepared: PreparedInstalledNativeEnrollment,
+    ) -> Result<Option<PreparedInstalledNativeEnrollment>, UpdateCoordinatorError> {
+        let now_unix_seconds = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| UpdateCoordinatorError::InvalidTransition)?
+            .as_secs();
+        self.refresh_installed_native_enrollment_at_inner(prepared, now_unix_seconds)
+    }
+
+    /// Revalidates confirmed native evidence immediately before protected use.
+    pub fn revalidate_confirmed_native_enrollment(
+        &self,
+        confirmed: &ConfirmedInstalledNativeEnrollment,
+    ) -> Result<bool, UpdateCoordinatorError> {
+        let now_unix_seconds = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| UpdateCoordinatorError::InvalidTransition)?
+            .as_secs();
+        self.revalidate_confirmed_native_enrollment_at_inner(confirmed, now_unix_seconds)
+    }
+
+    fn prepare_installed_native_enrollment_at(
+        &self,
+        now_unix_seconds: u64,
+    ) -> Result<Option<PreparedInstalledNativeEnrollment>, UpdateCoordinatorError> {
         let Some(verified) = self.verified_installed_native_update(now_unix_seconds)? else {
             return Ok(None);
         };
@@ -59,7 +86,61 @@ impl UpdateCoordinator {
         paths
             .confirm_current()
             .map_err(|_| UpdateCoordinatorError::InvalidTransition)?;
-        Ok(admission)
+        Ok(admission.map(|admission| admission.retain_installed_paths(paths)))
+    }
+
+    fn refresh_installed_native_enrollment_at_inner(
+        &self,
+        prepared: PreparedInstalledNativeEnrollment,
+        now_unix_seconds: u64,
+    ) -> Result<Option<PreparedInstalledNativeEnrollment>, UpdateCoordinatorError> {
+        let Some(fresh) = self.prepare_installed_native_enrollment_at(now_unix_seconds)? else {
+            return Ok(None);
+        };
+        Ok(prepared.refresh_from(fresh))
+    }
+
+    fn revalidate_confirmed_native_enrollment_at_inner(
+        &self,
+        confirmed: &ConfirmedInstalledNativeEnrollment,
+        now_unix_seconds: u64,
+    ) -> Result<bool, UpdateCoordinatorError> {
+        let Some(verified) = self.verified_installed_native_update(now_unix_seconds)? else {
+            return Ok(false);
+        };
+        let paths = crate::updater_metadata::NativeEnrollmentArtifactPathsV1::resolve_installed()
+            .map_err(|_| UpdateCoordinatorError::InvalidTransition)?;
+        let artifacts = paths
+            .measure()
+            .map_err(|_| UpdateCoordinatorError::InvalidTransition)?;
+        paths
+            .confirm_current()
+            .map_err(|_| UpdateCoordinatorError::InvalidTransition)?;
+        Ok(verified
+            .admit_native_enrollment(&artifacts)
+            .is_some_and(|admission| confirmed.matches_admission(&admission)))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn refresh_installed_native_enrollment_at(
+        &self,
+        prepared: PreparedInstalledNativeEnrollment,
+        now_unix_seconds: u64,
+    ) -> Result<Option<PreparedInstalledNativeEnrollment>, UpdateCoordinatorError> {
+        self.refresh_installed_native_enrollment_at_inner(prepared, now_unix_seconds)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn revalidate_confirmed_native_enrollment_at(
+        &self,
+        confirmed: &ConfirmedInstalledNativeEnrollment,
+        now_unix_seconds: u64,
+        artifacts: &MeasuredNativeEnrollmentArtifactsV1,
+    ) -> Result<bool, UpdateCoordinatorError> {
+        Ok(self
+            .verified_installed_native_update(now_unix_seconds)?
+            .and_then(|verified| verified.admit_native_enrollment(artifacts))
+            .is_some_and(|admission| confirmed.matches_admission(&admission)))
     }
 
     #[cfg(test)]

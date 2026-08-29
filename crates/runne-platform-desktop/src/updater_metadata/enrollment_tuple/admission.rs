@@ -15,11 +15,11 @@ use super::{
 /// Non-serializable installed-package admission minted only by `VerifiedUpdateV2`.
 #[derive(Debug, Eq, PartialEq)]
 pub struct NativeEnrollmentTupleAdmission {
-    writer_sha256: [u8; 32],
-    daemon_sha256: [u8; 32],
-    release_tuple_sha256: [u8; 32],
-    macos_writer_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
-    macos_daemon_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
+    pub(super) writer_sha256: [u8; 32],
+    pub(super) daemon_sha256: [u8; 32],
+    pub(super) release_tuple_sha256: [u8; 32],
+    pub(super) macos_writer_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
+    pub(super) macos_daemon_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
 }
 
 impl VerifiedUpdateV2 {

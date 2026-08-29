@@ -27,6 +27,40 @@ impl CredentialIntentIpc {
             && !(self.action == ProviderCredentialEnrollmentActionV2::Revoke
                 && self.verification_kind.is_some())
     }
+
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "consumed by the protected command after its control dispatcher is installed"
+        )
+    )]
+    pub(crate) fn prompt_request(
+        self,
+    ) -> Result<runne_platform_desktop::SecureCredentialPromptRequest, ()> {
+        use runne_platform_desktop::{CredentialPromptAction, CredentialPromptProvider};
+
+        if !self.valid() {
+            return Err(());
+        }
+        let provider = match self.provider {
+            ProviderCredentialProviderV2::OpenAi => CredentialPromptProvider::OpenAi,
+            ProviderCredentialProviderV2::DeepSeek => CredentialPromptProvider::DeepSeek,
+        };
+        let action = match self.action {
+            ProviderCredentialEnrollmentActionV2::Pair => CredentialPromptAction::Pair,
+            ProviderCredentialEnrollmentActionV2::Revoke => CredentialPromptAction::Revoke,
+            ProviderCredentialEnrollmentActionV2::MigrateLegacy => {
+                CredentialPromptAction::MigrateLegacy
+            }
+        };
+        runne_platform_desktop::SecureCredentialPromptRequest::new(
+            provider,
+            action,
+            self.expected_revision,
+        )
+        .map_err(|_| ())
+    }
 }
 
 #[cfg(test)]
@@ -57,5 +91,37 @@ mod tests {
             }))
             .is_err()
         );
+    }
+
+    #[test]
+    fn ipc_maps_only_closed_public_actions_to_native_prompt_metadata() {
+        use runne_platform_desktop::{CredentialPromptAction, CredentialPromptProvider};
+
+        for (action, expected) in [
+            (
+                ProviderCredentialEnrollmentActionV2::Pair,
+                CredentialPromptAction::Pair,
+            ),
+            (
+                ProviderCredentialEnrollmentActionV2::Revoke,
+                CredentialPromptAction::Revoke,
+            ),
+            (
+                ProviderCredentialEnrollmentActionV2::MigrateLegacy,
+                CredentialPromptAction::MigrateLegacy,
+            ),
+        ] {
+            let request = CredentialIntentIpc {
+                provider: ProviderCredentialProviderV2::DeepSeek,
+                action,
+                expected_revision: 7,
+                renderer_generation: 4,
+                verification_kind: None,
+            };
+            let prompt = request.prompt_request().expect("valid prompt request");
+            assert_eq!(prompt.provider(), CredentialPromptProvider::DeepSeek);
+            assert_eq!(prompt.action(), expected);
+            assert_eq!(prompt.expected_revision(), 7);
+        }
     }
 }

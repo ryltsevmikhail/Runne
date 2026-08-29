@@ -157,7 +157,7 @@ impl DevelopmentBundledRuntimeLauncher {
             };
             let ready = request.decode_ready(&read_frame(&mut parent_channel)?, &keys)?;
             if let Some(readiness) = ready.provider_readiness()
-                && !readiness.is_ready()
+                && provider_readiness_blocks_launch(readiness)
             {
                 return Err(ProtectedBundledRuntimeError::ProviderActivationNotReady(readiness));
             }

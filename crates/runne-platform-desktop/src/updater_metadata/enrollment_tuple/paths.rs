@@ -97,6 +97,36 @@ impl NativeEnrollmentArtifactPathsV1 {
         }
     }
 
+    pub(super) fn matches_retained(&self, fresh: &Self) -> Result<bool, NativeEnrollmentTupleError> {
+        #[cfg(unix)]
+        {
+            self.confirm_current()?;
+            fresh.confirm_current()?;
+            Ok(same_directory(&self.root, &fresh.root)
+                && self.desktop_file.matches_opened(&fresh.desktop_file)?
+                && self.writer_file.matches_opened(&fresh.writer_file)?
+                && self.daemon_file.matches_opened(&fresh.daemon_file)?
+                && self.contract_file.matches_opened(&fresh.contract_file)?)
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = fresh;
+            Ok(false)
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(super) fn confirm_current_daemon(
+        &self,
+        expected_digest: [u8; 32],
+    ) -> Result<(), NativeEnrollmentTupleError> {
+        self.confirm_current()?;
+        let measured = self.daemon_file.measure()?;
+        (hex::decode(measured).ok().as_deref() == Some(&expected_digest))
+            .then_some(())
+            .ok_or(NativeEnrollmentTupleError::Rejected)
+    }
+
     fn from_macos_desktop_executable(
         desktop: PathBuf,
         live_desktop: bool,

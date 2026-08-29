@@ -10,9 +10,14 @@ include!("protected_runtime/state_store.rs");
 include!("protected_runtime/launcher.rs");
 include!("protected_runtime/writer_staging.rs");
 include!("protected_runtime/process.rs");
+#[cfg(test)]
+include!("protected_runtime/provider_readiness_tests.rs");
 include!("protected_runtime/supervisor.rs");
 include!("protected_runtime/helpers.rs");
+include!("protected_runtime/native_enrollment.rs");
 include!("protected_runtime/tests.rs");
+#[cfg(test)]
+include!("protected_runtime/native_enrollment_tests.rs");
 include!("protected_runtime/renewal.rs");
 #[cfg(feature = "test-support")]
 include!("protected_runtime/test_root_transport.rs");

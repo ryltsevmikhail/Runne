@@ -61,7 +61,6 @@ struct NativeRootAdmission {
     pub(crate) admission: ProtectedRootHandleAdmission,
     operation_permit: tokio::sync::OwnedMutexGuard<()>,
 }
-
 impl NativeRootAdmission {
     fn into_parts(
         self,
@@ -73,11 +72,9 @@ impl NativeRootAdmission {
         (self.root, self.admission, self.operation_permit)
     }
 }
-
 type RootAdmissionFuture =
     Pin<Box<dyn Future<Output = Result<NativeRootAdmission, AppCoreError>> + Send + 'static>>;
 type RootAdmissionReapFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
-
 /// Host-only lifecycle control for a runtime proven owned by this desktop.
 ///
 /// Implementations must retain ownership evidence internally and must not
@@ -104,10 +101,13 @@ trait NativeRootAdmissionLifecycle: OwnedRuntimeLifecycle {
         &self,
         permit: tokio::sync::OwnedMutexGuard<()>,
     ) -> RootAdmissionReapFuture;
+
+    #[allow(dead_code)] // The protected prompt composition owns this fail-closed default.
+    fn acquire_credential_enrollment_lease(&self) -> bundled_runtime::CredentialEnrollmentFuture {
+        Box::pin(async { Err(AppCoreError::RuntimeUnavailable) })
+    }
 }
 
-/// Renderer-private runtime lifecycle hook registered by the desktop host.
-///
 /// External runtimes have no controller and therefore remain an intentional
 /// no-op. Bundled mode registers only a controller that proves the exact owned
 /// launch before it signals or terminates it.

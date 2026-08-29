@@ -40,7 +40,16 @@ struct IntentEntry {
         reason = "only the trusted prompt can mint a capability before daemon handoff"
     )
 )]
-pub struct NativeCredentialIntent(String);
+pub struct NativeCredentialIntent {
+    id: String,
+    expires: Instant,
+}
+
+impl NativeCredentialIntent {
+    pub(crate) const fn expires_at(&self) -> Instant {
+        self.expires
+    }
+}
 
 impl fmt::Debug for NativeCredentialIntent {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -139,7 +148,7 @@ impl CredentialIntentRegistry {
             },
         );
         drop(entries);
-        Ok(NativeCredentialIntent(id))
+        Ok(NativeCredentialIntent { id, expires })
     }
 
     #[cfg_attr(
@@ -159,9 +168,9 @@ impl CredentialIntentRegistry {
         now: Instant,
     ) -> Result<ConsumedCredentialIntent, CredentialIntentError> {
         let mut entries = self.entries.lock().map_err(|_| CredentialIntentError)?;
-        let entry = entries.get(&intent.0).ok_or(CredentialIntentError)?;
-        if entry.expires <= now {
-            entries.remove(&intent.0);
+        let entry = entries.get(&intent.id).ok_or(CredentialIntentError)?;
+        if intent.expires <= now || entry.expires != intent.expires {
+            entries.remove(&intent.id);
             return Err(CredentialIntentError);
         }
         if entry.window != window
@@ -171,9 +180,9 @@ impl CredentialIntentRegistry {
         {
             return Err(CredentialIntentError);
         }
-        entries.remove(&intent.0).ok_or(CredentialIntentError)?;
+        entries.remove(&intent.id).ok_or(CredentialIntentError)?;
         drop(entries);
-        Ok(ConsumedCredentialIntent(intent.0))
+        Ok(ConsumedCredentialIntent(intent.id))
     }
 
     pub fn invalidate_window(&self, window: &str) {
@@ -186,6 +195,13 @@ impl CredentialIntentRegistry {
         if let Ok(mut entries) = self.entries.lock() {
             entries.clear();
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn pending_len(&self) -> usize {
+        self.entries
+            .lock()
+            .map_or(usize::MAX, |entries| entries.len())
     }
 }
 
@@ -255,6 +271,7 @@ mod tests {
         let now = Instant::now();
         let request = request();
         let intent = registry.issue("main", 4, request, [9; 32], now).unwrap();
+        assert!(intent.expires_at() > now);
         assert!(
             registry
                 .consume(
