@@ -1,8 +1,7 @@
 use ed25519_dalek::{Signer, SigningKey};
 use sha2::{Digest as _, Sha256};
-
 use super::super::{
-    MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentQualification, NativeEnrollmentTupleV1,
+    MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentQualification, NativeEnrollmentTupleV2,
     UpdateMetadataV2, UpdateRootRoleV2, UpdateSignatureV2, UpdateSnapshotRoleV2, UpdateTargetV2,
     UpdateTargetV2Binding, UpdateTargetsRoleV2, UpdateTimestampRoleV2, UpdateTrustRootV2,
     VerifiedUpdateV2, verify_update_v2,
@@ -21,7 +20,7 @@ fn target() -> UpdateTargetV2 {
 fn macos_tuple_requires_exact_non_adhoc_writer_code_identity() {
     let macos = target();
     assert!(
-        NativeEnrollmentTupleV1::new(
+        NativeEnrollmentTupleV2::new(
             macos.release_candidate_sha256.clone(),
             "c".repeat(64),
             "e".repeat(64),
@@ -32,12 +31,15 @@ fn macos_tuple_requires_exact_non_adhoc_writer_code_identity() {
         .is_err()
     );
     let valid = || {
-        NativeEnrollmentTupleV1::new_macos(
+        NativeEnrollmentTupleV2::new_macos(
             macos.release_candidate_sha256.clone(),
             "c".repeat(64),
             "e".repeat(64),
             "f".repeat(64),
             macos.bundle_sha256.clone(),
+            "com.runne.desktop",
+            "RUNNE12345",
+            "3".repeat(40),
             "com.runne.writer",
             "RUNNE12345",
             "1".repeat(40),
@@ -49,12 +51,15 @@ fn macos_tuple_requires_exact_non_adhoc_writer_code_identity() {
     };
     assert!(valid().is_ok());
     assert!(
-        NativeEnrollmentTupleV1::new_macos(
+        NativeEnrollmentTupleV2::new_macos(
             macos.release_candidate_sha256.clone(),
             "c".repeat(64),
             "e".repeat(64),
             "f".repeat(64),
             macos.bundle_sha256.clone(),
+            "com.runne.desktop",
+            "RUNNE12345",
+            "3".repeat(40),
             "com.runne.shared",
             "RUNNE12345",
             "1".repeat(40),
@@ -72,12 +77,15 @@ fn macos_tuple_requires_exact_non_adhoc_writer_code_identity() {
         ("com.runne.writer", "runne12345", "1".repeat(40)),
     ] {
         assert!(
-            NativeEnrollmentTupleV1::new_macos(
+            NativeEnrollmentTupleV2::new_macos(
                 macos.release_candidate_sha256.clone(),
                 "c".repeat(64),
                 "e".repeat(64),
                 "f".repeat(64),
                 macos.bundle_sha256.clone(),
+                "com.runne.desktop",
+                "RUNNE12345",
+                "3".repeat(40),
                 identifier,
                 team,
                 cdhash,
@@ -91,12 +99,15 @@ fn macos_tuple_requires_exact_non_adhoc_writer_code_identity() {
     }
     let linux = super::updater_enrollment_tuple::target();
     assert!(
-        NativeEnrollmentTupleV1::new_macos(
+        NativeEnrollmentTupleV2::new_macos(
             linux.release_candidate_sha256.clone(),
             "c".repeat(64),
             "e".repeat(64),
             "f".repeat(64),
             linux.bundle_sha256.clone(),
+            "com.runne.desktop",
+            "RUNNE12345",
+            "3".repeat(40),
             "com.runne.writer",
             "RUNNE12345",
             "1".repeat(40),
@@ -117,12 +128,15 @@ fn verified_macos_tuple_admission_mints_only_a_tuple_bound_launch() {
     let writer_digest = hex::encode(Sha256::digest(b"measured macos writer"));
     let mut macos = target();
     macos.native_enrollment_tuple = Some(
-        NativeEnrollmentTupleV1::new_macos(
+        NativeEnrollmentTupleV2::new_macos(
             macos.release_candidate_sha256.clone(),
             "c".repeat(64),
             writer_digest.clone(),
             "f".repeat(64),
             macos.bundle_sha256.clone(),
+            "com.runne.desktop",
+            "RUNNE12345",
+            "3".repeat(40),
             "com.runne.writer",
             "RUNNE12345",
             "1".repeat(40),
@@ -156,12 +170,15 @@ fn verified_macos_tuple_admission_mints_only_a_tuple_bound_launch() {
 #[test]
 fn threshold_signed_macos_tuple_tampering_is_invalid_metadata() {
     let mut macos = target();
-    let tuple = NativeEnrollmentTupleV1::new_macos(
+    let tuple = NativeEnrollmentTupleV2::new_macos(
         macos.release_candidate_sha256.clone(),
         "c".repeat(64),
         "e".repeat(64),
         "f".repeat(64),
         macos.bundle_sha256.clone(),
+        "com.runne.desktop",
+        "RUNNE12345",
+        "3".repeat(40),
         "com.runne.writer",
         "RUNNE12345",
         "1".repeat(40),
@@ -173,6 +190,9 @@ fn threshold_signed_macos_tuple_tampering_is_invalid_metadata() {
     .unwrap();
     let original = serde_json::to_value(tuple).unwrap();
     for tampered in [
+        tamper(&original, |value| {
+            value["desktopCodeIdentity"]["cdhash"] = "4".repeat(40).into();
+        }),
         tamper(&original, |value| {
             value["writerCodeIdentity"]["cdhash"] = "3".repeat(40).into();
         }),

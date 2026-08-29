@@ -61,7 +61,7 @@ pub use updater_journal::{UpdateInstallRecord, UpdateJournal, UpdateJournalError
 pub use updater_metadata::{
     ConfirmedInstalledNativeEnrollment, MeasuredNativeEnrollmentArtifactsV1,
     NativeEnrollmentQualification, NativeEnrollmentTupleAdmission, NativeEnrollmentTupleError,
-    NativeEnrollmentTupleV1, PreparedInstalledNativeEnrollment, UpdateMetadataV2, UpdateRootRoleV2,
+    NativeEnrollmentTupleV2, PreparedInstalledNativeEnrollment, UpdateMetadataV2, UpdateRootRoleV2,
     UpdateSignatureV2, UpdateSnapshotRoleV2, UpdateTargetV2, UpdateTargetV2Binding,
     UpdateTargetsRoleV2, UpdateTimestampRoleV2, UpdateTrustRootV2, UpdateV2VerificationError,
     VerifiedMacOsWriterLaunch, VerifiedUpdateV2, verify_update_v2,

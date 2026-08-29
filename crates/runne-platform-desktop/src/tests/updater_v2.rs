@@ -51,7 +51,7 @@ fn v2_update_requires_two_root_and_two_targets_signatures() {
         native_enrollment_tuple: None,
     };
     target.native_enrollment_tuple = Some(
-        NativeEnrollmentTupleV1::new(
+        NativeEnrollmentTupleV2::new(
             target.release_candidate_sha256.clone(),
             "e".repeat(64),
             writer_digest.clone(),

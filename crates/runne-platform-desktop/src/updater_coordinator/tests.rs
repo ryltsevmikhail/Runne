@@ -2,7 +2,7 @@ use super::*;
 use ed25519_dalek::{Signer, SigningKey};
 
 use crate::{
-    MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentTupleV1, UpdateMetadataV2,
+    MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentTupleV2, UpdateMetadataV2,
     UpdateRootRoleV2, UpdateSignatureV2, UpdateSnapshotRoleV2, UpdateTargetV2,
     UpdateTargetV2Binding, UpdateTargetsRoleV2, UpdateTimestampRoleV2, verify_update_v2,
 };
@@ -85,7 +85,7 @@ fn verified_update() -> VerifiedUpdateV2 {
         native_enrollment_tuple: None,
     };
     target.native_enrollment_tuple = Some(
-        NativeEnrollmentTupleV1::new(
+        NativeEnrollmentTupleV2::new(
             target.release_candidate_sha256.clone(),
             "b".repeat(64),
             "d".repeat(64),

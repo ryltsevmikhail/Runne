@@ -8,7 +8,7 @@ use runne_platform_ports::provider_credential_broker::{
 use sha2::{Digest, Sha256};
 
 use super::{
-    MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentQualification, NativeEnrollmentTupleV1,
+    MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentQualification, NativeEnrollmentTupleV2,
     UpdateTargetV2, VerifiedMacOsWriterLaunch, VerifiedUpdateV2, macos_identity,
 };
 
@@ -18,6 +18,7 @@ pub struct NativeEnrollmentTupleAdmission {
     pub(super) writer_sha256: [u8; 32],
     pub(super) daemon_sha256: [u8; 32],
     pub(super) release_tuple_sha256: [u8; 32],
+    pub(super) macos_desktop_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
     pub(super) macos_writer_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
     pub(super) macos_daemon_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
 }
@@ -34,7 +35,7 @@ impl VerifiedUpdateV2 {
     }
 
     #[must_use]
-    pub const fn native_enrollment_tuple(&self) -> Option<&NativeEnrollmentTupleV1> {
+    pub const fn native_enrollment_tuple(&self) -> Option<&NativeEnrollmentTupleV2> {
         self.metadata
             .targets
             .target
@@ -66,7 +67,7 @@ impl VerifiedUpdateV2 {
     }
 }
 
-impl NativeEnrollmentTupleV1 {
+impl NativeEnrollmentTupleV2 {
     fn admit(
         &self,
         target: &UpdateTargetV2,
@@ -84,6 +85,7 @@ impl NativeEnrollmentTupleV1 {
                     writer_sha256,
                     daemon_sha256,
                     release_tuple_sha256,
+                    macos_desktop_code_identity: self.desktop_code_identity.clone(),
                     macos_writer_code_identity: self.writer_code_identity.clone(),
                     macos_daemon_code_identity: self.daemon_code_identity.clone(),
                 }
@@ -113,10 +115,15 @@ impl NativeEnrollmentTupleAdmission {
             .macos_writer_code_identity
             .as_ref()
             .ok_or(VerifiedWriterArtifactError::Rejected)?;
+        let desktop = self
+            .macos_desktop_code_identity
+            .as_ref()
+            .filter(|desktop| *desktop != writer)
+            .ok_or(VerifiedWriterArtifactError::Rejected)?;
         let daemon = self
             .macos_daemon_code_identity
             .as_ref()
-            .filter(|daemon| *daemon != writer)
+            .filter(|daemon| *daemon != writer && *daemon != desktop)
             .ok_or(VerifiedWriterArtifactError::Rejected)?;
         let artifact = self.verified_writer_artifact(executable)?;
         Ok(VerifiedMacOsWriterLaunch::new(

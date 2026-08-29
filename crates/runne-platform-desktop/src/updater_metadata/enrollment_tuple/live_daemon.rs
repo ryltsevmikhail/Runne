@@ -85,11 +85,20 @@ impl PreparedInstalledNativeEnrollment {
             .paths
             .as_ref()
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let desktop = admission
+            .macos_desktop_code_identity
+            .as_ref()
+            .filter(|desktop| admission.macos_writer_code_identity.as_ref() != Some(*desktop)
+                && admission.macos_daemon_code_identity.as_ref() != Some(*desktop))
+            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
         let daemon = admission
             .macos_daemon_code_identity
             .as_ref()
             .filter(|identity| admission.macos_writer_code_identity.as_ref() != Some(*identity))
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        paths
+            .confirm_current_macos_desktop(desktop)
+            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
         paths
             .confirm_current_daemon(admission.daemon_sha256)
             .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
@@ -151,7 +160,7 @@ impl ConfirmedInstalledNativeEnrollment {
     }
 
     #[cfg(test)]
-    pub(crate) fn test_only_from_admission(admission: NativeEnrollmentTupleAdmission) -> Self {
+    pub(crate) const fn test_only_from_admission(admission: NativeEnrollmentTupleAdmission) -> Self {
         Self {
             evidence: ProtectedDaemonTupleEvidence {
                 release_tuple: admission.release_tuple_sha256,

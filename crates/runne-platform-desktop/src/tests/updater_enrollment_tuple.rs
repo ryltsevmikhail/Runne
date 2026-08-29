@@ -1,4 +1,4 @@
-use super::super::{MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentTupleV1, UpdateTargetV2};
+use super::super::{MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentTupleV2, UpdateTargetV2};
 use sha2::{Digest as _, Sha256};
 
 pub(super) fn target() -> UpdateTargetV2 {
@@ -24,7 +24,7 @@ pub(super) fn target() -> UpdateTargetV2 {
     }
 }
 
-fn legacy_tuple_digest(
+fn tuple_v2_digest(
     target: &UpdateTargetV2,
     desktop: &str,
     writer: &str,
@@ -32,7 +32,8 @@ fn legacy_tuple_digest(
     contract: &str,
 ) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"gocode/native-enrollment-release-tuple/v1\0");
+    hasher.update(b"gocode/native-enrollment-release-tuple/v2\0");
+    hasher.update(2_u32.to_be_bytes());
     for value in [
         target.release_candidate_sha256.as_str(),
         target.product_id.as_str(),
@@ -56,7 +57,7 @@ fn legacy_tuple_digest(
 fn enrollment_tuple_rejects_missing_reused_and_swapped_role_artifacts() {
     let target = target();
     assert!(
-        NativeEnrollmentTupleV1::new(
+        NativeEnrollmentTupleV2::new(
             target.release_candidate_sha256.clone(),
             "c".repeat(64),
             String::new(),
@@ -67,7 +68,7 @@ fn enrollment_tuple_rejects_missing_reused_and_swapped_role_artifacts() {
         .is_err()
     );
     assert!(
-        NativeEnrollmentTupleV1::new(
+        NativeEnrollmentTupleV2::new(
             target.release_candidate_sha256.clone(),
             "e".repeat(64),
             "e".repeat(64),
@@ -78,7 +79,7 @@ fn enrollment_tuple_rejects_missing_reused_and_swapped_role_artifacts() {
         .is_err()
     );
 
-    let tuple = NativeEnrollmentTupleV1::new(
+    let tuple = NativeEnrollmentTupleV2::new(
         target.release_candidate_sha256.clone(),
         "c".repeat(64),
         "e".repeat(64),
@@ -89,7 +90,7 @@ fn enrollment_tuple_rejects_missing_reused_and_swapped_role_artifacts() {
     .unwrap();
     assert_eq!(
         serde_json::to_value(&tuple).unwrap()["tupleSha256"],
-        legacy_tuple_digest(&target, &"c".repeat(64), &"e".repeat(64), &"f".repeat(64), &target.bundle_sha256)
+        tuple_v2_digest(&target, &"c".repeat(64), &"e".repeat(64), &"f".repeat(64), &target.bundle_sha256)
     );
     assert!(
         MeasuredNativeEnrollmentArtifactsV1::new(
@@ -110,7 +111,7 @@ fn enrollment_tuple_rejects_missing_reused_and_swapped_role_artifacts() {
         .is_ok_and(|artifacts| !tuple.matches_installed(&target, &artifacts))
     );
     assert!(
-        NativeEnrollmentTupleV1::new(
+        NativeEnrollmentTupleV2::new(
             target.release_candidate_sha256.clone(),
             "c".repeat(64),
             "e".repeat(64),
@@ -121,7 +122,7 @@ fn enrollment_tuple_rejects_missing_reused_and_swapped_role_artifacts() {
         .is_err()
     );
     assert!(
-        NativeEnrollmentTupleV1::new(
+        NativeEnrollmentTupleV2::new(
             "c".repeat(64),
             "a".repeat(64),
             "e".repeat(64),
@@ -136,7 +137,7 @@ fn enrollment_tuple_rejects_missing_reused_and_swapped_role_artifacts() {
 #[test]
 fn enrollment_tuple_requires_a_distinct_signed_desktop_digest() {
     let target = target();
-    let tuple = NativeEnrollmentTupleV1::new(
+    let tuple = NativeEnrollmentTupleV2::new(
         target.release_candidate_sha256.clone(),
         "c".repeat(64),
         "e".repeat(64),
@@ -147,7 +148,7 @@ fn enrollment_tuple_requires_a_distinct_signed_desktop_digest() {
     .unwrap();
     let mut encoded = serde_json::to_value(tuple).unwrap();
     encoded.as_object_mut().unwrap().remove("desktopSha256");
-    assert!(serde_json::from_value::<NativeEnrollmentTupleV1>(encoded).is_err());
+    assert!(serde_json::from_value::<NativeEnrollmentTupleV2>(encoded).is_err());
 }
 
 #[test]
@@ -160,7 +161,7 @@ fn enrollment_tuple_rejects_installer_digest_reused_by_any_installed_role() {
     ] {
         let target = target();
         assert!(
-            NativeEnrollmentTupleV1::new(
+            NativeEnrollmentTupleV2::new(
                 target.release_candidate_sha256.clone(),
                 desktop,
                 writer,

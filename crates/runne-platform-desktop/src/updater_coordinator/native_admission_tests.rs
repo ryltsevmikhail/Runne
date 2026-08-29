@@ -43,7 +43,7 @@ fn native_fixture(
         runtime_version: "0.1.0".into(), runtime_digest: "b".repeat(64), channel: "stable".into(),
         published_at_unix_seconds: now.saturating_sub(5), expires_at_unix_seconds: expires_at, rollback_floor: "1.0.0".into(), native_enrollment_tuple: None,
     };
-    target.native_enrollment_tuple = Some(NativeEnrollmentTupleV1::new(
+    target.native_enrollment_tuple = Some(NativeEnrollmentTupleV2::new(
         target.release_candidate_sha256.clone(), hashes[0].clone(), hashes[1].clone(), hashes[2].clone(), hashes[3].clone(), &target,
     ).unwrap());
     let root = UpdateRootRoleV2::from_trust(&trust, 7);
@@ -96,7 +96,7 @@ fn transaction_rejects_a_different_signed_candidate_envelope() {
     let mut metadata = verified.metadata().clone();
     metadata.targets.target.release_candidate_sha256 = "e".repeat(64);
     metadata.targets.target.native_enrollment_tuple = Some(
-        NativeEnrollmentTupleV1::new(
+        NativeEnrollmentTupleV2::new(
             metadata.targets.target.release_candidate_sha256.clone(),
             digest(b"desktop"),
             digest(b"writer"),

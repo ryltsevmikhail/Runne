@@ -63,7 +63,7 @@ pub struct UpdateTargetV2 {
     pub expires_at_unix_seconds: u64,
     pub rollback_floor: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub native_enrollment_tuple: Option<NativeEnrollmentTupleV1>,
+    pub native_enrollment_tuple: Option<NativeEnrollmentTupleV2>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
