@@ -5,15 +5,15 @@ const ENROLLMENT_TRANSITION_REQUEST_BINDING_DOMAIN_V2: &[u8] =
 
 /// Authenticated Desktop claims for an exact current V2 enrollment transition.
 ///
-/// These release, qualification, installation, and peer digests are claims
-/// only. Their decoding or MAC verification grants no native qualification or
-/// launch authority; the daemon must independently verify each native fact.
+/// These release, qualification, and peer digests are claims only. Their
+/// decoding or MAC verification grants no native qualification or launch
+/// authority; the daemon must independently verify each native fact. The
+/// installation anchor remains daemon-owned and exists only in its prelude.
 #[derive(Clone, Eq, PartialEq)]
 pub struct ProtectedCredentialEnrollmentPrepareV2 {
     owned_launch: ProtectedOwnedLaunchV2,
     sequence: u64,
     nonce: [u8; 32],
-    installation_identity_digest: [u8; 32],
     release_tuple_digest: [u8; 32],
     qualification_binding_digest: [u8; 32],
     desktop_peer_binding_digest: [u8; 32],
@@ -27,7 +27,6 @@ impl ProtectedCredentialEnrollmentPrepareV2 {
         owned_launch: ProtectedOwnedLaunchV2,
         sequence: u64,
         nonce: [u8; 32],
-        installation_identity_digest: [u8; 32],
         release_tuple_digest: [u8; 32],
         qualification_binding_digest: [u8; 32],
         desktop_peer_binding_digest: [u8; 32],
@@ -35,7 +34,6 @@ impl ProtectedCredentialEnrollmentPrepareV2 {
     ) -> Result<Self, LaunchAuthorityError> {
         if sequence == 0
             || nonce == [0; 32]
-            || installation_identity_digest == [0; 32]
             || release_tuple_digest == [0; 32]
             || qualification_binding_digest == [0; 32]
             || desktop_peer_binding_digest == [0; 32]
@@ -47,7 +45,6 @@ impl ProtectedCredentialEnrollmentPrepareV2 {
             owned_launch,
             sequence,
             nonce,
-            installation_identity_digest,
             release_tuple_digest,
             qualification_binding_digest,
             desktop_peer_binding_digest,
@@ -107,11 +104,6 @@ impl ProtectedCredentialEnrollmentPrepareV2 {
     }
 
     #[must_use]
-    pub const fn installation_identity_digest(&self) -> &[u8; 32] {
-        &self.installation_identity_digest
-    }
-
-    #[must_use]
     pub const fn release_tuple_digest(&self) -> &[u8; 32] {
         &self.release_tuple_digest
     }
@@ -157,7 +149,7 @@ impl ProtectedCredentialEnrollmentPrepareV2 {
     }
 
     fn fields(&self, encoder: &mut CborEncoder, include_proof: bool) {
-        encoder.write_map_header(if include_proof { 11 } else { 10 });
+        encoder.write_map_header(if include_proof { 10 } else { 9 });
         write_key(encoder, 0);
         encoder.write_unsigned(u64::from(Self::MESSAGE_TYPE_ID));
         write_key(encoder, 1);
@@ -168,18 +160,17 @@ impl ProtectedCredentialEnrollmentPrepareV2 {
         encoder.write_unsigned(self.sequence);
         for (key, value) in [
             (4, &self.nonce),
-            (5, &self.installation_identity_digest),
-            (6, &self.release_tuple_digest),
-            (7, &self.qualification_binding_digest),
-            (8, &self.desktop_peer_binding_digest),
+            (5, &self.release_tuple_digest),
+            (6, &self.qualification_binding_digest),
+            (7, &self.desktop_peer_binding_digest),
         ] {
             write_key(encoder, key);
             encoder.write_byte_string(value);
         }
-        write_key(encoder, 9);
+        write_key(encoder, 8);
         encoder.write_unsigned(self.desktop_supervisor_generation);
         if include_proof {
-            write_key(encoder, 10);
+            write_key(encoder, 9);
             encoder.write_byte_string(&self.proof);
         }
     }
@@ -200,7 +191,7 @@ impl DeterministicCodec for ProtectedCredentialEnrollmentPrepareV2 {
     }
 
     fn decode(type_id: u32, decoder: &mut CborDecoder<'_>) -> Result<Self, DecodeError> {
-        if type_id != Self::MESSAGE_TYPE_ID || decoder.read_map_header(11)? != 11 {
+        if type_id != Self::MESSAGE_TYPE_ID || decoder.read_map_header(10)? != 10 {
             return Err(DecodeError::UnknownMessageType { type_id });
         }
         expect_key(decoder, 0)?;
@@ -213,22 +204,19 @@ impl DeterministicCodec for ProtectedCredentialEnrollmentPrepareV2 {
         expect_key(decoder, 4)?;
         let nonce = decode_fixed::<32>(decoder)?;
         expect_key(decoder, 5)?;
-        let installation = decode_fixed::<32>(decoder)?;
-        expect_key(decoder, 6)?;
         let release = decode_fixed::<32>(decoder)?;
-        expect_key(decoder, 7)?;
+        expect_key(decoder, 6)?;
         let qualification = decode_fixed::<32>(decoder)?;
-        expect_key(decoder, 8)?;
+        expect_key(decoder, 7)?;
         let peer = decode_fixed::<32>(decoder)?;
-        expect_key(decoder, 9)?;
+        expect_key(decoder, 8)?;
         let generation = decoder.read_unsigned(u64::MAX)?;
-        expect_key(decoder, 10)?;
+        expect_key(decoder, 9)?;
         let proof = decode_fixed::<32>(decoder)?;
         let mut value = Self::new(
             owned_launch,
             sequence,
             nonce,
-            installation,
             release,
             qualification,
             peer,

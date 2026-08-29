@@ -23,7 +23,6 @@ fn fixture() -> (
         owned.clone(),
         1,
         [21; 32],
-        [22; 32],
         [23; 32],
         [24; 32],
         [25; 32],
@@ -48,6 +47,16 @@ fn fixture() -> (
         ProtectedCredentialEnrollmentPreludeV2::new(&request, [29; 32], prelude).unwrap();
     response.sign(&keys);
     (request, response, owned, keys)
+}
+
+#[test]
+fn enrollment_transition_v2_prepare_has_no_desktop_anchor_claim() {
+    let (_, _, owned, _) = fixture();
+    let request = ProtectedCredentialEnrollmentPrepareV2::new(
+        owned, 2, [51; 32], [52; 32], [53; 32], [54; 32], 2,
+    )
+    .unwrap();
+    assert_eq!(request.release_tuple_digest(), &[52; 32]);
 }
 
 #[test]
@@ -96,11 +105,6 @@ fn enrollment_transition_v2_request_rejects_owner_sequence_keys_and_claim_mutati
         },
         {
             let mut value = request.clone();
-            value.installation_identity_digest[0] ^= 1;
-            value
-        },
-        {
-            let mut value = request.clone();
             value.release_tuple_digest[0] ^= 1;
             value
         },
@@ -129,7 +133,7 @@ fn enrollment_transition_v2_request_rejects_owner_sequence_keys_and_claim_mutati
     }
     assert!(
         ProtectedCredentialEnrollmentPrepareV2::new(
-            owned, 0, [1; 32], [1; 32], [1; 32], [1; 32], [1; 32], 1,
+            owned, 0, [1; 32], [1; 32], [1; 32], [1; 32], 1,
         )
         .is_err()
     );
@@ -196,29 +200,17 @@ fn enrollment_transition_v2_response_rejects_transcript_prelude_and_proof_substi
 }
 
 #[test]
-fn enrollment_transition_v2_rejects_signed_claim_mismatch_and_stale_prelude() {
+fn enrollment_transition_v2_keeps_anchor_daemon_owned_and_rejects_tampering() {
     let (request, response, owned, keys) = fixture();
+    assert_eq!(response.prelude().installation_identity_digest(), &[22; 32]);
     for prelude in [
-        DaemonEnrollmentLaunchPreludeV1::macos_arm64(
-            *owned.launch_authority_id(),
-            *owned.desktop_host_instance_id(),
-            [31; 32],
-            [32; 32],
-            [33; 32],
-            [34; 32],
-            *request.desktop_peer_binding_digest(),
-            request.desktop_supervisor_generation(),
-            10,
-            20,
-        )
-        .unwrap(),
         DaemonEnrollmentLaunchPreludeV1::macos_arm64(
             *owned.launch_authority_id(),
             *owned.desktop_host_instance_id(),
             [35; 32],
             [36; 32],
             [37; 32],
-            *request.installation_identity_digest(),
+            [34; 32],
             [38; 32],
             request.desktop_supervisor_generation(),
             10,
@@ -231,7 +223,7 @@ fn enrollment_transition_v2_rejects_signed_claim_mismatch_and_stale_prelude() {
             [39; 32],
             [40; 32],
             [41; 32],
-            *request.installation_identity_digest(),
+            [35; 32],
             *request.desktop_peer_binding_digest(),
             request.desktop_supervisor_generation() + 1,
             10,
@@ -252,6 +244,13 @@ fn enrollment_transition_v2_rejects_signed_claim_mismatch_and_stale_prelude() {
                 .is_err()
         );
     }
+    let mut anchor_mutation = response.clone();
+    anchor_mutation.prelude.installation_identity_digest[0] ^= 1;
+    assert!(
+        anchor_mutation
+            .verify_exact_at(&request, &owned, 0, 10, &keys)
+            .is_err()
+    );
     assert!(
         response
             .verify_exact_at(&request, &owned, 0, 21, &keys)

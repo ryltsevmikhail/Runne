@@ -4,8 +4,8 @@ const ENROLLMENT_TRANSITION_PRELUDE_DOMAIN_V2: &[u8] =
 /// Daemon evidence binding one exact V2 prepare transcript to a V3 prelude.
 ///
 /// The symmetric envelope authenticates current V2 session membership, not a
-/// daemon role. The embedded prelude remains evidence, not launch authority;
-/// the coordinator must independently mint every daemon-owned state change.
+/// daemon role. Its daemon-owned installation anchor remains evidence, not
+/// launch authority; the coordinator must independently mint every state change.
 #[derive(Clone, Eq, PartialEq)]
 pub struct ProtectedCredentialEnrollmentPreludeV2 {
     owned_launch: ProtectedOwnedLaunchV2,
@@ -134,7 +134,6 @@ fn prelude_matches_request(
 ) -> bool {
     prelude.launch_authority_id() == *request.owned_launch.launch_authority_id()
         && prelude.desktop_host_instance_id() == *request.owned_launch.desktop_host_instance_id()
-        && prelude.installation_identity_digest() == request.installation_identity_digest()
         && prelude.desktop_peer_binding_digest() == request.desktop_peer_binding_digest()
         && prelude.supervisor_generation() == request.desktop_supervisor_generation()
 }
