@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import inspect
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -56,6 +59,20 @@ def evidence() -> dict[str, object]:
         "platform": "macos",
         "rows": [row("arm64", "run-arm64"), row("x86_64", "run-x86")],
     }
+
+
+def expected_tuples() -> dict[str, object]:
+    return {
+        row_value["architecture"]: copy.deepcopy(row_value["tuple"])
+        for row_value in evidence()["rows"]
+    }
+
+
+def _replace_tuple_digest(value: object, candidate: str) -> None:
+    if not isinstance(value, dict):
+        raise TypeError("test tuple must be an object")
+    value["candidate_sha256"] = digest(candidate)
+    value["tuple_sha256"] = macos.tuple_digest(value)
 
 
 def linux_row(package_format: str, run: str) -> dict[str, object]:
@@ -200,6 +217,52 @@ class NativeCredentialEnrollmentEvidenceTests(unittest.TestCase):
                 value = evidence()
                 value["rows"][0]["selectors"][selector] = change
                 self.assertTrue(validate_evidence(value, "macos"))
+
+    def test_only_remote_verification_may_be_unsupported(self) -> None:
+        for selector in ("clean_install", "rotation", "keychain_executable_acl_denied"):
+            with self.subTest(selector=selector):
+                value = evidence()
+                value["rows"][0]["selectors"][selector] = {"status": "unsupported"}
+                self.assertTrue(validate_evidence(value, "macos"))
+
+    def test_expected_macos_tuples_must_be_exact_and_complete(self) -> None:
+        self.assertIn("expected_tuples", inspect.signature(validate_evidence).parameters)
+        self.assertEqual(validate_evidence(evidence(), "macos", expected_tuples()), [])
+        cases = {
+            "missing_component": lambda rows, expected: expected["arm64"].pop("writer_sha256"),
+            "changed_digest": lambda rows, expected: expected["arm64"].update(candidate_sha256=digest("other")),
+            "recomputed_mixed_tuple": lambda rows, expected: _replace_tuple_digest(expected["arm64"], "other"),
+            "row_tuple_mismatch": lambda rows, expected: _replace_tuple_digest(rows[0]["tuple"], "other"),
+            "extra_architecture": lambda rows, expected: expected.update(amd64=expected["arm64"]),
+            "malformed_expected": lambda rows, expected: expected.clear() or expected.update(arm64=[]),
+        }
+        for name, mutate in cases.items():
+            with self.subTest(name=name):
+                value, expected = evidence(), expected_tuples()
+                mutate(value["rows"], expected)
+                self.assertTrue(validate_evidence(value, "macos", expected))
+
+    def test_cli_binds_expected_tuples_with_duplicate_key_safe_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for value in evidence()["rows"]:
+                root.joinpath(f"macos-13-{value['architecture']}.json").write_text(
+                    json.dumps(value), encoding="utf-8"
+                )
+            expected = root / "expected-tuples.json"
+            expected.write_text(json.dumps(expected_tuples()), encoding="utf-8")
+            command = [
+                sys.executable,
+                str(Path(__file__).resolve().parents[1] / "native_credential_enrollment_probe.py"),
+                "validate", "--platform", "macos", "--evidence-root", str(root),
+                "--expected-tuples", str(expected),
+            ]
+            result = subprocess.run(command, capture_output=True, check=False, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(json.loads(result.stdout)["qualified"])
+            expected.write_text('{"arm64":{},"arm64":{},"x86_64":{}}', encoding="utf-8")
+            result = subprocess.run(command, capture_output=True, check=False, text=True)
+            self.assertEqual(result.returncode, 1, result.stderr)
 
     def test_duplicate_runner_and_secret_like_field_fail_closed(self) -> None:
         value = evidence()

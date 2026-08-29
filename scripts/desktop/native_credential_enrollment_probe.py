@@ -21,10 +21,12 @@ LINUX_ROWS = {
 WINDOWS_ROWS = {"windows-10-22h2-x86_64-nsis.json": "nsis"}
 
 
-def validate_evidence(value: object, platform: str) -> list[str]:
+def validate_evidence(
+    value: object, platform: str, expected_tuples: object | None = None
+) -> list[str]:
     """Validate an in-memory document or directory of independently-run rows."""
     if isinstance(value, Path):
-        return _directory_errors(value, platform)
+        return _directory_errors(value, platform, expected_tuples)
     if not isinstance(value, dict):
         return ["evidence is not an object"]
     if value.get("schema_version") != SCHEMA_VERSION or value.get("platform") != platform:
@@ -32,14 +34,14 @@ def validate_evidence(value: object, platform: str) -> list[str]:
     rows = value.get("rows")
     if not isinstance(rows, list):
         return ["evidence rows are missing"]
-    return _rows_errors(rows, platform)
+    return _rows_errors(rows, platform, expected_tuples)
 
 
-def _directory_errors(root: Path, platform: str) -> list[str]:
+def _directory_errors(root: Path, platform: str, expected_tuples: object | None) -> list[str]:
     if platform == "linux":
-        return _linux_directory_errors(root)
+        return _linux_directory_errors(root, expected_tuples)
     if platform == "windows":
-        return _windows_directory_errors(root)
+        return _windows_directory_errors(root, expected_tuples)
     if platform != "macos":
         return ["platform is not implemented"]
     rows: list[object] = []
@@ -54,10 +56,10 @@ def _directory_errors(root: Path, platform: str) -> list[str]:
         if isinstance(row, dict) and row.get("architecture") != architecture:
             errors.append(f"evidence row {filename} has wrong architecture")
         rows.append(row)
-    return errors + _rows_errors(rows, platform)
+    return errors + _rows_errors(rows, platform, expected_tuples)
 
 
-def _linux_directory_errors(root: Path) -> list[str]:
+def _linux_directory_errors(root: Path, expected_tuples: object | None) -> list[str]:
     rows: list[object] = []
     errors: list[str] = []
     for filename, package_format in LINUX_ROWS.items():
@@ -69,10 +71,10 @@ def _linux_directory_errors(root: Path) -> list[str]:
         if isinstance(row, dict) and row.get("package_format") != package_format:
             errors.append(f"evidence row {filename} has wrong package format")
         rows.append(row)
-    return errors + _rows_errors(rows, "linux")
+    return errors + _rows_errors(rows, "linux", expected_tuples)
 
 
-def _windows_directory_errors(root: Path) -> list[str]:
+def _windows_directory_errors(root: Path, expected_tuples: object | None) -> list[str]:
     rows: list[object] = []
     errors: list[str] = []
     for filename, package_format in WINDOWS_ROWS.items():
@@ -84,10 +86,10 @@ def _windows_directory_errors(root: Path) -> list[str]:
         if isinstance(row, dict) and row.get("package_format") != package_format:
             errors.append(f"evidence row {filename} has wrong package format")
         rows.append(row)
-    return errors + _rows_errors(rows, "windows")
+    return errors + _rows_errors(rows, "windows", expected_tuples)
 
 
-def _rows_errors(rows: list[object], platform: str) -> list[str]:
+def _rows_errors(rows: list[object], platform: str, expected_tuples: object | None = None) -> list[str]:
     if platform == "macos":
         validator = macos.validate_row
         expected = set(MACOS_ROWS.values())
@@ -116,6 +118,11 @@ def _rows_errors(rows: list[object], platform: str) -> list[str]:
         isinstance(row, dict) and row.get("isolation_class") == "executable_acl" for row in rows
     ):
         errors.append(f"{platform} cannot claim executable ACL isolation")
+    if expected_tuples is not None:
+        if platform != "macos":
+            errors.append("expected tuples are only supported for macOS")
+        else:
+            errors.extend(macos.validate_expected_tuples(expected_tuples, rows))
     return errors
 
 
@@ -136,8 +143,14 @@ def main(argv: list[str] | None = None) -> int:
     validate = subcommands.add_parser("validate")
     validate.add_argument("--platform", required=True)
     validate.add_argument("--evidence-root", type=Path, required=True)
+    validate.add_argument("--expected-tuples", type=Path)
     args = parser.parse_args(argv)
-    errors = validate_evidence(args.evidence_root, args.platform)
+    try:
+        expected_tuples = _load_json(args.expected_tuples) if args.expected_tuples else None
+    except (OSError, ValueError):
+        errors = ["expected tuple binding is missing or malformed"]
+    else:
+        errors = validate_evidence(args.evidence_root, args.platform, expected_tuples)
     print(json.dumps({"qualified": False, "structurally_valid": not errors, "errors": errors}, sort_keys=True))
     return 0 if not errors else 1
 

@@ -58,6 +58,21 @@ def validate_row(row: object) -> list[str]:
     return errors
 
 
+def validate_expected_tuples(value: object, rows: list[object]) -> list[str]:
+    """Bind independently-run rows to one exact expected tuple per architecture."""
+    if not isinstance(value, dict) or set(value) != ARCHITECTURES:
+        return ["expected macOS tuples must contain exactly both architectures"]
+    errors: list[str] = []
+    for architecture in ARCHITECTURES:
+        errors.extend(_tuple_errors(value[architecture]))
+    for row in rows:
+        if not isinstance(row, dict) or row.get("architecture") not in ARCHITECTURES:
+            continue
+        if row.get("tuple") != value[row["architecture"]]:
+            errors.append(f"row tuple does not match expected {row['architecture']} tuple")
+    return errors
+
+
 def _tuple_errors(value: object) -> list[str]:
     if not isinstance(value, dict):
         return ["release tuple is missing"]
@@ -92,8 +107,9 @@ def _selector_errors(value: object) -> list[str]:
     if not isinstance(value, dict) or set(value) != REQUIRED_SELECTORS:
         return ["lifecycle selector set is incomplete"]
     for name, receipt in value.items():
-        if not isinstance(receipt, dict) or receipt.get("status") not in {"verified", "unsupported"}:
-            return [f"selector {name} is not verified or unsupported"]
+        expected_statuses = {"verified", "unsupported"} if name == "remote_verify_after_local" else {"verified"}
+        if not isinstance(receipt, dict) or receipt.get("status") not in expected_statuses:
+            return [f"selector {name} has an invalid status"]
         allowed = {"status", "network_attempts"} if name == "local_verify_no_network" else {
             "status", "local_verification", "retry_count"
         } if name == "remote_verify_after_local" else {"status"}
