@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 import { provideRuntimeSession, type RuntimeSessionContext, type RuntimeSessionSnapshot } from '@/app/providers/runtime-session'
 import type { WorkspaceFileEntry } from '@/entities/file-tree'
+import { currentLocale } from '@/shared/i18n'
 import WorkspacePage from './WorkspacePage.vue'
 
 const project = {
@@ -87,6 +88,21 @@ describe('workspace page', () => {
     expect(wrapper.get('[aria-label="Project tree"]')).toBeTruthy()
     expect(wrapper.get('[aria-label="Conversation"]')).toBeTruthy()
     expect(wrapper.get('[aria-label="Details"]')).toBeTruthy()
+  })
+
+  it('localizes workspace region ARIA labels through the owned catalog', async () => {
+    const previousLocale = currentLocale.value
+    currentLocale.value = 'ru'
+    try {
+      const wrapper = await mountWorkspace(async () => project)
+
+      expect(wrapper.get('[aria-label="Дерево проекта"]')).toBeTruthy()
+      expect(wrapper.get('[aria-label="Диалог"]')).toBeTruthy()
+      expect(wrapper.get('[aria-label="Детали"]')).toBeTruthy()
+    }
+    finally {
+      currentLocale.value = previousLocale
+    }
   })
 
   it('renders the runtime-owned file projection', async () => {

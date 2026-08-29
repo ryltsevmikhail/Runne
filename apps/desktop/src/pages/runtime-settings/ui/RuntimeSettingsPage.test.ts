@@ -1,6 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 
+import { currentLocale } from '@/shared/i18n'
+
 import RuntimeSettingsPage from './RuntimeSettingsPage.vue'
 
 describe('runtime settings page', () => {
@@ -26,6 +28,30 @@ describe('runtime settings page', () => {
     expect(wrapper.text()).toContain('Actionable failure')
     expect(wrapper.text()).toContain('Endpoint editing, reconnect policy, runtime toggles, providers, devices, and reset actions')
     expect(wrapper.findAll('button').some(button => button.text().includes('Save'))).toBe(false)
+  })
+
+  it('localizes Phase 2 runtime copy through the owned catalog', async () => {
+    const previousLocale = currentLocale.value
+    currentLocale.value = 'ru'
+    try {
+      const wrapper = mount(RuntimeSettingsPage, {
+        props: {
+          loadRuntime: async () => ({
+            theme: 'dark', runtimeMode: 'bundled', runtime: 'live', runtimeLifecycle: 'ready', runtimeFailure: null,
+          }),
+        },
+        global: { stubs: { RouterLink: true } },
+      })
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('РЕАЛИЗОВАНО · ТОЛЬКО ЧТЕНИЕ')
+      expect(wrapper.text()).toContain('Режим runtime')
+      expect(wrapper.text()).toContain('Нет')
+      expect(wrapper.text()).toContain('Изменение endpoint, политика переподключения')
+    }
+    finally {
+      currentLocale.value = previousLocale
+    }
   })
 
   it('reports protected bundled mode without claiming production signing', async () => {

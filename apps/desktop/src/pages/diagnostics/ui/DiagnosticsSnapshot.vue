@@ -16,10 +16,10 @@ const runtimeMode = computed(() => props.snapshot.runtimeMode === 'external_loca
 <template>
   <section
     class="diagnostics-snapshot"
-    aria-label="Current runtime snapshot"
+    :aria-label="translate('diagnostics.currentRuntimeSnapshot')"
   >
     <p class="system-surface__notice">
-      Redacted local operational state. Paths, content, credentials, and raw internal errors are excluded.
+      {{ translate('diagnostics.redactedSnapshotNotice') }}
     </p>
 
     <div class="diagnostics-snapshot__groups">
@@ -37,13 +37,13 @@ const runtimeMode = computed(() => props.snapshot.runtimeMode === 'external_loca
         <div><dt>{{ translate('diagnostics.runtimeMode') }}</dt><dd>{{ runtimeMode }}</dd></div>
         <div><dt>{{ translate('diagnostics.runtimeConnection') }}</dt><dd>{{ snapshot.runtime }}</dd></div>
         <div><dt>{{ translate('diagnostics.runtimeLifecycle') }}</dt><dd>{{ snapshot.runtimeLifecycle }}</dd></div>
-        <div><dt>{{ translate('diagnostics.actionableFailure') }}</dt><dd>{{ snapshot.runtimeFailure ?? 'none' }}</dd></div>
+        <div><dt>{{ translate('diagnostics.actionableFailure') }}</dt><dd>{{ snapshot.runtimeFailure ?? translate('diagnostics.none') }}</dd></div>
       </dl>
     </div>
 
     <aside class="system-surface__boundary">
-      <strong>IMPLEMENTED DTO BOUNDARY</strong>
-      <p>Health checks, live event logs, and latency metrics are not available in this DTO.</p>
+      <strong>{{ translate('diagnostics.implementedDtoBoundary') }}</strong>
+      <p>{{ translate('diagnostics.dtoBoundaryMessage') }}</p>
     </aside>
   </section>
 </template>

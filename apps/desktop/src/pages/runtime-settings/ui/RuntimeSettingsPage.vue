@@ -46,7 +46,7 @@ onMounted(async () => {
     <header class="system-page__header">
       <div>
         <p class="system-surface__eyebrow">
-          IMPLEMENTED · READ ONLY
+          {{ translate('runtimeSettings.implementedReadOnly') }}
         </p>
         <h1 id="runtime-settings-title">
           {{ translate('runtimeSettings.title') }}
@@ -102,14 +102,14 @@ onMounted(async () => {
 
     <template v-if="runtime !== null">
       <dl class="system-fact-grid runtime-settings-page__facts">
-        <div><dt>Runtime mode</dt><dd>{{ runtime.runtimeMode }}</dd></div>
-        <div><dt>Connection</dt><dd>{{ runtime.runtime }}</dd></div>
-        <div><dt>Lifecycle</dt><dd>{{ runtime.runtimeLifecycle }}</dd></div>
-        <div><dt>Actionable failure</dt><dd>{{ runtime.runtimeFailure ?? 'none' }}</dd></div>
+        <div><dt>{{ translate('runtimeSettings.runtimeMode') }}</dt><dd>{{ runtime.runtimeMode }}</dd></div>
+        <div><dt>{{ translate('runtimeSettings.connection') }}</dt><dd>{{ runtime.runtime }}</dd></div>
+        <div><dt>{{ translate('runtimeSettings.lifecycle') }}</dt><dd>{{ runtime.runtimeLifecycle }}</dd></div>
+        <div><dt>{{ translate('runtimeSettings.actionableFailure') }}</dt><dd>{{ runtime.runtimeFailure ?? translate('diagnostics.none') }}</dd></div>
       </dl>
       <aside class="system-surface__boundary">
-        <strong>IMPLEMENTED · READ ONLY</strong>
-        <p>Endpoint editing, reconnect policy, runtime toggles, providers, devices, and reset actions are not part of the current route implementation.</p>
+        <strong>{{ translate('runtimeSettings.implementedReadOnly') }}</strong>
+        <p>{{ translate('runtimeSettings.readOnlyBoundaryMessage') }}</p>
       </aside>
     </template>
   </section>

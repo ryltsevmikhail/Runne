@@ -1,4 +1,5 @@
 import english from './english'
+import { phase2Russian } from './phase2'
 
 const russian: Record<keyof typeof english, string> = {
   'settings.title': 'Настройки',
@@ -285,6 +286,7 @@ const russian: Record<keyof typeof english, string> = {
   'runtime.detail.externalConnected': 'Явный режим · подключено',
   'runtime.detail.externalConnection': 'Явный режим · {connection}',
   'runtime.detail.unavailable': 'Runtime недоступен',
+  ...phase2Russian,
 }
 
 export default russian

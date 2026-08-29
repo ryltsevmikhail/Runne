@@ -18,7 +18,7 @@ defineProps<{
     <header class="system-surface__section-heading">
       <div>
         <p class="system-surface__eyebrow">
-          OBSERVED TELEMETRY
+          {{ translate('diagnostics.observedTelemetry') }}
         </p>
         <h2 id="operational-telemetry-title">
           {{ translate('diagnostics.telemetryTitle') }}
@@ -46,10 +46,10 @@ defineProps<{
         <div><dt>{{ translate('diagnostics.runtimeTelemetry') }}</dt><dd>{{ telemetry.runtime.snapshot === null ? translate('diagnostics.telemetryUnavailableValue') : translate('diagnostics.telemetryAvailableValue') }}</dd></div>
         <div><dt>{{ translate('diagnostics.freshnessCompleteness') }}</dt><dd>{{ telemetry.runtime.meta.freshness }} / {{ telemetry.runtime.meta.completeness }}</dd></div>
         <div><dt>{{ translate('diagnostics.hostFreshnessCompleteness') }}</dt><dd>{{ telemetry.hostLifecycle.meta.freshness }} / {{ telemetry.hostLifecycle.meta.completeness }}</dd></div>
-        <div><dt>{{ translate('diagnostics.hostLifecycle') }}</dt><dd>{{ telemetry.hostLifecycle.current?.lifecycle ?? 'unavailable' }}</dd></div>
-        <div><dt>{{ translate('diagnostics.restartOrdinal') }}</dt><dd>{{ telemetry.hostLifecycle.current?.restartOrdinal ?? 'unavailable' }}</dd></div>
-        <div><dt>{{ translate('diagnostics.launchGeneration') }}</dt><dd>{{ telemetry.hostLifecycle.current?.runtimeLaunchGeneration ?? 'unavailable' }}</dd></div>
-        <div><dt>{{ translate('diagnostics.lifecycleEvents') }}</dt><dd>{{ telemetry.hostLifecycle.events?.length ?? 'unavailable' }} ({{ telemetry.hostLifecycle.eventStatus }})</dd></div>
+        <div><dt>{{ translate('diagnostics.hostLifecycle') }}</dt><dd>{{ telemetry.hostLifecycle.current?.lifecycle ?? translate('diagnostics.unavailableValue') }}</dd></div>
+        <div><dt>{{ translate('diagnostics.restartOrdinal') }}</dt><dd>{{ telemetry.hostLifecycle.current?.restartOrdinal ?? translate('diagnostics.unavailableValue') }}</dd></div>
+        <div><dt>{{ translate('diagnostics.launchGeneration') }}</dt><dd>{{ telemetry.hostLifecycle.current?.runtimeLaunchGeneration ?? translate('diagnostics.unavailableValue') }}</dd></div>
+        <div><dt>{{ translate('diagnostics.lifecycleEvents') }}</dt><dd>{{ telemetry.hostLifecycle.events?.length ?? translate('diagnostics.unavailableValue') }} ({{ telemetry.hostLifecycle.eventStatus }})</dd></div>
         <div><dt>{{ translate('diagnostics.droppedEvents') }}</dt><dd>{{ telemetry.hostLifecycle.producerDroppedEventCount }} / {{ telemetry.hostLifecycle.evictedEventCount }}</dd></div>
       </dl>
     </template>

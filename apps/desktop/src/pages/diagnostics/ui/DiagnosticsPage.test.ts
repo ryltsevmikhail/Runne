@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { OperationalTelemetrySnapshot } from '@/shared/api/platform/operational-telemetry'
 import type { RuntimeLifecycleStatus } from '@/shared/api/platform/bootstrap'
+import { currentLocale } from '@/shared/i18n'
 
 import DiagnosticsPage from './DiagnosticsPage.vue'
 
@@ -67,6 +68,25 @@ describe('diagnostics page', () => {
     expect(wrapper.get('[data-testid="diagnostics-runtime-fields"]').text()).toContain('Runtime lifecycle')
     expect(wrapper.get('button').text()).toContain('Refresh')
     expect(wrapper.get('[data-testid="export-diagnostics"]').text()).toContain('Export diagnostics')
+  })
+
+  it('localizes Phase 2 diagnostics copy through the owned catalog', async () => {
+    const previousLocale = currentLocale.value
+    currentLocale.value = 'ru'
+    try {
+      const wrapper = mount(DiagnosticsPage, {
+        props: { loadDiagnostics: diagnostics, loadOperationalTelemetry: async () => telemetrySnapshot() },
+      })
+      await flushPromises()
+
+      expect(wrapper.get('[aria-label="Текущий снимок runtime"]').text()).toContain('Обезличенное локальное операционное состояние')
+      expect(wrapper.text()).toContain('ГРАНИЦА РЕАЛИЗОВАННОГО DTO')
+      expect(wrapper.text()).toContain('НАБЛЮДАЕМАЯ ТЕЛЕМЕТРИЯ')
+      expect(wrapper.text()).toContain('Нет')
+    }
+    finally {
+      currentLocale.value = previousLocale
+    }
   })
 
   it('renders only the bounded redacted snapshot', async () => {

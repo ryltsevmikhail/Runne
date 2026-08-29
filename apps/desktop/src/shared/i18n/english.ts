@@ -1,3 +1,5 @@
+import { phase2English } from './phase2'
+
 const english = {
   'settings.title': 'Settings',
   'settings.loading': 'Loading {page}',
@@ -283,6 +285,7 @@ const english = {
   'runtime.detail.externalConnected': 'Explicit mode · connected',
   'runtime.detail.externalConnection': 'Explicit mode · {connection}',
   'runtime.detail.unavailable': 'Runtime unavailable',
+  ...phase2English,
 } as const
 
 export default english
