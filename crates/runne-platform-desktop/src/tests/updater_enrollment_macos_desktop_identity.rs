@@ -10,6 +10,12 @@ fn target() -> super::super::UpdateTargetV2 {
 }
 
 fn tuple(target: &super::super::UpdateTargetV2) -> NativeEnrollmentTupleV2 {
+    try_tuple(target).unwrap()
+}
+
+fn try_tuple(
+    target: &super::super::UpdateTargetV2,
+) -> Result<NativeEnrollmentTupleV2, super::super::NativeEnrollmentTupleError> {
     NativeEnrollmentTupleV2::new_macos(
         target.release_candidate_sha256.clone(),
         "c".repeat(64),
@@ -27,7 +33,37 @@ fn tuple(target: &super::super::UpdateTargetV2) -> NativeEnrollmentTupleV2 {
         "2".repeat(40),
         target,
     )
-    .unwrap()
+}
+
+#[test]
+fn macos_native_enrollment_tuple_requires_apple_silicon_target() {
+    for arch in ["arm64", "aarch64"] {
+        let mut macos = target();
+        macos.arch = arch.into();
+        assert!(try_tuple(&macos).is_ok(), "{arch} must be admitted");
+    }
+    for arch in ["x86_64", "universal", "unknown"] {
+        let mut macos = target();
+        macos.arch = arch.into();
+        assert!(try_tuple(&macos).is_err(), "{arch} must be rejected");
+    }
+}
+
+#[test]
+fn signed_legacy_intel_tuple_cannot_reach_native_admission() {
+    let apple_silicon = target();
+    let mut legacy = tuple(&apple_silicon);
+    let mut intel = apple_silicon;
+    intel.arch = "x86_64".into();
+    legacy.test_only_rebind_digest(&intel);
+    intel.native_enrollment_tuple = Some(
+        serde_json::from_value(serde_json::to_value(legacy).unwrap()).unwrap(),
+    );
+
+    assert_eq!(
+        super::updater_enrollment_macos_identity::verify_target(&intel),
+        Err(super::super::UpdateV2VerificationError::InvalidMetadata)
+    );
 }
 
 #[test]

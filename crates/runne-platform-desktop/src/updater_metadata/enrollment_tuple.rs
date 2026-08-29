@@ -150,7 +150,7 @@ impl NativeEnrollmentTupleV2 {
         ]) && self.candidate_sha256 == target.release_candidate_sha256
             && self.contract_sha256 == target.bundle_sha256
             && match target.platform.as_str() {
-                "macos" => self
+                "macos" => matches!(target.arch.as_str(), "arm64" | "aarch64") && self
                     .desktop_code_identity
                     .as_ref()
                     .is_some_and(macos_identity::MacOsCodeIdentityV1::valid)
@@ -215,6 +215,11 @@ impl NativeEnrollmentTupleV2 {
             }
         }
         hex::encode(hasher.finalize())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_only_rebind_digest(&mut self, target: &UpdateTargetV2) {
+        self.tuple_sha256 = self.digest_for(target);
     }
 }
 

@@ -223,7 +223,7 @@ fn tamper(
     tampered
 }
 
-fn verify_target(
+pub(super) fn verify_target(
     target: &UpdateTargetV2,
 ) -> Result<VerifiedUpdateV2, super::super::UpdateV2VerificationError> {
     let roots = [
