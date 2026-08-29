@@ -51,6 +51,20 @@ const diagnostics = async () => ({
 })
 
 describe('diagnostics page', () => {
+  it('labels the redacted DTO boundary and groups only current runtime fields', async () => {
+    const wrapper = mount(DiagnosticsPage, {
+      props: { loadDiagnostics: diagnostics, loadOperationalTelemetry: async () => telemetrySnapshot() },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('IMPLEMENTED DTO')
+    expect(wrapper.text()).toContain('Paths, content, credentials, and raw internal errors are excluded.')
+    expect(wrapper.text()).toContain('IMPLEMENTED DTO BOUNDARY')
+    expect(wrapper.text()).toContain('Health checks, live event logs, and latency metrics are not available in this DTO.')
+    expect(wrapper.get('[data-testid="diagnostics-runtime-fields"]').text()).toContain('Runtime connection')
+    expect(wrapper.get('[data-testid="diagnostics-runtime-fields"]').text()).toContain('Runtime lifecycle')
+  })
+
   it('renders only the bounded redacted snapshot', async () => {
     const wrapper = mount(DiagnosticsPage, {
       props: {
