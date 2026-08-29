@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { GcAlert, GcButton } from '@runne/product/shared/ui'
-import { Folder, PanelRight } from 'lucide-vue-next'
+import { Folder } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { CanonicalWorkspace } from '@/entities/project'
@@ -16,6 +16,8 @@ import { DiffViewer } from '@/widgets/diff-viewer'
 import { FileExplorer } from '@/widgets/file-explorer'
 import { TerminalPanel } from '@/widgets/terminal'
 import { ConversationChat } from '@/widgets/conversation-chat'
+import WorkspaceDetails from './WorkspaceDetails.vue'
+import WorkspaceFrame from './WorkspaceFrame.vue'
 type LoadProject = (id: string) => Promise<CanonicalWorkspace>
 type LoadFiles = (id: string, path: string, limit: number) => Promise<{
   readonly items: readonly WorkspaceFileEntry[]
@@ -60,11 +62,7 @@ const processId = computed(() => {
   const value = route.query.processId
   return typeof value === 'string' && isCanonicalRuntimeId(value) ? value : null
 })
-const {
-  chunks: processChunks,
-  loading: processLoading,
-  error: processError,
-} = useProcessOutput(processId, runtimeStatus)
+const { chunks: processChunks, loading: processLoading, error: processError } = useProcessOutput(processId, runtimeStatus)
 async function refreshProject() {
   error.value = false
   loading.value = true
@@ -125,7 +123,6 @@ async function selectChange(path: string) {
   const id = typeof route.params.workspaceId === 'string' ? route.params.workspaceId : ''
   if (isCanonicalRuntimeId(id)) await fetchDiff(id, path)
 }
-
 async function refreshFiles(id: string) {
   filesLoading.value = true
   filesError.value = false
@@ -140,7 +137,6 @@ async function refreshFiles(id: string) {
     filesLoading.value = false
   }
 }
-
 async function openFile(path: string) {
   const id = typeof route.params.workspaceId === 'string' ? route.params.workspaceId : ''
   if (runtimeStatus.value !== 'live' || !isCanonicalRuntimeId(id)) return
@@ -199,20 +195,28 @@ async function returnToProjects() {
     aria-labelledby="workspace-title"
   >
     <header class="workspace-header">
-      <div>
-        <span class="workspace-kicker">{{ translate('workspace.kicker') }}</span>
-        <h1 id="workspace-title">
+      <nav
+        class="workspace-breadcrumb"
+        aria-label="Workspace breadcrumb"
+      >
+        <RouterLink to="/">
+          Projects
+        </RouterLink>
+        <span aria-hidden="true">›</span>
+        <RouterLink :to="{ name: 'project-details', params: { projectId: project.projectId } }">
           {{ project.displayName }}
-        </h1>
-        <p>{{ translate('workspace.versionState', {
-          version: project.version,
-          state: project.open ? translate('projectDetails.open') : translate('projectDetails.closed'),
-        }) }}</p>
-      </div>
+        </RouterLink>
+        <span aria-hidden="true">›</span>
+        <span aria-current="page">Workspace</span>
+      </nav>
+      <span class="workspace-kicker">{{ translate('workspace.kicker') }}</span>
+      <h1 id="workspace-title">
+        {{ project.displayName }}
+      </h1>
       <span class="workspace-status">{{ translate('workspace.workspaceStatus', { status: runtimeStatus }) }}</span>
     </header>
-    <div class="workspace-panels">
-      <aside class="workspace-panel workspace-panel--tree">
+    <WorkspaceFrame>
+      <template #explorer>
         <div class="panel-heading">
           <Folder
             :size="15"
@@ -227,74 +231,69 @@ async function returnToProjects() {
           :disabled="readOnly"
           :open-file="openFile"
         />
-      </aside>
+      </template>
 
-      <div class="workspace-panel workspace-panel--main workspace-panel--chat">
-        <div class="workspace-panel__title-row">
-          <h2>{{ translate('workspace.workArea') }}</h2>
-          <span v-if="changesLoading">{{ translate('workspace.loadingChanges') }}</span>
-        </div>
-        <p :aria-live="readOnly ? 'polite' : 'off'">
-          {{ readOnly ? translate('workspace.readOnly') : translate('workspace.editable') }}
-        </p>
-        <h3>{{ translate('workspace.changes') }}</h3>
-        <p
-          v-if="changesError"
-          role="alert"
-        >
-          {{ translate('workspace.changesUnavailable') }}
-        </p>
-        <ul
-          v-else-if="changes.length"
-          class="workspace-changes"
-          :aria-label="translate('workspace.changesLabel')"
-        >
-          <li
-            v-for="change in changes"
-            :key="change.path"
-          >
-            <button
-              type="button"
-              :aria-pressed="selectedPath === change.path"
-              @click="selectChange(change.path)"
+      <template #conversation>
+        <div class="workspace-conversation">
+          <div class="workspace-conversation__context">
+            <div class="workspace-panel__title-row">
+              <h2>{{ translate('workspace.workArea') }}</h2>
+              <span v-if="changesLoading">{{ translate('workspace.loadingChanges') }}</span>
+            </div>
+            <p :aria-live="readOnly ? 'polite' : 'off'">
+              {{ readOnly ? translate('workspace.readOnly') : translate('workspace.editable') }}
+            </p>
+            <h3>{{ translate('workspace.changes') }}</h3>
+            <p
+              v-if="changesError"
+              role="alert"
             >
-              <span>{{ change.path }}</span>
-              <small>{{ change.kind }} · +{{ change.additions }} / -{{ change.deletions }}</small>
-            </button>
-          </li>
-        </ul>
-        <p v-else-if="!changesLoading">
-          {{ translate('workspace.noChanges') }}
-        </p>
-        <DiffViewer
-          :diff="selectedDiff"
-          :loading="diffLoading"
-          :error="diffError"
-        />
-        <ConversationChat :workspace-id="project.workspaceId" />
-      </div>
-
-      <aside class="workspace-panel workspace-panel--details">
-        <div class="panel-heading">
-          <PanelRight
-            :size="15"
-            aria-hidden="true"
+              {{ translate('workspace.changesUnavailable') }}
+            </p>
+            <ul
+              v-else-if="changes.length"
+              class="workspace-changes"
+              :aria-label="translate('workspace.changesLabel')"
+            >
+              <li
+                v-for="change in changes"
+                :key="change.path"
+              >
+                <button
+                  type="button"
+                  :aria-pressed="selectedPath === change.path"
+                  @click="selectChange(change.path)"
+                >
+                  <span>{{ change.path }}</span>
+                  <small>{{ change.kind }} · +{{ change.additions }} / -{{ change.deletions }}</small>
+                </button>
+              </li>
+            </ul>
+            <p v-else-if="!changesLoading">
+              {{ translate('workspace.noChanges') }}
+            </p>
+            <DiffViewer
+              :diff="selectedDiff"
+              :loading="diffLoading"
+              :error="diffError"
+            />
+          </div>
+          <ConversationChat :workspace-id="project.workspaceId" />
+          <TerminalPanel
+            :process-id="processId"
+            :chunks="processChunks"
+            :loading="processLoading"
+            :error="processError || readOnly"
           />
-          <strong>{{ translate('workspace.details') }}</strong>
         </div>
-        <dl>
-          <dt>{{ translate('workspace.workspace') }}</dt>
-          <dd>{{ project.workspaceId }}</dd>
-          <dt>{{ translate('workspace.runtime') }}</dt>
-          <dd>{{ runtimeStatus }}</dd>
-        </dl>
-      </aside>
-    </div>
-    <TerminalPanel
-      :process-id="processId"
-      :chunks="processChunks"
-      :loading="processLoading"
-      :error="processError || readOnly"
-    />
+      </template>
+
+      <template #details>
+        <WorkspaceDetails
+          :project="project"
+          :runtime-status="runtimeStatus"
+        />
+      </template>
+    </WorkspaceFrame>
   </section>
 </template>

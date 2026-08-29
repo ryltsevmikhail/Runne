@@ -82,6 +82,10 @@ describe('conversation chat widget', () => {
     expect(wrapper.get('[aria-label="Conversation messages"]').text()).toContain('hello')
     expect(wrapper.text()).toContain('Runne local response: hello')
     expect(wrapper.text()).toContain('Runtime live')
+    expect(wrapper.get('.conversation-chat__header h2').text()).toBe('Coding agent')
+    expect(wrapper.get('[aria-label="Conversation runtime status"]').text()).toBe('Runtime live')
+    expect(wrapper.get('label').text()).toBe('Message')
+    expect(wrapper.get('textarea')).toBeTruthy()
   })
 
   it('submits text once, clears the composer, and renders the returned snapshot', async () => {

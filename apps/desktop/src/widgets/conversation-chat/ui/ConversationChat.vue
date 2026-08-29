@@ -44,6 +44,7 @@ const {
       <span
         class="conversation-chat__runtime"
         :class="{ 'conversation-chat__runtime--live': runtimeState === 'live' && recovery === 'live' }"
+        aria-label="Conversation runtime status"
       >
         {{ translate('conversation.runtime', { status: recovery === 'live' ? runtimeState : recovery }) }}
       </span>

@@ -38,6 +38,7 @@ async function mountWorkspace(
     history: createMemoryHistory(),
     routes: [
       { path: '/', component: { template: '<div>Projects</div>' } },
+      { path: '/projects/:projectId', name: 'project-details', component: { template: '<div>Project details</div>' } },
       { path: '/workspaces/:workspaceId', name: 'workspace', component: WorkspacePage },
     ],
   })
@@ -72,6 +73,18 @@ describe('workspace page', () => {
     expect(wrapper.text()).toContain('No files in this workspace.')
     expect(wrapper.text()).toContain('Work area')
     expect(wrapper.text()).not.toContain('Workspace binding is prepared by the desktop host.')
+  })
+
+  it('exposes breadcrumb navigation and the workspace regions', async () => {
+    const wrapper = await mountWorkspace(async () => project)
+
+    const breadcrumb = wrapper.get('[aria-label="Workspace breadcrumb"]')
+    expect(breadcrumb.text()).toContain('Projects')
+    expect(breadcrumb.text()).toContain('gocode-ui')
+    expect(breadcrumb.text()).toContain('Workspace')
+    expect(wrapper.get('[aria-label="Project tree"]')).toBeTruthy()
+    expect(wrapper.get('[aria-label="Conversation"]')).toBeTruthy()
+    expect(wrapper.get('[aria-label="Details"]')).toBeTruthy()
   })
 
   it('renders the runtime-owned file projection', async () => {
