@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import copy
 import hashlib
-import inspect
 import json
 import subprocess
 import sys
@@ -191,7 +190,8 @@ class NativeCredentialEnrollmentEvidenceTests(unittest.TestCase):
         self.assertEqual(profile["evidence_rows"], [])
 
     def test_complete_independent_macos_matrix_is_structurally_valid(self) -> None:
-        self.assertEqual(validate_evidence(evidence(), "macos"), [])
+        self.assertTrue(validate_evidence(evidence(), "macos"))
+        self.assertEqual(validate_evidence(evidence(), "macos", expected_tuples()), [])
 
     def test_unsigned_ad_hoc_wrong_arch_mixed_tuple_and_missing_selector_fail_closed(self) -> None:
         cases = {
@@ -205,7 +205,7 @@ class NativeCredentialEnrollmentEvidenceTests(unittest.TestCase):
             with self.subTest(name=name):
                 value = copy.deepcopy(evidence())
                 mutate(value)
-                self.assertTrue(validate_evidence(value, "macos"))
+                self.assertTrue(validate_evidence(value, "macos", expected_tuples()))
 
     def test_lifecycle_and_network_selector_invariants_fail_closed(self) -> None:
         for selector, change in (
@@ -216,17 +216,16 @@ class NativeCredentialEnrollmentEvidenceTests(unittest.TestCase):
             with self.subTest(selector=selector, change=change):
                 value = evidence()
                 value["rows"][0]["selectors"][selector] = change
-                self.assertTrue(validate_evidence(value, "macos"))
+                self.assertTrue(validate_evidence(value, "macos", expected_tuples()))
 
     def test_only_remote_verification_may_be_unsupported(self) -> None:
-        for selector in ("clean_install", "rotation", "keychain_executable_acl_denied"):
+        for selector in macos.REQUIRED_SELECTORS - {"remote_verify_after_local"}:
             with self.subTest(selector=selector):
                 value = evidence()
                 value["rows"][0]["selectors"][selector] = {"status": "unsupported"}
-                self.assertTrue(validate_evidence(value, "macos"))
+                self.assertTrue(validate_evidence(value, "macos", expected_tuples()))
 
     def test_expected_macos_tuples_must_be_exact_and_complete(self) -> None:
-        self.assertIn("expected_tuples", inspect.signature(validate_evidence).parameters)
         self.assertEqual(validate_evidence(evidence(), "macos", expected_tuples()), [])
         cases = {
             "missing_component": lambda rows, expected: expected["arm64"].pop("writer_sha256"),
@@ -242,7 +241,7 @@ class NativeCredentialEnrollmentEvidenceTests(unittest.TestCase):
                 mutate(value["rows"], expected)
                 self.assertTrue(validate_evidence(value, "macos", expected))
 
-    def test_cli_binds_expected_tuples_with_duplicate_key_safe_json(self) -> None:
+    def test_cli_requires_expected_tuples_and_rejects_duplicate_keys(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             for value in evidence()["rows"]:
@@ -255,26 +254,37 @@ class NativeCredentialEnrollmentEvidenceTests(unittest.TestCase):
                 sys.executable,
                 str(Path(__file__).resolve().parents[1] / "native_credential_enrollment_probe.py"),
                 "validate", "--platform", "macos", "--evidence-root", str(root),
-                "--expected-tuples", str(expected),
             ]
             result = subprocess.run(command, capture_output=True, check=False, text=True)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            result = subprocess.run(
+                [*command, "--expected-tuples", str(expected)],
+                capture_output=True,
+                check=False,
+                text=True,
+            )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse(json.loads(result.stdout)["qualified"])
             expected.write_text('{"arm64":{},"arm64":{},"x86_64":{}}', encoding="utf-8")
-            result = subprocess.run(command, capture_output=True, check=False, text=True)
+            result = subprocess.run(
+                [*command, "--expected-tuples", str(expected)],
+                capture_output=True,
+                check=False,
+                text=True,
+            )
             self.assertEqual(result.returncode, 1, result.stderr)
 
     def test_duplicate_runner_and_secret_like_field_fail_closed(self) -> None:
         value = evidence()
         value["rows"][1]["runner"]["workflow_run_id"] = "run-arm64"
         value["rows"][0]["selectors"]["pair_create_readback"]["nativeHandle"] = "forbidden"
-        self.assertTrue(validate_evidence(value, "macos"))
+        self.assertTrue(validate_evidence(value, "macos", expected_tuples()))
         value = evidence()
         value["rows"][0]["signing"]["unexpected"] = True
-        self.assertTrue(validate_evidence(value, "macos"))
+        self.assertTrue(validate_evidence(value, "macos", expected_tuples()))
 
     def test_evidence_directory_requires_both_exact_architecture_rows(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "macos-13-arm64.json").write_text(json.dumps(evidence()["rows"][0]), encoding="utf-8")
-            self.assertTrue(validate_evidence(root, "macos"))
+            self.assertTrue(validate_evidence(root, "macos", expected_tuples()))

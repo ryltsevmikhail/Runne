@@ -118,11 +118,13 @@ def _rows_errors(rows: list[object], platform: str, expected_tuples: object | No
         isinstance(row, dict) and row.get("isolation_class") == "executable_acl" for row in rows
     ):
         errors.append(f"{platform} cannot claim executable ACL isolation")
-    if expected_tuples is not None:
-        if platform != "macos":
-            errors.append("expected tuples are only supported for macOS")
+    if platform == "macos":
+        if expected_tuples is None:
+            errors.append("expected macOS tuples are required")
         else:
             errors.extend(macos.validate_expected_tuples(expected_tuples, rows))
+    elif expected_tuples is not None:
+        errors.append("expected tuples are only supported for macOS")
     return errors
 
 
