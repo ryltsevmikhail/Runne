@@ -13,7 +13,7 @@ fn committed_installed_tuple_survives_coordinator_restart() {
 
     let restarted = coordinator(directory.path());
     assert!(restarted
-        .admit_installed_native_enrollment(100, "1.2.0", "1.0.0", &artifacts())
+        .admit_installed_native_enrollment_at(100, &artifacts())
         .unwrap()
         .is_some());
 }
@@ -32,10 +32,11 @@ fn installed_tuple_admission_rejects_non_current_or_substituted_artifacts() {
     coordinator.complete_health(true, "1.2.0").unwrap();
 
     assert!(coordinator
-        .admit_installed_native_enrollment(500, "1.2.0", "1.0.0", &artifacts())
+        .admit_installed_native_enrollment_at(500, &artifacts())
         .is_err());
+    coordinator.trust_journal.commit_install("1.2.1").unwrap();
     assert!(coordinator
-        .admit_installed_native_enrollment(100, "1.2.1", "1.0.0", &artifacts())
+        .admit_installed_native_enrollment_at(100, &artifacts())
         .unwrap()
         .is_none());
     let substituted = MeasuredNativeEnrollmentArtifactsV1::new(
@@ -46,7 +47,7 @@ fn installed_tuple_admission_rejects_non_current_or_substituted_artifacts() {
     )
     .unwrap();
     assert!(coordinator
-        .admit_installed_native_enrollment(100, "1.2.0", "1.0.0", &substituted)
+        .admit_installed_native_enrollment_at(100, &substituted)
         .unwrap()
         .is_none());
 }
@@ -93,7 +94,7 @@ fn installed_tuple_admission_rejects_strict_or_signature_corruption() {
         .insert("unexpected".into(), serde_json::Value::Null);
     std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
     assert!(coordinator
-        .admit_installed_native_enrollment(100, "1.2.0", "1.0.0", &artifacts())
+        .admit_installed_native_enrollment_at(100, &artifacts())
         .is_err());
 
     let directory = tempfile::tempdir().unwrap();
@@ -104,8 +105,9 @@ fn installed_tuple_admission_rejects_strict_or_signature_corruption() {
     value["targets"]["target"]["version"] = serde_json::Value::String("1.2.1".into());
     std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
     assert!(coordinator
-        .admit_installed_native_enrollment(100, "1.2.0", "1.0.0", &artifacts())
-        .is_err());
+        .admit_installed_native_enrollment_at(100, &artifacts())
+        .unwrap()
+        .is_none());
 }
 
 #[test]
@@ -114,14 +116,14 @@ fn installed_tuple_admission_rejects_uncommitted_and_rolled_back_updates() {
     let coordinator = coordinator(directory.path());
     record(&coordinator, directory.path());
     assert!(coordinator
-        .admit_installed_native_enrollment(100, "1.2.0", "1.0.0", &artifacts())
+        .admit_installed_native_enrollment_at(100, &artifacts())
         .unwrap()
         .is_none());
     coordinator.prepare_restart(0, false).unwrap();
     coordinator.begin_health_check().unwrap();
     coordinator.complete_health(false, "1.2.0").unwrap();
     assert!(coordinator
-        .admit_installed_native_enrollment(100, "1.2.0", "1.0.0", &artifacts())
+        .admit_installed_native_enrollment_at(100, &artifacts())
         .unwrap()
         .is_none());
 }
@@ -144,7 +146,7 @@ fn installed_tuple_admission_rejects_metadata_below_the_native_trust_floor() {
         .unwrap();
 
     assert!(coordinator
-        .admit_installed_native_enrollment(100, "1.2.0", "1.0.0", &artifacts())
+        .admit_installed_native_enrollment_at(100, &artifacts())
         .unwrap()
         .is_none());
 }

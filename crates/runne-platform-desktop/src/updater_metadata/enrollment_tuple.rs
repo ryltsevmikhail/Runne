@@ -1,5 +1,11 @@
 use sha2::{Digest, Sha256};
 
+#[path = "enrollment_tuple/measurement.rs"]
+mod enrollment_measurement;
+pub use enrollment_measurement::{
+    MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentArtifactPathsV1,
+};
+
 /// Signed bindings for the four native artifacts required by credential
 /// enrollment. It is evidence only; absence is deliberately unqualified.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -163,45 +169,6 @@ impl NativeEnrollmentTupleV1 {
             }
         }
         hex::encode(hasher.finalize())
-    }
-}
-
-/// Independently measured installed artifacts. This contains no paths or
-/// process identity, so callers cannot turn a location into package trust.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[expect(
-    clippy::struct_field_names,
-    reason = "measured artifact fields make their digest algorithm explicit"
-)]
-pub struct MeasuredNativeEnrollmentArtifactsV1 {
-    desktop_sha256: String,
-    writer_sha256: String,
-    daemon_sha256: String,
-    contract_sha256: String,
-}
-
-impl MeasuredNativeEnrollmentArtifactsV1 {
-    pub fn new(
-        desktop_sha256: String,
-        writer_sha256: String,
-        daemon_sha256: String,
-        contract_sha256: String,
-    ) -> Result<Self, NativeEnrollmentTupleError> {
-        let values = [
-            desktop_sha256.as_str(),
-            writer_sha256.as_str(),
-            daemon_sha256.as_str(),
-            contract_sha256.as_str(),
-        ];
-        if !digests_valid(values) || !all_distinct(values) {
-            return Err(NativeEnrollmentTupleError::Rejected);
-        }
-        Ok(Self {
-            desktop_sha256,
-            writer_sha256,
-            daemon_sha256,
-            contract_sha256,
-        })
     }
 }
 

@@ -160,18 +160,19 @@ fn artifacts() -> MeasuredNativeEnrollmentArtifactsV1 {
 }
 
 fn record(coordinator: &UpdateCoordinator, directory: &Path) {
-    coordinator
+    let metadata_sha256 = coordinator
         .installed_metadata
         .persist(&verified_update())
         .unwrap();
     coordinator
         .journal
-        .record_staged(
+        .record_staged_bound(
             "1.2.0",
             &StagedUpdate {
                 path: directory.join("staged.update"),
                 artifact_sha256: "c".repeat(64),
             },
+            metadata_sha256,
         )
         .unwrap();
 }

@@ -16,7 +16,6 @@ use crate::{
     VerifiedUpdateV2,
 };
 
-#[path = "updater_coordinator/installed_tuple.rs"]
 mod installed_tuple;
 
 const MAX_BINDING_VALUE_BYTES: usize = 512;
@@ -144,12 +143,13 @@ impl UpdateCoordinator {
             .download_and_stage(update, &path)
             .await
             .map_err(UpdateCoordinatorError::Feed)?;
-        self.journal
-            .record_staged(&target.version, &staged)
-            .map_err(UpdateCoordinatorError::Journal)?;
-        self.installed_metadata
+        let metadata_sha256 = self
+            .installed_metadata
             .persist(update)
             .map_err(UpdateCoordinatorError::InstalledMetadata)?;
+        self.journal
+            .record_staged_bound(&target.version, &staged, metadata_sha256)
+            .map_err(UpdateCoordinatorError::Journal)?;
         self.journal
             .read()
             .map_err(UpdateCoordinatorError::Journal)?
@@ -292,9 +292,9 @@ const fn map_install_error(error: UpdateInstallError) -> UpdateCoordinatorError 
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     include!("updater_coordinator/tests.rs");
     include!("updater_coordinator/installed_tuple_tests.rs");
+    include!("updater_coordinator/native_admission_tests.rs");
 }

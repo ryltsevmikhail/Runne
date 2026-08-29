@@ -4,19 +4,24 @@
 
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-const SCHEMA_VERSION: u32 = 1;
 const MAX_JOURNAL_BYTES: u64 = 16 * 1024;
-const MAX_PATH_BYTES: usize = 4 * 1024;
+
+#[path = "updater_journal/wire.rs"]
+mod journal_wire;
+use journal_wire::{
+    WireRecord, decode, numbered_path, publish_no_replace, sequence_of, state_name, sync_parent,
+    valid_transition, validate_record,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateInstallRecord {
     pub version: String,
     pub artifact_sha256: String,
+    pub metadata_sha256: Option<String>,
     pub staged_path: PathBuf,
     pub state: super::UpdateInstallState,
 }
@@ -33,16 +38,6 @@ pub enum UpdateJournalError {
     InvalidTransition,
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct WireRecord {
-    schema_version: u32,
-    state: String,
-    version: String,
-    artifact_sha256: String,
-    staged_path: String,
-}
-
 /// Persists only the non-secret identity and lifecycle of one staged artifact.
 #[derive(Clone, Debug)]
 pub struct UpdateJournal {
@@ -57,6 +52,9 @@ impl UpdateJournal {
 
     pub fn read(&self) -> Result<Option<UpdateInstallRecord>, UpdateJournalError> {
         let Some(path) = self.latest_path()? else {
+            if self.path.exists() {
+                return Err(UpdateJournalError::Corrupt);
+            }
             return Ok(None);
         };
         let metadata = fs::symlink_metadata(&path).map_err(|_| UpdateJournalError::Io)?;
@@ -85,6 +83,22 @@ impl UpdateJournal {
         self.write(UpdateInstallRecord {
             version: version.to_owned(),
             artifact_sha256: staged.artifact_sha256.clone(),
+            metadata_sha256: None,
+            staged_path: staged.path.clone(),
+            state: super::UpdateInstallState::Staged,
+        })
+    }
+
+    pub fn record_staged_bound(
+        &self,
+        version: &str,
+        staged: &super::StagedUpdate,
+        metadata_sha256: String,
+    ) -> Result<(), UpdateJournalError> {
+        self.write(UpdateInstallRecord {
+            version: version.to_owned(),
+            artifact_sha256: staged.artifact_sha256.clone(),
+            metadata_sha256: Some(metadata_sha256),
             staged_path: staged.path.clone(),
             state: super::UpdateInstallState::Staged,
         })
@@ -100,6 +114,9 @@ impl UpdateJournal {
     }
 
     pub fn clear(&self) -> Result<(), UpdateJournalError> {
+        if self.path.exists() {
+            fs::remove_file(&self.path).map_err(|_| UpdateJournalError::Io)?;
+        }
         for path in self.candidate_paths()? {
             fs::remove_file(path).map_err(|_| UpdateJournalError::Io)?;
         }
@@ -114,10 +131,11 @@ impl UpdateJournal {
         let temporary = numbered_path(&self.path, sequence, "tmp");
         let final_path = numbered_path(&self.path, sequence, "json");
         let wire = WireRecord {
-            schema_version: SCHEMA_VERSION,
+            schema_version: 2,
             state: state_name(record.state).to_owned(),
             version: record.version,
             artifact_sha256: record.artifact_sha256,
+            metadata_sha256: record.metadata_sha256,
             staged_path: record.staged_path.to_string_lossy().into_owned(),
         };
         let bytes = serde_json::to_vec(&wire).map_err(|_| UpdateJournalError::Corrupt)?;
@@ -130,6 +148,7 @@ impl UpdateJournal {
         file.sync_all().map_err(|_| UpdateJournalError::Io)?;
         drop(file);
         publish_no_replace(&temporary, &final_path)?;
+        sync_parent(parent)?;
         for path in self.candidate_paths()? {
             if path != final_path {
                 let _ = fs::remove_file(path);
@@ -163,9 +182,6 @@ impl UpdateJournal {
             .ok_or(UpdateJournalError::Io)?
             .to_string_lossy();
         let mut paths = Vec::new();
-        if self.path.exists() {
-            paths.push(self.path.clone());
-        }
         let entries = match fs::read_dir(parent) {
             Ok(entries) => entries,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(paths),
@@ -179,99 +195,5 @@ impl UpdateJournal {
             }
         }
         Ok(paths)
-    }
-}
-
-fn decode(wire: WireRecord) -> Result<UpdateInstallRecord, UpdateJournalError> {
-    let state = match wire.state.as_str() {
-        "staged" => super::UpdateInstallState::Staged,
-        "restart_required" => super::UpdateInstallState::RestartRequired,
-        "health_check" => super::UpdateInstallState::HealthCheck,
-        "committed" => super::UpdateInstallState::Committed,
-        "rolled_back" => super::UpdateInstallState::RolledBack,
-        _ => return Err(UpdateJournalError::Corrupt),
-    };
-    let record = UpdateInstallRecord {
-        version: wire.version,
-        artifact_sha256: wire.artifact_sha256,
-        staged_path: PathBuf::from(wire.staged_path),
-        state,
-    };
-    (wire.schema_version == SCHEMA_VERSION)
-        .then_some(record)
-        .ok_or(UpdateJournalError::Corrupt)
-        .and_then(|record| {
-            validate_record(&record)?;
-            Ok(record)
-        })
-}
-
-fn validate_record(record: &UpdateInstallRecord) -> Result<(), UpdateJournalError> {
-    if crate::updater::parse_version(&record.version).is_err()
-        || !crate::updater::is_sha256(&record.artifact_sha256)
-        || record.staged_path.as_os_str().is_empty()
-        || record.staged_path.as_os_str().to_string_lossy().len() > MAX_PATH_BYTES
-        || !record.staged_path.is_absolute()
-    {
-        return Err(UpdateJournalError::Corrupt);
-    }
-    Ok(())
-}
-
-const fn valid_transition(from: super::UpdateInstallState, to: super::UpdateInstallState) -> bool {
-    matches!(
-        (from, to),
-        (
-            super::UpdateInstallState::Staged,
-            super::UpdateInstallState::RestartRequired
-        ) | (
-            super::UpdateInstallState::RestartRequired,
-            super::UpdateInstallState::Staged | super::UpdateInstallState::HealthCheck
-        ) | (
-            super::UpdateInstallState::HealthCheck,
-            super::UpdateInstallState::Committed | super::UpdateInstallState::RolledBack
-        )
-    )
-}
-
-const fn state_name(state: super::UpdateInstallState) -> &'static str {
-    match state {
-        super::UpdateInstallState::Staged => "staged",
-        super::UpdateInstallState::RestartRequired => "restart_required",
-        super::UpdateInstallState::HealthCheck => "health_check",
-        super::UpdateInstallState::Committed => "committed",
-        super::UpdateInstallState::RolledBack => "rolled_back",
-    }
-}
-
-fn numbered_path(base: &Path, sequence: u64, suffix: &str) -> PathBuf {
-    let mut path = base.as_os_str().to_os_string();
-    path.push(format!(".{sequence}.{suffix}"));
-    PathBuf::from(path)
-}
-
-fn sequence_of(path: &Path) -> Option<u64> {
-    path.file_name()?
-        .to_string_lossy()
-        .rsplit('.')
-        .nth(1)
-        .and_then(|value| value.parse().ok())
-}
-
-fn publish_no_replace(temporary: &Path, final_path: &Path) -> Result<(), UpdateJournalError> {
-    #[cfg(windows)]
-    {
-        let source = runne_windows_native_handle::inspect_regular_file(temporary)
-            .map_err(|_| UpdateJournalError::Io)?;
-        runne_windows_native_handle::move_regular_file_no_replace_write_through(
-            temporary,
-            final_path,
-            source.id(),
-        )
-        .map_err(|_| UpdateJournalError::Io)
-    }
-    #[cfg(not(windows))]
-    {
-        fs::rename(temporary, final_path).map_err(|_| UpdateJournalError::Io)
     }
 }
