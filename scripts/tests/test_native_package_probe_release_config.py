@@ -25,18 +25,44 @@ class NativePackageProbeReleaseConfigTests(unittest.TestCase):
     def test_probe_uses_tauri_main_binary_and_component_verification(self) -> None:
         mac = " ".join(_command("macos-13-arm64", "executable-identity", "Runne.app"))
         mac_signing = " ".join(_command("macos-13-arm64", "signing-notarization", "Runne.app"))
-        linux = " ".join(_command("ubuntu-22.04-x86_64", "discover-installed-artifact", "Runne.deb"))
-        windows = " ".join(_command("windows-10-22h2-x86_64", "discover-installed-artifact", "Runne.exe"))
+        linux = " ".join(_command("ubuntu-22.04-x86_64", "executable-identity", "Runne.deb"))
+        windows = " ".join(_command("windows-10-22h2-x86_64", "executable-identity", "Runne.exe"))
         self.assertIn("runne-desktop", mac)
         self.assertIn("runned", mac)
+        self.assertIn('Contents/MacOS/runne"', mac)
         self.assertIn("runned", mac_signing)
+        self.assertIn('Contents/MacOS/runne"', mac_signing)
         self.assertNotIn("--deep", mac_signing)
         self.assertIn("runne-desktop", linux)
+        self.assertIn("runne runned", linux)
+        self.assertIn('-name "$binary"', linux)
+        self.assertIn("test -n", linux)
         self.assertIn("runne-desktop.exe", windows)
+        self.assertIn("runne.exe", windows)
+        self.assertIn("$componentRoot", windows)
+        self.assertIn("Test-Path -PathType Leaf", windows)
 
     def test_linux_signing_is_explicitly_not_applicable(self) -> None:
         self.assertEqual(NON_APPLICABLE_OPERATIONS["ubuntu-22.04-x86_64"], {"signing-notarization"})
         self.assertNotIn("signing-notarization", required_native_operations("ubuntu-22.04-x86_64"))
+
+    @unittest.skipIf(os.name == "nt", "requires a POSIX shell")
+    def test_linux_identity_requires_each_packaged_component(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            environment = {**os.environ, "NATIVE_PROBE_INSTALL_ROOT": str(root)}
+            command = _command("ubuntu-22.04-x86_64", "executable-identity", "Runne.deb")
+            for name in ("runne-desktop", "runne", "runned"):
+                (root / name).write_bytes(name.encode("ascii"))
+            self.assertEqual(
+                subprocess.run(command, env=environment, capture_output=True).returncode, 0
+            )
+            for name in ("runne-desktop", "runne", "runned"):
+                component = root / name
+                component.unlink()
+                result = subprocess.run(command, env=environment, capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0, name)
+                component.write_bytes(name.encode("ascii"))
 
     def test_protected_operations_use_the_installed_desktop_and_owner_boundary(self) -> None:
         for pair in ("macos-13-arm64", "ubuntu-22.04-x86_64"):
