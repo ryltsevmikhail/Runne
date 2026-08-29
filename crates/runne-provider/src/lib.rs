@@ -166,6 +166,9 @@ pub use credential::{
     TransitionCommand, WriterExecutableIdentity, WriterIdentityMigrationPhase, WriterLaunchId,
     WriterProcessHandleIdentity, WriterProcessStartIdentity, allows_structural_transition,
 };
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub use credential::{SealedPairFixture, sealed_pair_for_test};
 pub use digest::{
     CanonicalProviderError, ProviderCallDigest, ProviderCallDigestVersion,
     canonical_provider_call_digest, canonical_provider_call_digest_for_version,

@@ -26,6 +26,9 @@ pub use secret::{
     CredentialSecretPublication, CredentialSecretPublicationCodec, PendingCredentialSecretOpening,
     SealedCredentialEnvelope,
 };
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub use secret::{SealedPairFixture, sealed_pair_for_test};
 
 /// Deliberately narrow daemon-only publication adapter.
 #[doc(hidden)]

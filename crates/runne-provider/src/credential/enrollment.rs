@@ -64,6 +64,9 @@ pub use protocol::{
     CredentialSecretPublicationCodec, PROVIDER_CREDENTIAL_BROKER_MODE_V1,
     PendingCredentialSecretOpening, SealedCredentialEnvelope,
 };
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub use protocol::{SealedPairFixture, sealed_pair_for_test};
 pub use qualified_release::CredentialQualifiedReleaseTuple;
 pub use snapshot::{
     CredentialLifecycleSnapshot, CredentialOperationSnapshot, CredentialRecoveryWork,

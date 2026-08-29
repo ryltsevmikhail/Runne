@@ -28,6 +28,8 @@ fn native_writer_creates_only_the_exact_broker_version() {
     let (lifecycle, _) = CredentialAuthorityPair::new().split();
     let (issuer, effects) = CredentialWriterAuthorityPair::new().split();
     let command = create_command(7, 3);
+    let binding = binding();
+    let channel = channel();
     let authorization = authorization(&issuer, &command);
     let access = current_writer_access();
     let writer = BrokeredProviderCredentialWriterAdapter::new(
@@ -35,10 +37,12 @@ fn native_writer_creates_only_the_exact_broker_version() {
         NativeBrokeredProviderCredentialWriter::new(lifecycle, RecordingNative(observed.clone())),
         access.policy.clone(),
     );
-    let input = BrokeredCreateInput::new(command.clone(), binding(), channel()).unwrap();
-    let material = ProviderCredentialMaterial::new(b"secret".to_vec()).unwrap();
+    let input = BrokeredCreateInput::new(command.clone(), binding, channel.clone()).unwrap();
+    let sealed =
+        runne_provider::sealed_pair_for_test(&command, binding, &channel, b"secret".to_vec())
+            .unwrap();
 
-    let result = writer.create_exact(authorization, input, &material);
+    let result = writer.create_sealed_exact(authorization, input, sealed.pending, sealed.envelope);
     drop(access);
     result.unwrap();
 
@@ -54,17 +58,21 @@ fn native_writer_rejects_a_non_writer_process_before_create() {
     let (lifecycle, _) = CredentialAuthorityPair::new().split();
     let (issuer, effects) = CredentialWriterAuthorityPair::new().split();
     let command = create_command(8, 4);
+    let binding = binding();
+    let channel = channel();
     let authorization = authorization(&issuer, &command);
     let writer = BrokeredProviderCredentialWriterAdapter::new(
         effects,
         NativeBrokeredProviderCredentialWriter::new(lifecycle, RecordingNative(observed.clone())),
         foreign_access(),
     );
-    let input = BrokeredCreateInput::new(command, binding(), channel()).unwrap();
-    let material = ProviderCredentialMaterial::new(b"secret".to_vec()).unwrap();
+    let sealed =
+        runne_provider::sealed_pair_for_test(&command, binding, &channel, b"secret".to_vec())
+            .unwrap();
+    let input = BrokeredCreateInput::new(command, binding, channel).unwrap();
 
     assert_eq!(
-        writer.create_exact(authorization, input, &material),
+        writer.create_sealed_exact(authorization, input, sealed.pending, sealed.envelope),
         Err(SecureStoreError::CredentialIdentityMismatch)
     );
     assert_eq!(*observed.lock().unwrap(), None);

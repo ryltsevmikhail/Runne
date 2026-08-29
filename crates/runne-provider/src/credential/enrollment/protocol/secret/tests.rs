@@ -32,8 +32,12 @@ fn sealed_credential_is_relayed_only_after_exact_claim_accepted() {
         .open_after_claim(authorization, &channel, envelope)
         .unwrap();
 
-    assert_eq!(opened.test_command(), &command);
-    assert_eq!(opened.test_material().test_bytes(), b"credential");
+    opened
+        .consume(|bytes| {
+            assert_eq!(bytes, b"credential");
+            Ok::<_, ()>(())
+        })
+        .unwrap();
 }
 
 #[test]
@@ -46,7 +50,12 @@ fn sealed_credential_accepts_one_and_4096_byte_single_lines() {
         let effect = pending
             .open_after_claim(authorization, &channel, envelope)
             .unwrap();
-        assert_eq!(effect.test_material().test_bytes(), credential);
+        effect
+            .consume(|bytes| {
+                assert_eq!(bytes, credential);
+                Ok::<_, ()>(())
+            })
+            .unwrap();
     }
 }
 

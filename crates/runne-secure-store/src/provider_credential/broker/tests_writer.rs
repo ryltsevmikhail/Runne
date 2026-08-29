@@ -6,7 +6,8 @@ use std::sync::{
 use runne_provider::{
     BrokerChannelBinding, ClaimedWriterAuthorization, CredentialBindingDigest,
     CredentialBrokerFrame, CredentialOperationAction, CredentialVersionRef,
-    CredentialWriterAuthorityPair, NativeCredentialDeletionProof, ProviderId,
+    CredentialWriterAuthorityPair, NativeCredentialDeletionProof, PendingCredentialSecretOpening,
+    ProviderId, SealedCredentialEnvelope,
 };
 
 use super::super::migration::{BrokeredCreateInput, BrokeredLegacySourceDeleteInput};
@@ -15,6 +16,20 @@ use super::super::writer::{
     BrokeredProviderCredentialWriterNative,
 };
 use crate::{ProviderCredentialAccessPolicy, ProviderCredentialMaterial, SecureStoreError};
+
+#[test]
+fn brokered_pair_writer_accepts_only_a_sealed_relay() {
+    fn call(
+        writer: &dyn BrokeredProviderCredentialWriter,
+        authorization: ClaimedWriterAuthorization,
+        input: BrokeredCreateInput,
+        pending: PendingCredentialSecretOpening,
+        envelope: SealedCredentialEnvelope,
+    ) {
+        let _ = writer.create_sealed_exact(authorization, input, pending, envelope);
+    }
+    let _ = call;
+}
 
 #[test]
 fn brokered_provider_credential_rejects_wrong_action_before_adapter_mutation() {
@@ -55,11 +70,16 @@ fn brokered_provider_credential_rejects_binding_substitution_before_adapter_muta
         TestNative(mutations.clone()),
         access(),
     );
-    let input = BrokeredCreateInput::new(command(4, 1), binding(), channel()).unwrap();
-    let material = ProviderCredentialMaterial::new(b"secret".to_vec()).unwrap();
+    let binding = binding();
+    let channel = channel();
+    let command = command(4, 1);
+    let input = BrokeredCreateInput::new(command.clone(), binding, channel.clone()).unwrap();
+    let sealed =
+        runne_provider::sealed_pair_for_test(&command, binding, &channel, b"secret".to_vec())
+            .unwrap();
     assert!(
         writer
-            .create_exact(authorization, input, &material)
+            .create_sealed_exact(authorization, input, sealed.pending, sealed.envelope)
             .is_err()
     );
     assert_eq!(mutations.load(Ordering::SeqCst), 0);
@@ -70,16 +90,20 @@ fn brokered_provider_credential_consumes_matching_authorization_for_create() {
     let mutations = Arc::new(AtomicUsize::new(0));
     let (issuer, effects) = CredentialWriterAuthorityPair::new().split();
     let command = command(5, 1);
-    let authorization = authorization(&issuer, &command, binding(), &channel());
+    let binding = binding();
+    let channel = channel();
+    let authorization = authorization(&issuer, &command, binding, &channel);
     let writer = BrokeredProviderCredentialWriterAdapter::new(
         effects,
         TestNative(mutations.clone()),
         access(),
     );
-    let input = BrokeredCreateInput::new(command, binding(), channel()).unwrap();
-    let material = ProviderCredentialMaterial::new(b"secret".to_vec()).unwrap();
+    let sealed =
+        runne_provider::sealed_pair_for_test(&command, binding, &channel, b"secret".to_vec())
+            .unwrap();
+    let input = BrokeredCreateInput::new(command, binding, channel).unwrap();
     writer
-        .create_exact(authorization, input, &material)
+        .create_sealed_exact(authorization, input, sealed.pending, sealed.envelope)
         .unwrap();
     assert_eq!(mutations.load(Ordering::SeqCst), 1);
 }
@@ -105,6 +129,13 @@ fn brokered_legacy_source_cleanup_needs_no_version_deletion_proof() {
 struct TestNative(Arc<AtomicUsize>);
 
 impl BrokeredProviderCredentialWriterNative for TestNative {
+    fn preflight_create_exact(
+        &self,
+        _input: &BrokeredCreateInput,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
+        Ok(())
+    }
     fn create_exact(
         &self,
         _input: &BrokeredCreateInput,

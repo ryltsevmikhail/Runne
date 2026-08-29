@@ -1,6 +1,7 @@
 use runne_provider::{
     BrokerChannelBinding, ClaimedWriterAuthorization, CredentialBindingDigest,
     CredentialBrokerCommand, CredentialWriterEffectAuthority, NativeCredentialDeletionProof,
+    PendingCredentialSecretOpening, SealedCredentialEnvelope,
 };
 
 use super::errors::BrokerError;
@@ -17,16 +18,33 @@ pub use native::NativeBrokeredProviderCredentialWriter;
 pub use native::NativeProviderCredentialWriters;
 
 pub trait BrokeredProviderCredentialWriter: Send + Sync {
-    /// Creates one exact immutable version after consuming writer authorization.
+    /// Creates one exact immutable version from one sealed Pair relay.
+    ///
+    /// ```compile_fail
+    /// use runne_provider::ClaimedWriterAuthorization;
+    /// use runne_secure_store::{
+    ///     BrokeredCreateInput, BrokeredProviderCredentialWriter, ProviderCredentialMaterial,
+    /// };
+    ///
+    /// fn plaintext_create_is_not_available(
+    ///     writer: &dyn BrokeredProviderCredentialWriter,
+    ///     authorization: ClaimedWriterAuthorization,
+    ///     input: BrokeredCreateInput,
+    ///     material: ProviderCredentialMaterial,
+    /// ) {
+    ///     let _ = writer.create_exact(authorization, input, &material);
+    /// }
+    /// ```
     ///
     /// # Errors
     ///
     /// Returns a closed authorization, validation, conflict, or backend error.
-    fn create_exact(
+    fn create_sealed_exact(
         &self,
         authorization: ClaimedWriterAuthorization,
         input: BrokeredCreateInput,
-        material: &ProviderCredentialMaterial,
+        pending: PendingCredentialSecretOpening,
+        envelope: SealedCredentialEnvelope,
     ) -> Result<(), SecureStoreError>;
     /// Deletes one exact immutable version after consuming writer authorization.
     ///
@@ -81,6 +99,11 @@ pub trait BrokeredProviderCredentialWriter: Send + Sync {
 }
 
 pub(super) trait BrokeredProviderCredentialWriterNative: Send + Sync {
+    fn preflight_create_exact(
+        &self,
+        input: &BrokeredCreateInput,
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError>;
     fn create_exact(
         &self,
         input: &BrokeredCreateInput,
@@ -138,20 +161,28 @@ impl<N> BrokeredProviderCredentialWriter for BrokeredProviderCredentialWriterAda
 where
     N: BrokeredProviderCredentialWriterNative,
 {
-    fn create_exact(
+    fn create_sealed_exact(
         &self,
         authorization: ClaimedWriterAuthorization,
         input: BrokeredCreateInput,
-        material: &ProviderCredentialMaterial,
+        pending: PendingCredentialSecretOpening,
+        envelope: SealedCredentialEnvelope,
     ) -> Result<(), SecureStoreError> {
-        authorize(
-            &self.effects,
-            authorization,
-            input.command(),
-            input.binding(),
-            input.channel(),
-        )?;
-        self.native.create_exact(&input, material, &self.access)
+        self.native.preflight_create_exact(&input, &self.access)?;
+        self.effects
+            .authorize_and_consume_sealed_pair(
+                authorization,
+                input.command().clone(),
+                input.binding(),
+                input.channel(),
+                pending,
+                envelope,
+                |secret| {
+                    let material = ProviderCredentialMaterial::new(secret.to_vec())?;
+                    self.native.create_exact(&input, &material, &self.access)
+                },
+            )
+            .map_err(|_| BrokerError::AccessDenied)?
     }
 
     fn delete_exact(
@@ -246,3 +277,7 @@ fn authorize(
         .map(|_| ())
         .map_err(|_| BrokerError::AccessDenied.into())
 }
+
+#[cfg(test)]
+#[path = "writer/pair_tests.rs"]
+mod pair_tests;

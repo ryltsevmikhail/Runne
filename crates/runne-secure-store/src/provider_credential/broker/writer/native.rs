@@ -104,6 +104,15 @@ impl<N> BrokeredProviderCredentialWriterNative for NativeBrokeredProviderCredent
 where
     N: NativeProviderCredentialVersionStore + ProviderCredentialStore,
 {
+    fn preflight_create_exact(
+        &self,
+        input: &BrokeredCreateInput,
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
+        let _ = version(input.command().target())?;
+        Self::validate_writer(access)
+    }
+
     fn create_exact(
         &self,
         input: &BrokeredCreateInput,

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::credential::enrollment::{
     BrokerChannelBinding, CredentialBindingDigest, CredentialBrokerCommand, CredentialBrokerFrame,
-    CredentialEnrollmentError,
+    CredentialEnrollmentError, PendingCredentialSecretOpening, SealedCredentialEnvelope,
 };
 
 #[derive(Debug)]
@@ -130,6 +130,27 @@ impl CredentialWriterClaimIssuer {
 }
 
 impl CredentialWriterEffectAuthority {
+    /// Consumes one exact Pair authority and borrows plaintext only for `callback`.
+    #[doc(hidden)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the authority boundary must receive each non-substitutable Pair capability explicitly"
+    )]
+    pub fn authorize_and_consume_sealed_pair<E>(
+        &self,
+        authorization: ClaimedWriterAuthorization,
+        command: CredentialBrokerCommand,
+        binding: CredentialBindingDigest,
+        channel: &BrokerChannelBinding,
+        pending: PendingCredentialSecretOpening,
+        envelope: SealedCredentialEnvelope,
+        callback: impl FnOnce(&[u8]) -> Result<(), E>,
+    ) -> Result<Result<(), E>, CredentialEnrollmentError> {
+        let opening = self.authorize_secret_opening(authorization, command, binding, channel)?;
+        let material = pending.open_after_claim(opening, channel, envelope)?;
+        Ok(material.consume(callback))
+    }
+
     /// Consumes exact writer authority before any credential decryption.
     #[allow(
         dead_code,

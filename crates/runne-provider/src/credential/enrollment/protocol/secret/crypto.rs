@@ -40,17 +40,6 @@ pub struct SealedCredentialEnvelope {
     pub(crate) ciphertext_and_tag: zeroize::Zeroizing<Vec<u8>>,
 }
 
-/// Decrypted credential material for the immediately following native writer effect.
-pub(crate) struct CredentialDecryptedMaterial {
-    material: zeroize::Zeroizing<Vec<u8>>,
-}
-
-/// Exact native command plus decrypted material after effect admission and AEAD open.
-pub(crate) struct OpenedCredentialSecretEffect {
-    command: CredentialBrokerCommand,
-    material: CredentialDecryptedMaterial,
-}
-
 impl CredentialSecretClaimOffer {
     /// Generates a writer X25519 offer bound to one command and claim digest.
     pub fn prepare(
@@ -170,7 +159,7 @@ impl PendingCredentialSecretOpening {
         authorization: AuthorizedCredentialSecretOpening,
         channel: &BrokerChannelBinding,
         envelope: SealedCredentialEnvelope,
-    ) -> Result<OpenedCredentialSecretEffect, CredentialEnrollmentError> {
+    ) -> Result<super::relay::CredentialDecryptedMaterial, CredentialEnrollmentError> {
         let Self {
             command,
             operation_id,
@@ -214,28 +203,7 @@ impl PendingCredentialSecretOpening {
         })
         .map_err(|_| CredentialEnrollmentError::InvalidEvidence)??;
         super::cipher::validate_credential(&material)?;
-        Ok(OpenedCredentialSecretEffect {
-            command,
-            material: CredentialDecryptedMaterial { material },
-        })
-    }
-}
-
-#[cfg(test)]
-impl CredentialDecryptedMaterial {
-    pub(super) fn test_bytes(&self) -> &[u8] {
-        &self.material
-    }
-}
-
-#[cfg(test)]
-impl OpenedCredentialSecretEffect {
-    pub(super) fn test_command(&self) -> &CredentialBrokerCommand {
-        &self.command
-    }
-
-    pub(super) fn test_material(&self) -> &CredentialDecryptedMaterial {
-        &self.material
+        Ok(super::relay::CredentialDecryptedMaterial::new(material))
     }
 }
 
@@ -286,7 +254,5 @@ macro_rules! redacted_debug {
 redacted_debug!(
     CredentialSecretClaimOffer,
     PendingCredentialSecretOpening,
-    SealedCredentialEnvelope,
-    CredentialDecryptedMaterial,
-    OpenedCredentialSecretEffect
+    SealedCredentialEnvelope
 );

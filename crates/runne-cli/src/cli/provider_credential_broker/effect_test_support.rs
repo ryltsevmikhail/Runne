@@ -7,13 +7,14 @@ use runne_provider::{
     CredentialEnrollmentAuthorityPair, CredentialFence, CredentialLifecycleRevision,
     CredentialOperationAction, CredentialOperationId, CredentialTicketAttempt,
     CredentialVersionRef, CredentialWriterAuthorityPair, NativeCredentialDeletionProof, ProviderId,
-    RawCredentialTicket, WriterIdentityMigrationPhase,
+    RawCredentialTicket, PendingCredentialSecretOpening, SealedCredentialEnvelope,
+    WriterIdentityMigrationPhase,
 };
 use runne_secure_store::{
     BrokeredCreateInput, BrokeredDeleteInput, BrokeredLegacySourceDeleteInput,
     BrokeredMigrateLegacyInput, BrokeredProviderCredentialWriter,
     BrokeredWriterIdentityMigrationInput, BrokeredWriterIdentityVerificationInput,
-    ProviderCredentialMaterial, SecureStoreError, WriterIdentityMigrationObservation,
+    SecureStoreError, WriterIdentityMigrationObservation,
 };
 
 use super::claim::{
@@ -176,11 +177,12 @@ impl FakeWriter {
 }
 
 impl BrokeredProviderCredentialWriter for FakeWriter {
-    fn create_exact(
+    fn create_sealed_exact(
         &self,
         _authorization: ClaimedWriterAuthorization,
         _input: BrokeredCreateInput,
-        _material: &ProviderCredentialMaterial,
+        _pending: PendingCredentialSecretOpening,
+        _envelope: SealedCredentialEnvelope,
     ) -> Result<(), SecureStoreError> {
         Err(SecureStoreError::ProviderCredentialOperationFailed)
     }
