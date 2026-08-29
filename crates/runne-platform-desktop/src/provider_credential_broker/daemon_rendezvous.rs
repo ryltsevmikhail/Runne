@@ -5,7 +5,7 @@ use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 
 use rand::{RngCore, rngs::OsRng};
-use runne_api::CredentialBrokerTransferAuthenticator;
+use runne_api::{CredentialBrokerTransferAuthenticator, ProviderCredentialBrokerTransferAuthority};
 use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
 
 use super::unix_descriptor::{receive_descriptor, send_descriptor};
@@ -81,7 +81,7 @@ impl UnixReceivedDaemonWriterEndpoint {
 pub fn send_daemon_owned_writer_endpoint(
     mut transport: UnixStream,
     endpoint: UnixStream,
-    authenticator: &CredentialBrokerTransferAuthenticator,
+    authority: &ProviderCredentialBrokerTransferAuthority,
     expected_binding: [u8; 32],
     publication_public_key: [u8; 32],
 ) -> Result<(), BrokerHandoffError> {
@@ -98,7 +98,7 @@ pub fn send_daemon_owned_writer_endpoint(
         .try_into()
         .map_err(|_| BrokerHandoffError::Rejected)?;
     if challenge[..32] != expected_binding
-        || !authenticator.verifies_transfer(
+        || !authority.verifies_desktop_transfer(
             &challenge_transcript(&challenge[..64], publication_public_key),
             &proof,
         )
@@ -108,7 +108,8 @@ pub fn send_daemon_owned_writer_endpoint(
     let mut response = [0; RESPONSE_BYTES];
     response[..CHALLENGE_BYTES].copy_from_slice(&challenge);
     response[CHALLENGE_BYTES..].copy_from_slice(&publication_public_key);
-    let response_proof = authenticator.authenticate_transfer(&transcript(RESPONSE_TAG, &response));
+    let response_proof =
+        authority.authenticate_daemon_transfer(&transcript(RESPONSE_TAG, &response));
     let mut frame = [0; FRAME_BYTES];
     frame[..RESPONSE_BYTES].copy_from_slice(&response);
     frame[RESPONSE_BYTES..].copy_from_slice(&response_proof);

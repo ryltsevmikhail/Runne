@@ -1,5 +1,9 @@
-const CREDENTIAL_BROKER_TRANSFER_DOMAIN: &[u8] =
-    b"gocode/provider-credential-broker-transfer/v1";
+const CREDENTIAL_BROKER_DAEMON_TRANSFER_DOMAIN: &[u8] =
+    b"gocode/provider-credential-broker-daemon-transfer/v1";
+const CREDENTIAL_BROKER_DESKTOP_TRANSFER_DOMAIN: &[u8] =
+    b"gocode/provider-credential-broker-desktop-transfer/v1";
+const CREDENTIAL_BROKER_KILL_READY_DOMAIN: &[u8] =
+    b"gocode/provider-credential-broker-kill-ready/v1";
 
 /// Authenticates native credential-broker endpoint transfer records.
 ///
@@ -8,7 +12,9 @@ const CREDENTIAL_BROKER_TRANSFER_DOMAIN: &[u8] =
 /// to their exact protected session and native descriptors.
 #[derive(Clone)]
 pub struct CredentialBrokerTransferAuthenticator {
-    key: Zeroizing<[u8; 32]>,
+    daemon_transfer_key: Zeroizing<[u8; 32]>,
+    desktop_transfer_key: Zeroizing<[u8; 32]>,
+    kill_ready_key: Zeroizing<[u8; 32]>,
 }
 
 impl CredentialBrokerTransferAuthenticator {
@@ -16,24 +22,63 @@ impl CredentialBrokerTransferAuthenticator {
     #[must_use]
     pub fn from_protected_activation(keys: &ProtectedActivationKeys) -> Self {
         Self {
-            key: Zeroizing::new(derive_key(
+            daemon_transfer_key: Zeroizing::new(derive_key(
                 keys.readiness_key(),
-                CREDENTIAL_BROKER_TRANSFER_DOMAIN,
+                CREDENTIAL_BROKER_DAEMON_TRANSFER_DOMAIN,
+            )),
+            desktop_transfer_key: Zeroizing::new(derive_key(
+                keys.readiness_key(),
+                CREDENTIAL_BROKER_DESKTOP_TRANSFER_DOMAIN,
+            )),
+            kill_ready_key: Zeroizing::new(derive_key(
+                keys.readiness_key(),
+                CREDENTIAL_BROKER_KILL_READY_DOMAIN,
             )),
         }
     }
 
-    /// Produces a proof for exactly one native descriptor-transfer record.
+    /// Produces a Desktop-originated native transfer proof.
     #[must_use]
     pub fn authenticate_transfer(&self, record: &[u8]) -> [u8; 32] {
-        authenticated_mac(&self.key, CREDENTIAL_BROKER_TRANSFER_DOMAIN, record)
+        authenticated_mac(
+            &self.desktop_transfer_key,
+            CREDENTIAL_BROKER_DESKTOP_TRANSFER_DOMAIN,
+            record,
+        )
     }
 
-    /// Verifies a descriptor-transfer record in constant time.
+    /// Verifies a daemon-originated native transfer proof in constant time.
     #[must_use]
     pub fn verifies_transfer(&self, record: &[u8], proof: &[u8; 32]) -> bool {
+        bool::from(self.authenticate_daemon_transfer(record).ct_eq(proof))
+    }
+
+    pub(crate) fn authenticate_daemon_transfer(&self, record: &[u8]) -> [u8; 32] {
+        authenticated_mac(
+            &self.daemon_transfer_key,
+            CREDENTIAL_BROKER_DAEMON_TRANSFER_DOMAIN,
+            record,
+        )
+    }
+
+    pub(crate) fn verifies_desktop_transfer(&self, record: &[u8], proof: &[u8; 32]) -> bool {
         bool::from(self.authenticate_transfer(record).ct_eq(proof))
     }
+
+    pub(crate) fn authenticate_kill_ready(&self, record: &[u8]) -> [u8; 32] {
+        authenticated_mac(
+            &self.kill_ready_key,
+            CREDENTIAL_BROKER_KILL_READY_DOMAIN,
+            record,
+        )
+    }
+
+    /// Verifies a daemon-originated exact kill-ready transcript.
+    #[must_use]
+    pub fn verifies_kill_ready(&self, record: &[u8], proof: &[u8; 32]) -> bool {
+        bool::from(self.authenticate_kill_ready(record).ct_eq(proof))
+    }
+
 }
 
 /// Move-only enrollment admission bundled with its exact transfer key domain.
@@ -95,10 +140,14 @@ mod credential_broker_transfer_authenticator_tests {
         let keys = LaunchSecret::from_bytes([5; 32]).unwrap().derive_keys();
         let broker = CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
         let root = RootHandleTransferAuthenticator::from_protected_activation(&keys);
-        let proof = broker.authenticate_transfer(b"writer-control");
+        let desktop_proof = broker.authenticate_transfer(b"writer-control");
+        let daemon_proof = broker.authenticate_daemon_transfer(b"writer-control");
 
-        assert!(broker.verifies_transfer(b"writer-control", &proof));
-        assert!(!broker.verifies_transfer(b"other-control", &proof));
-        assert!(!root.verifies_transfer(b"writer-control", &proof));
+        assert!(broker.verifies_desktop_transfer(b"writer-control", &desktop_proof));
+        assert!(!broker.verifies_transfer(b"writer-control", &desktop_proof));
+        assert!(broker.verifies_transfer(b"writer-control", &daemon_proof));
+        assert!(!broker.verifies_desktop_transfer(b"writer-control", &daemon_proof));
+        assert!(!broker.verifies_transfer(b"other-control", &daemon_proof));
+        assert!(!root.verifies_transfer(b"writer-control", &desktop_proof));
     }
 }

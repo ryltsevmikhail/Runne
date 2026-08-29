@@ -7,6 +7,8 @@ mod daemon_rendezvous;
 #[cfg(any(test, not(target_os = "macos")))]
 mod launch;
 #[cfg(target_os = "macos")]
+mod macos_daemon_kill;
+#[cfg(target_os = "macos")]
 mod macos_writer_admission;
 #[cfg(target_os = "macos")]
 mod macos_writer_transfer;
@@ -20,14 +22,9 @@ mod unix_daemon_macos;
 mod unix_descriptor;
 mod writer_evidence;
 
-use std::fmt;
-
 use runne_platform_ports::provider_credential_broker::{
     BrokerHandoffError, ProviderCredentialBrokerPort, WriterOwnership, WriterOwnershipState,
 };
-
-#[cfg(unix)]
-type DaemonHandoffDigests = ([u8; 32], [u8; 32], [u8; 32], [u8; 32], [u8; 32]);
 
 #[cfg(all(unix, feature = "test-support"))]
 #[doc(hidden)]
@@ -44,8 +41,18 @@ pub use daemon_rendezvous::{
 };
 #[cfg(not(target_os = "macos"))]
 pub use launch::writer_command;
+#[cfg(all(target_os = "macos", feature = "test-support"))]
+#[doc(hidden)]
+pub use macos_daemon_kill::test_only_observe_process_start;
+#[cfg(target_os = "macos")]
+pub use macos_daemon_kill::{
+    MacOsPeerKillCapability, MacOsPeerKillPending, MacOsPeerKillReadyProof,
+    capture_macos_daemon_peer_kill_capability,
+};
 #[cfg(target_os = "macos")]
 pub use macos_writer_admission::VerifiedMacOsWriterProcess;
+#[cfg(target_os = "macos")]
+pub use macos_writer_transfer::MacOsWriterReapOnlyOwner;
 #[cfg(target_os = "macos")]
 pub use macos_writer_transfer::MacOsWriterTransferPending;
 #[cfg(unix)]
@@ -55,6 +62,13 @@ pub use unix_daemon::spawn_macos_verified_writer_from_prepared_daemon_handoff;
 #[cfg(all(unix, not(target_os = "macos")))]
 pub use unix_daemon::spawn_unix_writer_from_prepared_daemon_handoff;
 
+#[cfg(all(test, target_os = "macos"))]
+#[path = "provider_credential_broker/tests_macos_daemon_kill.rs"]
+mod tests_macos_daemon_kill;
+#[cfg(all(test, target_os = "macos"))]
+#[path = "provider_credential_broker/tests_macos_writer_ownership.rs"]
+mod tests_macos_writer_ownership;
+
 /// Non-serializable process evidence accepted only after platform validation.
 pub struct WriterProcessEvidence {
     start: [u8; 32],
@@ -62,6 +76,7 @@ pub struct WriterProcessEvidence {
     channel: [u8; 32],
     release_tuple: Option<[u8; 32]>,
     publication_public_key: Option<[u8; 32]>,
+    writer_kill_public_key: Option<[u8; 32]>,
 }
 
 impl WriterProcessEvidence {
@@ -72,8 +87,16 @@ impl WriterProcessEvidence {
         release_tuple: [u8; 32],
         channel: [u8; 32],
         publication_public_key: [u8; 32],
+        writer_kill_public_key: [u8; 32],
     ) -> Result<Self, BrokerHandoffError> {
-        Self::new_daemon_bound(start, image, release_tuple, channel, publication_public_key)
+        Self::new_daemon_bound(
+            start,
+            image,
+            release_tuple,
+            channel,
+            publication_public_key,
+            writer_kill_public_key,
+        )
     }
 
     #[cfg(unix)]
@@ -83,6 +106,7 @@ impl WriterProcessEvidence {
         release_tuple: [u8; 32],
         channel: [u8; 32],
         publication_public_key: [u8; 32],
+        writer_kill_public_key: [u8; 32],
     ) -> Result<Self, BrokerHandoffError> {
         let evidence = Self {
             start,
@@ -90,6 +114,7 @@ impl WriterProcessEvidence {
             channel,
             release_tuple: Some(release_tuple),
             publication_public_key: Some(publication_public_key),
+            writer_kill_public_key: Some(writer_kill_public_key),
         };
         evidence
             .is_daemon_bound()
@@ -109,6 +134,7 @@ impl WriterProcessEvidence {
             channel: channel_identity,
             release_tuple: None,
             publication_public_key: None,
+            writer_kill_public_key: None,
         }
     }
 
@@ -119,6 +145,7 @@ impl WriterProcessEvidence {
         release_tuple_digest: [u8; 32],
         channel_identity: [u8; 32],
         publication_public_key: [u8; 32],
+        writer_kill_public_key: [u8; 32],
     ) -> Self {
         Self {
             start: start_identity,
@@ -126,6 +153,7 @@ impl WriterProcessEvidence {
             channel: channel_identity,
             release_tuple: Some(release_tuple_digest),
             publication_public_key: Some(publication_public_key),
+            writer_kill_public_key: Some(writer_kill_public_key),
         }
     }
     fn is_complete(&self) -> bool {
@@ -137,34 +165,15 @@ impl WriterProcessEvidence {
             && self
                 .publication_public_key
                 .is_some_and(|public_key| public_key != [0; 32])
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn daemon_handoff_digests(&self) -> Option<DaemonHandoffDigests> {
-        match (self.release_tuple, self.publication_public_key) {
-            (Some(release_tuple), Some(publication_public_key)) if self.is_daemon_bound() => {
-                Some((
-                    self.start,
-                    self.image,
-                    release_tuple,
-                    self.channel,
-                    publication_public_key,
-                ))
-            }
-            _ => None,
-        }
+            && self
+                .writer_kill_public_key
+                .is_some_and(|public_key| public_key != [0; 32])
     }
 
     /// Returns the fresh one-shot binding accepted by the native handoff.
     #[must_use]
     pub const fn channel_binding(&self) -> [u8; 32] {
         self.channel
-    }
-}
-
-impl fmt::Debug for WriterProcessEvidence {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("WriterProcessEvidence(<native-only>)")
     }
 }
 

@@ -10,6 +10,14 @@ use super::daemon_evidence::{
 };
 use super::*;
 
+fn daemon_authority(
+    authenticator: &runne_api::CredentialBrokerTransferAuthenticator,
+) -> runne_api::ProviderCredentialBrokerTransferAuthority {
+    runne_api::ProviderCredentialBrokerTransferAuthority::test_only_from_authenticator(
+        authenticator.clone(),
+    )
+}
+
 #[cfg(unix)]
 #[test]
 fn daemon_owned_evidence_round_trip_has_no_descriptor() {
@@ -19,19 +27,16 @@ fn daemon_owned_evidence_round_trip_has_no_descriptor() {
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
     let receiver_authenticator =
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
-    let evidence =
-        WriterProcessEvidence::test_only_daemon([1; 32], [2; 32], [3; 32], [4; 32], [5; 32]);
+    let evidence = WriterProcessEvidence::test_only_daemon(
+        [1; 32], [2; 32], [3; 32], [4; 32], [5; 32], [6; 32],
+    );
     let receiver_thread = std::thread::spawn(move || {
-        receive_daemon_owned_writer_measurements(
-            receiver,
-            &receiver_authenticator,
-            [4; 32],
-            [5; 32],
-        )
+        let authority = daemon_authority(&receiver_authenticator);
+        receive_daemon_owned_writer_measurements(receiver, authority, [3; 32], [4; 32], [5; 32])
     });
 
     send_daemon_owned_writer_evidence(sender, &sender_authenticator, &evidence).unwrap();
-    let evidence_received = receiver_thread.join().unwrap().unwrap();
+    let (evidence_received, _) = receiver_thread.join().unwrap().unwrap();
     let launch = VerifiedWriterLaunchSpec::new(
         VerifiedWriterArtifact::new("/verified/runne".into(), [2; 32], [3; 32]).unwrap(),
     );
@@ -48,15 +53,12 @@ fn daemon_owned_evidence_rejects_a_channel_or_key_substitution() {
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
     let receiver_authenticator =
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
-    let evidence =
-        WriterProcessEvidence::test_only_daemon([1; 32], [2; 32], [3; 32], [4; 32], [5; 32]);
+    let evidence = WriterProcessEvidence::test_only_daemon(
+        [1; 32], [2; 32], [3; 32], [4; 32], [5; 32], [6; 32],
+    );
     let receiver_thread = std::thread::spawn(move || {
-        receive_daemon_owned_writer_measurements(
-            receiver,
-            &receiver_authenticator,
-            [4; 32],
-            [6; 32],
-        )
+        let authority = daemon_authority(&receiver_authenticator);
+        receive_daemon_owned_writer_measurements(receiver, authority, [3; 32], [4; 32], [6; 32])
     });
 
     assert_eq!(
@@ -71,8 +73,32 @@ fn daemon_owned_evidence_rejects_a_channel_or_key_substitution() {
 
 #[cfg(unix)]
 #[test]
+fn daemon_owned_evidence_cannot_mint_a_witness_for_another_release() {
+    let (sender, receiver) = std::os::unix::net::UnixStream::pair().unwrap();
+    let keys = LaunchSecret::from_bytes([16; 32]).unwrap().derive_keys();
+    let sender_authenticator =
+        CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
+    let receiver_authenticator =
+        CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
+    let evidence = WriterProcessEvidence::test_only_daemon(
+        [1; 32], [2; 32], [3; 32], [4; 32], [5; 32], [6; 32],
+    );
+    let receiver_thread = std::thread::spawn(move || {
+        let authority = daemon_authority(&receiver_authenticator);
+        receive_daemon_owned_writer_measurements(receiver, authority, [7; 32], [4; 32], [5; 32])
+    });
+
+    send_daemon_owned_writer_evidence(sender, &sender_authenticator, &evidence).unwrap();
+    assert!(matches!(
+        receiver_thread.join().unwrap(),
+        Err(BrokerHandoffError::Rejected)
+    ));
+}
+
+#[cfg(unix)]
+#[test]
 fn daemon_owned_evidence_rejects_substituted_signed_measurements() {
-    for offset in [128, 160, 192] {
+    for offset in [128, 160, 192, 224] {
         let (mut sender, receiver) = std::os::unix::net::UnixStream::pair().unwrap();
         let keys = LaunchSecret::from_bytes([14; 32]).unwrap().derive_keys();
         let sender_authenticator =
@@ -80,22 +106,19 @@ fn daemon_owned_evidence_rejects_substituted_signed_measurements() {
         let receiver_authenticator =
             CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
         let receiver_thread = std::thread::spawn(move || {
-            receive_daemon_owned_writer_measurements(
-                receiver,
-                &receiver_authenticator,
-                [4; 32],
-                [5; 32],
-            )
+            let authority = daemon_authority(&receiver_authenticator);
+            receive_daemon_owned_writer_measurements(receiver, authority, [3; 32], [4; 32], [5; 32])
         });
         let mut challenge = [0; 128];
         std::io::Read::read_exact(&mut sender, &mut challenge).unwrap();
-        let mut response = [0; 256];
+        let mut response = [0; 288];
         response[..128].copy_from_slice(&challenge);
         response[128..160].copy_from_slice(&[1; 32]);
         response[160..192].copy_from_slice(&[2; 32]);
         response[192..224].copy_from_slice(&[3; 32]);
-        let proof = response_proof(&sender_authenticator, &response[..224]);
-        response[224..].copy_from_slice(&proof);
+        response[224..256].copy_from_slice(&[6; 32]);
+        let proof = response_proof(&sender_authenticator, &response[..256]);
+        response[256..].copy_from_slice(&proof);
         response[offset] ^= 1;
         sender.write_all(&response).unwrap();
 
@@ -116,22 +139,19 @@ fn daemon_owned_evidence_rejects_trailing_bytes() {
     let receiver_authenticator =
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
     let receiver_thread = std::thread::spawn(move || {
-        receive_daemon_owned_writer_measurements(
-            receiver,
-            &receiver_authenticator,
-            [4; 32],
-            [5; 32],
-        )
+        let authority = daemon_authority(&receiver_authenticator);
+        receive_daemon_owned_writer_measurements(receiver, authority, [3; 32], [4; 32], [5; 32])
     });
     let mut challenge = [0; 128];
     std::io::Read::read_exact(&mut sender, &mut challenge).unwrap();
-    let mut response = [0; 256];
+    let mut response = [0; 288];
     response[..128].copy_from_slice(&challenge);
     response[128..160].copy_from_slice(&[1; 32]);
     response[160..192].copy_from_slice(&[2; 32]);
     response[192..224].copy_from_slice(&[3; 32]);
-    let proof = response_proof(&sender_authenticator, &response[..224]);
-    response[224..256].copy_from_slice(&proof);
+    response[224..256].copy_from_slice(&[6; 32]);
+    let proof = response_proof(&sender_authenticator, &response[..256]);
+    response[256..].copy_from_slice(&proof);
     let mut framed = response.to_vec();
     framed.push(b'x');
     sender.write_all(&framed).unwrap();
@@ -157,26 +177,23 @@ fn daemon_owned_evidence_rejects_a_delayed_trailing_byte_before_acceptance() {
     let sender_thread = std::thread::spawn(move || {
         let mut challenge = [0; 128];
         std::io::Read::read_exact(&mut sender, &mut challenge).unwrap();
-        let mut response = [0; 256];
+        let mut response = [0; 288];
         response[..128].copy_from_slice(&challenge);
         response[128..160].copy_from_slice(&[1; 32]);
         response[160..192].copy_from_slice(&[2; 32]);
         response[192..224].copy_from_slice(&[3; 32]);
-        let proof = response_proof(&sender_authenticator, &response[..224]);
-        response[224..].copy_from_slice(&proof);
+        response[224..256].copy_from_slice(&[6; 32]);
+        let proof = response_proof(&sender_authenticator, &response[..256]);
+        response[256..].copy_from_slice(&proof);
         sender.write_all(&response).unwrap();
         std::thread::sleep(Duration::from_millis(25));
         let _ = sender.write_all(b"x");
         let _ = sender.shutdown(Shutdown::Write);
     });
 
+    let authority = daemon_authority(&receiver_authenticator);
     assert!(matches!(
-        receive_daemon_owned_writer_measurements(
-            receiver,
-            &receiver_authenticator,
-            [4; 32],
-            [5; 32],
-        ),
+        receive_daemon_owned_writer_measurements(receiver, authority, [3; 32], [4; 32], [5; 32],),
         Err(BrokerHandoffError::Rejected)
     ));
     sender_thread.join().unwrap();

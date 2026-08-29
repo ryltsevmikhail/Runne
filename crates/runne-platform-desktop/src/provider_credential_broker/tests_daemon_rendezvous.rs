@@ -1,8 +1,16 @@
 use std::io::Write as _;
 
-use runne_api::{CredentialBrokerTransferAuthenticator, LaunchSecret};
+use runne_api::{
+    CredentialBrokerTransferAuthenticator, LaunchSecret, ProviderCredentialBrokerTransferAuthority,
+};
 
 use super::*;
+
+fn daemon_authority(
+    authenticator: &CredentialBrokerTransferAuthenticator,
+) -> ProviderCredentialBrokerTransferAuthority {
+    ProviderCredentialBrokerTransferAuthority::test_only_from_authenticator(authenticator.clone())
+}
 
 #[cfg(target_os = "linux")]
 #[test]
@@ -28,7 +36,7 @@ fn daemon_owned_endpoint_transfers_only_to_the_bound_writer_channel() {
     send_daemon_owned_writer_endpoint(
         sender,
         writer,
-        &sender_authenticator,
+        &daemon_authority(&sender_authenticator),
         binding,
         publication_key,
     )
@@ -55,8 +63,14 @@ fn daemon_owned_endpoint_rejects_a_substituted_publication_key() {
         receive_daemon_owned_writer_endpoint(receiver, &receiver_authenticator, binding, [6; 32])
     });
 
-    send_daemon_owned_writer_endpoint(sender, writer, &sender_authenticator, binding, [7; 32])
-        .unwrap();
+    send_daemon_owned_writer_endpoint(
+        sender,
+        writer,
+        &daemon_authority(&sender_authenticator),
+        binding,
+        [7; 32],
+    )
+    .unwrap();
     assert!(matches!(
         receiver_thread.join().unwrap(),
         Err(BrokerHandoffError::Rejected)
@@ -72,7 +86,13 @@ fn daemon_owned_endpoint_rejects_zero_publication_key_before_transfer() {
     let authenticator = CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
 
     assert_eq!(
-        send_daemon_owned_writer_endpoint(sender, writer, &authenticator, [1; 32], [0; 32],),
+        send_daemon_owned_writer_endpoint(
+            sender,
+            writer,
+            &daemon_authority(&authenticator),
+            [1; 32],
+            [0; 32],
+        ),
         Err(BrokerHandoffError::Rejected)
     );
 }
@@ -88,6 +108,7 @@ fn daemon_owned_endpoint_rejects_a_delayed_trailing_byte_before_acceptance() {
     let keys = LaunchSecret::from_bytes([10; 32]).unwrap().derive_keys();
     let sender_authenticator =
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
+    let sender_authority = daemon_authority(&sender_authenticator);
     let receiver_authenticator =
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
     let sender_thread = std::thread::spawn(move || {
@@ -96,7 +117,7 @@ fn daemon_owned_endpoint_rejects_a_delayed_trailing_byte_before_acceptance() {
         let mut response = [0; 128];
         response[..96].copy_from_slice(&challenge);
         response[96..].copy_from_slice(&[2; 32]);
-        let proof = response_proof(&sender_authenticator, &response);
+        let proof = response_proof(&sender_authority, &response);
         let mut frame = [0; 160];
         frame[..128].copy_from_slice(&response);
         frame[128..].copy_from_slice(&proof);
@@ -123,10 +144,11 @@ fn daemon_owned_endpoint_sender_requires_eof_after_the_challenge() {
     let keys = LaunchSecret::from_bytes([16; 32]).unwrap().derive_keys();
     let sender_authenticator =
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
+    let sender_authority = daemon_authority(&sender_authenticator);
     let receiver_authenticator =
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
     let sender_thread = std::thread::spawn(move || {
-        send_daemon_owned_writer_endpoint(sender, writer, &sender_authenticator, [1; 32], [2; 32])
+        send_daemon_owned_writer_endpoint(sender, writer, &sender_authority, [1; 32], [2; 32])
     });
     let mut challenge = [0; 96];
     challenge[..32].copy_from_slice(&[1; 32]);
@@ -157,23 +179,11 @@ fn challenge_proof(
 
 #[cfg(target_os = "linux")]
 fn response_proof(
-    authenticator: &CredentialBrokerTransferAuthenticator,
+    authority: &ProviderCredentialBrokerTransferAuthority,
     record: &[u8],
 ) -> [u8; 32] {
-    tagged_proof(
-        authenticator,
-        b"gocode/provider-credential-broker/daemon-endpoint/v1/response\0",
-        record,
-    )
-}
-
-#[cfg(target_os = "linux")]
-fn tagged_proof(
-    authenticator: &CredentialBrokerTransferAuthenticator,
-    tag: &[u8],
-    record: &[u8],
-) -> [u8; 32] {
-    let mut transcript = tag.to_vec();
+    let mut transcript =
+        b"gocode/provider-credential-broker/daemon-endpoint/v1/response\0".to_vec();
     transcript.extend_from_slice(record);
-    authenticator.authenticate_transfer(&transcript)
+    authority.authenticate_daemon_transfer(&transcript)
 }

@@ -5,6 +5,8 @@ use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
 
+use ed25519_dalek::SigningKey;
+use rand::{RngCore as _, rngs::OsRng};
 use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
 #[cfg(test)]
 use runne_platform_ports::provider_credential_broker::VerifiedWriterArtifact;
@@ -12,6 +14,7 @@ use security_framework::os::macos::code_signing::{
     Flags, GuestAttributes, SecCode, SecRequirement,
 };
 use sha2::{Digest as _, Sha256};
+use zeroize::Zeroizing;
 
 use super::{RetainedWriterProcess, UnixRetainedWriterProcess, WriterProcessEvidence};
 use crate::VerifiedMacOsWriterLaunch;
@@ -22,6 +25,7 @@ pub(super) fn verify_live_writer(
     image: &RetainedMacOsWriterImage,
     channel_binding: [u8; 32],
     publication_public_key: [u8; 32],
+    writer_kill_public_key: [u8; 32],
 ) -> Result<WriterProcessEvidence, BrokerHandoffError> {
     if channel_binding == [0; 32] || publication_public_key == [0; 32] {
         return Err(BrokerHandoffError::Rejected);
@@ -60,6 +64,7 @@ pub(super) fn verify_live_writer(
         launch.launch().artifact().release_tuple_digest(),
         channel_binding,
         publication_public_key,
+        writer_kill_public_key,
     )
 }
 
@@ -69,6 +74,7 @@ pub struct VerifiedMacOsWriterProcess {
     image: RetainedMacOsWriterImage,
     launch: VerifiedMacOsWriterLaunch,
     evidence: WriterProcessEvidence,
+    kill_signing_key: Option<SigningKey>,
 }
 
 impl VerifiedMacOsWriterProcess {
@@ -79,12 +85,20 @@ impl VerifiedMacOsWriterProcess {
         channel_binding: [u8; 32],
         publication_public_key: [u8; 32],
     ) -> Result<Self, BrokerHandoffError> {
+        let mut signing_seed = Zeroizing::new([0_u8; 32]);
+        if OsRng.try_fill_bytes(&mut *signing_seed).is_err() {
+            let _ = process.terminate_retained_child();
+            let _ = process.reap_retained_child();
+            return Err(BrokerHandoffError::Unavailable);
+        }
+        let kill_signing_key = SigningKey::from_bytes(&signing_seed);
         let evidence = match verify_live_writer(
             &process,
             &launch,
             &image,
             channel_binding,
             publication_public_key,
+            kill_signing_key.verifying_key().to_bytes(),
         ) {
             Ok(evidence) => evidence,
             Err(error) => {
@@ -98,6 +112,7 @@ impl VerifiedMacOsWriterProcess {
             image,
             launch,
             evidence,
+            kill_signing_key: Some(kill_signing_key),
         })
     }
 
@@ -111,12 +126,32 @@ impl VerifiedMacOsWriterProcess {
             self.evidence
                 .publication_public_key
                 .ok_or(BrokerHandoffError::Rejected)?,
+            self.kill_signing_key
+                .as_ref()
+                .ok_or(BrokerHandoffError::Rejected)?
+                .verifying_key()
+                .to_bytes(),
         )?;
         Ok(())
     }
 
     pub(super) const fn evidence(&self) -> &WriterProcessEvidence {
         &self.evidence
+    }
+
+    pub(super) fn into_reap_only(
+        mut self,
+    ) -> Result<(super::unix::UnixWriterReapOnlyProcess, SigningKey), BrokerHandoffError> {
+        let process = self
+            .process
+            .take()
+            .ok_or(BrokerHandoffError::Rejected)?
+            .into_reap_only();
+        let signing_key = self
+            .kill_signing_key
+            .take()
+            .ok_or(BrokerHandoffError::Rejected)?;
+        Ok((process, signing_key))
     }
 
     #[cfg(test)]
@@ -248,7 +283,10 @@ pub(super) fn test_apple_launch(
     let stdout = std::str::from_utf8(&output.stdout).map_err(|_| BrokerHandoffError::Rejected)?;
     let requirement = stdout
         .lines()
-        .find_map(|line| line.strip_prefix("designated => "))
+        .find_map(|line| {
+            line.strip_prefix("designated => ")
+                .or_else(|| line.strip_prefix("# designated => "))
+        })
         .ok_or(BrokerHandoffError::Rejected)?
         .to_owned();
     let artifact = VerifiedWriterArtifact::new(path, image, release_tuple)

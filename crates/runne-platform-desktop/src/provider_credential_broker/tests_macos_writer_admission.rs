@@ -15,13 +15,13 @@ fn live_writer_admission_requires_exact_sec_code_path_and_handoff_binding() {
             .unwrap();
 
     let evidence = super::macos_writer_admission::verify_live_writer(
-        &process, &launch, &image, [8; 32], [9; 32],
+        &process, &launch, &image, [8; 32], [9; 32], [10; 32],
     )
     .unwrap();
     assert!(evidence.matches_daemon_owned_launch(launch.launch(), [8; 32], [9; 32]));
     assert!(
         super::macos_writer_admission::verify_live_writer(
-            &process, &launch, &image, [0; 32], [9; 32],
+            &process, &launch, &image, [0; 32], [9; 32], [10; 32],
         )
         .is_err()
     );
@@ -38,6 +38,7 @@ fn live_writer_admission_requires_exact_sec_code_path_and_handoff_binding() {
             &image,
             [8; 32],
             [9; 32],
+            [10; 32],
         )
         .is_err()
     );
@@ -50,6 +51,7 @@ fn live_writer_admission_requires_exact_sec_code_path_and_handoff_binding() {
             &image,
             [8; 32],
             [9; 32],
+            [10; 32],
         )
         .is_err()
     );
@@ -73,6 +75,10 @@ fn prepared_handoff_retains_binding_through_live_macos_admission() {
     let keys = LaunchSecret::from_bytes([18; 32]).unwrap().derive_keys();
     let sender_authenticator =
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
+    let sender_authority =
+        runne_api::ProviderCredentialBrokerTransferAuthority::test_only_from_authenticator(
+            sender_authenticator,
+        );
     let receiver_authenticator =
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
     let channel_binding = [19; 32];
@@ -81,7 +87,7 @@ fn prepared_handoff_retains_binding_through_live_macos_admission() {
         super::send_daemon_owned_writer_endpoint(
             sender,
             writer,
-            &sender_authenticator,
+            &sender_authority,
             channel_binding,
             publication_public_key,
         )
@@ -125,7 +131,7 @@ fn post_spawn_path_replacement_cannot_substitute_the_executed_vnode() {
 
     assert!(
         super::macos_writer_admission::verify_live_writer(
-            &process, &launch, &image, [22; 32], [23; 32],
+            &process, &launch, &image, [22; 32], [23; 32], [24; 32],
         )
         .is_err()
     );
@@ -148,6 +154,10 @@ fn live_macos_evidence_transfer_is_one_shot_and_release_bound() {
     let keys = LaunchSecret::from_bytes([25; 32]).unwrap().derive_keys();
     let handoff_authenticator =
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
+    let handoff_authority =
+        runne_api::ProviderCredentialBrokerTransferAuthority::test_only_from_authenticator(
+            handoff_authenticator,
+        );
     let receiver_authenticator =
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
     let channel_binding = [26; 32];
@@ -156,7 +166,7 @@ fn live_macos_evidence_transfer_is_one_shot_and_release_bound() {
         super::send_daemon_owned_writer_endpoint(
             handoff_sender,
             writer,
-            &handoff_authenticator,
+            &handoff_authority,
             channel_binding,
             publication_public_key,
         )
@@ -175,12 +185,15 @@ fn live_macos_evidence_transfer_is_one_shot_and_release_bound() {
     let (evidence_sender, evidence_receiver) = std::os::unix::net::UnixStream::pair().unwrap();
     let send_authenticator =
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
-    let evidence_receiver_authenticator =
-        CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
+    let evidence_receiver_authority =
+        runne_api::ProviderCredentialBrokerTransferAuthority::test_only_from_authenticator(
+            CredentialBrokerTransferAuthenticator::from_protected_activation(&keys),
+        );
     let receiver_thread = std::thread::spawn(move || {
         super::daemon_evidence::receive_daemon_owned_writer_measurements(
             evidence_receiver,
-            &evidence_receiver_authenticator,
+            evidence_receiver_authority,
+            [24; 32],
             channel_binding,
             publication_public_key,
         )
@@ -188,7 +201,7 @@ fn live_macos_evidence_transfer_is_one_shot_and_release_bound() {
     let pending = verified
         .transfer_evidence_to_daemon(evidence_sender, &send_authenticator)
         .unwrap();
-    let evidence = receiver_thread.join().unwrap().unwrap();
+    let (evidence, _) = receiver_thread.join().unwrap().unwrap();
     assert!(evidence.matches_daemon_owned_release(
         [24; 32],
         channel_binding,

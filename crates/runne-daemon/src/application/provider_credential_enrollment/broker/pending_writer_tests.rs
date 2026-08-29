@@ -119,13 +119,20 @@ fn send_evidence(
     send_test_daemon_owned_writer_evidence(
         transport,
         authenticator,
-        [11; 32],
-        [12; 32],
-        release_tuple,
-        channel,
-        publication_key,
+        [
+            [11; 32],
+            [12; 32],
+            release_tuple,
+            channel,
+            publication_key,
+            [13; 32],
+        ],
     )
 }
+
+#[cfg(target_os = "macos")]
+#[path = "pending_writer_macos_tests.rs"]
+mod macos_tests;
 
 #[test]
 fn awaiting_writer_consumes_exact_session_and_release_evidence() {

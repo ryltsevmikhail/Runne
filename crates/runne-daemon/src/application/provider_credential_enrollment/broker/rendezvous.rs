@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use rand::{RngCore, rngs::OsRng};
 #[cfg(feature = "desktop-protected")]
-use runne_api::CredentialBrokerTransferAuthenticator;
+use runne_api::ProviderCredentialBrokerTransferAuthority;
 use runne_api::ProviderCredentialEnrollmentHostError;
 use runne_provider::daemon_credential_publication::CredentialSecretPublicationSigner;
 
@@ -56,6 +56,11 @@ pub(super) struct DaemonBrokerAuthority {
     )
 )]
 impl DaemonBrokerAuthority {
+    #[cfg(target_os = "macos")]
+    pub(super) const fn endpoint(&self) -> &UnixStream {
+        &self.endpoint
+    }
+
     #[must_use]
     #[cfg(feature = "desktop-protected")]
     pub(super) const fn channel_binding(&self) -> [u8; 32] {
@@ -98,6 +103,10 @@ impl DaemonBrokerAuthority {
 impl DaemonBrokerAuthority {
     pub(super) fn for_test(binding: [u8; 32]) -> Self {
         let (endpoint, _) = UnixStream::pair().unwrap();
+        Self::for_test_endpoint(binding, endpoint)
+    }
+
+    pub(super) fn for_test_endpoint(binding: [u8; 32], endpoint: UnixStream) -> Self {
         let signer = CredentialSecretPublicationSigner::generate(binding).unwrap();
         let publication_public_key = signer.public_key();
         Self {
@@ -187,7 +196,7 @@ impl DaemonOwnedUnixBrokerRendezvous {
     pub(super) fn handoff_writer_endpoint(
         &mut self,
         transport: UnixStream,
-        authenticator: &CredentialBrokerTransferAuthenticator,
+        authority: &ProviderCredentialBrokerTransferAuthority,
     ) -> Result<[u8; 32], ProviderCredentialEnrollmentHostError> {
         let binding = self.channel_binding;
         let publication_public_key = self.publication_public_key;
@@ -195,7 +204,7 @@ impl DaemonOwnedUnixBrokerRendezvous {
         runne_platform_desktop::provider_credential_broker::send_daemon_owned_writer_endpoint(
             transport,
             writer,
-            authenticator,
+            authority,
             binding,
             publication_public_key,
         )

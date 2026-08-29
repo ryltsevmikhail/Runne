@@ -5,8 +5,13 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+test-support = []
+
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
+nix = { version = "=0.31.3", default-features = false, features = ["socket"] }
+runne-api = { path = "../runne-api" }
 sha2.workspace = true
 
 [lints.rust]

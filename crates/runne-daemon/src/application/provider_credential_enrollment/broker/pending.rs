@@ -264,7 +264,7 @@ impl PendingBrokerEndpointHandoff {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
         self.rendezvous
-            .handoff_writer_endpoint(transport, transfer_authority.transfer_authenticator())?;
+            .handoff_writer_endpoint(transport, &transfer_authority)?;
         let authority = self.rendezvous.take_daemon_authority()?;
         Ok(AwaitingVerifiedWriter {
             binding: self.binding,

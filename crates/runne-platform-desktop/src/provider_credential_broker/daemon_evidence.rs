@@ -5,13 +5,16 @@ use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 
 use rand::{RngCore, rngs::OsRng};
-use runne_api::CredentialBrokerTransferAuthenticator;
+use runne_api::{
+    CredentialBrokerTransferAuthenticator, ProviderCredentialBrokerTransferAuthority,
+    ProviderCredentialBrokerWriterEvidenceWitness,
+};
 use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
 
 use super::WriterProcessEvidence;
 
 const CHALLENGE_BYTES: usize = 128;
-const RECORD_BYTES: usize = CHALLENGE_BYTES + 96;
+const RECORD_BYTES: usize = CHALLENGE_BYTES + 128;
 const FRAME_BYTES: usize = RECORD_BYTES + 32;
 const TRANSFER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 const CHALLENGE_TAG: &[u8] = b"gocode/provider-credential-broker/daemon-evidence/v1/challenge\0";
@@ -24,6 +27,7 @@ pub struct ReceivedWriterProcessMeasurements {
     release_tuple: [u8; 32],
     channel: [u8; 32],
     publication_public_key: [u8; 32],
+    witness: ProviderCredentialBrokerWriterEvidenceWitness,
 }
 
 impl ReceivedWriterProcessMeasurements {
@@ -40,6 +44,11 @@ impl ReceivedWriterProcessMeasurements {
             && self.release_tuple == expected_release_tuple
             && self.channel == expected_channel
             && self.publication_public_key == expected_publication_public_key
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn into_macos_peer_witness(self) -> ProviderCredentialBrokerWriterEvidenceWitness {
+        self.witness
     }
 
     #[cfg(test)]
@@ -85,9 +94,10 @@ pub(super) fn send_daemon_owned_writer_evidence(
     {
         return Err(BrokerHandoffError::Rejected);
     }
-    let (start, image, release_tuple, evidence_channel, evidence_key) = evidence
-        .daemon_handoff_digests()
-        .ok_or(BrokerHandoffError::Rejected)?;
+    let (start, image, release_tuple, evidence_channel, evidence_key, writer_kill_public_key) =
+        evidence
+            .daemon_handoff_digests()
+            .ok_or(BrokerHandoffError::Rejected)?;
     if channel != evidence_channel || public_key != evidence_key {
         return Err(BrokerHandoffError::Rejected);
     }
@@ -95,7 +105,8 @@ pub(super) fn send_daemon_owned_writer_evidence(
     record[..CHALLENGE_BYTES].copy_from_slice(&challenge);
     record[CHALLENGE_BYTES..160].copy_from_slice(&start);
     record[160..192].copy_from_slice(&image);
-    record[192..].copy_from_slice(&release_tuple);
+    record[192..224].copy_from_slice(&release_tuple);
+    record[224..].copy_from_slice(&writer_kill_public_key);
     let proof = authenticator.authenticate_transfer(&transcript(RESPONSE_TAG, &record));
     let mut frame = [0; FRAME_BYTES];
     frame[..RECORD_BYTES].copy_from_slice(&record);
@@ -111,18 +122,23 @@ pub(super) fn send_daemon_owned_writer_evidence(
 pub fn send_test_daemon_owned_writer_evidence(
     transport: UnixStream,
     authenticator: &CredentialBrokerTransferAuthenticator,
-    start: [u8; 32],
-    image: [u8; 32],
-    release_tuple: [u8; 32],
-    channel: [u8; 32],
-    publication_public_key: [u8; 32],
+    measurements: [[u8; 32]; 6],
 ) -> Result<(), BrokerHandoffError> {
+    let [
+        start,
+        image,
+        release_tuple,
+        channel,
+        publication_public_key,
+        writer_kill_public_key,
+    ] = measurements;
     let evidence = WriterProcessEvidence::new_daemon_bound(
         start,
         image,
         release_tuple,
         channel,
         publication_public_key,
+        writer_kill_public_key,
     )?;
     send_daemon_owned_writer_evidence(transport, authenticator, &evidence)
 }
@@ -134,11 +150,21 @@ pub fn send_test_daemon_owned_writer_evidence(
 /// Returns a closed failure when the challenge, frame, evidence, or proof is invalid.
 pub fn receive_daemon_owned_writer_measurements(
     mut transport: UnixStream,
-    authenticator: &CredentialBrokerTransferAuthenticator,
+    mut authority: ProviderCredentialBrokerTransferAuthority,
+    expected_release_tuple: [u8; 32],
     expected_channel: [u8; 32],
     expected_publication_public_key: [u8; 32],
-) -> Result<ReceivedWriterProcessMeasurements, BrokerHandoffError> {
-    if expected_channel == [0; 32] || expected_publication_public_key == [0; 32] {
+) -> Result<
+    (
+        ReceivedWriterProcessMeasurements,
+        ProviderCredentialBrokerTransferAuthority,
+    ),
+    BrokerHandoffError,
+> {
+    if expected_release_tuple == [0; 32]
+        || expected_channel == [0; 32]
+        || expected_publication_public_key == [0; 32]
+    {
         return Err(BrokerHandoffError::Rejected);
     }
     configure(&transport)?;
@@ -148,7 +174,8 @@ pub fn receive_daemon_owned_writer_measurements(
     OsRng
         .try_fill_bytes(&mut challenge[64..96])
         .map_err(|_| BrokerHandoffError::Unavailable)?;
-    let proof = authenticator.authenticate_transfer(&transcript(CHALLENGE_TAG, &challenge[..96]));
+    let proof =
+        authority.authenticate_daemon_transfer(&transcript(CHALLENGE_TAG, &challenge[..96]));
     challenge[96..].copy_from_slice(&proof);
     transport
         .write_all(&challenge)
@@ -159,36 +186,49 @@ pub fn receive_daemon_owned_writer_measurements(
         .try_into()
         .map_err(|_| BrokerHandoffError::Rejected)?;
     if frame[..CHALLENGE_BYTES] != challenge
-        || !authenticator
-            .verifies_transfer(&transcript(RESPONSE_TAG, &frame[..RECORD_BYTES]), &proof)
+        || !authority
+            .verifies_desktop_transfer(&transcript(RESPONSE_TAG, &frame[..RECORD_BYTES]), &proof)
     {
         return Err(BrokerHandoffError::Rejected);
     }
+    let record: &[u8; RECORD_BYTES] = frame[..RECORD_BYTES]
+        .try_into()
+        .map_err(|_| BrokerHandoffError::Rejected)?;
+    let witness = authority
+        .verify_writer_evidence(
+            record,
+            &proof,
+            expected_release_tuple,
+            expected_channel,
+            expected_publication_public_key,
+        )
+        .map_err(|_| BrokerHandoffError::Rejected)?;
     let start = frame[CHALLENGE_BYTES..160]
         .try_into()
         .map_err(|_| BrokerHandoffError::Rejected)?;
     let image = frame[160..192]
         .try_into()
         .map_err(|_| BrokerHandoffError::Rejected)?;
-    let release_tuple = frame[192..224]
+    let release_tuple: [u8; 32] = frame[192..224]
         .try_into()
         .map_err(|_| BrokerHandoffError::Rejected)?;
     let measurements = ReceivedWriterProcessMeasurements {
         start,
         image,
-        release_tuple,
+        release_tuple: expected_release_tuple,
         channel: expected_channel,
         publication_public_key: expected_publication_public_key,
+        witness,
     };
     if !measurements.matches_daemon_owned_release(
-        release_tuple,
+        expected_release_tuple,
         expected_channel,
         expected_publication_public_key,
-    ) || release_tuple == [0; 32]
+    ) || release_tuple != expected_release_tuple
     {
         return Err(BrokerHandoffError::Rejected);
     }
-    Ok(measurements)
+    Ok((measurements, authority))
 }
 
 fn read_one_shot<const BYTES: usize>(

@@ -1,7 +1,15 @@
-use runne_api::{CredentialBrokerTransferAuthenticator, LaunchSecret};
+use runne_api::{
+    CredentialBrokerTransferAuthenticator, LaunchSecret, ProviderCredentialBrokerTransferAuthority,
+};
 use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
 
 use super::*;
+
+fn daemon_authority(
+    authenticator: &CredentialBrokerTransferAuthenticator,
+) -> ProviderCredentialBrokerTransferAuthority {
+    ProviderCredentialBrokerTransferAuthority::test_only_from_authenticator(authenticator.clone())
+}
 
 #[cfg(target_os = "macos")]
 #[test]
@@ -28,6 +36,7 @@ fn prepared_daemon_endpoint_reaches_the_fixed_writer_without_tauri_receiving_it(
     let keys = LaunchSecret::from_bytes([31; 32]).unwrap().derive_keys();
     let sender_authenticator =
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
+    let sender_authority = daemon_authority(&sender_authenticator);
     let receiver_authenticator =
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
     let binding = [32; 32];
@@ -36,7 +45,7 @@ fn prepared_daemon_endpoint_reaches_the_fixed_writer_without_tauri_receiving_it(
         send_daemon_owned_writer_endpoint(
             sender,
             writer,
-            &sender_authenticator,
+            &sender_authority,
             binding,
             publication_key,
         )
@@ -119,10 +128,11 @@ fn prepared_daemon_endpoint_tampering_is_rejected_before_writer_handoff() {
     let receiver_keys = LaunchSecret::from_bytes([36; 32]).unwrap().derive_keys();
     let sender_authenticator =
         CredentialBrokerTransferAuthenticator::from_protected_activation(&sender_keys);
+    let sender_authority = daemon_authority(&sender_authenticator);
     let receiver_authenticator =
         CredentialBrokerTransferAuthenticator::from_protected_activation(&receiver_keys);
     let sender_thread = std::thread::spawn(move || {
-        send_daemon_owned_writer_endpoint(sender, writer, &sender_authenticator, [1; 32], [2; 32])
+        send_daemon_owned_writer_endpoint(sender, writer, &sender_authority, [1; 32], [2; 32])
     });
 
     let prepared = prepare_daemon_owned_writer_endpoint_handoff(
@@ -148,10 +158,11 @@ fn prepared_daemon_endpoint_rejects_substituted_publication_key_before_response(
     let keys = LaunchSecret::from_bytes([37; 32]).unwrap().derive_keys();
     let sender_authenticator =
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
+    let sender_authority = daemon_authority(&sender_authenticator);
     let receiver_authenticator =
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
     let sender_thread = std::thread::spawn(move || {
-        send_daemon_owned_writer_endpoint(sender, writer, &sender_authenticator, [1; 32], [2; 32])
+        send_daemon_owned_writer_endpoint(sender, writer, &sender_authority, [1; 32], [2; 32])
     });
 
     let prepared = prepare_daemon_owned_writer_endpoint_handoff(
