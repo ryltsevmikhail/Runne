@@ -17,7 +17,12 @@ const MAX_PENDING_ADMISSIONS: usize = 64;
 #[allow(dead_code)]
 pub(crate) struct PendingCredentialHttpAdmissions {
     issuer: ProviderCredentialRequestAuthorityIssuer,
-    entries: Mutex<HashMap<[u8; 32], PendingCredentialHttpAdmission>>,
+    state: Mutex<PendingCredentialHttpAdmissionState>,
+}
+
+struct PendingCredentialHttpAdmissionState {
+    entries: HashMap<[u8; 32], PendingCredentialHttpAdmission>,
+    consumed: HashMap<[u8; 32], u64>,
 }
 
 struct PendingCredentialHttpAdmission {
@@ -33,15 +38,18 @@ struct PendingCredentialHttpAdmission {
 #[allow(dead_code)]
 impl PendingCredentialHttpAdmissions {
     #[must_use]
-    pub(crate) fn new(issuer: ProviderCredentialRequestAuthorityIssuer) -> Self {
+    pub(super) fn new(issuer: ProviderCredentialRequestAuthorityIssuer) -> Self {
         Self {
             issuer,
-            entries: Mutex::new(HashMap::new()),
+            state: Mutex::new(PendingCredentialHttpAdmissionState {
+                entries: HashMap::new(),
+                consumed: HashMap::new(),
+            }),
         }
     }
 
     /// Registers one fully verified protected-control admission.
-    pub(crate) fn register(
+    pub(super) fn register(
         &self,
         request: VerifiedProtectedCredentialEnrollmentRequest,
         admission: VerifiedProtectedCredentialEnrollmentAdmission,
@@ -56,35 +64,42 @@ impl PendingCredentialHttpAdmissions {
         let action_provider_revision = request.action_provider_revision_binding();
         let command_identity = request.command_identity_binding();
         let expires_at_unix_millis = admission.expires_at_unix_millis();
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
+        state
+            .entries
+            .retain(|_, value| value.expires_at_unix_millis > now_unix_millis);
+        state.consumed.retain(|_, expiry| *expiry > now_unix_millis);
+        if state.entries.contains_key(&native_intent_digest)
+            || state.consumed.contains_key(&native_intent_digest)
+        {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        if state.entries.len() >= MAX_PENDING_ADMISSIONS {
+            return Err(ProviderCredentialEnrollmentHostError::Unavailable);
+        }
         let (authority, proof) = self
             .issuer
             .issue_from_verified_enrollment(request, admission)?;
-        let entry = PendingCredentialHttpAdmission {
-            protected_session_id,
-            action_provider_revision,
-            command_identity,
-            expires_at_unix_millis,
-            authority,
-            proof,
-            context,
-        };
-        let mut entries = self
-            .entries
-            .lock()
-            .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
-        entries.retain(|_, value| value.expires_at_unix_millis > now_unix_millis);
-        if entries.contains_key(&native_intent_digest) {
-            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
-        }
-        if entries.len() >= MAX_PENDING_ADMISSIONS {
-            return Err(ProviderCredentialEnrollmentHostError::Unavailable);
-        }
-        entries.insert(native_intent_digest, entry);
+        state.entries.insert(
+            native_intent_digest,
+            PendingCredentialHttpAdmission {
+                protected_session_id,
+                action_provider_revision,
+                command_identity,
+                expires_at_unix_millis,
+                authority,
+                proof,
+                context,
+            },
+        );
         Ok(())
     }
 
     /// Consumes the exact admission bound to a live session and V2 command.
-    pub(crate) fn take(
+    pub(super) fn take(
         &self,
         native_intent_id: &str,
         protected_session_id: [u8; 16],
@@ -103,14 +118,21 @@ impl PendingCredentialHttpAdmissions {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
         let native_intent_digest = protected_credential_native_intent_digest(native_intent_id);
-        let mut entries = self
-            .entries
+        let mut state = self
+            .state
             .lock()
             .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
-        entries.retain(|_, value| value.expires_at_unix_millis > now_unix_millis);
-        let entry = entries
+        state
+            .entries
+            .retain(|_, value| value.expires_at_unix_millis > now_unix_millis);
+        state.consumed.retain(|_, expiry| *expiry > now_unix_millis);
+        let entry = state
+            .entries
             .remove(&native_intent_digest)
             .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        state
+            .consumed
+            .insert(native_intent_digest, entry.expires_at_unix_millis);
         if entry.expires_at_unix_millis <= now_unix_millis
             || entry.protected_session_id != protected_session_id
             || entry.action_provider_revision != action_provider_revision
@@ -123,136 +145,5 @@ impl PendingCredentialHttpAdmissions {
 }
 
 #[cfg(test)]
-mod tests {
-    use runne_api::{
-        ApiActor, ApiPrincipalId, LaunchSecret, ProtectedCredentialEnrollmentAdmissionBinding,
-        ProtectedCredentialEnrollmentAuthenticator, ProtectedCredentialEnrollmentControlFrame,
-        ProtectedCredentialEnrollmentRequestBinding, ProviderCredentialCommandContext,
-        ProviderCredentialRequestAuthorityPair,
-    };
-    use runne_domain::id::{CommandId, IdempotencyKey};
-
-    use super::*;
-
-    #[test]
-    fn pending_admission_requires_the_exact_native_intent_session_and_claims_once() {
-        let (registry, request, admission) = verified_admission();
-        registry
-            .register(request, admission, context(), 100_000)
-            .unwrap();
-
-        assert!(
-            registry
-                .take("intent-b", uuid(2), [8; 32], [9; 32], 110_000)
-                .is_err()
-        );
-        assert!(
-            registry
-                .take("intent-a", uuid(2), [8; 32], [9; 32], 110_000)
-                .is_ok()
-        );
-        assert!(
-            registry
-                .take("intent-a", uuid(2), [8; 32], [9; 32], 110_000)
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn matching_intent_with_substituted_claim_consumes_the_admission() {
-        let (registry, request, admission) = verified_admission();
-        registry
-            .register(request, admission, context(), 100_000)
-            .unwrap();
-
-        assert!(
-            registry
-                .take("intent-a", uuid(2), [8; 32], [10; 32], 110_000)
-                .is_err()
-        );
-        assert!(
-            registry
-                .take("intent-a", uuid(2), [8; 32], [9; 32], 110_000)
-                .is_err()
-        );
-    }
-
-    fn verified_admission() -> (
-        PendingCredentialHttpAdmissions,
-        VerifiedProtectedCredentialEnrollmentRequest,
-        VerifiedProtectedCredentialEnrollmentAdmission,
-    ) {
-        let keys = LaunchSecret::from_bytes([1; 32]).unwrap().derive_keys();
-        let authenticator =
-            ProtectedCredentialEnrollmentAuthenticator::from_protected_activation(&keys);
-        let request_binding = ProtectedCredentialEnrollmentRequestBinding::new(
-            uuid(1),
-            uuid(2),
-            uuid(3),
-            3,
-            2,
-            uuid(4),
-            [4; 32],
-            [5; 32],
-            [6; 32],
-            [7; 32],
-            protected_credential_native_intent_digest("intent-a"),
-            [8; 32],
-            [9; 32],
-            100_000,
-            120_000,
-        )
-        .unwrap();
-        let request_frame = ProtectedCredentialEnrollmentControlFrame::Request(
-            authenticator
-                .issue_request(request_binding.clone(), 1)
-                .unwrap(),
-        )
-        .encode_frame();
-        let request = authenticator
-            .decode_request(&request_frame, &request_binding, 0, 110_000)
-            .unwrap();
-        let admission_binding = ProtectedCredentialEnrollmentAdmissionBinding::new(
-            [10; 32],
-            [4; 32],
-            [11; 32],
-            2,
-            [12; 32],
-            4,
-            [5; 32],
-            [6; 32],
-            [7; 32],
-            uuid(5),
-            120_000,
-        )
-        .unwrap();
-        let admission_frame = ProtectedCredentialEnrollmentControlFrame::Admission(
-            authenticator
-                .issue_admission(&request, admission_binding.clone(), 2)
-                .unwrap(),
-        )
-        .encode_frame();
-        let admission = authenticator
-            .decode_admission(&admission_frame, &request, &admission_binding, 1, 110_000)
-            .unwrap();
-        let (issuer, _) = ProviderCredentialRequestAuthorityPair::new().split();
-        (
-            PendingCredentialHttpAdmissions::new(issuer),
-            request,
-            admission,
-        )
-    }
-
-    fn context() -> ProviderCredentialCommandContext {
-        ProviderCredentialCommandContext {
-            command_id: CommandId::from_bytes([1; 16]),
-            idempotency_key: IdempotencyKey::new("credential-admission").unwrap(),
-            principal: ApiPrincipalId::new("credential-principal").unwrap(),
-            actor: ApiActor::new("credential-host").unwrap(),
-        }
-    }
-
-    fn uuid(value: u8) -> [u8; 16] {
-        [0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, value]
-    }
-}
+#[path = "admission_registry_tests.rs"]
+mod tests;

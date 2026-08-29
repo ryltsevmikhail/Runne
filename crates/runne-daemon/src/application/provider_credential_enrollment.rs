@@ -1,6 +1,9 @@
 mod admission_registry;
 mod begin;
 mod broker;
+mod control_exchange;
+#[cfg(test)]
+mod control_exchange_tests;
 mod coordinator;
 mod effect_authority;
 mod host;
