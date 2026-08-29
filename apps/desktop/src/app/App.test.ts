@@ -136,6 +136,47 @@ describe('desktop application shell', () => {
     expect(wrapper.get('nav').attributes('aria-label')).toBe('Primary')
   })
 
+  it('expands the desktop navigation after it is collapsed', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes,
+    })
+    await router.push('/')
+    await router.isReady()
+
+    const wrapper = mount(App, {
+      global: { plugins: [router] },
+    })
+
+    await wrapper.get('[aria-label="Collapse sidebar"]').trigger('click')
+    const expandButton = wrapper.get('[aria-label="Expand sidebar"]')
+    await expandButton.trigger('click')
+
+    expect(wrapper.get('aside').classes()).not.toContain('sidebar--collapsed')
+    expect(wrapper.find('[aria-label="Collapse sidebar"]').exists()).toBe(true)
+  })
+
+  it('keeps narrow sidebar labels available without entering collapsed state', async () => {
+    const previousWidth = window.innerWidth
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1023 })
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes,
+    })
+    await router.push('/')
+    await router.isReady()
+
+    const wrapper = mount(App, {
+      global: { plugins: [router] },
+    })
+
+    expect(wrapper.get('aside').classes()).not.toContain('sidebar--collapsed')
+    expect(wrapper.get('.gc-sidebar-item').attributes('aria-label')).toBe('Projects')
+    expect(wrapper.get('.gc-sidebar-item:nth-of-type(2)').attributes('aria-label')).toBe('Settings')
+
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: previousWidth })
+  })
+
   it('links the diagnostics action to the documented local route', async () => {
     const router = createRouter({
       history: createMemoryHistory(),

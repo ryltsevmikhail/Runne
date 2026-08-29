@@ -1,5 +1,4 @@
 .sidebar--collapsed .brand-lockup,
-.sidebar--collapsed .collapse-button,
 .sidebar--collapsed .nav-label,
 .sidebar--collapsed .nav-item span,
 .sidebar--collapsed .status-copy {
@@ -55,6 +54,34 @@
   .nav-item,
   .runtime-status {
     justify-content: center;
+  }
+
+  .app-sidebar-navigation.gc-sidebar .gc-sidebar-brand-header {
+    justify-content: center;
+  }
+
+  .app-sidebar-navigation.gc-sidebar .gc-sidebar-brand-lockup {
+    display: none;
+  }
+
+  .app-sidebar-navigation.gc-sidebar .gc-sidebar-brand-glyph-shell {
+    display: block;
+  }
+
+  .app-sidebar-navigation.gc-sidebar .gc-sidebar-item {
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .app-sidebar-navigation.gc-sidebar .gc-sidebar-label,
+  .app-sidebar-navigation.gc-sidebar .gc-sidebar-badge {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .workspace {

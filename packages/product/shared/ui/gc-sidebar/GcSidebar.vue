@@ -61,7 +61,7 @@ defineEmits<{
       :key="item.id"
       :class="['gc-sidebar-item', { 'gc-sidebar-item--active': item.id === activeItem }]"
       type="button"
-      :aria-label="collapsed ? item.label : undefined"
+      :aria-label="item.label"
       @click="$emit('navigate', item.id)"
     >
       <component

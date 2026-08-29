@@ -91,6 +91,14 @@ describe('GcSidebar', () => {
     expect(buttons[2].attributes('aria-label')).toBe('Profile')
   })
 
+  it('exposes item labels when responsive CSS hides their text', () => {
+    const wrapper = mount(GcSidebar, { props: { items } })
+    const buttons = wrapper.findAll('.gc-sidebar-item')
+
+    expect(buttons[0].attributes('aria-label')).toBe('Home')
+    expect(buttons[1].attributes('aria-label')).toBe('Settings')
+  })
+
   it('collapsed width is 56px', () => {
     const wrapper = mount(GcSidebar, {
       props: { items, collapsed: true },
