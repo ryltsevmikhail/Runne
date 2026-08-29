@@ -17,6 +17,7 @@ pub(super) enum DaemonLaunchRequest {
 pub(crate) struct VerifiedDaemonEnrollmentLaunchAuthority {
     provider: ProviderActivationBindingV1,
     binding: Box<ProtectedCredentialEnrollmentLaunchBindingV1>,
+    prelude: Box<runne_api::DaemonEnrollmentLaunchPreludeV1>,
 }
 
 #[cfg(test)]
@@ -24,10 +25,12 @@ impl VerifiedDaemonEnrollmentLaunchAuthority {
     pub(super) fn test_only(
         provider: ProviderActivationBindingV1,
         binding: ProtectedCredentialEnrollmentLaunchBindingV1,
+        prelude: runne_api::DaemonEnrollmentLaunchPreludeV1,
     ) -> Self {
         Self {
             provider,
             binding: Box::new(binding),
+            prelude: Box::new(prelude),
         }
     }
 }
@@ -119,12 +122,19 @@ impl DaemonLaunchRequest {
                     &authority.provider,
                     &authority.binding,
                 )?;
+                if request.launch_authority_id() != authority.prelude.launch_authority_id()
+                    || request.desktop_host_instance_id()
+                        != authority.prelude.desktop_host_instance_id()
+                {
+                    return Err(LaunchAuthorityError::OwnershipMismatch);
+                }
+                authority.prelude.validate_freshness(now_unix_millis)?;
                 let keys = request.derive_keys();
                 let actual =
                     runne_api::CredentialBrokerTransferAuthenticator::from_protected_activation(
                         &keys,
                     )
-                    .enrollment_launch_commitment(request.launch_authority_id());
+                    .enrollment_launch_commitment(&authority.prelude);
                 if actual != *authority.binding.broker_transfer_commitment() {
                     return Err(LaunchAuthorityError::OwnershipMismatch);
                 }

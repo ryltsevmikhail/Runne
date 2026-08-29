@@ -61,6 +61,16 @@ impl DaemonEnrollmentLaunchPreludeV1 {
     #[must_use]
     pub const fn launch_authority_id(&self) -> [u8; 16] { self.launch_authority_id }
 
+    #[must_use]
+    pub const fn desktop_host_instance_id(&self) -> [u8; 16] { self.desktop_host_instance_id }
+
+    pub fn validate_freshness(&self, now_unix_millis: u64) -> Result<(), LaunchAuthorityError> {
+        if now_unix_millis < self.issued_at_unix_millis || now_unix_millis > self.expires_at_unix_millis {
+            return Err(LaunchAuthorityError::StaleLaunchAuthority);
+        }
+        Ok(())
+    }
+
     pub fn encode_frame(&self) -> Result<Vec<u8>, EncodeError> { encode_v3_frame(self) }
 
     pub fn decode_frame(frame: &[u8]) -> Result<Self, DecodeError> { decode_v3_frame(frame) }

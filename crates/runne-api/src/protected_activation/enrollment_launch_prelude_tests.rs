@@ -163,3 +163,45 @@ fn enrollment_launch_prelude_rejects_invalid_shapes_and_redacts_debug() {
     let debug = format!("{value:?}");
     assert!(!debug.contains("030303") && !debug.contains("040404"));
 }
+
+#[test]
+fn enrollment_launch_prelude_freshness_is_closed_at_both_deadline_sides() {
+    let prelude = DaemonEnrollmentLaunchPreludeV1::macos_arm64(
+        id(1),
+        id(2),
+        [3; 32],
+        [4; 32],
+        [5; 32],
+        [6; 32],
+        [7; 32],
+        1,
+        10,
+        20,
+    )
+    .unwrap();
+    assert_eq!(
+        prelude.validate_freshness(9),
+        Err(LaunchAuthorityError::StaleLaunchAuthority)
+    );
+    assert_eq!(prelude.validate_freshness(10), Ok(()));
+    assert_eq!(prelude.validate_freshness(20), Ok(()));
+    assert_eq!(
+        prelude.validate_freshness(21),
+        Err(LaunchAuthorityError::StaleLaunchAuthority)
+    );
+    assert!(
+        DaemonEnrollmentLaunchPreludeV1::macos_arm64(
+            id(1),
+            id(2),
+            [3; 32],
+            [4; 32],
+            [5; 32],
+            [6; 32],
+            [7; 32],
+            1,
+            10,
+            40_011,
+        )
+        .is_err()
+    );
+}

@@ -267,12 +267,12 @@ fn enrollment_v3_wire_ids_and_decoders_are_strict_for_each_phase() {
 fn enrollment_v3_fixed_wire_goldens_are_stable() {
     use sha2::{Digest, Sha256};
     let expected = [
-        "ca9c472b7a1300f2c643163a0b1a4f7543ec17effb0a00bc41ef8fd9504c7452",
-        "d236c8c62958150e2f9fb42d1038bf1b58c0f4f85a9a0bcf0f2756c7a535a7da",
-        "6e81d998b3c5eacf118945296f10bb45d522a72124e2549dbeabcb682d7b8d20",
-        "a2eed47ba96eb832c0fd843b40ee8e4d9eaadc6e8b24449a6ef3ab5e8b128a75",
-        "6ad4bd62777b54ff9b722d9829aa82d36ad79b4086bf2153642f3387add40533",
-        "ac595add91827a3a6ebd151fb056b5e54ae1c7988754e6a9fc83b72a671c54f6",
+        "a90486c2a02533126463de23f4b822156a45e282b4193318fdce23ee3dd846b4",
+        "0d09846c139d7cb4a192b81374a317f8a180f078c6218b37c68a34e32b99139b",
+        "59f3c55a578051258f1b2e5a1702cef3b249d072122a5dd9df9e7251deb4ded8",
+        "3fd2f299abc78d3bae1a2c0156e2a9190f3aa0bd080a04ac8c98a20fe2588703",
+        "3dd85ab40c71f72ccfbf9dc6dccc915de9bb19b3603c4a35def90fc4ce758cd2",
+        "d20af3365006105b303d2d3eb850bcaed5499c47b9579e403e52ce2c17b96d4f",
     ];
     for (frame, expected) in signed_frames().into_iter().zip(expected) {
         assert_eq!(format!("{:x}", Sha256::digest(frame)), expected);

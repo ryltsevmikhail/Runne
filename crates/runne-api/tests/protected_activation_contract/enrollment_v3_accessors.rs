@@ -8,6 +8,10 @@ fn enrollment_v3_exposes_only_semantic_cross_crate_accessors() {
     .unwrap();
     let commitment = CredentialBrokerTransferAuthenticator::from_protected_activation(&keys)
         .enrollment_launch_commitment(&prelude);
+    let _ = (
+        prelude.launch_authority_id(),
+        prelude.desktop_host_instance_id(),
+    );
     let binding = ProtectedCredentialEnrollmentLaunchBindingV1::macos_apple_silicon(
         [1; 32],
         [2; 32],

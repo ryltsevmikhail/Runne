@@ -38,13 +38,18 @@ fn v3_fixture_with_peer_digest(
     .expect("V1 request");
     let keys = request.derive_keys();
     let broker = runne_api::CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
+    let prelude = runne_api::DaemonEnrollmentLaunchPreludeV1::macos_arm64(
+        request.launch_authority_id(), request.desktop_host_instance_id(), [10; 32], [11; 32],
+        [12; 32], [6; 32], [peer_digest_byte; 32], 1, 10, 20,
+    )
+    .expect("enrollment prelude");
     let binding = runne_api::ProtectedCredentialEnrollmentLaunchBindingV1::macos_apple_silicon(
         [6; 32],
         [7; 32],
         [8; 32],
         [peer_digest_byte; 32],
         1,
-        broker.enrollment_launch_commitment(request.launch_authority_id()),
+        broker.enrollment_launch_commitment(&prelude),
     )
     .expect("enrollment binding");
     let launch = runne_api::ProtectedCredentialEnrollmentLaunchRequestV3::new(

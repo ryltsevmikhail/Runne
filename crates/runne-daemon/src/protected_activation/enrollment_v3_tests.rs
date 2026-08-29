@@ -42,6 +42,7 @@ fn launch() -> (
     ProtectedLaunchRequestV1,
     ProtectedCredentialEnrollmentLaunchBindingV1,
     runne_api::ProtectedActivationKeys,
+    runne_api::DaemonEnrollmentLaunchPreludeV1,
 ) {
     let request = ProtectedLaunchRequestV1::new(
         id(1),
@@ -57,13 +58,26 @@ fn launch() -> (
     )
     .unwrap();
     let keys = request.derive_keys();
+    let prelude = runne_api::DaemonEnrollmentLaunchPreludeV1::macos_arm64(
+        request.launch_authority_id(),
+        request.desktop_host_instance_id(),
+        [10; 32],
+        [11; 32],
+        [12; 32],
+        [6; 32],
+        [9; 32],
+        1,
+        10,
+        20,
+    )
+    .unwrap();
     let commitment = CredentialBrokerTransferAuthenticator::from_protected_activation(&keys)
-        .enrollment_launch_commitment(request.launch_authority_id());
+        .enrollment_launch_commitment(&prelude);
     let binding = ProtectedCredentialEnrollmentLaunchBindingV1::macos_apple_silicon(
         [6; 32], [7; 32], [8; 32], [9; 32], 1, commitment,
     )
     .unwrap();
-    (request, binding, keys)
+    (request, binding, keys, prelude)
 }
 
 fn validation<'a>(request: &'a ProtectedLaunchRequestV1) -> LaunchAuthorityValidationV1<'a> {
@@ -78,8 +92,9 @@ fn enrollment_request() -> (
     ProtectedCredentialEnrollmentLaunchRequestV3,
     ProtectedCredentialEnrollmentLaunchBindingV1,
     runne_api::ProtectedActivationKeys,
+    runne_api::DaemonEnrollmentLaunchPreludeV1,
 ) {
-    let (request, binding, keys) = launch();
+    let (request, binding, keys, prelude) = launch();
     (
         ProtectedCredentialEnrollmentLaunchRequestV3::new(
             request,
@@ -89,6 +104,7 @@ fn enrollment_request() -> (
         .unwrap(),
         binding,
         keys,
+        prelude,
     )
 }
 
@@ -102,7 +118,7 @@ fn owned_and_sessions() -> (
     runne_api::ProtectedActivationKeys,
     Arc<Mutex<LocalSessionService>>,
 ) {
-    let (launch, binding, keys) = enrollment_request();
+    let (launch, binding, keys, _) = enrollment_request();
     let stable =
         StableRuntimeBindingV1::new(id(10), "local-owner", id(11), "fixture", [1; 32], [2; 32])
             .unwrap();
@@ -175,7 +191,7 @@ fn legacy_owned() -> (
     runne_api::ProtectedOwnedLaunchV1,
     runne_api::ProtectedActivationKeys,
 ) {
-    let (request, _, keys) = launch();
+    let (request, _, keys, _) = launch();
     let stable =
         StableRuntimeBindingV1::new(id(10), "local-owner", id(11), "fixture", [1; 32], [2; 32])
             .unwrap();

@@ -1,6 +1,7 @@
 use runne_api::{
-    ActivationDispositionV1, CredentialBrokerTransferAuthenticator, ExecutableIdentityV1,
-    LaunchSecret, ProtectedCredentialEnrollmentLaunchBindingV1, ProtectedRuntimeProfileV1,
+    ActivationDispositionV1, CredentialBrokerTransferAuthenticator,
+    DaemonEnrollmentLaunchPreludeV1, ExecutableIdentityV1, LaunchSecret,
+    ProtectedCredentialEnrollmentLaunchBindingV1, ProtectedRuntimeProfileV1,
     ProviderActivationReadinessV1, StableRuntimeBindingV1,
 };
 
@@ -159,6 +160,11 @@ fn v3_fixture(
     )
     .expect("launch");
     let keys = request.derive_keys();
+    let prelude = DaemonEnrollmentLaunchPreludeV1::macos_arm64(
+        request.launch_authority_id(), request.desktop_host_instance_id(), [10; 32], [11; 32],
+        [12; 32], [binding_marker; 32], [binding_marker.wrapping_add(3); 32], 1, 1_000, 31_000,
+    )
+    .expect("enrollment prelude");
     let binding = ProtectedCredentialEnrollmentLaunchBindingV1::macos_apple_silicon(
         [binding_marker; 32],
         [binding_marker.wrapping_add(1); 32],
@@ -166,7 +172,7 @@ fn v3_fixture(
         [binding_marker.wrapping_add(3); 32],
         1,
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys)
-            .enrollment_launch_commitment(request.launch_authority_id()),
+            .enrollment_launch_commitment(&prelude),
     )
     .expect("enrollment binding");
     let launch = ProtectedCredentialEnrollmentLaunchRequestV3::new(
