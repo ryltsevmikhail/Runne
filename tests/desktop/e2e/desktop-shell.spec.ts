@@ -41,6 +41,8 @@ test('terminal output remains readable in the light theme', async ({ page }) => 
   const terminal = page.locator('.app-shell').evaluateHandle(shell => {
     const panel = document.createElement('section')
     panel.className = 'terminal-panel'
+    const headingRow = document.createElement('div')
+    headingRow.className = 'panel-heading'
     const heading = document.createElement('h2')
     heading.textContent = 'Terminal'
     const status = document.createElement('p')
@@ -48,12 +50,13 @@ test('terminal output remains readable in the light theme', async ({ page }) => 
     const output = document.createElement('pre')
     output.className = 'terminal-panel__output'
     output.textContent = 'runtime-owned output'
-    panel.append(heading, status, output)
+    headingRow.append(heading)
+    panel.append(headingRow, status, output)
     shell.append(panel)
     return panel
   })
   const colors = await (await terminal).evaluate(panel => {
-    const heading = panel.querySelector('h2')
+    const heading = panel.querySelector('.panel-heading > h2')
     const status = panel.querySelector('p')
     const output = panel.querySelector('.terminal-panel__output')
     const shell = document.querySelector('.app-shell')

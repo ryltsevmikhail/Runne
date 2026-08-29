@@ -98,6 +98,10 @@
   font-weight: 650;
 }
 
+.terminal-panel .panel-heading {
+  color: var(--runne-terminal-foreground);
+}
+
 .terminal-panel > p {
   margin: 14px 0 0;
   font-size: 11px;
