@@ -219,26 +219,20 @@ async fn broker_mode_is_not_reachable_from_async_dispatch() {
 }
 
 #[test]
-fn broker_secret_line_parser_requires_one_terminated_line() {
-    let material = read_secret_line(&mut std::io::Cursor::new(b"secret\n"))
-        .expect("one complete credential line");
-    material.with_bytes(|value| assert_eq!(value, b"secret"));
-
+fn broker_secret_envelope_reader_rejects_invalid_or_oversized_eof_input() {
     for invalid in [
         b"".as_slice(),
-        b"secret".as_slice(),
-        b"\n".as_slice(),
+        b"secret\n".as_slice(),
         b"secret\ntrailing".as_slice(),
-        b"secret\0\n".as_slice(),
     ] {
         assert!(matches!(
-            read_secret_line(&mut std::io::Cursor::new(invalid)),
+            read_sealed_pair_envelope(&mut std::io::Cursor::new(invalid)),
             Err(CliError::CredentialOperation)
         ));
     }
-    let oversized = [b'a'; runne_secure_store::MAX_PROVIDER_CREDENTIAL_BYTES + 1];
+    let oversized = vec![b'a'; runne_provider::CredentialSecretEnvelopeCodec::MAX_BYTES + 1];
     assert!(matches!(
-        read_secret_line(&mut std::io::Cursor::new(oversized)),
+        read_sealed_pair_envelope(&mut std::io::Cursor::new(oversized)),
         Err(CliError::CredentialOperation)
     ));
 }

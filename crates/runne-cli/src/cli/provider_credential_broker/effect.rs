@@ -2,10 +2,45 @@
 
 use runne_provider::{CredentialBrokerFrame, CredentialOperationAction};
 use runne_secure_store::{
-    BrokeredDeleteInput, BrokeredLegacySourceDeleteInput, BrokeredMigrateLegacyInput,
+    BrokeredCreateInput, BrokeredDeleteInput, BrokeredLegacySourceDeleteInput,
+    BrokeredMigrateLegacyInput,
 };
 
-use super::{CliError, claim::AuthorizedWriterControl};
+use super::{CliError, claim::AuthorizedWriterControl, pair::AuthorizedPairWriterControl};
+
+/// Executes a sealed Pair effect only after source decoding and claim acceptance.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "native daemon admission has not yet reached the sealed Pair effect executor"
+    )
+)]
+pub fn execute_pair_effect(authority: AuthorizedPairWriterControl) -> Result<(), CliError> {
+    let super::pair::PairEffectParts {
+        mut control,
+        writer,
+        authorization,
+        command,
+        binding,
+        channel,
+        pending,
+        envelope,
+    } = authority.into_effect_parts();
+    if command.action() != CredentialOperationAction::Pair {
+        return Err(CliError::CredentialOperation);
+    }
+    let input =
+        BrokeredCreateInput::new(command.clone(), binding, channel).map_err(|_| CliError::CredentialOperation)?;
+    let result = writer
+        .create_sealed_exact(authorization, input, pending, envelope)
+        .map_err(|_| CliError::CredentialOperation);
+    control.write_frame(CredentialBrokerFrame::NativeEffectObserved {
+        operation_id: command.operation_id(),
+        binding,
+    })?;
+    result
+}
 
 /// Executes a closed non-Pair effect only after native endpoint admission.
 #[cfg_attr(

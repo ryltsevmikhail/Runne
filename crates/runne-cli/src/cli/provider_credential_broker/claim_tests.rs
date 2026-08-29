@@ -76,12 +76,7 @@ fn pair_claim_sends_one_ticket_and_returns_post_ack_authorization() {
     let claimed =
         claim_writer_authorization(endpoint, native_writers()).expect("exact acknowledgement");
     assert_eq!(Arc::strong_count(&written), 2, "control remains retained");
-    let authorized = claimed
-        .read_pair_secret(&mut Cursor::new(b"secret\n"))
-        .expect("secret only after acknowledgement");
-    assert_eq!(authorized.command_for_test(), &command);
-    authorized.with_secret_for_test(|secret| assert_eq!(secret, b"secret"));
-    drop(authorized);
+    drop(claimed);
     assert_eq!(
         Arc::strong_count(&written),
         1,

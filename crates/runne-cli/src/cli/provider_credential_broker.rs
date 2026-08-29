@@ -12,6 +12,8 @@ mod bootstrap;
 mod claim;
 #[path = "provider_credential_broker/effect.rs"]
 mod effect;
+#[path = "provider_credential_broker/pair.rs"]
+mod pair;
 #[path = "provider_credential_broker/secret.rs"]
 mod secret;
 
@@ -27,9 +29,12 @@ mod effect_tests;
 #[cfg(test)]
 #[path = "provider_credential_broker/effect_test_support.rs"]
 mod effect_test_support;
+#[cfg(test)]
+#[path = "provider_credential_broker/pair_tests.rs"]
+mod pair_tests;
 
 #[cfg(test)]
-use secret::read_secret_line;
+use secret::read_sealed_pair_envelope;
 
 use runne_provider::PROVIDER_CREDENTIAL_BROKER_MODE_V1;
 

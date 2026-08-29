@@ -21,8 +21,13 @@ use super::claim::{
     AuthenticatedDaemonControlEndpoint, ClaimedWriterControl, claim_writer_authorization_for_test,
 };
 
+#[path = "effect_test_support/pair.rs"]
+mod pair;
+pub use pair::{pair_authorized, pair_authorized_with_diagnostic_failure};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EffectCall {
+    Create,
     Delete,
     ImportLegacy,
     DeleteLegacySource,
@@ -53,6 +58,7 @@ fn claimed_from_endpoint(
     let calls = Arc::new(Mutex::new(Vec::new()));
     let writer: Arc<dyn BrokeredProviderCredentialWriter> = Arc::new(FakeWriter {
         calls: calls.clone(),
+        create_succeeds: false,
     });
     let (issuer, _) = CredentialWriterAuthorityPair::new().split();
     ClaimFixture {
@@ -168,6 +174,7 @@ fn command(action: CredentialOperationAction) -> CredentialBrokerCommand {
 
 struct FakeWriter {
     calls: Arc<Mutex<Vec<EffectCall>>>,
+    create_succeeds: bool,
 }
 
 impl FakeWriter {
@@ -184,7 +191,10 @@ impl BrokeredProviderCredentialWriter for FakeWriter {
         _pending: PendingCredentialSecretOpening,
         _envelope: SealedCredentialEnvelope,
     ) -> Result<(), SecureStoreError> {
-        Err(SecureStoreError::ProviderCredentialOperationFailed)
+        self.record(EffectCall::Create);
+        self.create_succeeds
+            .then_some(())
+            .ok_or(SecureStoreError::ProviderCredentialOperationFailed)
     }
 
     fn delete_exact(

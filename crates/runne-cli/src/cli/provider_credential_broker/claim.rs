@@ -11,10 +11,10 @@ use runne_provider::{
     CredentialOperationAction, CredentialWriterClaimIssuer, PendingCredentialSecretOpening,
 };
 use runne_secure_store::{
-    BrokeredProviderCredentialWriter, NativeProviderCredentialWriters, ProviderCredentialMaterial,
+    BrokeredProviderCredentialWriter, NativeProviderCredentialWriters,
 };
 
-use super::{CliError, secret::read_secret_line};
+use super::CliError;
 
 pub trait BrokerControl {
     fn read_frame(&mut self) -> Result<CredentialBrokerFrame, CliError>;
@@ -68,6 +68,16 @@ pub struct ClaimedWriterControl {
     pending_pair_secret_opening: Option<PendingCredentialSecretOpening>,
 }
 
+pub struct ClaimedPairParts {
+    pub control: Box<dyn BrokerControl>,
+    pub writer: Arc<dyn BrokeredProviderCredentialWriter>,
+    pub authorization: ClaimedWriterAuthorization,
+    pub command: CredentialBrokerCommand,
+    pub binding: CredentialBindingDigest,
+    pub channel: BrokerChannelBinding,
+    pub pending_opening: Option<PendingCredentialSecretOpening>,
+}
+
 /// Effect authority retaining the same channel for the later exact diagnostic.
 pub struct AuthorizedWriterControl {
     _control: Box<dyn BrokerControl>,
@@ -101,14 +111,28 @@ impl AuthorizedWriterControl {
     }
 }
 
-/// Pair-only secret and effect authority consumed together exactly once.
-pub struct AuthorizedPairWriterControl {
-    authorized: AuthorizedWriterControl,
-    material: ProviderCredentialMaterial,
-    _pending_opening: PendingCredentialSecretOpening,
-}
-
 impl ClaimedWriterControl {
+    pub(super) fn into_pair_parts(self) -> ClaimedPairParts {
+        let Self {
+            control,
+            writer,
+            authorization,
+            command,
+            binding,
+            channel,
+            pending_pair_secret_opening,
+        } = self;
+        ClaimedPairParts {
+            control,
+            writer,
+            authorization,
+            command,
+            binding,
+            channel,
+            pending_opening: pending_pair_secret_opening,
+        }
+    }
+
     /// Authorizes a non-Pair effect without opening or reading a secret source.
     pub fn authorize_without_secret(self) -> Result<AuthorizedWriterControl, CliError> {
         let Self {
@@ -132,60 +156,12 @@ impl ClaimedWriterControl {
             _channel: channel,
         })
     }
-
-    /// Reads one Pair secret only after the exact claim acknowledgement.
-    pub fn read_pair_secret(
-        self,
-        reader: &mut impl Read,
-    ) -> Result<AuthorizedPairWriterControl, CliError> {
-        let Self {
-            control,
-            writer,
-            authorization,
-            command,
-            binding,
-            channel,
-            pending_pair_secret_opening,
-        } = self;
-        let pending_opening = pending_pair_secret_opening.ok_or(CliError::CredentialOperation)?;
-        if command.action() != CredentialOperationAction::Pair {
-            return Err(CliError::CredentialOperation);
-        }
-        let material = read_secret_line(reader)?;
-        Ok(AuthorizedPairWriterControl {
-            authorized: AuthorizedWriterControl {
-                _control: control,
-                _writer: writer,
-                _authorization: authorization,
-                command,
-                _binding: binding,
-                _channel: channel,
-            },
-            material,
-            _pending_opening: pending_opening,
-        })
-    }
 }
 
 #[cfg(test)]
 impl AuthorizedWriterControl {
     pub const fn command_for_test(&self) -> &CredentialBrokerCommand {
         &self.command
-    }
-}
-
-#[cfg(test)]
-impl AuthorizedPairWriterControl {
-    pub const fn command_for_test(&self) -> &CredentialBrokerCommand {
-        &self.authorized.command
-    }
-
-    pub fn with_secret_for_test(&self, inspect: impl FnOnce(&[u8])) {
-        self.material.with_bytes(inspect);
-    }
-
-    pub fn into_authorized_for_test(self) -> AuthorizedWriterControl {
-        self.authorized
     }
 }
 

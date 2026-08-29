@@ -1,13 +1,13 @@
 use std::io::Read;
 
-use runne_secure_store::{MAX_PROVIDER_CREDENTIAL_BYTES, ProviderCredentialMaterial};
+use runne_provider::{CredentialSecretEnvelopeCodec, SealedCredentialEnvelope};
 use zeroize::Zeroizing;
 
 use super::CliError;
 
-/// Parses exactly one bounded credential line for the consuming claim state.
+/// Reads exactly one bounded sealed Pair envelope to EOF.
 ///
-/// The returned material remains zeroizing. Any partial, invalid, oversized,
+/// The only decoder is the typed secret relay codec. Partial, invalid, oversized,
 /// or trailing input fails before a native writer effect can begin.
 #[cfg_attr(
     not(test),
@@ -16,36 +16,25 @@ use super::CliError;
         reason = "the authenticated inherited-channel runner is composed after the platform handoff"
     )
 )]
-pub fn read_secret_line(reader: &mut impl Read) -> Result<ProviderCredentialMaterial, CliError> {
-    let mut bytes = Zeroizing::new(Vec::with_capacity(MAX_PROVIDER_CREDENTIAL_BYTES));
+pub fn read_sealed_pair_envelope(
+    reader: &mut impl Read,
+) -> Result<SealedCredentialEnvelope, CliError> {
+    let mut bytes = Zeroizing::new(Vec::with_capacity(CredentialSecretEnvelopeCodec::MAX_BYTES));
     loop {
         let mut byte = [0_u8; 1];
-        if reader
+        match reader
             .read(&mut byte)
             .map_err(|_| CliError::CredentialOperation)?
-            != 1
         {
-            return Err(CliError::CredentialOperation);
-        }
-        match byte[0] {
-            b'\n' => break,
-            0 | b'\r' => return Err(CliError::CredentialOperation),
-            value => {
-                if bytes.len() == MAX_PROVIDER_CREDENTIAL_BYTES {
+            0 => break,
+            1 => {
+                if bytes.len() == CredentialSecretEnvelopeCodec::MAX_BYTES {
                     return Err(CliError::CredentialOperation);
                 }
-                bytes.push(value);
+                bytes.push(byte[0]);
             }
+            _ => return Err(CliError::CredentialOperation),
         }
     }
-    let mut trailing = [0_u8; 1];
-    if reader
-        .read(&mut trailing)
-        .map_err(|_| CliError::CredentialOperation)?
-        != 0
-    {
-        return Err(CliError::CredentialOperation);
-    }
-    ProviderCredentialMaterial::new(std::mem::take(&mut *bytes))
-        .map_err(|_| CliError::CredentialOperation)
+    CredentialSecretEnvelopeCodec::decode(&bytes).map_err(|_| CliError::CredentialOperation)
 }
