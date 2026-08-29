@@ -106,6 +106,7 @@ impl ProtectedCredentialEnrollmentAuthenticator {
             binding,
             sequence,
             request_proof_binding: request.proof,
+            admission_proof: proof,
         })
     }
 
@@ -126,6 +127,18 @@ impl ProtectedCredentialEnrollmentAuthenticator {
             REQUEST_PHASE,
             &encode_request(&request.binding, request.sequence),
             &request.proof,
+        )
+    }
+
+    fn owns_admission(&self, admission: &VerifiedProtectedCredentialEnrollmentAdmission) -> bool {
+        self.verifies(
+            ADMISSION_PHASE,
+            &encode_admission(
+                admission.request_digest,
+                &admission.binding,
+                admission.sequence,
+            ),
+            &admission.admission_proof,
         )
     }
 }

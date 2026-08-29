@@ -25,12 +25,12 @@ use super::CredentialBrokerChannel;
     allow(dead_code, reason = "the descriptor-transfer fixture is Linux-scoped")
 )]
 pub(super) struct UnixCredentialBrokerChannel {
-    pub(super) control: std::os::unix::net::UnixStream,
-    pub(super) _evidence: WriterProcessEvidence,
-    pub(super) binding: CredentialBindingDigest,
-    pub(super) signer: Option<CredentialSecretPublicationSigner>,
-    pub(super) publication_public_key: [u8; 32],
-    pub(super) received_frames: u8,
+    control: std::os::unix::net::UnixStream,
+    _evidence: WriterProcessEvidence,
+    binding: CredentialBindingDigest,
+    signer: Option<CredentialSecretPublicationSigner>,
+    publication_public_key: [u8; 32],
+    received_frames: u8,
 }
 
 #[cfg_attr(

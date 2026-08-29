@@ -4,7 +4,8 @@ use std::{
 };
 
 use runne_api::{
-    ProviderCredentialBaseRequestAuthority, ProviderCredentialEnrollmentHostError,
+    ProviderCredentialBaseRequestAuthority, ProviderCredentialBrokerHandoffWitness,
+    ProviderCredentialBrokerTransferAuthority, ProviderCredentialEnrollmentHostError,
     ProviderCredentialIntentConsumptionProof,
 };
 use runne_provider::{
@@ -38,6 +39,7 @@ const MAX_PENDING: usize = 64;
 
 struct PendingEntry {
     binding: PendingBrokerRendezvousBinding,
+    authority_witness: ProviderCredentialBrokerHandoffWitness,
     #[cfg(unix)]
     #[cfg_attr(
         not(test),
@@ -50,7 +52,7 @@ struct PendingEntry {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-struct PendingBrokerRendezvousBinding {
+pub(super) struct PendingBrokerRendezvousBinding {
     operation_id: CredentialOperationId,
     begin_proof: CredentialBindingDigest,
     owner: CredentialInstallationOwnerId,
@@ -59,7 +61,7 @@ struct PendingBrokerRendezvousBinding {
     daemon_authority: [u8; 32],
     database_generation: u64,
     supervisor_generation: u64,
-    release_tuple: CredentialBindingDigest,
+    pub(super) release_tuple: CredentialBindingDigest,
     expires_at_high_water: i64,
 }
 
@@ -73,27 +75,17 @@ struct PendingBrokerRendezvousBinding {
     )
 )]
 pub(crate) struct PendingBrokerEndpointHandoff {
-    #[cfg_attr(
-        test,
-        expect(dead_code, reason = "only the opaque handoff is asserted in tests")
-    )]
     binding: PendingBrokerRendezvousBinding,
-    #[cfg_attr(
-        test,
-        expect(dead_code, reason = "only the opaque handoff is asserted in tests")
-    )]
+    authority_witness: ProviderCredentialBrokerHandoffWitness,
     rendezvous: DaemonOwnedUnixBrokerRendezvous,
 }
 
 /// Opaque daemon control authority awaiting separate writer peer/release admission.
 #[cfg(all(unix, feature = "desktop-protected"))]
-#[expect(
-    dead_code,
-    reason = "writer peer and release admission is deliberately not composed in this slice"
-)]
 pub(crate) struct AwaitingVerifiedWriter {
-    _binding: PendingBrokerRendezvousBinding,
-    _authority: DaemonBrokerAuthority,
+    pub(super) binding: PendingBrokerRendezvousBinding,
+    pub(super) authority: DaemonBrokerAuthority,
+    pub(super) transfer_authority: ProviderCredentialBrokerTransferAuthority,
 }
 
 impl PendingBrokerRendezvousRegistry {
@@ -134,6 +126,7 @@ impl PendingBrokerRendezvousRegistry {
             binding.operation_id,
             PendingEntry {
                 binding,
+                authority_witness: authority.credential_broker_handoff_witness(),
                 #[cfg(unix)]
                 rendezvous,
             },
@@ -186,18 +179,19 @@ impl PendingBrokerRendezvousRegistry {
         }
         let current =
             PendingBrokerRendezvousBinding::new(operation, authority, proof, now_high_water)?;
-        if entry.binding != current {
+        if entry.binding != current || !entry.authority_witness.matches_authority(authority) {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
         Ok(PendingBrokerEndpointHandoff {
             binding: entry.binding,
+            authority_witness: entry.authority_witness,
             rendezvous: entry.rendezvous,
         })
     }
 }
 
 impl PendingBrokerRendezvousBinding {
-    fn new(
+    pub(super) fn new(
         operation: &CredentialOperationSnapshot,
         authority: &ProviderCredentialBaseRequestAuthority,
         proof: &ProviderCredentialIntentConsumptionProof,
@@ -252,21 +246,30 @@ fn clean_expired(entries: &mut BTreeMap<CredentialOperationId, PendingEntry>, no
 #[cfg(all(unix, feature = "desktop-protected"))]
 impl PendingBrokerEndpointHandoff {
     /// Sends the endpoint and keeps only opaque authority pending later native admission.
-    #[expect(
-        dead_code,
-        reason = "writer peer and release admission is deliberately not composed in this slice"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "writer peer and release admission is deliberately not composed in this slice"
+        )
     )]
     pub(crate) fn send_endpoint(
         mut self,
         transport: std::os::unix::net::UnixStream,
-        authenticator: &runne_api::CredentialBrokerTransferAuthenticator,
+        transfer_authority: ProviderCredentialBrokerTransferAuthority,
     ) -> Result<AwaitingVerifiedWriter, ProviderCredentialEnrollmentHostError> {
+        if !transfer_authority
+            .matches_handoff(&self.authority_witness, &self.binding.protected_session)
+        {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
         self.rendezvous
-            .handoff_writer_endpoint(transport, authenticator)?;
+            .handoff_writer_endpoint(transport, transfer_authority.transfer_authenticator())?;
         let authority = self.rendezvous.take_daemon_authority()?;
         Ok(AwaitingVerifiedWriter {
-            _binding: self.binding,
-            _authority: authority,
+            binding: self.binding,
+            authority,
+            transfer_authority,
         })
     }
 }

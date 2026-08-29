@@ -64,6 +64,7 @@ pub struct VerifiedProtectedCredentialEnrollmentAdmission {
     binding: ProtectedCredentialEnrollmentAdmissionBinding,
     sequence: u64,
     request_proof_binding: [u8; 32],
+    admission_proof: [u8; 32],
 }
 impl VerifiedProtectedCredentialEnrollmentAdmission {
     #[must_use]

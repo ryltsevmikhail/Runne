@@ -1,6 +1,6 @@
 //! Desktop-owned broker handoff and exact child cleanup.
 
-#[cfg(all(unix, test))]
+#[cfg(unix)]
 mod daemon_evidence;
 #[cfg(unix)]
 mod daemon_rendezvous;
@@ -8,6 +8,8 @@ mod daemon_rendezvous;
 mod launch;
 #[cfg(target_os = "macos")]
 mod macos_writer_admission;
+#[cfg(target_os = "macos")]
+mod macos_writer_transfer;
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
@@ -16,17 +18,24 @@ mod unix_daemon;
 mod unix_daemon_macos;
 #[cfg(unix)]
 mod unix_descriptor;
+mod writer_evidence;
 
 use std::fmt;
 
 use runne_platform_ports::provider_credential_broker::{
-    BrokerHandoffError, ProviderCredentialBrokerPort, VerifiedWriterLaunchSpec, WriterOwnership,
-    WriterOwnershipState,
+    BrokerHandoffError, ProviderCredentialBrokerPort, WriterOwnership, WriterOwnershipState,
 };
 
-#[cfg(all(unix, test))]
+#[cfg(unix)]
 type DaemonHandoffDigests = ([u8; 32], [u8; 32], [u8; 32], [u8; 32], [u8; 32]);
 
+#[cfg(all(unix, feature = "test-support"))]
+#[doc(hidden)]
+pub use daemon_evidence::send_test_daemon_owned_writer_evidence;
+#[cfg(unix)]
+pub use daemon_evidence::{
+    ReceivedWriterProcessMeasurements, receive_daemon_owned_writer_measurements,
+};
 #[cfg(unix)]
 pub use daemon_rendezvous::{
     PreparedDaemonWriterEndpointHandoff, UnixReceivedDaemonWriterEndpoint,
@@ -37,6 +46,8 @@ pub use daemon_rendezvous::{
 pub use launch::writer_command;
 #[cfg(target_os = "macos")]
 pub use macos_writer_admission::VerifiedMacOsWriterProcess;
+#[cfg(target_os = "macos")]
+pub use macos_writer_transfer::MacOsWriterTransferPending;
 #[cfg(unix)]
 pub use unix::UnixRetainedWriterProcess;
 #[cfg(target_os = "macos")]
@@ -65,18 +76,7 @@ impl WriterProcessEvidence {
         Self::new_daemon_bound(start, image, release_tuple, channel, publication_public_key)
     }
 
-    #[cfg(all(unix, test))]
-    pub(crate) fn from_daemon_owned_writer(
-        start: [u8; 32],
-        image: [u8; 32],
-        release_tuple: [u8; 32],
-        channel: [u8; 32],
-        publication_public_key: [u8; 32],
-    ) -> Result<Self, BrokerHandoffError> {
-        Self::new_daemon_bound(start, image, release_tuple, channel, publication_public_key)
-    }
-
-    #[cfg(any(target_os = "macos", all(unix, test)))]
+    #[cfg(unix)]
     fn new_daemon_bound(
         start: [u8; 32],
         image: [u8; 32],
@@ -139,7 +139,7 @@ impl WriterProcessEvidence {
                 .is_some_and(|public_key| public_key != [0; 32])
     }
 
-    #[cfg(all(unix, test))]
+    #[cfg(unix)]
     pub(crate) fn daemon_handoff_digests(&self) -> Option<DaemonHandoffDigests> {
         match (self.release_tuple, self.publication_public_key) {
             (Some(release_tuple), Some(publication_public_key)) if self.is_daemon_bound() => {
@@ -153,21 +153,6 @@ impl WriterProcessEvidence {
             }
             _ => None,
         }
-    }
-
-    /// Returns whether daemon-bound evidence matches one exact verified writer launch.
-    #[must_use]
-    pub fn matches_daemon_owned_launch(
-        &self,
-        launch: &VerifiedWriterLaunchSpec,
-        expected_channel: [u8; 32],
-        expected_publication_public_key: [u8; 32],
-    ) -> bool {
-        self.is_daemon_bound()
-            && self.channel == expected_channel
-            && self.publication_public_key == Some(expected_publication_public_key)
-            && self.image == launch.artifact().image_digest()
-            && self.release_tuple == Some(launch.artifact().release_tuple_digest())
     }
 
     /// Returns the fresh one-shot binding accepted by the native handoff.

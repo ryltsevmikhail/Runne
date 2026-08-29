@@ -78,6 +78,31 @@ fn enrollment_request_cannot_splice_admissions_between_authenticators() {
 }
 
 #[test]
+fn broker_transfer_admission_is_sealed_to_the_admission_authenticator() {
+    let authenticator_a = authenticator(13);
+    let (binding, request_frame) = request_frame(&authenticator_a);
+    let request = authenticator_a
+        .decode_request(&request_frame, &binding, 0, 150)
+        .unwrap();
+    let admission_binding = admission_binding();
+    let admission = authenticator_a
+        .issue_admission(&request, admission_binding.clone(), 2)
+        .unwrap();
+    let verified = authenticator_a
+        .decode_admission(
+            &ProtectedCredentialEnrollmentControlFrame::Admission(admission).encode_frame(),
+            &request,
+            &admission_binding,
+            1,
+            150,
+        )
+        .unwrap();
+
+    let keys_b = LaunchSecret::from_bytes([14; 32]).unwrap().derive_keys();
+    assert!(keys_b.bind_credential_broker_transfer(verified).is_err());
+}
+
+#[test]
 fn verified_enrollment_request_redacts_its_private_authenticator_context() {
     let authenticator = authenticator(12);
     let (binding, request_frame) = request_frame(&authenticator);

@@ -3,7 +3,8 @@ use std::sync::Arc;
 
 use super::ProviderCredentialEnrollmentHostError;
 use crate::{
-    VerifiedProtectedCredentialEnrollmentAdmission, VerifiedProtectedCredentialEnrollmentRequest,
+    ProtectedCredentialBrokerTransferAdmission, VerifiedProtectedCredentialEnrollmentAdmission,
+    VerifiedProtectedCredentialEnrollmentRequest,
 };
 
 struct AuthoritySeal;
@@ -292,3 +293,5 @@ impl fmt::Debug for ProviderCredentialIntentConsumptionProof {
         formatter.write_str("ProviderCredentialIntentConsumptionProof(<authenticated>)")
     }
 }
+
+include!("authority/broker_transfer.rs");

@@ -66,16 +66,8 @@ pub(super) fn verify_live_writer(
 /// Exact retained writer validated against one signed macOS release tuple.
 pub struct VerifiedMacOsWriterProcess {
     process: Option<UnixRetainedWriterProcess>,
-    _image: RetainedMacOsWriterImage,
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the protected ACK adapter consumes this launch")
-    )]
+    image: RetainedMacOsWriterImage,
     launch: VerifiedMacOsWriterLaunch,
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the protected ACK adapter consumes this evidence")
-    )]
     evidence: WriterProcessEvidence,
 }
 
@@ -103,10 +95,28 @@ impl VerifiedMacOsWriterProcess {
         };
         Ok(Self {
             process: Some(process),
-            _image: image,
+            image,
             launch,
             evidence,
         })
+    }
+
+    pub(super) fn refresh_evidence(&mut self) -> Result<(), BrokerHandoffError> {
+        let process = self.process.as_ref().ok_or(BrokerHandoffError::Rejected)?;
+        self.evidence = verify_live_writer(
+            process,
+            &self.launch,
+            &self.image,
+            self.evidence.channel,
+            self.evidence
+                .publication_public_key
+                .ok_or(BrokerHandoffError::Rejected)?,
+        )?;
+        Ok(())
+    }
+
+    pub(super) const fn evidence(&self) -> &WriterProcessEvidence {
+        &self.evidence
     }
 
     #[cfg(test)]

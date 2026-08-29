@@ -36,6 +36,50 @@ impl CredentialBrokerTransferAuthenticator {
     }
 }
 
+/// Move-only enrollment admission bundled with its exact transfer key domain.
+///
+/// The admission stays opaque until the daemon's process-local request issuer
+/// consumes it and adds its own non-forgeable authority seal.
+pub struct ProtectedCredentialBrokerTransferAdmission {
+    admission: VerifiedProtectedCredentialEnrollmentAdmission,
+    authenticator: CredentialBrokerTransferAuthenticator,
+}
+
+impl ProtectedCredentialBrokerTransferAdmission {
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        VerifiedProtectedCredentialEnrollmentAdmission,
+        CredentialBrokerTransferAuthenticator,
+    ) {
+        (self.admission, self.authenticator)
+    }
+}
+
+impl std::fmt::Debug for ProtectedCredentialBrokerTransferAdmission {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ProtectedCredentialBrokerTransferAdmission(<redacted>)")
+    }
+}
+
+impl ProtectedActivationKeys {
+    /// Seals the broker-transfer key to a verified admission from these exact keys.
+    pub fn bind_credential_broker_transfer(
+        &self,
+        admission: VerifiedProtectedCredentialEnrollmentAdmission,
+    ) -> Result<ProtectedCredentialBrokerTransferAdmission, LaunchAuthorityError> {
+        let enrollment =
+            ProtectedCredentialEnrollmentAuthenticator::from_protected_activation(self);
+        if !enrollment.owns_admission(&admission) {
+            return Err(LaunchAuthorityError::OwnershipMismatch);
+        }
+        Ok(ProtectedCredentialBrokerTransferAdmission {
+            admission,
+            authenticator: CredentialBrokerTransferAuthenticator::from_protected_activation(self),
+        })
+    }
+}
+
 impl std::fmt::Debug for CredentialBrokerTransferAuthenticator {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str("CredentialBrokerTransferAuthenticator(<redacted>)")

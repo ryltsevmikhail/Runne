@@ -5,14 +5,7 @@ use rand::{RngCore, rngs::OsRng};
 #[cfg(feature = "desktop-protected")]
 use runne_api::CredentialBrokerTransferAuthenticator;
 use runne_api::ProviderCredentialEnrollmentHostError;
-#[cfg(feature = "desktop-protected")]
-use runne_platform_ports::provider_credential_broker::VerifiedWriterLaunchSpec;
-#[cfg(feature = "desktop-protected")]
-use runne_provider::CredentialBindingDigest;
 use runne_provider::daemon_credential_publication::CredentialSecretPublicationSigner;
-
-#[cfg(feature = "desktop-protected")]
-use super::unix::UnixCredentialBrokerChannel;
 
 const RENDEZVOUS_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -41,8 +34,16 @@ pub(super) struct DaemonOwnedUnixBrokerRendezvous {
     allow(dead_code, reason = "the protected channel adapter is feature-gated")
 )]
 pub(super) struct DaemonBrokerAuthority {
+    #[cfg_attr(
+        all(not(test), feature = "desktop-protected"),
+        expect(dead_code, reason = "the kill-capability ACK unlocks this endpoint")
+    )]
     endpoint: UnixStream,
     channel_binding: [u8; 32],
+    #[cfg_attr(
+        all(not(test), feature = "desktop-protected"),
+        expect(dead_code, reason = "the kill-capability ACK unlocks this signer")
+    )]
     signer: Option<CredentialSecretPublicationSigner>,
     publication_public_key: [u8; 32],
 }
@@ -55,6 +56,12 @@ pub(super) struct DaemonBrokerAuthority {
     )
 )]
 impl DaemonBrokerAuthority {
+    #[must_use]
+    #[cfg(feature = "desktop-protected")]
+    pub(super) const fn channel_binding(&self) -> [u8; 32] {
+        self.channel_binding
+    }
+
     #[must_use]
     pub(super) const fn publication_public_key(&self) -> [u8; 32] {
         self.publication_public_key
@@ -80,42 +87,6 @@ impl DaemonBrokerAuthority {
                 .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?,
             self.publication_public_key,
         ))
-    }
-
-    /// Consumes matching authority into its sole authenticated control channel.
-    #[cfg(feature = "desktop-protected")]
-    #[cfg_attr(
-        test,
-        allow(
-            dead_code,
-            reason = "protected native composition exercises this outside unit tests"
-        )
-    )]
-    pub(super) fn into_authenticated_channel(
-        mut self,
-        evidence: runne_platform_desktop::provider_credential_broker::WriterProcessEvidence,
-        launch: &VerifiedWriterLaunchSpec,
-    ) -> Result<UnixCredentialBrokerChannel, ProviderCredentialEnrollmentHostError> {
-        if !evidence.matches_daemon_owned_launch(
-            launch,
-            self.channel_binding,
-            self.publication_public_key,
-        ) {
-            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
-        }
-        let signer = self
-            .signer
-            .take()
-            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
-        Ok(UnixCredentialBrokerChannel {
-            control: self.endpoint,
-            _evidence: evidence,
-            binding: CredentialBindingDigest::from_measured(self.channel_binding)
-                .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?,
-            signer: Some(signer),
-            publication_public_key: self.publication_public_key,
-            received_frames: 0,
-        })
     }
 }
 

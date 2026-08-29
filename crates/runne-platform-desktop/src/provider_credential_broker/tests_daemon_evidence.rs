@@ -6,7 +6,7 @@ use runne_platform_ports::provider_credential_broker::{
 };
 
 use super::daemon_evidence::{
-    receive_daemon_owned_writer_evidence, send_daemon_owned_writer_evidence,
+    receive_daemon_owned_writer_measurements, send_daemon_owned_writer_evidence,
 };
 use super::*;
 
@@ -22,7 +22,12 @@ fn daemon_owned_evidence_round_trip_has_no_descriptor() {
     let evidence =
         WriterProcessEvidence::test_only_daemon([1; 32], [2; 32], [3; 32], [4; 32], [5; 32]);
     let receiver_thread = std::thread::spawn(move || {
-        receive_daemon_owned_writer_evidence(receiver, &receiver_authenticator, [4; 32], [5; 32])
+        receive_daemon_owned_writer_measurements(
+            receiver,
+            &receiver_authenticator,
+            [4; 32],
+            [5; 32],
+        )
     });
 
     send_daemon_owned_writer_evidence(sender, &sender_authenticator, &evidence).unwrap();
@@ -30,7 +35,8 @@ fn daemon_owned_evidence_round_trip_has_no_descriptor() {
     let launch = VerifiedWriterLaunchSpec::new(
         VerifiedWriterArtifact::new("/verified/runne".into(), [2; 32], [3; 32]).unwrap(),
     );
-    assert!(evidence_received.matches_daemon_owned_launch(&launch, [4; 32], [5; 32]));
+    assert!(evidence_received.matches_launch(&launch));
+    assert!(evidence_received.matches_daemon_owned_release([3; 32], [4; 32], [5; 32]));
 }
 
 #[cfg(unix)]
@@ -45,7 +51,12 @@ fn daemon_owned_evidence_rejects_a_channel_or_key_substitution() {
     let evidence =
         WriterProcessEvidence::test_only_daemon([1; 32], [2; 32], [3; 32], [4; 32], [5; 32]);
     let receiver_thread = std::thread::spawn(move || {
-        receive_daemon_owned_writer_evidence(receiver, &receiver_authenticator, [4; 32], [6; 32])
+        receive_daemon_owned_writer_measurements(
+            receiver,
+            &receiver_authenticator,
+            [4; 32],
+            [6; 32],
+        )
     });
 
     assert_eq!(
@@ -69,7 +80,7 @@ fn daemon_owned_evidence_rejects_substituted_signed_measurements() {
         let receiver_authenticator =
             CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
         let receiver_thread = std::thread::spawn(move || {
-            receive_daemon_owned_writer_evidence(
+            receive_daemon_owned_writer_measurements(
                 receiver,
                 &receiver_authenticator,
                 [4; 32],
@@ -105,7 +116,12 @@ fn daemon_owned_evidence_rejects_trailing_bytes() {
     let receiver_authenticator =
         CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
     let receiver_thread = std::thread::spawn(move || {
-        receive_daemon_owned_writer_evidence(receiver, &receiver_authenticator, [4; 32], [5; 32])
+        receive_daemon_owned_writer_measurements(
+            receiver,
+            &receiver_authenticator,
+            [4; 32],
+            [5; 32],
+        )
     });
     let mut challenge = [0; 128];
     std::io::Read::read_exact(&mut sender, &mut challenge).unwrap();
@@ -155,7 +171,12 @@ fn daemon_owned_evidence_rejects_a_delayed_trailing_byte_before_acceptance() {
     });
 
     assert!(matches!(
-        receive_daemon_owned_writer_evidence(receiver, &receiver_authenticator, [4; 32], [5; 32]),
+        receive_daemon_owned_writer_measurements(
+            receiver,
+            &receiver_authenticator,
+            [4; 32],
+            [5; 32],
+        ),
         Err(BrokerHandoffError::Rejected)
     ));
     sender_thread.join().unwrap();

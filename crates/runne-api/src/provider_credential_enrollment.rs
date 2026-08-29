@@ -7,7 +7,8 @@ mod types;
 pub const PROVIDER_CREDENTIAL_ENROLLMENT_CAPABILITY_V2: &str = "provider.credential-enrollment.v2";
 
 pub use host::{
-    ProviderCredentialBaseRequestAuthority, ProviderCredentialEnrollmentHostError,
+    ProviderCredentialBaseRequestAuthority, ProviderCredentialBrokerHandoffWitness,
+    ProviderCredentialBrokerTransferAuthority, ProviderCredentialEnrollmentHostError,
     ProviderCredentialEnrollmentHostPort, ProviderCredentialHostFuture,
     ProviderCredentialIntentConsumptionProof, ProviderCredentialRequestAuthorityIssuer,
     ProviderCredentialRequestAuthorityPair, ProviderCredentialRequestAuthorityVerifier,

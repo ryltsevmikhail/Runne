@@ -17,6 +17,47 @@ const TRANSFER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 const CHALLENGE_TAG: &[u8] = b"gocode/provider-credential-broker/daemon-evidence/v1/challenge\0";
 const RESPONSE_TAG: &[u8] = b"gocode/provider-credential-broker/daemon-evidence/v1/response\0";
 
+/// Untrusted fixed measurements received over one authenticated native transfer.
+pub struct ReceivedWriterProcessMeasurements {
+    start: [u8; 32],
+    image: [u8; 32],
+    release_tuple: [u8; 32],
+    channel: [u8; 32],
+    publication_public_key: [u8; 32],
+}
+
+impl ReceivedWriterProcessMeasurements {
+    /// Compares every daemon-owned expectation without minting process authority.
+    #[must_use]
+    pub fn matches_daemon_owned_release(
+        &self,
+        expected_release_tuple: [u8; 32],
+        expected_channel: [u8; 32],
+        expected_publication_public_key: [u8; 32],
+    ) -> bool {
+        self.start != [0; 32]
+            && self.image != [0; 32]
+            && self.release_tuple == expected_release_tuple
+            && self.channel == expected_channel
+            && self.publication_public_key == expected_publication_public_key
+    }
+
+    #[cfg(test)]
+    pub(super) fn matches_launch(
+        &self,
+        launch: &runne_platform_ports::provider_credential_broker::VerifiedWriterLaunchSpec,
+    ) -> bool {
+        self.image == launch.artifact().image_digest()
+            && self.release_tuple == launch.artifact().release_tuple_digest()
+    }
+}
+
+impl std::fmt::Debug for ReceivedWriterProcessMeasurements {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ReceivedWriterProcessMeasurements(<untrusted-native>)")
+    }
+}
+
 /// Sends exact daemon-bound evidence without `SCM_RIGHTS` or another descriptor.
 ///
 /// # Errors
@@ -65,17 +106,38 @@ pub(super) fn send_daemon_owned_writer_evidence(
         .map_err(|_| BrokerHandoffError::Rejected)
 }
 
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub fn send_test_daemon_owned_writer_evidence(
+    transport: UnixStream,
+    authenticator: &CredentialBrokerTransferAuthenticator,
+    start: [u8; 32],
+    image: [u8; 32],
+    release_tuple: [u8; 32],
+    channel: [u8; 32],
+    publication_public_key: [u8; 32],
+) -> Result<(), BrokerHandoffError> {
+    let evidence = WriterProcessEvidence::new_daemon_bound(
+        start,
+        image,
+        release_tuple,
+        channel,
+        publication_public_key,
+    )?;
+    send_daemon_owned_writer_evidence(transport, authenticator, &evidence)
+}
+
 /// Receives exact daemon-bound evidence without accepting a descriptor.
 ///
 /// # Errors
 ///
 /// Returns a closed failure when the challenge, frame, evidence, or proof is invalid.
-pub(super) fn receive_daemon_owned_writer_evidence(
+pub fn receive_daemon_owned_writer_measurements(
     mut transport: UnixStream,
     authenticator: &CredentialBrokerTransferAuthenticator,
     expected_channel: [u8; 32],
     expected_publication_public_key: [u8; 32],
-) -> Result<WriterProcessEvidence, BrokerHandoffError> {
+) -> Result<ReceivedWriterProcessMeasurements, BrokerHandoffError> {
     if expected_channel == [0; 32] || expected_publication_public_key == [0; 32] {
         return Err(BrokerHandoffError::Rejected);
     }
@@ -111,13 +173,22 @@ pub(super) fn receive_daemon_owned_writer_evidence(
     let release_tuple = frame[192..224]
         .try_into()
         .map_err(|_| BrokerHandoffError::Rejected)?;
-    WriterProcessEvidence::from_daemon_owned_writer(
+    let measurements = ReceivedWriterProcessMeasurements {
         start,
         image,
         release_tuple,
+        channel: expected_channel,
+        publication_public_key: expected_publication_public_key,
+    };
+    if !measurements.matches_daemon_owned_release(
+        release_tuple,
         expected_channel,
         expected_publication_public_key,
-    )
+    ) || release_tuple == [0; 32]
+    {
+        return Err(BrokerHandoffError::Rejected);
+    }
+    Ok(measurements)
 }
 
 fn read_one_shot<const BYTES: usize>(

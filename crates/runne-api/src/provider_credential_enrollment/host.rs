@@ -10,7 +10,8 @@ use crate::ProviderCredentialCommandContext;
 mod authority;
 
 pub use authority::{
-    ProviderCredentialBaseRequestAuthority, ProviderCredentialIntentConsumptionProof,
+    ProviderCredentialBaseRequestAuthority, ProviderCredentialBrokerHandoffWitness,
+    ProviderCredentialBrokerTransferAuthority, ProviderCredentialIntentConsumptionProof,
     ProviderCredentialRequestAuthorityIssuer, ProviderCredentialRequestAuthorityPair,
     ProviderCredentialRequestAuthorityVerifier,
 };

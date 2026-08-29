@@ -132,3 +132,68 @@ fn post_spawn_path_replacement_cannot_substitute_the_executed_vnode() {
     process.terminate_retained_child().unwrap();
     process.reap_retained_child().unwrap();
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn live_macos_evidence_transfer_is_one_shot_and_release_bound() {
+    use runne_api::{CredentialBrokerTransferAuthenticator, LaunchSecret};
+
+    let launch = super::macos_writer_admission::test_apple_launch(
+        std::path::Path::new("/usr/bin/yes"),
+        [24; 32],
+    )
+    .unwrap();
+    let (daemon, writer) = std::os::unix::net::UnixStream::pair().unwrap();
+    let (handoff_sender, handoff_receiver) = std::os::unix::net::UnixStream::pair().unwrap();
+    let keys = LaunchSecret::from_bytes([25; 32]).unwrap().derive_keys();
+    let handoff_authenticator =
+        CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
+    let receiver_authenticator =
+        CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
+    let channel_binding = [26; 32];
+    let publication_public_key = [27; 32];
+    let sender_thread = std::thread::spawn(move || {
+        super::send_daemon_owned_writer_endpoint(
+            handoff_sender,
+            writer,
+            &handoff_authenticator,
+            channel_binding,
+            publication_public_key,
+        )
+    });
+    let prepared = super::prepare_daemon_owned_writer_endpoint_handoff(
+        handoff_receiver,
+        &receiver_authenticator,
+        channel_binding,
+        publication_public_key,
+    )
+    .unwrap();
+    let verified =
+        super::spawn_macos_verified_writer_from_prepared_daemon_handoff(launch, prepared).unwrap();
+    sender_thread.join().unwrap().unwrap();
+
+    let (evidence_sender, evidence_receiver) = std::os::unix::net::UnixStream::pair().unwrap();
+    let send_authenticator =
+        CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
+    let evidence_receiver_authenticator =
+        CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
+    let receiver_thread = std::thread::spawn(move || {
+        super::daemon_evidence::receive_daemon_owned_writer_measurements(
+            evidence_receiver,
+            &evidence_receiver_authenticator,
+            channel_binding,
+            publication_public_key,
+        )
+    });
+    let pending = verified
+        .transfer_evidence_to_daemon(evidence_sender, &send_authenticator)
+        .unwrap();
+    let evidence = receiver_thread.join().unwrap().unwrap();
+    assert!(evidence.matches_daemon_owned_release(
+        [24; 32],
+        channel_binding,
+        publication_public_key,
+    ));
+    drop(pending);
+    drop(daemon);
+}

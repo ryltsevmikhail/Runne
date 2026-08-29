@@ -14,6 +14,8 @@ use super::effect_authority::map_store;
 
 pub(crate) mod issue;
 pub(super) mod pending;
+#[cfg(all(unix, feature = "desktop-protected"))]
+mod pending_writer;
 #[cfg(unix)]
 mod rendezvous;
 #[cfg(all(unix, feature = "desktop-protected"))]
