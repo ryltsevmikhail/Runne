@@ -47,7 +47,7 @@ async function chooseFolder() {
         <h1 id="open-project-title">
           Open a project
         </h1>
-        <p>Select a folder on this device. GOCODE stores only the local project record.</p>
+        <p>Select a folder on this device. Runne stores only the local project record.</p>
       </div>
     </header>
 

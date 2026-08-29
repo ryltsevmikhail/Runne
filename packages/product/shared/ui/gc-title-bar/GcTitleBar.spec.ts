@@ -16,7 +16,7 @@ describe('GcTitleBar', () => {
     const wrapper = mount(GcTitleBar)
     const lockup = wrapper.find('.gc-title-bar-lockup')
     expect(lockup.exists()).toBe(true)
-    expect(lockup.text()).toBe('GOCODE')
+    expect(lockup.text()).toBe('Runne.')
   })
 
   it('renders brand slot', () => {

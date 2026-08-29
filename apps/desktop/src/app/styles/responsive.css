@@ -1,4 +1,5 @@
 .sidebar--collapsed .brand-lockup,
+.app-shell[data-theme="light"] .sidebar--collapsed .brand-lockup--light,
 .sidebar--collapsed .collapse-button,
 .sidebar--collapsed .nav-label,
 .sidebar--collapsed .nav-item span,
@@ -6,7 +7,15 @@
   display: none;
 }
 
-.sidebar--collapsed .brand-icon {
+.sidebar--collapsed .brand-icon--dark {
+  display: block;
+}
+
+.app-shell[data-theme="light"] .sidebar--collapsed .brand-icon--dark {
+  display: none;
+}
+
+.app-shell[data-theme="light"] .sidebar--collapsed .brand-icon--light {
   display: block;
 }
 
@@ -40,6 +49,7 @@
   }
 
   .brand-lockup,
+  .app-shell[data-theme="light"] .brand-lockup--light,
   .collapse-button,
   .nav-label,
   .nav-item span,
@@ -47,7 +57,15 @@
     display: none;
   }
 
-  .brand-icon {
+  .brand-icon--dark {
+    display: block;
+  }
+
+  .app-shell[data-theme="light"] .brand-icon--dark {
+    display: none;
+  }
+
+  .app-shell[data-theme="light"] .brand-icon--light {
     display: block;
   }
 

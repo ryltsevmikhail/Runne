@@ -3,15 +3,18 @@ import {
   Activity,
   ChevronLeft,
   CircleHelp,
+  FolderKanban,
+  ListChecks,
   Moon,
   PanelLeft,
+  Settings,
   Sun,
 } from 'lucide-vue-next'
 import { GcSidebar } from '@gocode/product/shared/ui'
 import '@gocode/product/shared/ui/styles/tokens.css'
 import '@gocode/product/shared/ui/styles/base.css'
 import { isTauri } from '@tauri-apps/api/core'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import {
@@ -25,26 +28,46 @@ import type {
   RuntimeLifecycleStatus,
   RuntimeMode,
 } from '@/shared/api/platform/bootstrap'
-import brandIcon from '@/shared/assets/gocode-app-icon.png'
-import brandLockup from '@/shared/assets/gocode-lockup.png'
+import brandLockup from '@/shared/assets/OPea5.png'
+import brandIcon from '@/shared/assets/x4q5w.png'
+import brandLockupLight from '@/shared/assets/r6geR.png'
+import brandIconLight from '@/shared/assets/C9sQTI.png'
 import { DesktopTitleBar } from '@/widgets/desktop-title-bar'
 import { RuntimeStatus } from '@/widgets/runtime-status'
 
-const theme = ref<'dark' | 'light'>('dark')
+const SIDEBAR_STORAGE_KEY = 'runne:sidebar-collapsed'
+const THEME_STORAGE_KEY = 'runne:theme'
+const storedTheme = typeof localStorage !== 'undefined' ? localStorage.getItem(THEME_STORAGE_KEY) : null
+
+const theme = ref<'dark' | 'light'>(storedTheme === 'light' ? 'light' : 'dark')
 const runtimeState = ref<RuntimeConnectionState>('unconfigured')
 const runtimeMode = ref<RuntimeMode>('external_local')
 const runtimeLifecycle = ref<RuntimeLifecycleStatus>('external')
 const runtimeFailure = ref<RuntimeFailureCode | null>(null)
-const sidebarCollapsed = ref(false)
+const sidebarCollapsed = ref(typeof localStorage !== 'undefined' && localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'true')
+const compactViewport = ref(false)
+const sidebarIsCollapsed = computed(() => sidebarCollapsed.value || compactViewport.value)
 const route = useRoute()
 const router = useRouter()
 
 const sidebarItems = [
-  { id: 'projects', label: 'Projects', icon: '▦' },
-  { id: 'settings', label: 'Settings', icon: '⚙' },
+  { id: 'projects', label: 'Projects', icon: FolderKanban },
+  { id: 'task-runs', label: 'Task Runs', icon: ListChecks },
+  { id: 'diagnostics', label: 'Diagnostics', icon: Activity },
+  { id: 'settings', label: 'Settings', icon: Settings },
 ]
-const activeSidebarItem = computed(() => route.path.startsWith('/settings') ? 'settings' : 'projects')
+const activeSidebarItem = computed(() => {
+  if (route.path.startsWith('/task-runs')) return 'task-runs'
+  if (route.path === '/diagnostics' || route.path === '/settings/diagnostics') return 'diagnostics'
+  if (route.path.startsWith('/settings')) return 'settings'
+  return 'projects'
+})
 let runtimePoll: ReturnType<typeof setInterval> | undefined
+let compactViewportQuery: MediaQueryList | undefined
+
+function syncCompactViewport(event: MediaQueryList | MediaQueryListEvent): void {
+  compactViewport.value = event.matches
+}
 
 function applyBootstrap(bootstrap: Awaited<ReturnType<typeof loadBootstrap>>) {
   theme.value = bootstrap.theme
@@ -65,6 +88,12 @@ async function refreshRuntimeStatus() {
 }
 
 onMounted(async () => {
+  if (typeof window.matchMedia === 'function') {
+    compactViewportQuery = window.matchMedia('(max-width: 1023px)')
+    syncCompactViewport(compactViewportQuery)
+    compactViewportQuery.addEventListener('change', syncCompactViewport)
+  }
+
   if (isTauri()) {
     await refreshRuntimeStatus()
     try {
@@ -80,7 +109,12 @@ onMounted(async () => {
   }
 })
 
+watch(sidebarCollapsed, (collapsed) => {
+  if (typeof localStorage !== 'undefined') localStorage.setItem(SIDEBAR_STORAGE_KEY, String(collapsed))
+})
+
 onBeforeUnmount(() => {
+  compactViewportQuery?.removeEventListener('change', syncCompactViewport)
   if (runtimePoll !== undefined) {
     clearInterval(runtimePoll)
   }
@@ -90,6 +124,7 @@ async function toggleTheme() {
   const previous = theme.value
   theme.value = previous === 'dark' ? 'light' : 'dark'
   if (!isTauri()) {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(THEME_STORAGE_KEY, theme.value)
     return
   }
   try {
@@ -101,47 +136,63 @@ async function toggleTheme() {
 }
 
 async function navigateSidebar(id: string) {
-  await router.push(id === 'settings' ? '/settings/runtimes' : '/')
+  const destinations: Record<string, string> = {
+    projects: '/',
+    'task-runs': '/task-runs',
+    diagnostics: '/diagnostics',
+    settings: '/settings/runtimes',
+  }
+  await router.push(destinations[id] ?? '/')
 }
 </script>
 
 <template>
   <div
     class="app-shell"
-    :class="{ 'app-shell--collapsed': sidebarCollapsed }"
+    :class="{ 'app-shell--collapsed': sidebarIsCollapsed }"
     :data-theme="theme"
   >
     <DesktopTitleBar />
 
     <aside
       class="sidebar"
-      :class="{ 'sidebar--collapsed': sidebarCollapsed }"
+      :class="{ 'sidebar--collapsed': sidebarIsCollapsed }"
     >
       <div class="sidebar-header">
         <RouterLink
           class="brand"
           to="/"
-          aria-label="GOCODE home"
+          aria-label="Runne home"
         >
           <img
-            class="brand-lockup"
+            class="brand-lockup brand-lockup--dark"
             :src="brandLockup"
             alt=""
           >
           <img
-            class="brand-icon"
+            class="brand-lockup brand-lockup--light"
+            :src="brandLockupLight"
+            alt=""
+          >
+          <img
+            class="brand-icon brand-icon--dark"
             :src="brandIcon"
+            alt=""
+          >
+          <img
+            class="brand-icon brand-icon--light"
+            :src="brandIconLight"
             alt=""
           >
         </RouterLink>
         <button
           class="icon-button collapse-button"
           type="button"
-          :aria-label="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+          :aria-label="sidebarIsCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
           @click="sidebarCollapsed = !sidebarCollapsed"
         >
           <PanelLeft
-            v-if="sidebarCollapsed"
+            v-if="sidebarIsCollapsed"
             :size="16"
             aria-hidden="true"
           />
@@ -157,7 +208,7 @@ async function navigateSidebar(id: string) {
         class="app-sidebar-navigation"
         :items="sidebarItems"
         :active-item="activeSidebarItem"
-        :collapsed="sidebarCollapsed"
+        :collapsed="sidebarIsCollapsed"
         aria-label="Primary"
         @navigate="navigateSidebar"
       />
@@ -171,17 +222,6 @@ async function navigateSidebar(id: string) {
         />
 
         <div class="sidebar-actions">
-          <RouterLink
-            class="icon-button"
-            to="/settings/diagnostics"
-            aria-label="Diagnostics"
-            title="Diagnostics"
-          >
-            <Activity
-              :size="16"
-              aria-hidden="true"
-            />
-          </RouterLink>
           <button
             class="icon-button"
             type="button"

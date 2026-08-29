@@ -1,21 +1,21 @@
 .app-shell {
   --primary: var(--gocode-forge-orange);
-  --primary-hover: #f29150;
+  --primary-hover: #2449D8;
   --lead: var(--gocode-lead-green);
   --review: var(--gocode-review-violet);
   --error: var(--gocode-error-coral);
-  --bg: var(--gocode-graphite);
-  --surface: #1c1d1e;
-  --surface-hover: #242527;
-  --text: var(--gocode-warm-white);
-  --text-muted: #a6a7a5;
-  --text-subtle: #747573;
-  --border: #343537;
-  --border-hover: #4a4b4d;
+  --bg: var(--gocode-canvas);
+  --surface: var(--gocode-surface);
+  --surface-hover: var(--gocode-surface-raised);
+  --text: var(--gocode-text-primary);
+  --text-muted: var(--gocode-text-secondary);
+  --text-subtle: var(--gocode-ui-subtle);
+  --border: var(--gocode-border);
+  --border-hover: #565A63;
   --sidebar: var(--gocode-sidebar);
-  --sidebar-hover: #323335;
-  --sidebar-active: #3a3532;
-  --input: #202123;
+  --sidebar-hover: var(--gocode-surface-raised);
+  --sidebar-active: var(--gocode-surface-raised);
+  --input: var(--gocode-surface);
   position: relative;
   display: grid;
   grid-template-columns: 244px minmax(0, 1fr);
@@ -28,27 +28,40 @@
 
 .app-shell[data-theme="light"] {
   --primary: var(--gocode-forge-orange);
-  --primary-hover: #df6f2a;
+  --primary-hover: #2449D8;
   --lead: var(--gocode-lead-green);
   --review: var(--gocode-review-violet);
   --error: var(--gocode-error-coral);
-  --bg: #e9e9e7;
-  --surface: var(--gocode-warm-white);
-  --surface-hover: #e7e7e5;
-  --text: #151616;
-  --text-muted: #555654;
-  --text-subtle: #747573;
-  --border: #d3d3d0;
-  --border-hover: #b9b9b5;
+  --bg: var(--gocode-canvas);
+  --surface: #EFF1F4;
+  --surface-hover: #F4F5F7;
+  --text: var(--gocode-text-primary);
+  --text-muted: var(--gocode-text-secondary);
+  --text-subtle: var(--gocode-ui-subtle);
+  --border: var(--gocode-border);
+  --border-hover: #AEB6C2;
   --sidebar: var(--gocode-sidebar);
-  --sidebar-hover: #323335;
-  --sidebar-active: #3a3532;
-  --input: #ffffff;
+  --sidebar-hover: #F4F5F7;
+  --sidebar-active: #F4F5F7;
+  --input: #F4F5F7;
   font-size: 14px;
 }
 
 .app-shell--collapsed {
   grid-template-columns: 48px minmax(0, 1fr);
+}
+
+.app-shell[data-theme="light"] .workspace {
+  box-shadow: 0 1px 2px rgb(20 28 42 / 4%), 0 12px 36px rgb(20 28 42 / 5%);
+}
+
+.app-shell[data-theme="light"] .runtime-status {
+  background: #F4F5F7;
+  box-shadow: 0 1px 2px rgb(20 28 42 / 4%);
+}
+
+.app-shell[data-theme="light"] :is(.project-card, .diagnostics-grid > div, .run-metrics > div, .run-table-shell, .runtime-summary, .readiness-panel) {
+  box-shadow: 0 1px 2px rgb(20 28 42 / 4%), 0 6px 18px rgb(20 28 42 / 3%);
 }
 
 .desktop-title-bar {
@@ -63,13 +76,11 @@
 }
 
 .sidebar {
-  --text: var(--gocode-warm-white);
-  --text-muted: #a6a7a5;
-  --text-subtle: #747573;
-  --border: #3f4042;
+  --border: var(--gocode-border);
   display: flex;
   min-width: 0;
   flex-direction: column;
+  overflow: visible;
   padding: 16px 12px 12px;
   color: var(--text);
   background: var(--sidebar);
@@ -107,15 +118,34 @@
 
 .brand-lockup {
   display: block;
-  width: 112px;
+  width: 110px;
   height: auto;
+}
+
+.brand-lockup--light,
+.brand-icon--light {
+  display: none;
+}
+
+.app-shell[data-theme="light"] .brand-lockup--dark,
+.app-shell[data-theme="light"] .brand-icon--dark {
+  display: none;
+}
+
+.app-shell[data-theme="light"] .brand-lockup--light {
+  display: block;
 }
 
 .brand-icon {
   display: none;
   width: 28px;
-  height: 28px;
-  border-radius: var(--gocode-radius-md);
+  height: 20px;
+  object-fit: contain;
+}
+
+.sidebar--collapsed .brand-icon--dark,
+.app-shell[data-theme="light"] .sidebar--collapsed .brand-icon--light {
+  display: block;
 }
 
 .icon-button {
@@ -131,10 +161,24 @@
   cursor: pointer;
 }
 
-.icon-button:hover,
-.icon-button:focus-visible {
+.icon-button {
+  transition: color var(--gocode-motion-fast) ease, background var(--gocode-motion-fast) ease, transform 100ms ease;
+}
+
+.icon-button:hover {
   color: var(--text);
   background: var(--sidebar-hover);
+}
+
+.icon-button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  color: var(--text);
+  background: var(--sidebar-hover);
+}
+
+.icon-button:active {
+  transform: scale(.96);
 }
 
 nav {

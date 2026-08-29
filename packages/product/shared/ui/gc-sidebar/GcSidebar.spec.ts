@@ -3,8 +3,8 @@ import { mount } from '@vue/test-utils'
 import GcSidebar from './GcSidebar.vue'
 
 const items = [
-  { id: 'home', label: 'Home', icon: '🏠' },
-  { id: 'settings', label: 'Settings', icon: '⚙️', badge: '3' },
+  { id: 'home', label: 'Home', icon: 'H' },
+  { id: 'settings', label: 'Settings', icon: 'S', badge: '3' },
   { id: 'profile', label: 'Profile' },
 ]
 
@@ -55,6 +55,33 @@ describe('GcSidebar', () => {
     expect(buttons[1].attributes('aria-label')).toBe('Settings')
     // Profile has no icon but should still get aria-label in collapsed mode
     expect(buttons[2].attributes('aria-label')).toBe('Profile')
+  })
+
+  it('supports arrow, Home, and End keyboard focus navigation', async () => {
+    const wrapper = mount(GcSidebar, { props: { items }, attachTo: document.body })
+    const buttons = wrapper.findAll<HTMLButtonElement>('.gc-sidebar-item')
+    buttons[0].element.focus()
+
+    await buttons[0].trigger('keydown', { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(buttons[1].element)
+
+    await buttons[1].trigger('keydown', { key: 'End' })
+    expect(document.activeElement).toBe(buttons[2].element)
+
+    await buttons[2].trigger('keydown', { key: 'Home' })
+    expect(document.activeElement).toBe(buttons[0].element)
+    wrapper.unmount()
+  })
+
+  it('marks the active destination as the current page', () => {
+    const wrapper = mount(GcSidebar, { props: { items, activeItem: 'settings' } })
+    expect(wrapper.get('.gc-sidebar-item--active').attributes('aria-current')).toBe('page')
+  })
+
+  it('exposes collapsed labels as tooltips', () => {
+    const wrapper = mount(GcSidebar, { props: { items, collapsed: true } })
+    expect(wrapper.findAll('.gc-sidebar-item')[0].attributes('data-tooltip')).toBe('Home')
+    expect(wrapper.findAll('.gc-sidebar-item')[0].attributes('title')).toBe('Home')
   })
 
   it('collapsed width is 56px', () => {

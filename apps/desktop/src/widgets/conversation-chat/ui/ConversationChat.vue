@@ -108,7 +108,7 @@ const {
             :data-message-role="message.role"
           >
             <span class="conversation-chat__role">
-              {{ message.role === 'user' ? 'You' : 'GOCODE' }}
+              {{ message.role === 'user' ? 'You' : 'Runne' }}
             </span>
             <p>{{ message.text }}</p>
           </li>
@@ -128,7 +128,7 @@ const {
         <GcTextarea
           v-model="draft"
           label="Message"
-          placeholder="Ask GOCODE to work on this project"
+          placeholder="Ask Runne to work on this project"
           :rows="3"
           :state="canCompose ? 'default' : 'disabled'"
         />

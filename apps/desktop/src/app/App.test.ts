@@ -1,11 +1,15 @@
 import { mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 
 import App from './App.vue'
 import { routes } from './router'
 
 describe('desktop application shell', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
   it('renders navigation and the selected route inside the workspace', async () => {
     const router = createRouter({
       history: createMemoryHistory(),
@@ -23,7 +27,7 @@ describe('desktop application shell', () => {
     expect(wrapper.get('main').text()).toContain('Projects')
   })
 
-  it('uses the canonical GOCODE brand assets in the desktop shell', async () => {
+  it('uses the canonical Runne brand assets in the desktop shell', async () => {
     const router = createRouter({
       history: createMemoryHistory(),
       routes,
@@ -35,8 +39,8 @@ describe('desktop application shell', () => {
       global: { plugins: [router] },
     })
 
-    expect(wrapper.get('.brand-lockup').attributes('src')).toContain('gocode-lockup')
-    expect(wrapper.get('.brand-icon').attributes('src')).toContain('gocode-app-icon')
+    expect(wrapper.get('.brand-lockup').attributes('src')).toContain('OPea5')
+    expect(wrapper.get('.brand-icon').attributes('src')).toContain('x4q5w')
     expect(wrapper.find('.brand-mark').exists()).toBe(false)
   })
 
@@ -54,7 +58,7 @@ describe('desktop application shell', () => {
 
     const titleBar = wrapper.get('.desktop-title-bar')
     expect(titleBar.attributes('data-tauri-drag-region')).toBe('')
-    expect(titleBar.text()).toContain('GOCODE')
+    expect(titleBar.text()).toContain('Runne.')
   })
 
   it('toggles the desktop color theme from the sidebar', async () => {
@@ -94,7 +98,7 @@ describe('desktop application shell', () => {
     expect(wrapper.get('nav').attributes('aria-label')).toBe('Primary')
   })
 
-  it('links the diagnostics action to the documented local route', async () => {
+  it('exposes every primary product section in a predictable order', async () => {
     const router = createRouter({
       history: createMemoryHistory(),
       routes,
@@ -106,6 +110,19 @@ describe('desktop application shell', () => {
       global: { plugins: [router] },
     })
 
-    expect(wrapper.get('[aria-label="Diagnostics"]').attributes('href')).toBe('/settings/diagnostics')
+    const labels = wrapper.findAll('.gc-sidebar-label').map((item) => item.text())
+    expect(labels).toEqual(['Projects', 'Task Runs', 'Diagnostics', 'Settings'])
+  })
+
+  it('persists the collapsed sidebar preference', async () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push('/')
+    await router.isReady()
+    const wrapper = mount(App, { global: { plugins: [router] } })
+
+    await wrapper.get('[aria-label="Collapse sidebar"]').trigger('click')
+
+    expect(localStorage.getItem('runne:sidebar-collapsed')).toBe('true')
+    expect(wrapper.get('[data-tooltip="Projects"]').attributes('title')).toBe('Projects')
   })
 })

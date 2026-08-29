@@ -10,7 +10,7 @@
     </div>
     <div class="gc-title-bar-brand">
       <slot name="brand">
-        <span class="gc-title-bar-lockup">GOCODE</span>
+        <span class="gc-title-bar-lockup">Runne<span aria-hidden="true">.</span></span>
       </slot>
     </div>
     <div class="gc-title-bar-drag" />
@@ -55,6 +55,10 @@
   font-weight: 600;
   color: var(--gocode-text-secondary);
   letter-spacing: 1px;
+}
+
+.gc-title-bar-lockup span {
+  color: var(--gocode-accent);
 }
 
 .gc-title-bar-drag {

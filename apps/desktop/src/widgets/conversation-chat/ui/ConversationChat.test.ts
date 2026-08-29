@@ -35,7 +35,7 @@ const generated: ConversationSnapshot = {
       role: 'assistant',
       taskRunId: '018f2e3a-7000-7000-8000-000000000113',
       attemptId: '018f2e3a-7000-7000-8000-000000000114',
-      text: 'GOCODE local response: hello',
+      text: 'Runne local response: hello',
       committedAt: 1_753_800_000_002,
     },
   ],
@@ -78,7 +78,7 @@ describe('conversation chat widget', () => {
 
     expect(calls).toEqual(['connect', 'open:7', 'subscribe:7'])
     expect(wrapper.get('[aria-label="Conversation messages"]').text()).toContain('hello')
-    expect(wrapper.text()).toContain('GOCODE local response: hello')
+    expect(wrapper.text()).toContain('Runne local response: hello')
     expect(wrapper.text()).toContain('Runtime live')
   })
 

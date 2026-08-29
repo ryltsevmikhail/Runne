@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "GOCODE",
+  "productName": "Runne",
   "version": "0.1.0",
   "identifier": "dev.gocode.desktop",
   "build": {
@@ -16,7 +16,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "GOCODE",
+        "title": "Runne",
         "width": 1440,
         "height": 900,
         "minWidth": 960,
