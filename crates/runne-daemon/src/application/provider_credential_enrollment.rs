@@ -7,6 +7,7 @@ mod control_exchange_tests;
 mod coordinator;
 mod effect_authority;
 mod host;
+mod http_admission_resolver;
 mod operation_handle;
 mod operation_projection;
 mod projection;

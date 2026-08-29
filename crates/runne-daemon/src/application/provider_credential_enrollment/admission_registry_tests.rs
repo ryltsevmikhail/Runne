@@ -1,8 +1,11 @@
 use runne_api::{
-    ApiActor, ApiPrincipalId, LaunchSecret, ProtectedCredentialEnrollmentAdmissionBinding,
-    ProtectedCredentialEnrollmentAuthenticator, ProtectedCredentialEnrollmentControlFrame,
-    ProtectedCredentialEnrollmentRequestBinding, ProviderCredentialCommandContext,
-    ProviderCredentialRequestAuthorityPair,
+    ApiActor, ApiPrincipalId, BeginProviderCredentialEnrollment, LaunchSecret,
+    ProtectedCredentialEnrollmentAdmissionBinding, ProtectedCredentialEnrollmentAuthenticator,
+    ProtectedCredentialEnrollmentControlFrame, ProtectedCredentialEnrollmentRequestBinding,
+    ProviderCredentialBeginIntentBinding, ProviderCredentialCommandContext,
+    ProviderCredentialEnrollmentActionV2, ProviderCredentialProviderV2,
+    ProviderCredentialRequestAuthorityPair, ProviderCredentialVerificationKindV2,
+    ProviderCredentialVerifyIntentBinding, VerifyProviderCredential,
 };
 use runne_domain::id::{CommandId, IdempotencyKey};
 
@@ -16,17 +19,17 @@ fn pending_admission_requires_the_exact_native_intent_session_and_claims_once() 
         .unwrap();
     assert!(
         registry
-            .take("intent-b", uuid(2), [8; 32], [9; 32], 110_000)
+            .resolve_begin(&begin_command_for(7, "intent-b"), uuid(2), 110_000)
             .is_err()
     );
     assert!(
         registry
-            .take("intent-a", uuid(2), [8; 32], [9; 32], 110_000)
+            .resolve_begin(&begin_command(7), uuid(2), 110_000)
             .is_ok()
     );
     assert!(
         registry
-            .take("intent-a", uuid(2), [8; 32], [9; 32], 110_000)
+            .resolve_begin(&begin_command(7), uuid(2), 110_000)
             .is_err()
     );
     let (request, admission) = verified_frames();
@@ -45,12 +48,12 @@ fn matching_intent_with_substituted_claim_consumes_the_admission() {
         .unwrap();
     assert!(
         registry
-            .take("intent-a", uuid(2), [8; 32], [10; 32], 110_000)
+            .resolve_begin(&begin_command(8), uuid(2), 110_000)
             .is_err()
     );
     assert!(
         registry
-            .take("intent-a", uuid(2), [8; 32], [9; 32], 110_000)
+            .resolve_begin(&begin_command(7), uuid(2), 110_000)
             .is_err()
     );
     let (request, admission) = verified_frames();
@@ -85,8 +88,27 @@ fn concurrent_duplicate_registration_issues_only_one_pending_authority() {
     assert_eq!(accepted, 1);
     assert!(
         registry
-            .take("intent-a", uuid(2), [8; 32], [9; 32], 110_000)
+            .resolve_begin(&begin_command(7), uuid(2), 110_000)
             .is_ok()
+    );
+}
+
+#[test]
+fn http_verify_resolver_releases_only_the_exact_command_once() {
+    let bindings = verify_bindings();
+    let (registry, request, admission) = verified_admission_for(bindings);
+    registry
+        .register(request, admission, context(), 100_000)
+        .unwrap();
+    assert!(
+        registry
+            .resolve_verify(&verify_command(7), uuid(2), 110_000)
+            .is_ok()
+    );
+    assert!(
+        registry
+            .resolve_verify(&verify_command(7), uuid(2), 110_000)
+            .is_err()
     );
 }
 
@@ -96,6 +118,28 @@ fn verified_admission() -> (
     VerifiedProtectedCredentialEnrollmentAdmission,
 ) {
     let (request, admission) = verified_frames();
+    verified_admission_from_frames(request, admission)
+}
+
+fn verified_admission_for(
+    bindings: ([u8; 32], [u8; 32]),
+) -> (
+    PendingCredentialHttpAdmissions,
+    VerifiedProtectedCredentialEnrollmentRequest,
+    VerifiedProtectedCredentialEnrollmentAdmission,
+) {
+    let (request, admission) = verified_frames_for(bindings);
+    verified_admission_from_frames(request, admission)
+}
+
+fn verified_admission_from_frames(
+    request: VerifiedProtectedCredentialEnrollmentRequest,
+    admission: VerifiedProtectedCredentialEnrollmentAdmission,
+) -> (
+    PendingCredentialHttpAdmissions,
+    VerifiedProtectedCredentialEnrollmentRequest,
+    VerifiedProtectedCredentialEnrollmentAdmission,
+) {
     let (issuer, _) = ProviderCredentialRequestAuthorityPair::new().split();
     (
         PendingCredentialHttpAdmissions::new(issuer),
@@ -105,6 +149,15 @@ fn verified_admission() -> (
 }
 
 fn verified_frames() -> (
+    VerifiedProtectedCredentialEnrollmentRequest,
+    VerifiedProtectedCredentialEnrollmentAdmission,
+) {
+    verified_frames_for(begin_bindings())
+}
+
+fn verified_frames_for(
+    bindings: ([u8; 32], [u8; 32]),
+) -> (
     VerifiedProtectedCredentialEnrollmentRequest,
     VerifiedProtectedCredentialEnrollmentAdmission,
 ) {
@@ -123,8 +176,8 @@ fn verified_frames() -> (
         [6; 32],
         [7; 32],
         protected_credential_native_intent_digest("intent-a"),
-        [8; 32],
-        [9; 32],
+        bindings.0,
+        bindings.1,
         100_000,
         120_000,
     )
@@ -171,6 +224,49 @@ fn context() -> ProviderCredentialCommandContext {
         principal: ApiPrincipalId::new("credential-principal").unwrap(),
         actor: ApiActor::new("credential-host").unwrap(),
     }
+}
+
+fn begin_command(revision: u64) -> BeginProviderCredentialEnrollment {
+    begin_command_for(revision, "intent-a")
+}
+
+fn begin_command_for(revision: u64, native_intent_id: &str) -> BeginProviderCredentialEnrollment {
+    BeginProviderCredentialEnrollment::new(
+        ProviderCredentialEnrollmentActionV2::Pair,
+        ProviderCredentialProviderV2::OpenAi,
+        revision,
+        "00000000-0000-7000-8000-000000000009",
+        "credential-admission",
+        native_intent_id,
+    )
+    .unwrap()
+}
+
+fn begin_bindings() -> ([u8; 32], [u8; 32]) {
+    let binding = ProviderCredentialBeginIntentBinding::new(&begin_command(7), &context());
+    (
+        *binding.action_provider_revision_digest(),
+        *binding.command_identity_digest(),
+    )
+}
+
+fn verify_command(revision: u64) -> VerifyProviderCredential {
+    VerifyProviderCredential::new(
+        ProviderCredentialProviderV2::OpenAi,
+        revision,
+        ProviderCredentialVerificationKindV2::Local,
+        "00000000-0000-7000-8000-000000000009",
+        "intent-a",
+    )
+    .unwrap()
+}
+
+fn verify_bindings() -> ([u8; 32], [u8; 32]) {
+    let binding = ProviderCredentialVerifyIntentBinding::new(&verify_command(7), &context());
+    (
+        *binding.action_provider_revision_digest(),
+        *binding.command_identity_digest(),
+    )
 }
 
 fn uuid(value: u8) -> [u8; 16] {

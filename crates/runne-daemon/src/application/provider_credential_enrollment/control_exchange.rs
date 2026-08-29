@@ -1,7 +1,8 @@
 use super::admission_registry::PendingCredentialHttpAdmissions;
 use runne_api::{
-    ProviderCredentialCommandContext, ProviderCredentialEnrollmentHostError,
-    VerifiedProtectedCredentialEnrollmentAdmission, VerifiedProtectedCredentialEnrollmentRequest,
+    BeginProviderCredentialEnrollment, ProviderCredentialCommandContext,
+    ProviderCredentialEnrollmentHostError, VerifiedProtectedCredentialEnrollmentAdmission,
+    VerifiedProtectedCredentialEnrollmentRequest, VerifyProviderCredential,
 };
 
 /// Daemon-retained, non-authority bindings from authenticated control state.
@@ -120,12 +121,10 @@ impl DaemonAuthenticatedCredentialHttpAdmissionExchange {
 
 #[allow(dead_code)]
 impl RegisteredCredentialHttpAdmissionExchange {
-    pub(super) fn take(
+    pub(super) fn resolve_begin(
         &self,
-        native_intent_id: &str,
         protected_session_id: [u8; 16],
-        action_provider_revision: [u8; 32],
-        command_identity: [u8; 32],
+        command: &BeginProviderCredentialEnrollment,
         now_unix_millis: u64,
     ) -> Result<
         (
@@ -135,12 +134,24 @@ impl RegisteredCredentialHttpAdmissionExchange {
         ),
         ProviderCredentialEnrollmentHostError,
     > {
-        self.registry.take(
-            native_intent_id,
-            protected_session_id,
-            action_provider_revision,
-            command_identity,
-            now_unix_millis,
-        )
+        self.registry
+            .resolve_begin(command, protected_session_id, now_unix_millis)
+    }
+
+    pub(super) fn resolve_verify(
+        &self,
+        protected_session_id: [u8; 16],
+        command: &VerifyProviderCredential,
+        now_unix_millis: u64,
+    ) -> Result<
+        (
+            runne_api::ProviderCredentialBaseRequestAuthority,
+            runne_api::ProviderCredentialIntentConsumptionProof,
+            ProviderCredentialCommandContext,
+        ),
+        ProviderCredentialEnrollmentHostError,
+    > {
+        self.registry
+            .resolve_verify(command, protected_session_id, now_unix_millis)
     }
 }

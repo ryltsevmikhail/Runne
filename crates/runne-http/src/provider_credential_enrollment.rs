@@ -27,19 +27,23 @@ mod wire;
 #[cfg(test)]
 mod tests;
 
-pub use admission::ProviderCredentialEnrollmentHttpAdmission;
+pub use admission::{
+    ProviderCredentialEnrollmentHttpAdmission, ProviderCredentialEnrollmentHttpAdmissionResolver,
+};
 
 const MAX_BODY_BYTES: usize = 16 * 1024;
 
 /// Shared protected V2 host state.
 pub struct ProviderCredentialEnrollmentHttpState<H> {
     pub(super) host: Arc<H>,
+    pub(super) resolver: Option<Arc<dyn ProviderCredentialEnrollmentHttpAdmissionResolver>>,
 }
 
 impl<H> Clone for ProviderCredentialEnrollmentHttpState<H> {
     fn clone(&self) -> Self {
         Self {
             host: Arc::clone(&self.host),
+            resolver: self.resolver.clone(),
         }
     }
 }
@@ -50,6 +54,19 @@ impl<H> ProviderCredentialEnrollmentHttpState<H> {
     pub fn new(host: H) -> Self {
         Self {
             host: Arc::new(host),
+            resolver: None,
+        }
+    }
+
+    /// Installs the daemon-owned resolver without mounting these routes.
+    #[must_use]
+    pub fn with_admission_resolver<R>(host: H, resolver: R) -> Self
+    where
+        R: ProviderCredentialEnrollmentHttpAdmissionResolver + 'static,
+    {
+        Self {
+            host: Arc::new(host),
+            resolver: Some(Arc::new(resolver)),
         }
     }
 }

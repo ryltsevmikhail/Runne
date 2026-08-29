@@ -9,9 +9,25 @@
 use std::sync::{Arc, Mutex};
 
 use runne_api::{
-    ProviderCredentialBaseRequestAuthority, ProviderCredentialCommandContext,
-    ProviderCredentialEnrollmentHostError, ProviderCredentialIntentConsumptionProof,
+    BeginProviderCredentialEnrollment, ProviderCredentialBaseRequestAuthority,
+    ProviderCredentialCommandContext, ProviderCredentialEnrollmentHostError,
+    ProviderCredentialIntentConsumptionProof, VerifyProviderCredential,
 };
+
+/// Daemon-owned resolver from authenticated session plus parsed HTTP metadata.
+pub trait ProviderCredentialEnrollmentHttpAdmissionResolver: Send + Sync {
+    fn resolve_begin(
+        &self,
+        protected_session_id: [u8; 16],
+        command: &BeginProviderCredentialEnrollment,
+    ) -> Result<Arc<ProviderCredentialEnrollmentHttpAdmission>, ProviderCredentialEnrollmentHostError>;
+
+    fn resolve_verify(
+        &self,
+        protected_session_id: [u8; 16],
+        command: &VerifyProviderCredential,
+    ) -> Result<Arc<ProviderCredentialEnrollmentHttpAdmission>, ProviderCredentialEnrollmentHostError>;
+}
 
 /// Per-request server-derived enrollment authority consumed by one V2 handler.
 ///

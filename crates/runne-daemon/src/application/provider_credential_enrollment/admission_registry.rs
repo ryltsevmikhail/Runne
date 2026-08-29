@@ -2,10 +2,12 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use runne_api::{
-    ProviderCredentialBaseRequestAuthority, ProviderCredentialCommandContext,
+    BeginProviderCredentialEnrollment, ProviderCredentialBaseRequestAuthority,
+    ProviderCredentialBeginIntentBinding, ProviderCredentialCommandContext,
     ProviderCredentialEnrollmentHostError, ProviderCredentialIntentConsumptionProof,
-    ProviderCredentialRequestAuthorityIssuer, VerifiedProtectedCredentialEnrollmentAdmission,
-    VerifiedProtectedCredentialEnrollmentRequest, protected_credential_native_intent_digest,
+    ProviderCredentialRequestAuthorityIssuer, ProviderCredentialVerifyIntentBinding,
+    VerifiedProtectedCredentialEnrollmentAdmission, VerifiedProtectedCredentialEnrollmentRequest,
+    VerifyProviderCredential, protected_credential_native_intent_digest,
 };
 
 const MAX_PENDING_ADMISSIONS: usize = 64;
@@ -99,12 +101,11 @@ impl PendingCredentialHttpAdmissions {
     }
 
     /// Consumes the exact admission bound to a live session and V2 command.
-    pub(super) fn take(
+    /// Resolves a parsed HTTP begin command against the consumed control claim.
+    pub(super) fn resolve_begin(
         &self,
-        native_intent_id: &str,
+        command: &BeginProviderCredentialEnrollment,
         protected_session_id: [u8; 16],
-        action_provider_revision: [u8; 32],
-        command_identity: [u8; 32],
         now_unix_millis: u64,
     ) -> Result<
         (
@@ -114,6 +115,47 @@ impl PendingCredentialHttpAdmissions {
         ),
         ProviderCredentialEnrollmentHostError,
     > {
+        let entry = self.take_entry(command.native_intent_id(), now_unix_millis)?;
+        let binding = ProviderCredentialBeginIntentBinding::new(command, &entry.context);
+        if entry.protected_session_id != protected_session_id
+            || entry.action_provider_revision != *binding.action_provider_revision_digest()
+            || entry.command_identity != *binding.command_identity_digest()
+        {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        Ok((entry.authority, entry.proof, entry.context))
+    }
+
+    /// Resolves a parsed HTTP verify command against the consumed control claim.
+    pub(super) fn resolve_verify(
+        &self,
+        command: &VerifyProviderCredential,
+        protected_session_id: [u8; 16],
+        now_unix_millis: u64,
+    ) -> Result<
+        (
+            ProviderCredentialBaseRequestAuthority,
+            ProviderCredentialIntentConsumptionProof,
+            ProviderCredentialCommandContext,
+        ),
+        ProviderCredentialEnrollmentHostError,
+    > {
+        let entry = self.take_entry(command.native_intent_id(), now_unix_millis)?;
+        let binding = ProviderCredentialVerifyIntentBinding::new(command, &entry.context);
+        if entry.protected_session_id != protected_session_id
+            || entry.action_provider_revision != *binding.action_provider_revision_digest()
+            || entry.command_identity != *binding.command_identity_digest()
+        {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        Ok((entry.authority, entry.proof, entry.context))
+    }
+
+    fn take_entry(
+        &self,
+        native_intent_id: &str,
+        now_unix_millis: u64,
+    ) -> Result<PendingCredentialHttpAdmission, ProviderCredentialEnrollmentHostError> {
         if now_unix_millis == 0 {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
@@ -133,14 +175,7 @@ impl PendingCredentialHttpAdmissions {
         state
             .consumed
             .insert(native_intent_digest, entry.expires_at_unix_millis);
-        if entry.expires_at_unix_millis <= now_unix_millis
-            || entry.protected_session_id != protected_session_id
-            || entry.action_provider_revision != action_provider_revision
-            || entry.command_identity != command_identity
-        {
-            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
-        }
-        Ok((entry.authority, entry.proof, entry.context))
+        Ok(entry)
     }
 }
 

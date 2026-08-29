@@ -23,9 +23,39 @@ use runne_domain::id::{CommandId, IdempotencyKey};
 use tower::ServiceExt;
 
 use super::{
-    ProviderCredentialEnrollmentHttpAdmission, ProviderCredentialEnrollmentHttpState,
-    provider_credential_enrollment_router,
+    ProviderCredentialEnrollmentHttpAdmission, ProviderCredentialEnrollmentHttpAdmissionResolver,
+    ProviderCredentialEnrollmentHttpState, provider_credential_enrollment_router,
 };
+
+mod resolver_support;
+
+struct Resolver;
+
+impl ProviderCredentialEnrollmentHttpAdmissionResolver for Resolver {
+    fn resolve_begin(
+        &self,
+        session: [u8; 16],
+        _: &BeginProviderCredentialEnrollment,
+    ) -> Result<
+        Arc<ProviderCredentialEnrollmentHttpAdmission>,
+        runne_api::ProviderCredentialEnrollmentHostError,
+    > {
+        (session == [5; 16])
+            .then(mutation_admission)
+            .ok_or(runne_api::ProviderCredentialEnrollmentHostError::AccessDenied)
+    }
+
+    fn resolve_verify(
+        &self,
+        _: [u8; 16],
+        _: &VerifyProviderCredential,
+    ) -> Result<
+        Arc<ProviderCredentialEnrollmentHttpAdmission>,
+        runne_api::ProviderCredentialEnrollmentHostError,
+    > {
+        Err(runne_api::ProviderCredentialEnrollmentHostError::AccessDenied)
+    }
+}
 
 struct Host {
     calls: Arc<AtomicUsize>,
@@ -189,6 +219,26 @@ async fn admission_is_consumed_once_and_never_created_from_json() {
         .await
         .unwrap();
     assert_eq!(replay.status(), StatusCode::FORBIDDEN);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn daemon_resolver_requires_the_authenticated_runtime_session() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let router = provider_credential_enrollment_router(
+        ProviderCredentialEnrollmentHttpState::with_admission_resolver(
+            Host {
+                calls: Arc::clone(&calls),
+            },
+            Resolver,
+        ),
+    );
+    let mut request = begin_request(None);
+    request
+        .extensions_mut()
+        .insert(resolver_support::authenticated_session());
+    let response = router.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 

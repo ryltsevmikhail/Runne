@@ -20,6 +20,9 @@ pub mod operational_telemetry;
 pub mod processes;
 pub mod project_workspace;
 pub(crate) mod provider_credential_enrollment;
+pub use provider_credential_enrollment::{
+    ProviderCredentialEnrollmentHttpAdmission, ProviderCredentialEnrollmentHttpAdmissionResolver,
+};
 pub mod provider_credentials;
 pub mod queries;
 pub mod replay;

@@ -1,7 +1,9 @@
 use runne_api::{
-    ApiActor, ApiPrincipalId, LaunchSecret, ProtectedCredentialEnrollmentAdmissionBinding,
-    ProtectedCredentialEnrollmentAuthenticator, ProtectedCredentialEnrollmentControlFrame,
-    ProtectedCredentialEnrollmentRequestBinding, ProviderCredentialCommandContext,
+    ApiActor, ApiPrincipalId, BeginProviderCredentialEnrollment, LaunchSecret,
+    ProtectedCredentialEnrollmentAdmissionBinding, ProtectedCredentialEnrollmentAuthenticator,
+    ProtectedCredentialEnrollmentControlFrame, ProtectedCredentialEnrollmentRequestBinding,
+    ProviderCredentialBeginIntentBinding, ProviderCredentialCommandContext,
+    ProviderCredentialEnrollmentActionV2, ProviderCredentialProviderV2,
     ProviderCredentialRequestAuthorityPair, protected_credential_native_intent_digest,
 };
 use runne_domain::id::{CommandId, IdempotencyKey};
@@ -25,6 +27,7 @@ fn registers_one_verified_exchange_and_consumes_it_once() {
 
 #[test]
 fn rejects_substituted_action_provider_revision_native_intent_and_sequence_before_issue() {
+    let bindings = begin_bindings();
     for expected in [
         expectation_with(
             [10; 32],
@@ -36,7 +39,7 @@ fn rejects_substituted_action_provider_revision_native_intent_and_sequence_befor
             [7; 32],
         ),
         expectation_with(
-            [8; 32],
+            bindings.0,
             native_intent("intent-b"),
             1,
             2,
@@ -45,7 +48,7 @@ fn rejects_substituted_action_provider_revision_native_intent_and_sequence_befor
             [7; 32],
         ),
         expectation_with(
-            [8; 32],
+            bindings.0,
             native_intent("intent-a"),
             2,
             3,
@@ -65,9 +68,10 @@ fn rejects_substituted_action_provider_revision_native_intent_and_sequence_befor
 
 #[test]
 fn rejects_expired_wrong_or_missing_session_and_wrong_peer_before_issue() {
+    let bindings = begin_bindings();
     for expected in [
         expectation_with(
-            [8; 32],
+            bindings.0,
             native_intent("intent-a"),
             1,
             2,
@@ -76,7 +80,7 @@ fn rejects_expired_wrong_or_missing_session_and_wrong_peer_before_issue() {
             [7; 32],
         ),
         expectation_with(
-            [8; 32],
+            bindings.0,
             native_intent("intent-a"),
             1,
             2,
@@ -85,7 +89,7 @@ fn rejects_expired_wrong_or_missing_session_and_wrong_peer_before_issue() {
             [7; 32],
         ),
         expectation_with(
-            [8; 32],
+            bindings.0,
             native_intent("intent-a"),
             1,
             2,
@@ -134,11 +138,22 @@ fn take_exact(
     ),
     runne_api::ProviderCredentialEnrollmentHostError,
 > {
-    exchange.take("intent-a", uuid(2), [8; 32], [9; 32], 110_000)
+    exchange.resolve_begin(uuid(2), &begin_command(), 110_000)
 }
 
 fn fixture(
     expected: DaemonCredentialHttpAdmissionExpectation,
+) -> (
+    DaemonAuthenticatedCredentialHttpAdmissionExchange,
+    runne_api::VerifiedProtectedCredentialEnrollmentRequest,
+    runne_api::VerifiedProtectedCredentialEnrollmentAdmission,
+) {
+    fixture_with_bindings(expected, begin_bindings())
+}
+
+fn fixture_with_bindings(
+    expected: DaemonCredentialHttpAdmissionExpectation,
+    bindings: ([u8; 32], [u8; 32]),
 ) -> (
     DaemonAuthenticatedCredentialHttpAdmissionExchange,
     runne_api::VerifiedProtectedCredentialEnrollmentRequest,
@@ -159,8 +174,8 @@ fn fixture(
         [5; 32],
         [6; 32],
         native_intent("intent-a"),
-        [8; 32],
-        [9; 32],
+        bindings.0,
+        bindings.1,
         100_000,
         120_000,
     )
@@ -218,8 +233,9 @@ fn context() -> ProviderCredentialCommandContext {
 }
 
 fn expectation() -> DaemonCredentialHttpAdmissionExpectation {
+    let bindings = begin_bindings();
     expectation_with(
-        [8; 32],
+        bindings.0,
         native_intent("intent-a"),
         1,
         2,
@@ -238,11 +254,12 @@ fn expectation_with(
     protected_session_binding: [u8; 32],
     authenticated_tauri_peer: [u8; 32],
 ) -> DaemonCredentialHttpAdmissionExpectation {
+    let bindings = begin_bindings();
     DaemonCredentialHttpAdmissionExpectation::new(
         protected_session_id,
         protected_session_binding,
         action_provider_revision,
-        [9; 32],
+        bindings.1,
         native_intent_digest,
         request_sequence,
         admission_sequence,
@@ -252,10 +269,32 @@ fn expectation_with(
     .unwrap()
 }
 
+fn begin_command() -> BeginProviderCredentialEnrollment {
+    BeginProviderCredentialEnrollment::new(
+        ProviderCredentialEnrollmentActionV2::Pair,
+        ProviderCredentialProviderV2::OpenAi,
+        7,
+        "00000000-0000-7000-8000-000000000009",
+        "credential-admission",
+        "intent-a",
+    )
+    .unwrap()
+}
+
+fn begin_bindings() -> ([u8; 32], [u8; 32]) {
+    let binding = ProviderCredentialBeginIntentBinding::new(&begin_command(), &context());
+    (
+        *binding.action_provider_revision_digest(),
+        *binding.command_identity_digest(),
+    )
+}
+
 fn native_intent(value: &str) -> [u8; 32] {
     protected_credential_native_intent_digest(value)
 }
-
 fn uuid(value: u8) -> [u8; 16] {
     [0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, value]
 }
+
+#[path = "control_exchange_tests/http_resolver.rs"]
+mod http_resolver;
