@@ -5,10 +5,12 @@
 
 mod continuous_clock;
 mod ffi;
+mod local_peer;
 mod peer_kill;
 mod peer_kill_wire;
 
 pub use continuous_clock::{MacOsContinuousClock, MacOsContinuousClockError};
+pub use local_peer::{MacOsLocalPeerProcessIdentity, MacOsLocalPeerProcessIdentityError};
 pub use peer_kill::{MacOsPeerKillCapability, MacOsPeerKillError};
 pub use peer_kill_wire::MACOS_PEER_KILL_READY_WIRE_BYTES;
 

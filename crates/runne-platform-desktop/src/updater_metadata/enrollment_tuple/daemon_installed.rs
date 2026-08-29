@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
 use super::{NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleAdmission};
@@ -10,39 +10,78 @@ use super::{NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleAdmission};
 /// ```compile_fail
 /// use runne_platform_desktop::VerifiedDaemonNativeEnrollmentPrepare;
 ///
-/// let verified = VerifiedDaemonNativeEnrollmentPrepare::verify_current(
-///     std::path::Path::new("/"),
-///     [1; 32],
-///     [2; 32],
-/// )
-/// .unwrap();
-/// let consumed = verified;
-/// let replayed = verified;
-/// drop((consumed, replayed));
+/// let _ = VerifiedDaemonNativeEnrollmentPrepare { _private: () };
 /// ```
 pub struct VerifiedDaemonNativeEnrollmentPrepare {
     _private: (),
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(super) peer: Option<runne_macos_process_identity::MacOsLocalPeerProcessIdentity>,
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(super) peer_binding: [u8; 32],
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(super) paths: Option<NativeEnrollmentArtifactPathsV1>,
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(super) admission: Option<NativeEnrollmentTupleAdmission>,
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(super) profile_directory: Option<PathBuf>,
+}
+
+impl VerifiedDaemonNativeEnrollmentPrepare {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(super) const fn peer_bound(
+        peer: runne_macos_process_identity::MacOsLocalPeerProcessIdentity,
+        peer_binding: [u8; 32],
+        paths: NativeEnrollmentArtifactPathsV1,
+        admission: NativeEnrollmentTupleAdmission,
+        profile_directory: PathBuf,
+    ) -> Self {
+        Self {
+            _private: (),
+            peer: Some(peer),
+            peer_binding,
+            paths: Some(paths),
+            admission: Some(admission),
+            profile_directory: Some(profile_directory),
+        }
+    }
+
+    #[cfg(test)]
+    const fn unbound_for_internal_test() -> Self {
+        Self {
+            _private: (),
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            peer: None,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            peer_binding: [0; 32],
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            paths: None,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            admission: None,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            profile_directory: None,
+        }
+    }
 }
 
 #[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
-struct DaemonEnrollmentPolicy<'a> {
-    profile_id: &'a str,
-    runtime_version: &'a str,
-    channel: &'a str,
+pub(super) struct DaemonEnrollmentPolicy<'a> {
+    pub(super) profile_id: &'a str,
+    pub(super) runtime_version: &'a str,
+    pub(super) channel: &'a str,
 }
 
 #[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
-struct DaemonVerificationInput<'a> {
-    profile_directory: &'a Path,
-    paths: &'a NativeEnrollmentArtifactPathsV1,
-    trust: &'a crate::UpdateTrustRootV2,
-    policy: &'a DaemonEnrollmentPolicy<'a>,
-    release_tuple_digest: [u8; 32],
-    qualification_binding_digest: [u8; 32],
+pub(super) struct DaemonVerificationInput<'a> {
+    pub(super) profile_directory: &'a Path,
+    pub(super) paths: &'a NativeEnrollmentArtifactPathsV1,
+    pub(super) trust: &'a crate::UpdateTrustRootV2,
+    pub(super) policy: &'a DaemonEnrollmentPolicy<'a>,
+    pub(super) release_tuple_digest: [u8; 32],
+    pub(super) qualification_binding_digest: [u8; 32],
 }
 
 #[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
-trait DaemonIdentityVerifier {
+pub(super) trait DaemonIdentityVerifier {
     fn confirm(
         &self,
         paths: &NativeEnrollmentArtifactPathsV1,
@@ -50,41 +89,7 @@ trait DaemonIdentityVerifier {
     ) -> bool;
 }
 
-impl VerifiedDaemonNativeEnrollmentPrepare {
-    /// Verifies the current daemon, its installed release, and exact prepare claims.
-    #[must_use]
-    pub fn verify_current(
-        profile_directory: &Path,
-        release_tuple_digest: [u8; 32],
-        qualification_binding_digest: [u8; 32],
-    ) -> Option<Self> {
-        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        {
-            let policy = compiled_policy()?;
-            let paths = NativeEnrollmentArtifactPathsV1::resolve_installed_from_current_daemon().ok()?;
-            let trust = crate::CompiledUpdateTrustRootV2::load()?.into_trust_root();
-            verify_with(
-                &DaemonVerificationInput {
-                    profile_directory,
-                    paths: &paths,
-                    trust: &trust,
-                    policy: &policy,
-                    release_tuple_digest,
-                    qualification_binding_digest,
-                },
-                &CurrentDaemonIdentity,
-                || {},
-            )
-        }
-        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-        {
-            let _ = (profile_directory, release_tuple_digest, qualification_binding_digest);
-            None
-        }
-    }
-}
-
-#[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(test)]
 fn verify_with<I, F>(
     input: &DaemonVerificationInput<'_>,
     identity: &I,
@@ -93,6 +98,22 @@ fn verify_with<I, F>(
 where
     I: DaemonIdentityVerifier,
     F: FnOnce(),
+{
+    verify_with_final(input, identity, between_phases, |_| true)?;
+    Some(VerifiedDaemonNativeEnrollmentPrepare::unbound_for_internal_test())
+}
+
+#[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
+pub(super) fn verify_with_final<I, F, G>(
+    input: &DaemonVerificationInput<'_>,
+    identity: &I,
+    between_phases: F,
+    final_check: G,
+) -> Option<NativeEnrollmentTupleAdmission>
+where
+    I: DaemonIdentityVerifier,
+    F: FnOnce(),
+    G: FnOnce(&NativeEnrollmentTupleAdmission) -> bool,
 {
     let _ = verified_admission(input.profile_directory, input.paths, input.trust, input.policy)?;
     between_phases();
@@ -107,12 +128,12 @@ where
             input.release_tuple_digest,
             input.qualification_binding_digest,
             now,
-        ))
-    .then_some(VerifiedDaemonNativeEnrollmentPrepare { _private: () })
+        ) && final_check(&admission))
+    .then_some(admission)
 }
 
 #[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
-fn verified_admission(
+pub(super) fn verified_admission(
     profile_directory: &Path,
     paths: &NativeEnrollmentArtifactPathsV1,
     trust: &crate::UpdateTrustRootV2,
@@ -123,6 +144,19 @@ fn verified_admission(
         .ok()?
         .as_secs();
     verified_admission_at(profile_directory, paths, trust, policy, now)
+}
+
+#[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
+pub(super) fn refresh_retained_admission_at(
+    profile_directory: &Path,
+    paths: &NativeEnrollmentArtifactPathsV1,
+    trust: &crate::UpdateTrustRootV2,
+    policy: &DaemonEnrollmentPolicy<'_>,
+    retained: &NativeEnrollmentTupleAdmission,
+    now: u64,
+) -> Option<NativeEnrollmentTupleAdmission> {
+    let fresh = verified_admission_at(profile_directory, paths, trust, policy, now)?;
+    (fresh == *retained).then_some(fresh)
 }
 
 #[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
@@ -181,7 +215,7 @@ fn verified_admission_at(
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-struct CurrentDaemonIdentity;
+pub(super) struct CurrentDaemonIdentity;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 impl DaemonIdentityVerifier for CurrentDaemonIdentity {
@@ -199,7 +233,7 @@ impl DaemonIdentityVerifier for CurrentDaemonIdentity {
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-fn compiled_policy() -> Option<DaemonEnrollmentPolicy<'static>> {
+pub(super) fn compiled_policy() -> Option<DaemonEnrollmentPolicy<'static>> {
     Some(DaemonEnrollmentPolicy {
         profile_id: option_env!("RUNNE_UPDATE_PROFILE_ID").filter(|value| !value.is_empty())?,
         runtime_version: option_env!("RUNNE_UPDATE_RUNTIME_VERSION").filter(|value| !value.is_empty())?,

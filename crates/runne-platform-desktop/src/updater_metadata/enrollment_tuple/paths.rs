@@ -3,14 +3,9 @@ use std::path::{Component, Path, PathBuf};
 
 #[cfg(unix)]
 use rustix::fs::{FileType, Mode, OFlags, fstat, open, openat};
-#[cfg(target_os = "macos")]
-use security_framework::os::macos::code_signing::{Flags, SecCode, SecRequirement};
-#[cfg(target_os = "macos")]
-use std::str::FromStr as _;
-
 use super::{
     MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentTupleError,
-    enrollment_measurement::{self, OpenedNativeEnrollmentFile}, macos_identity,
+    enrollment_measurement::{self, OpenedNativeEnrollmentFile},
 };
 
 /// Exact native release files derived from the installed package, never caller input.
@@ -20,12 +15,12 @@ use super::{
     reason = "crate-private visibility prevents callers outside native updater composition from supplying paths"
 )]
 pub(crate) struct NativeEnrollmentArtifactPathsV1 {
-    desktop: PathBuf,
+    pub(super) desktop: PathBuf,
     application: PathBuf,
     #[cfg(unix)]
     root: File,
     #[cfg(unix)]
-    desktop_file: OpenedNativeEnrollmentFile,
+    pub(super) desktop_file: OpenedNativeEnrollmentFile,
     #[cfg(unix)]
     writer_file: OpenedNativeEnrollmentFile,
     #[cfg(unix)]
@@ -127,18 +122,6 @@ impl NativeEnrollmentArtifactPathsV1 {
         (hex::decode(measured).ok().as_deref() == Some(&expected_digest))
             .then_some(())
             .ok_or(NativeEnrollmentTupleError::Rejected)
-    }
-
-    #[cfg(target_os = "macos")]
-    pub(super) fn confirm_current_macos_desktop(
-        &self,
-        identity: &macos_identity::MacOsCodeIdentityV1,
-    ) -> Result<(), NativeEnrollmentTupleError> {
-        self.confirm_current()?;
-        let code = SecCode::for_self(Flags::NONE).map_err(|_| NativeEnrollmentTupleError::Rejected)?;
-        let requirement = SecRequirement::from_str(&identity.requirement()).map_err(|_| NativeEnrollmentTupleError::Rejected)?;
-        code.check_validity(Flags::STRICT_VALIDATE | Flags::NO_NETWORK_ACCESS, &requirement)
-            .map_err(|_| NativeEnrollmentTupleError::Rejected)
     }
 
     pub(super) fn from_macos_package_executable(

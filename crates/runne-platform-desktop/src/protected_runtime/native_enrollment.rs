@@ -1,4 +1,5 @@
 use crate::{ConfirmedInstalledNativeEnrollment, PreparedInstalledNativeEnrollment};
+use crate::updater_metadata::NativeEnrollmentConfirmationV1;
 
 impl ProtectedBundledRuntimeSupervisor {
     /// Revalidates one retained installed release tuple against the exact current daemon.
@@ -51,14 +52,16 @@ impl ProtectedBundledRuntimeProcess {
             prepared.confirm_current_daemon(pid)?;
             let after = runne_macos_process_identity::MacOsProcessStartIdentity::observe(pid)
                 .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-            prepared.confirm(
-                before.digest(),
-                after.digest(),
-                *owned.launch_authority_id(),
-                *owned.session_id(),
-                *owned.daemon_instance_id(),
-                owned.launch_generation(),
-            )
+            let confirmation = NativeEnrollmentConfirmationV1 {
+                process_start_before: before.digest(),
+                process_start_after: after.digest(),
+                launch_authority: *owned.launch_authority_id(),
+                desktop_host: *owned.desktop_host_instance_id(),
+                session: *owned.session_id(),
+                daemon: *owned.daemon_instance_id(),
+                generation: owned.launch_generation(),
+            };
+            prepared.confirm(&confirmation)
         }
         #[cfg(not(target_os = "macos"))]
         {

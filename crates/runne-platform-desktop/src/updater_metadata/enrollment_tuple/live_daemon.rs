@@ -29,17 +29,29 @@ pub struct PreparedInstalledNativeEnrollment {
 ///
 /// This process-local value intentionally implements neither `Clone` nor serde.
 pub struct ConfirmedInstalledNativeEnrollment {
-    admission: NativeEnrollmentTupleAdmission,
-    evidence: ProtectedDaemonTupleEvidence,
+    pub(super) admission: NativeEnrollmentTupleAdmission,
+    pub(super) evidence: ProtectedDaemonTupleEvidence,
+    pub(super) paths: Option<NativeEnrollmentArtifactPathsV1>,
 }
 
-struct ProtectedDaemonTupleEvidence {
-    release_tuple: [u8; 32],
-    launch_authority: [u8; 16],
-    session: [u8; 16],
-    daemon: [u8; 16],
-    generation: u64,
-    process_start: [u8; 32],
+pub(super) struct ProtectedDaemonTupleEvidence {
+    pub(super) release_tuple: [u8; 32],
+    pub(super) launch_authority: [u8; 16],
+    pub(super) desktop_host: [u8; 16],
+    pub(super) session: [u8; 16],
+    pub(super) daemon: [u8; 16],
+    pub(super) generation: u64,
+    pub(super) process_start: [u8; 32],
+}
+
+pub struct NativeEnrollmentConfirmationV1 {
+    pub process_start_before: [u8; 32],
+    pub process_start_after: [u8; 32],
+    pub launch_authority: [u8; 16],
+    pub desktop_host: [u8; 16],
+    pub session: [u8; 16],
+    pub daemon: [u8; 16],
+    pub generation: u64,
 }
 
 impl NativeEnrollmentTupleAdmission {
@@ -97,7 +109,7 @@ impl PreparedInstalledNativeEnrollment {
             .filter(|identity| admission.macos_writer_code_identity.as_ref() != Some(*identity))
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
         paths
-            .confirm_current_macos_desktop(desktop)
+            .confirm_current_macos_desktop(admission.desktop_sha256, desktop)
             .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
         paths
             .confirm_current_daemon(admission.daemon_sha256)
@@ -116,34 +128,34 @@ impl PreparedInstalledNativeEnrollment {
 
     pub(crate) fn confirm(
         self,
-        process_start_before: [u8; 32],
-        process_start_after: [u8; 32],
-        launch_authority: [u8; 16],
-        session: [u8; 16],
-        daemon: [u8; 16],
-        generation: u64,
+        confirmation: &NativeEnrollmentConfirmationV1,
     ) -> Result<ConfirmedInstalledNativeEnrollment, ProtectedBundledRuntimeError> {
-        if process_start_before == [0; 32]
-            || process_start_before != process_start_after
-            || session == [0; 16]
-            || daemon == [0; 16]
-            || generation == 0
+        if confirmation.process_start_before == [0; 32]
+            || confirmation.process_start_before != confirmation.process_start_after
+            || confirmation.session == [0; 16]
+            || confirmation.daemon == [0; 16]
+            || confirmation.generation == 0
         {
             return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
         }
         let admission = self
             .admission
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let paths = self
+            .paths
+            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
         Ok(ConfirmedInstalledNativeEnrollment {
             evidence: ProtectedDaemonTupleEvidence {
                 release_tuple: admission.release_tuple_sha256,
-                launch_authority,
-                session,
-                daemon,
-                generation,
-                process_start: process_start_after,
+                launch_authority: confirmation.launch_authority,
+                desktop_host: confirmation.desktop_host,
+                session: confirmation.session,
+                daemon: confirmation.daemon,
+                generation: confirmation.generation,
+                process_start: confirmation.process_start_after,
             },
             admission,
+            paths: Some(paths),
         })
     }
 
@@ -165,36 +177,15 @@ impl ConfirmedInstalledNativeEnrollment {
             evidence: ProtectedDaemonTupleEvidence {
                 release_tuple: admission.release_tuple_sha256,
                 launch_authority: [1; 16],
+                desktop_host: [5; 16],
                 session: [2; 16],
                 daemon: [3; 16],
                 generation: 1,
                 process_start: [4; 32],
             },
             admission,
+            paths: None,
         }
-    }
-}
-
-impl ConfirmedInstalledNativeEnrollment {
-    /// Derives a non-secret binding for the intent registry without exposing
-    /// the protected session, release tuple, or process identity fields.
-    #[must_use]
-    pub fn intent_session_binding(&self) -> [u8; 32] {
-        let evidence = &self.evidence;
-        let mut hasher = Sha256::new();
-        hasher.update(b"gocode/provider-credential/intent-session-binding/v1\0");
-        for value in [
-            evidence.release_tuple.as_slice(),
-            evidence.launch_authority.as_slice(),
-            evidence.session.as_slice(),
-            evidence.daemon.as_slice(),
-            evidence.process_start.as_slice(),
-        ] {
-            hasher.update(u32::try_from(value.len()).unwrap_or(u32::MAX).to_be_bytes());
-            hasher.update(value);
-        }
-        hasher.update(evidence.generation.to_be_bytes());
-        hasher.finalize().into()
     }
 }
 

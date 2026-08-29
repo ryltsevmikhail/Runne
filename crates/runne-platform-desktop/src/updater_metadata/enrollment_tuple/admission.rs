@@ -15,6 +15,7 @@ use super::{
 /// Non-serializable installed-package admission minted only by `VerifiedUpdateV2`.
 #[derive(Debug, Eq, PartialEq)]
 pub struct NativeEnrollmentTupleAdmission {
+    pub(super) desktop_sha256: [u8; 32],
     pub(super) writer_sha256: [u8; 32],
     pub(super) daemon_sha256: [u8; 32],
     pub(super) release_tuple_sha256: [u8; 32],
@@ -84,26 +85,30 @@ impl NativeEnrollmentTupleV2 {
     ) -> Option<NativeEnrollmentTupleAdmission> {
         (self.matches_installed(target, artifacts) && self.tuple_sha256 == self.digest_for(target))
             .then(|| {
-                decode_digest(&self.writer_sha256)
+                decode_digest(&self.desktop_sha256)
+                    .zip(decode_digest(&self.writer_sha256))
                     .zip(decode_digest(&self.daemon_sha256))
                     .zip(decode_digest(&self.tuple_sha256))
             })
             .flatten()
-            .map(|((writer_sha256, daemon_sha256), release_tuple_sha256)| {
-                NativeEnrollmentTupleAdmission {
-                    writer_sha256,
-                    daemon_sha256,
-                    release_tuple_sha256,
-                    qualification: self.qualification_for(
-                        target,
-                        artifacts,
-                        verified_at_unix_seconds,
-                    ),
-                    macos_desktop_code_identity: self.desktop_code_identity.clone(),
-                    macos_writer_code_identity: self.writer_code_identity.clone(),
-                    macos_daemon_code_identity: self.daemon_code_identity.clone(),
-                }
-            })
+            .map(
+                |(((desktop_sha256, writer_sha256), daemon_sha256), release_tuple_sha256)| {
+                    NativeEnrollmentTupleAdmission {
+                        desktop_sha256,
+                        writer_sha256,
+                        daemon_sha256,
+                        release_tuple_sha256,
+                        qualification: self.qualification_for(
+                            target,
+                            artifacts,
+                            verified_at_unix_seconds,
+                        ),
+                        macos_desktop_code_identity: self.desktop_code_identity.clone(),
+                        macos_writer_code_identity: self.writer_code_identity.clone(),
+                        macos_daemon_code_identity: self.daemon_code_identity.clone(),
+                    }
+                },
+            )
     }
 }
 

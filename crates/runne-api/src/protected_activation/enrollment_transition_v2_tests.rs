@@ -77,6 +77,16 @@ fn enrollment_transition_v2_roundtrips_deterministically_and_exactly() {
         ProtectedCredentialEnrollmentPreludeV2::decode_frame(&response.encode_frame().unwrap())
             .unwrap();
     request.verify_exact(&owned, 0, &keys).unwrap();
+    let verified = request.verify_exact_view(&owned, 0, &keys).unwrap();
+    assert_eq!(verified.release_tuple_digest(), &[23; 32]);
+    assert_eq!(verified.qualification_binding_digest(), &[24; 32]);
+    assert_eq!(verified.desktop_peer_binding_digest(), &[25; 32]);
+    assert_eq!(verified.desktop_supervisor_generation(), 1);
+    assert_eq!(verified.launch_authority_id(), owned.launch_authority_id());
+    assert_eq!(
+        verified.desktop_host_instance_id(),
+        owned.desktop_host_instance_id()
+    );
     response
         .verify_exact_at(&request, &owned, 0, 10, &keys)
         .unwrap();

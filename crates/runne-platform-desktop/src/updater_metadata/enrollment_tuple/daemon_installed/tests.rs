@@ -222,3 +222,22 @@ fn final_phase_closes_when_journal_or_artifacts_change() {
     let third = fixture(now + 60);
     assert!(verify_with(&input(&third, third.release, third.qualification), &FixtureIdentity, || std::fs::write(&third.contract, b"changed").unwrap()).is_none());
 }
+
+#[test]
+fn retained_admission_refresh_closes_after_mint_journal_trust_or_expiry_change() {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let journal = fixture(now + 60);
+    let retained = verified_admission(&journal.profile, &journal.paths, &journal.trust, &journal.policy).unwrap();
+    assert!(refresh_retained_admission_at(&journal.profile, &journal.paths, &journal.trust, &journal.policy, &retained, now).is_some());
+    journal.journal.clear().unwrap();
+    assert!(refresh_retained_admission_at(&journal.profile, &journal.paths, &journal.trust, &journal.policy, &retained, now).is_none());
+
+    let trust = fixture(now + 60);
+    let retained = verified_admission(&trust.profile, &trust.paths, &trust.trust, &trust.policy).unwrap();
+    trust.trust_journal.accept_metadata(8, 10, "1.2.0").unwrap();
+    assert!(refresh_retained_admission_at(&trust.profile, &trust.paths, &trust.trust, &trust.policy, &retained, now).is_none());
+
+    let expiry = fixture(now + 60);
+    let retained = verified_admission(&expiry.profile, &expiry.paths, &expiry.trust, &expiry.policy).unwrap();
+    assert!(refresh_retained_admission_at(&expiry.profile, &expiry.paths, &expiry.trust, &expiry.policy, &retained, now + 61).is_none());
+}

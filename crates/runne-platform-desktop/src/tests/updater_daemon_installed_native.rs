@@ -1,14 +1,12 @@
-use std::path::Path;
-
-use crate::VerifiedDaemonNativeEnrollmentPrepare;
-
 #[test]
-fn daemon_installed_native_composition_has_no_stale_public_evidence() {
-    let verify: fn(&Path, [u8; 32], [u8; 32]) -> Option<VerifiedDaemonNativeEnrollmentPrepare> =
-        VerifiedDaemonNativeEnrollmentPrepare::verify_current;
-    let directory = tempfile::tempdir().unwrap();
+fn daemon_installed_native_composition_has_only_peer_bound_entrypoint() {
+    let installed = include_str!("../updater_metadata/enrollment_tuple/daemon_installed.rs");
+    let peer = include_str!("../updater_metadata/enrollment_tuple/daemon_peer.rs");
 
-    assert!(verify(directory.path(), [0; 32], [0; 32]).is_none());
+    assert!(!installed.contains("pub fn verify_current("));
+    assert!(peer.contains("pub fn verify_current_for_peer("));
+    assert!(peer.contains("MacOsLocalPeerProcessIdentity::capture"));
+    assert!(peer.contains("confirm_peer_macos_desktop"));
 }
 
 #[test]

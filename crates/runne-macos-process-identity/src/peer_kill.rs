@@ -14,6 +14,7 @@ type ProcSignalWithAuditToken =
 unsafe extern "C" {
     fn audit_token_to_pid(token: nix::sys::socket::audit_token_t) -> libc::pid_t;
     fn audit_token_to_pidversion(token: nix::sys::socket::audit_token_t) -> libc::c_int;
+    fn audit_token_to_euid(token: nix::sys::socket::audit_token_t) -> libc::uid_t;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -92,7 +93,9 @@ pub(super) fn capture<S: AsFd>(
         getsockopt(stream, sockopt::LocalPeerPid).map_err(|_| MacOsPeerKillError::Rejected)?;
     let pid = NonZeroU32::new(u32::try_from(pid).map_err(|_| MacOsPeerKillError::Rejected)?)
         .ok_or(MacOsPeerKillError::Rejected)?;
-    token_matches_pid(&token, pid)
+    let credentials =
+        getsockopt(stream, sockopt::LocalPeerCred).map_err(|_| MacOsPeerKillError::Rejected)?;
+    token_matches_peer(&token, pid, credentials.uid(), effective_uid())
         .then_some(())
         .ok_or(MacOsPeerKillError::Rejected)?;
     let start = MacOsProcessStartIdentity::observe(pid)
@@ -109,10 +112,42 @@ pub(super) fn capture<S: AsFd>(
     })
 }
 
-fn token_matches_pid(token: &nix::sys::socket::audit_token_t, pid: NonZeroU32) -> bool {
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "sibling local_peer shares the crate-private kernel observation"
+)]
+pub(super) fn token_matches_peer(
+    token: &nix::sys::socket::audit_token_t,
+    pid: NonZeroU32,
+    peer_euid: u32,
+    expected_euid: u32,
+) -> bool {
     let token_pid = unsafe { audit_token_to_pid(*token) };
     let pidversion = unsafe { audit_token_to_pidversion(*token) };
-    u32::try_from(token_pid).is_ok_and(|token_pid| token_pid == pid.get()) && pidversion > 0
+    let token_euid = unsafe { audit_token_to_euid(*token) };
+    u32::try_from(token_pid).is_ok_and(|token_pid| token_pid == pid.get())
+        && token_euid == peer_euid
+        && token_euid == expected_euid
+        && pidversion > 0
+}
+
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "sibling local_peer compares the crate-private audit token"
+)]
+pub(super) fn same_audit_token(
+    first: &nix::sys::socket::audit_token_t,
+    second: &nix::sys::socket::audit_token_t,
+) -> bool {
+    first.val == second.val
+}
+
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "sibling local_peer needs the same current-user observation"
+)]
+pub(super) fn effective_uid() -> u32 {
+    unsafe { libc::geteuid() }
 }
 
 fn resolve(resolver: Resolver) -> Result<ResolvedSignal, MacOsPeerKillError> {
@@ -151,12 +186,21 @@ mod tests {
         let token = getsockopt(&local, sockopt::LocalPeerToken).unwrap();
         let pid = getsockopt(&local, sockopt::LocalPeerPid).unwrap();
         let pid = NonZeroU32::new(u32::try_from(pid).unwrap()).unwrap();
-        assert!(token_matches_pid(&token, pid));
+        let euid = unsafe { libc::geteuid() };
+        assert!(token_matches_peer(&token, pid, euid, euid));
+        assert!(!token_matches_peer(
+            &token,
+            pid,
+            euid.checked_add(1).unwrap_or_default(),
+            euid
+        ));
         let different = NonZeroU32::new(pid.get().checked_add(1).unwrap()).unwrap();
-        assert!(!token_matches_pid(&token, different));
-        assert!(!token_matches_pid(
+        assert!(!token_matches_peer(&token, different, euid, euid));
+        assert!(!token_matches_peer(
             &nix::sys::socket::audit_token_t::default(),
-            pid
+            pid,
+            euid,
+            euid
         ));
     }
 }
