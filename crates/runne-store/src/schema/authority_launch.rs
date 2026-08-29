@@ -135,6 +135,68 @@ pub fn validate_reserved_launch_generation(conn: &Connection, expected: u64) -> 
     Ok(())
 }
 
+/// Atomically consumes the current enrollment launch reservation exactly once.
+///
+/// The high-water marker records the last consumed reservation. Reservations
+/// skipped by a crash remain valid gaps, but a consumed value cannot replay.
+pub fn consume_reserved_launch_generation(conn: &Connection, expected: u64) -> SqliteResult<()> {
+    const CONSUMED_KEY: &str = "enrollment_launch_generation_consumed_v1";
+    if expected == 0 {
+        return Err(launch_generation_corruption());
+    }
+    conn.execute_batch("BEGIN IMMEDIATE")?;
+    let result = (|| {
+        let current: String = conn.query_row(
+            "SELECT value FROM _daemon_info WHERE key = 'launch_generation'",
+            [],
+            |row| row.get(0),
+        )?;
+        let current = parse_launch_generation(&current)?;
+        if current != expected {
+            return Err(launch_generation_corruption());
+        }
+        let consumed: Option<String> = conn
+            .query_row(
+                "SELECT value FROM _daemon_info WHERE key = ?1",
+                [CONSUMED_KEY],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(consumed) = consumed {
+            let consumed = parse_launch_generation(&consumed)?;
+            if consumed > current || consumed == expected {
+                return Err(launch_generation_corruption());
+            }
+        }
+        conn.execute(
+            "INSERT INTO _daemon_info (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (CONSUMED_KEY, expected.to_string()),
+        )?;
+        Ok(())
+    })();
+    match result {
+        Ok(()) => {
+            conn.execute_batch("COMMIT")?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(error)
+        }
+    }
+}
+
+fn parse_launch_generation(value: &str) -> SqliteResult<u64> {
+    let generation = value
+        .parse::<u64>()
+        .map_err(|_| launch_generation_corruption())?;
+    if generation == 0 || generation.to_string() != value {
+        return Err(launch_generation_corruption());
+    }
+    Ok(generation)
+}
+
 fn launch_generation_corruption() -> rusqlite::Error {
     rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
         std::io::ErrorKind::InvalidData,

@@ -44,6 +44,37 @@ impl StoreTransaction {
         crate::schema::validate_reserved_launch_generation(&connection, generation)
             .map_err(map_enrollment_launch_error)
     }
+
+    /// Atomically consumes the current enrollment reservation through the writer.
+    pub fn consume_enrollment_launch_generation(
+        &self,
+        generation: u64,
+    ) -> Result<(), EnrollmentLaunchGenerationError> {
+        let connection = self
+            .inner
+            .writer
+            .lock()
+            .map_err(|_| EnrollmentLaunchGenerationError::Unavailable)?;
+        crate::schema::consume_reserved_launch_generation(&connection, generation)
+            .map_err(map_enrollment_launch_error)
+    }
+}
+
+impl runne_application::local_session::EnrollmentLaunchGenerationStore for StoreTransaction {
+    fn consume_reserved_enrollment_generation(
+        &self,
+        generation: u64,
+    ) -> Result<(), runne_application::local_session::EnrollmentLaunchGenerationConsumeError> {
+        self.consume_enrollment_launch_generation(generation)
+            .map_err(|error| match error {
+                EnrollmentLaunchGenerationError::Unavailable => {
+                    runne_application::local_session::EnrollmentLaunchGenerationConsumeError::Unavailable
+                }
+                EnrollmentLaunchGenerationError::CorruptData => {
+                    runne_application::local_session::EnrollmentLaunchGenerationConsumeError::Rejected
+                }
+            })
+    }
 }
 
 fn map_enrollment_launch_error(error: rusqlite::Error) -> EnrollmentLaunchGenerationError {

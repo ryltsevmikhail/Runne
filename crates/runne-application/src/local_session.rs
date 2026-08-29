@@ -169,17 +169,21 @@ pub struct LocalSessionService {
     sensitivity_ceiling: Sensitivity,
     trusted_clock_origin: std::time::Instant,
     reservation_store: Arc<dyn BootstrapReservationStore>,
+    enrollment_generation_store: Arc<dyn EnrollmentLaunchGenerationStore>,
 }
 
 mod bootstrap_reservation_store;
 mod bootstrap_v3;
 mod bootstrap_v3_transcript;
+mod enrollment_generation_store;
 pub use bootstrap_reservation_store::*;
 pub use bootstrap_v3::*;
+pub use enrollment_generation_store::*;
 
 include!("local_session/service_constructors.rs");
 include!("local_session/service.rs");
 include!("local_session/service_replay_issuer.rs");
+include!("local_session/generation_rotation.rs");
 include!("local_session/transcript.rs");
 include!("local_session/replay_baseline.rs");
 include!("local_session/replay_baseline_v2.rs");
@@ -187,3 +191,7 @@ include!("local_session/replay_baseline_v2.rs");
 include!("local_session/replay_baseline_tests.rs");
 #[cfg(test)]
 include!("local_session/replay_baseline_v2_tests.rs");
+#[cfg(test)]
+include!("local_session/generation_rotation_tests.rs");
+#[cfg(test)]
+include!("local_session/generation_rotation_p3_tests.rs");

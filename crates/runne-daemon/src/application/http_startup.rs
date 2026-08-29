@@ -142,6 +142,7 @@ pub(super) async fn start_http_and_runtime(
         executable_sha256,
         bootstrap.launch_identity.bootstrap_secret(),
         Arc::clone(&bootstrap_reservation_store),
+        store.clone(),
         protected_activation,
     )?;
     let replay_service = ReplayService::new(
