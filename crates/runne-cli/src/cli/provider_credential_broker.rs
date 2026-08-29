@@ -10,6 +10,8 @@ mod bootstrap;
 )]
 #[path = "provider_credential_broker/claim.rs"]
 mod claim;
+#[path = "provider_credential_broker/effect.rs"]
+mod effect;
 #[path = "provider_credential_broker/secret.rs"]
 mod secret;
 
@@ -19,6 +21,12 @@ mod bootstrap_tests;
 #[cfg(test)]
 #[path = "provider_credential_broker/claim_tests.rs"]
 mod claim_tests;
+#[cfg(test)]
+#[path = "provider_credential_broker/effect_tests.rs"]
+mod effect_tests;
+#[cfg(test)]
+#[path = "provider_credential_broker/effect_test_support.rs"]
+mod effect_test_support;
 
 #[cfg(test)]
 use secret::read_secret_line;

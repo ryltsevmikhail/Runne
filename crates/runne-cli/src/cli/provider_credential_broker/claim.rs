@@ -8,7 +8,7 @@ use std::{
 use runne_provider::{
     BrokerChannelBinding, ClaimedWriterAuthorization, CredentialBindingDigest,
     CredentialBrokerCommand, CredentialBrokerFrame, CredentialBrokerFrameCodec,
-    CredentialOperationAction, PendingCredentialSecretOpening,
+    CredentialOperationAction, CredentialWriterClaimIssuer, PendingCredentialSecretOpening,
 };
 use runne_secure_store::{
     BrokeredProviderCredentialWriter, NativeProviderCredentialWriters, ProviderCredentialMaterial,
@@ -16,7 +16,7 @@ use runne_secure_store::{
 
 use super::{CliError, secret::read_secret_line};
 
-trait BrokerControl {
+pub trait BrokerControl {
     fn read_frame(&mut self) -> Result<CredentialBrokerFrame, CliError>;
     fn write_frame(&mut self, frame: CredentialBrokerFrame) -> Result<(), CliError>;
 }
@@ -76,6 +76,29 @@ pub struct AuthorizedWriterControl {
     command: CredentialBrokerCommand,
     _binding: CredentialBindingDigest,
     _channel: BrokerChannelBinding,
+}
+
+impl AuthorizedWriterControl {
+    pub(super) fn into_effect_parts(
+        self,
+    ) -> (
+        Box<dyn BrokerControl>,
+        Arc<dyn BrokeredProviderCredentialWriter>,
+        ClaimedWriterAuthorization,
+        CredentialBrokerCommand,
+        CredentialBindingDigest,
+        BrokerChannelBinding,
+    ) {
+        let Self {
+            _control: control,
+            _writer: writer,
+            _authorization: authorization,
+            command,
+            _binding: binding,
+            _channel: channel,
+        } = self;
+        (control, writer, authorization, command, binding, channel)
+    }
 }
 
 /// Pair-only secret and effect authority consumed together exactly once.
@@ -160,12 +183,34 @@ impl AuthorizedPairWriterControl {
     pub fn with_secret_for_test(&self, inspect: impl FnOnce(&[u8])) {
         self.material.with_bytes(inspect);
     }
+
+    pub fn into_authorized_for_test(self) -> AuthorizedWriterControl {
+        self.authorized
+    }
 }
 
 /// Claims one exact issued ticket and returns only a matching post-ack authority.
 pub fn claim_writer_authorization(
-    mut endpoint: AuthenticatedDaemonControlEndpoint,
+    endpoint: AuthenticatedDaemonControlEndpoint,
     writers: NativeProviderCredentialWriters,
+) -> Result<ClaimedWriterControl, CliError> {
+    let (issuer, writer) = writers.into_parts();
+    claim_writer_authorization_with_parts(endpoint, &issuer, writer)
+}
+
+#[cfg(test)]
+pub fn claim_writer_authorization_for_test(
+    endpoint: AuthenticatedDaemonControlEndpoint,
+    issuer: &CredentialWriterClaimIssuer,
+    writer: Arc<dyn BrokeredProviderCredentialWriter>,
+) -> Result<ClaimedWriterControl, CliError> {
+    claim_writer_authorization_with_parts(endpoint, issuer, writer)
+}
+
+fn claim_writer_authorization_with_parts(
+    mut endpoint: AuthenticatedDaemonControlEndpoint,
+    issuer: &CredentialWriterClaimIssuer,
+    writer: Arc<dyn BrokeredProviderCredentialWriter>,
 ) -> Result<ClaimedWriterControl, CliError> {
     if endpoint.channel.digest().as_bytes() != endpoint.channel_bytes {
         return Err(CliError::CredentialOperation);
@@ -188,7 +233,6 @@ pub fn claim_writer_authorization(
         return Err(CliError::CredentialOperation);
     }
 
-    let (issuer, writer) = writers.into_parts();
     let pending_claim = issuer.issue_pending_claim(&command, binding, &endpoint.channel);
     let (secret_offer, pending_pair_secret_opening) =
         if command.action() == CredentialOperationAction::Pair {
