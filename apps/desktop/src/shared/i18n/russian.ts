@@ -1,5 +1,6 @@
 import english from './english'
 import { phase2Russian } from './phase2'
+import conversationTarget from './russian-conversation-target'
 import targetSurfaces from './russian-target-surfaces'
 
 const russian: Record<keyof typeof english, string> = {
@@ -288,6 +289,7 @@ const russian: Record<keyof typeof english, string> = {
   'runtime.detail.externalConnection': 'Явный режим · {connection}',
   'runtime.detail.unavailable': 'Runtime недоступен',
   ...phase2Russian,
+  ...conversationTarget,
   ...targetSurfaces,
 }
 

@@ -1,4 +1,5 @@
 import { phase2English } from './phase2'
+import conversationTarget from './english-conversation-target'
 import targetSurfaces from './english-target-surfaces'
 
 const english = {
@@ -287,6 +288,7 @@ const english = {
   'runtime.detail.externalConnection': 'Explicit mode · {connection}',
   'runtime.detail.unavailable': 'Runtime unavailable',
   ...phase2English,
+  ...conversationTarget,
   ...targetSurfaces,
 } as const
 

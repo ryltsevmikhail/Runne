@@ -5,6 +5,7 @@ import {
   useConversationChat,
   type ConversationChatOptions,
 } from '../model/useConversationChat'
+import ConversationCapabilityControls from './ConversationCapabilityControls.vue'
 import { translate } from '@/shared/i18n'
 
 const props = defineProps<ConversationChatOptions>()
@@ -127,6 +128,7 @@ const {
         class="conversation-chat__composer"
         @submit.prevent="submitMessage"
       >
+        <ConversationCapabilityControls />
         <GcTextarea
           v-model="draft"
           :label="translate('conversation.message')"
@@ -260,4 +262,6 @@ const {
   border-top: 1px solid var(--runne-border);
   background: var(--runne-surface);
 }
+
+.conversation-chat__composer > .conversation-capability-controls { grid-column: 1 / -1; }
 </style>

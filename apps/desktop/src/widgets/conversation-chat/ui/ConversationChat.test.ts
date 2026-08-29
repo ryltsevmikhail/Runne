@@ -77,7 +77,6 @@ describe('conversation chat widget', () => {
       },
     })
     await flushPromises()
-
     expect(calls).toEqual(['connect', `open:${workspaceId}`, `subscribe:${workspaceId}`])
     expect(wrapper.get('[aria-label="Conversation messages"]').text()).toContain('hello')
     expect(wrapper.text()).toContain('Runne local response: hello')
@@ -88,7 +87,7 @@ describe('conversation chat widget', () => {
     expect(wrapper.get('textarea')).toBeTruthy()
   })
 
-  it('submits text once, clears the composer, and renders the returned snapshot', async () => {
+  it('keeps the composer and its sendMessage flow while showing capability controls', async () => {
     const sends: Array<[string, string]> = []
     const wrapper = mount(ConversationChat, {
       props: {
@@ -105,7 +104,8 @@ describe('conversation chat widget', () => {
       },
     })
     await flushPromises()
-
+    expect(wrapper.get('[data-capability="conversation-controls"]')).toBeTruthy()
+    expect(wrapper.get('form.conversation-chat__composer')).toBeTruthy()
     await wrapper.get('textarea').setValue('hello')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
