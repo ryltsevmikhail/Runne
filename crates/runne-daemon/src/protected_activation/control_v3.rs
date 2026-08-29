@@ -1,9 +1,28 @@
 use super::*;
 
+type TicketClock = Arc<dyn Fn() -> Result<u64, LaunchAuthorityError> + Send + Sync>;
+
+/// Builds the production ticket clock without making an unverified V3 launch
+/// path available. Non-Apple-Silicon targets fail closed when wired later.
+#[allow(dead_code)]
+pub(crate) fn macos_continuous_ticket_clock() -> TicketClock {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        Arc::new(|| {
+            runne_platform_desktop::MacOsContinuousClock::now_millis()
+                .map_err(|_| LaunchAuthorityError::RenewalUnavailable)
+        })
+    }
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    Arc::new(|| Err(LaunchAuthorityError::RenewalUnavailable))
+}
+
 /// Serves only enrollment V3 renewal and shutdown frames.
 ///
 /// Root-handle frames have no V3 owned-launch projection, so this loop rejects
-/// them until a separately verified V3 root-admission protocol exists.
+/// them until a separately verified V3 root-admission protocol exists. Once a
+/// renewal rotates the local session, a failed channel write terminates this
+/// loop; callers must terminate the daemon rather than retrying on another path.
 #[cfg_attr(not(test), expect(dead_code))]
 pub(crate) fn run_control_loop_v3(
     mut channel: ProtectedActivationChannel,
@@ -11,6 +30,7 @@ pub(crate) fn run_control_loop_v3(
     mut owned_launch: ProtectedCredentialEnrollmentOwnedLaunchV3,
     local_session_service: Arc<Mutex<LocalSessionService>>,
     session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+    ticket_clock: TicketClock,
 ) -> Result<(), LaunchAuthorityError> {
     channel.enter_control_loop()?;
     let mut last_renew_sequence = 0_u64;
@@ -44,35 +64,34 @@ pub(crate) fn run_control_loop_v3(
                 *current.certificate_sha256(),
             )
             .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?;
-            local_session_service
-                .lock()
-                .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?
-                .rotate_protected_bootstrap(next_binding, *bootstrap_ticket, issued_at, expires_at)
-                .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?;
+            let ticket_issued_at = ticket_clock()?;
+            let ticket_expires_at = ticket_issued_at
+                .checked_add(30_000)
+                .ok_or(LaunchAuthorityError::RenewalUnavailable)?;
             let mut ticket = ProtectedCredentialEnrollmentRenewTicketV3::new(
                 &renewal,
                 next_session_id,
                 *bootstrap_ticket,
-                u64::try_from(issued_at.as_millis())
-                    .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?,
-                u64::try_from(expires_at.as_millis())
-                    .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?,
+                ticket_issued_at,
+                ticket_expires_at,
             )?;
-            bootstrap_ticket.zeroize();
             ticket.sign(&keys);
             let next_owned_launch = ticket
-                .verify_exact_at(
-                    &renewal,
-                    u64::try_from(issued_at.as_millis())
-                        .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?,
-                    &keys,
-                )?
+                .verify_exact_at(&renewal, ticket_issued_at, &keys)?
                 .next_owned_launch();
             let ticket_frame = Zeroizing::new(
                 ticket
                     .encode_frame()
                     .map_err(|_| LaunchAuthorityError::InvalidContract)?,
             );
+            local_session_service
+                .lock()
+                .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?
+                .rotate_protected_bootstrap(next_binding, *bootstrap_ticket, issued_at, expires_at)
+                .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?;
+            bootstrap_ticket.zeroize();
+            // A write failure returns from this loop and fences the rotated
+            // service behind daemon termination; the ticket is never retried.
             channel.write_control_frame(&ticket_frame)?;
             last_renew_sequence = renewal.sequence();
             owned_launch = next_owned_launch;

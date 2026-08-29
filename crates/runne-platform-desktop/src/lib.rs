@@ -37,6 +37,8 @@ pub use root_handle_broker::{RootFileEntry, RootFileKind};
 pub use root_handle_broker::{test_transfer_receiver, test_transfer_sender};
 pub use runne_api::WorkspaceId;
 pub use runne_api::{PROTECTED_BUNDLED_SESSION_RENEW_AFTER, ProtectedRootHandleAdmission};
+#[cfg(target_os = "macos")]
+pub use runne_macos_process_identity::{MacOsContinuousClock, MacOsContinuousClockError};
 pub use runne_platform_ports::provider_credential_broker::{
     VerifiedWriterArtifact, VerifiedWriterArtifactError, VerifiedWriterArtifactPort,
 };

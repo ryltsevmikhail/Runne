@@ -94,6 +94,8 @@ fn enrollment_request() -> (
 
 #[path = "enrollment_v3_tests/expectation.rs"]
 mod expectation;
+#[path = "enrollment_v3_tests/ticket_clock.rs"]
+mod ticket_clock;
 
 fn owned_and_sessions() -> (
     runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
@@ -206,6 +208,7 @@ fn v3_control_preserves_exact_binding_across_renewal_and_shutdown() {
             owned,
             sessions,
             Arc::new(|| Duration::from_secs(1)),
+            Arc::new(|| Ok(1_000)),
         )
     });
     let (owned, keys, _) = owned_and_sessions();
@@ -263,6 +266,7 @@ fn v3_control_rejects_v1_and_v2_renewal_and_shutdown_frames() {
                 owned,
                 sessions,
                 Arc::new(|| Duration::from_secs(1)),
+                Arc::new(|| Ok(1_000)),
             )
         });
         client.write_all(&frame).unwrap();
