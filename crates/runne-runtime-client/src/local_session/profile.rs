@@ -7,9 +7,9 @@ use std::time::Duration;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use runne_api::{
     LaunchAuthorityError, PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID, ProtectedActivationKeys,
-    ProtectedLaunchRequestV1, ProtectedLaunchRequestV2, ProtectedReadyV1, ProtectedReadyV2,
-    ProtectedRenewRequestV1, ProtectedRenewRequestV2, ProtectedRenewTicketV1,
-    ProtectedRenewTicketV2,
+    ProtectedCredentialEnrollmentOwnedLaunchV3, ProtectedLaunchRequestV1, ProtectedLaunchRequestV2,
+    ProtectedReadyV1, ProtectedReadyV2, ProtectedRenewRequestV1, ProtectedRenewRequestV2,
+    ProtectedRenewTicketV1, ProtectedRenewTicketV2, ProviderActivationBindingV1,
 };
 use hmac::{Hmac, Mac};
 use rand::{RngCore, rngs::OsRng};
@@ -49,6 +49,7 @@ struct SessionPeer {
     schema_hash: [u8; 32],
     capabilities: Vec<String>,
     capability_digest: [u8; 32],
+    provider_binding: Option<ProviderActivationBindingV1>,
 }
 
 enum BootstrapMaterial {
@@ -62,6 +63,7 @@ enum BootstrapMaterial {
 pub struct ProtectedBundledRuntimeProfile {
     peer: SessionPeer,
     bootstrap_key: Zeroizing<[u8; 32]>,
+    enrollment_owned_launch: Option<ProtectedCredentialEnrollmentOwnedLaunchV3>,
 }
 
 impl fmt::Debug for ProtectedBundledRuntimeProfile {
@@ -91,6 +93,7 @@ impl ProtectedBundledRuntimeProfile {
         Ok(Self {
             peer,
             bootstrap_key: keys.bootstrap_key(),
+            enrollment_owned_launch: None,
         })
     }
 
@@ -106,14 +109,16 @@ impl ProtectedBundledRuntimeProfile {
         keys: &ProtectedActivationKeys,
     ) -> Result<Self, LaunchAuthorityError> {
         ready.verify_exact(request, keys)?;
-        let peer = session_peer_from_ready(
+        let mut peer = session_peer_from_ready(
             ready.compatibility_ready(),
             request.compatibility_request(),
             keys,
         )?;
+        peer.provider_binding = Some(ready.provider_binding().clone());
         Ok(Self {
             peer,
             bootstrap_key: keys.bootstrap_key(),
+            enrollment_owned_launch: None,
         })
     }
 
@@ -136,6 +141,7 @@ impl ProtectedBundledRuntimeProfile {
         Ok(Self {
             peer,
             bootstrap_key: ticket.bootstrap_ticket(),
+            enrollment_owned_launch: None,
         })
     }
 
@@ -160,9 +166,11 @@ impl ProtectedBundledRuntimeProfile {
             keys,
         )?;
         peer.expected_session_id = Some(*ticket.next_session_id());
+        peer.provider_binding = Some(ready.provider_binding().clone());
         Ok(Self {
             peer,
             bootstrap_key: ticket.bootstrap_ticket(),
+            enrollment_owned_launch: None,
         })
     }
 
