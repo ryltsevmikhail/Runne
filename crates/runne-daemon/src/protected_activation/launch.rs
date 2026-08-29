@@ -98,24 +98,27 @@ impl ProtectedDaemonLaunch {
                 executable: &executable,
             },
         )?;
-        let canonical_root = validate_runtime_root(request.compatibility().runtime_root())?;
-        if canonical_root != request.compatibility().runtime_root() {
+        let canonical_root = validate_runtime_root(request.runtime_root())?;
+        if canonical_root != request.runtime_root() {
             return Err(LaunchAuthorityError::InvalidContract);
         }
         let mut defaults = BuiltInDefaults::new(&canonical_root);
         defaults.http_bind = "127.0.0.1:0".to_owned();
         let config = ConfigurationSnapshot::from_defaults(&defaults);
         let keys = request.derive_keys_and_forget();
+        let compatibility = request
+            .compatibility()
+            .ok_or(LaunchAuthorityError::InvalidContract)?;
 
-        let pending_first_activation = match request.compatibility().activation_disposition() {
+        let pending_first_activation = match request.activation_disposition() {
             ActivationDispositionV1::FirstActivation => {
                 if Path::new(&config.db_path).exists() {
                     return Err(LaunchAuthorityError::UnexpectedExistingEventLog);
                 }
-                let pending = prepare_first_activation(request.compatibility(), &canonical_root)?;
+                let pending = prepare_first_activation(compatibility, &canonical_root)?;
                 let mut prepared = ProtectedFirstActivationPreparedV1::new(
-                    request.compatibility().launch_authority_id(),
-                    request.compatibility().desktop_host_instance_id(),
+                    request.launch_authority_id(),
+                    request.desktop_host_instance_id(),
                     pending.clone(),
                 );
                 prepared.sign(&keys);
@@ -126,7 +129,7 @@ impl ProtectedDaemonLaunch {
                 )?;
                 let commit = ProtectedFirstActivationCommitV1::decode_frame(&channel.read_frame()?)
                     .map_err(|_| LaunchAuthorityError::FirstActivationCommitIncomplete)?;
-                commit.verify_exact(request.compatibility(), &pending, &keys)?;
+                commit.verify_exact(compatibility, &pending, &keys)?;
                 request.validate_freshness(now_unix_millis()?)?;
                 Some(pending)
             }
@@ -135,7 +138,7 @@ impl ProtectedDaemonLaunch {
                 None
             }
             ActivationDispositionV1::ResumeFirstActivation(pending) => {
-                verify_pending_request(request.compatibility(), pending, &canonical_root)?;
+                verify_pending_request(compatibility, pending, &canonical_root)?;
                 if Path::new(&config.db_path).exists() {
                     preflight_resume_first_activation(&config, pending)?;
                 }
@@ -168,7 +171,7 @@ impl ProtectedDaemonLaunch {
         Ok(VerifiedProtectedApplicationStart {
             config: self.config.clone(),
             provider_activation: self.provider_activation.clone(),
-            launch_authority_id: self.request.compatibility().launch_authority_id(),
+            launch_authority_id: self.request.launch_authority_id(),
             bootstrap,
         })
     }
@@ -199,7 +202,7 @@ impl ProtectedDaemonLaunch {
     {
         self.request.validate_freshness(now_unix_millis()?)?;
         let bootstrap_key = self.keys.bootstrap_key();
-        let expected_stable = match self.request.compatibility().activation_disposition() {
+        let expected_stable = match self.request.activation_disposition() {
             ActivationDispositionV1::FirstActivation => self
                 .pending_first_activation
                 .as_ref()
@@ -210,7 +213,7 @@ impl ProtectedDaemonLaunch {
         };
         let result = bootstrap_protected(
             &self.config,
-            self.request.compatibility().launch_authority_id(),
+            self.request.launch_authority_id(),
             *bootstrap_key,
             expected_stable,
             self.pending_first_activation.as_ref(),
@@ -244,13 +247,13 @@ impl ProtectedDaemonLaunch {
     pub(crate) const fn request_v1(&self) -> Option<&ProtectedLaunchRequestV1> {
         match &self.request {
             DaemonLaunchRequest::V1(request) => Some(request),
-            DaemonLaunchRequest::V2(_) => None,
+            DaemonLaunchRequest::V2(_) | DaemonLaunchRequest::V3(_) => None,
         }
     }
 
     pub(crate) const fn request_v2(&self) -> Option<&ProtectedLaunchRequestV2> {
         match &self.request {
-            DaemonLaunchRequest::V1(_) => None,
+            DaemonLaunchRequest::V1(_) | DaemonLaunchRequest::V3(_) => None,
             DaemonLaunchRequest::V2(request) => Some(request),
         }
     }

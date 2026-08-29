@@ -23,8 +23,18 @@ use runne_api::{
     ActivationDispositionV1, ExecutableIdentityV1, LaunchAuthorityError,
     LaunchAuthorityValidationV1, PendingFirstActivationV1, ProtectedActivationKeys,
     ProtectedFirstActivationCommitV1, ProtectedFirstActivationPreparedV1, ProtectedLaunchRequestV1,
-    ProtectedLaunchRequestV2, ProtectedRuntimeProfileV1, ProviderActivationModeV1,
-    StableRuntimeBindingV1,
+    ProtectedLaunchRequestV2, ProtectedRuntimeProfileV1, ProviderActivationBindingV1,
+    ProviderActivationModeV1, StableRuntimeBindingV1,
+};
+#[cfg(any(unix, windows))]
+use runne_api::{
+    ProtectedCredentialEnrollmentLaunchBindingV1, ProtectedCredentialEnrollmentLaunchRequestV3,
+};
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
+use runne_api::{
+    ProtectedCredentialEnrollmentOwnedLaunchV3, ProtectedCredentialEnrollmentRenewRequestV3,
+    ProtectedCredentialEnrollmentRenewTicketV3, ProtectedCredentialEnrollmentShutdownAckV3,
+    ProtectedCredentialEnrollmentShutdownV3,
 };
 #[cfg(all(
     any(unix, windows),
@@ -116,6 +126,8 @@ mod channel;
     any(feature = "desktop-protected", feature = "test-support")
 ))]
 mod control;
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
+mod control_v3;
 #[cfg(any(unix, windows))]
 mod first_activation;
 #[cfg(any(unix, windows))]
@@ -151,6 +163,8 @@ pub use host::run_verified_protected_channel;
 pub(crate) use launch::{VerifiedProtectedApplicationStart, VerifiedProtectedRuntimeStart};
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 pub(crate) use root_handle_control::dispatch_root_handle_control_frame;
+#[cfg(all(test, unix, feature = "desktop-protected"))]
+mod enrollment_v3_tests;
 #[cfg(all(test, unix, feature = "test-support"))]
 mod launch_channel_tests;
 #[cfg(all(test, unix, feature = "desktop-protected", feature = "test-support"))]
