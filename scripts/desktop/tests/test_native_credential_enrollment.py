@@ -278,14 +278,18 @@ class NativeCredentialEnrollmentEvidenceTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 1, result.stderr)
 
-    def test_duplicate_runner_and_secret_like_field_fail_closed(self) -> None:
+    def test_single_row_secret_like_field_reports_forbidden_diagnostic(self) -> None:
         value = evidence()
-        value["rows"].append(row("arm64", "run-arm64"))
         value["rows"][0]["selectors"]["pair_create_readback"]["nativeHandle"] = "forbidden"
-        self.assertTrue(validate_evidence(value, "macos", expected_tuples()))
+        self.assertIn("forbidden sensitive field at selectors.pair_create_readback", validate_evidence(value, "macos", expected_tuples()))
         value = evidence()
         value["rows"][0]["signing"]["unexpected"] = True
         self.assertTrue(validate_evidence(value, "macos", expected_tuples()))
+
+    def test_multiple_macos_rows_report_the_exact_row_count_diagnostic(self) -> None:
+        value = evidence()
+        value["rows"].append(row("arm64", "run-arm64"))
+        self.assertEqual(validate_evidence(value, "macos", expected_tuples()), ["macos evidence must contain exactly 1 independent rows"])
 
     def test_evidence_directory_requires_exact_apple_silicon_row(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
