@@ -3,8 +3,10 @@ import {
   Activity,
   ChevronLeft,
   CircleHelp,
+  FolderKanban,
   Moon,
   PanelLeft,
+  Settings,
   Sun,
 } from 'lucide-vue-next'
 import { GcSidebar } from '@runne/product/shared/ui'
@@ -55,8 +57,8 @@ const runtimeSession = createRuntimeSessionContext(createRuntimeSessionControlle
 provideRuntimeSession(runtimeSession)
 
 const sidebarItems = computed(() => [
-  { id: 'projects', label: translate('projects.title'), icon: '▦' },
-  { id: 'settings', label: translate('settings.title'), icon: '⚙' },
+  { id: 'projects', label: translate('projects.title'), icon: FolderKanban },
+  { id: 'settings', label: translate('settings.title'), icon: Settings },
 ])
 const activeSidebarItem = computed(() => route.path.startsWith('/settings') ? 'settings' : 'projects')
 let runtimePoll: ReturnType<typeof setInterval> | undefined

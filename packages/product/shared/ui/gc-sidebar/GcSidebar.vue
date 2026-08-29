@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { Component } from 'vue'
+
 import primaryLogo from '../assets/runne-primary-logo.svg'
 import primaryLogoLight from '../assets/runne-primary-logo-light.svg'
 import routeGlyph from '../assets/runne-route-glyph.svg'
@@ -6,7 +8,7 @@ import routeGlyph from '../assets/runne-route-glyph.svg'
 export interface SidebarItem {
   id: string
   label: string
-  icon?: string
+  icon?: Component
   badge?: string
 }
 
@@ -62,10 +64,13 @@ defineEmits<{
       :aria-label="collapsed ? item.label : undefined"
       @click="$emit('navigate', item.id)"
     >
-      <span
+      <component
         v-if="item.icon"
+        :is="item.icon"
         class="gc-sidebar-icon"
-      >{{ item.icon }}</span>
+        :size="18"
+        aria-hidden="true"
+      />
       <span
         v-if="!collapsed"
         class="gc-sidebar-label"
@@ -194,9 +199,6 @@ defineEmits<{
 }
 
 .gc-sidebar-icon {
-  font-size: 18px;
-  width: 24px;
-  text-align: center;
   flex-shrink: 0;
 }
 

@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { h, markRaw } from 'vue'
 import GcSidebar from './GcSidebar.vue'
 
+const FolderKanbanFixture = markRaw({ render: () => h('svg') })
+const SettingsFixture = markRaw({ render: () => h('svg') })
+
 const items = [
-  { id: 'home', label: 'Home', icon: '🏠' },
-  { id: 'settings', label: 'Settings', icon: '⚙️', badge: '3' },
+  { id: 'home', label: 'Home', icon: FolderKanbanFixture },
+  { id: 'settings', label: 'Settings', icon: SettingsFixture, badge: '3' },
   { id: 'profile', label: 'Profile' },
 ]
 
@@ -35,6 +39,14 @@ describe('GcSidebar', () => {
     const wrapper = mount(GcSidebar, { props: { items } })
     const buttons = wrapper.findAll('.gc-sidebar-item')
     expect(buttons).toHaveLength(3)
+  })
+
+  it('renders supplied icon components as decorative SVGs', () => {
+    const wrapper = mount(GcSidebar, { props: { items } })
+    const buttons = wrapper.findAll('.gc-sidebar-item')
+
+    expect(buttons[0].get('svg').attributes('aria-hidden')).toBe('true')
+    expect(buttons[1].get('svg').attributes('aria-hidden')).toBe('true')
   })
 
   it('activeItem gets active class', () => {

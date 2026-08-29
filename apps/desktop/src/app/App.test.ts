@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it } from 'vitest'
 
@@ -21,6 +21,48 @@ describe('desktop application shell', () => {
     expect(wrapper.get('nav').attributes('aria-label')).toBe('Primary')
     expect(wrapper.findComponent({ name: 'GcSidebar' }).exists()).toBe(true)
     expect(wrapper.get('main').text()).toContain('Projects')
+  })
+
+  it('renders Projects and Settings navigation controls with SVG icons', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes,
+    })
+    await router.push('/')
+    await router.isReady()
+
+    const wrapper = mount(App, {
+      global: { plugins: [router] },
+    })
+    const projectsButton = wrapper.get('.gc-sidebar-item')
+    const settingsButton = wrapper.get('.gc-sidebar-item:nth-of-type(2)')
+
+    expect(projectsButton.text()).toContain('Projects')
+    expect(projectsButton.get('svg').attributes('aria-hidden')).toBe('true')
+    expect(settingsButton.text()).toContain('Settings')
+    expect(settingsButton.get('svg').attributes('aria-hidden')).toBe('true')
+  })
+
+  it('routes sidebar navigation to Projects and Runtime Settings', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes,
+    })
+    await router.push('/settings/runtimes')
+    await router.isReady()
+
+    const wrapper = mount(App, {
+      global: { plugins: [router] },
+    })
+    const projectsButton = wrapper.get('.gc-sidebar-item')
+    const settingsButton = wrapper.get('.gc-sidebar-item:nth-of-type(2)')
+
+    await projectsButton.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/')
+    await settingsButton.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/settings/runtimes')
   })
 
   it('uses the canonical Runne brand assets in the desktop shell', async () => {
