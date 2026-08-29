@@ -41,7 +41,10 @@ impl ProtectedBundledRuntimeProcess {
                 .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
             let before = runne_macos_process_identity::MacOsProcessStartIdentity::observe(pid)
                 .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-            let owned = self.activation.compatibility_owned();
+            let owned = self
+                .activation
+                .compatibility_owned()
+                .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
             if !prepared.matches_protected_daemon_digest(*owned.executable().executable_sha256()) {
                 return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
             }

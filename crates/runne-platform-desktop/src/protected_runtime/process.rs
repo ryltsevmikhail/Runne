@@ -3,14 +3,33 @@
 enum DesktopLaunchRequest {
     V1(ProtectedLaunchRequestV1),
     V2(ProtectedLaunchRequestV2),
+    #[allow(dead_code)] // Minted only by a future verified native qualification seam.
+    V3(runne_api::ProtectedCredentialEnrollmentLaunchRequestV3),
 }
 
 #[cfg(any(unix, windows))]
 impl DesktopLaunchRequest {
-    const fn compatibility(&self) -> &ProtectedLaunchRequestV1 {
+    const fn compatibility(&self) -> Option<&ProtectedLaunchRequestV1> {
         match self {
-            Self::V1(request) => request,
-            Self::V2(request) => request.compatibility_request(),
+            Self::V1(request) => Some(request),
+            Self::V2(request) => Some(request.compatibility_request()),
+            Self::V3(_) => None,
+        }
+    }
+
+    const fn executable(&self) -> &ExecutableIdentityV1 {
+        match self {
+            Self::V1(request) => request.executable(),
+            Self::V2(request) => request.executable(),
+            Self::V3(request) => request.executable(),
+        }
+    }
+
+    const fn activation_disposition(&self) -> &ActivationDispositionV1 {
+        match self {
+            Self::V1(request) => request.activation_disposition(),
+            Self::V2(request) => request.activation_disposition(),
+            Self::V3(request) => request.activation_disposition(),
         }
     }
 
@@ -18,6 +37,7 @@ impl DesktopLaunchRequest {
         match self {
             Self::V1(request) => request.encode_frame(),
             Self::V2(request) => request.encode_frame(),
+            Self::V3(request) => request.encode_frame(),
         }
         .map_err(|_| LaunchAuthorityError::InvalidContract)
     }
@@ -26,6 +46,7 @@ impl DesktopLaunchRequest {
         match self {
             Self::V1(request) => request.derive_keys_and_forget(),
             Self::V2(request) => request.derive_keys_and_forget(),
+            Self::V3(request) => request.derive_keys_and_forget(),
         }
     }
 
@@ -47,6 +68,32 @@ impl DesktopLaunchRequest {
                 ready.verify_exact(request, keys)?;
                 Ok(DesktopReady::V2(ready))
             }
+            Self::V3(request) => {
+                let ready = runne_api::ProtectedCredentialEnrollmentReadyV3::decode_frame(frame)
+                    .map_err(|_| LaunchAuthorityError::ReadinessProofMismatch)?;
+                ready.verify_exact(request, keys)?;
+                Ok(DesktopReady::V3(ready))
+            }
+        }
+    }
+
+    fn runtime_profile(
+        &self,
+        ready: &DesktopReady,
+        now_unix_millis: u64,
+        keys: &ProtectedActivationKeys,
+    ) -> Result<ProtectedBundledRuntimeProfile, LaunchAuthorityError> {
+        match (self, ready) {
+            (Self::V1(request), DesktopReady::V1(ready)) => {
+                ProtectedBundledRuntimeProfile::from_ready(ready, request, keys)
+            }
+            (Self::V2(request), DesktopReady::V2(ready)) => {
+                ProtectedBundledRuntimeProfile::from_ready_v2(ready, request, keys)
+            }
+            (Self::V3(request), DesktopReady::V3(ready)) => {
+                ProtectedBundledRuntimeProfile::from_ready_v3(ready, request, now_unix_millis, keys)
+            }
+            _ => Err(LaunchAuthorityError::OwnershipMismatch),
         }
     }
 }
@@ -55,14 +102,16 @@ impl DesktopLaunchRequest {
 enum DesktopReady {
     V1(ProtectedReadyV1),
     V2(ProtectedReadyV2),
+    V3(runne_api::ProtectedCredentialEnrollmentReadyV3),
 }
 
 #[cfg(any(unix, windows))]
 impl DesktopReady {
-    const fn compatibility(&self) -> &ProtectedReadyV1 {
+    const fn stable(&self) -> &StableRuntimeBindingV1 {
         match self {
-            Self::V1(ready) => ready,
-            Self::V2(ready) => ready.compatibility_ready(),
+            Self::V1(ready) => ready.stable(),
+            Self::V2(ready) => ready.stable(),
+            Self::V3(ready) => ready.stable(),
         }
     }
 
@@ -72,6 +121,7 @@ impl DesktopReady {
         match self {
             Self::V1(_) => None,
             Self::V2(ready) => Some(ready.provider_readiness()),
+            Self::V3(ready) => Some(ready.provider_readiness()),
         }
     }
 
@@ -91,6 +141,14 @@ impl DesktopReady {
             (DesktopLaunchRequest::V2(request), Self::V2(ready)) => {
                 let owned = ready.owned_launch();
                 Ok(ProtectedProcessActivation::V2 {
+                    request,
+                    ready,
+                    owned,
+                })
+            }
+            (DesktopLaunchRequest::V3(request), Self::V3(ready)) => {
+                let owned = ready.owned_launch();
+                Ok(ProtectedProcessActivation::V3 {
                     request,
                     ready,
                     owned,
@@ -121,6 +179,11 @@ enum ProtectedProcessActivation {
         ready: ProtectedReadyV2,
         owned: ProtectedOwnedLaunchV2,
     },
+    V3 {
+        request: runne_api::ProtectedCredentialEnrollmentLaunchRequestV3,
+        ready: runne_api::ProtectedCredentialEnrollmentReadyV3,
+        owned: runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
+    },
     #[cfg(feature = "test-support")]
     #[allow(dead_code)]
     Test { owned: ProtectedOwnedLaunchV1 },
@@ -128,22 +191,23 @@ enum ProtectedProcessActivation {
 
 #[cfg(any(unix, windows))]
 impl ProtectedProcessActivation {
-    #[allow(clippy::missing_const_for_fn)]
-    fn compatibility_ready(&self) -> &ProtectedReadyV1 {
+    const fn compatibility_ready(&self) -> Option<&ProtectedReadyV1> {
         match self {
-            Self::V1 { ready, .. } => ready,
-            Self::V2 { ready, .. } => ready.compatibility_ready(),
+            Self::V1 { ready, .. } => Some(ready),
+            Self::V2 { ready, .. } => Some(ready.compatibility_ready()),
+            Self::V3 { .. } => None,
             #[cfg(feature = "test-support")]
-            Self::Test { .. } => unreachable!("transport-only test process has no readiness"),
+            Self::Test { .. } => None,
         }
     }
 
-    const fn compatibility_owned(&self) -> &ProtectedOwnedLaunchV1 {
+    const fn compatibility_owned(&self) -> Option<&ProtectedOwnedLaunchV1> {
         match self {
-            Self::V1 { owned, .. } => owned,
-            Self::V2 { owned, .. } => owned.compatibility_owned_launch(),
+            Self::V1 { owned, .. } => Some(owned),
+            Self::V2 { owned, .. } => Some(owned.compatibility_owned_launch()),
+            Self::V3 { .. } => None,
             #[cfg(feature = "test-support")]
-            Self::Test { owned } => owned,
+            Self::Test { owned } => Some(owned),
         }
     }
 
@@ -151,11 +215,17 @@ impl ProtectedProcessActivation {
         match self {
             Self::V1 { .. } => None,
             Self::V2 { request, .. } => Some(request.provider_binding()),
+            Self::V3 { request, .. } => Some(request.provider_binding()),
             #[cfg(feature = "test-support")]
             Self::Test { .. } => None,
         }
     }
 }
+
+include!("process_v3.rs");
+
+#[cfg(test)]
+include!("v3_state_tests.rs");
 
 /// Native development/ad-hoc launcher for a protected bundled daemon.
 #[derive(Clone)]

@@ -66,8 +66,15 @@ impl ProtectedBundledRuntimeProcess {
             if client.transport_kind() != RuntimeTransportKind::ProtectedBundled {
                 return false;
             }
-            let owned_launch = self.activation.compatibility_owned();
-            let ready = self.activation.compatibility_ready();
+            if let Some(matches) = self.activation.matches_v3_runtime_client(client) {
+                return matches;
+            }
+            let (Some(owned_launch), Some(ready)) = (
+                self.activation.compatibility_owned(),
+                self.activation.compatibility_ready(),
+            ) else {
+                return false;
+            };
             let session = client.session_info();
             session.profile_id == owned_launch.profile().profile_id()
                 && session.schema_hash == hex::encode(owned_launch.profile().profile_hash())
@@ -165,6 +172,24 @@ impl ProtectedBundledRuntimeProcess {
                             .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
                     acknowledgement.verify_exact(owned, &self.keys)?;
                     if !acknowledgement.graceful() {
+                        return Err(ProtectedBundledRuntimeError::ShutdownIncomplete);
+                    }
+                }
+                ProtectedProcessActivation::V3 { owned, .. } => {
+                    let mut shutdown =
+                        runne_api::ProtectedCredentialEnrollmentShutdownV3::new(owned.clone());
+                    shutdown.sign(&self.keys);
+                    let frame = Zeroizing::new(
+                        shutdown
+                            .encode_frame()
+                            .map_err(|_| LaunchAuthorityError::InvalidContract)?,
+                    );
+                    write_frame(&mut self.channel, &frame)?;
+                    let acknowledgement_frame = read_frame(&mut self.channel)?;
+                    if !self
+                        .activation
+                        .verify_v3_shutdown_ack(&acknowledgement_frame, &self.keys)?
+                    {
                         return Err(ProtectedBundledRuntimeError::ShutdownIncomplete);
                     }
                 }
