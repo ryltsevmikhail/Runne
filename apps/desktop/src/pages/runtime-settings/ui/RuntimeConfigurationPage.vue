@@ -75,7 +75,7 @@ async function focusCategoryFromKeyboard(event: KeyboardEvent, category: Categor
       </button>
     </header>
 
-    <main class="runtime-configuration-page__content">
+    <div class="runtime-configuration-page__content">
       <aside class="runtime-configuration-page__ownership-notice">
         {{ translate('runtimeConfiguration.ownershipNotice') }}
       </aside>
@@ -129,6 +129,6 @@ async function focusCategoryFromKeyboard(event: KeyboardEvent, category: Categor
       >
         {{ translate('runtimeConfiguration.saveUnavailable') }}
       </p>
-    </main>
+    </div>
   </section>
 </template>

@@ -17,7 +17,7 @@ import { TargetCapabilityBoundary } from '@/shared/ui/target-capability'
       </div>
     </header>
 
-    <main class="recovery-page__content">
+    <div class="recovery-page__content">
       <div class="recovery-page__state">
         <TargetCapabilityBoundary
           data-capability="recovery-orchestration"
@@ -38,6 +38,6 @@ import { TargetCapabilityBoundary } from '@/shared/ui/target-capability'
           {{ translate('recovery.backToProjects') }}
         </RouterLink>
       </div>
-    </main>
+    </div>
   </section>
 </template>

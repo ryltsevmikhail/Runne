@@ -65,6 +65,14 @@ describe('runtime configuration page', () => {
 
       expect(wrapper.get('h1').text()).toBe('Конфигурация runtime')
       expect(wrapper.get('[aria-label="Категории конфигурации runtime"]')).toBeTruthy()
+      expect(wrapper.findAll('[data-config-section]').map(button => button.text())).toEqual([
+        'Агенты',
+        'Модели и провайдеры',
+        'Профили runtime',
+        'Возможности',
+        'MCP и инструменты',
+        'Устройства',
+      ])
       expect(wrapper.get('button[name="save-runtime-configuration"]').attributes('aria-describedby')).toBe('runtime-configuration-save-unavailable')
       expect(wrapper.get('#runtime-configuration-save-unavailable').text()).toContain('недоступно')
     }

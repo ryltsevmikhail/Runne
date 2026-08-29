@@ -44,7 +44,7 @@ const targetSurfaces: Record<keyof typeof englishTargetSurfaces, string> = {
   'runtimeConfiguration.category.agents': 'Агенты',
   'runtimeConfiguration.category.modelsProviders': 'Модели и провайдеры',
   'runtimeConfiguration.category.runtimeProfiles': 'Профили runtime',
-  'runtimeConfiguration.category.capabilities': 'Capabilities',
+  'runtimeConfiguration.category.capabilities': 'Возможности',
   'runtimeConfiguration.category.mcpTools': 'MCP и инструменты',
   'runtimeConfiguration.category.devices': 'Устройства',
 }

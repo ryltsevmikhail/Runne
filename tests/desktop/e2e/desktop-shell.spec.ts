@@ -90,11 +90,13 @@ test('Phase 3 routes remain fail-closed while workspace chat remains available',
 
   await page.goto('/recovery')
   await expect(page.getByRole('heading', { name: 'Project recovery', exact: true })).toBeVisible()
+  await expect(page.locator('main')).toHaveCount(1)
   await page.getByRole('link', { name: 'Back to projects', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Projects', exact: true })).toBeVisible()
 
   await page.goto('/settings/runtime-configuration')
   await expect(page.getByRole('heading', { name: 'Runtime configuration', exact: true })).toBeVisible()
+  await expect(page.locator('main')).toHaveCount(1)
   const categories = page.getByRole('tab')
   await expect(categories).toHaveCount(6)
   await categories.first().press('End')
@@ -102,6 +104,7 @@ test('Phase 3 routes remain fail-closed while workspace chat remains available',
   await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled()
 
   await page.goto(`/workspaces/${workspace.workspaceId}`)
+  await expect(page.locator('main')).toHaveCount(1)
   const controls = page.locator('[data-capability="conversation-controls"] button')
   await expect(controls).toHaveCount(5)
   for (const control of await controls.all()) {

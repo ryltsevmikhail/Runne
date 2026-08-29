@@ -10,12 +10,12 @@ import { translate } from '@/shared/i18n'
     >
       <slot name="explorer" />
     </aside>
-    <main
+    <section
       class="workspace-frame__conversation workspace-panel workspace-panel--main workspace-panel--chat"
       :aria-label="translate('conversation.kicker')"
     >
       <slot name="conversation" />
-    </main>
+    </section>
     <aside
       class="workspace-frame__details workspace-panel workspace-panel--details"
       :aria-label="translate('workspace.details')"

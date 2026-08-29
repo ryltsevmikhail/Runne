@@ -212,4 +212,23 @@ describe('desktop application shell', () => {
 
     expect(wrapper.get('[aria-label="Diagnostics"]').attributes('href')).toBe('/settings/diagnostics')
   })
+
+  it.each([
+    '/recovery',
+    '/settings/runtime-configuration',
+    '/workspaces/01890e00-0000-7000-8000-000000000002',
+  ])('keeps exactly one main landmark on %s', async (path) => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes,
+    })
+    await router.push(path)
+    await router.isReady()
+
+    const wrapper = mount(App, {
+      global: { plugins: [router] },
+    })
+
+    expect(wrapper.findAll('main')).toHaveLength(1)
+  })
 })
