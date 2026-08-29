@@ -29,6 +29,22 @@ const targetSurfaces = {
   'recovery.ownershipNotice': 'The runtime remains the authoritative owner of recovery state.',
   'recovery.explanation': 'This route cannot interpret connection flags as recovery steps without the recovery orchestration capability.',
   'recovery.backToProjects': 'Back to projects',
+  'runtimeConfiguration.title': 'Runtime configuration',
+  'runtimeConfiguration.subtitle': 'Desktop presentation of runtime-owned configuration',
+  'runtimeConfiguration.navigation': 'Runtime configuration',
+  'runtimeConfiguration.ownershipBadge': 'TARGET · RUNTIME-OWNED',
+  'runtimeConfiguration.ownershipNotice': 'The runtime remains the authoritative owner of configuration and secure references.',
+  'runtimeConfiguration.categories': 'Runtime configuration categories',
+  'runtimeConfiguration.details': 'Unavailable runtime configuration detail',
+  'runtimeConfiguration.capabilityDescription': 'A public runtime configuration API is required before this category can show data or accept changes.',
+  'runtimeConfiguration.save': 'Save changes',
+  'runtimeConfiguration.saveUnavailable': 'Saving runtime configuration is unavailable until the runtime publishes a supported API.',
+  'runtimeConfiguration.category.agents': 'Agents',
+  'runtimeConfiguration.category.modelsProviders': 'Models & providers',
+  'runtimeConfiguration.category.runtimeProfiles': 'Runtime profiles',
+  'runtimeConfiguration.category.capabilities': 'Capabilities',
+  'runtimeConfiguration.category.mcpTools': 'MCP & tools',
+  'runtimeConfiguration.category.devices': 'Devices',
 } as const
 
 export default targetSurfaces

@@ -31,6 +31,22 @@ const targetSurfaces: Record<keyof typeof englishTargetSurfaces, string> = {
   'recovery.ownershipNotice': 'Runtime остаётся авторитетным владельцем состояния восстановления.',
   'recovery.explanation': 'Этот маршрут не может интерпретировать флаги подключения как шаги восстановления без capability recovery orchestration.',
   'recovery.backToProjects': 'Назад к проектам',
+  'runtimeConfiguration.title': 'Конфигурация runtime',
+  'runtimeConfiguration.subtitle': 'Представление конфигурации, которой управляет runtime',
+  'runtimeConfiguration.navigation': 'Конфигурация runtime',
+  'runtimeConfiguration.ownershipBadge': 'ЦЕЛЕВОЙ · ВЛАДЕЛЕЦ RUNTIME',
+  'runtimeConfiguration.ownershipNotice': 'Runtime остаётся авторитетным владельцем конфигурации и защищённых ссылок.',
+  'runtimeConfiguration.categories': 'Категории конфигурации runtime',
+  'runtimeConfiguration.details': 'Недоступные сведения о конфигурации runtime',
+  'runtimeConfiguration.capabilityDescription': 'Для показа данных или принятия изменений в этой категории нужен публичный API конфигурации runtime.',
+  'runtimeConfiguration.save': 'Сохранить изменения',
+  'runtimeConfiguration.saveUnavailable': 'Сохранение конфигурации runtime недоступно, пока runtime не опубликует поддерживаемый API.',
+  'runtimeConfiguration.category.agents': 'Агенты',
+  'runtimeConfiguration.category.modelsProviders': 'Модели и провайдеры',
+  'runtimeConfiguration.category.runtimeProfiles': 'Профили runtime',
+  'runtimeConfiguration.category.capabilities': 'Capabilities',
+  'runtimeConfiguration.category.mcpTools': 'MCP и инструменты',
+  'runtimeConfiguration.category.devices': 'Устройства',
 }
 
 export default targetSurfaces

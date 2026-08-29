@@ -9,7 +9,7 @@ import { ProjectDetailsPage } from '@/pages/project-details'
 import { ProjectsPage } from '@/pages/projects'
 import { ProvidersPage } from '@/pages/providers'
 import { RecoveryPage } from '@/pages/recovery'
-import { RuntimeSettingsPage } from '@/pages/runtime-settings'
+import { RuntimeConfigurationPage, RuntimeSettingsPage } from '@/pages/runtime-settings'
 import { SettingsPage } from '@/pages/settings'
 import { ShortcutsPage } from '@/pages/shortcuts'
 import { TaskRunPage } from '@/pages/task-run'
@@ -62,6 +62,11 @@ export const routes: RouteRecordRaw[] = [
     path: '/settings/runtimes',
     name: 'runtime-settings',
     component: RuntimeSettingsPage,
+  },
+  {
+    path: '/settings/runtime-configuration',
+    name: 'runtime-configuration',
+    component: RuntimeConfigurationPage,
   },
   {
     path: '/settings/appearance',

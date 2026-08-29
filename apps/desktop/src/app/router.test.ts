@@ -35,6 +35,12 @@ describe('desktop routes', () => {
     expect(appearance?.path).toBe('/settings/appearance')
   })
 
+  it('exposes the unavailable runtime configuration target route', () => {
+    const paths = new Map(routes.map((route) => [route.name, route.path]))
+
+    expect(paths.get('runtime-configuration')).toBe('/settings/runtime-configuration')
+  })
+
   it('exposes isolated settings routes for local desktop preferences', () => {
     const paths = new Map(routes.map((route) => [route.name, route.path]))
 
