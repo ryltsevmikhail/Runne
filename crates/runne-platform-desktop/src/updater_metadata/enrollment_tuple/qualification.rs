@@ -13,7 +13,7 @@ use super::{VerifiedMacOsWriterLaunch, macos_identity};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NativeEnrollmentQualification {
     Unqualified,
-    Qualified(NativeEnrollmentQualificationBinding),
+    Qualified(Box<NativeEnrollmentQualificationBinding>),
 }
 
 impl NativeEnrollmentQualification {
@@ -43,8 +43,17 @@ impl NativeEnrollmentQualification {
             .macos_writer_code_identity
             .clone()
             .ok_or(VerifiedWriterArtifactError::Rejected)?;
+        let daemon_identity = binding
+            .macos_daemon_code_identity
+            .clone()
+            .ok_or(VerifiedWriterArtifactError::Rejected)?;
         let artifact = verified_writer_artifact(binding, executable)?;
-        Ok(VerifiedMacOsWriterLaunch::new(artifact, &identity))
+        Ok(VerifiedMacOsWriterLaunch::new(
+            artifact,
+            &identity,
+            binding.daemon_sha256,
+            &daemon_identity,
+        ))
     }
 }
 
@@ -68,8 +77,10 @@ fn verified_writer_artifact(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NativeEnrollmentQualificationBinding {
     pub(super) writer_sha256: [u8; 32],
+    pub(super) daemon_sha256: [u8; 32],
     pub(super) release_tuple_sha256: [u8; 32],
-    pub(super) macos_writer_code_identity: Option<macos_identity::MacOsWriterCodeIdentityV1>,
+    pub(super) macos_writer_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
+    pub(super) macos_daemon_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
 }
 
 fn measure_regular_file(path: &Path) -> Option<[u8; 32]> {

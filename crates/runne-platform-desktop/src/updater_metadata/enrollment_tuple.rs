@@ -10,7 +10,9 @@ pub struct NativeEnrollmentTupleV1 {
     daemon_sha256: String,
     contract_sha256: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    writer_code_identity: Option<macos_identity::MacOsWriterCodeIdentityV1>,
+    writer_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    daemon_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
     tuple_sha256: String,
 }
 
@@ -29,6 +31,7 @@ impl NativeEnrollmentTupleV1 {
             daemon_sha256,
             contract_sha256,
             writer_code_identity: None,
+            daemon_code_identity: None,
             tuple_sha256: String::new(),
         };
         if !tuple.matches_target(target) {
@@ -48,12 +51,22 @@ impl NativeEnrollmentTupleV1 {
         identifier: impl Into<String>,
         team_identifier: impl Into<String>,
         cdhash: impl Into<String>,
+        daemon_identifier: impl Into<String>,
+        daemon_team_identifier: impl Into<String>,
+        daemon_cdhash: impl Into<String>,
         target: &UpdateTargetV2,
     ) -> Result<Self, NativeEnrollmentTupleError> {
-        let Some(writer_code_identity) = macos_identity::MacOsWriterCodeIdentityV1::new(
+        let Some(writer_code_identity) = macos_identity::MacOsCodeIdentityV1::new(
             identifier,
             team_identifier,
             cdhash,
+        ) else {
+            return Err(NativeEnrollmentTupleError::Rejected);
+        };
+        let Some(daemon_code_identity) = macos_identity::MacOsCodeIdentityV1::new(
+            daemon_identifier,
+            daemon_team_identifier,
+            daemon_cdhash,
         ) else {
             return Err(NativeEnrollmentTupleError::Rejected);
         };
@@ -63,6 +76,7 @@ impl NativeEnrollmentTupleV1 {
             daemon_sha256,
             contract_sha256,
             writer_code_identity: Some(writer_code_identity),
+            daemon_code_identity: Some(daemon_code_identity),
             tuple_sha256: String::new(),
         };
         if !tuple.matches_target(target) {
@@ -96,17 +110,20 @@ impl NativeEnrollmentTupleV1 {
     ) -> NativeEnrollmentQualification {
         let binding = self.matches_installed(target, artifacts).then(|| {
             decode_digest(&self.writer_sha256)
+                .zip(decode_digest(&self.daemon_sha256))
                 .zip(decode_digest(&self.tuple_sha256))
                 .map(
-                    |(writer_sha256, release_tuple_sha256)| NativeEnrollmentQualificationBinding {
+                    |((writer_sha256, daemon_sha256), release_tuple_sha256)| NativeEnrollmentQualificationBinding {
                         writer_sha256,
+                        daemon_sha256,
                         release_tuple_sha256,
                         macos_writer_code_identity: self.writer_code_identity.clone(),
+                        macos_daemon_code_identity: self.daemon_code_identity.clone(),
                     },
                 )
         });
         match binding {
-            Some(Some(binding)) => NativeEnrollmentQualification::Qualified(binding),
+            Some(Some(binding)) => NativeEnrollmentQualification::Qualified(Box::new(binding)),
             _ => NativeEnrollmentQualification::Unqualified,
         }
     }
@@ -124,8 +141,13 @@ impl NativeEnrollmentTupleV1 {
                 "macos" => self
                     .writer_code_identity
                     .as_ref()
-                    .is_some_and(macos_identity::MacOsWriterCodeIdentityV1::valid),
-                _ => self.writer_code_identity.is_none(),
+                    .is_some_and(macos_identity::MacOsCodeIdentityV1::valid)
+                    && self
+                        .daemon_code_identity
+                        .as_ref()
+                        .is_some_and(macos_identity::MacOsCodeIdentityV1::valid)
+                    && self.writer_code_identity != self.daemon_code_identity,
+                _ => self.writer_code_identity.is_none() && self.daemon_code_identity.is_none(),
             }
             && all_distinct([
                 self.writer_sha256.as_str(),
@@ -154,9 +176,15 @@ impl NativeEnrollmentTupleV1 {
             hasher.update(u32::try_from(value.len()).unwrap_or(u32::MAX).to_be_bytes());
             hasher.update(value.as_bytes());
         }
-        if let Some(identity) = &self.writer_code_identity {
+        for (role, identity) in [
+            ("writer", self.writer_code_identity.as_ref()),
+            ("daemon", self.daemon_code_identity.as_ref()),
+        ] {
+            let Some(identity) = identity else { continue };
             hasher.update(5_u32.to_be_bytes());
             hasher.update(b"macos");
+            hasher.update(u32::try_from(role.len()).unwrap_or(u32::MAX).to_be_bytes());
+            hasher.update(role.as_bytes());
             for value in identity.digest_fields() {
                 hasher.update(u32::try_from(value.len()).unwrap_or(u32::MAX).to_be_bytes());
                 hasher.update(value.as_bytes());

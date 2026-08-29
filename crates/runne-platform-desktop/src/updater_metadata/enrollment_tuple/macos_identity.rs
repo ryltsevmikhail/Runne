@@ -3,16 +3,16 @@ use runne_platform_ports::provider_credential_broker::{
 };
 use serde::{Deserialize, Serialize};
 
-/// Exact signed identity of one non-ad-hoc macOS writer image.
+/// Exact signed identity of one non-ad-hoc macOS native image.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct MacOsWriterCodeIdentityV1 {
+pub(super) struct MacOsCodeIdentityV1 {
     identifier: String,
     team_identifier: String,
     cdhash: String,
 }
 
-impl MacOsWriterCodeIdentityV1 {
+impl MacOsCodeIdentityV1 {
     pub(super) fn new(
         identifier: impl Into<String>,
         team_identifier: impl Into<String>,
@@ -60,16 +60,22 @@ impl MacOsWriterCodeIdentityV1 {
 pub struct VerifiedMacOsWriterLaunch {
     launch: VerifiedWriterLaunchSpec,
     code_requirement: String,
+    daemon_image_digest: [u8; 32],
+    daemon_code_requirement: String,
 }
 
 impl VerifiedMacOsWriterLaunch {
     pub(super) fn new(
         artifact: VerifiedWriterArtifact,
-        identity: &MacOsWriterCodeIdentityV1,
+        identity: &MacOsCodeIdentityV1,
+        daemon_image_digest: [u8; 32],
+        daemon_identity: &MacOsCodeIdentityV1,
     ) -> Self {
         Self {
             launch: VerifiedWriterLaunchSpec::new(artifact),
             code_requirement: identity.requirement(),
+            daemon_image_digest,
+            daemon_code_requirement: daemon_identity.requirement(),
         }
     }
 
@@ -81,6 +87,8 @@ impl VerifiedMacOsWriterLaunch {
         Self {
             launch: VerifiedWriterLaunchSpec::new(artifact),
             code_requirement,
+            daemon_image_digest: [0; 32],
+            daemon_code_requirement: String::new(),
         }
     }
 
@@ -92,11 +100,25 @@ impl VerifiedMacOsWriterLaunch {
         self.code_requirement.clone()
     }
 
+    /// Exact daemon image digest admitted by the same signed release tuple.
+    #[must_use]
+    pub const fn daemon_image_digest(&self) -> [u8; 32] {
+        self.daemon_image_digest
+    }
+
+    /// Exact daemon code requirement admitted by the same signed release tuple.
+    #[must_use]
+    pub fn daemon_code_requirement(&self) -> String {
+        self.daemon_code_requirement.clone()
+    }
+
     #[cfg(test)]
     pub(crate) fn with_test_requirement(&self, code_requirement: &str) -> Self {
         Self {
             launch: self.launch.clone(),
             code_requirement: code_requirement.to_owned(),
+            daemon_image_digest: self.daemon_image_digest,
+            daemon_code_requirement: self.daemon_code_requirement.clone(),
         }
     }
 }
