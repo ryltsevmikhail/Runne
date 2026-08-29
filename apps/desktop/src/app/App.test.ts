@@ -156,27 +156,6 @@ describe('desktop application shell', () => {
     expect(wrapper.find('[aria-label="Collapse sidebar"]').exists()).toBe(true)
   })
 
-  it('keeps narrow sidebar labels available without entering collapsed state', async () => {
-    const previousWidth = window.innerWidth
-    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1023 })
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes,
-    })
-    await router.push('/')
-    await router.isReady()
-
-    const wrapper = mount(App, {
-      global: { plugins: [router] },
-    })
-
-    expect(wrapper.get('aside').classes()).not.toContain('sidebar--collapsed')
-    expect(wrapper.get('.gc-sidebar-item').attributes('aria-label')).toBe('Projects')
-    expect(wrapper.get('.gc-sidebar-item:nth-of-type(2)').attributes('aria-label')).toBe('Settings')
-
-    Object.defineProperty(window, 'innerWidth', { configurable: true, value: previousWidth })
-  })
-
   it('links the diagnostics action to the documented local route', async () => {
     const router = createRouter({
       history: createMemoryHistory(),

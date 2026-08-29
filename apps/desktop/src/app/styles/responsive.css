@@ -39,7 +39,6 @@
   }
 
   .brand-lockup,
-  .collapse-button,
   .nav-label,
   .nav-item span,
   .status-copy {
@@ -57,7 +56,9 @@
   }
 
   .app-sidebar-navigation.gc-sidebar .gc-sidebar-brand-header {
+    flex-direction: column;
     justify-content: center;
+    gap: 4px;
   }
 
   .app-sidebar-navigation.gc-sidebar .gc-sidebar-brand-lockup {
