@@ -18,7 +18,10 @@ mod macos_identity;
 pub use macos_identity::VerifiedMacOsWriterLaunch;
 #[path = "updater_metadata/enrollment_tuple/qualification.rs"]
 mod enrollment_qualification;
-pub use enrollment_qualification::NativeEnrollmentQualification;
+pub use enrollment_qualification::{
+    NativeEnrollmentQualification, NativeEnrollmentQualificationBinding,
+    NativeEnrollmentQualificationRowV1,
+};
 #[path = "updater_metadata/enrollment_tuple/admission.rs"]
 mod enrollment_admission;
 pub use enrollment_admission::NativeEnrollmentTupleAdmission;
@@ -154,6 +157,7 @@ pub struct UpdateTargetV2Binding<'a> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VerifiedUpdateV2 {
     metadata: UpdateMetadataV2,
+    verified_at_unix_seconds: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
@@ -266,6 +270,7 @@ pub fn verify_update_v2(
     }
     Ok(VerifiedUpdateV2 {
         metadata: metadata.clone(),
+        verified_at_unix_seconds: now_unix_seconds,
     })
 }
 

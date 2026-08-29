@@ -7,7 +7,7 @@ use super::super::{
     VerifiedUpdateV2, verify_update_v2,
 };
 
-fn target() -> UpdateTargetV2 {
+pub(super) fn target() -> UpdateTargetV2 {
     let mut target = super::updater_enrollment_tuple::target();
     target.platform = "macos".into();
     target.arch = "arm64".into();

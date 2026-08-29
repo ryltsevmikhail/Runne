@@ -33,6 +33,8 @@ pub struct NativeEnrollmentTupleV2 {
     writer_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     daemon_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    native_enrollment_qualification: Option<NativeEnrollmentQualificationRowV1>,
     tuple_sha256: String,
 }
 
@@ -56,6 +58,7 @@ impl NativeEnrollmentTupleV2 {
             desktop_code_identity: None,
             writer_code_identity: None,
             daemon_code_identity: None,
+            native_enrollment_qualification: None,
             tuple_sha256: String::new(),
         };
         if !tuple.matches_target(target) {
@@ -115,6 +118,7 @@ impl NativeEnrollmentTupleV2 {
             desktop_code_identity: Some(desktop_code_identity),
             writer_code_identity: Some(writer_code_identity),
             daemon_code_identity: Some(daemon_code_identity),
+            native_enrollment_qualification: None,
             tuple_sha256: String::new(),
         };
         if !tuple.matches_target(target) {
@@ -139,6 +143,13 @@ impl NativeEnrollmentTupleV2 {
     }
 
     fn matches_target(&self, target: &UpdateTargetV2) -> bool {
+        self.base_matches_target(target)
+            && self.native_enrollment_qualification.as_ref().is_none_or(|qualification| {
+                qualification.matches_target(target, self)
+            })
+    }
+
+    fn base_matches_target(&self, target: &UpdateTargetV2) -> bool {
         self.schema_version == 2
             && digests_valid([
             self.candidate_sha256.as_str(),

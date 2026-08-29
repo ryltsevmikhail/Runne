@@ -18,6 +18,7 @@ pub struct NativeEnrollmentTupleAdmission {
     pub(super) writer_sha256: [u8; 32],
     pub(super) daemon_sha256: [u8; 32],
     pub(super) release_tuple_sha256: [u8; 32],
+    pub(super) qualification: NativeEnrollmentQualification,
     pub(super) macos_desktop_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
     pub(super) macos_writer_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
     pub(super) macos_daemon_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
@@ -54,16 +55,23 @@ impl VerifiedUpdateV2 {
             .target
             .native_enrollment_tuple
             .as_ref()
-            .and_then(|tuple| tuple.admit(self.target(), artifacts))
+            .and_then(|tuple| tuple.admit(self.target(), artifacts, self.verified_at_unix_seconds))
     }
 
-    /// Tuple evidence alone cannot qualify the platform enrollment path.
+    /// Qualifies only an exact threshold-signed row and independently measured tuple.
     #[must_use]
-    pub const fn qualify_native_enrollment(
+    pub fn qualify_native_enrollment(
         &self,
-        _artifacts: &MeasuredNativeEnrollmentArtifactsV1,
+        artifacts: &MeasuredNativeEnrollmentArtifactsV1,
     ) -> NativeEnrollmentQualification {
-        NativeEnrollmentQualification::Unqualified
+        self.metadata
+            .targets
+            .target
+            .native_enrollment_tuple
+            .as_ref()
+            .map_or(NativeEnrollmentQualification::Unqualified, |tuple| {
+                tuple.qualification_for(self.target(), artifacts, self.verified_at_unix_seconds)
+            })
     }
 }
 
@@ -72,6 +80,7 @@ impl NativeEnrollmentTupleV2 {
         &self,
         target: &UpdateTargetV2,
         artifacts: &MeasuredNativeEnrollmentArtifactsV1,
+        verified_at_unix_seconds: u64,
     ) -> Option<NativeEnrollmentTupleAdmission> {
         (self.matches_installed(target, artifacts) && self.tuple_sha256 == self.digest_for(target))
             .then(|| {
@@ -85,6 +94,11 @@ impl NativeEnrollmentTupleV2 {
                     writer_sha256,
                     daemon_sha256,
                     release_tuple_sha256,
+                    qualification: self.qualification_for(
+                        target,
+                        artifacts,
+                        verified_at_unix_seconds,
+                    ),
                     macos_desktop_code_identity: self.desktop_code_identity.clone(),
                     macos_writer_code_identity: self.writer_code_identity.clone(),
                     macos_daemon_code_identity: self.daemon_code_identity.clone(),
@@ -94,6 +108,12 @@ impl NativeEnrollmentTupleV2 {
 }
 
 impl NativeEnrollmentTupleAdmission {
+    /// Returns the retained non-authoritative qualification state.
+    #[must_use]
+    pub const fn qualification(&self) -> &NativeEnrollmentQualification {
+        &self.qualification
+    }
+
     /// Re-measures a staged non-macOS writer before yielding its exact artifact.
     pub fn verified_writer(
         &self,
