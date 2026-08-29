@@ -1,5 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import { nextTick } from 'vue'
 
 import { currentLocale } from '@/shared/i18n'
 
@@ -12,6 +13,22 @@ function expectCategoryControlsToResolve(wrapper: ReturnType<typeof mount>) {
     expect(panelId).toBeTruthy()
     expect(wrapper.find(`#${panelId}`).exists()).toBe(true)
   }
+}
+
+async function expectFocusedCategoryAfterKey(
+  wrapper: ReturnType<typeof mount>,
+  key: string,
+  categoryId: string,
+) {
+  const activeTab = wrapper.get('[role="tab"][aria-selected="true"]')
+  const activeTabElement = activeTab.element as HTMLElement
+  activeTabElement.focus()
+  await activeTab.trigger('keydown', { key })
+  await nextTick()
+
+  const expectedTab = wrapper.get(`[data-config-section="${categoryId}"]`)
+  expect(expectedTab.attributes('aria-selected')).toBe('true')
+  expect(document.activeElement).toBe(expectedTab.element)
 }
 
 describe('runtime configuration page', () => {
@@ -52,6 +69,24 @@ describe('runtime configuration page', () => {
     }
     finally {
       currentLocale.value = previousLocale
+    }
+  })
+
+  it('moves local tab focus with standard keyboard navigation', async () => {
+    const wrapper = mount(RuntimeConfigurationPage, { attachTo: document.body })
+    try {
+      await expectFocusedCategoryAfterKey(wrapper, 'ArrowRight', 'models-providers')
+      await expectFocusedCategoryAfterKey(wrapper, 'ArrowDown', 'runtime-profiles')
+      await expectFocusedCategoryAfterKey(wrapper, 'ArrowLeft', 'models-providers')
+      await expectFocusedCategoryAfterKey(wrapper, 'ArrowUp', 'agents')
+      await expectFocusedCategoryAfterKey(wrapper, 'ArrowLeft', 'devices')
+      await expectFocusedCategoryAfterKey(wrapper, 'ArrowRight', 'agents')
+      await expectFocusedCategoryAfterKey(wrapper, 'End', 'devices')
+      await expectFocusedCategoryAfterKey(wrapper, 'Home', 'agents')
+      expectCategoryControlsToResolve(wrapper)
+    }
+    finally {
+      wrapper.unmount()
     }
   })
 })

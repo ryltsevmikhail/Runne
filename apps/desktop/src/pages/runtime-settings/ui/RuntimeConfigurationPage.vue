@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Save } from 'lucide-vue-next'
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 
 import { translate, type LocaleKey } from '@/shared/i18n'
 import { TargetCapabilityBoundary } from '@/shared/ui/target-capability'
@@ -24,6 +24,25 @@ const focusedDetail = computed(() => categories.value.find(category => category.
 
 function focusCategory(category: CategoryId) {
   focusedCategory.value = category
+}
+
+async function focusCategoryFromKeyboard(event: KeyboardEvent, category: CategoryId) {
+  const categoryIndex = categoryDefinitions.findIndex(item => item.id === category)
+  const offset = event.key === 'ArrowDown' || event.key === 'ArrowRight'
+    ? 1
+    : event.key === 'ArrowUp' || event.key === 'ArrowLeft' ? -1 : null
+  const targetIndex = event.key === 'Home'
+    ? 0
+    : event.key === 'End'
+      ? categoryDefinitions.length - 1
+      : offset === null ? null : (categoryIndex + offset + categoryDefinitions.length) % categoryDefinitions.length
+
+  if (targetIndex === null) return
+  event.preventDefault()
+  const targetCategory = categoryDefinitions[targetIndex]!
+  focusCategory(targetCategory.id)
+  await nextTick()
+  document.getElementById(`runtime-configuration-tab-${targetCategory.id}`)?.focus()
 }
 </script>
 
@@ -84,6 +103,7 @@ function focusCategory(category: CategoryId) {
             :aria-selected="focusedCategory === category.id"
             :tabindex="focusedCategory === category.id ? 0 : -1"
             @click="focusCategory(category.id)"
+            @keydown="focusCategoryFromKeyboard($event, category.id)"
           >
             {{ category.label }}
           </button>
