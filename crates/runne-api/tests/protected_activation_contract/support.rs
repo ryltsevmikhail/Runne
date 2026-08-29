@@ -9,6 +9,10 @@ use runne_api::{
     ProtectedRenewTicketV2, ProtectedRuntimeProfileV1, ProtectedShutdownAckV1,
     ProtectedShutdownAckV2, ProtectedShutdownV1, ProtectedShutdownV2, ProviderActivationBindingV1,
     ProviderActivationModeV1, ProviderActivationReadinessV1, StableRuntimeBindingV1,
+    CredentialBrokerTransferAuthenticator, ProtectedCredentialEnrollmentLaunchBindingV1,
+    ProtectedCredentialEnrollmentLaunchRequestV3, ProtectedCredentialEnrollmentReadyV3,
+    ProtectedCredentialEnrollmentRenewRequestV3, ProtectedCredentialEnrollmentRenewTicketV3,
+    ProtectedCredentialEnrollmentShutdownAckV3, ProtectedCredentialEnrollmentShutdownV3,
 };
 use sha2::{Digest, Sha256};
 

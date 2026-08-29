@@ -20,6 +20,20 @@ include!("protected_activation/root_bind_transport.rs");
 include!("protected_activation/root_admission_authenticator.rs");
 include!("protected_activation/root_handle_transfer_authenticator.rs");
 include!("protected_activation/credential_broker_transfer_authenticator.rs");
+include!("protected_activation/enrollment_launch_binding.rs");
+include!("protected_activation/enrollment_launch_v3_core.rs");
+include!("protected_activation/enrollment_launch_v3_ready.rs");
+include!("protected_activation/enrollment_launch_v3_renew.rs");
+include!("protected_activation/enrollment_launch_v3_shutdown.rs");
+#[cfg(test)]
+#[path = "protected_activation/enrollment_launch_v3_adversarial_tests.rs"]
+mod enrollment_launch_v3_adversarial_tests;
+#[cfg(test)]
+#[path = "protected_activation/enrollment_launch_v3_post_sign_tests.rs"]
+mod enrollment_launch_v3_post_sign_tests;
+#[cfg(test)]
+#[path = "protected_activation/enrollment_launch_v3_tests.rs"]
+mod enrollment_launch_v3_tests;
 include!("protected_activation/root_handle_control.rs");
 include!("protected_activation/credential_enrollment_control.rs");
 include!("protected_activation_parts/port_17.rs");

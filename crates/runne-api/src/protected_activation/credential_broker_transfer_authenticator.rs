@@ -4,6 +4,8 @@ const CREDENTIAL_BROKER_DESKTOP_TRANSFER_DOMAIN: &[u8] =
     b"gocode/provider-credential-broker-desktop-transfer/v1";
 const CREDENTIAL_BROKER_KILL_READY_DOMAIN: &[u8] =
     b"gocode/provider-credential-broker-kill-ready/v1";
+const CREDENTIAL_BROKER_ENROLLMENT_COMMITMENT_DOMAIN: &[u8] =
+    b"gocode/provider-credential-broker-enrollment-commitment/v1";
 
 /// Authenticates native credential-broker endpoint transfer records.
 ///
@@ -15,6 +17,7 @@ pub struct CredentialBrokerTransferAuthenticator {
     daemon_transfer_key: Zeroizing<[u8; 32]>,
     desktop_transfer_key: Zeroizing<[u8; 32]>,
     kill_ready_key: Zeroizing<[u8; 32]>,
+    enrollment_commitment_key: Zeroizing<[u8; 32]>,
 }
 
 impl CredentialBrokerTransferAuthenticator {
@@ -33,6 +36,10 @@ impl CredentialBrokerTransferAuthenticator {
             kill_ready_key: Zeroizing::new(derive_key(
                 keys.readiness_key(),
                 CREDENTIAL_BROKER_KILL_READY_DOMAIN,
+            )),
+            enrollment_commitment_key: Zeroizing::new(derive_key(
+                keys.readiness_key(),
+                CREDENTIAL_BROKER_ENROLLMENT_COMMITMENT_DOMAIN,
             )),
         }
     }
@@ -77,6 +84,19 @@ impl CredentialBrokerTransferAuthenticator {
     #[must_use]
     pub fn verifies_kill_ready(&self, record: &[u8], proof: &[u8; 32]) -> bool {
         bool::from(self.authenticate_kill_ready(record).ct_eq(proof))
+    }
+
+    /// Mints the opaque V3 binding commitment for this exact launch authority.
+    #[must_use]
+    pub fn enrollment_launch_commitment(
+        &self,
+        launch_authority_id: [u8; 16],
+    ) -> CredentialBrokerTransferCommitment {
+        CredentialBrokerTransferCommitment::from_authenticated_bytes(authenticated_mac(
+            &self.enrollment_commitment_key,
+            CREDENTIAL_BROKER_ENROLLMENT_COMMITMENT_DOMAIN,
+            &launch_authority_id,
+        ))
     }
 
 }
@@ -149,5 +169,19 @@ mod credential_broker_transfer_authenticator_tests {
         assert!(!broker.verifies_desktop_transfer(b"writer-control", &daemon_proof));
         assert!(!broker.verifies_transfer(b"other-control", &daemon_proof));
         assert!(!root.verifies_transfer(b"writer-control", &desktop_proof));
+    }
+
+    #[test]
+    fn enrollment_commitment_is_activation_bound_and_redacted() {
+        let keys = LaunchSecret::from_bytes([6; 32]).unwrap().derive_keys();
+        let broker = CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
+        let first = broker.enrollment_launch_commitment([1; 16]);
+        assert_eq!(first, broker.enrollment_launch_commitment([1; 16]));
+        assert_ne!(first, broker.enrollment_launch_commitment([2; 16]));
+        let other = CredentialBrokerTransferAuthenticator::from_protected_activation(
+            &LaunchSecret::from_bytes([7; 32]).unwrap().derive_keys(),
+        );
+        assert_ne!(first, other.enrollment_launch_commitment([1; 16]));
+        assert!(!format!("{first:?}").contains('1'));
     }
 }
