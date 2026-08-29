@@ -10,6 +10,7 @@ pub const MAX_CREDENTIAL_BYTES: usize = 4096;
 /// Closed result of a host-native credential prompt.
 pub enum SecureCredentialPromptDisposition {
     Submitted(SecureCredentialMaterial),
+    Confirmed,
     Cancelled,
     TimedOut,
 }
@@ -20,6 +21,7 @@ impl fmt::Debug for SecureCredentialPromptDisposition {
             Self::Submitted(_) => {
                 formatter.write_str("SecureCredentialPromptDisposition::Submitted(<redacted>)")
             }
+            Self::Confirmed => formatter.write_str("SecureCredentialPromptDisposition::Confirmed"),
             Self::Cancelled => formatter.write_str("SecureCredentialPromptDisposition::Cancelled"),
             Self::TimedOut => formatter.write_str("SecureCredentialPromptDisposition::TimedOut"),
         }
@@ -36,13 +38,22 @@ impl SecureCredentialMaterial {
     ///
     /// Returns a closed failure for empty, oversized, or line-control material.
     pub fn new(bytes: Vec<u8>) -> Result<Self, SecureCredentialPromptError> {
+        Self::from_zeroizing(Zeroizing::new(bytes))
+    }
+
+    /// Validates material already held in zeroizing native storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed failure for empty, oversized, or line-control material.
+    pub fn from_zeroizing(bytes: Zeroizing<Vec<u8>>) -> Result<Self, SecureCredentialPromptError> {
         if bytes.is_empty() || bytes.len() > MAX_CREDENTIAL_BYTES {
             return Err(SecureCredentialPromptError::Rejected);
         }
         if bytes.iter().any(|byte| matches!(*byte, 0 | b'\n' | b'\r')) {
             return Err(SecureCredentialPromptError::Rejected);
         }
-        Ok(Self(CredentialPipeBytes(Zeroizing::new(bytes))))
+        Ok(Self(CredentialPipeBytes(bytes)))
     }
 
     /// Consumes the material only at the native writer pipe boundary.
@@ -127,7 +138,15 @@ pub enum CredentialPromptProvider {
 pub enum CredentialPromptAction {
     Pair,
     Rotate,
+    Revoke,
     MigrateLegacy,
+}
+
+impl CredentialPromptAction {
+    #[must_use]
+    pub const fn requires_secret(self) -> bool {
+        matches!(self, Self::Pair | Self::Rotate)
+    }
 }
 
 /// Deliberately non-Serde native prompt port.
@@ -189,5 +208,13 @@ mod tests {
             ),
             Err(SecureCredentialPromptError::Rejected),
         );
+    }
+
+    #[test]
+    fn prompt_actions_distinguish_secret_entry_from_confirmation() {
+        assert!(CredentialPromptAction::Pair.requires_secret());
+        assert!(CredentialPromptAction::Rotate.requires_secret());
+        assert!(!CredentialPromptAction::Revoke.requires_secret());
+        assert!(!CredentialPromptAction::MigrateLegacy.requires_secret());
     }
 }

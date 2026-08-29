@@ -1,6 +1,7 @@
 //! Native-only credential enrollment host state. Step 5 owns daemon orchestration.
 
 mod command;
+mod host_prompt;
 pub mod intent;
 mod projection;
 

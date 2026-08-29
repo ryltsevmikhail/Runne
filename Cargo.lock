@@ -4015,8 +4015,12 @@ dependencies = [
 name = "runne-desktop"
 version = "0.1.0"
 dependencies = [
+ "block2",
  "hex",
  "notify-rust",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "rand 0.8.7",
  "runne-api",
  "runne-app-core",
@@ -4031,6 +4035,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]

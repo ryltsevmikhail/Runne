@@ -41,7 +41,7 @@ pub use runne_platform_ports::provider_credential_broker::{
     VerifiedWriterArtifact, VerifiedWriterArtifactError, VerifiedWriterArtifactPort,
 };
 pub use runne_platform_ports::provider_credential_prompt::{
-    CredentialPipeBytes, CredentialPromptAction, CredentialPromptProvider,
+    CredentialPipeBytes, CredentialPromptAction, CredentialPromptProvider, MAX_CREDENTIAL_BYTES,
     SecureCredentialMaterial, SecureCredentialPromptDisposition, SecureCredentialPromptError,
     SecureCredentialPromptPort, SecureCredentialPromptRequest,
 };
