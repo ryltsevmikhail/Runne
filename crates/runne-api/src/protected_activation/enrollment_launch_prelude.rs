@@ -64,6 +64,19 @@ impl DaemonEnrollmentLaunchPreludeV1 {
     #[must_use]
     pub const fn desktop_host_instance_id(&self) -> [u8; 16] { self.desktop_host_instance_id }
 
+    #[must_use]
+    pub const fn installation_identity_digest(&self) -> &[u8; 32] {
+        &self.installation_identity_digest
+    }
+
+    #[must_use]
+    pub const fn desktop_peer_binding_digest(&self) -> &[u8; 32] {
+        &self.desktop_peer_binding_digest
+    }
+
+    #[must_use]
+    pub const fn supervisor_generation(&self) -> u64 { self.supervisor_generation }
+
     pub fn validate_freshness(&self, now_unix_millis: u64) -> Result<(), LaunchAuthorityError> {
         if now_unix_millis < self.issued_at_unix_millis || now_unix_millis > self.expires_at_unix_millis {
             return Err(LaunchAuthorityError::StaleLaunchAuthority);

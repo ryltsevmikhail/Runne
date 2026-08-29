@@ -114,6 +114,7 @@ mod component_guard;
 mod conversation;
 mod core;
 mod correlation;
+mod enrollment_launch;
 mod event_context;
 mod event_guard;
 mod events;
@@ -129,7 +130,10 @@ mod text_validation_helpers;
 mod unit_of_work;
 
 use correlation::StoredCorrelationType;
+pub use enrollment_launch::EnrollmentLaunchGenerationError;
 
+#[cfg(test)]
+mod enrollment_launch_tests;
 #[cfg(test)]
 mod tests {
     use super::event_guard::*;
