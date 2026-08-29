@@ -18,9 +18,10 @@ mod macos_identity;
 pub use macos_identity::VerifiedMacOsWriterLaunch;
 #[path = "updater_metadata/enrollment_tuple/qualification.rs"]
 mod enrollment_qualification;
-pub use enrollment_qualification::{
-    NativeEnrollmentQualification, NativeEnrollmentQualificationBinding,
-};
+pub use enrollment_qualification::NativeEnrollmentQualification;
+#[path = "updater_metadata/enrollment_tuple/admission.rs"]
+mod enrollment_admission;
+pub use enrollment_admission::NativeEnrollmentTupleAdmission;
 
 include!("updater_metadata/enrollment_tuple.rs");
 
@@ -153,34 +154,6 @@ pub struct UpdateTargetV2Binding<'a> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VerifiedUpdateV2 {
     target: UpdateTargetV2,
-}
-
-impl VerifiedUpdateV2 {
-    #[must_use]
-    pub const fn target(&self) -> &UpdateTargetV2 {
-        &self.target
-    }
-
-    /// Returns the signed enrollment tuple. Callers must still match it to
-    /// measured installed bytes before treating it as package evidence.
-    #[must_use]
-    pub const fn native_enrollment_tuple(&self) -> Option<&NativeEnrollmentTupleV1> {
-        self.target.native_enrollment_tuple.as_ref()
-    }
-
-    /// Qualifies installed enrollment artifacts only from threshold-verified metadata.
-    #[must_use]
-    pub fn qualify_native_enrollment(
-        &self,
-        artifacts: &MeasuredNativeEnrollmentArtifactsV1,
-    ) -> NativeEnrollmentQualification {
-        self.target
-            .native_enrollment_tuple
-            .as_ref()
-            .map_or(NativeEnrollmentQualification::Unqualified, |tuple| {
-                tuple.qualify(&self.target, artifacts)
-            })
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]

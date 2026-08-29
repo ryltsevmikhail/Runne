@@ -1,4 +1,5 @@
 use ed25519_dalek::{Signer, SigningKey};
+use sha2::Digest as _;
 
 use super::super::*;
 
@@ -9,6 +10,10 @@ fn signed_role<T: serde::Serialize>(key: &SigningKey, role: &T) -> String {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn v2_update_requires_two_root_and_two_targets_signatures() {
+    let directory = tempfile::tempdir().unwrap();
+    let writer = directory.path().join("runne");
+    std::fs::write(&writer, b"measured writer").unwrap();
+    let writer_digest = hex::encode(sha2::Sha256::digest(b"measured writer"));
     let roots = [
         SigningKey::from_bytes(&[21; 32]),
         SigningKey::from_bytes(&[22; 32]),
@@ -48,7 +53,7 @@ fn v2_update_requires_two_root_and_two_targets_signatures() {
     target.native_enrollment_tuple = Some(
         NativeEnrollmentTupleV1::new(
             target.release_candidate_sha256.clone(),
-            "e".repeat(64),
+            writer_digest.clone(),
             "f".repeat(64),
             target.bundle_sha256.clone(),
             &target,
@@ -116,15 +121,33 @@ fn v2_update_requires_two_root_and_two_targets_signatures() {
     assert!(verified.native_enrollment_tuple().is_some());
     let measured = MeasuredNativeEnrollmentArtifactsV1::new(
         target.artifact_sha256.clone(),
-        "e".repeat(64),
+        writer_digest.clone(),
         "f".repeat(64),
         target.bundle_sha256.clone(),
     )
     .unwrap();
-    assert!(matches!(
+    let admission = verified.admit_native_enrollment(&measured).unwrap();
+    assert!(admission.verified_writer(writer.clone()).is_ok());
+    #[cfg(unix)]
+    {
+        let link = directory.path().join("runne-link");
+        std::os::unix::fs::symlink(&writer, &link).unwrap();
+        assert!(admission.verified_writer(link).is_err());
+    }
+    std::fs::write(&writer, b"modified writer").unwrap();
+    assert!(admission.verified_writer(writer).is_err());
+    let swapped = MeasuredNativeEnrollmentArtifactsV1::new(
+        target.artifact_sha256.clone(),
+        "f".repeat(64),
+        writer_digest,
+        target.bundle_sha256.clone(),
+    )
+    .unwrap();
+    assert!(verified.admit_native_enrollment(&swapped).is_none());
+    assert_eq!(
         verified.qualify_native_enrollment(&measured),
-        NativeEnrollmentQualification::Qualified(_)
-    ));
+        NativeEnrollmentQualification::Unqualified
+    );
     assert_eq!(
         verify_update_v2(&metadata, &trust, &binding, 600, "1.0.0", "1.0.0"),
         Err(UpdateV2VerificationError::Expired)
@@ -155,6 +178,22 @@ fn v2_update_requires_two_root_and_two_targets_signatures() {
         verify_update_v2(&candidate_mismatch, &trust, &binding, 100, "1.0.0", "1.0.0"),
         Err(UpdateV2VerificationError::InvalidMetadata)
     );
+    let mut missing = metadata.clone();
+    missing.targets.target.native_enrollment_tuple = None;
+    missing.targets_signatures = vec![
+        UpdateSignatureV2 {
+            key_id: "root-a".into(),
+            signature: signed_role(&roots[0], &missing.targets),
+        },
+        UpdateSignatureV2 {
+            key_id: "root-b".into(),
+            signature: signed_role(&roots[1], &missing.targets),
+        },
+    ];
+    assert!(verify_update_v2(&missing, &trust, &binding, 100, "1.0.0", "1.0.0")
+        .unwrap()
+        .admit_native_enrollment(&measured)
+        .is_none());
     let mut insufficient = metadata;
     insufficient.targets_signatures.pop();
     assert_eq!(

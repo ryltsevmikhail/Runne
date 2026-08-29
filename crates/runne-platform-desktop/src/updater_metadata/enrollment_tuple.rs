@@ -100,34 +100,6 @@ impl NativeEnrollmentTupleV1 {
             && artifacts.contract_sha256 == self.contract_sha256
     }
 
-    /// Admits only an exact signed tuple that matches the independently
-    /// measured installed package. Absence or any mismatch remains closed.
-    #[must_use]
-    pub(crate) fn qualify(
-        &self,
-        target: &UpdateTargetV2,
-        artifacts: &MeasuredNativeEnrollmentArtifactsV1,
-    ) -> NativeEnrollmentQualification {
-        let binding = self.matches_installed(target, artifacts).then(|| {
-            decode_digest(&self.writer_sha256)
-                .zip(decode_digest(&self.daemon_sha256))
-                .zip(decode_digest(&self.tuple_sha256))
-                .map(
-                    |((writer_sha256, daemon_sha256), release_tuple_sha256)| NativeEnrollmentQualificationBinding {
-                        writer_sha256,
-                        daemon_sha256,
-                        release_tuple_sha256,
-                        macos_writer_code_identity: self.writer_code_identity.clone(),
-                        macos_daemon_code_identity: self.daemon_code_identity.clone(),
-                    },
-                )
-        });
-        match binding {
-            Some(Some(binding)) => NativeEnrollmentQualification::Qualified(Box::new(binding)),
-            _ => NativeEnrollmentQualification::Unqualified,
-        }
-    }
-
     fn matches_target(&self, target: &UpdateTargetV2) -> bool {
         digests_valid([
             self.candidate_sha256.as_str(),
@@ -192,10 +164,6 @@ impl NativeEnrollmentTupleV1 {
         }
         hex::encode(hasher.finalize())
     }
-}
-
-fn decode_digest(value: &str) -> Option<[u8; 32]> {
-    hex::decode(value).ok()?.try_into().ok()
 }
 
 /// Independently measured installed artifacts. This contains no paths or
