@@ -41,25 +41,37 @@ test('terminal output remains readable in the light theme', async ({ page }) => 
   const terminal = page.locator('.app-shell').evaluateHandle(shell => {
     const panel = document.createElement('section')
     panel.className = 'terminal-panel'
+    const heading = document.createElement('h2')
+    heading.textContent = 'Terminal'
+    const status = document.createElement('p')
+    status.textContent = 'No active runtime-owned process.'
     const output = document.createElement('pre')
     output.className = 'terminal-panel__output'
     output.textContent = 'runtime-owned output'
-    panel.append(output)
+    panel.append(heading, status, output)
     shell.append(panel)
     return panel
   })
   const colors = await (await terminal).evaluate(panel => {
+    const heading = panel.querySelector('h2')
+    const status = panel.querySelector('p')
     const output = panel.querySelector('.terminal-panel__output')
     const shell = document.querySelector('.app-shell')
-    if (output === null || shell === null) throw new Error('Terminal surface was not installed')
+    if (heading === null || status === null || output === null || shell === null) {
+      throw new Error('Terminal surface was not installed')
+    }
     return {
       page: getComputedStyle(shell).backgroundColor,
       terminal: getComputedStyle(panel).backgroundColor,
+      heading: getComputedStyle(heading).color,
+      status: getComputedStyle(status).color,
       output: getComputedStyle(output).color,
     }
   })
 
   expect(colors.terminal).not.toBe(colors.page)
+  expect(contrastRatio(colors.terminal, colors.heading)).toBeGreaterThanOrEqual(4.5)
+  expect(contrastRatio(colors.terminal, colors.status)).toBeGreaterThanOrEqual(4.5)
   expect(contrastRatio(colors.terminal, colors.output)).toBeGreaterThanOrEqual(4.5)
 })
 

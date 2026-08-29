@@ -83,11 +83,13 @@
 }
 
 .terminal-panel {
+  --runne-terminal-foreground: #d6e1ed;
+
   min-height: 88px;
   padding: 12px var(--runne-space-lg);
   border-top: 1px solid var(--border);
   background: #11151c;
-  color: var(--text-muted);
+  color: var(--runne-terminal-foreground);
 }
 
 .terminal-panel h2 {
@@ -105,7 +107,7 @@
   max-height: 120px;
   margin: 8px 0 0;
   overflow: auto;
-  color: #d6e1ed;
+  color: var(--runne-terminal-foreground);
   font: 11px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
   white-space: pre-wrap;
 }
