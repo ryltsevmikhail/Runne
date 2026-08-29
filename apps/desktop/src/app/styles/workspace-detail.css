@@ -86,7 +86,7 @@
   min-height: 88px;
   padding: 12px var(--runne-space-lg);
   border-top: 1px solid var(--border);
-  background: var(--surface);
+  background: #11151c;
   color: var(--text-muted);
 }
 

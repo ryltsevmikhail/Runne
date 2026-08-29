@@ -1,5 +1,23 @@
 import { expect, test } from '@playwright/test'
 
+function relativeLuminance(color: string): number {
+  const channels = color.match(/[\d.]+/g)?.slice(0, 3).map(Number)
+  if (channels === undefined || channels.length !== 3) {
+    throw new Error(`Expected an RGB color, received ${color}`)
+  }
+  const normalized = channels.map(channel => channel / 255)
+  const linear = normalized.map(channel => channel <= .04045
+    ? channel / 12.92
+    : ((channel + .055) / 1.055) ** 2.4)
+  return .2126 * linear[0] + .7152 * linear[1] + .0722 * linear[2]
+}
+
+function contrastRatio(background: string, foreground: string): number {
+  const [lighter, darker] = [relativeLuminance(background), relativeLuminance(foreground)]
+    .sort((left, right) => right - left)
+  return (lighter + .05) / (darker + .05)
+}
+
 test('desktop shell supports navigation, themes and collapsed sidebar', async ({ page }) => {
   await page.goto('/')
 
@@ -14,6 +32,35 @@ test('desktop shell supports navigation, themes and collapsed sidebar', async ({
 
   await page.getByRole('button', { name: 'Settings' }).click()
   await expect(page.getByRole('heading', { name: 'Runtime' })).toBeVisible()
+})
+
+test('terminal output remains readable in the light theme', async ({ page }) => {
+  await page.goto('/')
+  await page.getByLabel('Use light theme').click()
+
+  const terminal = page.locator('.app-shell').evaluateHandle(shell => {
+    const panel = document.createElement('section')
+    panel.className = 'terminal-panel'
+    const output = document.createElement('pre')
+    output.className = 'terminal-panel__output'
+    output.textContent = 'runtime-owned output'
+    panel.append(output)
+    shell.append(panel)
+    return panel
+  })
+  const colors = await (await terminal).evaluate(panel => {
+    const output = panel.querySelector('.terminal-panel__output')
+    const shell = document.querySelector('.app-shell')
+    if (output === null || shell === null) throw new Error('Terminal surface was not installed')
+    return {
+      page: getComputedStyle(shell).backgroundColor,
+      terminal: getComputedStyle(panel).backgroundColor,
+      output: getComputedStyle(output).color,
+    }
+  })
+
+  expect(colors.terminal).not.toBe(colors.page)
+  expect(contrastRatio(colors.terminal, colors.output)).toBeGreaterThanOrEqual(4.5)
 })
 
 test.describe('narrow desktop shell', () => {
