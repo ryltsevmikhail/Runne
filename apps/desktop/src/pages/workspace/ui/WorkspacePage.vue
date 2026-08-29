@@ -16,6 +16,7 @@ import { DiffViewer } from '@/widgets/diff-viewer'
 import { FileExplorer } from '@/widgets/file-explorer'
 import { TerminalPanel } from '@/widgets/terminal'
 import { ConversationChat } from '@/widgets/conversation-chat'
+import WorkspaceBreadcrumb from './WorkspaceBreadcrumb.vue'
 import WorkspaceDetails from './WorkspaceDetails.vue'
 import WorkspaceFrame from './WorkspaceFrame.vue'
 type LoadProject = (id: string) => Promise<CanonicalWorkspace>
@@ -195,20 +196,10 @@ async function returnToProjects() {
     aria-labelledby="workspace-title"
   >
     <header class="workspace-header">
-      <nav
-        class="workspace-breadcrumb"
-        aria-label="Workspace breadcrumb"
-      >
-        <RouterLink to="/">
-          Projects
-        </RouterLink>
-        <span aria-hidden="true">›</span>
-        <RouterLink :to="{ name: 'project-details', params: { projectId: project.projectId } }">
-          {{ project.displayName }}
-        </RouterLink>
-        <span aria-hidden="true">›</span>
-        <span aria-current="page">Workspace</span>
-      </nav>
+      <WorkspaceBreadcrumb
+        :project-id="project.projectId"
+        :project-name="project.displayName"
+      />
       <span class="workspace-kicker">{{ translate('workspace.kicker') }}</span>
       <h1 id="workspace-title">
         {{ project.displayName }}

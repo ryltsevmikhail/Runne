@@ -76,9 +76,6 @@ async function openProjectDetails(project: CanonicalProject) {
           {{ translate('projects.title') }}
         </h1>
         <p>{{ translate('projects.subtitle') }}</p>
-        <p class="runtime-summary">
-          {{ translate('projects.runtimeSummary', { status: runtimeStatus }) }}
-        </p>
       </div>
       <GcButton
         :aria-label="translate('projects.openLocalProject')"
@@ -88,7 +85,7 @@ async function openProjectDetails(project: CanonicalProject) {
           :size="16"
           aria-hidden="true"
         />
-        {{ translate('projects.openProject') }}
+        {{ translate('projects.openLocalProject') }}
       </GcButton>
     </header>
 
@@ -99,7 +96,7 @@ async function openProjectDetails(project: CanonicalProject) {
       >
         <header class="projects-recent__header">
           <h2 id="recent-projects-title">
-            Recent
+            {{ translate('projects.recent') }}
           </h2>
           <p>{{ translate('projects.runtimeAuthority') }}</p>
         </header>

@@ -4,6 +4,10 @@
   grid-template-rows: auto 1fr auto;
 }
 
+.workspace:has(> .projects-page) {
+  padding: 0;
+}
+
 .projects-page__header {
   display: flex;
   min-height: 68px;
@@ -28,7 +32,6 @@
   font-size: 12px;
 }
 
-.projects-page__header .runtime-summary { color: var(--text-subtle); font-family: var(--runne-font-mono); }
 .projects-page__header .gc-button { min-height: 40px; }
 
 .projects-page__content { padding: 28px; }

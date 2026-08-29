@@ -106,6 +106,8 @@ describe('projects page', () => {
     expect(wrapper.text()).not.toContain('/workspace/gocode-ui')
     expect(wrapper.get('[aria-label="Open project gocode-ui"]').attributes('type')).toBe('button')
     expect(wrapper.get('[aria-labelledby="recent-projects-title"]').text()).toContain('Recent')
+    expect(wrapper.get('.projects-page__header .gc-button').text()).toContain('Open local project')
+    expect(wrapper.find('.runtime-summary').exists()).toBe(false)
     expect(wrapper.findAll('.project-card--open[aria-label="Open local project"] svg')).toHaveLength(2)
     expect(wrapper.findAll('[aria-label="Open project gocode-ui"] svg')).toHaveLength(2)
 

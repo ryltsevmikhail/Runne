@@ -73,19 +73,22 @@ async function openEntry(path: string) {
         :key="entry.path"
         class="file-explorer__entry"
       >
-        <Folder
-          v-if="entry.kind === 'directory'"
-          :size="14"
-          aria-hidden="true"
-        />
-        <File
-          v-else
-          :size="14"
-          aria-hidden="true"
-        />
-        <span>{{ entry.path }}</span>
+        <span class="file-explorer__icon">
+          <Folder
+            v-if="entry.kind === 'directory'"
+            :size="14"
+            aria-hidden="true"
+          />
+          <File
+            v-else
+            :size="14"
+            aria-hidden="true"
+          />
+        </span>
+        <span class="file-explorer__path">{{ entry.path }}</span>
         <button
           v-if="entry.kind === 'file'"
+          class="file-explorer__action"
           type="button"
           :disabled="disabled || openFile === undefined || openingPath === entry.path"
           :aria-label="translate('files.openInEditor', { path: entry.path })"

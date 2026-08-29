@@ -82,6 +82,8 @@ describe('workspace page', () => {
     expect(breadcrumb.text()).toContain('Projects')
     expect(breadcrumb.text()).toContain('gocode-ui')
     expect(breadcrumb.text()).toContain('Workspace')
+    expect(breadcrumb.text()).not.toContain('›')
+    expect(breadcrumb.findAll('svg')).toHaveLength(2)
     expect(wrapper.get('[aria-label="Project tree"]')).toBeTruthy()
     expect(wrapper.get('[aria-label="Conversation"]')).toBeTruthy()
     expect(wrapper.get('[aria-label="Details"]')).toBeTruthy()
