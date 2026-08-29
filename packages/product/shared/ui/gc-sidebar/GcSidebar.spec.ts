@@ -9,6 +9,28 @@ const items = [
 ]
 
 describe('GcSidebar', () => {
+  it('renders the Runne lockup and route-glyph assets in its brand header', () => {
+    const wrapper = mount(GcSidebar, { props: { items } })
+    const darkLockup = wrapper.get('.gc-sidebar-brand-lockup--dark')
+    const lightLockup = wrapper.get('.gc-sidebar-brand-lockup--light')
+    const glyph = wrapper.get('.gc-sidebar-brand-glyph')
+
+    expect(darkLockup.attributes('src')).toMatch(/^data:image\/svg\+xml/)
+    expect(darkLockup.attributes('alt')).toBe('Runne')
+    expect(lightLockup.attributes('src')).toMatch(/^data:image\/svg\+xml/)
+    expect(lightLockup.attributes('alt')).toBe('Runne')
+    expect(glyph.attributes('src')).toMatch(/^data:image\/svg\+xml/)
+    expect(glyph.attributes('alt')).toBe('')
+  })
+
+  it('navigates to projects when its Runne brand control is pressed', async () => {
+    const wrapper = mount(GcSidebar, { props: { items } })
+
+    await wrapper.get('.gc-sidebar-brand').trigger('click')
+
+    expect(wrapper.emitted('navigate')?.[0]).toEqual(['projects'])
+  })
+
   it('renders all items', () => {
     const wrapper = mount(GcSidebar, { props: { items } })
     const buttons = wrapper.findAll('.gc-sidebar-item')

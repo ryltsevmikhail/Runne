@@ -35,8 +35,8 @@ describe('desktop application shell', () => {
       global: { plugins: [router] },
     })
 
-    expect(wrapper.get('.brand-lockup').attributes('src')).toContain('gocode-lockup')
-    expect(wrapper.get('.brand-icon').attributes('src')).toContain('gocode-app-icon')
+    expect(wrapper.get('.gc-sidebar-brand-lockup').attributes('src')).toMatch(/^data:image\/svg\+xml/)
+    expect(wrapper.get('.gc-sidebar-brand-glyph').attributes('src')).toMatch(/^data:image\/svg\+xml/)
     expect(wrapper.find('.brand-mark').exists()).toBe(false)
   })
 
@@ -54,7 +54,7 @@ describe('desktop application shell', () => {
 
     const titleBar = wrapper.get('.desktop-title-bar')
     expect(titleBar.attributes('data-tauri-drag-region')).toBe('')
-    expect(titleBar.text()).toContain('Runne')
+    expect(titleBar.get('.gc-title-bar-logo').attributes('alt')).toBe('Runne')
   })
 
   it('toggles the desktop color theme from the sidebar', async () => {

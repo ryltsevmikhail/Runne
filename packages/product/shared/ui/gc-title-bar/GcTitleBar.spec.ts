@@ -12,18 +12,22 @@ describe('GcTitleBar', () => {
     expect(dots[2].attributes('class')).toContain('gc-title-bar-dot--maximize')
   })
 
-  it('renders brand lockup text', () => {
+  it('renders dark and light Runne primary-logo assets in the default brand slot', () => {
     const wrapper = mount(GcTitleBar)
-    const lockup = wrapper.find('.gc-title-bar-lockup')
-    expect(lockup.exists()).toBe(true)
-    expect(lockup.text()).toBe('Runne')
+    const darkLogo = wrapper.get('.gc-title-bar-logo--dark')
+    const lightLogo = wrapper.get('.gc-title-bar-logo--light')
+
+    expect(darkLogo.attributes('src')).toMatch(/^data:image\/svg\+xml/)
+    expect(darkLogo.attributes('alt')).toBe('Runne')
+    expect(lightLogo.attributes('src')).toMatch(/^data:image\/svg\+xml/)
+    expect(lightLogo.attributes('alt')).toBe('Runne')
   })
 
   it('renders brand slot', () => {
     const wrapper = mount(GcTitleBar, {
       slots: { brand: '<span class="custom-brand">MyApp</span>' },
     })
-    expect(wrapper.find('.gc-title-bar-lockup').exists()).toBe(false)
+    expect(wrapper.find('.gc-title-bar-logo').exists()).toBe(false)
     expect(wrapper.find('.custom-brand').exists()).toBe(true)
     expect(wrapper.find('.custom-brand').text()).toBe('MyApp')
   })

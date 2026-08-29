@@ -29,8 +29,6 @@ import type {
   RuntimeLifecycleStatus,
   RuntimeMode,
 } from '@/shared/api/platform/bootstrap'
-import brandIcon from '@/shared/assets/gocode-app-icon.png'
-import brandLockup from '@/shared/assets/gocode-lockup.png'
 import { DesktopTitleBar } from '@/widgets/desktop-title-bar'
 import { RuntimeStatus } from '@/widgets/runtime-status'
 import { appTheme } from '@/shared/model/theme'
@@ -189,42 +187,6 @@ async function navigateSidebar(id: string) {
       class="sidebar"
       :class="{ 'sidebar--collapsed': sidebarCollapsed }"
     >
-      <div class="sidebar-header">
-        <RouterLink
-          class="brand"
-          to="/"
-          :aria-label="translate('navigation.home')"
-        >
-          <img
-            class="brand-lockup"
-            :src="brandLockup"
-            alt=""
-          >
-          <img
-            class="brand-icon"
-            :src="brandIcon"
-            alt=""
-          >
-        </RouterLink>
-        <button
-          class="icon-button collapse-button"
-          type="button"
-          :aria-label="sidebarCollapsed ? translate('navigation.expandSidebar') : translate('navigation.collapseSidebar')"
-          @click="sidebarCollapsed = !sidebarCollapsed"
-        >
-          <PanelLeft
-            v-if="sidebarCollapsed"
-            :size="16"
-            aria-hidden="true"
-          />
-          <ChevronLeft
-            v-else
-            :size="16"
-            aria-hidden="true"
-          />
-        </button>
-      </div>
-
       <GcSidebar
         class="app-sidebar-navigation"
         :items="sidebarItems"
@@ -232,7 +194,27 @@ async function navigateSidebar(id: string) {
         :collapsed="sidebarCollapsed"
         :aria-label="translate('navigation.primary')"
         @navigate="navigateSidebar"
-      />
+      >
+        <template #actions>
+          <button
+            class="icon-button collapse-button"
+            type="button"
+            :aria-label="sidebarCollapsed ? translate('navigation.expandSidebar') : translate('navigation.collapseSidebar')"
+            @click="sidebarCollapsed = !sidebarCollapsed"
+          >
+            <PanelLeft
+              v-if="sidebarCollapsed"
+              :size="16"
+              aria-hidden="true"
+            />
+            <ChevronLeft
+              v-else
+              :size="16"
+              aria-hidden="true"
+            />
+          </button>
+        </template>
+      </GcSidebar>
 
       <div class="sidebar-status">
         <RuntimeStatus
