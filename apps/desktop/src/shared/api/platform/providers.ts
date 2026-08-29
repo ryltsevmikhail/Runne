@@ -66,13 +66,17 @@ export async function requestProviderCredentialIntent(
   provider: ProviderCredentialProvider,
   action: ProviderCredentialAction,
   expectedRevision: number,
+  rendererGeneration: number,
   invoke: Invoke = tauriInvoke,
 ): Promise<ProviderCredentialIntentDisposition> {
   if (!Number.isSafeInteger(expectedRevision) || expectedRevision <= 0) {
     throw new Error('Invalid expected lifecycle revision')
   }
+  if (!Number.isSafeInteger(rendererGeneration) || rendererGeneration <= 0) {
+    throw new Error('Invalid renderer generation')
+  }
   return parseIntentDisposition(await invoke('request_provider_credential_intent', {
-    request: { provider, action, expectedRevision },
+    request: { provider, action, expectedRevision, rendererGeneration },
   }))
 }
 

@@ -86,9 +86,21 @@ async fn get_provider_credential_enrollment_status(
 
 #[tauri::command]
 fn request_provider_credential_intent(
+    window: WebviewWindow,
+    selections: tauri::State<'_, DirectorySelectionManager>,
     request: crate::provider_credential_enrollment::CredentialIntentIpc,
 ) -> Result<crate::provider_credential_enrollment::CredentialIntentProjection, IpcError> {
-    if !request.valid() {
+    let focused = window.is_focused().map_err(|_| IpcError {
+        code: "provider_credential_intent_rejected",
+    })?;
+    if !request.valid()
+        || !credential_intent_window_is_current(
+            focused,
+            &selections,
+            window.label(),
+            request.renderer_generation,
+        )
+    {
         return Err(IpcError {
             code: "provider_credential_intent_rejected",
         });
@@ -96,6 +108,35 @@ fn request_provider_credential_intent(
     // Step 5 waits for Tasks 6/9/10. Never substitute the legacy AppCore
     // credential route while the trusted prompt/channel wiring is unavailable.
     Ok(crate::provider_credential_enrollment::CredentialIntentProjection::Unavailable)
+}
+
+fn credential_intent_window_is_current(
+    focused: bool,
+    selections: &DirectorySelectionManager,
+    label: &str,
+    renderer_generation: u64,
+) -> bool {
+    focused
+        && selections.renderer_generations().current(label).ok() == Some(renderer_generation)
+}
+
+#[cfg(test)]
+mod provider_credential_intent_tests {
+    use super::*;
+
+    #[test]
+    fn credential_intent_admission_requires_focused_exact_current_renderer() {
+        let selections = DirectorySelectionManager::new(std::time::Duration::from_secs(30))
+            .expect("selection manager");
+        let current = selections
+            .renderer_generations()
+            .page_loaded("main")
+            .expect("renderer generation");
+
+        assert!(!credential_intent_window_is_current(false, &selections, "main", current));
+        assert!(!credential_intent_window_is_current(true, &selections, "main", current + 1));
+        assert!(credential_intent_window_is_current(true, &selections, "main", current));
+    }
 }
 
 #[tauri::command]

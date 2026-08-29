@@ -225,6 +225,7 @@ mod tests {
             provider: ProviderCredentialProviderV2::OpenAi,
             action: ProviderCredentialEnrollmentActionV2::Pair,
             expected_revision: 7,
+            renderer_generation: 4,
             verification_kind: None,
         }
     }

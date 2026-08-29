@@ -46,15 +46,19 @@ describe('provider credential mutations', () => {
   it('sends only a pairing intent, never renderer credential material', async () => {
     const invoke = async (command: string, args?: Record<string, unknown>) => {
       expect(command).toBe('request_provider_credential_intent')
-      expect(args).toEqual({ request: { provider: 'openai', action: 'pair', expectedRevision: 7 } })
+      expect(args).toEqual({ request: { provider: 'openai', action: 'pair', expectedRevision: 7, rendererGeneration: 4 } })
       return 'pending'
     }
-    await expect(requestProviderCredentialIntent('openai', 'pair', 7, invoke)).resolves.toBe('pending')
+    await expect(requestProviderCredentialIntent('openai', 'pair', 7, 4, invoke)).resolves.toBe('pending')
   })
 
-  it('rejects invalid revision and credential-shaped response leakage', async () => {
-    await expect(requestProviderCredentialIntent('openai', 'pair', 0, async () => ({}))).rejects.toThrow()
-    await expect(requestProviderCredentialIntent('deepseek', 'pair', 1, async () => ({ credential: 'secret' }))).rejects.toThrow()
+  it('rejects invalid revision, renderer generation, and credential-shaped response leakage', async () => {
+    await expect(requestProviderCredentialIntent('openai', 'pair', 0, 4, async () => ({}))).rejects.toThrow()
+    for (const rendererGeneration of [0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) {
+      await expect(requestProviderCredentialIntent('openai', 'pair', 1, rendererGeneration, async () => 'pending'))
+        .rejects.toThrow('Invalid renderer generation')
+    }
+    await expect(requestProviderCredentialIntent('deepseek', 'pair', 1, 4, async () => ({ credential: 'secret' }))).rejects.toThrow()
   })
 })
 

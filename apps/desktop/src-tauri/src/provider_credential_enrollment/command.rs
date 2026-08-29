@@ -11,12 +11,14 @@ pub struct CredentialIntentIpc {
     pub(crate) provider: ProviderCredentialProviderV2,
     pub(crate) action: ProviderCredentialEnrollmentActionV2,
     pub(crate) expected_revision: u64,
+    pub(crate) renderer_generation: u64,
     pub(crate) verification_kind: Option<ProviderCredentialVerificationKindV2>,
 }
 
 impl CredentialIntentIpc {
     pub(crate) fn valid(self) -> bool {
         self.expected_revision != 0
+            && self.renderer_generation != 0
             && !(matches!(
                 self.action,
                 ProviderCredentialEnrollmentActionV2::Pair
@@ -35,10 +37,25 @@ mod tests {
     #[test]
     fn ipc_recursively_rejects_credential_and_renderer_native_intent_id() {
         for value in [
-            json!({"provider":"openai","action":"pair","expectedRevision":7,"credential":"secret"}),
-            json!({"provider":"openai","action":"pair","expectedRevision":7,"nativeIntentId":"forged"}),
+            json!({"provider":"openai","action":"pair","expectedRevision":7,"rendererGeneration":4,"credential":"secret"}),
+            json!({"provider":"openai","action":"pair","expectedRevision":7,"rendererGeneration":4,"nativeIntentId":"forged"}),
         ] {
             assert!(serde_json::from_value::<CredentialIntentIpc>(value).is_err());
         }
+    }
+
+    #[test]
+    fn ipc_requires_a_nonzero_renderer_generation() {
+        let zero = serde_json::from_value::<CredentialIntentIpc>(json!({
+            "provider":"openai", "action":"pair", "expectedRevision":7, "rendererGeneration":0,
+        }))
+        .expect("zero generation remains structurally decodable");
+        assert!(!zero.valid());
+        assert!(
+            serde_json::from_value::<CredentialIntentIpc>(json!({
+                "provider":"openai", "action":"pair", "expectedRevision":7,
+            }))
+            .is_err()
+        );
     }
 }
