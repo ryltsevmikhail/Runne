@@ -40,9 +40,7 @@ impl EnrollmentLaunchCoreV3 {
         {
             return Err(LaunchAuthorityError::DowngradedExternalProfile);
         }
-        if now < self.issued || now > self.expires {
-            return Err(LaunchAuthorityError::StaleLaunchAuthority);
-        }
+        self.validate_freshness(now)?;
         if self.principal != expected.principal_id {
             return Err(LaunchAuthorityError::MissingLaunchAuthority);
         }
@@ -51,6 +49,13 @@ impl EnrollmentLaunchCoreV3 {
         }
         if self.profile != *expected.profile {
             return Err(LaunchAuthorityError::ProfileHashMismatch);
+        }
+        Ok(())
+    }
+
+    fn validate_freshness(&self, now: u64) -> Result<(), LaunchAuthorityError> {
+        if now < self.issued || now > self.expires {
+            return Err(LaunchAuthorityError::StaleLaunchAuthority);
         }
         Ok(())
     }

@@ -38,6 +38,11 @@ impl ProtectedCredentialEnrollmentLaunchRequestV3 {
         Ok(())
     }
 
+    /// Rechecks the V3 launch deadline without projecting to a lower protocol.
+    pub fn validate_freshness(&self, now: u64) -> Result<(), LaunchAuthorityError> {
+        self.core.validate_freshness(now)
+    }
+
     #[must_use]
     pub fn derive_keys(&self) -> ProtectedActivationKeys {
         self.core.keys()
@@ -166,6 +171,8 @@ fn require_credential_provider(
     match provider.mode() {
         ProviderActivationModeV1::OpenAiResponsesTextV1
         | ProviderActivationModeV1::DeepSeekResponsesTextV1 => Ok(()),
-        ProviderActivationModeV1::DeterministicV1 => Err(LaunchAuthorityError::ProviderModeMismatch),
+        ProviderActivationModeV1::DeterministicV1 => {
+            Err(LaunchAuthorityError::ProviderModeMismatch)
+        }
     }
 }

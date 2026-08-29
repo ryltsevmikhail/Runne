@@ -146,6 +146,21 @@ fn enrollment_v3_proof_and_cross_decoder_are_fail_closed() {
 }
 
 #[test]
+fn enrollment_v3_launch_exposes_exact_freshness_without_a_lower_projection() {
+    let (launch, _, _) = fixture();
+    assert_eq!(
+        launch.validate_freshness(9),
+        Err(LaunchAuthorityError::StaleLaunchAuthority)
+    );
+    assert_eq!(launch.validate_freshness(10), Ok(()));
+    assert_eq!(launch.validate_freshness(20), Ok(()));
+    assert_eq!(
+        launch.validate_freshness(21),
+        Err(LaunchAuthorityError::StaleLaunchAuthority)
+    );
+}
+
+#[test]
 fn enrollment_v3_ready_covers_nonsecret_launch_fields_not_owned_by_ready() {
     let (launch, ready, keys) = fixture();
     let mut changed_root = launch.clone();
