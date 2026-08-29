@@ -124,9 +124,6 @@ onMounted(() => {
   >
     <header class="system-page__header">
       <div>
-        <p class="system-surface__eyebrow">
-          SYSTEM SURFACE
-        </p>
         <h1 id="diagnostics-title">
           {{ translate('diagnostics.title') }}
         </h1>

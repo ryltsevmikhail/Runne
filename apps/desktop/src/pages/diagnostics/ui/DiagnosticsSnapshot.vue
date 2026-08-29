@@ -16,19 +16,8 @@ const runtimeMode = computed(() => props.snapshot.runtimeMode === 'external_loca
 <template>
   <section
     class="diagnostics-snapshot"
-    aria-labelledby="diagnostics-snapshot-title"
+    aria-label="Current runtime snapshot"
   >
-    <header class="system-surface__section-heading">
-      <div>
-        <p class="system-surface__eyebrow">
-          IMPLEMENTED DTO
-        </p>
-        <h2 id="diagnostics-snapshot-title">
-          Current runtime snapshot
-        </h2>
-      </div>
-    </header>
-
     <p class="system-surface__notice">
       Redacted local operational state. Paths, content, credentials, and raw internal errors are excluded.
     </p>

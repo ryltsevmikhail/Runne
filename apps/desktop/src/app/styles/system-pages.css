@@ -8,6 +8,10 @@
   background: var(--surface);
 }
 
+.workspace:has(> .diagnostics-page) { padding: 0; }
+
+.diagnostics-page { padding: 22px 28px 36px; }
+
 .system-page__header,
 .system-surface__section-heading {
   display: flex;
@@ -59,7 +63,7 @@
   letter-spacing: .08em;
 }
 
-.diagnostics-snapshot,
+.diagnostics-snapshot { margin-top: 24px; }
 .operational-telemetry,
 .runtime-settings-page__facts { margin-top: 30px; }
 

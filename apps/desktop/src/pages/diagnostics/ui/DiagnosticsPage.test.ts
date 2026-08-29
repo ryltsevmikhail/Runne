@@ -51,18 +51,22 @@ const diagnostics = async () => ({
 })
 
 describe('diagnostics page', () => {
-  it('labels the redacted DTO boundary and groups only current runtime fields', async () => {
+  it('keeps one visible page title with redaction, boundary, and actions', async () => {
     const wrapper = mount(DiagnosticsPage, {
       props: { loadDiagnostics: diagnostics, loadOperationalTelemetry: async () => telemetrySnapshot() },
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('IMPLEMENTED DTO')
+    expect(wrapper.findAll('h1')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('SYSTEM SURFACE')
+    expect(wrapper.find('#diagnostics-snapshot-title').exists()).toBe(false)
     expect(wrapper.text()).toContain('Paths, content, credentials, and raw internal errors are excluded.')
     expect(wrapper.text()).toContain('IMPLEMENTED DTO BOUNDARY')
     expect(wrapper.text()).toContain('Health checks, live event logs, and latency metrics are not available in this DTO.')
     expect(wrapper.get('[data-testid="diagnostics-runtime-fields"]').text()).toContain('Runtime connection')
     expect(wrapper.get('[data-testid="diagnostics-runtime-fields"]').text()).toContain('Runtime lifecycle')
+    expect(wrapper.get('button').text()).toContain('Refresh')
+    expect(wrapper.get('[data-testid="export-diagnostics"]').text()).toContain('Export diagnostics')
   })
 
   it('renders only the bounded redacted snapshot', async () => {
