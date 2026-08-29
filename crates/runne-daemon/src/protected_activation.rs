@@ -144,6 +144,20 @@ mod launch;
 mod loopback_fixture;
 #[cfg(any(unix, windows))]
 mod request;
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
+use request::{
+    DaemonLaunchProtocolExpectation, DaemonLaunchRequest, VerifiedDaemonEnrollmentLaunchAuthority,
+};
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
+mod enrollment_transition_v2_v3;
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 mod root_handle_control;
 #[cfg(windows)]

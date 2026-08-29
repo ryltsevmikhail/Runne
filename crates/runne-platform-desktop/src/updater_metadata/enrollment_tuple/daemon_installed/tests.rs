@@ -170,6 +170,25 @@ fn verify(fixture: &Fixture) -> Option<VerifiedDaemonNativeEnrollmentPrepare> {
     verify_with(&input(fixture, fixture.release, fixture.qualification), &FixtureIdentity, || {})
 }
 
+pub(in crate::updater_metadata) struct SignedFixtureAdmission {
+    pub(in crate::updater_metadata) admission: NativeEnrollmentTupleAdmission,
+    pub(in crate::updater_metadata) release: [u8; 32],
+    pub(in crate::updater_metadata) qualification: [u8; 32],
+    pub(in crate::updater_metadata) expires_at: u64,
+}
+
+pub(in crate::updater_metadata) fn signed_fixture_admission() -> SignedFixtureAdmission {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let fixture = fixture(now + 60);
+    SignedFixtureAdmission {
+        admission: verified_admission(&fixture.profile, &fixture.paths, &fixture.trust, &fixture.policy)
+            .unwrap(),
+        release: fixture.release,
+        qualification: fixture.qualification,
+        expires_at: now + 60,
+    }
+}
+
 fn input(
     fixture: &Fixture,
     release_tuple_digest: [u8; 32],

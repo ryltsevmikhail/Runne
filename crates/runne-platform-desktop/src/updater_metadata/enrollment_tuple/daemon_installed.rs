@@ -243,4 +243,4 @@ pub(super) fn compiled_policy() -> Option<DaemonEnrollmentPolicy<'static>> {
 
 #[cfg(test)]
 #[path = "daemon_installed/tests.rs"]
-mod tests;
+pub(super) mod tests;

@@ -150,6 +150,11 @@ impl ProtectedActivationChannel {
             .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)
     }
 
+    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+    pub(super) const fn unix_stream(&self) -> &std::os::unix::net::UnixStream {
+        &self.stream
+    }
+
     /// Reads the next bounded frame for the post-readiness control loop.
     pub(crate) fn read_control_frame(
         &mut self,

@@ -52,9 +52,14 @@ impl VerifiedDaemonNativeEnrollmentPrepare {
         ))
     }
 
-    /// Consumes the token unless the original kernel peer still owns `stream`.
+    /// Consumes the token unless the original kernel peer still owns `stream`
+    /// and its native evidence matches the already authenticated V2 claims.
     #[must_use]
-    pub fn revalidate_current_peer(self, stream: &UnixStream) -> Option<Self> {
+    pub fn revalidate_current_peer_for_claims(
+        self,
+        stream: &UnixStream,
+        claims: &VerifiedProtectedCredentialEnrollmentPrepareV2<'_>,
+    ) -> Option<Self> {
         let peer = self.peer.as_ref()?;
         let paths = self.paths.as_ref()?;
         let admission = self.admission.as_ref()?;
@@ -66,22 +71,27 @@ impl VerifiedDaemonNativeEnrollmentPrepare {
             .duration_since(std::time::UNIX_EPOCH)
             .ok()?
             .as_secs();
-        if self.peer_binding == [0; 32]
+        if self.peer_binding != *claims.desktop_peer_binding_digest()
+            || !retained_claims_match(admission, peer, claims, now)
             || peer.revalidate_same_peer(stream).is_err()
-            || refresh_retained_admission_at(
-                profile_directory,
-                paths,
-                &trust,
-                &policy,
-                admission,
-                now,
-            )
-            .is_none()
+        {
+            return None;
+        }
+        if refresh_retained_admission_at(
+            profile_directory,
+            paths,
+            &trust,
+            &policy,
+            admission,
+            now,
+        )
+        .is_none()
             || !CurrentDaemonIdentity.confirm(paths, admission)
             || paths
                 .confirm_peer_macos_desktop(peer.pid(), admission.desktop_sha256, identity)
                 .is_err()
             || peer.revalidate_same_peer(stream).is_err()
+            || !peer_matches_claims(paths, admission, claims, peer, stream)
         {
             return None;
         }
@@ -107,7 +117,30 @@ fn peer_matches_claims(
     {
         return false;
     }
-    let binding = desktop_peer_digest(
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map_or(0, |duration| duration.as_secs());
+    retained_claims_match(admission, peer, claims, now)
+        && peer.revalidate_same_peer(stream).is_ok()
+        && paths
+            .confirm_peer_macos_desktop(peer.pid(), admission.desktop_sha256, identity)
+            .is_ok()
+}
+
+fn retained_claims_match(
+    admission: &NativeEnrollmentTupleAdmission,
+    peer: &MacOsLocalPeerProcessIdentity,
+    claims: &VerifiedProtectedCredentialEnrollmentPrepareV2<'_>,
+    now: u64,
+) -> bool {
+    admission.release_tuple_sha256 == *claims.release_tuple_digest()
+        && admission.qualification.matches_exact(
+            *claims.release_tuple_digest(),
+            *claims.qualification_binding_digest(),
+            now,
+        )
+        && desktop_peer_digest(
         admission.release_tuple_sha256,
         admission.desktop_sha256,
         peer.process_start_digest(),
@@ -115,27 +148,9 @@ fn peer_matches_claims(
         *claims.launch_authority_id(),
         *claims.desktop_host_instance_id(),
         claims.desktop_supervisor_generation(),
-    );
-    binding == *claims.desktop_peer_binding_digest()
-        && peer.revalidate_same_peer(stream).is_ok()
-        && paths
-            .confirm_peer_macos_desktop(peer.pid(), admission.desktop_sha256, identity)
-            .is_ok()
+    ) == *claims.desktop_peer_binding_digest()
 }
 
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
-mod tests {
-    #[test]
-    fn revalidation_brackets_guest_code_and_rooted_vnode_checks_with_peer_checks() {
-        let source = include_str!("daemon_peer.rs");
-        assert!(source.contains(
-            "peer.revalidate_same_peer(stream).is_err()\n            || refresh_retained_admission_at("
-        ));
-        assert!(source.contains(
-            "|| !CurrentDaemonIdentity.confirm(paths, admission)\n            || paths\n                .confirm_peer_macos_desktop"
-        ));
-        assert!(source.contains(
-            ".confirm_peer_macos_desktop(peer.pid(), admission.desktop_sha256, identity)\n                .is_err()\n            || peer.revalidate_same_peer(stream).is_err()"
-        ));
-    }
-}
+#[path = "daemon_peer/claim_tests.rs"]
+mod claim_tests;
