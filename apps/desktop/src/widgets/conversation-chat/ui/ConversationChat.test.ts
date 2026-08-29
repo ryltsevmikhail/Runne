@@ -273,7 +273,6 @@ describe('conversation chat widget', () => {
     expect(wrapper.text()).toContain('Reconnecting')
     expect(wrapper.get('textarea').attributes('disabled')).toBeDefined()
   })
-
   it('never renders an unknown channel field supplied below the widget boundary', async () => {
     let listener: ConversationTimelineListener | undefined
     const wrapper = mount(ConversationChat, {
