@@ -2,8 +2,12 @@
 
 #![allow(clippy::missing_errors_doc)]
 
-use std::fs::{self, OpenOptions};
-use std::io::{self, Read};
+use std::fs;
+#[cfg(target_os = "linux")]
+use std::fs::OpenOptions;
+#[cfg(target_os = "linux")]
+use std::io;
+use std::io::Read;
 use std::path::Path;
 use std::process::Command;
 

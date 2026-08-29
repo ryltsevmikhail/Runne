@@ -20,6 +20,7 @@ pub(super) struct DaemonCredentialHttpAdmissionExpectation {
 
 impl DaemonCredentialHttpAdmissionExpectation {
     #[allow(clippy::too_many_arguments)]
+    #[allow(dead_code)]
     pub(super) fn new(
         protected_session_id: [u8; 16],
         protected_session_binding: [u8; 32],

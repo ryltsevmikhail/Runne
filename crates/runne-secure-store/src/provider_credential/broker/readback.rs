@@ -237,6 +237,9 @@ where
     }
 }
 
+// Staged unwired: the canonical verification-effect boundary is composed in a
+// later enrollment task; until then no production constructor exists.
+#[allow(dead_code)]
 pub(super) trait VerificationNativeMaterializer: Send + Sync {
     fn materialize_for_verification(
         &self,
@@ -245,12 +248,14 @@ pub(super) trait VerificationNativeMaterializer: Send + Sync {
     ) -> Result<ProviderCredentialMaterial, SecureStoreError>;
 }
 
+#[allow(dead_code)]
 pub(super) struct VerificationMaterializerAdapter<N> {
     native: N,
     access: ProviderCredentialAccessPolicy,
 }
 
 impl<N> VerificationMaterializerAdapter<N> {
+    #[allow(dead_code)]
     pub(super) const fn new(native: N, access: ProviderCredentialAccessPolicy) -> Self {
         Self { native, access }
     }
