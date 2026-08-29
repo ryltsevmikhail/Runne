@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 
+import { currentLocale } from '@/shared/i18n'
 import TaskRunInventoryPage from './TaskRunInventoryPage.vue'
 
 describe('TaskRunInventoryPage', () => {
@@ -27,5 +28,31 @@ describe('TaskRunInventoryPage', () => {
     expect(wrapper.get('[aria-label="Search task runs"]').attributes('disabled')).toBe('')
     expect(controls).toHaveLength(6)
     expect(controls.every(control => control.attributes('disabled') === '')).toBe(true)
+  })
+
+  it('places the capability banner before unavailable inventory surfaces', () => {
+    const wrapper = mount(TaskRunInventoryPage)
+    const content = wrapper.get('.task-run-inventory-page__content')
+    const children = Array.from(content.element.children)
+    const banner = wrapper.get('[data-capability="task-run-inventory"]')
+
+    expect(children.indexOf(banner.element)).toBe(0)
+    expect(children.indexOf(wrapper.get('.task-run-inventory-page__summary').element)).toBeGreaterThan(0)
+    expect(children.indexOf(wrapper.get('.task-run-inventory-page__toolbar').element)).toBeGreaterThan(0)
+    expect(wrapper.find('tfoot').exists()).toBe(false)
+    expect(wrapper.get('[data-inventory-table-state]').text()).toContain('unavailable')
+  })
+
+  it('localizes inventory copy and accessible controls in Russian', () => {
+    const previousLocale = currentLocale.value
+    currentLocale.value = 'ru'
+    try {
+      const wrapper = mount(TaskRunInventoryPage)
+
+      expect(wrapper.get('[data-summary-value]').text()).toBe('Недоступно')
+      expect(wrapper.get('[aria-label="Поиск запусков задач"]').attributes('disabled')).toBe('')
+    } finally {
+      currentLocale.value = previousLocale
+    }
   })
 })

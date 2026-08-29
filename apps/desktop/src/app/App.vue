@@ -59,7 +59,7 @@ provideRuntimeSession(runtimeSession)
 
 const sidebarItems = computed(() => [
   { id: 'projects', label: translate('projects.title'), icon: FolderKanban },
-  { id: 'task-runs', label: 'Task runs', icon: History },
+  { id: 'task-runs', label: translate('taskRunInventory.navigation'), icon: History },
   { id: 'settings', label: translate('settings.title'), icon: Settings },
 ])
 const activeSidebarItem = computed(() => route.path.startsWith('/settings')

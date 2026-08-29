@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it } from 'vitest'
 
+import { currentLocale } from '@/shared/i18n'
 import App from './App.vue'
 import { routes } from './router'
 
@@ -83,6 +84,27 @@ describe('desktop application shell', () => {
     await taskRunsButton.trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.path).toBe('/task-runs')
+  })
+
+  it('localizes the Task runs sidebar accessible name in Russian', async () => {
+    const previousLocale = currentLocale.value
+    currentLocale.value = 'ru'
+    try {
+      const router = createRouter({
+        history: createMemoryHistory(),
+        routes,
+      })
+      await router.push('/')
+      await router.isReady()
+
+      const wrapper = mount(App, {
+        global: { plugins: [router] },
+      })
+
+      expect(wrapper.get('[aria-label="Запуски задач"]').text()).toContain('Запуски задач')
+    } finally {
+      currentLocale.value = previousLocale
+    }
   })
 
   it('uses the canonical Runne brand assets in the desktop shell', async () => {
