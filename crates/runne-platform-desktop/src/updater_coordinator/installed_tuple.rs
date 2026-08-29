@@ -1,10 +1,10 @@
 use crate::updater_installed_metadata::{
     InstalledUpdateMetadataError, InstalledUpdateMetadataJournal,
 };
+use crate::updater_metadata::NativeEnrollmentArtifactPathsV1;
 use crate::{
-    MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentArtifactPathsV1,
-    NativeEnrollmentTupleAdmission, UpdateInstallRecord, UpdateInstallState, UpdateTargetV2Binding,
-    verify_update_v2,
+    MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentTupleAdmission, UpdateInstallRecord,
+    UpdateInstallState, UpdateTargetV2Binding, verify_update_v2,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -25,8 +25,22 @@ pub(super) fn ensure_staged_metadata(
 }
 
 impl UpdateCoordinator {
+    /// Discards only an explicitly handled schema-v1 unbound updater transaction.
+    pub fn discard_unbound_legacy_update(&self) -> Result<bool, UpdateCoordinatorError> {
+        self.journal
+            .discard_unbound_legacy()
+            .map_err(UpdateCoordinatorError::Journal)
+    }
+
     /// Re-verifies the committed installed release before admitting its tuple.
-    pub fn admit_installed_native_enrollment(
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "fixed package-layout resolution is the remaining production integration step"
+        )
+    )]
+    pub(crate) fn admit_installed_native_enrollment(
         &self,
         paths: &NativeEnrollmentArtifactPathsV1,
     ) -> Result<Option<NativeEnrollmentTupleAdmission>, UpdateCoordinatorError> {
@@ -49,6 +63,13 @@ impl UpdateCoordinator {
         self.admit_installed_native_enrollment_inner(now_unix_seconds, artifacts)
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "called only by the crate-private fixed-layout admission seam"
+        )
+    )]
     fn admit_installed_native_enrollment_inner(
         &self,
         now_unix_seconds: u64,

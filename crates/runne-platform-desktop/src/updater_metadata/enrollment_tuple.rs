@@ -2,9 +2,12 @@ use sha2::{Digest, Sha256};
 
 #[path = "enrollment_tuple/measurement.rs"]
 mod enrollment_measurement;
-pub use enrollment_measurement::{
-    MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentArtifactPathsV1,
-};
+pub use enrollment_measurement::MeasuredNativeEnrollmentArtifactsV1;
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "fixed package-layout resolution is the remaining production integration step"
+)]
+pub(crate) use enrollment_measurement::NativeEnrollmentArtifactPathsV1;
 
 /// Signed bindings for the four native artifacts required by credential
 /// enrollment. It is evidence only; absence is deliberately unqualified.

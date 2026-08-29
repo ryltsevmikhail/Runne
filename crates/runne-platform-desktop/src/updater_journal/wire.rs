@@ -1,4 +1,5 @@
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,7 @@ pub(super) struct WireRecord {
     pub(super) state: String,
     pub(super) version: String,
     pub(super) artifact_sha256: String,
+    #[serde(default)]
     pub(super) metadata_sha256: Option<String>,
     pub(super) staged_path: String,
 }
@@ -33,14 +35,16 @@ pub(super) fn decode(wire: WireRecord) -> Result<UpdateInstallRecord, UpdateJour
         metadata_sha256: wire.metadata_sha256,
         staged_path: PathBuf::from(wire.staged_path),
         state,
+        legacy_unbound: matches!(wire.schema_version, 1),
     };
-    (wire.schema_version == 2)
-        .then_some(record)
-        .ok_or(UpdateJournalError::Corrupt)
-        .and_then(|record| {
-            validate_record(&record)?;
-            Ok(record)
-        })
+    (matches!(wire.schema_version, 1 | 2)
+        && (wire.schema_version == 2 || record.metadata_sha256.is_none()))
+    .then_some(record)
+    .ok_or(UpdateJournalError::Corrupt)
+    .and_then(|record| {
+        validate_record(&record)?;
+        Ok(record)
+    })
 }
 
 pub(super) fn validate_record(record: &UpdateInstallRecord) -> Result<(), UpdateJournalError> {
@@ -96,11 +100,63 @@ pub(super) fn numbered_path(base: &Path, sequence: u64, suffix: &str) -> PathBuf
     PathBuf::from(path)
 }
 
-pub(super) fn sequence_of(path: &Path) -> Option<u64> {
-    let name = path.file_name()?.to_string_lossy();
-    let (prefix, suffix) = name.rsplit_once('.')?;
-    (suffix == "json").then_some(())?;
-    prefix.rsplit_once('.')?.1.parse().ok()
+pub(super) fn sequence_of(base: &Path, path: &Path, suffix: &str) -> Option<u64> {
+    let base = base.file_name()?.to_str()?;
+    let name = path.file_name()?.to_str()?;
+    let rest = name.strip_prefix(base)?.strip_prefix('.')?;
+    let (digits, actual_suffix) = rest.split_once('.')?;
+    (actual_suffix == suffix
+        && !digits.is_empty()
+        && digits.parse::<u64>().ok()?.to_string() == digits)
+        .then(|| digits.parse().ok())?
+}
+
+pub(super) fn sequence_any(base: &Path, path: &Path) -> Option<u64> {
+    sequence_of(base, path, "json").or_else(|| sequence_of(base, path, "tmp"))
+}
+
+pub(super) fn read_bounded_regular_file(
+    path: &Path,
+    maximum: u64,
+) -> Result<Vec<u8>, UpdateJournalError> {
+    #[cfg(unix)]
+    let file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(path)
+    };
+    #[cfg(windows)]
+    let file = {
+        use std::os::windows::fs::OpenOptionsExt;
+        OpenOptions::new()
+            .read(true)
+            .custom_flags(0x0020_0000)
+            .open(path)
+    };
+    #[cfg(not(any(unix, windows)))]
+    let file = OpenOptions::new().read(true).open(path);
+    let file = file.map_err(|_| UpdateJournalError::Io)?;
+    let metadata = file.metadata().map_err(|_| UpdateJournalError::Io)?;
+    if !metadata.file_type().is_file() || metadata.len() > maximum {
+        return Err(UpdateJournalError::Corrupt);
+    }
+    #[cfg(unix)]
+    if std::os::unix::fs::MetadataExt::nlink(&metadata) != 1 {
+        return Err(UpdateJournalError::Corrupt);
+    }
+    #[cfg(windows)]
+    if std::os::windows::fs::MetadataExt::file_attributes(&metadata) & 0x400 != 0 {
+        return Err(UpdateJournalError::Corrupt);
+    }
+    let mut bytes = Vec::new();
+    file.take(maximum + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| UpdateJournalError::Io)?;
+    (bytes.len() as u64 <= maximum)
+        .then_some(bytes)
+        .ok_or(UpdateJournalError::Corrupt)
 }
 
 pub(super) fn publish_no_replace(

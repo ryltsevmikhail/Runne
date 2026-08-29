@@ -85,26 +85,31 @@ impl InstalledUpdateMetadataJournal {
 
     fn latest_path(&self) -> Result<Option<PathBuf>, InstalledUpdateMetadataError> {
         let mut paths = self.candidate_paths()?;
-        paths.sort_by_key(|path| sequence_of(path));
+        paths.sort_by_key(|path| sequence_of(&self.path, path, "json"));
         Ok(paths.pop())
     }
 
     fn next_sequence(&self) -> Result<u64, InstalledUpdateMetadataError> {
-        Ok(self
-            .latest_path()?
-            .as_deref()
-            .and_then(sequence_of)
-            .unwrap_or(0)
-            + 1)
+        let parent = self.path.parent().ok_or(InstalledUpdateMetadataError::Io)?;
+        let entries = match fs::read_dir(parent) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(1),
+            Err(_) => return Err(InstalledUpdateMetadataError::Io),
+        };
+        let maximum = entries
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter_map(|path| sequence_any(&self.path, &path))
+            .max();
+        maximum.map_or(Ok(1), |value| {
+            value
+                .checked_add(1)
+                .ok_or(InstalledUpdateMetadataError::Corrupt)
+        })
     }
 
     fn candidate_paths(&self) -> Result<Vec<PathBuf>, InstalledUpdateMetadataError> {
         let parent = self.path.parent().ok_or(InstalledUpdateMetadataError::Io)?;
-        let base = self
-            .path
-            .file_name()
-            .ok_or(InstalledUpdateMetadataError::Io)?
-            .to_string_lossy();
         let entries = match fs::read_dir(parent) {
             Ok(entries) => entries,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -113,13 +118,7 @@ impl InstalledUpdateMetadataJournal {
         Ok(entries
             .filter_map(Result::ok)
             .map(|entry| entry.path())
-            .filter(|path| {
-                path.file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .starts_with(&format!("{base}."))
-                    && sequence_of(path).is_some()
-            })
+            .filter(|path| sequence_of(&self.path, path, "json").is_some())
             .collect())
     }
 }
@@ -130,11 +129,19 @@ fn numbered_path(base: &Path, sequence: u64, suffix: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
-fn sequence_of(path: &Path) -> Option<u64> {
-    let name = path.file_name()?.to_string_lossy();
-    let (prefix, suffix) = name.rsplit_once('.')?;
-    (suffix == "json").then_some(())?;
-    prefix.rsplit_once('.')?.1.parse().ok()
+fn sequence_of(base: &Path, path: &Path, suffix: &str) -> Option<u64> {
+    let base = base.file_name()?.to_str()?;
+    let name = path.file_name()?.to_str()?;
+    let rest = name.strip_prefix(base)?.strip_prefix('.')?;
+    let (digits, actual_suffix) = rest.split_once('.')?;
+    (actual_suffix == suffix
+        && !digits.is_empty()
+        && digits.parse::<u64>().ok()?.to_string() == digits)
+        .then(|| digits.parse().ok())?
+}
+
+fn sequence_any(base: &Path, path: &Path) -> Option<u64> {
+    sequence_of(base, path, "json").or_else(|| sequence_of(base, path, "tmp"))
 }
 
 fn open_regular_file(path: &Path) -> Result<File, InstalledUpdateMetadataError> {
@@ -217,6 +224,27 @@ mod tests {
         std::fs::write(&final_path, b"final").unwrap();
         std::fs::write(numbered_path(&journal.path, 2, "tmp"), b"partial").unwrap();
         assert_eq!(journal.latest_path().unwrap(), Some(final_path));
+        assert_eq!(journal.next_sequence().unwrap(), 3);
+    }
+
+    #[test]
+    fn numbered_candidates_require_the_exact_canonical_name() {
+        let directory = tempfile::tempdir().unwrap();
+        let journal = InstalledUpdateMetadataJournal::new(directory.path().join("metadata"));
+        for name in [
+            "metadata.extra.999.json",
+            "metadata.01.json",
+            "metadata.1.json.tmp",
+        ] {
+            std::fs::write(directory.path().join(name), b"ignored").unwrap();
+        }
+        assert_eq!(journal.latest_path().unwrap(), None);
+        assert_eq!(journal.next_sequence().unwrap(), 1);
+        std::fs::write(numbered_path(&journal.path, u64::MAX, "tmp"), b"partial").unwrap();
+        assert_eq!(
+            journal.next_sequence(),
+            Err(InstalledUpdateMetadataError::Corrupt)
+        );
     }
 
     #[cfg(unix)]

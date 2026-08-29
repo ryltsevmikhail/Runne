@@ -2,7 +2,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
 
-use crate::NativeEnrollmentArtifactPathsV1;
+use crate::updater_metadata::NativeEnrollmentArtifactPathsV1;
 
 fn digest(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
@@ -140,4 +140,52 @@ fn transaction_rejects_a_different_signed_candidate_envelope() {
     .unwrap();
     coordinator.installed_metadata.persist(&replacement).unwrap();
     assert!(coordinator.admit_installed_native_enrollment(&paths).unwrap().is_none());
+}
+
+#[test]
+fn legacy_unbound_transaction_requires_explicit_native_recovery() {
+    let directory = tempfile::tempdir().unwrap();
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let (coordinator, _, _) = native_fixture(directory.path(), now + 60, "f".repeat(64));
+    coordinator.journal.clear().unwrap();
+    std::fs::write(
+        directory.path().join("updates/install-state.json"),
+        format!(
+            r#"{{"schemaVersion":1,"state":"staged","version":"1.2.0","artifactSha256":"{}","stagedPath":"{}"}}"#,
+            digest(b"desktop"),
+            directory.path().join("staged.update").display(),
+        ),
+    )
+    .unwrap();
+    assert!(coordinator.prepare_restart(0, false).is_err());
+    assert!(coordinator.discard_unbound_legacy_update().unwrap());
+    assert_eq!(coordinator.current().unwrap(), None);
+    coordinator
+        .journal
+        .record_staged_bound(
+            "1.2.0",
+            &StagedUpdate {
+                path: directory.path().join("staged.update"),
+                artifact_sha256: digest(b"desktop"),
+            },
+            "b".repeat(64),
+        )
+        .unwrap();
+    assert!(!coordinator.current().unwrap().unwrap().legacy_unbound);
+}
+
+#[test]
+fn orphan_metadata_temp_allocates_a_new_sequence() {
+    let directory = tempfile::tempdir().unwrap();
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let (coordinator, _, verified) = native_fixture(directory.path(), now + 60, "f".repeat(64));
+    let temporary = directory
+        .path()
+        .join("updates/installed-metadata.json.2.tmp");
+    std::fs::write(temporary, b"partial").unwrap();
+    coordinator.installed_metadata.persist(&verified).unwrap();
+    assert!(directory
+        .path()
+        .join("updates/installed-metadata.json.3.json")
+        .exists());
 }

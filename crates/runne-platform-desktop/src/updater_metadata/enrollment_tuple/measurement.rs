@@ -1,4 +1,4 @@
-use std::fs::{File, OpenOptions};
+use std::fs::{File, Metadata, OpenOptions};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -6,9 +6,15 @@ use sha2::{Digest, Sha256};
 
 use super::NativeEnrollmentTupleError;
 
+const MAX_NATIVE_ROLE_BYTES: u64 = 64 * 1024 * 1024;
+
 /// Exact native release files measured only by the platform-side coordinator.
 #[derive(Debug, Eq, PartialEq)]
-pub struct NativeEnrollmentArtifactPathsV1 {
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "fixed package-layout resolution is the remaining production integration step"
+)]
+pub(crate) struct NativeEnrollmentArtifactPathsV1 {
     desktop: PathBuf,
     writer: PathBuf,
     daemon: PathBuf,
@@ -16,7 +22,11 @@ pub struct NativeEnrollmentArtifactPathsV1 {
 }
 
 impl NativeEnrollmentArtifactPathsV1 {
-    pub fn new(
+    #[cfg_attr(not(test), expect(
+        dead_code,
+        reason = "fixed package-layout resolution is the remaining production integration step"
+    ))]
+    pub(crate) fn new(
         desktop: PathBuf,
         writer: PathBuf,
         daemon: PathBuf,
@@ -39,7 +49,13 @@ impl NativeEnrollmentArtifactPathsV1 {
         })
     }
 
-    pub fn measure(&self) -> Result<MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentTupleError> {
+    #[cfg_attr(not(test), expect(
+        dead_code,
+        reason = "fixed package-layout resolution is the remaining production integration step"
+    ))]
+    pub(crate) fn measure(
+        &self,
+    ) -> Result<MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentTupleError> {
         MeasuredNativeEnrollmentArtifactsV1::measure(
             &self.desktop,
             &self.writer,
@@ -63,6 +79,10 @@ pub struct MeasuredNativeEnrollmentArtifactsV1 {
 }
 
 impl MeasuredNativeEnrollmentArtifactsV1 {
+    #[cfg_attr(not(test), expect(
+        dead_code,
+        reason = "fixed package-layout resolution is the remaining production integration step"
+    ))]
     fn measure(
         desktop: &Path,
         writer: &Path,
@@ -118,21 +138,44 @@ impl MeasuredNativeEnrollmentArtifactsV1 {
 }
 
 fn measure_regular_file(path: &Path) -> Result<String, NativeEnrollmentTupleError> {
-    let mut file = open_regular_file(path)?;
+    let (mut file, before) = open_regular_file(path)?;
+    let expected_len = before.len();
     let mut hasher = Sha256::new();
     let mut chunk = [0_u8; 16 * 1024];
-    loop {
+    let mut remaining = expected_len;
+    while remaining != 0 {
+        let limit = usize::try_from(remaining.min(chunk.len() as u64))
+            .map_err(|_| NativeEnrollmentTupleError::Rejected)?;
         let read = file
-            .read(&mut chunk)
+            .read(&mut chunk[..limit])
             .map_err(|_| NativeEnrollmentTupleError::Rejected)?;
         if read == 0 {
-            return Ok(hex::encode(hasher.finalize()));
+            return Err(NativeEnrollmentTupleError::Rejected);
         }
         hasher.update(&chunk[..read]);
+        remaining -= read as u64;
     }
+    let mut extra = [0_u8; 1];
+    if file
+        .read(&mut extra)
+        .map_err(|_| NativeEnrollmentTupleError::Rejected)?
+        != 0
+    {
+        return Err(NativeEnrollmentTupleError::Rejected);
+    }
+    let after = file
+        .metadata()
+        .map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+    let current = std::fs::metadata(path).map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+    (same_identity(&before, &after)
+        && same_identity(&before, &current)
+        && after.len() == expected_len
+        && current.len() == expected_len)
+        .then(|| hex::encode(hasher.finalize()))
+        .ok_or(NativeEnrollmentTupleError::Rejected)
 }
 
-fn open_regular_file(path: &Path) -> Result<File, NativeEnrollmentTupleError> {
+fn open_regular_file(path: &Path) -> Result<(File, Metadata), NativeEnrollmentTupleError> {
     #[cfg(unix)]
     let file = {
         use std::os::unix::fs::OpenOptionsExt;
@@ -155,7 +198,7 @@ fn open_regular_file(path: &Path) -> Result<File, NativeEnrollmentTupleError> {
     let metadata = file
         .metadata()
         .map_err(|_| NativeEnrollmentTupleError::Rejected)?;
-    if !metadata.file_type().is_file() || metadata.len() == 0 {
+    if !metadata.file_type().is_file() || metadata.len() == 0 || metadata.len() > MAX_NATIVE_ROLE_BYTES {
         return Err(NativeEnrollmentTupleError::Rejected);
     }
     #[cfg(unix)]
@@ -166,7 +209,25 @@ fn open_regular_file(path: &Path) -> Result<File, NativeEnrollmentTupleError> {
     if std::os::windows::fs::MetadataExt::file_attributes(&metadata) & 0x400 != 0 {
         return Err(NativeEnrollmentTupleError::Rejected);
     }
-    Ok(file)
+    Ok((file, metadata))
+}
+
+fn same_identity(first: &Metadata, second: &Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        first.dev() == second.dev() && first.ino() == second.ino()
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        first.volume_serial_number() == second.volume_serial_number()
+            && first.file_index() == second.file_index()
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        first.len() == second.len()
+    }
 }
 
 #[cfg(test)]
@@ -175,4 +236,34 @@ fn valid_digest(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refuses_oversized_native_role() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("role");
+        File::create(&path)
+            .unwrap()
+            .set_len(MAX_NATIVE_ROLE_BYTES + 1)
+            .unwrap();
+        assert!(measure_regular_file(&path).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn identity_mismatch_is_detected() {
+        let directory = tempfile::tempdir().unwrap();
+        let first = directory.path().join("first");
+        let second = directory.path().join("second");
+        std::fs::write(&first, b"first").unwrap();
+        std::fs::write(&second, b"second").unwrap();
+        assert!(!same_identity(
+            &std::fs::metadata(first).unwrap(),
+            &std::fs::metadata(second).unwrap()
+        ));
+    }
 }
