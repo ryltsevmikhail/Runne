@@ -9,7 +9,8 @@ import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(SCRIPT_DIR, "../..");
-const TARGET_DIR = resolve(process.env.CARGO_TARGET_DIR || join(ROOT, "target"));
+const TARGET_DIR = resolve(ROOT, process.env.CARGO_TARGET_DIR || "target");
+const SIDECAR_TARGET_DIR = join(TARGET_DIR, "sidecars", "runne");
 const SIDECAR_DIR = join(ROOT, "apps/desktop/src-tauri/binaries");
 
 function output(command, args) {
@@ -38,10 +39,10 @@ const binaryName = `runne${extension}`;
 execFileSync("cargo", ["build", "-p", "runne-cli", "--bin", "runne", "--release", "--target", target], {
   cwd: ROOT,
   stdio: "inherit",
-  env: process.env,
+  env: { ...process.env, CARGO_TARGET_DIR: SIDECAR_TARGET_DIR },
 });
 
-const source = join(TARGET_DIR, target, "release", binaryName);
+const source = join(SIDECAR_TARGET_DIR, target, "release", binaryName);
 if (!existsSync(source) || !lstatSync(source).isFile()) {
   throw new Error(`release artifact was not produced for ${target}: ${source}`);
 }

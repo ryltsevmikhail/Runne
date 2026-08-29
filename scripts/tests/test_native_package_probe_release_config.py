@@ -117,7 +117,7 @@ class BundledSidecarStagingTests(unittest.TestCase):
             "path=\"${CARGO_TARGET_DIR:?}/${target:+$target/}release/$binary\"\n"
             "mkdir -p \"$(dirname \"$path\")\"\n"
             "printf '%s' \"${FAKE_ARTIFACT_BODY:-fixture}\" > \"$path\"\n"
-            "printf '%s %s\\n' \"$binary\" \"$target\" >> \"${FAKE_CARGO_LOG:?}\"\n",
+            "printf '%s %s %s\\n' \"$binary\" \"$target\" \"$CARGO_TARGET_DIR\" >> \"${FAKE_CARGO_LOG:?}\"\n",
             encoding="utf-8",
         )
         for command in ("rustc", "cargo"):
@@ -185,7 +185,10 @@ class BundledSidecarStagingTests(unittest.TestCase):
             self.assertEqual(measurement["sha256"], hashlib.sha256(contents).hexdigest())
         self.assertEqual(
             (self.root / "cargo.log").read_text(encoding="utf-8").splitlines(),
-            [f"runned {TARGET}", f"runne {TARGET}"],
+            [
+                f"runned {TARGET} {self.root / 'target' / 'sidecars' / 'runned'}",
+                f"runne {TARGET} {self.root / 'target' / 'sidecars' / 'runne'}",
+            ],
         )
 
     def test_stage_scripts_reject_missing_or_wrong_target_artifacts(self) -> None:
@@ -260,7 +263,10 @@ class BundledSidecarStagingTests(unittest.TestCase):
         self.assertEqual((binaries / f"runne-{TARGET}").read_bytes(), b"stale-host")
         self.assertEqual(
             (self.root / "cargo.log").read_text(encoding="utf-8").splitlines(),
-            [f"runned {TAURI_TARGET}", f"runne {TAURI_TARGET}"],
+            [
+                f"runned {TAURI_TARGET} {self.root / 'target' / 'sidecars' / 'runned'}",
+                f"runne {TAURI_TARGET} {self.root / 'target' / 'sidecars' / 'runne'}",
+            ],
         )
 
     def test_stage_scripts_reject_conflicting_tauri_and_cargo_targets(self) -> None:
