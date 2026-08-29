@@ -1,15 +1,12 @@
 use std::os::unix::net::UnixStream;
 
-#[cfg(target_os = "macos")]
-use runne_api::ProviderCredentialBrokerKillRelinquishedProof;
 use runne_api::{
     ProviderCredentialBaseRequestAuthority, ProviderCredentialBrokerTransferAuthority,
     ProviderCredentialEnrollmentHostError, ProviderCredentialIntentConsumptionProof,
 };
 #[cfg(target_os = "macos")]
 use runne_platform_desktop::provider_credential_broker::{
-    MacOsPeerKillCapability, MacOsPeerKillPending, MacOsPeerKillReadyProof,
-    capture_macos_daemon_peer_kill_capability,
+    MacOsPeerKillCapability, MacOsPeerKillPending, capture_macos_daemon_peer_kill_capability,
 };
 use runne_platform_desktop::provider_credential_broker::{
     ReceivedWriterProcessMeasurements, receive_daemon_owned_writer_measurements,
@@ -149,22 +146,14 @@ impl VerifiedWriterAwaitingDaemonKillCapability {
     )
 )]
 impl VerifiedMacOsWriterKillReady {
-    pub(crate) fn ready_proof(
-        &self,
-    ) -> Result<MacOsPeerKillReadyProof, ProviderCredentialEnrollmentHostError> {
-        self.kill
-            .issue_ready(&self.transfer_authority)
-            .map_err(map_handoff)
-    }
-
-    pub(crate) fn enable_after_relinquished(
+    pub(crate) fn complete_ownership_exchange(
         self,
-        proof: &ProviderCredentialBrokerKillRelinquishedProof,
+        transport: UnixStream,
     ) -> Result<VerifiedMacOsWriterWithDaemonKillCapability, ProviderCredentialEnrollmentHostError>
     {
         let kill = self
             .kill
-            .enable_after_relinquished(&self.transfer_authority, proof)
+            .complete_desktop_relinquishment(transport, &self.transfer_authority)
             .map_err(map_handoff)?;
         Ok(VerifiedMacOsWriterWithDaemonKillCapability {
             _binding: self.binding,

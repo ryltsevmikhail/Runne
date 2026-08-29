@@ -9,6 +9,8 @@ mod launch;
 #[cfg(target_os = "macos")]
 mod macos_daemon_kill;
 #[cfg(target_os = "macos")]
+mod macos_kill_exchange;
+#[cfg(target_os = "macos")]
 mod macos_writer_admission;
 #[cfg(target_os = "macos")]
 mod macos_writer_transfer;
@@ -52,9 +54,9 @@ pub use macos_daemon_kill::{
 #[cfg(target_os = "macos")]
 pub use macos_writer_admission::VerifiedMacOsWriterProcess;
 #[cfg(target_os = "macos")]
-pub use macos_writer_transfer::MacOsWriterReapOnlyOwner;
-#[cfg(target_os = "macos")]
-pub use macos_writer_transfer::MacOsWriterTransferPending;
+pub use macos_writer_transfer::{
+    MacOsWriterReapOnlyOwner, MacOsWriterRelinquishmentOutcome, MacOsWriterTransferPending,
+};
 #[cfg(unix)]
 pub use unix::UnixRetainedWriterProcess;
 #[cfg(target_os = "macos")]

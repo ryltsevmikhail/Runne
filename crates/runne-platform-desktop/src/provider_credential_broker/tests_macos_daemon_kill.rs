@@ -1,5 +1,6 @@
 use std::io::{Read as _, Write as _};
 use std::mem::MaybeUninit;
+use std::net::Shutdown;
 use std::num::NonZeroU32;
 use std::os::fd::OwnedFd;
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -254,12 +255,20 @@ fn substituted_relinquishment_proof_cannot_enable_daemon_kill() {
     let pending =
         capture_macos_daemon_peer_kill_capability(&daemon, measurements, &authority).unwrap();
     let proof = relinquished(&substituted_signing_key, kill_binding);
+    let (daemon_control, mut desktop_control) = UnixStream::pair().unwrap();
+    let responder = std::thread::spawn(move || {
+        let mut ready = Vec::new();
+        desktop_control.read_to_end(&mut ready).unwrap();
+        desktop_control.write_all(&proof.to_exact_wire()).unwrap();
+        desktop_control.shutdown(Shutdown::Write).unwrap();
+    });
 
     assert!(
         pending
-            .enable_after_relinquished(&authority, &proof)
+            .complete_desktop_relinquishment(daemon_control, &authority)
             .is_err()
     );
+    responder.join().unwrap();
     assert!(writer.try_wait().unwrap().is_none());
     writer.kill().unwrap();
     writer.wait().unwrap();

@@ -45,6 +45,12 @@ impl ProviderCredentialBrokerKillBindingV1 {
             .into_iter()
             .all(|value| value != [0; 32])
     }
+
+    /// Reports whether every field needed by the native ownership tuple exists.
+    #[must_use]
+    pub fn is_complete(&self) -> bool {
+        self.valid()
+    }
     fn transcript(&self, tag: &[u8]) -> Vec<u8> {
         let mut value = tag.to_vec();
         for field in [
@@ -235,4 +241,5 @@ impl fmt::Debug for ProviderCredentialBrokerTransferAuthority {
     }
 }
 
+include!("broker_transfer_kill_wire.rs");
 include!("broker_transfer_evidence.rs");

@@ -10,7 +10,7 @@ use ed25519_dalek::Signer as _;
 
 use super::{
     VerifiedMacOsWriterProcess, daemon_evidence::send_daemon_owned_writer_evidence,
-    unix::UnixWriterReapOnlyProcess,
+    macos_kill_exchange, unix::UnixWriterReapOnlyProcess,
 };
 
 /// Retained macOS writer after its one-shot evidence transfer began.
@@ -23,6 +23,12 @@ pub struct MacOsWriterTransferPending {
 /// Desktop's retained wait/reap half after it irrevocably relinquished signal authority.
 pub struct MacOsWriterReapOnlyOwner {
     process: UnixWriterReapOnlyProcess,
+}
+
+/// Reap ownership retained even if post-relinquishment delivery was uncertain.
+pub struct MacOsWriterRelinquishmentOutcome {
+    owner: MacOsWriterReapOnlyOwner,
+    delivery_error: Option<BrokerHandoffError>,
 }
 
 impl VerifiedMacOsWriterProcess {
@@ -44,6 +50,36 @@ impl VerifiedMacOsWriterProcess {
 }
 
 impl MacOsWriterTransferPending {
+    /// Completes the fixed Ready/Relinquished exchange without exposing proofs.
+    ///
+    /// # Errors
+    ///
+    /// Rejects before relinquishment when Ready is malformed or unauthenticated.
+    /// After relinquishment, the returned outcome always retains reap ownership,
+    /// including when proof delivery became uncertain.
+    pub fn complete_daemon_kill_ownership(
+        self,
+        mut transport: UnixStream,
+        authenticator: &CredentialBrokerTransferAuthenticator,
+    ) -> Result<MacOsWriterRelinquishmentOutcome, BrokerHandoffError> {
+        macos_kill_exchange::configure(&transport)?;
+        let wire = macos_kill_exchange::read_one_shot::<
+            { runne_macos_process_identity::MACOS_PEER_KILL_READY_WIRE_BYTES },
+        >(&mut transport)?;
+        let binding = self.kill_binding()?;
+        let ready =
+            MacOsPeerKillReadyProof::from_authenticated_wire(&wire, authenticator, &binding)
+                .map_err(|_| BrokerHandoffError::Rejected)?;
+        let (owner, relinquished) = self.accept_daemon_kill_ready(&ready, authenticator)?;
+        let delivery_error =
+            macos_kill_exchange::write_one_shot(&mut transport, &relinquished.to_exact_wire())
+                .err();
+        Ok(MacOsWriterRelinquishmentOutcome {
+            owner,
+            delivery_error,
+        })
+    }
+
     /// # Errors
     ///
     /// Rejects a ready proof not bound to this retained writer transfer.
@@ -58,19 +94,7 @@ impl MacOsWriterTransferPending {
         ),
         BrokerHandoffError,
     > {
-        let (start, image, release, channel, key, writer_kill_public_key) = self
-            .writer
-            .evidence()
-            .daemon_handoff_digests()
-            .ok_or(BrokerHandoffError::Rejected)?;
-        let binding = runne_api::ProviderCredentialBrokerKillBindingV1::new(
-            start,
-            image,
-            release,
-            channel,
-            key,
-            writer_kill_public_key,
-        );
+        let binding = self.kill_binding()?;
         if !ready.verifies(authenticator, &binding) {
             return Err(BrokerHandoffError::Rejected);
         }
@@ -81,6 +105,43 @@ impl MacOsWriterTransferPending {
             signing_key.sign(&transcript).to_bytes(),
         );
         Ok((MacOsWriterReapOnlyOwner { process }, relinquished))
+    }
+
+    fn kill_binding(
+        &self,
+    ) -> Result<runne_api::ProviderCredentialBrokerKillBindingV1, BrokerHandoffError> {
+        let (start, image, release, channel, key, writer_kill_public_key) = self
+            .writer
+            .evidence()
+            .daemon_handoff_digests()
+            .ok_or(BrokerHandoffError::Rejected)?;
+        Ok(runne_api::ProviderCredentialBrokerKillBindingV1::new(
+            start,
+            image,
+            release,
+            channel,
+            key,
+            writer_kill_public_key,
+        ))
+    }
+}
+
+impl MacOsWriterRelinquishmentOutcome {
+    /// Reports whether the post-transition proof reached the daemon transport.
+    ///
+    /// # Errors
+    ///
+    /// Returns the closed transport error while preserving reap ownership.
+    pub const fn delivery_result(&self) -> Result<(), BrokerHandoffError> {
+        match self.delivery_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
+
+    #[must_use]
+    pub const fn into_reap_only_owner(self) -> MacOsWriterReapOnlyOwner {
+        self.owner
     }
 }
 
@@ -101,5 +162,12 @@ impl std::fmt::Debug for MacOsWriterTransferPending {
 impl std::fmt::Debug for MacOsWriterReapOnlyOwner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("MacOsWriterReapOnlyOwner(<wait-reap-only>)")
+    }
+}
+impl std::fmt::Debug for MacOsWriterRelinquishmentOutcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MacOsWriterRelinquishmentOutcome")
+            .field("delivery_succeeded", &self.delivery_error.is_none())
+            .finish_non_exhaustive()
     }
 }

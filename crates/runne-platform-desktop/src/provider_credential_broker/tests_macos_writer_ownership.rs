@@ -99,11 +99,18 @@ fn desktop_relinquishes_before_daemon_can_kill_the_exact_writer() {
     let (pending, desktop) = evidence_thread.join().unwrap();
     let daemon_pending =
         capture_macos_daemon_peer_kill_capability(&daemon, measurements, &authority).unwrap();
-    let ready = daemon_pending.issue_ready(&authority).unwrap();
-    let (reap_owner, relinquished) = pending.accept_daemon_kill_ready(&ready, &desktop).unwrap();
+    let (daemon_control, desktop_control) = UnixStream::pair().unwrap();
+    let desktop_thread = std::thread::spawn(move || {
+        let outcome = pending
+            .complete_daemon_kill_ownership(desktop_control, &desktop)
+            .unwrap();
+        outcome.delivery_result().unwrap();
+        outcome.into_reap_only_owner()
+    });
     let kill = daemon_pending
-        .enable_after_relinquished(&authority, &relinquished)
+        .complete_desktop_relinquishment(daemon_control, &authority)
         .unwrap();
     kill.terminate_exact_peer().unwrap();
+    let reap_owner = desktop_thread.join().unwrap();
     reap_owner.reap_exact_writer().unwrap();
 }

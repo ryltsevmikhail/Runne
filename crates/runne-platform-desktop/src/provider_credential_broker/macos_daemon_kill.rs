@@ -7,7 +7,7 @@ use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
 
 pub use runne_macos_process_identity::MacOsPeerKillReadyProof;
 
-use super::ReceivedWriterProcessMeasurements;
+use super::{ReceivedWriterProcessMeasurements, macos_kill_exchange};
 
 /// Opaque exact peer kill capability captured from a daemon-owned Unix stream.
 ///
@@ -38,6 +38,26 @@ pub fn capture_macos_daemon_peer_kill_capability(
 }
 
 impl MacOsPeerKillPending {
+    /// Completes one fixed Ready/Relinquished exchange over protected control.
+    ///
+    /// # Errors
+    ///
+    /// Rejects missing EOF, extra bytes, tuple substitution, or invalid writer signature.
+    pub fn complete_desktop_relinquishment(
+        self,
+        mut transport: UnixStream,
+        authority: &ProviderCredentialBrokerTransferAuthority,
+    ) -> Result<MacOsPeerKillCapability, BrokerHandoffError> {
+        macos_kill_exchange::configure(&transport)?;
+        let ready = self.issue_ready(authority)?.to_exact_wire();
+        macos_kill_exchange::write_one_shot(&mut transport, &ready)?;
+        let relinquished = macos_kill_exchange::read_one_shot::<256>(&mut transport)?;
+        self.inner
+            .enable_after_relinquished_wire(authority, &relinquished)
+            .map(|inner| MacOsPeerKillCapability { inner })
+            .map_err(map_native)
+    }
+
     /// Issues Ready only for the exact writer captured by this authority.
     ///
     /// # Errors

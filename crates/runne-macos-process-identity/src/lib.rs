@@ -5,8 +5,10 @@
 
 mod ffi;
 mod peer_kill;
+mod peer_kill_wire;
 
 pub use peer_kill::{MacOsPeerKillCapability, MacOsPeerKillError};
+pub use peer_kill_wire::MACOS_PEER_KILL_READY_WIRE_BYTES;
 
 use std::fmt;
 use std::fs::Metadata;
@@ -136,6 +138,23 @@ impl MacOsPeerKillPending {
             .verifies_kill_relinquished_for_captured(proof, &self.captured)
             .then_some(self.inner)
             .ok_or(MacOsPeerKillError::Rejected)
+    }
+
+    /// Enables signaling only for a fixed relinquishment frame authenticated
+    /// against this already-captured writer.
+    ///
+    /// # Errors
+    ///
+    /// Rejects malformed bytes, another writer tuple, or an invalid signature.
+    pub fn enable_after_relinquished_wire(
+        self,
+        authority: &runne_api::ProviderCredentialBrokerTransferAuthority,
+        wire: &[u8],
+    ) -> Result<MacOsPeerKillCapability, MacOsPeerKillError> {
+        let proof = authority
+            .accept_kill_relinquished_wire_for_captured(wire, &self.captured)
+            .map_err(|_| MacOsPeerKillError::Rejected)?;
+        self.enable_after_relinquished(authority, &proof)
     }
 }
 

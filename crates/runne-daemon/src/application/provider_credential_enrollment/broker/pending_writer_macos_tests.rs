@@ -1,5 +1,6 @@
 use std::io::{Read as _, Write as _};
 use std::mem::MaybeUninit;
+use std::net::Shutdown;
 use std::os::fd::{AsFd as _, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::process::{Command, Stdio};
@@ -95,7 +96,6 @@ fn authenticated_writer_becomes_daemon_killable_only_after_kernel_peer_capture()
         .unwrap();
     sender_thread.join().unwrap().unwrap();
     let captured = admitted.capture_macos_kill_capability().unwrap();
-    let ready_proof = captured.ready_proof().unwrap();
     let kill_binding = runne_api::ProviderCredentialBrokerKillBindingV1::new(
         start,
         [12; 32],
@@ -104,16 +104,34 @@ fn authenticated_writer_becomes_daemon_killable_only_after_kernel_peer_capture()
         publication_key,
         writer_kill_public_key,
     );
-    assert!(ready_proof.verifies(&sender_authenticator, &kill_binding));
-    let signature = signing_key
-        .sign(&kill_binding.relinquishment_transcript())
-        .to_bytes();
-    let relinquished =
-        runne_api::ProviderCredentialBrokerKillRelinquishedProof::from_writer_signature(
-            kill_binding,
-            signature,
-        );
-    let killable = captured.enable_after_relinquished(&relinquished).unwrap();
+    let (daemon_control, mut desktop_control) = UnixStream::pair().unwrap();
+    let desktop_thread = std::thread::spawn(move || {
+        let mut ready_wire = Vec::new();
+        desktop_control.read_to_end(&mut ready_wire).unwrap();
+        let ready = runne_platform_desktop::provider_credential_broker::MacOsPeerKillReadyProof::from_authenticated_wire(
+            &ready_wire,
+            &sender_authenticator,
+            &kill_binding,
+        )
+        .unwrap();
+        assert!(ready.verifies(&sender_authenticator, &kill_binding));
+        let signature = signing_key
+            .sign(&kill_binding.relinquishment_transcript())
+            .to_bytes();
+        let relinquished =
+            runne_api::ProviderCredentialBrokerKillRelinquishedProof::from_writer_signature(
+                kill_binding,
+                signature,
+            );
+        desktop_control
+            .write_all(&relinquished.to_exact_wire())
+            .unwrap();
+        desktop_control.shutdown(Shutdown::Write).unwrap();
+    });
+    let killable = captured
+        .complete_ownership_exchange(daemon_control)
+        .unwrap();
+    desktop_thread.join().unwrap();
     killable.terminate_exact_writer().unwrap();
     assert!(!writer.wait().unwrap().success());
 }
