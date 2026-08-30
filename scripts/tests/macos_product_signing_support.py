@@ -7,6 +7,11 @@ from scripts.macos_signing.product_validation import validate_product_candidate
 
 
 def validated_product_candidate():
+    temporary_directory, root, _, validated = product_candidate_fixture()
+    return temporary_directory, root, validated
+
+
+def product_candidate_fixture():
     temporary_directory = tempfile.TemporaryDirectory()
     root = Path(temporary_directory.name)
     candidate = root / "Runne.app"
@@ -36,4 +41,4 @@ def validated_product_candidate():
         entitlements[1],
         entitlements[2],
     )
-    return temporary_directory, root, validate_product_candidate(request)
+    return temporary_directory, root, request, validate_product_candidate(request)

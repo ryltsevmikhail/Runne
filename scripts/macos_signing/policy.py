@@ -48,8 +48,12 @@ def program_is_allowed(program: str) -> bool:
     return program.startswith("/") and program in ALLOWED_PROGRAMS
 
 
-def command_arguments_are_safe(argv: tuple[str, ...]) -> bool:
-    if len(argv) > MAX_ARGV_ITEMS or contains_raw_credential_argument(argv):
+def command_arguments_are_safe(
+    argv: tuple[str, ...],
+    allowed_reference_arguments: tuple[str, ...] = (),
+) -> bool:
+    forbidden = _RAW_CREDENTIAL_ARGUMENTS.difference(allowed_reference_arguments)
+    if len(argv) > MAX_ARGV_ITEMS or any(item in forbidden for item in argv):
         return False
     return all(_argument_is_safe(item) for item in argv)
 

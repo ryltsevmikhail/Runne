@@ -39,7 +39,7 @@ class LiveRunner:
         self.candidate_root = candidate_root
 
     def run(self, command: CommandSpec) -> CommandResult:
-        if not _is_executable_program(command.program):
+        if not executable_program_available(command.program):
             return _closed_result(FailureCode.TOOL_UNAVAILABLE)
         if not _artifact_binding_is_exact(command):
             return _closed_result(FailureCode.UNKNOWN_STATUS)
@@ -50,20 +50,41 @@ class LiveRunner:
         if invocation is None:
             return _closed_result(FailureCode.ARTIFACT_IDENTITY_MISMATCH)
         argv, cwd = invocation
-        try:
-            with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
-                completed = subprocess.run(argv, shell=False, cwd=cwd, env=_ENVIRONMENT, stdout=stdout, stderr=stderr, timeout=_timeout(parsed))
-                output = _spooled_result(completed.returncode, stdout, stderr)
-        except subprocess.TimeoutExpired:
-            return _closed_result(FailureCode.NOTARIZATION_FAILED if parsed.operation == "submit" else FailureCode.TOOL_UNAVAILABLE)
-        except OSError:
-            return _closed_result(FailureCode.TOOL_UNAVAILABLE)
-        return output
+        timeout_failure = (
+            FailureCode.NOTARIZATION_FAILED
+            if parsed.operation == "submit"
+            else FailureCode.TOOL_UNAVAILABLE
+        )
+        return run_bounded_subprocess(argv, cwd, _timeout(parsed), timeout_failure)
 
 
-def _is_executable_program(program: str) -> bool:
+def executable_program_available(program: str) -> bool:
     path = Path(program)
     return path.is_absolute() and path.is_file() and os.access(path, os.X_OK)
+
+
+def run_bounded_subprocess(
+    argv: list[str],
+    cwd: str,
+    timeout: int,
+    timeout_failure: FailureCode,
+) -> CommandResult:
+    try:
+        with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+            completed = subprocess.run(
+                argv,
+                shell=False,
+                cwd=cwd,
+                env=_ENVIRONMENT,
+                stdout=stdout,
+                stderr=stderr,
+                timeout=timeout,
+            )
+            return _spooled_result(completed.returncode, stdout, stderr)
+    except subprocess.TimeoutExpired:
+        return _closed_result(timeout_failure)
+    except OSError:
+        return _closed_result(FailureCode.TOOL_UNAVAILABLE)
 
 
 def _artifact_binding_is_exact(command: CommandSpec) -> bool:

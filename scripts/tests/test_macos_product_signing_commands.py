@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import unittest
 from dataclasses import asdict
 from unittest import mock
@@ -21,9 +22,12 @@ class MacOSProductSigningCommandTests(unittest.TestCase):
         temporary_directory, self.root, self.candidate = validated_product_candidate()
         self.temporary_directory = temporary_directory
         self.addCleanup(temporary_directory.cleanup)
+        self.keychain = self.root / "runne-release.keychain"
+        self.keychain.write_bytes(b"keychain fixture\n")
         self.credentials = ProductionCredentialReferences(
             signing_identity_ref="A" * 40,
             notary_profile_ref="runne-notary-01",
+            notary_keychain_ref=self.keychain,
         )
 
     def test_component_commands_use_canonical_order_and_secure_timestamp(self) -> None:
@@ -85,7 +89,7 @@ class MacOSProductSigningCommandTests(unittest.TestCase):
             ),
         )
 
-    def test_notary_command_uses_only_opaque_keychain_profile(self) -> None:
+    def test_notary_command_uses_only_keychain_backed_references(self) -> None:
         command = build_product_notary_submit_command(
             "Runne-signed.zip",
             self.credentials,
@@ -98,6 +102,8 @@ class MacOSProductSigningCommandTests(unittest.TestCase):
                 "Runne-signed.zip",
                 "--keychain-profile",
                 "runne-notary-01",
+                "--keychain",
+                str(self.keychain),
                 "--wait",
                 "--output-format",
                 "json",
@@ -105,14 +111,15 @@ class MacOSProductSigningCommandTests(unittest.TestCase):
         )
         template = redact_external_command(command)
         self.assertEqual(template.argv[4], "<NOTARY_PROFILE_REF>")
+        self.assertEqual(template.argv[6], "<NOTARY_KEYCHAIN_REF>")
         self.assertNotIn("runne-notary-01", json.dumps(asdict(template)))
+        self.assertNotIn(str(self.keychain), json.dumps(asdict(template)))
         for forbidden in (
             "--password",
             "--key",
             "--key-id",
             "--issuer",
             "--sync",
-            "--keychain",
         ):
             self.assertNotIn(forbidden, command.argv)
 
@@ -120,8 +127,8 @@ class MacOSProductSigningCommandTests(unittest.TestCase):
         commands = build_product_distribution_commands(
             self.candidate,
             self.credentials,
-            "Runne-signed.zip",
-            "Runne.dmg",
+            ".runne-product-work/app.zip",
+            ".runne-product-work/Runne.dmg",
         )
         self.assertEqual(
             tuple(command.phase for command in commands),
@@ -131,6 +138,7 @@ class MacOSProductSigningCommandTests(unittest.TestCase):
                 "staple-app",
                 "validate-app",
                 "gatekeeper-app",
+                "stage-dmg-app",
                 "create-dmg",
                 "sign-dmg",
                 "verify-dmg",
@@ -143,34 +151,38 @@ class MacOSProductSigningCommandTests(unittest.TestCase):
         encoded = json.dumps([asdict(template) for template in templates], sort_keys=True)
         self.assertNotIn(self.credentials.signing_identity_ref, encoded)
         self.assertNotIn(self.credentials.notary_profile_ref, encoded)
+        self.assertNotIn(str(self.credentials.notary_keychain_ref), encoded)
         self.assertEqual(
-            templates[5].argv,
+            templates[6].argv,
             (
                 "create",
                 "-volname",
                 "Runne",
                 "-srcfolder",
-                "Runne.app",
+                ".runne-product-work/dmg-root",
                 "-format",
                 "UDZO",
-                "Runne.dmg",
+                ".runne-product-work/Runne.dmg",
             ),
         )
-        self.assertEqual(templates[6].argv[2], "<SIGNING_IDENTITY_REF>")
-        self.assertEqual(templates[8].argv[4], "<NOTARY_PROFILE_REF>")
+        self.assertEqual(templates[7].argv[2], "<SIGNING_IDENTITY_REF>")
+        self.assertEqual(templates[9].argv[4], "<NOTARY_PROFILE_REF>")
+        self.assertEqual(templates[9].argv[6], "<NOTARY_KEYCHAIN_REF>")
 
     def test_credential_references_are_opaque_and_repr_safe(self) -> None:
         self.assertNotIn("A" * 40, repr(self.credentials))
         self.assertNotIn("runne-notary-01", repr(self.credentials))
-        for identity, profile in (
-            ("short", "runne-notary-01"),
-            ("A" * 40, "--password"),
-            ("A" * 40, "contains space"),
-            ("A" * 40, "path/profile"),
+        self.assertNotIn(str(self.keychain), repr(self.credentials))
+        for identity, profile, keychain in (
+            ("short", "runne-notary-01", self.keychain),
+            ("A" * 40, "--password", self.keychain),
+            ("A" * 40, "contains space", self.keychain),
+            ("A" * 40, "path/profile", self.keychain),
+            ("A" * 40, "runne-notary-01", Path("relative.keychain")),
         ):
-            with self.subTest(identity=identity, profile=profile):
+            with self.subTest(identity=identity, profile=profile, keychain=keychain):
                 with self.assertRaises(ValueError):
-                    ProductionCredentialReferences(identity, profile)
+                    ProductionCredentialReferences(identity, profile, keychain)
 
     def test_secret_bearing_credential_options_are_not_command_inputs(self) -> None:
         for forbidden in (
@@ -179,7 +191,6 @@ class MacOSProductSigningCommandTests(unittest.TestCase):
             "--key-id",
             "--issuer",
             "--sync",
-            "--keychain",
             "--apple-id",
             "--team-id",
         ):
