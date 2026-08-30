@@ -1,5 +1,12 @@
 use std::path::Path;
 
+#[cfg(all(
+    target_os = "macos",
+    feature = "dev-loopback-updater",
+    debug_assertions
+))]
+mod demo;
+
 fn main() {
     let arguments: Vec<String> = std::env::args().collect();
     let result = match arguments.as_slice() {
@@ -32,6 +39,14 @@ fn main() {
                 Path::new(output),
                 Path::new(keychain),
             )
+        }
+        #[cfg(all(
+            target_os = "macos",
+            feature = "dev-loopback-updater",
+            debug_assertions
+        ))]
+        [_, command, config_flag, config] if command == "demo" && config_flag == "--config" => {
+            demo::run(Path::new(config))
         }
         _ => Err(runne_update_metadata_producer::ProducerError::Input),
     };
