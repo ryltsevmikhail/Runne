@@ -16,9 +16,10 @@ use crate::{
     VerifiedUpdateV2,
 };
 
+#[path = "updater_coordinator/config.rs"]
+mod config;
 mod installed_tuple;
-
-const MAX_BINDING_VALUE_BYTES: usize = 512;
+use config::validate_binding;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateTargetBindingConfig {
@@ -72,8 +73,27 @@ impl UpdateCoordinator {
         binding: UpdateTargetBindingConfig,
         profile_directory: &Path,
     ) -> Result<Self, UpdateCoordinatorError> {
-        validate_binding(&binding)?;
         let feed = UpdateFeedClient::new().map_err(UpdateCoordinatorError::Feed)?;
+        Self::with_feed(feed, trust, binding, profile_directory)
+    }
+
+    #[cfg(all(feature = "dev-loopback-updater", debug_assertions))]
+    pub fn new_dev_loopback(
+        trust: UpdateTrustRootV2,
+        binding: UpdateTargetBindingConfig,
+        profile_directory: &Path,
+    ) -> Result<Self, UpdateCoordinatorError> {
+        let feed = UpdateFeedClient::new_dev_loopback().map_err(UpdateCoordinatorError::Feed)?;
+        Self::with_feed(feed, trust, binding, profile_directory)
+    }
+
+    fn with_feed(
+        feed: UpdateFeedClient,
+        trust: UpdateTrustRootV2,
+        binding: UpdateTargetBindingConfig,
+        profile_directory: &Path,
+    ) -> Result<Self, UpdateCoordinatorError> {
+        validate_binding(&binding)?;
         let updates = profile_directory.join("updates");
         Ok(Self {
             feed,
@@ -261,27 +281,6 @@ impl UpdateCoordinator {
             .staging_directory
             .join(format!("runne-{version}-{digest}{suffix}")))
     }
-}
-
-fn validate_binding(binding: &UpdateTargetBindingConfig) -> Result<(), UpdateCoordinatorError> {
-    let values = [
-        &binding.product_id,
-        &binding.platform,
-        &binding.arch,
-        &binding.min_os,
-        &binding.profile_id,
-        &binding.bundle_sha256,
-        &binding.runtime_version,
-        &binding.runtime_digest,
-        &binding.channel,
-    ];
-    if values
-        .iter()
-        .any(|value| value.is_empty() || value.len() > MAX_BINDING_VALUE_BYTES)
-    {
-        return Err(UpdateCoordinatorError::InvalidConfiguration);
-    }
-    Ok(())
 }
 
 const fn map_install_error(error: UpdateInstallError) -> UpdateCoordinatorError {

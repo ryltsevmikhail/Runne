@@ -76,3 +76,19 @@ fn producer_rejects_non_absolute_artifact_path() {
     let result = issue_metadata(&draft(PathBuf::from("Runne.dmg")), &MemoryKeys);
     assert_eq!(result, Err(ProducerError::Input));
 }
+
+#[cfg(all(feature = "dev-loopback-updater", debug_assertions))]
+#[test]
+fn dev_producer_self_verifies_exact_loopback_artifact_url() {
+    let directory = tempfile::tempdir().unwrap();
+    let artifact = directory.path().join("Runne.dmg");
+    std::fs::write(&artifact, b"signed product").unwrap();
+    let mut value = draft(artifact);
+    value.artifact_url = "http://127.0.0.1:8080/Runne.dmg".into();
+    assert!(issue_metadata(&value, &MemoryKeys).is_ok());
+    value.artifact_url = "http://localhost:8080/Runne.dmg".into();
+    assert_eq!(
+        issue_metadata(&value, &MemoryKeys),
+        Err(ProducerError::Verification)
+    );
+}

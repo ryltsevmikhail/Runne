@@ -13,6 +13,7 @@ pub use key_store::{KeySlot, UpdateSigningKeyStore};
 
 use std::path::Path;
 
+#[allow(clippy::missing_const_for_fn)]
 pub fn initialize_dev_keyset(path: &Path, keychain_ref: &Path) -> Result<(), ProducerError> {
     #[cfg(all(target_os = "macos", debug_assertions, feature = "dev-keyset-init"))]
     {

@@ -8,6 +8,7 @@ rust-version.workspace = true
 [features]
 default = []
 dev-keyset-init = []
+dev-loopback-updater = ["runne-platform-desktop/dev-loopback-updater"]
 
 [dependencies]
 ed25519-dalek.workspace = true

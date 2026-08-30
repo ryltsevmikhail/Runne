@@ -181,98 +181,10 @@ pub enum UpdateV2VerificationError {
     Rollback,
 }
 
-pub fn verify_update_v2(
-    metadata: &UpdateMetadataV2,
-    trust: &UpdateTrustRootV2,
-    binding: &UpdateTargetV2Binding<'_>,
-    now_unix_seconds: u64,
-    current_version: &str,
-    rollback_floor: &str,
-) -> Result<VerifiedUpdateV2, UpdateV2VerificationError> {
-    if metadata.schema_version != SCHEMA_VERSION
-        || metadata.targets.version == 0
-        || metadata.snapshot.version == 0
-        || metadata.timestamp.version == 0
-        || metadata.snapshot.targets_version != metadata.targets.version
-        || metadata.timestamp.snapshot_version != metadata.snapshot.version
-        || !root_matches(&metadata.root, trust)
-    {
-        return Err(UpdateV2VerificationError::InvalidMetadata);
-    }
-    verify_quorum(
-        &metadata.root_signatures,
-        &trust.root_keys,
-        &metadata.root,
-        ROOT_THRESHOLD,
-    )
-    .map_err(|()| UpdateV2VerificationError::RootQuorum)?;
-    verify_quorum(
-        &metadata.targets_signatures,
-        &trust.root_keys,
-        &metadata.targets,
-        ROOT_THRESHOLD,
-    )
-    .map_err(|()| UpdateV2VerificationError::TargetsQuorum)?;
-    verify_single(
-        &metadata.snapshot_signature,
-        &trust.snapshot_key,
-        &metadata.snapshot,
-    )
-    .map_err(|()| UpdateV2VerificationError::SnapshotSignature)?;
-    verify_single(
-        &metadata.timestamp_signature,
-        &trust.timestamp_key,
-        &metadata.timestamp,
-    )
-    .map_err(|()| UpdateV2VerificationError::TimestampSignature)?;
-    let target = &metadata.targets.target;
-    if metadata.targets.expires_at_unix_seconds <= now_unix_seconds
-        || metadata.snapshot.expires_at_unix_seconds <= now_unix_seconds
-        || metadata.timestamp.expires_at_unix_seconds <= now_unix_seconds
-        || target.expires_at_unix_seconds <= now_unix_seconds
-        || target.published_at_unix_seconds > now_unix_seconds
-    {
-        return Err(UpdateV2VerificationError::Expired);
-    }
-    if !target_matches(target, binding) {
-        return Err(UpdateV2VerificationError::TargetMismatch);
-    }
-    if target.artifact_size == 0
-        || target.artifact_size > MAX_ARTIFACT_BYTES
-        || !crate::updater::is_sha256(&target.artifact_sha256)
-        || !crate::updater::is_sha256(&target.bundle_sha256)
-        || !crate::updater::is_sha256(&target.runtime_digest)
-        || !crate::updater_feed::is_https_url(&target.artifact_url)
-    {
-        return Err(UpdateV2VerificationError::InvalidMetadata);
-    }
-    if target
-        .native_enrollment_tuple
-        .as_ref()
-        .is_some_and(|tuple| !tuple.matches_target(target))
-    {
-        return Err(UpdateV2VerificationError::InvalidMetadata);
-    }
-    let artifact_kind = crate::UpdateArtifactKind::from_url(&target.artifact_url)
-        .map_err(|_| UpdateV2VerificationError::InvalidMetadata)?;
-    if !artifact_kind.supports_platform(&target.platform) {
-        return Err(UpdateV2VerificationError::InvalidMetadata);
-    }
-    let version = crate::updater::parse_version(&target.version)
-        .map_err(|_| UpdateV2VerificationError::InvalidMetadata)?;
-    let current = crate::updater::parse_version(current_version)
-        .map_err(|_| UpdateV2VerificationError::InvalidMetadata)?;
-    let floor = crate::updater::parse_version(rollback_floor)
-        .map_err(|_| UpdateV2VerificationError::InvalidMetadata)?;
-    let target_floor = crate::updater::parse_version(&target.rollback_floor)
-        .map_err(|_| UpdateV2VerificationError::InvalidMetadata)?;
-    if version < current || version < floor || target_floor < floor {
-        return Err(UpdateV2VerificationError::Rollback);
-    }
-    Ok(VerifiedUpdateV2 {
-        metadata: metadata.clone(),
-        verified_at_unix_seconds: now_unix_seconds,
-    })
-}
+#[path = "updater_metadata/verify_v2.rs"]
+mod verify_v2;
+pub use verify_v2::verify_update_v2;
+#[cfg(all(feature = "dev-loopback-updater", debug_assertions))]
+pub use verify_v2::verify_update_v2_dev_loopback;
 
 include!("updater_metadata/verification.rs");

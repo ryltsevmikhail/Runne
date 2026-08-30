@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [features]
 default = []
+dev-loopback-updater = []
 protected-channel-integration = []
 test-support = ["runne-api/test-support", "runne-runtime-client/test-support"]
 

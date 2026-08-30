@@ -1,5 +1,8 @@
 //! Desktop implementations of native capability ports.
 
+#[cfg(all(feature = "dev-loopback-updater", not(debug_assertions)))]
+compile_error!("dev-loopback-updater cannot be compiled without debug assertions");
+
 mod protected_runtime;
 /// Platform-validated writer-process handoff for protected credential enrollment.
 pub mod provider_credential_broker;
@@ -64,6 +67,8 @@ pub use updater_feed::{UpdateFeedClient, UpdateFeedError};
 pub use updater_install::{NativeUpdateInstallError, install_staged_update};
 pub use updater_installed_metadata::InstalledUpdateMetadataError;
 pub use updater_journal::{UpdateInstallRecord, UpdateJournal, UpdateJournalError};
+#[cfg(all(feature = "dev-loopback-updater", debug_assertions))]
+pub use updater_metadata::verify_update_v2_dev_loopback;
 pub use updater_metadata::{
     ConfirmedInstalledNativeEnrollment, EnrollmentTransitionFacts,
     MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentQualification,

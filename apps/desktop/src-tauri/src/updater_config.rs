@@ -21,19 +21,28 @@ impl CompiledUpdater {
         let runtime_digest = option_env!("RUNNE_UPDATE_RUNTIME_DIGEST")?;
         let channel = option_env!("RUNNE_UPDATE_CHANNEL")?;
         let (platform, arch, min_os) = current_target()?;
+        let binding = UpdateTargetBindingConfig {
+            product_id: "com.runne.desktop".into(),
+            platform: platform.into(),
+            arch: arch.into(),
+            min_os: min_os.into(),
+            profile_id: profile_id.into(),
+            bundle_sha256: bundle_sha256.into(),
+            runtime_version: runtime_version.into(),
+            runtime_digest: runtime_digest.into(),
+            channel: channel.into(),
+        };
+        #[cfg(all(feature = "dev-loopback-updater", debug_assertions))]
+        let coordinator = UpdateCoordinator::new_dev_loopback(
+            CompiledUpdateTrustRootV2::load()?.into_trust_root(),
+            binding,
+            profile_directory,
+        )
+        .ok()?;
+        #[cfg(not(all(feature = "dev-loopback-updater", debug_assertions)))]
         let coordinator = UpdateCoordinator::new(
             CompiledUpdateTrustRootV2::load()?.into_trust_root(),
-            UpdateTargetBindingConfig {
-                product_id: "com.runne.desktop".into(),
-                platform: platform.into(),
-                arch: arch.into(),
-                min_os: min_os.into(),
-                profile_id: profile_id.into(),
-                bundle_sha256: bundle_sha256.into(),
-                runtime_version: runtime_version.into(),
-                runtime_digest: runtime_digest.into(),
-                channel: channel.into(),
-            },
+            binding,
             profile_directory,
         )
         .ok()?;

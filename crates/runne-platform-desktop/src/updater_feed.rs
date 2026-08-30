@@ -3,17 +3,23 @@
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::redundant_pub_crate)]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
-use reqwest::{Client, Response, Url, redirect::Policy};
-use sha2::{Digest, Sha256};
+use reqwest::{Client, redirect::Policy};
 use thiserror::Error;
 
 use crate::{
     StagedUpdate, UpdateMetadataV2, UpdateTargetV2Binding, UpdateTrustError, UpdateTrustJournal,
     UpdateTrustRootV2, UpdateV2VerificationError, VerifiedUpdateV2, verify_update_v2,
 };
+
+#[path = "updater_feed/staging.rs"]
+mod staging;
+#[path = "updater_feed/url_policy.rs"]
+mod url_policy;
+use staging::{bounded_body, stage_response};
+use url_policy::{TransportPolicy, parse_url};
 
 const MAX_METADATA_BYTES: usize = 512 * 1024;
 const MAX_ARTIFACT_BYTES: u64 = 512 * 1024 * 1024;
@@ -46,18 +52,28 @@ pub enum UpdateFeedError {
 #[derive(Clone)]
 pub struct UpdateFeedClient {
     client: Client,
+    policy: TransportPolicy,
 }
 
 impl UpdateFeedClient {
     /// Builds a TLS-only client with no redirects and bounded request time.
     pub fn new() -> Result<Self, UpdateFeedError> {
+        Self::build(TransportPolicy::Https, true)
+    }
+
+    #[cfg(all(feature = "dev-loopback-updater", debug_assertions))]
+    pub fn new_dev_loopback() -> Result<Self, UpdateFeedError> {
+        Self::build(TransportPolicy::DevLoopback, false)
+    }
+
+    fn build(policy: TransportPolicy, https_only: bool) -> Result<Self, UpdateFeedError> {
         Client::builder()
-            .https_only(true)
+            .https_only(https_only)
             .redirect(Policy::none())
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_mins(1))
             .build()
-            .map(|client| Self { client })
+            .map(|client| Self { client, policy })
             .map_err(|_| UpdateFeedError::Transport)
     }
 
@@ -66,7 +82,7 @@ impl UpdateFeedClient {
         &self,
         endpoint: &str,
     ) -> Result<UpdateMetadataV2, UpdateFeedError> {
-        let url = parse_https_url(endpoint)?;
+        let url = parse_url(endpoint, self.policy)?;
         let response = self
             .client
             .get(url)
@@ -91,7 +107,7 @@ impl UpdateFeedClient {
         rollback_floor: &str,
     ) -> Result<VerifiedUpdateV2, UpdateFeedError> {
         let metadata = self.fetch_metadata(endpoint).await?;
-        verify_update_v2(
+        self.verify_metadata(
             &metadata,
             trust,
             binding,
@@ -99,7 +115,6 @@ impl UpdateFeedClient {
             current_version,
             rollback_floor,
         )
-        .map_err(UpdateFeedError::Verification)
     }
 
     /// Checks metadata and advances the native monotonic metadata floor.
@@ -115,15 +130,14 @@ impl UpdateFeedClient {
         rollback_floor: &str,
     ) -> Result<VerifiedUpdateV2, UpdateFeedError> {
         let metadata = self.fetch_metadata(endpoint).await?;
-        let verified = verify_update_v2(
+        let verified = self.verify_metadata(
             &metadata,
             trust,
             binding,
             now_unix_seconds,
             current_version,
             rollback_floor,
-        )
-        .map_err(UpdateFeedError::Verification)?;
+        )?;
         if trust_journal
             .read()
             .map_err(UpdateFeedError::Trust)?
@@ -153,7 +167,7 @@ impl UpdateFeedClient {
         if target.artifact_size == 0 || target.artifact_size > MAX_ARTIFACT_BYTES {
             return Err(UpdateFeedError::ArtifactTooLarge);
         }
-        let url = parse_https_url(&target.artifact_url)?;
+        let url = parse_url(&target.artifact_url, self.policy)?;
         let response = self
             .client
             .get(url)
@@ -177,115 +191,45 @@ impl UpdateFeedClient {
         )
         .await
     }
+
+    #[allow(clippy::too_many_arguments)]
+    fn verify_metadata(
+        &self,
+        metadata: &UpdateMetadataV2,
+        trust: &UpdateTrustRootV2,
+        binding: &UpdateTargetV2Binding<'_>,
+        now_unix_seconds: u64,
+        current_version: &str,
+        rollback_floor: &str,
+    ) -> Result<VerifiedUpdateV2, UpdateFeedError> {
+        let result = match self.policy {
+            TransportPolicy::Https => verify_update_v2(
+                metadata,
+                trust,
+                binding,
+                now_unix_seconds,
+                current_version,
+                rollback_floor,
+            ),
+            #[cfg(all(feature = "dev-loopback-updater", debug_assertions))]
+            TransportPolicy::DevLoopback => crate::verify_update_v2_dev_loopback(
+                metadata,
+                trust,
+                binding,
+                now_unix_seconds,
+                current_version,
+                rollback_floor,
+            ),
+        };
+        result.map_err(UpdateFeedError::Verification)
+    }
 }
 
-pub(crate) fn is_https_url(value: &str) -> bool {
-    parse_https_url(value).is_ok()
-}
-
-fn parse_https_url(value: &str) -> Result<Url, UpdateFeedError> {
-    let url = Url::parse(value).map_err(|_| UpdateFeedError::InvalidUrl)?;
-    if url.scheme() != "https"
-        || url.host_str().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.fragment().is_some()
-    {
-        return Err(UpdateFeedError::InvalidUrl);
+pub(crate) fn is_update_url(value: &str, dev_loopback: bool) -> bool {
+    #[cfg(all(feature = "dev-loopback-updater", debug_assertions))]
+    if dev_loopback {
+        return parse_url(value, TransportPolicy::DevLoopback).is_ok();
     }
-    Ok(url)
-}
-
-async fn bounded_body(mut response: Response, maximum: usize) -> Result<Vec<u8>, UpdateFeedError> {
-    if response
-        .content_length()
-        .is_some_and(|length| length > maximum as u64)
-    {
-        return Err(UpdateFeedError::MetadataTooLarge);
-    }
-    let mut body = Vec::new();
-    while let Some(chunk) = match response.chunk().await {
-        Ok(chunk) => chunk,
-        Err(_) => return Err(UpdateFeedError::Transport),
-    } {
-        if body.len().saturating_add(chunk.len()) > maximum {
-            return Err(UpdateFeedError::MetadataTooLarge);
-        }
-        body.extend_from_slice(&chunk);
-    }
-    Ok(body)
-}
-
-async fn stage_response(
-    mut response: Response,
-    destination: &Path,
-    expected_size: u64,
-    expected_digest: &str,
-) -> Result<StagedUpdate, UpdateFeedError> {
-    if std::fs::symlink_metadata(destination).is_ok() {
-        return Err(UpdateFeedError::StageFailed);
-    }
-    let parent = destination.parent().ok_or(UpdateFeedError::StageFailed)?;
-    std::fs::create_dir_all(parent).map_err(|_| UpdateFeedError::StageFailed)?;
-    let mut temporary = PathBuf::from(destination);
-    temporary.set_extension("staged.tmp");
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&temporary)
-        .map_err(|_| UpdateFeedError::StageFailed)?;
-    let mut digest = Sha256::new();
-    let mut size = 0_u64;
-    while let Some(chunk) = if let Ok(chunk) = response.chunk().await {
-        chunk
-    } else {
-        let _ = std::fs::remove_file(&temporary);
-        return Err(UpdateFeedError::Transport);
-    } {
-        size = size.saturating_add(chunk.len() as u64);
-        if size > expected_size {
-            let _ = std::fs::remove_file(&temporary);
-            return Err(UpdateFeedError::ArtifactTooLarge);
-        }
-        if std::io::Write::write_all(&mut file, &chunk).is_err() {
-            let _ = std::fs::remove_file(&temporary);
-            return Err(UpdateFeedError::StageFailed);
-        }
-        digest.update(&chunk);
-    }
-    if file.sync_all().is_err() {
-        let _ = std::fs::remove_file(&temporary);
-        return Err(UpdateFeedError::StageFailed);
-    }
-    drop(file);
-    if size != expected_size || hex::encode(digest.finalize()) != expected_digest {
-        let _ = std::fs::remove_file(&temporary);
-        return Err(UpdateFeedError::DigestMismatch);
-    }
-    if std::fs::symlink_metadata(destination).is_ok() {
-        let _ = std::fs::remove_file(&temporary);
-        return Err(UpdateFeedError::StageFailed);
-    }
-    std::fs::rename(&temporary, destination).map_err(|_| UpdateFeedError::StageFailed)?;
-    Ok(StagedUpdate {
-        path: destination.to_path_buf(),
-        artifact_sha256: expected_digest.to_owned(),
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn feed_urls_are_tls_only_and_non_credentialed() {
-        assert!(is_https_url("https://updates.example.test/feed.json"));
-        assert!(!is_https_url("http://updates.example.test/feed.json"));
-        assert!(!is_https_url(
-            "https://user:password@updates.example.test/feed.json"
-        ));
-        assert!(!is_https_url(
-            "https://updates.example.test/feed.json#fragment"
-        ));
-    }
+    let _ = dev_loopback;
+    parse_url(value, TransportPolicy::Https).is_ok()
 }

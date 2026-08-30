@@ -4,7 +4,7 @@ use std::io::Read;
 use runne_platform_desktop::{
     UpdateMetadataV2, UpdateRootRoleV2, UpdateSignatureV2, UpdateSnapshotRoleV2, UpdateTargetV2,
     UpdateTargetV2Binding, UpdateTargetsRoleV2, UpdateTimestampRoleV2, UpdateTrustRootV2,
-    update_metadata_signing_bytes, verify_update_v2,
+    update_metadata_signing_bytes,
 };
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -176,14 +176,25 @@ fn self_verify(
         runtime_digest: &target.runtime_digest,
         channel: &target.channel,
     };
-    verify_update_v2(
+    #[cfg(not(all(feature = "dev-loopback-updater", debug_assertions)))]
+    let verified = runne_platform_desktop::verify_update_v2(
         metadata,
         trust,
         &binding,
         draft.published_at_unix_seconds,
         &draft.current_version,
         &draft.rollback_floor,
-    )
-    .map(|_| ())
-    .map_err(|_| ProducerError::Verification)
+    );
+    #[cfg(all(feature = "dev-loopback-updater", debug_assertions))]
+    let verified = runne_platform_desktop::verify_update_v2_dev_loopback(
+        metadata,
+        trust,
+        &binding,
+        draft.published_at_unix_seconds,
+        &draft.current_version,
+        &draft.rollback_floor,
+    );
+    verified
+        .map(|_| ())
+        .map_err(|_| ProducerError::Verification)
 }
