@@ -6,6 +6,7 @@ from unittest import mock
 from scripts.macos_signing.command_grammar import parse_command_spec
 from scripts.macos_signing.models import CommandSpec
 from scripts.macos_signing.product_commands import (
+    build_product_distribution_commands,
     build_product_notary_submit_command,
     build_product_signing_commands,
     redact_external_command,
@@ -114,6 +115,49 @@ class MacOSProductSigningCommandTests(unittest.TestCase):
             "--keychain",
         ):
             self.assertNotIn(forbidden, command.argv)
+
+    def test_distribution_templates_cover_app_notary_and_notarized_dmg(self) -> None:
+        commands = build_product_distribution_commands(
+            self.candidate,
+            self.credentials,
+            "Runne-signed.zip",
+            "Runne.dmg",
+        )
+        self.assertEqual(
+            tuple(command.phase for command in commands),
+            (
+                "package-app-zip",
+                "notary-app-submit",
+                "staple-app",
+                "validate-app",
+                "gatekeeper-app",
+                "create-dmg",
+                "sign-dmg",
+                "verify-dmg",
+                "notary-dmg-submit",
+                "staple-dmg",
+                "validate-dmg",
+            ),
+        )
+        templates = tuple(redact_external_command(command) for command in commands)
+        encoded = json.dumps([asdict(template) for template in templates], sort_keys=True)
+        self.assertNotIn(self.credentials.signing_identity_ref, encoded)
+        self.assertNotIn(self.credentials.notary_profile_ref, encoded)
+        self.assertEqual(
+            templates[5].argv,
+            (
+                "create",
+                "-volname",
+                "Runne",
+                "-srcfolder",
+                "Runne.app",
+                "-format",
+                "UDZO",
+                "Runne.dmg",
+            ),
+        )
+        self.assertEqual(templates[6].argv[2], "<SIGNING_IDENTITY_REF>")
+        self.assertEqual(templates[8].argv[4], "<NOTARY_PROFILE_REF>")
 
     def test_credential_references_are_opaque_and_repr_safe(self) -> None:
         self.assertNotIn("A" * 40, repr(self.credentials))

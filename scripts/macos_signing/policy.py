@@ -1,7 +1,13 @@
 from .models import FailureCode, SigningFailure, SigningProfile
 
 
-ALLOWED_PROGRAMS = {"/usr/bin/codesign", "/usr/sbin/spctl", "/usr/bin/xcrun"}
+ALLOWED_PROGRAMS = {
+    "/usr/bin/codesign",
+    "/usr/bin/ditto",
+    "/usr/bin/hdiutil",
+    "/usr/sbin/spctl",
+    "/usr/bin/xcrun",
+}
 MAX_ARGV_ITEMS = 32
 MAX_ARGV_ITEM_BYTES = 1024
 MAX_CAPTURED_OUTPUT_BYTES = 4096
