@@ -65,14 +65,19 @@ fn daemon_owned_endpoint_rejects_a_substituted_publication_key() {
         receive_daemon_owned_writer_endpoint(receiver, &receiver_authenticator, binding, [6; 32])
     });
 
-    send_daemon_owned_writer_endpoint(
-        sender,
-        writer,
-        &daemon_authority(&sender_authenticator),
-        binding,
-        [7; 32],
-    )
-    .unwrap();
+    // The sender must fail closed on the substituted publication key before any
+    // descriptor leaves: the receiver's challenge proof commits to its own key,
+    // so a mismatched key cannot authenticate the transfer.
+    assert!(matches!(
+        send_daemon_owned_writer_endpoint(
+            sender,
+            writer,
+            &daemon_authority(&sender_authenticator),
+            binding,
+            [7; 32],
+        ),
+        Err(BrokerHandoffError::Rejected)
+    ));
     assert!(matches!(
         receiver_thread.join().unwrap(),
         Err(BrokerHandoffError::Rejected)
