@@ -63,6 +63,7 @@ impl MacKeychainStore {
     #[cfg(all(debug_assertions, feature = "dev-keyset-init"))]
     pub fn initialize(path: &std::path::Path) -> Result<UpdatePublicKeyManifest, ProducerError> {
         use rand::RngCore as _;
+        require_stable_operator_identity()?;
         let store = Self::open(path)?;
         for slot in KeySlot::ALL {
             if store
@@ -119,6 +120,17 @@ impl MacKeychainStore {
             timestamp_hex: hex::encode(self.public_key(KeySlot::Timestamp)?),
         })
     }
+}
+
+#[cfg(all(target_os = "macos", debug_assertions, feature = "dev-keyset-init"))]
+fn require_stable_operator_identity() -> Result<(), ProducerError> {
+    use security_framework::os::macos::code_signing::{Flags, SecCode, SecRequirement};
+
+    const REQUIREMENT: &str = "identifier \"com.runne.update-metadata-producer\" and anchor apple generic and certificate leaf[subject.OU] = \"758F9Z45SR\"";
+    let requirement: SecRequirement = REQUIREMENT.parse().map_err(|_| ProducerError::KeyStore)?;
+    let code = SecCode::for_self(Flags::NONE).map_err(|_| ProducerError::KeyStore)?;
+    code.check_validity(Flags::STRICT_VALIDATE, &requirement)
+        .map_err(|_| ProducerError::KeyStore)
 }
 
 #[cfg(target_os = "macos")]
