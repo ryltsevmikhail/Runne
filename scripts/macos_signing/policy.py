@@ -9,6 +9,12 @@ MAX_CAPTURED_OUTPUT_BYTES = 4096
 _RAW_CREDENTIAL_ARGUMENTS = {
     "--password",
     "--key",
+    "--key-id",
+    "--issuer",
+    "--sync",
+    "--keychain",
+    "--apple-id",
+    "--team-id",
     "--token",
     "--api-key",
     "--credential",

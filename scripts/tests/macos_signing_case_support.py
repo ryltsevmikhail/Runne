@@ -58,8 +58,14 @@ def assert_live_runner_contract(case) -> None:
     case.addCleanup(temporary_directory.cleanup)
     _, app = macos_signing_support.make_validated_targets()
     command = build_verify_command(app, SigningProfile.DEVELOPMENT_AD_HOC)
+    with case.assertRaises(ValueError):
+        CommandSpec(
+            "verify-app",
+            "/usr/bin/codesign",
+            ("--keychain", "ignored", app.relative_path),
+            ".",
+        )
     invalid = (
-        CommandSpec("verify-app", "/usr/bin/codesign", ("--keychain", "ignored", app.relative_path), "."),
         CommandSpec("unknown", "/usr/bin/codesign", command.argv, "."),
         CommandSpec("sign-daemon", "/usr/bin/codesign", ("--verify", "--strict", "Runne.app/Contents/MacOS/runned"), "."),
         CommandSpec("verify-app", "/usr/bin/codesign", ("--verify", app.relative_path), "."),

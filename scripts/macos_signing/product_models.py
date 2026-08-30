@@ -1,7 +1,11 @@
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .models import EntitlementBinding, ValidatedTarget
+
+_IDENTITY_REF = re.compile(r"[0-9A-F]{40}")
+_PROFILE_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 
 
 @dataclass(frozen=True)
@@ -35,3 +39,26 @@ class ProductValidatedCandidate:
     app_entitlements: EntitlementBinding
     cli_entitlements: EntitlementBinding
     daemon_entitlements: EntitlementBinding
+
+
+@dataclass(frozen=True)
+class ProductionCredentialReferences:
+    signing_identity_ref: str = field(repr=False)
+    notary_profile_ref: str = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.signing_identity_ref, str) or not _IDENTITY_REF.fullmatch(
+            self.signing_identity_ref
+        ):
+            raise ValueError("invalid signing identity reference")
+        if not isinstance(self.notary_profile_ref, str) or not _PROFILE_REF.fullmatch(
+            self.notary_profile_ref
+        ):
+            raise ValueError("invalid notary profile reference")
+
+
+@dataclass(frozen=True)
+class ExternalCommandTemplate:
+    phase: str
+    program: str
+    argv: tuple[str, ...]

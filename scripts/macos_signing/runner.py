@@ -1,4 +1,3 @@
-import hashlib
 import os
 import stat
 import subprocess
@@ -7,6 +6,7 @@ from pathlib import Path
 from typing import Protocol
 
 from .command_grammar import ParsedCommand, parse_command_spec
+from .hashing import sha256_file
 from .models import CommandResult, CommandSpec, EntitlementBinding, FailureCode
 from .policy import MAX_CAPTURED_OUTPUT_BYTES
 from .state import artifact_is_current
@@ -131,7 +131,7 @@ def _bound_entitlement(binding: EntitlementBinding | None) -> Path | None:
             return None
         if (info.st_dev, info.st_ino) != (binding.device, binding.inode):
             return None
-        if hashlib.sha256(resolved.read_bytes()).hexdigest() != binding.sha256:
+        if sha256_file(resolved) != binding.sha256:
             return None
     except (OSError, ValueError):
         return None

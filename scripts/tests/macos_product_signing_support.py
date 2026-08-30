@@ -1,0 +1,39 @@
+import plistlib
+import tempfile
+from pathlib import Path
+
+from scripts.macos_signing.product_models import ProductCandidateRequest
+from scripts.macos_signing.product_validation import validate_product_candidate
+
+
+def validated_product_candidate():
+    temporary_directory = tempfile.TemporaryDirectory()
+    root = Path(temporary_directory.name)
+    candidate = root / "Runne.app"
+    macos = candidate / "Contents" / "MacOS"
+    macos.mkdir(parents=True)
+    (candidate / "Contents" / "Resources").mkdir()
+    for name, value in (
+        ("runne-desktop", b"main executable\n"),
+        ("runne", b"cli executable\n"),
+        ("runned", b"daemon executable\n"),
+    ):
+        target = macos / name
+        target.write_bytes(value)
+        target.chmod(0o755)
+    (candidate / "Contents" / "Info.plist").write_bytes(
+        plistlib.dumps({"CFBundleExecutable": "runne-desktop"})
+    )
+    entitlements = []
+    for role in ("app", "cli", "daemon"):
+        path = root / f"{role}.plist"
+        path.write_bytes(plistlib.dumps({}))
+        entitlements.append(path)
+    request = ProductCandidateRequest(
+        candidate,
+        "a" * 64,
+        entitlements[0],
+        entitlements[1],
+        entitlements[2],
+    )
+    return temporary_directory, root, validate_product_candidate(request)
