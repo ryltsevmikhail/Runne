@@ -49,7 +49,10 @@ if [ "$RUSTC_VER" != "$EXPECTED" ]; then
     exit 1
 fi
 
-stage_bundled_daemon() {
+stage_bundled_binary() {
+    local package="$1"
+    local bin="$2"
+    local features="${3:-}"
     local host_target
     local extension=""
     local target_dir="${CARGO_TARGET_DIR:-target}"
@@ -59,23 +62,30 @@ stage_bundled_daemon() {
     if [[ "$host_target" == *windows* ]]; then
         extension=".exe"
     fi
-    destination="apps/desktop/src-tauri/binaries/runned-${host_target}${extension}"
-    echo "--- stage bundled daemon ($host_target) ---"
-    cargo build -p runne-daemon --bin runned --release --features desktop-protected --locked
-    source="${target_dir}/${host_target}/release/runned${extension}"
+    destination="apps/desktop/src-tauri/binaries/${bin}-${host_target}${extension}"
+    echo "--- stage bundled $bin ($host_target) ---"
+    if [ -n "$features" ]; then
+        cargo build -p "$package" --bin "$bin" --release --features "$features" --locked
+    else
+        cargo build -p "$package" --bin "$bin" --release --locked
+    fi
+    source="${target_dir}/${host_target}/release/${bin}${extension}"
     if [ ! -f "$source" ]; then
-        source="${target_dir}/release/runned${extension}"
+        source="${target_dir}/release/${bin}${extension}"
     fi
     if [ ! -f "$source" ]; then
-        echo "ERROR: bundled daemon was not produced for $host_target"
+        echo "ERROR: bundled $bin was not produced for $host_target"
         exit 1
     fi
     mkdir -p "$(dirname "$destination")"
     cp "$source" "$destination"
-    echo "staged bundled daemon: $destination"
+    echo "staged bundled $bin: $destination"
 }
 
-stage_bundled_daemon
+# tauri.conf.json externalBin lists both the daemon and the CLI; the tauri
+# build script fails when either binaries/<name>-<host-triple> is missing.
+stage_bundled_binary runne-daemon runned desktop-protected
+stage_bundled_binary runne-cli runne
 
 echo "=== CI: $MODE mode (rustc $RUSTC_VER) ==="
 
