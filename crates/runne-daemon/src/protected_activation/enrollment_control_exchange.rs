@@ -1,3 +1,7 @@
+#![cfg_attr(
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    allow(dead_code, unused_imports)
+)]
 //! Same-process V2→V3 enrollment control exchange on the entered channel.
 
 use std::os::unix::net::UnixStream;
@@ -20,8 +24,10 @@ use super::{
     enrollment_control_transition::{
         DaemonEnrollmentRendezvous, EnrollmentControlComposition, EnrollmentTransitionOutcome,
     },
-    enrollment_transition_v2_v3::{PreparedDaemonEnrollmentTransitionV3, V2TransitionInput},
 };
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use super::enrollment_transition_v2_v3::{PreparedDaemonEnrollmentTransitionV3, V2TransitionInput};
 use crate::application::provider_credential_enrollment::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous;
 
 /// Bounded continuous-clock prelude validity; identical ceiling to launch TTLs.
@@ -35,6 +41,7 @@ const PROTECTED_BOOTSTRAP_TTL: Duration = Duration::from_secs(30);
 /// Every failure terminates the exchange; the caller must terminate the daemon
 /// rather than retrying the transition on another authority path.
 #[allow(clippy::too_many_arguments)]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(crate) fn run_enrollment_control_exchange_with<F, G>(
     channel: &mut ProtectedActivationChannel,
     prepare: &ProtectedCredentialEnrollmentPrepareV2,
@@ -189,6 +196,7 @@ fn rotate_to_reserved(
 }
 
 /// Builds, signs, and writes the V3 readiness bound to the rotated session.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn build_ready(
     prepared: &PreparedDaemonEnrollmentTransitionV3,
     owned: &ProtectedOwnedLaunchV2,

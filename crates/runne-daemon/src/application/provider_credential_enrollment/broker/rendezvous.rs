@@ -1,3 +1,7 @@
+#![cfg_attr(
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    allow(dead_code)
+)]
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
@@ -30,7 +34,12 @@ pub(crate) struct DaemonBrokerAuthority {
     endpoint: UnixStream,
     channel_binding: [u8; 32],
     #[cfg_attr(
-        all(not(test), feature = "desktop-protected"),
+        all(
+            not(test),
+            feature = "desktop-protected",
+            target_os = "macos",
+            target_arch = "aarch64"
+        ),
         expect(dead_code, reason = "the kill-capability ACK unlocks this signer")
     )]
     signer: Option<CredentialSecretPublicationSigner>,

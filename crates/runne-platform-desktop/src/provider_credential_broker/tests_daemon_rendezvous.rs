@@ -1,3 +1,5 @@
+#[cfg(not(target_os = "macos"))]
+use std::io::Read as _;
 use std::io::Write as _;
 
 use runne_api::{

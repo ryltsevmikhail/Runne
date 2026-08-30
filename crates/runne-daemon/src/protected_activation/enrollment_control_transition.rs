@@ -1,3 +1,7 @@
+#![cfg_attr(
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    allow(unused_imports, dead_code)
+)]
 //! Same-process V2→V3 enrollment transition composition on the entered channel.
 
 use std::os::unix::net::UnixStream;

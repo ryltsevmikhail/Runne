@@ -1,3 +1,7 @@
+#![cfg_attr(
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    allow(dead_code, unused_imports)
+)]
 //! Native host integration for the protected bundled-runtime supervisor.
 //!
 //! This module exposes no transport material to Tauri commands. It connects
@@ -134,7 +138,7 @@ pub struct BundledRuntimeController {
 pub struct NativeCredentialEnrollmentLease {
     supervisor: Arc<Mutex<ProtectedBundledRuntimeSupervisor>>,
     /// Held for its exclusive-fence side effect; never read directly.
-    #[expect(dead_code)]
+    #[cfg_attr(target_os = "macos", expect(dead_code))]
     operation_permit: tokio::sync::OwnedMutexGuard<()>,
 }
 

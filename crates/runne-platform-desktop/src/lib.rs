@@ -16,10 +16,12 @@ mod updater_journal;
 mod updater_metadata;
 mod updater_trust;
 
+#[cfg(target_os = "macos")]
+pub use protected_runtime::CredentialWriterHandoff;
 #[cfg(feature = "test-support")]
 pub use protected_runtime::FirstActivationFaultPoint;
 pub use protected_runtime::{
-    CredentialWriterHandoff, DevelopmentBundledRuntimeLauncher, ProtectedBundledRuntimeError,
+    DevelopmentBundledRuntimeLauncher, ProtectedBundledRuntimeError,
     ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeProcess,
     ProtectedBundledRuntimeSupervisor, discover_bundled_runtime,
 };

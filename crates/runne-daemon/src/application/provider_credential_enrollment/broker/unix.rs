@@ -1,3 +1,7 @@
+#![cfg_attr(
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    allow(dead_code)
+)]
 use runne_api::ProviderCredentialEnrollmentHostError;
 use runne_platform_desktop::provider_credential_broker::WriterProcessEvidence;
 use runne_provider::daemon_credential_publication::CredentialSecretPublicationSigner;

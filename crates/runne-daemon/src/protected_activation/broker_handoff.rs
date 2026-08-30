@@ -16,9 +16,13 @@ use runne_api::{
     is_broker_handoff_frame,
 };
 use runne_platform_desktop::provider_credential_broker::{
-    MacOsPeerKillCapability, ReceivedWriterProcessMeasurements,
-    capture_macos_daemon_peer_kill_capability, receive_daemon_control_transport_half,
+    ReceivedWriterProcessMeasurements, receive_daemon_control_transport_half,
     receive_daemon_owned_writer_measurements, send_daemon_owned_writer_endpoint,
+};
+
+#[cfg(target_os = "macos")]
+use runne_platform_desktop::provider_credential_broker::{
+    MacOsPeerKillCapability, capture_macos_daemon_peer_kill_capability,
 };
 
 use super::{
@@ -40,6 +44,7 @@ pub(crate) struct BrokerHandoffDispatch {
     purposes_left: Vec<u8>,
     offer: Option<ProviderCredentialBrokerHandoffFrame>,
     measurements: Option<ReceivedWriterProcessMeasurements>,
+    #[cfg(target_os = "macos")]
     kill: Option<MacOsPeerKillCapability>,
 }
 
@@ -79,6 +84,7 @@ impl BrokerHandoffDispatch {
             ],
             offer: None,
             measurements: None,
+            #[cfg(target_os = "macos")]
             kill: None,
             rendezvous,
         })
@@ -119,6 +125,7 @@ impl BrokerHandoffDispatch {
     }
 
     /// Exact writer kill authority retained after the desktop relinquished.
+    #[cfg(target_os = "macos")]
     pub(crate) fn take_kill(&mut self) -> Option<MacOsPeerKillCapability> {
         self.kill.take()
     }

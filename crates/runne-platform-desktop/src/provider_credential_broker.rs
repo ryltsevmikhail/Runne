@@ -1,4 +1,5 @@
 //! Desktop-owned broker handoff and exact child cleanup.
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[cfg(unix)]
 mod daemon_evidence;
 #[cfg(unix)]
@@ -24,7 +25,6 @@ mod unix_daemon_macos;
 #[cfg(unix)]
 mod unix_descriptor;
 mod writer_evidence;
-
 use runne_platform_ports::provider_credential_broker::{
     BrokerHandoffError, ProviderCredentialBrokerPort, WriterOwnership, WriterOwnershipState,
 };

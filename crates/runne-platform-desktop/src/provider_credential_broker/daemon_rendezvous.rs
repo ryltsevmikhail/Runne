@@ -1,3 +1,7 @@
+#![cfg_attr(
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    allow(dead_code)
+)]
 //! Authenticated daemon-to-Tauri transfer of a daemon-created writer endpoint.
 
 use std::io::{Read, Write};

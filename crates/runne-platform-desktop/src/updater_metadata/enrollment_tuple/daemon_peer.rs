@@ -128,6 +128,7 @@ fn peer_matches_claims(
             .is_ok()
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn retained_claims_match(
     admission: &NativeEnrollmentTupleAdmission,
     peer: &MacOsLocalPeerProcessIdentity,

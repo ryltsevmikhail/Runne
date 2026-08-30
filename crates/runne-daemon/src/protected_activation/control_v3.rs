@@ -89,7 +89,7 @@ pub(crate) fn run_control_loop_v3_entered(
         #[cfg(unix)]
         &mut broker,
     );
-    #[cfg(unix)]
+    #[cfg(all(unix, target_os = "macos"))]
     if transcript.is_err()
         && let Some(kill) = broker.take_kill()
     {

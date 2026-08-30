@@ -1,3 +1,4 @@
+#![cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 use sha2::{Digest as _, Sha256};
 
 use crate::ProtectedBundledRuntimeError;
@@ -45,6 +46,7 @@ impl ConfirmedInstalledNativeEnrollment {
     ///
     /// Returns a closed failure when the retained paths or writer identity are
     /// unavailable or the re-measured writer does not match the tuple.
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     pub fn verified_macos_writer_launch(
         &self,
     ) -> Result<crate::VerifiedMacOsWriterLaunch, ProtectedBundledRuntimeError> {
@@ -101,6 +103,7 @@ impl ConfirmedInstalledNativeEnrollment {
 
     /// Fails closed where the native macOS peer cannot be authenticated.
     #[cfg(not(target_os = "macos"))]
+    #[allow(clippy::unused_self, clippy::missing_const_for_fn)]
     pub fn current_desktop_peer_binding_digest(
         &self,
         _supervisor_generation: std::num::NonZeroU64,

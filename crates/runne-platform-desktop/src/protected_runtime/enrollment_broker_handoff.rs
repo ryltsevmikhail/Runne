@@ -7,13 +7,20 @@
 // dedicated half. Any mismatch poisons the whole transport: the daemon loop
 // fails closed and this process kills and reaps the owned daemon.
 
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "protected-channel-integration"
+))]
 use runne_api::{ProviderCredentialBrokerHandoffContext, ProviderCredentialBrokerHandoffFrame};
 
 /// Desktop-held state after the daemon acknowledged the kill exchange.
+#[cfg(target_os = "macos")]
 pub struct CredentialWriterHandoff {
     owner: crate::provider_credential_broker::MacOsWriterReapOnlyOwner,
 }
 
+#[cfg(target_os = "macos")]
 impl CredentialWriterHandoff {
     /// Reaps the exact writer after the daemon owns its kill authority.
     ///
@@ -27,6 +34,7 @@ impl CredentialWriterHandoff {
     }
 }
 
+#[cfg(target_os = "macos")]
 impl std::fmt::Debug for CredentialWriterHandoff {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str("CredentialWriterHandoff(<reap-only>)")

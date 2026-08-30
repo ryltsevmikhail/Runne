@@ -1,3 +1,7 @@
+#![cfg_attr(
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    allow(dead_code, unused_imports)
+)]
 //! Trusted native dispatch chain for one focused credential intent.
 //!
 //! The renderer only ever sees the closed [`CredentialIntentProjection`]. The
@@ -139,6 +143,7 @@ async fn dispatch_inner(
 }
 
 #[cfg(not(target_os = "macos"))]
+#[allow(clippy::unused_async)]
 async fn dispatch_inner(
     _app: &AppHandle,
     _window: WebviewWindow,

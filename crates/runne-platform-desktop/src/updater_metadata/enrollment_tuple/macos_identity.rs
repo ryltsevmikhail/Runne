@@ -1,3 +1,7 @@
+#![cfg_attr(
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    allow(dead_code)
+)]
 use runne_platform_ports::provider_credential_broker::{
     VerifiedWriterArtifact, VerifiedWriterLaunchSpec,
 };

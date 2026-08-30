@@ -89,15 +89,33 @@ mod installation_anchor_tests;
 
 #[cfg(all(unix, feature = "desktop-protected"))]
 mod enrollment_control_exchange;
-#[cfg(all(test, unix, feature = "desktop-protected"))]
+#[cfg(all(
+    test,
+    unix,
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
 #[path = "protected_activation/enrollment_control_exchange_negative_tests.rs"]
 mod enrollment_control_exchange_negative_tests;
 #[cfg(all(unix, feature = "desktop-protected"))]
 mod enrollment_control_transition;
-#[cfg(all(test, unix, feature = "desktop-protected"))]
+#[cfg(all(
+    test,
+    unix,
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
 #[path = "protected_activation/enrollment_control_transition_fixture.rs"]
 mod enrollment_control_transition_fixture;
-#[cfg(all(test, unix, feature = "desktop-protected"))]
+#[cfg(all(
+    test,
+    unix,
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
 #[path = "protected_activation/enrollment_control_transition_tests.rs"]
 mod enrollment_control_transition_tests;
 
@@ -204,10 +222,22 @@ pub(crate) use root_handle_control::dispatch_root_handle_control_frame;
 #[cfg(all(test, target_os = "macos", feature = "desktop-protected"))]
 #[path = "protected_activation/enrollment_v3_broker_happy_tests.rs"]
 mod enrollment_v3_broker_happy_tests;
-#[cfg(all(test, unix, feature = "desktop-protected"))]
+#[cfg(all(
+    test,
+    unix,
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
 #[path = "protected_activation/enrollment_v3_broker_rejection_tests.rs"]
 mod enrollment_v3_broker_rejection_tests;
-#[cfg(all(test, unix, feature = "desktop-protected"))]
+#[cfg(all(
+    test,
+    unix,
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
 #[path = "protected_activation/enrollment_v3_broker_tests.rs"]
 mod enrollment_v3_broker_tests;
 #[cfg(all(test, unix, feature = "desktop-protected"))]

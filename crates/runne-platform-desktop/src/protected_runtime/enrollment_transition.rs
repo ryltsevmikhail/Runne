@@ -5,6 +5,7 @@
 // with the exact V3 launch request whose broker commitment binds the prelude.
 // Readiness replaces the process state: every later frame speaks V3.
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use runne_api::{
     CredentialBrokerTransferAuthenticator, ProtectedCredentialEnrollmentLaunchBindingV1,
     ProtectedCredentialEnrollmentLaunchRequestV3, ProtectedCredentialEnrollmentPreludeV2,

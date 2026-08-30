@@ -6,11 +6,13 @@ type ProtectedChannel = File;
 
 /// Daemon-committed rendezvous facts from one verified enrollment prelude.
 #[derive(Clone, Copy)]
+#[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 pub struct EnrollmentBrokerFacts {
     binding: [u8; 32],
     publication_public_key: [u8; 32],
 }
 
+#[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 impl EnrollmentBrokerFacts {
     pub const fn new(binding: [u8; 32], publication_public_key: [u8; 32]) -> Self {
         Self {
@@ -44,6 +46,7 @@ pub struct ProtectedBundledRuntimeProcess {
     graceful_requested: bool,
     /// Rendezvous facts retained from the verified enrollment prelude; only a
     /// same-process V2→V3 transition carries them. Absent facts fail closed.
+    #[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
     enrollment_broker_facts: Option<EnrollmentBrokerFacts>,
     #[cfg(feature = "test-support")]
     captured_stdout: Option<std::process::ChildStdout>,

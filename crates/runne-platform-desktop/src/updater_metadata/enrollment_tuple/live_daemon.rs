@@ -1,3 +1,4 @@
+#![cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 use std::fmt;
 
 #[cfg(target_os = "macos")]
@@ -11,11 +12,14 @@ use std::{
 
 #[cfg(target_os = "macos")]
 use security_framework::os::macos::code_signing::{Flags, GuestAttributes, SecCode, SecRequirement};
+#[cfg(target_os = "macos")]
 use sha2::{Digest as _, Sha256};
 
 use crate::ProtectedBundledRuntimeError;
 
-use super::{NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleAdmission, macos_identity};
+use super::{NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleAdmission};
+#[cfg(target_os = "macos")]
+use super::macos_identity;
 
 /// Opaque fixed-layout admission retained while the native confirmation is open.
 ///
@@ -119,6 +123,7 @@ impl PreparedInstalledNativeEnrollment {
     }
 
     #[cfg(not(target_os = "macos"))]
+    #[allow(clippy::unused_self, clippy::missing_const_for_fn)]
     pub(crate) fn confirm_current_daemon(
         &self,
         _pid: std::num::NonZeroU32,

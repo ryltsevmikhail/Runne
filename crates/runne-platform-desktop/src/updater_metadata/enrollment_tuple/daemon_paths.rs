@@ -1,3 +1,4 @@
+#![cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 use super::{NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleError};
 
 #[cfg(target_os = "macos")]
@@ -7,6 +8,7 @@ use std::str::FromStr as _;
 
 impl NativeEnrollmentArtifactPathsV1 {
     /// Resolves only the daemon's own exact installed macOS package layout.
+#[cfg_attr(not(target_os = "macos"), allow(clippy::missing_const_for_fn))]
     pub(crate) fn resolve_installed_from_current_daemon(
     ) -> Result<Self, NativeEnrollmentTupleError> {
         #[cfg(target_os = "macos")]

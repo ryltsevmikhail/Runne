@@ -1,4 +1,5 @@
 use crate::{ConfirmedInstalledNativeEnrollment, PreparedInstalledNativeEnrollment};
+#[cfg(target_os = "macos")]
 use crate::updater_metadata::NativeEnrollmentConfirmationV1;
 
 impl ProtectedBundledRuntimeSupervisor {
@@ -11,6 +12,7 @@ impl ProtectedBundledRuntimeSupervisor {
     ///
     /// Returns a closed failure unless the exact owned provider-bound daemon is
     /// ready and the retained installed release tuple still matches it.
+#[cfg_attr(not(target_os = "macos"), allow(clippy::needless_pass_by_value))]
     pub fn confirm_installed_native_enrollment(
         &mut self,
         prepared: PreparedInstalledNativeEnrollment,
@@ -74,6 +76,7 @@ impl ProtectedBundledRuntimeSupervisor {
 }
 
 impl ProtectedBundledRuntimeProcess {
+    #[cfg_attr(not(target_os = "macos"), allow(clippy::needless_pass_by_value))]
     fn confirm_installed_native_enrollment(
         &mut self,
         prepared: PreparedInstalledNativeEnrollment,

@@ -16,11 +16,6 @@ pub struct UnixRetainedWriterProcess {
     start_identity: [u8; 32],
 }
 
-/// Exact child identity with wait/reap authority but no signaling API.
-pub(super) struct UnixWriterReapOnlyProcess {
-    pid: libc::pid_t,
-}
-
 impl UnixRetainedWriterProcess {
     #[cfg(target_os = "macos")]
     pub(super) fn from_pid(pid: nix::unistd::Pid) -> Result<Self, BrokerHandoffError> {
@@ -42,11 +37,19 @@ impl UnixRetainedWriterProcess {
         self.pid
     }
 
+    #[cfg(target_os = "macos")]
     pub(super) const fn into_reap_only(self) -> UnixWriterReapOnlyProcess {
         UnixWriterReapOnlyProcess { pid: self.pid }
     }
 }
 
+/// Exact waitable child, held only while the desktop keeps macOS kill authority.
+#[cfg(target_os = "macos")]
+pub(super) struct UnixWriterReapOnlyProcess {
+    pid: libc::pid_t,
+}
+
+#[cfg(target_os = "macos")]
 impl UnixWriterReapOnlyProcess {
     pub(super) fn reap(self) -> Result<(), BrokerHandoffError> {
         wait_for_pid(nix::unistd::Pid::from_raw(self.pid))

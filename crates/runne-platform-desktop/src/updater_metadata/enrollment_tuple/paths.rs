@@ -1,3 +1,4 @@
+#![cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 use std::fs::File;
 use std::path::{Component, Path, PathBuf};
 
@@ -33,6 +34,7 @@ pub(crate) struct NativeEnrollmentArtifactPathsV1 {
 
 impl NativeEnrollmentArtifactPathsV1 {
     #[cfg_attr(test, allow(dead_code))]
+#[cfg_attr(not(target_os = "macos"), allow(clippy::missing_const_for_fn))]
     pub(crate) fn resolve_installed() -> Result<Self, NativeEnrollmentTupleError> {
         #[cfg(target_os = "macos")]
         {

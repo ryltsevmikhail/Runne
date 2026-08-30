@@ -54,6 +54,7 @@ impl VerifiedDaemonEnrollmentLaunchAuthority {
 }
 
 /// Independently verified native launch shape; never derived from the frame.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) enum DaemonLaunchProtocolExpectation {
     Baseline,
     Enrollment(VerifiedDaemonEnrollmentLaunchAuthority),
@@ -64,6 +65,7 @@ impl DaemonLaunchProtocolExpectation {
         Self::Baseline
     }
 
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(super) fn enrollment(authority: VerifiedDaemonEnrollmentLaunchAuthority) -> Self {
         Self::Enrollment(authority)
     }
