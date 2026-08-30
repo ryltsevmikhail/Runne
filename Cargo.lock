@@ -3798,7 +3798,7 @@ dependencies = [
 
 [[package]]
 name = "runne-app-core"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -3844,7 +3844,7 @@ dependencies = [
 
 [[package]]
 name = "runne-cli"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -4015,7 +4015,7 @@ dependencies = [
 
 [[package]]
 name = "runne-desktop"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "block2",
  "hex",
@@ -4098,7 +4098,7 @@ dependencies = [
 
 [[package]]
 name = "runne-local-store"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "runne-api",
  "runne-secure-store",
@@ -4112,7 +4112,7 @@ dependencies = [
 
 [[package]]
 name = "runne-macos-keychain-acl"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "core-foundation 0.10.1",
  "libc",
@@ -4123,7 +4123,7 @@ dependencies = [
 
 [[package]]
 name = "runne-macos-process-identity"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "libc",
  "nix 0.31.3",
@@ -4175,7 +4175,7 @@ dependencies = [
 
 [[package]]
 name = "runne-pairing-crypto"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "ed25519-dalek",
  "hex",
@@ -4198,7 +4198,7 @@ dependencies = [
 
 [[package]]
 name = "runne-platform-desktop"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "ed25519-dalek",
  "hex",
@@ -4224,14 +4224,14 @@ dependencies = [
 
 [[package]]
 name = "runne-platform-mobile"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "runne-platform-ports",
 ]
 
 [[package]]
 name = "runne-platform-ports"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "zeroize",
 ]
@@ -4255,7 +4255,7 @@ dependencies = [
 
 [[package]]
 name = "runne-project-owner-authority"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -4272,7 +4272,7 @@ dependencies = [
 
 [[package]]
 name = "runne-promotion-contracts"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -4348,7 +4348,7 @@ dependencies = [
 
 [[package]]
 name = "runne-release-authority"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "ed25519-dalek",
  "fs2",
@@ -4393,7 +4393,7 @@ dependencies = [
 
 [[package]]
 name = "runne-runtime-client"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -4422,14 +4422,14 @@ dependencies = [
 
 [[package]]
 name = "runne-sandbox-helper"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "runne-secure-store"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "ed25519-dalek",
  "hex",
@@ -4472,14 +4472,14 @@ dependencies = [
 
 [[package]]
 name = "runne-sqlite-handle-identity"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "rusqlite",
 ]
 
 [[package]]
 name = "runne-sqlite-native-identity"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "rusqlite",
  "windows-sys 0.61.2",
@@ -4532,7 +4532,7 @@ dependencies = [
 
 [[package]]
 name = "runne-windows-native-handle"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "sha2",
  "tempfile",
