@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import fcntl
 import os
 import stat
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 _DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 _ENTRY = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+_DARWIN_F_GETPATH = 50
+_DARWIN_PATH_MAX = 1024
 
 
 class GitLayoutError(ValueError):
@@ -36,10 +40,20 @@ def entry_state(value: os.stat_result) -> tuple[int, ...]:
 
 
 def fd_path(fd: int) -> Path:
-    value = os.readlink(f"/proc/self/fd/{fd}")
+    if sys.platform == "darwin":
+        raw = fcntl.fcntl(fd, _DARWIN_F_GETPATH, b"\0" * _DARWIN_PATH_MAX)
+        value = os.fsdecode(raw.split(b"\0", 1)[0])
+    else:
+        value = os.readlink(f"/proc/self/fd/{fd}")
     if value.endswith(" (deleted)"):
         raise GitLayoutChanged("retained Git path was deleted")
     return Path(value)
+
+
+def fd_reference(fd: int) -> str:
+    if sys.platform == "darwin":
+        return os.fspath(fd_path(fd))
+    return f"/proc/self/fd/{fd}"
 
 
 def open_absolute_directory(path: Path) -> int:

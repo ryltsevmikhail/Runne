@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Callable
 
-from .git_layout import GitLayout
+from .git_layout import GitLayout, fd_reference
 from .git_policy import GitInspectionError, unsafe_config
 
 _DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
@@ -30,7 +30,7 @@ def _parse_config(raw: bytes) -> tuple[tuple[str, str], ...]:
 
 def _config_file(root_fd: int, descriptor: int, run: Callable[..., bytes]):
     raw = run(
-        root_fd, "config", "--file", f"/proc/self/fd/{descriptor}", "--no-includes",
+        root_fd, "config", "--file", fd_reference(descriptor), "--no-includes",
         "--null", "--list", extra_fds=(descriptor,),
     )
     return _parse_config(raw)
