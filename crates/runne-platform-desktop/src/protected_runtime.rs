@@ -19,6 +19,9 @@ include!("protected_runtime/tests.rs");
 #[cfg(test)]
 include!("protected_runtime/native_enrollment_tests.rs");
 include!("protected_runtime/renewal.rs");
+include!("protected_runtime/enrollment_transition.rs");
+#[cfg(all(test, unix))]
+include!("protected_runtime/enrollment_transition_tests.rs");
 #[cfg(feature = "test-support")]
 include!("protected_runtime/test_root_transport.rs");
 include!("protected_runtime/root_handle_transport.rs");

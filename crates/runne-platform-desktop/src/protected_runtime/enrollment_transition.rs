@@ -1,0 +1,211 @@
+// Desktop half of the same-process V2→V3 enrollment control transition.
+//
+// The desktop proves its V2 enrollment claims on the entered control channel,
+// verifies the daemon-issued prelude against its own V2 keys, and answers
+// with the exact V3 launch request whose broker commitment binds the prelude.
+// Readiness replaces the process state: every later frame speaks V3.
+
+use runne_api::{
+    CredentialBrokerTransferAuthenticator, ProtectedCredentialEnrollmentLaunchBindingV1,
+    ProtectedCredentialEnrollmentLaunchRequestV3, ProtectedCredentialEnrollmentPreludeV2,
+    ProtectedCredentialEnrollmentPrepareV2, ProtectedCredentialEnrollmentReadyV3,
+};
+
+/// Desktop-held enrollment claims for exactly one transition attempt.
+///
+/// Every digest is measured from the retained installed release tuple and the
+/// live desktop peer; the daemon independently revalidates each native fact.
+struct EnrollmentTransitionClaims {
+    release_tuple_digest: [u8; 32],
+    qualification_binding_digest: [u8; 32],
+    desktop_peer_binding_digest: [u8; 32],
+    desktop_supervisor_generation: u64,
+}
+
+impl EnrollmentTransitionClaims {
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the Tauri enrollment orchestration constructs claims")
+    )]
+    const fn new(
+        release_tuple_digest: [u8; 32],
+        qualification_binding_digest: [u8; 32],
+        desktop_peer_binding_digest: [u8; 32],
+        desktop_supervisor_generation: u64,
+    ) -> Self {
+        Self {
+            release_tuple_digest,
+            qualification_binding_digest,
+            desktop_peer_binding_digest,
+            desktop_supervisor_generation,
+        }
+    }
+}
+
+/// Bounded continuous-clock validity for the V3 launch request.
+const ENROLLMENT_REQUEST_TTL_MILLIS: u64 = 20_000;
+
+fn random_nonce() -> Option<[u8; 32]> {
+    use rand::{RngCore, rngs::OsRng};
+    let mut nonce = [0_u8; 32];
+    OsRng.fill_bytes(&mut nonce);
+    (nonce != [0; 32]).then_some(nonce)
+}
+
+const fn launch_error(error: LaunchAuthorityError) -> ProtectedBundledRuntimeError {
+    ProtectedBundledRuntimeError::LaunchAuthority(error)
+}
+
+impl ProtectedBundledRuntimeProcess {
+    /// Upgrades this exact V2 process to the V3 enrollment protocol in place.
+    ///
+    /// The exchange never re-enters the channel handshake: the daemon already
+    /// admitted this transcript and answers on the same socket. Any failure
+    /// after the prepare write leaves the daemon's state ambiguous, so the
+    /// child is fenced exactly like an ambiguous V3 renewal.
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Tauri enrollment orchestration invokes this in the next slice"
+        )
+    )]
+    fn begin_credential_enrollment_transition(
+        &mut self,
+        claims: &EnrollmentTransitionClaims,
+    ) -> Result<ProtectedBundledRuntimeProfile, ProtectedBundledRuntimeError> {
+        if self.graceful_requested {
+            return Err(ProtectedBundledRuntimeError::InvalidState);
+        }
+        let (compatibility, owned) = match &self.activation {
+            ProtectedProcessActivation::V2 { request, owned, .. } => {
+                (request.compatibility_request().clone(), owned.clone())
+            }
+            _ => return Err(ProtectedBundledRuntimeError::InvalidState),
+        };
+        let mut request_started = false;
+        let result = self.run_enrollment_transition_exchange(claims, &compatibility, &owned, &mut request_started);
+        if result.is_err() && request_started {
+            self.fence_ambiguous_transition();
+        }
+        result
+    }
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    fn run_enrollment_transition_exchange(
+        &mut self,
+        claims: &EnrollmentTransitionClaims,
+        compatibility: &ProtectedLaunchRequestV1,
+        owned: &ProtectedOwnedLaunchV2,
+        request_started: &mut bool,
+    ) -> Result<ProtectedBundledRuntimeProfile, ProtectedBundledRuntimeError> {
+        let nonce = random_nonce().ok_or_else(|| {
+            launch_error(LaunchAuthorityError::RenewalUnavailable)
+        })?;
+        let mut prepare = ProtectedCredentialEnrollmentPrepareV2::new(
+            owned.clone(),
+            1,
+            nonce,
+            claims.release_tuple_digest,
+            claims.qualification_binding_digest,
+            claims.desktop_peer_binding_digest,
+            claims.desktop_supervisor_generation,
+        )
+        .map_err(launch_error)?;
+        prepare.sign(&self.keys);
+        write_frame(
+            &mut self.channel,
+            &Zeroizing::new(
+                prepare
+                    .encode_frame()
+                    .map_err(|_| launch_error(LaunchAuthorityError::InvalidContract))?,
+            ),
+        )?;
+        *request_started = true;
+
+        let frame = Zeroizing::new(read_frame(&mut self.channel)?);
+        let signed_prelude =
+            ProtectedCredentialEnrollmentPreludeV2::decode_frame(&frame)
+                .map_err(|_| launch_error(LaunchAuthorityError::RenewalUnavailable))?;
+        let now = crate::MacOsContinuousClock::now_millis()
+            .map_err(|_| launch_error(LaunchAuthorityError::RenewalUnavailable))?;
+        signed_prelude
+            .verify_exact_at(&prepare, owned, 0, now, &self.keys)
+            .map_err(launch_error)?;
+        let prelude = signed_prelude.prelude().clone();
+
+        let secret = random_nonce().ok_or_else(|| {
+            launch_error(LaunchAuthorityError::RenewalUnavailable)
+        })?;
+        let v1_request = ProtectedLaunchRequestV1::new(
+            compatibility.launch_authority_id(),
+            compatibility.desktop_host_instance_id(),
+            LaunchSecret::from_bytes(secret)
+                .map_err(|_| launch_error(LaunchAuthorityError::InvalidContract))?,
+            now,
+            now.saturating_add(ENROLLMENT_REQUEST_TTL_MILLIS),
+            compatibility.principal_id(),
+            compatibility.profile().clone(),
+            compatibility.executable().clone(),
+            compatibility.runtime_root().to_path_buf(),
+            ActivationDispositionV1::Existing(Box::new(
+                owned.compatibility_owned_launch().stable().clone(),
+            )),
+        )
+        .map_err(launch_error)?;
+        let v3_keys = v1_request.derive_keys();
+        let commitment = CredentialBrokerTransferAuthenticator::from_protected_activation(&v3_keys)
+            .enrollment_launch_commitment(&prelude);
+        let binding = ProtectedCredentialEnrollmentLaunchBindingV1::macos_apple_silicon(
+            *prelude.installation_identity_digest(),
+            claims.release_tuple_digest,
+            claims.qualification_binding_digest,
+            claims.desktop_peer_binding_digest,
+            claims.desktop_supervisor_generation,
+            commitment,
+        )
+        .map_err(launch_error)?;
+        let mut v3 = ProtectedCredentialEnrollmentLaunchRequestV3::new(
+            v1_request,
+            owned.provider_binding().clone(),
+            binding,
+        )
+        .map_err(launch_error)?;
+        write_frame(
+            &mut self.channel,
+            &Zeroizing::new(
+                v3.encode_frame()
+                    .map_err(|_| launch_error(LaunchAuthorityError::InvalidContract))?,
+            ),
+        )?;
+
+        let frame = Zeroizing::new(read_frame(&mut self.channel)?);
+        let v3_keys = v3.derive_keys_and_forget();
+        let ready = ProtectedCredentialEnrollmentReadyV3::decode_frame(&frame)
+            .map_err(|_| launch_error(LaunchAuthorityError::ReadinessProofMismatch))?;
+        ready.verify_exact(&v3, &v3_keys).map_err(launch_error)?;
+        let owned_v3 = ready.owned_launch();
+        let profile =
+            ProtectedBundledRuntimeProfile::from_ready_v3(&ready, &v3, now, &v3_keys)
+                .map_err(launch_error)?;
+        self.keys = v3_keys;
+        self.activation = ProtectedProcessActivation::V3 {
+            request: v3,
+            ready,
+            owned: owned_v3,
+        };
+        Ok(profile)
+    }
+
+    fn fence_ambiguous_transition(&mut self) {
+        self.graceful_requested = true;
+        #[cfg(unix)]
+        {
+            use std::net::Shutdown;
+            let _ = self.channel.shutdown(Shutdown::Both);
+        }
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
