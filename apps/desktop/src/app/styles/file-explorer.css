@@ -1,0 +1,50 @@
+.file-explorer__list {
+  display: grid;
+  gap: 2px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.file-explorer__entry {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 26px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.file-explorer__icon {
+  display: grid;
+  place-items: center;
+  color: var(--primary);
+}
+
+.file-explorer__path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-explorer__action {
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--text-subtle);
+  background: transparent;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.file-explorer__action:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.file-explorer__action:disabled {
+  cursor: default;
+  opacity: .55;
+}

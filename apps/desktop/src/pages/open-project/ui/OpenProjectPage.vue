@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FolderOpen } from 'lucide-vue-next'
+import { ArrowRight, FolderOpen, Info } from 'lucide-vue-next'
 import { ref } from 'vue'
 
 import { selectAndCreateLocalProject, type LocalProjectOpenResult } from '@/features/open-local-project'
@@ -41,11 +41,11 @@ async function chooseFolder() {
 
 <template>
   <section
-    class="projects-page"
+    class="projects-page open-project-page"
     aria-labelledby="open-project-title"
   >
-    <header class="page-header">
-      <div>
+    <div class="open-project-page__content">
+      <header class="open-project-page__header">
         <p class="eyebrow">
           {{ translate('openProject.localProject') }}
         </p>
@@ -53,18 +53,16 @@ async function chooseFolder() {
           {{ translate('openProject.title') }}
         </h1>
         <p>{{ translate('openProject.description') }}</p>
-      </div>
-    </header>
+      </header>
 
-    <div class="content-section">
       <button
-        class="project-card project-card--open"
+        class="project-card project-card--open open-project-page__choose-card"
         type="button"
         :aria-label="translate('openProject.chooseFolder')"
         :disabled="opening"
         @click="chooseFolder"
       >
-        <span class="project-icon">
+        <span class="projects-card-icon">
           <FolderOpen
             :size="21"
             aria-hidden="true"
@@ -74,8 +72,20 @@ async function chooseFolder() {
           <strong>{{ opening ? translate('openProject.opening') : translate('openProject.chooseFolderAction') }}</strong>
           <small>{{ translate('openProject.folderOnDevice') }}</small>
         </span>
-        <span class="project-arrow">→</span>
+        <ArrowRight
+          class="projects-card-arrow"
+          :size="19"
+          aria-hidden="true"
+        />
       </button>
+
+      <aside class="open-project-page__privacy">
+        <Info
+          :size="16"
+          aria-hidden="true"
+        />
+        <span>{{ translate('openProject.folderOnDevice') }}</span>
+      </aside>
 
       <p
         v-if="error"

@@ -1,8 +1,14 @@
 <script setup lang="ts">
+import type { Component } from 'vue'
+
+import primaryLogo from '../assets/runne-primary-logo.svg'
+import primaryLogoLight from '../assets/runne-primary-logo-light.svg'
+import routeGlyph from '../assets/runne-route-glyph.svg'
+
 export interface SidebarItem {
   id: string
   label: string
-  icon?: string
+  icon?: Component
   badge?: string
 }
 
@@ -23,18 +29,48 @@ defineEmits<{
     :class="['gc-sidebar', collapsed && 'gc-sidebar--collapsed']"
     :aria-label="ariaLabel ?? 'Primary'"
   >
+    <div class="gc-sidebar-brand-header">
+      <button
+        class="gc-sidebar-brand"
+        type="button"
+        aria-label="Runne"
+        @click="$emit('navigate', 'projects')"
+      >
+        <img
+          class="gc-sidebar-brand-lockup gc-sidebar-brand-lockup--dark"
+          :src="primaryLogo"
+          alt="Runne"
+        >
+        <img
+          class="gc-sidebar-brand-lockup gc-sidebar-brand-lockup--light"
+          :src="primaryLogoLight"
+          alt="Runne"
+        >
+        <span class="gc-sidebar-brand-glyph-shell">
+          <img
+            class="gc-sidebar-brand-glyph"
+            :src="routeGlyph"
+            alt=""
+          >
+        </span>
+      </button>
+      <slot name="actions" />
+    </div>
     <button
       v-for="item in items"
       :key="item.id"
       :class="['gc-sidebar-item', { 'gc-sidebar-item--active': item.id === activeItem }]"
       type="button"
-      :aria-label="collapsed ? item.label : undefined"
+      :aria-label="item.label"
       @click="$emit('navigate', item.id)"
     >
-      <span
+      <component
         v-if="item.icon"
+        :is="item.icon"
         class="gc-sidebar-icon"
-      >{{ item.icon }}</span>
+        :size="18"
+        aria-hidden="true"
+      />
       <span
         v-if="!collapsed"
         class="gc-sidebar-label"
@@ -60,6 +96,78 @@ defineEmits<{
 
 .gc-sidebar--collapsed {
   width: 56px;
+}
+
+.gc-sidebar-brand-header {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.gc-sidebar-brand {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  padding-left: 2px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.gc-sidebar-brand-lockup {
+  display: block;
+  width: 112px;
+  height: auto;
+}
+
+.gc-sidebar-brand-glyph-shell {
+  display: none;
+  width: 28px;
+  height: 28px;
+  padding: 4px;
+  border-radius: var(--runne-radius-md);
+  background: var(--runne-accent);
+}
+
+.gc-sidebar-brand-glyph {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.gc-sidebar-brand-lockup--light {
+  display: none;
+}
+
+.gc-sidebar--collapsed .gc-sidebar-brand-header {
+  justify-content: center;
+}
+
+.gc-sidebar--collapsed .gc-sidebar-brand {
+  padding-left: 0;
+}
+
+.gc-sidebar--collapsed .gc-sidebar-brand-lockup {
+  display: none;
+}
+
+.gc-sidebar--collapsed .gc-sidebar-brand-glyph-shell {
+  display: block;
+}
+
+:global([data-theme='light'] .gc-sidebar-brand-lockup--dark) {
+  display: none;
+}
+
+:global([data-theme='light'] .gc-sidebar-brand-lockup--light) {
+  display: block;
+}
+
+.gc-sidebar--collapsed .gc-sidebar-brand-lockup--light {
+  display: none;
 }
 
 .gc-sidebar-item {
@@ -91,9 +199,6 @@ defineEmits<{
 }
 
 .gc-sidebar-icon {
-  font-size: 18px;
-  width: 24px;
-  text-align: center;
   flex-shrink: 0;
 }
 

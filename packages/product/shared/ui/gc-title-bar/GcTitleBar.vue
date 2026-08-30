@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import primaryLogo from '../assets/runne-primary-logo.svg'
+import primaryLogoLight from '../assets/runne-primary-logo-light.svg'
 </script>
 
 <template>
@@ -10,7 +12,16 @@
     </div>
     <div class="gc-title-bar-brand">
       <slot name="brand">
-        <span class="gc-title-bar-lockup">Runne</span>
+        <img
+          class="gc-title-bar-logo gc-title-bar-logo--dark"
+          :src="primaryLogo"
+          alt="Runne"
+        >
+        <img
+          class="gc-title-bar-logo gc-title-bar-logo--light"
+          :src="primaryLogoLight"
+          alt="Runne"
+        >
       </slot>
     </div>
     <div class="gc-title-bar-drag" />
@@ -50,11 +61,22 @@
   text-align: center;
 }
 
-.gc-title-bar-lockup {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--runne-text-secondary);
-  letter-spacing: 1px;
+.gc-title-bar-logo {
+  display: block;
+  width: 70px;
+  height: auto;
+}
+
+.gc-title-bar-logo--light {
+  display: none;
+}
+
+:global([data-theme='light'] .gc-title-bar-logo--dark) {
+  display: none;
+}
+
+:global([data-theme='light'] .gc-title-bar-logo--light) {
+  display: block;
 }
 
 .gc-title-bar-drag {

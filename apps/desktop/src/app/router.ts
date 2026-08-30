@@ -8,14 +8,26 @@ import { OpenProjectPage } from '@/pages/open-project'
 import { ProjectDetailsPage } from '@/pages/project-details'
 import { ProjectsPage } from '@/pages/projects'
 import { ProvidersPage } from '@/pages/providers'
-import { RuntimeSettingsPage } from '@/pages/runtime-settings'
+import { RecoveryPage } from '@/pages/recovery'
+import { RuntimeConfigurationPage, RuntimeSettingsPage } from '@/pages/runtime-settings'
 import { SettingsPage } from '@/pages/settings'
 import { ShortcutsPage } from '@/pages/shortcuts'
 import { TaskRunPage } from '@/pages/task-run'
+import { TaskRunInventoryPage } from '@/pages/task-run-inventory'
 import { UpdatesPage } from '@/pages/updates'
 import { WorkspacePage } from '@/pages/workspace'
 
 export const routes: RouteRecordRaw[] = [
+  {
+    path: '/recovery',
+    name: 'recovery',
+    component: RecoveryPage,
+  },
+  {
+    path: '/task-runs',
+    name: 'task-run-inventory',
+    component: TaskRunInventoryPage,
+  },
   {
     path: '/task-runs/:taskRunId',
     name: 'task-run',
@@ -50,6 +62,11 @@ export const routes: RouteRecordRaw[] = [
     path: '/settings/runtimes',
     name: 'runtime-settings',
     component: RuntimeSettingsPage,
+  },
+  {
+    path: '/settings/runtime-configuration',
+    name: 'runtime-configuration',
+    component: RuntimeConfigurationPage,
   },
   {
     path: '/settings/appearance',

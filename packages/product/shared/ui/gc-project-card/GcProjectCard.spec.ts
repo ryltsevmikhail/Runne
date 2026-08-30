@@ -56,9 +56,22 @@ describe('GcProjectCard', () => {
       props: { project: baseProject },
     })
 
-    await wrapper.trigger('click')
+    await wrapper.get('button').trigger('click')
     expect(wrapper.emitted('click')).toBeTruthy()
     expect(wrapper.emitted('click')).toHaveLength(1)
+  })
+
+  it('keeps leading and trailing icon presentation in its single button', () => {
+    const wrapper = mount(GcProjectCard, {
+      props: { project: baseProject },
+      slots: {
+        leading: '<svg data-testid="folder-icon" />',
+        trailing: '<svg data-testid="arrow-icon" />',
+      },
+    })
+
+    expect(wrapper.get('button').find('[data-testid="folder-icon"]').exists()).toBe(true)
+    expect(wrapper.get('button').find('[data-testid="arrow-icon"]').exists()).toBe(true)
   })
 
   it('renders actions slot', () => {

@@ -1,4 +1,7 @@
 import english from './english'
+import { phase2Russian } from './phase2'
+import conversationTarget from './russian-conversation-target'
+import targetSurfaces from './russian-target-surfaces'
 
 const russian: Record<keyof typeof english, string> = {
   'settings.title': 'Настройки',
@@ -29,6 +32,7 @@ const russian: Record<keyof typeof english, string> = {
   'projects.runtimeSummary': 'Runtime: {status}',
   'projects.openProject': 'Открыть проект',
   'projects.openLocalProject': 'Открыть локальный проект',
+  'projects.recent': 'Недавние',
   'projects.selectFolder': 'Выбрать папку на этом устройстве',
   'projects.runtimeCatalog': 'Каталог runtime',
   'projects.runtimeAuthority': 'Владелец runtime',
@@ -90,6 +94,9 @@ const russian: Record<keyof typeof english, string> = {
   'projectDetails.open': 'Открыт',
   'projectDetails.closed': 'Закрыт',
   'workspace.loading': 'Загрузка workspace',
+  'workspace.breadcrumbLabel': 'Навигация workspace',
+  'workspace.breadcrumbProjects': 'Проекты',
+  'workspace.breadcrumbWorkspace': 'Workspace',
   'workspace.kicker': 'Workspace runtime',
   'workspace.versionState': 'Версия {version} · {state}',
   'workspace.workspaceStatus': 'Runtime: {status}',
@@ -281,6 +288,9 @@ const russian: Record<keyof typeof english, string> = {
   'runtime.detail.externalConnected': 'Явный режим · подключено',
   'runtime.detail.externalConnection': 'Явный режим · {connection}',
   'runtime.detail.unavailable': 'Runtime недоступен',
+  ...phase2Russian,
+  ...conversationTarget,
+  ...targetSurfaces,
 }
 
 export default russian

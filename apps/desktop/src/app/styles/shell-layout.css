@@ -1,0 +1,35 @@
+.app-shell {
+  position: relative;
+  display: grid;
+  min-height: 100vh;
+  grid-template-columns: 244px minmax(0, 1fr);
+  gap: 8px;
+  padding: 36px 8px 8px;
+  color: var(--text);
+  background: var(--bg);
+  font-size: 14px;
+  transition: grid-template-columns 220ms ease;
+}
+
+.app-shell--collapsed {
+  grid-template-columns: 48px minmax(0, 1fr);
+}
+
+.desktop-title-bar {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 28px;
+  background: var(--bg);
+  user-select: none;
+}
+
+.app-shell__activation-notice {
+  margin: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--runne-warning);
+  font-size: 12px;
+}

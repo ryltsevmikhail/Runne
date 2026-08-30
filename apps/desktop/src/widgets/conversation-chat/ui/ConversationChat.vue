@@ -6,6 +6,7 @@ import {
   useConversationChat,
   type ConversationChatOptions,
 } from '../model/useConversationChat'
+import ConversationCapabilityControls from './ConversationCapabilityControls.vue'
 import { translate } from '@/shared/i18n'
 
 const props = defineProps<ConversationChatOptions>()
@@ -44,6 +45,7 @@ const {
       <span
         class="conversation-chat__runtime"
         :class="{ 'conversation-chat__runtime--live': runtimeState === 'live' && recovery === 'live' }"
+        aria-label="Conversation runtime status"
       >
         {{ translate('conversation.runtime', { status: recovery === 'live' ? runtimeState : recovery }) }}
       </span>
@@ -122,12 +124,15 @@ const {
         </ol>
       </div>
 
-      <SubmitPrompt
-        v-model="draft"
-        :disabled="!canCompose"
-        :pending="sending"
-        @submit="submitMessage"
-      />
+      <div class="conversation-chat__composer">
+        <ConversationCapabilityControls />
+        <SubmitPrompt
+          v-model="draft"
+          :disabled="!canCompose"
+          :pending="sending"
+          @submit="submitMessage"
+        />
+      </div>
     </template>
   </section>
 </template>
@@ -238,4 +243,14 @@ const {
   text-align: center;
 }
 
+.conversation-chat__composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--runne-space-md);
+  padding: var(--runne-space-md) var(--runne-space-lg);
+  border-top: 1px solid var(--runne-border);
+  background: var(--runne-surface);
+}
+
+.conversation-chat__composer > .conversation-capability-controls { grid-column: 1 / -1; }
 </style>

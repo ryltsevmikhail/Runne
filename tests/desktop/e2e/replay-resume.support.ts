@@ -24,7 +24,7 @@ const conversationSnapshot = {
 } as const
 
 export async function installDesktopAdapter(page: Page): Promise<void> {
-  await page.addInitScript(({ currentProject, currentWorkspace }) => {
+  await page.addInitScript(({ currentProject, currentWorkspace, initialConversation }) => {
     type TauriInternals = {
       invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown>
       transformCallback: () => number
@@ -63,12 +63,20 @@ export async function installDesktopAdapter(page: Page): Promise<void> {
               runtimeLifecycle: 'ready',
               runtimeFailure: null,
             }
+          case 'get_locale':
+            return { locale: 'en' }
+          case 'get_pending_external_activation':
+            return null
+          case 'plugin:event|listen':
+            return 1
+          case 'plugin:event|unlisten':
+            return null
           case 'connect_runtime':
             return 'live'
           case 'open_workspace_conversation':
           case 'resync_workspace_conversation':
           case 'send_workspace_message':
-            return conversationSnapshot
+            return initialConversation
           case 'subscribe_workspace_conversation':
             return '01890e00-0000-7000-8000-000000000004'
           case 'ack_conversation_update':
@@ -92,5 +100,5 @@ export async function installDesktopAdapter(page: Page): Promise<void> {
         }
       },
     }
-  }, { currentProject: project, currentWorkspace: workspace })
+  }, { currentProject: project, currentWorkspace: workspace, initialConversation: conversationSnapshot })
 }

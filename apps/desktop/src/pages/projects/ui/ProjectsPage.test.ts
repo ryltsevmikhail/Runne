@@ -104,7 +104,12 @@ describe('projects page', () => {
 
     expect(wrapper.text()).toContain('gocode-ui')
     expect(wrapper.text()).not.toContain('/workspace/gocode-ui')
-    expect(wrapper.get('[aria-label="Open project gocode-ui"] button').attributes('type')).toBe('button')
+    expect(wrapper.get('[aria-label="Open project gocode-ui"]').attributes('type')).toBe('button')
+    expect(wrapper.get('[aria-labelledby="recent-projects-title"]').text()).toContain('Recent')
+    expect(wrapper.get('.projects-page__header .gc-button').text()).toContain('Open local project')
+    expect(wrapper.find('.runtime-summary').exists()).toBe(false)
+    expect(wrapper.findAll('.project-card--open[aria-label="Open local project"] svg')).toHaveLength(2)
+    expect(wrapper.findAll('[aria-label="Open project gocode-ui"] svg')).toHaveLength(2)
 
     await wrapper.get('[aria-label="Open project gocode-ui"]').trigger('click')
     await flushPromises()
@@ -143,5 +148,36 @@ describe('projects page', () => {
 
     expect(loads).toBe(0)
     expect(wrapper.get('[role="alert"]').text()).toContain('Projects unavailable')
+    expect(wrapper.html()).not.toContain('/Users/')
+  })
+
+  it('redacts paths from rejected project loading', async () => {
+    const router = createTestRouter()
+    await router.push('/')
+    await router.isReady()
+    const wrapper = mountWithRuntimeSession({
+      loadProjects: async () => { throw new Error('/Users/private/project') },
+    }, router)
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('Projects could not be loaded.')
+    expect(wrapper.html()).not.toContain('private/project')
+  })
+
+  it('keeps loading and empty recent-project states accessible', async () => {
+    const router = createTestRouter()
+    await router.push('/')
+    await router.isReady()
+    let resolveProjects: ((projects: readonly typeof project[]) => void) | undefined
+    const wrapper = mountWithRuntimeSession({
+      loadProjects: () => new Promise(resolve => { resolveProjects = resolve }),
+    }, router)
+    await flushPromises()
+
+    expect(wrapper.get('[aria-live="polite"]').text()).toContain('Loading projects')
+    resolveProjects?.([])
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No projects')
   })
 })

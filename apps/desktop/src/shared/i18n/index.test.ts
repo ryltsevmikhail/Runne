@@ -36,6 +36,16 @@ describe('desktop locale catalogs', () => {
   it('formats stable messages without concatenating sentences', () => {
     expect(createTranslator('ru')('settings.loading', { page: 'настроек' })).toBe('Загрузка настроек')
     expect(createTranslator('en')('settings.retry')).toBe('Retry')
+    expect(createTranslator('en')('projects.recent')).toBe('Recent')
+    expect(createTranslator('ru')('workspace.breadcrumbProjects')).toBe('Проекты')
+    expect(createTranslator('ru')('workspace.breadcrumbWorkspace')).toBe('Workspace')
+  })
+
+  it('contains target capability copy in both production catalogs', () => {
+    expect(createTranslator('en')('targetCapability.unavailable')).toBe('Runtime capability unavailable')
+    expect(createTranslator('ru')('targetCapability.unavailableDescription', {
+      capability: 'task-run-inventory',
+    })).toBe('Для этого экрана нужна capability runtime task-run-inventory.')
   })
 
   it('does not apply a delayed production read captured before a newer acknowledgement', async () => {
