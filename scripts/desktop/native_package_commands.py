@@ -6,11 +6,12 @@ import shlex
 
 def _posix_runtime(app: str, *, macos: bool) -> str:
     data = (
-        'export HOME="$probe_root/home"\n'
+        'profile_root="$HOME/Library/Application Support/com.runne.desktop"\n'
         if macos
         else 'export XDG_DATA_HOME="$probe_root/data"\n'
         'export XDG_CONFIG_HOME="$probe_root/config"\n'
         'export XDG_STATE_HOME="$probe_root/state"\n'
+        'profile_root="$probe_root"\n'
     )
     return f'''set -eu
 root="$NATIVE_PROBE_INSTALL_ROOT"
@@ -62,12 +63,12 @@ def _posix_command(operation: str, app: str, *, macos: bool) -> str:
     elif operation == "secure-store-writer-reader":
         body = (
             "launch_once\nstop_once\n"
-            'find "$probe_root" -type f -name profile.sqlite3 -print -quit | grep -q .\n'
+            'find "$profile_root" -type f -name profile.sqlite3 -print -quit | grep -q .\n'
             "launch_once\nstop_once\n"
         )
     elif operation == "secure-store-third-process-deny":
         body = '''launch_once
-lock="$(find "$probe_root" -type f -name profile.lock -print -quit)"
+lock="$(find "$profile_root" -type f -name profile.lock -print -quit)"
 test -n "$lock"
 python3 - "$lock" <<'PY'
 import fcntl
