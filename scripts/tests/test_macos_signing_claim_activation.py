@@ -115,6 +115,11 @@ class MacOSSigningClaimActivationTests(unittest.TestCase):
         phases = [item["properties"]["phase"]["const"] for item in properties["commands"]["prefixItems"]]
         self.assertEqual(tuple(phases), ingestion_rules.CANONICAL_PHASES)
 
+        identity, expectation = self._identity(), self._expectation()
+        document = support.synthetic_document(identity, expectation)
+        daemon_constraint = properties["target"]["properties"]["daemon"]
+        self.assertEqual(daemon_constraint, {"const": document["target"]["daemon"]})
+
     def test_signing_claims_remain_blocked_upstream(self) -> None:
         from scripts.release_v2.claims import _CURRENT
         from scripts.release_v2.model import ClaimDisposition, FailureCodeV1
