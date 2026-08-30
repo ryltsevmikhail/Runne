@@ -4531,6 +4531,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "runne-update-metadata-producer"
+version = "0.0.2"
+dependencies = [
+ "ed25519-dalek",
+ "hex",
+ "rand 0.8.7",
+ "runne-platform-desktop",
+ "security-framework",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+ "zeroize",
+]
+
+[[package]]
 name = "runne-windows-native-handle"
 version = "0.0.2"
 dependencies = [

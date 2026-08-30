@@ -69,11 +69,11 @@ pub use updater_metadata::{
     MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentQualification,
     NativeEnrollmentQualificationBinding, NativeEnrollmentQualificationRowV1,
     NativeEnrollmentTupleAdmission, NativeEnrollmentTupleError, NativeEnrollmentTupleV2,
-    PreparedInstalledNativeEnrollment, UpdateMetadataV2, UpdateRootRoleV2, UpdateSignatureV2,
-    UpdateSnapshotRoleV2, UpdateTargetV2, UpdateTargetV2Binding, UpdateTargetsRoleV2,
-    UpdateTimestampRoleV2, UpdateTrustRootV2, UpdateV2VerificationError,
-    VerifiedDaemonNativeEnrollmentPrepare, VerifiedMacOsWriterLaunch, VerifiedUpdateV2,
-    verify_update_v2,
+    PreparedInstalledNativeEnrollment, UpdateMetadataSigningError, UpdateMetadataV2,
+    UpdateRootRoleV2, UpdateSignatureV2, UpdateSnapshotRoleV2, UpdateTargetV2,
+    UpdateTargetV2Binding, UpdateTargetsRoleV2, UpdateTimestampRoleV2, UpdateTrustRootV2,
+    UpdateV2VerificationError, VerifiedDaemonNativeEnrollmentPrepare, VerifiedMacOsWriterLaunch,
+    VerifiedUpdateV2, update_metadata_signing_bytes, verify_update_v2,
 };
 pub use updater_trust::{UpdateTrustError, UpdateTrustJournal, UpdateTrustState};
 

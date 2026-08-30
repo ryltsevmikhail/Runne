@@ -37,6 +37,14 @@ fn target_matches(target: &UpdateTargetV2, binding: &UpdateTargetV2Binding<'_>) 
         && target.channel == binding.channel
 }
 
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+pub enum UpdateMetadataSigningError {
+    #[error("update metadata role serialization failed")]
+    InvalidRole,
+    #[error("update metadata role exceeds its bound")]
+    TooLarge,
+}
+
 fn verify_quorum<T: Serialize>(
     signatures: &[UpdateSignatureV2],
     keys: &[UpdateTrustedKeyV2],
@@ -46,7 +54,7 @@ fn verify_quorum<T: Serialize>(
     if signatures.len() > MAX_SIGNATURES {
         return Err(());
     }
-    let bytes = serde_json::to_vec(value).map_err(|_| ())?;
+    let bytes = update_metadata_signing_bytes(value).map_err(|_| ())?;
     let mut verified = HashSet::new();
     for signature in signatures {
         let Some(key) = keys.iter().find(|key| key.key_id == signature.key_id) else {
@@ -66,9 +74,20 @@ fn verify_single<T: Serialize>(
 ) -> Result<(), ()> {
     verify_bytes(
         &key.public_key,
-        &serde_json::to_vec(value).map_err(|_| ())?,
+        &update_metadata_signing_bytes(value).map_err(|_| ())?,
         encoded,
     )
+}
+
+/// Returns the exact bounded role bytes consumed by the V2 verifier.
+/// Producers use this primitive instead of duplicating serialization.
+pub fn update_metadata_signing_bytes<T: Serialize>(
+    value: &T,
+) -> Result<Vec<u8>, UpdateMetadataSigningError> {
+    let bytes = serde_json::to_vec(value).map_err(|_| UpdateMetadataSigningError::InvalidRole)?;
+    (bytes.len() <= 512 * 1024)
+        .then_some(bytes)
+        .ok_or(UpdateMetadataSigningError::TooLarge)
 }
 
 fn verify_bytes(public_key: &[u8; 32], bytes: &[u8], encoded: &str) -> Result<(), ()> {
