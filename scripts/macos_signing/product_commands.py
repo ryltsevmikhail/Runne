@@ -82,7 +82,7 @@ def canonical_product_templates(app_name: str) -> tuple[ExternalCommandTemplate,
                 target,
             ),
             "verify": ("--verify", "--strict", target),
-            "metadata": ("-dvv", target),
+            "metadata": ("-dvvv", target),
             "requirement": ("-d", "-r-", target),
             "entitlements": ("-d", "--entitlements", ":-", target),
         }
@@ -120,7 +120,7 @@ def _component_command(
         return CommandSpec(phase, CODESIGN, argv, ".", entitlement)
     arguments = {
         "verify": ("--verify", "--strict", target.relative_path),
-        "metadata": ("-dvv", target.relative_path),
+        "metadata": ("-dvvv", target.relative_path),
         "requirement": ("-d", "-r-", target.relative_path),
         "entitlements": ("-d", "--entitlements", ":-", target.relative_path),
     }

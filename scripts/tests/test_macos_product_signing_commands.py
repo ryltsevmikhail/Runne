@@ -66,6 +66,11 @@ class MacOSProductSigningCommandTests(unittest.TestCase):
                     ),
                 )
                 self.assertTrue(parsed.hardened_runtime)
+        metadata = tuple(
+            command for command in commands if command.phase.startswith("metadata-")
+        )
+        self.assertTrue(metadata)
+        self.assertTrue(all(command.argv[0] == "-dvvv" for command in metadata))
 
     def test_external_templates_redact_identity_reference(self) -> None:
         commands = build_product_signing_commands(self.candidate, self.credentials)

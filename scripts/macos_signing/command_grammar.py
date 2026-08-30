@@ -62,7 +62,11 @@ def _codesign(command: CommandSpec) -> ParsedCommand | None:
             return None
         target = _phase_target(phase, argv[-1])
         return ParsedCommand("verify", target, False, None, (len(argv) - 1,)) if target else None
-    if phase.startswith("metadata-") and len(argv) == 2 and argv[:1] == ("-dvv",):
+    if (
+        phase.startswith("metadata-")
+        and len(argv) == 2
+        and argv[0] in ("-dvv", "-dvvv")
+    ):
         target = _phase_target(phase, argv[-1])
         return ParsedCommand("metadata", target, False, None, (1,)) if target else None
     if phase.startswith("requirement-") and len(argv) == 3 and argv[:2] == ("-d", "-r-"):
