@@ -2,7 +2,7 @@ import re
 import stat
 from pathlib import Path
 
-from .entitlements import bind_entitlements, entitlement_binding_is_current
+from .entitlements import entitlement_binding_is_current
 from .hashing import sha256_file
 from .models import FailureCode, SigningFailure, ValidatedTarget
 from .product_models import (
@@ -10,6 +10,7 @@ from .product_models import (
     ProductCandidateRequest,
     ProductValidatedCandidate,
 )
+from .product_entitlements import bind_product_entitlements
 from .tree import tree_sha256
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -28,8 +29,12 @@ def validate_product_candidate(
     paths = _candidate_targets(request.candidate_app)
     if paths is None:
         return _failure(FailureCode.ARTIFACT_NOT_FOUND, "candidate")
+    if not _regular_file(
+        request.candidate_app / "Contents" / "embedded.provisionprofile"
+    ):
+        return _failure(FailureCode.ENTITLEMENTS_MISMATCH, "provisioning-profile")
     try:
-        entitlements = bind_entitlements(
+        entitlements = bind_product_entitlements(
             (
                 request.app_entitlements,
                 request.cli_entitlements,
@@ -132,6 +137,13 @@ def _regular_executable(path: Path) -> bool:
             and stat.S_ISREG(information.st_mode)
             and bool(information.st_mode & 0o111)
         )
+    except (OSError, ValueError):
+        return False
+
+
+def _regular_file(path: Path) -> bool:
+    try:
+        return not path.is_symlink() and stat.S_ISREG(path.lstat().st_mode)
     except (OSError, ValueError):
         return False
 

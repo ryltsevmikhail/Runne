@@ -1,13 +1,10 @@
 import json
 import os
-import plistlib
-import shutil
 import unittest
 from dataclasses import replace
-from pathlib import Path
 from unittest import mock
 
-from scripts.macos_signing.models import CommandResult, FailureCode
+from scripts.macos_signing.models import FailureCode
 from scripts.macos_signing.product_evidence import normalize_product_evidence
 from scripts.macos_signing.product_models import (
     ExternalCommandTemplate,
@@ -18,85 +15,7 @@ from scripts.macos_signing.product_models import (
 )
 from scripts.macos_signing.product_orchestration import run_product_signing
 from scripts.tests.macos_product_signing_support import product_candidate_fixture
-
-_TEAM_ID = "758F9Z45SR"
-
-
-class ProductRecordingRunner:
-    def __init__(self, root: Path, failure_phase: str | None = None, mutate: bool = True) -> None:
-        self.root = root
-        self.failure_phase = failure_phase
-        self.mutate = mutate
-        self.commands = []
-
-    def run(self, command):
-        self.commands.append(command)
-        if command.phase == self.failure_phase:
-            return CommandResult(1, "SYNTHETIC-RAW-MARKER", "UNKNOWN_STATUS")
-        if self.mutate:
-            self._apply_side_effect(command.phase)
-        return self._success(command.phase)
-
-    def _apply_side_effect(self, phase: str) -> None:
-        macos = self.root / "Runne.app" / "Contents" / "MacOS"
-        if phase == "sign-daemon":
-            (macos / "runned").write_bytes(b"signed daemon\n")
-        elif phase == "sign-cli":
-            (macos / "runne").write_bytes(b"signed cli\n")
-        elif phase == "sign-app":
-            (macos / "runne-desktop").write_bytes(b"signed app\n")
-        elif phase == "package-app-zip":
-            (self.root / ".runne-product-work" / "app.zip").write_bytes(
-                b"signed app zip\n"
-            )
-        elif phase == "staple-app":
-            ticket = self.root / "Runne.app" / "Contents" / "_CodeSignature" / "ticket"
-            ticket.parent.mkdir(exist_ok=True)
-            ticket.write_bytes(b"ticket\n")
-        elif phase == "create-dmg":
-            (self.root / ".runne-product-work" / "Runne.dmg").write_bytes(b"dmg\n")
-        elif phase == "stage-dmg-app":
-            shutil.copytree(
-                self.root / "Runne.app",
-                self.root / ".runne-product-work" / "dmg-root" / "Runne.app",
-            )
-        elif phase == "sign-dmg":
-            (self.root / ".runne-product-work" / "Runne.dmg").write_bytes(
-                b"signed dmg\n"
-            )
-        elif phase == "staple-dmg":
-            (self.root / ".runne-product-work" / "Runne.dmg").write_bytes(
-                b"stapled dmg\n"
-            )
-
-    def _success(self, phase: str) -> CommandResult:
-        if phase.startswith("metadata-"):
-            role = phase.removeprefix("metadata-")
-            identifier = {
-                "app": "com.runne.desktop",
-                "cli": "runne",
-                "daemon": "runned",
-            }[role]
-            return CommandResult(
-                0,
-                "",
-                "\n".join(
-                    (
-                        f"Identifier={identifier}",
-                        f"TeamIdentifier={_TEAM_ID}",
-                        "Authority=Developer ID Application: Synthetic",
-                        "CDHash=" + "a" * 40,
-                        "CodeDirectory v=20500 flags=0x10000(runtime)",
-                    )
-                ),
-            )
-        if phase.startswith("requirement-"):
-            return CommandResult(0, "", "designated => synthetic requirement")
-        if phase.startswith("entitlements-"):
-            return CommandResult(0, plistlib.dumps({}).decode(), "")
-        if phase.startswith("notary-"):
-            return CommandResult(0, '{"status":"Accepted"}', "")
-        return CommandResult(0, "", "")
+from scripts.tests.macos_product_signing_runner_support import ProductRecordingRunner
 
 
 class MacOSProductSigningOrchestrationTests(unittest.TestCase):
@@ -134,13 +53,52 @@ class MacOSProductSigningOrchestrationTests(unittest.TestCase):
         self.assertNotIn(b"SYNTHETIC-RAW-MARKER", encoded)
         document = json.loads(encoded)
         self.assertEqual(document["distribution"]["dmg_sha256"], outcome.evidence.dmg_sha256)
-        self.assertEqual(document["commands"][0]["phase"], "sign-daemon")
-        self.assertEqual(document["commands"][-1]["phase"], "validate-dmg")
-        self.assertEqual(document["commands"][21]["argv"][0], "create")
         self.assertEqual(
-            document["commands"][21]["argv"][4],
+            document["commands"][0]["phase"],
+            "inspect-provisioning-profile",
+        )
+        self.assertEqual(document["commands"][-1]["phase"], "validate-dmg")
+        create_dmg = next(
+            command
+            for command in document["commands"]
+            if command["phase"] == "create-dmg"
+        )
+        self.assertEqual(create_dmg["argv"][0], "create")
+        self.assertEqual(
+            create_dmg["argv"][4],
             ".runne-product-work/dmg-root",
         )
+
+    def test_profile_for_another_app_stops_before_component_signing(self) -> None:
+        runner = ProductRecordingRunner(self.root, invalid_profile=True)
+
+        outcome = run_product_signing(self.request, runner, "darwin")
+
+        self.assertEqual(
+            getattr(outcome.failure, "code", None),
+            FailureCode.ENTITLEMENTS_MISMATCH,
+        )
+        self.assertEqual(
+            getattr(outcome.failure, "phase", None),
+            "inspect-provisioning-profile",
+        )
+        self.assertEqual(
+            [command.phase for command in runner.commands],
+            ["inspect-provisioning-profile"],
+        )
+
+    def test_empty_embedded_app_entitlements_stop_before_notarization(self) -> None:
+        runner = ProductRecordingRunner(self.root, empty_app_entitlements=True)
+
+        outcome = run_product_signing(self.request, runner, "darwin")
+
+        self.assertEqual(
+            getattr(outcome.failure, "code", None),
+            FailureCode.ENTITLEMENTS_MISMATCH,
+        )
+        self.assertEqual(getattr(outcome.failure, "phase", None), "entitlements-app")
+        self.assertEqual(runner.commands[-1].phase, "entitlements-app")
+        self.assertFalse(self.request.output_dmg.exists())
 
     def test_dmg_and_evidence_are_published_by_one_directory_rename(self) -> None:
         real_replace = os.replace
@@ -218,8 +176,13 @@ class MacOSProductSigningOrchestrationTests(unittest.TestCase):
             "darwin",
         )
         records = list(outcome.evidence.commands)
-        record = records[20]
-        records[20] = replace(
+        index = next(
+            index
+            for index, record in enumerate(records)
+            if record.template.phase == "package-app-zip"
+        )
+        record = records[index]
+        records[index] = replace(
             record,
             template=replace(record.template, argv=("create", "forged")),
         )
@@ -258,7 +221,10 @@ class MacOSProductSigningOrchestrationTests(unittest.TestCase):
 
         self.assertEqual(outcome.failure.code, FailureCode.ARTIFACT_IDENTITY_MISMATCH)
         self.assertEqual(outcome.failure.phase, "sign-daemon")
-        self.assertEqual(len(runner.commands), 1)
+        self.assertEqual(
+            [command.phase for command in runner.commands],
+            ["inspect-provisioning-profile", "sign-daemon"],
+        )
         self.assertFalse(self.request.output_dmg.exists())
 
     def test_reserved_or_aliased_output_names_fail_before_runner(self) -> None:

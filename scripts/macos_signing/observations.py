@@ -77,6 +77,15 @@ def parse_designated_requirement(result: CommandResult) -> str | FailureCode:
 
 
 def parse_embedded_entitlements(result: CommandResult) -> FailureCode | None:
+    payload = parse_embedded_entitlement_payload(result)
+    if isinstance(payload, FailureCode):
+        return payload
+    return None if payload == {} else FailureCode.ENTITLEMENTS_MISMATCH
+
+
+def parse_embedded_entitlement_payload(
+    result: CommandResult,
+) -> dict | FailureCode:
     failed = _failed(result)
     if failed:
         return failed
@@ -84,7 +93,8 @@ def parse_embedded_entitlements(result: CommandResult) -> FailureCode | None:
     if not isinstance(value, str) or len(value.encode()) > MAX_CAPTURED_OUTPUT_BYTES or _control(value):
         return FailureCode.UNKNOWN_STATUS
     try:
-        return None if plistlib.loads(value.encode()) == {} else FailureCode.ENTITLEMENTS_MISMATCH
+        payload = plistlib.loads(value.encode())
+        return payload if type(payload) is dict else FailureCode.UNKNOWN_STATUS
     except (plistlib.InvalidFileException, ValueError):
         return FailureCode.UNKNOWN_STATUS
 

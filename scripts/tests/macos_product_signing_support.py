@@ -3,6 +3,7 @@ import tempfile
 from pathlib import Path
 
 from scripts.macos_signing.product_models import ProductCandidateRequest
+from scripts.macos_signing.product_entitlements import PRODUCT_APP_ENTITLEMENTS
 from scripts.macos_signing.product_validation import validate_product_candidate
 
 
@@ -29,10 +30,14 @@ def product_candidate_fixture():
     (candidate / "Contents" / "Info.plist").write_bytes(
         plistlib.dumps({"CFBundleExecutable": "runne-desktop"})
     )
+    (candidate / "Contents" / "embedded.provisionprofile").write_bytes(
+        b"developer-id-profile\n"
+    )
     entitlements = []
     for role in ("app", "cli", "daemon"):
         path = root / f"{role}.plist"
-        path.write_bytes(plistlib.dumps({}))
+        payload = PRODUCT_APP_ENTITLEMENTS if role == "app" else {}
+        path.write_bytes(plistlib.dumps(payload))
         entitlements.append(path)
     request = ProductCandidateRequest(
         candidate,

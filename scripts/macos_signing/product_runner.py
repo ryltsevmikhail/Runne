@@ -13,6 +13,7 @@ from .runner import (
     executable_program_available,
     run_bounded_subprocess,
 )
+from .product_provisioning import MAX_PROFILE_OUTPUT_BYTES
 
 
 class ProductLiveRunner:
@@ -48,6 +49,9 @@ class ProductLiveRunner:
             str(self.root.resolve(strict=True)),
             timeout,
             timeout_failure,
+            MAX_PROFILE_OUTPUT_BYTES
+            if command.phase == "inspect-provisioning-profile"
+            else None,
         )
         if result.exit_code == 0 and expected_output is not None:
             path, kind = expected_output
@@ -85,6 +89,7 @@ class ProductLiveRunner:
 
 def _path_contract(phase: str):
     contracts = {
+        "inspect-provisioning-profile": (((3, "file", "root"),), None),
         "package-app-zip": (((4, "directory", "root"),), (5, "file")),
         "notary-app-submit": (
             ((2, "file", "root"), (6, "file", "external")),

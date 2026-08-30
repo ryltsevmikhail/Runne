@@ -35,7 +35,8 @@ class MacOSProductSigningCommandTests(unittest.TestCase):
 
         self.assertEqual(
             tuple(command.phase for command in commands),
-            tuple(
+            ("inspect-provisioning-profile",)
+            + tuple(
                 f"{operation}-{role}"
                 for role in ("daemon", "cli", "app")
                 for operation in (
@@ -48,6 +49,18 @@ class MacOSProductSigningCommandTests(unittest.TestCase):
             ),
         )
         for command in commands:
+            if command.phase == "inspect-provisioning-profile":
+                self.assertEqual(command.program, "/usr/bin/security")
+                self.assertEqual(
+                    command.argv,
+                    (
+                        "cms",
+                        "-D",
+                        "-i",
+                        "Runne.app/Contents/embedded.provisionprofile",
+                    ),
+                )
+                continue
             parsed = parse_command_spec(command)
             self.assertIsNotNone(parsed)
             self.assertNotIn("--deep", command.argv)
@@ -80,7 +93,7 @@ class MacOSProductSigningCommandTests(unittest.TestCase):
         self.assertNotIn(self.credentials.signing_identity_ref, encoded)
         self.assertNotIn(self.credentials.notary_profile_ref, encoded)
         self.assertEqual(
-            templates[0].argv,
+            templates[1].argv,
             (
                 "--force",
                 "--sign",
@@ -204,7 +217,14 @@ class MacOSProductSigningCommandTests(unittest.TestCase):
                     CommandSpec("forged", "/usr/bin/xcrun", (forbidden, "value"), ".")
 
     def test_live_boundary_uses_fixed_environment_without_identity_discovery(self) -> None:
-        command = build_product_signing_commands(self.candidate, self.credentials)[0]
+        command = next(
+            command
+            for command in build_product_signing_commands(
+                self.candidate,
+                self.credentials,
+            )
+            if command.phase == "sign-daemon"
+        )
         with (
             mock.patch("scripts.macos_signing.runner.Path.is_file", return_value=True),
             mock.patch("scripts.macos_signing.runner.os.access", return_value=True),

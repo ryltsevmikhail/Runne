@@ -68,6 +68,7 @@ def run_bounded_subprocess(
     cwd: str,
     timeout: int,
     timeout_failure: FailureCode,
+    max_output_bytes: int | None = None,
 ) -> CommandResult:
     try:
         with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
@@ -80,7 +81,12 @@ def run_bounded_subprocess(
                 stderr=stderr,
                 timeout=timeout,
             )
-            return _spooled_result(completed.returncode, stdout, stderr)
+            return _spooled_result(
+                completed.returncode,
+                stdout,
+                stderr,
+                max_output_bytes or MAX_CAPTURED_OUTPUT_BYTES,
+            )
     except subprocess.TimeoutExpired:
         return _closed_result(timeout_failure)
     except OSError:
@@ -159,12 +165,12 @@ def _bound_entitlement(binding: EntitlementBinding | None) -> Path | None:
     return resolved
 
 
-def _spooled_result(exit_code: int, stdout, stderr) -> CommandResult:
+def _spooled_result(exit_code: int, stdout, stderr, limit: int) -> CommandResult:
     values = []
     for stream in (stdout, stderr):
         stream.seek(0)
-        value = stream.read(MAX_CAPTURED_OUTPUT_BYTES + 1)
-        if len(value) > MAX_CAPTURED_OUTPUT_BYTES:
+        value = stream.read(limit + 1)
+        if len(value) > limit:
             return _closed_result(FailureCode.UNKNOWN_STATUS)
         values.append(value.decode("utf-8", "ignore"))
     return CommandResult(exit_code, *values)

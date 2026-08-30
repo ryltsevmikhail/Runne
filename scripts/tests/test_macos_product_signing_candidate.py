@@ -32,13 +32,25 @@ class MacOSProductSigningCandidateTests(unittest.TestCase):
         (self.candidate / "Contents" / "Info.plist").write_bytes(
             plistlib.dumps({"CFBundleExecutable": "runne-desktop"})
         )
+        (self.candidate / "Contents" / "embedded.provisionprofile").write_bytes(
+            b"developer-id-profile\n"
+        )
         (self.candidate / "Contents" / "Resources" / "asset.txt").write_text(
             "asset\n"
         )
         self.entitlements = {}
         for role in ("app", "cli", "daemon"):
             path = self.root / f"{role}.plist"
-            path.write_bytes(plistlib.dumps({}))
+            payload = (
+                {
+                    "com.apple.application-identifier": "758F9Z45SR.com.runne.desktop",
+                    "com.apple.developer.team-identifier": "758F9Z45SR",
+                    "keychain-access-groups": ["758F9Z45SR.com.runne.desktop"],
+                }
+                if role == "app"
+                else {}
+            )
+            path.write_bytes(plistlib.dumps(payload))
             self.entitlements[role] = path
 
     def request(self) -> ProductCandidateRequest:
@@ -48,6 +60,30 @@ class MacOSProductSigningCandidateTests(unittest.TestCase):
             app_entitlements=self.entitlements["app"],
             cli_entitlements=self.entitlements["cli"],
             daemon_entitlements=self.entitlements["daemon"],
+        )
+
+    def test_product_app_entitlements_authorize_private_data_protection_group(self) -> None:
+        self.entitlements["app"].write_bytes(
+            plistlib.dumps(
+                {
+                    "com.apple.application-identifier": "758F9Z45SR.com.runne.desktop",
+                    "com.apple.developer.team-identifier": "758F9Z45SR",
+                    "keychain-access-groups": ["758F9Z45SR.com.runne.desktop"],
+                }
+            )
+        )
+
+        validated = validate_product_candidate(self.request())
+
+        self.assertFalse(hasattr(validated, "code"))
+
+    def test_empty_product_app_entitlements_are_rejected(self) -> None:
+        self.entitlements["app"].write_bytes(plistlib.dumps({}))
+        failure = validate_product_candidate(self.request())
+
+        self.assertEqual(
+            getattr(failure, "code", None),
+            FailureCode.ENTITLEMENTS_MISMATCH,
         )
 
     def test_exact_three_component_bundle_is_captured(self) -> None:
@@ -92,6 +128,16 @@ class MacOSProductSigningCandidateTests(unittest.TestCase):
                         (macos / "runned").chmod(0o644)
                     failure = validate_product_candidate(self.request())
                     self.assertEqual(failure.code, FailureCode.ARTIFACT_NOT_FOUND)
+
+    def test_missing_embedded_distribution_profile_is_rejected(self) -> None:
+        (self.candidate / "Contents" / "embedded.provisionprofile").unlink()
+
+        failure = validate_product_candidate(self.request())
+
+        self.assertEqual(
+            getattr(failure, "code", None),
+            FailureCode.ENTITLEMENTS_MISMATCH,
+        )
 
     def test_symlinked_component_and_reused_entitlement_inode_are_rejected(self) -> None:
         macos = self.candidate / "Contents" / "MacOS"

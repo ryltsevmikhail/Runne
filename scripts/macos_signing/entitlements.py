@@ -8,7 +8,19 @@ from .models import EntitlementBinding
 
 
 def bind_entitlements(paths: Sequence[Path]) -> tuple[EntitlementBinding, ...]:
-    bindings = tuple(_binding(path) for path in paths)
+    return bind_entitlements_exact(paths, ({},) * len(paths))
+
+
+def bind_entitlements_exact(
+    paths: Sequence[Path],
+    expected_payloads: Sequence[dict],
+) -> tuple[EntitlementBinding, ...]:
+    if len(paths) != len(expected_payloads):
+        raise ValueError("entitlement policy length mismatch")
+    bindings = tuple(
+        _binding(path, expected)
+        for path, expected in zip(paths, expected_payloads, strict=True)
+    )
     identities = {(binding.device, binding.inode) for binding in bindings}
     if len(identities) != len(bindings):
         raise ValueError("entitlements must use distinct files")
@@ -17,12 +29,12 @@ def bind_entitlements(paths: Sequence[Path]) -> tuple[EntitlementBinding, ...]:
 
 def entitlement_binding_is_current(binding: EntitlementBinding) -> bool:
     try:
-        return _binding(binding.canonical_path) == binding
+        return _binding(binding.canonical_path, None) == binding
     except (OSError, ValueError, plistlib.InvalidFileException):
         return False
 
 
-def _binding(path: Path) -> EntitlementBinding:
+def _binding(path: Path, expected_payload: dict | None) -> EntitlementBinding:
     if not isinstance(path, Path) or path.is_symlink():
         raise ValueError("invalid entitlement path")
     canonical = path.resolve(strict=True)
@@ -31,7 +43,9 @@ def _binding(path: Path) -> EntitlementBinding:
         raise ValueError("invalid entitlement file")
     value = canonical.read_bytes()
     payload = plistlib.loads(value)
-    if type(payload) is not dict or payload != {}:
+    if type(payload) is not dict or (
+        expected_payload is not None and payload != expected_payload
+    ):
         raise ValueError("invalid entitlement plist")
     return EntitlementBinding(
         canonical,

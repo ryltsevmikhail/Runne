@@ -1,7 +1,6 @@
 from .models import CommandResult, CommandSpec, FailureCode
 from .observations import (
     parse_designated_requirement,
-    parse_embedded_entitlements,
     parse_signature_metadata,
 )
 from .parsers import (
@@ -10,6 +9,8 @@ from .parsers import (
     parse_spctl_result,
     parse_stapler_result,
 )
+from .product_entitlements import parse_product_embedded_entitlements
+from .product_provisioning import profile_result_failure
 
 _EXPECTED_IDENTIFIERS = {
     "daemon": "runned",
@@ -24,6 +25,8 @@ def verify_product_command_result(
     result: CommandResult,
 ) -> FailureCode | None:
     phase = command.phase
+    if phase == "inspect-provisioning-profile":
+        return profile_result_failure(result)
     if phase.startswith(("sign-", "verify-")):
         return parse_codesign_result(result)
     if phase.startswith("metadata-"):
@@ -32,7 +35,10 @@ def verify_product_command_result(
         value = parse_designated_requirement(result)
         return value if isinstance(value, FailureCode) else None
     if phase.startswith("entitlements-"):
-        return parse_embedded_entitlements(result)
+        return parse_product_embedded_entitlements(
+            phase.removeprefix("entitlements-"),
+            result,
+        )
     if phase.startswith("notary-"):
         return parse_notary_result(result)
     if phase.startswith(("staple-", "validate-")):

@@ -26,7 +26,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--signing-identity-ref", required=True)
     parser.add_argument("--notary-profile-ref", required=True)
     parser.add_argument("--notary-keychain-ref", required=True, type=Path)
-    parser.add_argument("--app-entitlements", type=Path, default=_ENTITLEMENTS / "app.plist")
+    parser.add_argument(
+        "--app-entitlements",
+        type=Path,
+        default=_ENTITLEMENTS / "product-app.plist",
+    )
     parser.add_argument("--cli-entitlements", type=Path, default=_ENTITLEMENTS / "cli.plist")
     parser.add_argument("--daemon-entitlements", type=Path, default=_ENTITLEMENTS / "daemon.plist")
     return parser

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from .command_grammar import CODESIGN, parse_command_spec
 from .models import CommandSpec, ValidatedTarget
 from .product_distribution_commands import (
@@ -13,6 +15,7 @@ from .product_models import (
 )
 
 _OPERATIONS = ("sign", "verify", "metadata", "requirement", "entitlements")
+_SECURITY = "/usr/bin/security"
 
 
 def build_product_signing_commands(
@@ -32,7 +35,19 @@ def build_product_signing_commands(
         ("cli", _rooted(candidate, candidate.cli), candidate.cli_entitlements),
         ("app", app, candidate.app_entitlements),
     )
-    commands = []
+    commands = [
+        CommandSpec(
+            "inspect-provisioning-profile",
+            _SECURITY,
+            (
+                "cms",
+                "-D",
+                "-i",
+                f"{candidate.candidate.relative_name}/Contents/embedded.provisionprofile",
+            ),
+            ".",
+        )
+    ]
     for role, target, entitlement in components:
         for operation in _OPERATIONS:
             commands.append(
@@ -48,6 +63,8 @@ def build_product_signing_commands(
 
 
 def redact_external_command(command: CommandSpec) -> ExternalCommandTemplate:
+    if _profile_inspection_is_exact(command):
+        return ExternalCommandTemplate(command.phase, command.program, command.argv)
     distribution = redact_distribution_command(command)
     if distribution is not None:
         return distribution
@@ -66,7 +83,13 @@ def canonical_product_templates(app_name: str) -> tuple[ExternalCommandTemplate,
         "cli": f"{app_name}/Contents/MacOS/runne",
         "app": app_name,
     }
-    templates = []
+    templates = [
+        ExternalCommandTemplate(
+            "inspect-provisioning-profile",
+            _SECURITY,
+            ("cms", "-D", "-i", f"{app_name}/Contents/embedded.provisionprofile"),
+        )
+    ]
     for role in ("daemon", "cli", "app"):
         target = targets[role]
         arguments = {
@@ -95,6 +118,18 @@ def canonical_product_templates(app_name: str) -> tuple[ExternalCommandTemplate,
                 )
             )
     return tuple(templates) + canonical_distribution_templates(app_name)
+
+
+def _profile_inspection_is_exact(command: CommandSpec) -> bool:
+    return (
+        command.phase == "inspect-provisioning-profile"
+        and command.program == _SECURITY
+        and len(command.argv) == 4
+        and command.argv[:3] == ("cms", "-D", "-i")
+        and command.argv[3].endswith(".app/Contents/embedded.provisionprofile")
+        and not command.argv[3].startswith("/")
+        and ".." not in Path(command.argv[3]).parts
+    )
 
 
 def _component_command(

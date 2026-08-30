@@ -5,6 +5,7 @@ ALLOWED_PROGRAMS = {
     "/usr/bin/codesign",
     "/usr/bin/ditto",
     "/usr/bin/hdiutil",
+    "/usr/bin/security",
     "/usr/sbin/spctl",
     "/usr/bin/xcrun",
 }
