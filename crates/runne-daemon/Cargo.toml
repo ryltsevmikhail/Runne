@@ -84,6 +84,7 @@ aho-corasick = { workspace = true }
 runne-app-core = { path = "../runne-app-core", features = ["test-support"] }
 runne-platform-desktop = { path = "../runne-platform-desktop", features = ["test-support"] }
 runne-runtime-client = { path = "../runne-runtime-client", features = ["test-support"] }
+runne-sqlite-handle-identity = { path = "../runne-sqlite-handle-identity" }
 tempfile = "3"
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }
 

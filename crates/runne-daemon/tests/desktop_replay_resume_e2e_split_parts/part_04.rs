@@ -27,7 +27,7 @@ fn replace_bound_runtime_authority(database_path: &Path) {
 }
 
 fn delete_first_daemon_event(database_path: &Path) {
-    let connection = Connection::open(database_path).expect("open daemon database");
+    let connection = open_daemon_database(database_path);
     assert_eq!(
         connection
             .execute("DELETE FROM events WHERE global_position = 1", [])
@@ -37,7 +37,7 @@ fn delete_first_daemon_event(database_path: &Path) {
 }
 
 fn revoke_live_replay_epoch(database_path: &Path) {
-    let connection = Connection::open(database_path).expect("open daemon database");
+    let connection = open_daemon_database(database_path);
     assert_eq!(
         connection
             .execute(
@@ -53,7 +53,7 @@ fn revoke_live_replay_epoch(database_path: &Path) {
 
 #[allow(clippy::type_complexity)]
 fn promote_conversation_event_to_unknown_schema(database_path: &Path, sequence: i64) {
-    let connection = Connection::open(database_path).expect("open daemon database");
+    let connection = open_daemon_database(database_path);
     let row: (
         Vec<u8>,
         Vec<u8>,
@@ -150,8 +150,7 @@ fn fixed_16(value: &[u8]) -> [u8; 16] {
 fn wait_for_closed_replay_session(database_path: &Path) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        if Connection::open(database_path)
-            .expect("open daemon database")
+        if open_daemon_database(database_path)
             .query_row(
                 "SELECT EXISTS (
                     SELECT 1 FROM _replay_subscriptions WHERE state = 'closed'
@@ -165,15 +164,15 @@ fn wait_for_closed_replay_session(database_path: &Path) {
         }
         assert!(
             Instant::now() < deadline,
-            "disconnected replay session did not close"
+            "disconnected replay session did not close: {:?}",
+            daemon_replay_rows(database_path)
         );
         std::thread::sleep(Duration::from_millis(20));
     }
 }
 
 fn closed_replay_progress(database_path: &Path) -> (Option<i64>, Option<i64>) {
-    Connection::open(database_path)
-        .expect("open daemon database")
+    open_daemon_database(database_path)
         .query_row(
             "
             SELECT last_acked_position, last_delivered_position
@@ -239,7 +238,7 @@ async fn connect_identity(profile_path: &Path) -> ObservedSessionIdentity {
 }
 
 fn install_ack_failure_after_inclusive_duplicate(database_path: &Path) {
-    let connection = Connection::open(database_path).expect("open daemon database");
+    let connection = open_daemon_database(database_path);
     connection
         .busy_timeout(Duration::from_secs(5))
         .expect("daemon database busy timeout");
@@ -259,8 +258,7 @@ fn install_ack_failure_after_inclusive_duplicate(database_path: &Path) {
 }
 
 fn remove_ack_failure(database_path: &Path) {
-    Connection::open(database_path)
-        .expect("open daemon database")
+    open_daemon_database(database_path)
         .execute_batch("DROP TRIGGER fail_replay_ack_after_duplicate;")
         .expect("remove replay acknowledgement fault");
 }

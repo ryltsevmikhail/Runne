@@ -32,8 +32,7 @@ fn local_projection_state(database_path: &Path) -> LocalProjectionState {
 
 fn daemon_has_unacknowledged_delivery(database_path: &Path, generation: u64) -> bool {
     let generation = i64::try_from(generation).expect("generation range");
-    Connection::open(database_path)
-        .expect("open daemon database")
+    open_daemon_database(database_path)
         .query_row(
             "
             SELECT EXISTS (
@@ -51,10 +50,28 @@ fn daemon_has_unacknowledged_delivery(database_path: &Path, generation: u64) -> 
         .expect("read interrupted replay session")
 }
 
+type ReplaySessionRow = (String, String, Option<i64>, Option<i64>, i64);
+
+fn daemon_replay_rows(database_path: &Path) -> Vec<ReplaySessionRow> {
+    let connection = open_daemon_database(database_path);
+    let mut statement = connection
+        .prepare(
+            "SELECT hex(session_id), state, last_acked_position, last_delivered_position, session_generation
+             FROM _replay_subscriptions ORDER BY created_at",
+        )
+        .expect("prepare replay session diagnostics");
+    statement
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+        })
+        .expect("query replay session diagnostics")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("read replay session diagnostics")
+}
+
 fn daemon_latest_cursor_is_acknowledged_and_closed(database_path: &Path, generation: u64) -> bool {
     let generation = i64::try_from(generation).expect("generation range");
-    Connection::open(database_path)
-        .expect("open daemon database")
+    open_daemon_database(database_path)
         .query_row(
             "
             SELECT EXISTS (
@@ -71,6 +88,13 @@ fn daemon_latest_cursor_is_acknowledged_and_closed(database_path: &Path, generat
             |row| row.get(0),
         )
         .expect("read resumed replay session")
+}
+
+fn open_daemon_database(database_path: &Path) -> Connection {
+    let connection = Connection::open(database_path).expect("open daemon database");
+    runne_sqlite_handle_identity::configure_persistent_wal(&connection)
+        .expect("retain daemon WAL for cross-process fault inspection");
+    connection
 }
 
 fn wait_for_daemon_latest_cursor_acknowledged_and_closed(database_path: &Path, generation: u64) {

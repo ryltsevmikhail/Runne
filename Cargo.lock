@@ -3910,6 +3910,7 @@ dependencies = [
  "runne-runtime-client",
  "runne-secure-store",
  "runne-security",
+ "runne-sqlite-handle-identity",
  "runne-store",
  "runne-windows-native-handle",
  "rusqlite",
