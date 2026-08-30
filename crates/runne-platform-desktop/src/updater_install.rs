@@ -9,6 +9,7 @@ use std::fs::OpenOptions;
 use std::io;
 use std::io::Read;
 use std::path::Path;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 use std::process::Command;
 
 use sha2::{Digest, Sha256};
@@ -18,6 +19,10 @@ use thiserror::Error;
 use std::os::unix::fs::PermissionsExt;
 
 use crate::{StagedUpdate, UpdateArtifactKind};
+
+#[cfg(target_os = "macos")]
+#[path = "updater_install/macos.rs"]
+mod macos;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum NativeUpdateInstallError {
@@ -46,7 +51,7 @@ pub fn install_staged_update(
     #[cfg(target_os = "linux")]
     return install_linux(kind, &update.path, current_executable);
     #[cfg(target_os = "macos")]
-    return install_macos(kind, &update.path, current_executable);
+    return macos::install(kind, &update.path, current_executable);
     #[cfg(target_os = "windows")]
     return install_windows(kind, &update.path);
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
@@ -143,69 +148,6 @@ fn replace_appimage(staged: &Path, current: &Path) -> Result<(), NativeUpdateIns
     result
 }
 
-#[cfg(target_os = "macos")]
-fn install_macos(
-    kind: UpdateArtifactKind,
-    staged: &Path,
-    current_executable: &Path,
-) -> Result<(), NativeUpdateInstallError> {
-    if kind != UpdateArtifactKind::MacDmg {
-        return Err(NativeUpdateInstallError::UnsupportedPlatform);
-    }
-    let bundle = current_executable
-        .ancestors()
-        .find(|path| path.extension().and_then(|value| value.to_str()) == Some("app"))
-        .ok_or(NativeUpdateInstallError::InvalidArtifact)?;
-    let bundle_name = bundle
-        .file_name()
-        .ok_or(NativeUpdateInstallError::InvalidArtifact)?;
-    let parent = bundle
-        .parent()
-        .ok_or(NativeUpdateInstallError::InvalidArtifact)?;
-    let mount = std::env::temp_dir().join(format!("runne-update-mount-{}", std::process::id()));
-    let replacement = parent.join(format!(
-        ".{}.new-{}",
-        bundle_name.to_string_lossy(),
-        std::process::id()
-    ));
-    let backup = parent.join(format!(
-        ".{}.old-{}",
-        bundle_name.to_string_lossy(),
-        std::process::id()
-    ));
-    if mount.exists() || replacement.exists() || backup.exists() {
-        return Err(NativeUpdateInstallError::InvalidArtifact);
-    }
-    fs::create_dir(&mount).map_err(|_| NativeUpdateInstallError::InstallerFailed)?;
-    let result = (|| {
-        run_command(
-            Command::new("hdiutil")
-                .arg("attach")
-                .arg("-nobrowse")
-                .arg("-readonly")
-                .arg("-mountpoint")
-                .arg(&mount)
-                .arg(staged),
-        )?;
-        let source = mount.join(bundle_name);
-        run_command(Command::new("ditto").arg(&source).arg(&replacement))?;
-        fs::rename(bundle, &backup).map_err(|_| NativeUpdateInstallError::InstallerFailed)?;
-        if let Err(error) = fs::rename(&replacement, bundle) {
-            let _ = fs::rename(&backup, bundle);
-            let _ = error;
-            return Err(NativeUpdateInstallError::InstallerFailed);
-        }
-        let _ = fs::remove_dir_all(&backup);
-        Ok(())
-    })();
-    let _ = Command::new("hdiutil").arg("detach").arg(&mount).status();
-    let _ = fs::remove_dir(&mount);
-    if result.is_err() {
-        let _ = fs::remove_dir_all(&replacement);
-    }
-    result
-}
-
 #[cfg(target_os = "windows")]
 fn install_windows(
     kind: UpdateArtifactKind,
@@ -223,6 +165,7 @@ fn install_windows(
         .map_err(|_| NativeUpdateInstallError::InstallerFailed)
 }
 
+#[cfg(target_os = "linux")]
 fn run_command(command: &mut Command) -> Result<(), NativeUpdateInstallError> {
     command
         .status()
