@@ -160,7 +160,11 @@ fn protected_activation_error() -> DaemonError {
 ///
 /// `None` means this installation carries no admitted enrollment anchor; a
 /// prepare frame then fails closed as an unknown control frame.
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(all(
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
 fn enrollment_transition_composition(
     application: &crate::application::DaemonApplication,
     request: &runne_api::ProtectedLaunchRequestV2,
