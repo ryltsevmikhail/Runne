@@ -53,6 +53,10 @@ class CheckDepsTests(unittest.TestCase):
     def test_only_cli_enables_the_project_owner_store_feature(self) -> None:
         self.assertEqual(checker.PROJECT_OWNER_STORE_OWNER, "runne-cli")
         self.assertEqual(checker.PROJECT_OWNER_STORE_FEATURE, "project-owner-key-store")
+        self.assertEqual(
+            checker.PROJECT_OWNER_STORE_FEATURES,
+            {"project-owner-key-store", "provider-credential-broker-writer"},
+        )
         manifests = list((SCRIPT_PATH.parents[1] / "crates").glob("*/Cargo.toml"))
         enabled = []
         for manifest in manifests:
@@ -80,7 +84,7 @@ class CheckDepsTests(unittest.TestCase):
                 "name": "runne-secure-store", "kind": None, "target": None,
                 "rename": None, "optional": False, "uses_default_features": False,
                 "path": "/repo/crates/runne-secure-store",
-                "features": [checker.PROJECT_OWNER_STORE_FEATURE],
+                "features": sorted(checker.PROJECT_OWNER_STORE_FEATURES),
             }],
         }
         self.assertFalse(checker.project_owner_store_declaration_errors([owner]))
@@ -102,7 +106,7 @@ class CheckDepsTests(unittest.TestCase):
                 "name": "runne-secure-store", "kind": None, "target": None,
                 "rename": None, "optional": False, "uses_default_features": False,
                 "path": "/repo/crates/runne-secure-store",
-                "features": [checker.PROJECT_OWNER_STORE_FEATURE],
+                "features": sorted(checker.PROJECT_OWNER_STORE_FEATURES),
             }],
         }
         package = {
