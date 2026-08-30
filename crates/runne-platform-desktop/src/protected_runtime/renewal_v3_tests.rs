@@ -23,6 +23,7 @@ fn v3_process(channel: UnixStream) -> (ProtectedBundledRuntimeProcess, Protected
             #[cfg(feature = "protected-channel-integration")]
             root_control_sequence: 0,
             graceful_requested: false,
+            enrollment_broker_facts: None,
             #[cfg(feature = "test-support")]
             captured_stdout: None,
             #[cfg(feature = "test-support")]

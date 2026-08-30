@@ -169,11 +169,10 @@ pub(crate) fn run_control_loop_v2(
                 installation,
             )?;
             let (v3_keys, v3_owned_launch, rendezvous) = outcome.into_parts();
-            // The rendezvous ends stay resident for the authenticated writer
-            // handoff. Every failure above and below the rotation already
-            // terminated this loop; the daemon never retries the transition on
-            // another authority path.
-            let _rendezvous = rendezvous;
+            // The rendezvous feeds the authenticated writer handoff mounted in
+            // the V3 control loop. Every failure above and below the rotation
+            // already terminated this loop; the daemon never retries the
+            // transition on another authority path.
             return super::control_v3::run_control_loop_v3_entered(
                 channel,
                 v3_keys,
@@ -181,6 +180,7 @@ pub(crate) fn run_control_loop_v2(
                 local_session_service,
                 session_clock,
                 composition.ticket_clock(),
+                rendezvous,
             );
         }
         #[cfg(all(any(unix, windows), feature = "desktop-protected"))]

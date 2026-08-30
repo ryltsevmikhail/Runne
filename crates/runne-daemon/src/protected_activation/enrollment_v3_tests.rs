@@ -113,7 +113,7 @@ mod expectation;
 #[path = "enrollment_v3_tests/ticket_clock.rs"]
 mod ticket_clock;
 
-fn owned_and_sessions() -> (
+pub(crate) fn owned_and_sessions() -> (
     runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
     runne_api::ProtectedActivationKeys,
     Arc<Mutex<LocalSessionService>>,
@@ -178,7 +178,7 @@ fn owned_and_sessions() -> (
     )
 }
 
-fn read_frame(stream: &mut UnixStream) -> Vec<u8> {
+pub(crate) fn read_frame(stream: &mut UnixStream) -> Vec<u8> {
     let mut prefix = [0; 4];
     stream.read_exact(&mut prefix).unwrap();
     let mut frame = vec![0; u32::from_be_bytes(prefix) as usize + 4];
@@ -225,6 +225,7 @@ fn v3_control_preserves_exact_binding_across_renewal_and_shutdown() {
             sessions,
             Arc::new(|| Duration::from_secs(1)),
             Arc::new(|| Ok(1_000)),
+            super::enrollment_control_transition::DaemonEnrollmentRendezvous::for_test(),
         )
     });
     let (owned, keys, _) = owned_and_sessions();
@@ -283,6 +284,7 @@ fn v3_control_rejects_v1_and_v2_renewal_and_shutdown_frames() {
                 sessions,
                 Arc::new(|| Duration::from_secs(1)),
                 Arc::new(|| Ok(1_000)),
+                super::enrollment_control_transition::DaemonEnrollmentRendezvous::for_test(),
             )
         });
         client.write_all(&frame).unwrap();

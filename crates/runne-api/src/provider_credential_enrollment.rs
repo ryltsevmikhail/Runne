@@ -8,13 +8,14 @@ pub const PROVIDER_CREDENTIAL_ENROLLMENT_CAPABILITY_V2: &str = "provider.credent
 
 pub use host::{
     ProviderCredentialBaseRequestAuthority, ProviderCredentialBrokerCapturedWriter,
+    ProviderCredentialBrokerHandoffContext, ProviderCredentialBrokerHandoffFrame,
     ProviderCredentialBrokerHandoffWitness, ProviderCredentialBrokerKillBindingV1,
     ProviderCredentialBrokerKillRelinquishedProof, ProviderCredentialBrokerTransferAuthority,
     ProviderCredentialBrokerWriterEvidenceWitness, ProviderCredentialEnrollmentHostError,
     ProviderCredentialEnrollmentHostPort, ProviderCredentialHostFuture,
     ProviderCredentialIntentConsumptionProof, ProviderCredentialRequestAuthorityIssuer,
     ProviderCredentialRequestAuthorityPair, ProviderCredentialRequestAuthorityVerifier,
-    ProviderCredentialStatusFuture,
+    ProviderCredentialStatusFuture, broker_handoff_kill_ack_binding, is_broker_handoff_frame,
 };
 
 pub use types::{

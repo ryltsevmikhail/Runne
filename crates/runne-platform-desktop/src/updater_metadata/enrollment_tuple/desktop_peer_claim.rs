@@ -2,6 +2,17 @@ use sha2::{Digest as _, Sha256};
 
 use crate::ProtectedBundledRuntimeError;
 
+/// Retained installed facts for one credential enrollment transition.
+#[derive(Clone, Copy)]
+pub struct EnrollmentTransitionFacts {
+    /// Release tuple digest of the retained installed tuple.
+    pub release_tuple_digest: [u8; 32],
+    /// Qualification digest retained from the threshold-signed qualification.
+    pub qualification_binding_digest: [u8; 32],
+    /// Launch generation recorded at native confirmation time.
+    pub supervisor_generation: u64,
+}
+
 use super::{ConfirmedInstalledNativeEnrollment, enrollment_live_daemon::ProtectedDaemonTupleEvidence};
 
 impl ConfirmedInstalledNativeEnrollment {
@@ -11,6 +22,40 @@ impl ConfirmedInstalledNativeEnrollment {
     pub fn intent_session_binding(&self) -> [u8; 32] {
         let evidence = &self.evidence;
         hash_intent(evidence)
+    }
+
+    /// Retained installed facts for one credential enrollment transition.
+    ///
+    /// Fails closed unless the retained qualification is still bound.
+    #[must_use]
+    pub fn enrollment_transition_facts(&self) -> Option<EnrollmentTransitionFacts> {
+        Some(EnrollmentTransitionFacts {
+            release_tuple_digest: self.evidence.release_tuple,
+            qualification_binding_digest: self
+                .admission
+                .qualification
+                .retained_qualification_binding_digest()?,
+            supervisor_generation: self.evidence.generation,
+        })
+    }
+
+    /// Mints one verified macOS writer launch from the retained admission.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed failure when the retained paths or writer identity are
+    /// unavailable or the re-measured writer does not match the tuple.
+    pub fn verified_macos_writer_launch(
+        &self,
+    ) -> Result<crate::VerifiedMacOsWriterLaunch, ProtectedBundledRuntimeError> {
+        let paths = self
+            .paths
+            .as_ref()
+            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let executable = paths.writer_executable_path();
+        self.admission
+            .verified_macos_writer(executable)
+            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)
     }
 
     /// Revalidates the signed current desktop before deriving its peer claim.

@@ -63,24 +63,40 @@ impl EnrollmentControlComposition {
     }
 }
 
-/// Daemon-retained halves of one enrollment rendezvous. The authenticated
-/// writer handoff mounted with the desktop composition slice consumes the
-/// daemon authority and the writer endpoint exactly once.
-#[expect(
-    dead_code,
-    reason = "the desktop composition slice mounts the authenticated writer handoff"
-)]
+/// Daemon-retained halves of one enrollment rendezvous, consumed exactly once
+/// by the authenticated writer handoff mounted in the V3 control loop.
 pub(crate) struct DaemonEnrollmentRendezvous {
     authority: DaemonBrokerAuthority,
-    writer_endpoint: UnixStream,
+    writer_endpoint: Option<UnixStream>,
 }
 
 impl DaemonEnrollmentRendezvous {
     pub(super) fn new(authority: DaemonBrokerAuthority, writer_endpoint: UnixStream) -> Self {
         Self {
             authority,
-            writer_endpoint,
+            writer_endpoint: Some(writer_endpoint),
         }
+    }
+
+    /// Daemon half of the rendezvous, used for the exact writer peer capture.
+    pub(crate) fn broker_authority(&self) -> &DaemonBrokerAuthority {
+        &self.authority
+    }
+
+    /// Moves the writer endpoint into the authenticated descriptor transfer once.
+    pub(crate) fn take_writer_endpoint(&mut self) -> Option<UnixStream> {
+        self.writer_endpoint.take()
+    }
+
+    /// Creates a fresh production rendezvous for loop-level fixtures.
+    #[cfg(test)]
+    pub(crate) fn for_test() -> Self {
+        let mut rendezvous =
+            crate::application::provider_credential_enrollment::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous::create()
+                .unwrap();
+        let authority = rendezvous.take_daemon_authority().unwrap();
+        let writer_endpoint = rendezvous.take_writer_endpoint().unwrap();
+        Self::new(authority, writer_endpoint)
     }
 }
 

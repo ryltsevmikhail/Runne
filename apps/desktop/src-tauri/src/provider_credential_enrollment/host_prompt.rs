@@ -1,13 +1,3 @@
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        unused_imports,
-        reason = "wired only after protected tuple-backed enrollment composition"
-    )
-)]
-#![cfg_attr(test, allow(dead_code, unused_imports))]
-
 #[cfg(target_os = "macos")]
 mod macos;
 

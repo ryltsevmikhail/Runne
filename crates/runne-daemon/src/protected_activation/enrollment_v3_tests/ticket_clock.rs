@@ -48,6 +48,7 @@ fn v3_ticket_uses_the_shared_boot_clock_when_session_clock_differs() {
             sessions,
             Arc::new(|| Duration::from_secs(7)),
             Arc::new(|| Ok(50_000)),
+            super::super::enrollment_control_transition::DaemonEnrollmentRendezvous::for_test(),
         )
     });
     let (owned, keys, _) = owned_and_sessions();
@@ -87,12 +88,15 @@ fn v3_ticket_clock_rejects_expiry_overflow() {
             sessions,
             Arc::new(|| Duration::ZERO),
             Arc::new(|| Ok(u64::MAX - 29_999)),
+            super::super::enrollment_control_transition::DaemonEnrollmentRendezvous::for_test(),
         )
     });
     let (owned, keys, _) = owned_and_sessions();
     let mut renewal = ProtectedCredentialEnrollmentRenewRequestV3::new(owned, 1, [32; 32]).unwrap();
     renewal.sign(&keys);
     client.write_all(&renewal.encode_frame().unwrap()).unwrap();
+    // The ticket-clock failure itself terminates the loop; dropping the peer
+    // here would race the server thread's loop entry with an unrelated error.
     assert_eq!(
         server.join().unwrap(),
         Err(runne_api::LaunchAuthorityError::RenewalUnavailable)
@@ -120,12 +124,15 @@ fn v3_ticket_clock_error_leaves_the_existing_session_unrevoked() {
             sessions,
             Arc::new(|| Duration::ZERO),
             Arc::new(|| Err(runne_api::LaunchAuthorityError::RenewalUnavailable)),
+            super::super::enrollment_control_transition::DaemonEnrollmentRendezvous::for_test(),
         )
     });
     let (owned, keys, _) = owned_and_sessions();
     let mut renewal = ProtectedCredentialEnrollmentRenewRequestV3::new(owned, 1, [46; 32]).unwrap();
     renewal.sign(&keys);
     client.write_all(&renewal.encode_frame().unwrap()).unwrap();
+    // The ticket-clock failure itself terminates the loop; dropping the peer
+    // here would race the server thread's loop entry with an unrelated error.
     assert_eq!(
         server.join().unwrap(),
         Err(runne_api::LaunchAuthorityError::RenewalUnavailable)
@@ -149,12 +156,24 @@ fn v3_ticket_write_failure_terminates_the_control_loop() {
             sessions,
             Arc::new(|| Duration::ZERO),
             Arc::new(|| Ok(1_000)),
+            super::super::enrollment_control_transition::DaemonEnrollmentRendezvous::for_test(),
         )
     });
     let (owned, keys, _) = owned_and_sessions();
     let mut renewal = ProtectedCredentialEnrollmentRenewRequestV3::new(owned, 1, [47; 32]).unwrap();
     renewal.sign(&keys);
     client.write_all(&renewal.encode_frame().unwrap()).unwrap();
+    // Wait for the observed rotation before closing the peer: the ticket write
+    // then fails against a vanished (or draining) peer after the rotation, not
+    // the loop entry racing a lost socketpair end.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while observed_sessions.lock().unwrap().current_binding() == &initial_binding {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "daemon never rotated the session"
+        );
+        std::thread::yield_now();
+    }
     drop(client);
     assert_eq!(
         server.join().unwrap(),

@@ -131,27 +131,13 @@ pub struct BundledRuntimeController {
 ///
 /// It holds the async operation fence but never a supervisor mutex, so host UI
 /// stays responsive while the exact owned daemon is rechecked after the prompt.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the protected prompt composition owns this lease before control dispatch exists"
-    )
-)]
-#[cfg_attr(test, allow(dead_code))]
 pub struct NativeCredentialEnrollmentLease {
     supervisor: Arc<Mutex<ProtectedBundledRuntimeSupervisor>>,
+    /// Held for its exclusive-fence side effect; never read directly.
+    #[expect(dead_code)]
     operation_permit: tokio::sync::OwnedMutexGuard<()>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the protected prompt composition uses this native lifecycle future"
-    )
-)]
-#[cfg_attr(test, allow(dead_code))]
 pub type CredentialEnrollmentFuture = Pin<
     Box<
         dyn Future<Output = Result<NativeCredentialEnrollmentLease, AppCoreError>> + Send + 'static,
@@ -159,14 +145,13 @@ pub type CredentialEnrollmentFuture = Pin<
 >;
 
 impl NativeCredentialEnrollmentLease {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the protected prompt composition confirms this lease after the prompt"
-        )
-    )]
-    #[cfg_attr(test, allow(dead_code))]
+    /// Opaque handle for one native daemon dispatch on the leased supervisor.
+    pub(crate) fn supervisor_handle(
+        &self,
+    ) -> Arc<std::sync::Mutex<ProtectedBundledRuntimeSupervisor>> {
+        Arc::clone(&self.supervisor)
+    }
+
     pub(crate) async fn confirm(
         &self,
         prepared: PreparedInstalledNativeEnrollment,
@@ -185,14 +170,6 @@ impl NativeCredentialEnrollmentLease {
 }
 
 impl crate::RuntimeLifecycleManager {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the protected prompt composition acquires this lease before native UI"
-        )
-    )]
-    #[cfg_attr(test, allow(dead_code))]
     pub(crate) async fn acquire_credential_enrollment_lease(
         &self,
     ) -> Result<NativeCredentialEnrollmentLease, AppCoreError> {

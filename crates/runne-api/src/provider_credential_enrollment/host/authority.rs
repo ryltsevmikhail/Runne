@@ -3,8 +3,9 @@ use std::sync::Arc;
 
 use super::ProviderCredentialEnrollmentHostError;
 use crate::{
-    CredentialBrokerTransferAuthenticator, ProtectedCredentialBrokerTransferAdmission,
-    VerifiedProtectedCredentialEnrollmentAdmission, VerifiedProtectedCredentialEnrollmentRequest,
+    CredentialBrokerTransferAuthenticator, CredentialBrokerTransferCommitment,
+    ProtectedCredentialBrokerTransferAdmission, VerifiedProtectedCredentialEnrollmentAdmission,
+    VerifiedProtectedCredentialEnrollmentRequest,
 };
 
 struct AuthoritySeal;

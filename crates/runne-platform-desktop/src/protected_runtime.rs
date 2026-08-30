@@ -20,6 +20,7 @@ include!("protected_runtime/tests.rs");
 include!("protected_runtime/native_enrollment_tests.rs");
 include!("protected_runtime/renewal.rs");
 include!("protected_runtime/enrollment_transition.rs");
+include!("protected_runtime/enrollment_broker_handoff.rs");
 #[cfg(all(test, unix))]
 include!("protected_runtime/enrollment_transition_tests.rs");
 #[cfg(feature = "test-support")]

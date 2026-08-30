@@ -195,6 +195,26 @@ impl ProviderCredentialBrokerHandoffWitness {
 }
 
 impl ProviderCredentialBrokerTransferAuthority {
+    /// Mints the daemon-side transfer authority for one exact enrollment V3 launch.
+    ///
+    /// The same-process V2→V3 transition has no issuer/admission pair yet: the
+    /// desktop and daemon share the V3 launch keys, and both derive the same
+    /// broker-transfer key domain from them. Later uses stay one-shot through
+    /// `writer_evidence_available` and the instance-local transfer seal.
+    #[must_use]
+    pub fn from_enrollment_launch_keys(
+        keys: &ProtectedActivationKeys,
+        commitment: &CredentialBrokerTransferCommitment,
+    ) -> Self {
+        Self {
+            seal: Arc::new(AuthoritySeal),
+            transfer_seal: Arc::new(AuthoritySeal),
+            protected_session_binding: *commitment.as_bytes(),
+            authenticator: CredentialBrokerTransferAuthenticator::from_protected_activation(keys),
+            writer_evidence_available: true,
+        }
+    }
+
     /// Binds the transfer key to both the daemon issuer and current session.
     #[must_use]
     pub fn matches_handoff(
@@ -243,3 +263,9 @@ impl fmt::Debug for ProviderCredentialBrokerTransferAuthority {
 
 include!("broker_transfer_kill_wire.rs");
 include!("broker_transfer_evidence.rs");
+include!("broker_handoff_context.rs");
+include!("broker_handoff_control.rs");
+
+#[cfg(test)]
+#[path = "broker_handoff_tests.rs"]
+mod broker_handoff_tests;

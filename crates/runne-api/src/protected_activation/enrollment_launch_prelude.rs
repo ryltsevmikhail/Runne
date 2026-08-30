@@ -77,6 +77,14 @@ impl DaemonEnrollmentLaunchPreludeV1 {
     #[must_use]
     pub const fn supervisor_generation(&self) -> u64 { self.supervisor_generation }
 
+    /// Daemon-generated rendezvous binding for the exact writer channel.
+    #[must_use]
+    pub const fn channel_binding(&self) -> [u8; 32] { self.channel_binding }
+
+    /// Publication key that later verifies the inert daemon publication.
+    #[must_use]
+    pub const fn publication_key(&self) -> [u8; 32] { self.publication_key }
+
     pub fn validate_freshness(&self, now_unix_millis: u64) -> Result<(), LaunchAuthorityError> {
         if now_unix_millis < self.issued_at_unix_millis || now_unix_millis > self.expires_at_unix_millis {
             return Err(LaunchAuthorityError::StaleLaunchAuthority);

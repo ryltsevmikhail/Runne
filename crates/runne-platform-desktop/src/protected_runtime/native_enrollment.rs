@@ -25,6 +25,54 @@ impl ProtectedBundledRuntimeSupervisor {
     }
 }
 
+impl ProtectedBundledRuntimeSupervisor {
+    /// Transitions the exact owned daemon to V3 and hands off one verified
+    /// writer, in that order, for one confirmed installed enrollment.
+    ///
+    /// The writer launch is minted before the transition mutates daemon state;
+    /// a handoff failure poisons the whole transport and leaves the daemon
+    /// holding the sole kill path.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed failure for any stale supervisor state, retained
+    /// admission, live peer, transition, or handoff failure.
+    #[cfg(all(
+        target_os = "macos",
+        target_arch = "aarch64",
+        feature = "protected-channel-integration"
+    ))]
+    pub fn begin_credential_enrollment_handoff(
+        &mut self,
+        confirmed: &crate::ConfirmedInstalledNativeEnrollment,
+    ) -> Result<CredentialWriterHandoff, ProtectedBundledRuntimeError> {
+        if self.state != BundledRuntimeLifecycleState::Ready || self.pending_profile.is_some() {
+            return Err(ProtectedBundledRuntimeError::InvalidState);
+        }
+        let process = self
+            .process
+            .as_mut()
+            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let writer_launch = confirmed.verified_macos_writer_launch()?;
+        let facts = confirmed
+            .enrollment_transition_facts()
+            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let supervisor_generation =
+            std::num::NonZeroU64::new(facts.supervisor_generation)
+                .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let claims = EnrollmentTransitionClaims::new(
+            facts.release_tuple_digest,
+            facts.qualification_binding_digest,
+            confirmed.current_desktop_peer_binding_digest(supervisor_generation)?,
+            facts.supervisor_generation,
+        );
+        let _transitioned = process
+            .begin_credential_enrollment_transition(&claims)
+            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        process.run_credential_writer_handoff(writer_launch)
+    }
+}
+
 impl ProtectedBundledRuntimeProcess {
     fn confirm_installed_native_enrollment(
         &mut self,

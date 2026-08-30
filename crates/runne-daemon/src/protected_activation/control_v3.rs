@@ -17,7 +17,8 @@ pub(crate) fn macos_continuous_ticket_clock() -> TicketClock {
     Arc::new(|| Err(LaunchAuthorityError::RenewalUnavailable))
 }
 
-/// Serves only enrollment V3 renewal and shutdown frames.
+/// Serves only enrollment V3 renewal, broker writer-handoff, and shutdown
+/// frames.
 ///
 /// Enters the channel, then serves the V3 transcript. Root-handle frames have
 /// no V3 owned-launch projection, so this loop rejects them until a separately
@@ -37,6 +38,7 @@ pub(crate) fn run_control_loop_v3(
     local_session_service: Arc<Mutex<LocalSessionService>>,
     session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
     ticket_clock: TicketClock,
+    #[cfg(unix)] rendezvous: super::enrollment_control_transition::DaemonEnrollmentRendezvous,
 ) -> Result<(), LaunchAuthorityError> {
     channel.enter_control_loop()?;
     run_control_loop_v3_entered(
@@ -46,6 +48,8 @@ pub(crate) fn run_control_loop_v3(
         local_session_service,
         session_clock,
         ticket_clock,
+        #[cfg(unix)]
+        rendezvous,
     )
 }
 
@@ -55,9 +59,13 @@ pub(crate) fn run_control_loop_v3(
 /// in-place upgrade; calling `enter_control_loop` twice would re-run the entry
 /// handshake on an already-authenticated channel.
 ///
-/// Once a renewal rotates the local session, a failed channel write terminates
-/// this loop; callers must terminate the daemon rather than retrying on
-/// another path. V1/V2 frames decode as neither V3 message and fail closed.
+/// Broker handoff offers consume the transition rendezvous exactly once, in
+/// fixed purpose order. Once a renewal rotates the local session, a failed
+/// channel write terminates this loop; callers must terminate the daemon
+/// rather than retrying on another path. After the kill-capability
+/// acknowledgement the retained kill authority terminates the exact writer on
+/// any later loop failure. V1/V2 frames decode as neither V3 message and fail
+/// closed.
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 pub(crate) fn run_control_loop_v3_entered(
     mut channel: ProtectedActivationChannel,
@@ -66,12 +74,51 @@ pub(crate) fn run_control_loop_v3_entered(
     local_session_service: Arc<Mutex<LocalSessionService>>,
     session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
     ticket_clock: TicketClock,
+    #[cfg(unix)] rendezvous: super::enrollment_control_transition::DaemonEnrollmentRendezvous,
+) -> Result<(), LaunchAuthorityError> {
+    #[cfg(unix)]
+    let mut broker =
+        super::broker_handoff::BrokerHandoffDispatch::new(&keys, &owned_launch, rendezvous)?;
+    let transcript = serve_v3_transcript(
+        &mut channel,
+        &keys,
+        &mut owned_launch,
+        &local_session_service,
+        &session_clock,
+        &ticket_clock,
+        #[cfg(unix)]
+        &mut broker,
+    );
+    #[cfg(unix)]
+    if transcript.is_err()
+        && let Some(kill) = broker.take_kill()
+    {
+        // Fail-closed recovery: the exact writer never outlives a failed loop.
+        let _ = kill.terminate_exact_peer();
+    }
+    transcript
+}
+
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
+#[allow(clippy::too_many_arguments)]
+fn serve_v3_transcript(
+    channel: &mut ProtectedActivationChannel,
+    keys: &ProtectedActivationKeys,
+    owned_launch: &mut ProtectedCredentialEnrollmentOwnedLaunchV3,
+    local_session_service: &Arc<Mutex<LocalSessionService>>,
+    session_clock: &Arc<dyn Fn() -> Duration + Send + Sync>,
+    ticket_clock: &TicketClock,
+    #[cfg(unix)] broker: &mut super::broker_handoff::BrokerHandoffDispatch,
 ) -> Result<(), LaunchAuthorityError> {
     let mut last_renew_sequence = 0_u64;
     loop {
         let frame = channel.read_control_frame()?;
+        #[cfg(unix)]
+        if broker.dispatch(channel, &frame, ticket_clock)? {
+            continue;
+        }
         if let Ok(renewal) = ProtectedCredentialEnrollmentRenewRequestV3::decode_frame(&frame) {
-            renewal.verify_exact(&owned_launch, last_renew_sequence, &keys)?;
+            renewal.verify_exact(owned_launch, last_renew_sequence, keys)?;
             let current = local_session_service
                 .lock()
                 .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?
@@ -109,9 +156,9 @@ pub(crate) fn run_control_loop_v3_entered(
                 ticket_issued_at,
                 ticket_expires_at,
             )?;
-            ticket.sign(&keys);
+            ticket.sign(keys);
             let next_owned_launch = ticket
-                .verify_exact_at(&renewal, ticket_issued_at, &keys)?
+                .verify_exact_at(&renewal, ticket_issued_at, keys)?
                 .next_owned_launch();
             let ticket_frame = Zeroizing::new(
                 ticket
@@ -128,15 +175,15 @@ pub(crate) fn run_control_loop_v3_entered(
             // service behind daemon termination; the ticket is never retried.
             channel.write_control_frame(&ticket_frame)?;
             last_renew_sequence = renewal.sequence();
-            owned_launch = next_owned_launch;
+            *owned_launch = next_owned_launch;
             continue;
         }
         let shutdown = ProtectedCredentialEnrollmentShutdownV3::decode_frame(&frame)
             .map_err(|_| LaunchAuthorityError::InvalidContract)?;
-        shutdown.verify_exact(&owned_launch, &keys)?;
+        shutdown.verify_exact(owned_launch, keys)?;
         let mut acknowledgement =
             ProtectedCredentialEnrollmentShutdownAckV3::new(owned_launch.clone(), true);
-        acknowledgement.sign(&keys);
+        acknowledgement.sign(keys);
         channel.write_control_frame(
             &acknowledgement
                 .encode_frame()

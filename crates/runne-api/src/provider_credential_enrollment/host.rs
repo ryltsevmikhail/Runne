@@ -11,11 +11,13 @@ mod authority;
 
 pub use authority::{
     ProviderCredentialBaseRequestAuthority, ProviderCredentialBrokerCapturedWriter,
+    ProviderCredentialBrokerHandoffContext, ProviderCredentialBrokerHandoffFrame,
     ProviderCredentialBrokerHandoffWitness, ProviderCredentialBrokerKillBindingV1,
     ProviderCredentialBrokerKillRelinquishedProof, ProviderCredentialBrokerTransferAuthority,
     ProviderCredentialBrokerWriterEvidenceWitness, ProviderCredentialIntentConsumptionProof,
     ProviderCredentialRequestAuthorityIssuer, ProviderCredentialRequestAuthorityPair,
-    ProviderCredentialRequestAuthorityVerifier,
+    ProviderCredentialRequestAuthorityVerifier, broker_handoff_kill_ack_binding,
+    is_broker_handoff_frame,
 };
 
 /// Future returned by mutation/resume/verification host methods.

@@ -141,6 +141,8 @@ impl ProtectedRootControl {
     }
 }
 
+#[cfg(all(unix, feature = "desktop-protected"))]
+mod broker_handoff;
 #[cfg(any(unix, windows))]
 mod channel;
 #[cfg(all(
@@ -199,6 +201,15 @@ pub use host::run_verified_protected_channel;
 pub(crate) use launch::{VerifiedProtectedApplicationStart, VerifiedProtectedRuntimeStart};
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 pub(crate) use root_handle_control::dispatch_root_handle_control_frame;
+#[cfg(all(test, target_os = "macos", feature = "desktop-protected"))]
+#[path = "protected_activation/enrollment_v3_broker_happy_tests.rs"]
+mod enrollment_v3_broker_happy_tests;
+#[cfg(all(test, unix, feature = "desktop-protected"))]
+#[path = "protected_activation/enrollment_v3_broker_rejection_tests.rs"]
+mod enrollment_v3_broker_rejection_tests;
+#[cfg(all(test, unix, feature = "desktop-protected"))]
+#[path = "protected_activation/enrollment_v3_broker_tests.rs"]
+mod enrollment_v3_broker_tests;
 #[cfg(all(test, unix, feature = "desktop-protected"))]
 mod enrollment_v3_tests;
 #[cfg(all(test, unix, feature = "test-support"))]

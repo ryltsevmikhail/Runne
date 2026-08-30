@@ -1,9 +1,10 @@
 //! Desktop-owned broker handoff and exact child cleanup.
-
 #[cfg(unix)]
 mod daemon_evidence;
 #[cfg(unix)]
 mod daemon_rendezvous;
+#[cfg(unix)]
+mod daemon_transport_offer;
 #[cfg(any(test, not(target_os = "macos")))]
 mod launch;
 #[cfg(target_os = "macos")]
@@ -40,6 +41,10 @@ pub use daemon_rendezvous::{
     PreparedDaemonWriterEndpointHandoff, UnixReceivedDaemonWriterEndpoint,
     prepare_daemon_owned_writer_endpoint_handoff, receive_daemon_owned_writer_endpoint,
     send_daemon_owned_writer_endpoint,
+};
+#[cfg(unix)]
+pub use daemon_transport_offer::{
+    receive_daemon_control_transport_half, send_daemon_control_transport_half,
 };
 #[cfg(not(target_os = "macos"))]
 pub use launch::writer_command;

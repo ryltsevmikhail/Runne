@@ -27,10 +27,6 @@ pub(crate) struct DaemonOwnedUnixBrokerRendezvous {
     allow(dead_code, reason = "the protected channel adapter is feature-gated")
 )]
 pub(crate) struct DaemonBrokerAuthority {
-    #[cfg_attr(
-        all(not(test), feature = "desktop-protected"),
-        expect(dead_code, reason = "the kill-capability ACK unlocks this endpoint")
-    )]
     endpoint: UnixStream,
     channel_binding: [u8; 32],
     #[cfg_attr(
@@ -43,10 +39,6 @@ pub(crate) struct DaemonBrokerAuthority {
 
 impl DaemonBrokerAuthority {
     #[cfg(target_os = "macos")]
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the kill-capability ACK unlocks this endpoint")
-    )]
     pub(crate) const fn endpoint(&self) -> &UnixStream {
         &self.endpoint
     }

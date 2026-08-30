@@ -1,11 +1,3 @@
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the next protected control slice is the sole exchange consumer"
-    )
-)]
-#![cfg_attr(test, allow(dead_code))]
 use super::intent::{CredentialIntentError, NativeCredentialIntent};
 use super::{CredentialIntentIpc, CredentialIntentRegistry};
 use crate::bundled_runtime::NativeCredentialEnrollmentLease;

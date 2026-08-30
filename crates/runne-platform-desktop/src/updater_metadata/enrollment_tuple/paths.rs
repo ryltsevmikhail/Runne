@@ -16,6 +16,7 @@ use super::{
 )]
 pub(crate) struct NativeEnrollmentArtifactPathsV1 {
     pub(super) desktop: PathBuf,
+    writer: PathBuf,
     application: PathBuf,
     #[cfg(unix)]
     root: File,
@@ -62,7 +63,12 @@ impl NativeEnrollmentArtifactPathsV1 {
         Ok(paths)
     }
 
-    #[cfg_attr(test, allow(dead_code))]
+    /// Returns the fixed package writer executable path.
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(crate) fn writer_executable_path(&self) -> std::path::PathBuf {
+        self.writer.clone()
+    }
+
     pub(crate) fn measure(
         &self,
     ) -> Result<MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentTupleError> {
@@ -164,8 +170,9 @@ impl NativeEnrollmentArtifactPathsV1 {
             let writer_file = open_rooted_file(&root, &["Contents", "MacOS", "runne"])?;
             let daemon_file = open_rooted_file(&root, &["Contents", "MacOS", "runned"])?;
             let contract_file = open_rooted_file(&root, &["Contents", "Resources", "contracts", "gocode-ui-client-2", "bundle.json"])?;
+            let writer = macos.join("runne");
             Ok(Self {
-                desktop, application, root,
+                desktop, writer, application, root,
                 desktop_file: OpenedNativeEnrollmentFile::new(desktop_file)?,
                 writer_file: OpenedNativeEnrollmentFile::new(writer_file)?,
                 daemon_file: OpenedNativeEnrollmentFile::new(daemon_file)?,

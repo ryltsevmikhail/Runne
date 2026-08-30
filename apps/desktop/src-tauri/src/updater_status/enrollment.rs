@@ -1,12 +1,3 @@
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the protected prompt composition retains this lease until control dispatch"
-    )
-)]
-#![cfg_attr(test, allow(dead_code))]
-
 use runne_platform_desktop::{
     ConfirmedInstalledNativeEnrollment, PreparedInstalledNativeEnrollment,
 };
@@ -21,6 +12,8 @@ pub struct NativeInstalledEnrollmentLease {
 }
 
 impl NativeInstalledEnrollmentLease {
+    /// Retained for prompt-time revalidation before confirmation.
+    #[expect(dead_code, reason = "reserved for prompt-time revalidation")]
     pub(crate) fn refresh(&mut self) -> Result<(), ()> {
         let prepared = self.prepared.take().ok_or(())?;
         self.prepared = self
@@ -51,14 +44,6 @@ impl NativeInstalledEnrollmentLease {
 
 impl UpdateStatusStore {
     /// Returns retained fixed-layout evidence from the compiled updater only.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the protected prompt composition requests this only after acquiring its lease"
-        )
-    )]
-    #[cfg_attr(test, allow(dead_code))]
     pub(crate) async fn prepare_installed_native_enrollment(
         &self,
     ) -> Result<Option<NativeInstalledEnrollmentLease>, ()> {

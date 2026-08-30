@@ -175,6 +175,15 @@ impl NativeEnrollmentQualification {
         })
     }
 
+    /// Returns the retained qualification digest for transition composition.
+    #[must_use]
+    pub(crate) const fn retained_qualification_binding_digest(&self) -> Option<[u8; 32]> {
+        match self {
+            Self::Unqualified => None,
+            Self::Qualified(binding) => Some(binding.qualification_binding_sha256),
+        }
+    }
+
     /// Checks the opaque binding without granting launch or route authority.
     #[must_use]
     pub fn matches_exact(

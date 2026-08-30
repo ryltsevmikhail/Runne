@@ -9,6 +9,12 @@ impl CredentialBrokerTransferCommitment {
     const fn from_authenticated_bytes(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }
+
+    /// Returns the exact committed bytes for daemon-side authority sealing.
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
 }
 
 impl fmt::Debug for CredentialBrokerTransferCommitment {

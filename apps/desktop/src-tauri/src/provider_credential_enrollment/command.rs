@@ -28,13 +28,6 @@ impl CredentialIntentIpc {
                 && self.verification_kind.is_some())
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "consumed by the protected command after its control dispatcher is installed"
-        )
-    )]
     pub(crate) fn prompt_request(
         self,
     ) -> Result<runne_platform_desktop::SecureCredentialPromptRequest, ()> {

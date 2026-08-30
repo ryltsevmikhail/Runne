@@ -85,10 +85,13 @@ async fn get_provider_credential_enrollment_status(
 }
 
 #[tauri::command]
-#[allow(clippy::needless_pass_by_value)]
-fn request_provider_credential_intent(
+async fn request_provider_credential_intent(
+    app: tauri::AppHandle,
     window: WebviewWindow,
     selections: tauri::State<'_, DirectorySelectionManager>,
+    lifecycle: tauri::State<'_, RuntimeLifecycleManager>,
+    updater: tauri::State<'_, UpdateStatusStore>,
+    intents: tauri::State<'_, crate::provider_credential_enrollment::CredentialIntentRegistry>,
     request: crate::provider_credential_enrollment::CredentialIntentIpc,
 ) -> Result<crate::provider_credential_enrollment::CredentialIntentProjection, IpcError> {
     let focused = window.is_focused().map_err(|_| IpcError {
@@ -106,9 +109,19 @@ fn request_provider_credential_intent(
             code: "provider_credential_intent_rejected",
         });
     }
-    // Step 5 waits for Tasks 6/9/10. Never substitute the legacy AppCore
-    // credential route while the trusted prompt/channel wiring is unavailable.
-    Ok(crate::provider_credential_enrollment::CredentialIntentProjection::Unavailable)
+    // Trusted native chain only: leases, native prompt, exact daemon
+    // confirmation, V3 transition with writer handoff. The renderer receives
+    // just the closed projection; every failure is fail-closed and actionable.
+    crate::provider_credential_enrollment::dispatch_credential_intent(
+        &app,
+        window,
+        lifecycle.inner(),
+        updater.inner(),
+        intents.inner(),
+        request,
+    )
+    .await
+    .map_err(|code| IpcError { code })
 }
 
 fn credential_intent_window_is_current(

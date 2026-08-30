@@ -18,6 +18,7 @@ mod macos_identity;
 pub use macos_identity::VerifiedMacOsWriterLaunch;
 #[path = "updater_metadata/enrollment_tuple/qualification.rs"]
 mod enrollment_qualification;
+pub use enrollment_desktop_peer_claim::EnrollmentTransitionFacts;
 pub use enrollment_qualification::{
     NativeEnrollmentQualification, NativeEnrollmentQualificationBinding,
     NativeEnrollmentQualificationRowV1,

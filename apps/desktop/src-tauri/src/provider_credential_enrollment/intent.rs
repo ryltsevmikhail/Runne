@@ -7,13 +7,6 @@ use rand::RngCore;
 
 use super::CredentialIntentIpc;
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the native prompt consumes bounded intent capacity after trusted prompt wiring"
-    )
-)]
 const MAX_INTENTS: usize = 64;
 const MAX_TTL: Duration = Duration::from_secs(30);
 
@@ -89,13 +82,6 @@ impl fmt::Debug for ConsumedCredentialIntent {
 /// Native owner of focused, one-use credential intent capabilities.
 #[derive(Clone)]
 pub struct CredentialIntentRegistry {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the trusted prompt applies the fixed one-use intent lifetime"
-        )
-    )]
     ttl: Duration,
     entries: Arc<Mutex<HashMap<String, IntentEntry>>>,
 }
@@ -111,13 +97,6 @@ impl CredentialIntentRegistry {
         })
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the trusted prompt mints this only after native confirmation"
-        )
-    )]
     pub fn issue(
         &self,
         window: &str,
@@ -214,13 +193,6 @@ impl fmt::Debug for CredentialIntentRegistry {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CredentialIntentError;
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the trusted prompt alone needs random opaque native intent identifiers"
-    )
-)]
 fn random_id() -> Result<String, CredentialIntentError> {
     let mut bytes = [0; 32];
     rand::rngs::OsRng

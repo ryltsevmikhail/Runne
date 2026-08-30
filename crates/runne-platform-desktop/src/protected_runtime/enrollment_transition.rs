@@ -15,7 +15,7 @@ use runne_api::{
 ///
 /// Every digest is measured from the retained installed release tuple and the
 /// live desktop peer; the daemon independently revalidates each native fact.
-struct EnrollmentTransitionClaims {
+pub struct EnrollmentTransitionClaims {
     release_tuple_digest: [u8; 32],
     qualification_binding_digest: [u8; 32],
     desktop_peer_binding_digest: [u8; 32],
@@ -23,11 +23,7 @@ struct EnrollmentTransitionClaims {
 }
 
 impl EnrollmentTransitionClaims {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Tauri enrollment orchestration constructs claims")
-    )]
-    const fn new(
+    #[must_use] pub const fn new(
         release_tuple_digest: [u8; 32],
         qualification_binding_digest: [u8; 32],
         desktop_peer_binding_digest: [u8; 32],
@@ -64,14 +60,7 @@ impl ProtectedBundledRuntimeProcess {
     /// after the prepare write leaves the daemon's state ambiguous, so the
     /// child is fenced exactly like an ambiguous V3 renewal.
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Tauri enrollment orchestration invokes this in the next slice"
-        )
-    )]
-    fn begin_credential_enrollment_transition(
+    pub(crate) fn begin_credential_enrollment_transition(
         &mut self,
         claims: &EnrollmentTransitionClaims,
     ) -> Result<ProtectedBundledRuntimeProfile, ProtectedBundledRuntimeError> {
@@ -134,6 +123,12 @@ impl ProtectedBundledRuntimeProcess {
             .verify_exact_at(&prepare, owned, 0, now, &self.keys)
             .map_err(launch_error)?;
         let prelude = signed_prelude.prelude().clone();
+        // The verified prelude commits this daemon to one exact rendezvous;
+        // the later broker writer handoff binds every offer to these facts.
+        self.enrollment_broker_facts = Some(EnrollmentBrokerFacts::new(
+            prelude.channel_binding(),
+            prelude.publication_key(),
+        ));
 
         let secret = random_nonce().ok_or_else(|| {
             launch_error(LaunchAuthorityError::RenewalUnavailable)
