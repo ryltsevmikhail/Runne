@@ -5,6 +5,8 @@
 //! that boundary regression-testable without deleting lifecycle recovery
 //! fixtures used by daemon tests.
 
+#![cfg(test)]
+
 mod fixture_lifecycle;
 
 pub(super) use fixture_lifecycle::compose_credential_lifecycle;

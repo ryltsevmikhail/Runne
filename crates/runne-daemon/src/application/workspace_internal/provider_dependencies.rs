@@ -10,17 +10,10 @@ use crate::canonical_provider::RuntimeStoreDecorator;
 use runne_secure_store::ProviderJournalKeyring;
 // fixture-only capability end
 
-// fixture-only capability begin
 #[cfg(test)]
-use runne_provider::NativeCredentialAuthority;
+mod credential_writer_fixture;
 #[cfg(test)]
-use runne_secure_store::NativeProviderCredentialVersionStore;
-
-#[cfg(test)]
-pub(crate) type LoopbackCredentialVersionStoreFactory = dyn Fn(NativeCredentialAuthority) -> Arc<dyn NativeProviderCredentialVersionStore>
-    + Send
-    + Sync;
-// fixture-only capability end
+pub(crate) use credential_writer_fixture::FixtureCredentialVersionStoreFactory;
 
 /// Complete provider dependencies selected by a workspace-only startup caller.
 ///
@@ -38,7 +31,7 @@ pub(crate) enum ProviderDependencyState {
         keyring: Arc<dyn ProviderJournalKeyring>,
         decorator: Arc<RuntimeStoreDecorator>,
         #[cfg(test)]
-        credential_versions: Arc<LoopbackCredentialVersionStoreFactory>,
+        credential_versions: Arc<FixtureCredentialVersionStoreFactory>,
     },
     // fixture-only capability end
 }
@@ -55,7 +48,7 @@ impl ProtectedProviderDependencyCapsule {
         effect: Arc<dyn CanonicalProviderEffect>,
         keyring: Arc<dyn ProviderJournalKeyring>,
         decorator: Arc<RuntimeStoreDecorator>,
-        credential_versions: Arc<LoopbackCredentialVersionStoreFactory>,
+        credential_versions: Arc<FixtureCredentialVersionStoreFactory>,
     ) -> Self {
         Self(ProviderDependencyState::LoopbackFixture {
             effect,

@@ -1,7 +1,9 @@
+#![cfg(test)]
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::application::workspace_internal::LoopbackCredentialVersionStoreFactory;
+use crate::application::workspace_internal::FixtureCredentialVersionStoreFactory;
 use runne_provider::{
     CredentialAuthorityPair, CredentialDispatchCapability, CredentialGcClaim, CredentialLease,
     CredentialNativeCreateClaim, CredentialVersionRef, CredentialVersionState,

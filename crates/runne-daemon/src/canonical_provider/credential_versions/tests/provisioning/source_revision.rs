@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::*;
 use runne_secure_store::{ProviderCredentialSource, ProviderCredentialSourceRevision};
 

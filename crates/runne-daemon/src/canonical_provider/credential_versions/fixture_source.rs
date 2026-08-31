@@ -1,4 +1,8 @@
-pub(super) trait LegacyCredentialSource {
+#![cfg(test)]
+
+use super::*;
+
+pub(in crate::canonical_provider::credential_versions) trait LegacyCredentialSource {
     fn load_source(
         &self,
         provider: ProviderCredentialId,
@@ -17,7 +21,7 @@ impl LegacyCredentialSource for NativeProviderCredentialStore {
     }
 }
 
-pub(super) fn provision_active_from_legacy_source(
+pub(in crate::canonical_provider::credential_versions) fn provision_active_from_legacy_source(
     store: &SqliteProviderCredentialLifecycleStore,
     native: &dyn NativeProviderCredentialVersionStore,
     provider: &ProviderId,

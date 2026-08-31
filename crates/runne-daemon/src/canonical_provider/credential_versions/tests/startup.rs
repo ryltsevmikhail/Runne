@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use rusqlite::Connection;
 
 use super::*;
@@ -72,7 +74,7 @@ fn explicit_fixture_native_dependency_rotates_across_two_launch_generations() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("two-launch-credential.sqlite");
     let counters = Arc::new(FixtureNativeCounters::default());
-    let factory: Arc<LoopbackCredentialVersionStoreFactory> = Arc::new({
+    let factory: Arc<FixtureCredentialVersionStoreFactory> = Arc::new({
         let counters = Arc::clone(&counters);
         move |authority: NativeCredentialAuthority| {
             fixture_native_with_counters(authority, Arc::clone(&counters))

@@ -42,7 +42,7 @@ pub(super) fn fixture(
     fencing_token: u64,
     credential_id: ProviderCredentialId,
     native: Option<
-        Arc<crate::application::workspace_internal::LoopbackCredentialVersionStoreFactory>,
+        Arc<crate::application::workspace_internal::FixtureCredentialVersionStoreFactory>,
     >,
     adapter: Arc<dyn CanonicalProviderEffect>,
 ) -> Result<CredentialBoundary, DaemonError> {

@@ -10,7 +10,7 @@ use crate::protected_activation::VerifiedProtectedRuntimeStart;
 mod provider_dependencies;
 
 #[cfg(test)]
-pub(crate) use provider_dependencies::LoopbackCredentialVersionStoreFactory;
+pub(crate) use provider_dependencies::FixtureCredentialVersionStoreFactory;
 pub(crate) use provider_dependencies::ProtectedProviderDependencyCapsule;
 pub(crate) use provider_dependencies::ProviderDependencyState;
 

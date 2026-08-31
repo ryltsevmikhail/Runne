@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use std::sync::Arc;
 
 use runne_provider::{
@@ -9,7 +11,7 @@ use runne_secure_store::{
     ProviderCredentialMaterial, ProviderCredentialStatus, SecureStoreError,
 };
 
-use crate::application::workspace_internal::LoopbackCredentialVersionStoreFactory;
+use crate::application::workspace_internal::FixtureCredentialVersionStoreFactory;
 
 struct LoopbackCredentialVersionStore {
     authority: NativeCredentialAuthority,
@@ -57,6 +59,6 @@ impl NativeProviderCredentialVersionStore for LoopbackCredentialVersionStore {
     }
 }
 
-pub(super) fn factory() -> Arc<LoopbackCredentialVersionStoreFactory> {
+pub(super) fn factory() -> Arc<FixtureCredentialVersionStoreFactory> {
     Arc::new(|authority| Arc::new(LoopbackCredentialVersionStore { authority }))
 }

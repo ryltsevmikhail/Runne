@@ -1,7 +1,9 @@
+#![cfg(test)]
+
 //! Test-only legacy lifecycle fixture.
 
 use super::super::composition::PROVIDER_POLICY_V1_LEASE_SECONDS;
-use crate::application::workspace_internal::LoopbackCredentialVersionStoreFactory;
+use crate::application::workspace_internal::FixtureCredentialVersionStoreFactory;
 use crate::error::DaemonError;
 use runne_provider::{
     CredentialAuthorityPair, CredentialLease, NativeCredentialAuthority,
@@ -16,7 +18,11 @@ use runne_store::provider::SqliteProviderCredentialLifecycleStore;
 use runne_store::schema::ManagedConnection;
 use std::sync::Arc;
 
-include!("fixture_source.rs");
+#[path = "fixture_source.rs"]
+mod fixture_source;
+pub(in crate::canonical_provider::credential_versions) use fixture_source::{
+    LegacyCredentialSource, provision_active_from_legacy_source,
+};
 
 const FIXTURE_SOURCE_REVISION: [u8; 16] = [0xF1; 16];
 
@@ -38,7 +44,7 @@ pub(in crate::canonical_provider) fn compose_credential_lifecycle(
     fencing_token: u64,
     credential_id: ProviderCredentialId,
     fixture: bool,
-    fixture_native: Option<Arc<LoopbackCredentialVersionStoreFactory>>,
+    fixture_native: Option<Arc<FixtureCredentialVersionStoreFactory>>,
 ) -> Result<ComposedCredentialLifecycle, DaemonError> {
     let (lifecycle_authority, native_authority) = CredentialAuthorityPair::new().split();
     let store = Arc::new(
