@@ -87,6 +87,9 @@ impl ProviderJournalKeyring for MacOsKeychainStore {
         &self,
         key_ref: ProviderJournalKeyRef,
     ) -> Result<ProviderJournalKeyStatus, SecureStoreError> {
+        let _operation_lock = KEYCHAIN_INTERACTION_LOCK
+            .lock()
+            .map_err(|_| SecureStoreError::Unavailable)?;
         let keychain = SecKeychain::default().map_err(|_| SecureStoreError::Unavailable)?;
         let account = self.provider_journal_key_account(key_ref);
         runne_macos_keychain_acl::generic_password_exists(&keychain, SERVICE_NAME, &account)
@@ -104,6 +107,9 @@ impl ProviderJournalKeyring for MacOsKeychainStore {
         &self,
         key: &ProviderJournalKeyMaterial,
     ) -> Result<(), SecureStoreError> {
+        let _operation_lock = KEYCHAIN_INTERACTION_LOCK.lock().map_err(|_| {
+            SecureStoreError::OperationFailed("provider journal keychain lock".into())
+        })?;
         let account = self.provider_journal_key_account(key.key_ref());
         match security_framework::passwords::get_generic_password(SERVICE_NAME, &account) {
             Ok(encoded) => {
@@ -137,6 +143,9 @@ impl ProviderJournalKeyring for MacOsKeychainStore {
         &self,
         key_ref: ProviderJournalKeyRef,
     ) -> Result<ProviderJournalKeyMaterial, SecureStoreError> {
+        let _operation_lock = KEYCHAIN_INTERACTION_LOCK.lock().map_err(|_| {
+            SecureStoreError::OperationFailed("provider journal keychain lock".into())
+        })?;
         let account = self.provider_journal_key_account(key_ref);
         match security_framework::passwords::get_generic_password(SERVICE_NAME, &account) {
             Ok(encoded) => {
@@ -157,6 +166,9 @@ impl ProviderJournalKeyring for MacOsKeychainStore {
         key_ref: ProviderJournalKeyRef,
         _proof: ProviderJournalKeyDeletionProof,
     ) -> Result<(), SecureStoreError> {
+        let _operation_lock = KEYCHAIN_INTERACTION_LOCK.lock().map_err(|_| {
+            SecureStoreError::OperationFailed("provider journal keychain lock".into())
+        })?;
         let account = self.provider_journal_key_account(key_ref);
         match security_framework::passwords::delete_generic_password(SERVICE_NAME, &account) {
             Ok(()) => Ok(()),

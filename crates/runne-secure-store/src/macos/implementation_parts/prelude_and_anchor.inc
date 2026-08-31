@@ -52,7 +52,7 @@ const ERR_SEC_ITEM_NOT_FOUND: i32 = -25_300;
 const ERR_SEC_INTERACTION_NOT_ALLOWED: i32 = -25_308;
 const ERR_SEC_NO_ACCESS_FOR_ITEM: i32 = -25_243;
 const ERR_SEC_INVALID_OWNER_EDIT: i32 = -25_244;
-static PROVIDER_CREDENTIAL_KEYCHAIN_LOCK: Mutex<()> = Mutex::new(());
+static KEYCHAIN_INTERACTION_LOCK: Mutex<()> = Mutex::new(());
 #[cfg(test)]
 std::thread_local! {
     static PROVIDER_CREDENTIAL_PASSWORD_READS: Cell<usize> = const { Cell::new(0) };
@@ -161,6 +161,9 @@ impl MacOsKeychainStore {
     }
 
     fn load_security_anchor(&self) -> Result<StoredSecurityAnchor, SecureStoreError> {
+        let _operation_lock = KEYCHAIN_INTERACTION_LOCK
+            .lock()
+            .map_err(|_| SecureStoreError::Unavailable)?;
         match security_framework::passwords::get_generic_password(SERVICE_NAME, &self.account_name) {
             Ok(value) if value.len() == 8 => {
                 let generation = decode_anchor(&value)?;
@@ -173,6 +176,9 @@ impl MacOsKeychainStore {
     }
 
     fn save_security_anchor(&self, anchor: &SecurityAnchorV1) -> Result<(), SecureStoreError> {
+        let _operation_lock = KEYCHAIN_INTERACTION_LOCK
+            .lock()
+            .map_err(|_| SecureStoreError::Unavailable)?;
         let encoded = encode_security_anchor(anchor);
         security_framework::passwords::set_generic_password(SERVICE_NAME, &self.account_name, &encoded)
             .map_err(|_| SecureStoreError::OperationFailed("security anchor keychain write".into()))
@@ -180,6 +186,9 @@ impl MacOsKeychainStore {
 
     #[cfg(test)]
     fn store_anchor(&self, generation: u64) -> Result<(), SecureStoreError> {
+        let _operation_lock = KEYCHAIN_INTERACTION_LOCK
+            .lock()
+            .map_err(|_| SecureStoreError::Unavailable)?;
         let value = generation.to_le_bytes();
         security_framework::passwords::set_generic_password(SERVICE_NAME, &self.account_name, &value)
             .map_err(|_| SecureStoreError::OperationFailed("legacy anchor keychain write".into()))
@@ -196,6 +205,9 @@ impl MacOsKeychainStore {
 
     #[cfg(test)]
     fn delete_anchor(&self) -> Result<(), SecureStoreError> {
+        let _operation_lock = KEYCHAIN_INTERACTION_LOCK
+            .lock()
+            .map_err(|_| SecureStoreError::Unavailable)?;
         match security_framework::passwords::delete_generic_password(SERVICE_NAME, &self.account_name) {
             Ok(()) => Ok(()),
             Err(error) if error.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(()),

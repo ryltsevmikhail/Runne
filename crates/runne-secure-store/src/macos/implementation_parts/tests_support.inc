@@ -10,6 +10,9 @@
 
     impl Drop for ProviderCredentialCleanup {
         fn drop(&mut self) {
+            let _operation_lock = KEYCHAIN_INTERACTION_LOCK
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let cleanup = [
                 format!("{}{PROVIDER_CREDENTIAL_MIGRATION_SUFFIX}", self.service),
                 format!(

@@ -160,7 +160,7 @@ impl MacOsProviderCredentialStore {
     fn with_noninteractive<T>(
         operation: impl FnOnce(&SecKeychain) -> Result<T, SecureStoreError>,
     ) -> Result<T, SecureStoreError> {
-        let _operation_lock = PROVIDER_CREDENTIAL_KEYCHAIN_LOCK
+        let _operation_lock = KEYCHAIN_INTERACTION_LOCK
             .lock()
             .map_err(|_| SecureStoreError::ProviderCredentialOperationFailed)?;
         let _process_lock = ProviderCredentialProcessLock::acquire().map_err(map_acl_error)?;

@@ -157,7 +157,7 @@
         // Keep sibling tests from winning the user-wide lock after the parent
         // releases it but before the child can acquire it. The child has its
         // own process-local mutex, so this serializes only this test binary.
-        let _operation_lock = PROVIDER_CREDENTIAL_KEYCHAIN_LOCK.lock().unwrap();
+        let _operation_lock = KEYCHAIN_INTERACTION_LOCK.lock().unwrap();
         let process_lock = ProviderCredentialProcessLock::acquire().unwrap();
         let mut child = std::process::Command::new(std::env::current_exe().unwrap())
             .args([

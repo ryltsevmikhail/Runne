@@ -1,4 +1,40 @@
     #[test]
+    fn provider_journal_waits_for_provider_noninteractive_window() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let profile = format!("provider-journal-lock-{}-{unique}", std::process::id());
+        let store = std::sync::Arc::new(MacOsKeychainStore::new(&profile));
+        let key_ref = ProviderJournalKeyRef::new([31; 16], 1, [32; 16], 33).unwrap();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            let _operation_lock = KEYCHAIN_INTERACTION_LOCK.lock().unwrap();
+            let _interaction_lock = SecKeychain::disable_user_interaction().unwrap();
+            ready_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        ready_rx.recv().unwrap();
+
+        let (result_tx, result_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            result_tx
+                .send(store.provider_journal_key_status(key_ref))
+                .unwrap();
+        });
+        let early = result_rx.recv_timeout(std::time::Duration::from_millis(100));
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
+        assert_eq!(early, Err(std::sync::mpsc::RecvTimeoutError::Timeout));
+        assert_eq!(
+            result_rx.recv_timeout(std::time::Duration::from_secs(1)),
+            Ok(Ok(ProviderJournalKeyStatus::Missing))
+        );
+        worker.join().unwrap();
+    }
+
+    #[test]
     fn provider_journal_rotation_retains_versions_and_database_binding() {
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
