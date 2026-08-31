@@ -113,19 +113,8 @@ pub fn open_managed_connection(
 #[cfg(test)]
 pub(crate) fn open_test_shared_writer(db_path: &Path) -> SqliteResult<ManagedConnection> {
     let connection = Connection::open(db_path)?;
-    connection.execute_batch(
-        "PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;",
-    )?;
-    let online_issuance_guard = install_online_issuance_guard(&connection)?;
-    Ok(ManagedConnection {
-        connection,
-        _validated: ConnectionProfileCapability {
-            mode: ConnectionMode::Writer,
-            memory_database: false,
-        },
-        identity: None,
-        online_issuance_guard,
-    })
+    connection.execute_batch("PRAGMA journal_mode = WAL;")?;
+    managed_after_profile(connection, ConnectionMode::Writer, false, None)
 }
 
 fn managed_after_profile(
