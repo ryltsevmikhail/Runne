@@ -4,6 +4,8 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+/backlog/.mimosa/
+/backlog/.obsidian/
 
 # JavaScript, Vue, and test outputs
 node_modules/
