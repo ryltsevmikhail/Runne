@@ -191,6 +191,60 @@
     }
 
     #[test]
+    fn provider_journal_keychain_access_uses_the_process_lock() {
+        let process_lock = ProviderCredentialProcessLock::acquire().unwrap();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let child_temp = std::env::temp_dir().join(format!(
+            "runne-journal-lock-child-tmp-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&child_temp).unwrap();
+        let ready_marker = child_temp.join("ready");
+        let completed_marker = child_temp.join("completed");
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "macos::tests::provider_journal_process_lock_child",
+                "--nocapture",
+            ])
+            .env("RUNNE_JOURNAL_LOCK_TEST_CHILD", "1")
+            .env("RUNNE_JOURNAL_LOCK_MARKER_DIR", &child_temp)
+            .spawn()
+            .unwrap();
+        wait_for_marker_file(&ready_marker, std::time::Duration::from_secs(5)).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let bypassed = completed_marker.exists() || child.try_wait().unwrap().is_some();
+        drop(process_lock);
+        wait_for_marker_file(&completed_marker, std::time::Duration::from_secs(5)).unwrap();
+        assert!(child.wait().unwrap().success());
+        std::fs::remove_dir_all(child_temp).unwrap();
+        assert!(!bypassed, "journal Keychain access bypassed the process lock");
+    }
+
+    #[test]
+    fn provider_journal_process_lock_child() {
+        let Some(marker_dir) = std::env::var_os("RUNNE_JOURNAL_LOCK_MARKER_DIR") else {
+            return;
+        };
+        if std::env::var_os("RUNNE_JOURNAL_LOCK_TEST_CHILD").is_none() {
+            return;
+        }
+        let marker_dir = std::path::PathBuf::from(marker_dir);
+        std::fs::write(marker_dir.join("ready"), b"").unwrap();
+        let profile = format!("journal-process-lock-child-{}", std::process::id());
+        let store = MacOsKeychainStore::new(profile);
+        let key_ref = ProviderJournalKeyRef::new([51; 16], 1, [52; 16], 53).unwrap();
+        assert_eq!(
+            store.provider_journal_key_status(key_ref).unwrap(),
+            ProviderJournalKeyStatus::Missing
+        );
+        std::fs::write(marker_dir.join("completed"), b"").unwrap();
+    }
+
+    #[test]
     fn provider_credential_process_lock_child() {
         if std::env::var_os("RUNNE_PROVIDER_LOCK_TEST_CHILD").is_none() {
             return;

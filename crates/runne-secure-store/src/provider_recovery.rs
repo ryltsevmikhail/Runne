@@ -60,9 +60,6 @@ const MAGIC: &[u8; 8] = b"GCWTLV1\0";
 #[cfg(target_os = "macos")]
 const MANIFEST_MAGIC: &[u8; 8] = b"GCWTLM1\0";
 #[cfg(target_os = "macos")]
-static WITHHELD_TAIL_KEYCHAIN_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-#[cfg(target_os = "macos")]
 impl WithheldTailStore for crate::MacOsKeychainStore {
     fn put_tail(
         &self,
@@ -70,9 +67,8 @@ impl WithheldTailStore for crate::MacOsKeychainStore {
         bytes: Zeroizing<Vec<u8>>,
     ) -> Result<NativeSecretRef, TailStoreError> {
         use rand::{RngCore as _, rngs::OsRng};
-        let _guard = WITHHELD_TAIL_KEYCHAIN_LOCK
-            .lock()
-            .map_err(|_| TailStoreError::Unavailable)?;
+        let _keychain_locks = crate::macos::acquire_keychain_interaction_locks()
+            .map_err(|()| TailStoreError::Unavailable)?;
         let mut id = [0_u8; 16];
         OsRng
             .try_fill_bytes(&mut id)
@@ -103,6 +99,8 @@ impl WithheldTailStore for crate::MacOsKeychainStore {
         if reference.binding_digest() != &binding.digest() {
             return Err(TailStoreError::BindingMismatch);
         }
+        let _keychain_locks = crate::macos::acquire_keychain_interaction_locks()
+            .map_err(|()| TailStoreError::Unavailable)?;
         let encoded = Zeroizing::new(
             security_framework::passwords::get_generic_password(
                 &tail_service(self),
@@ -126,9 +124,8 @@ impl WithheldTailStore for crate::MacOsKeychainStore {
     }
 
     fn delete_tail(&self, reference: &NativeSecretRef) -> Result<(), TailStoreError> {
-        let _guard = WITHHELD_TAIL_KEYCHAIN_LOCK
-            .lock()
-            .map_err(|_| TailStoreError::Unavailable)?;
+        let _keychain_locks = crate::macos::acquire_keychain_interaction_locks()
+            .map_err(|()| TailStoreError::Unavailable)?;
         match security_framework::passwords::delete_generic_password(
             &tail_service(self),
             &tail_account(*reference),
@@ -144,9 +141,8 @@ impl WithheldTailStore for crate::MacOsKeychainStore {
         binding: TailBinding,
         retained: Option<NativeSecretRef>,
     ) -> Result<(), TailStoreError> {
-        let _guard = WITHHELD_TAIL_KEYCHAIN_LOCK
-            .lock()
-            .map_err(|_| TailStoreError::Unavailable)?;
+        let _keychain_locks = crate::macos::acquire_keychain_interaction_locks()
+            .map_err(|()| TailStoreError::Unavailable)?;
         purge_registered_tails(self, binding, retained)
     }
 }

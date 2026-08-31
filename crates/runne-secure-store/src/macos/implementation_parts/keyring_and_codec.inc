@@ -87,9 +87,8 @@ impl ProviderJournalKeyring for MacOsKeychainStore {
         &self,
         key_ref: ProviderJournalKeyRef,
     ) -> Result<ProviderJournalKeyStatus, SecureStoreError> {
-        let _operation_lock = KEYCHAIN_INTERACTION_LOCK
-            .lock()
-            .map_err(|_| SecureStoreError::Unavailable)?;
+        let _keychain_locks = acquire_keychain_interaction_locks()
+            .map_err(|()| SecureStoreError::Unavailable)?;
         let keychain = SecKeychain::default().map_err(|_| SecureStoreError::Unavailable)?;
         let account = self.provider_journal_key_account(key_ref);
         runne_macos_keychain_acl::generic_password_exists(&keychain, SERVICE_NAME, &account)
@@ -107,7 +106,7 @@ impl ProviderJournalKeyring for MacOsKeychainStore {
         &self,
         key: &ProviderJournalKeyMaterial,
     ) -> Result<(), SecureStoreError> {
-        let _operation_lock = KEYCHAIN_INTERACTION_LOCK.lock().map_err(|_| {
+        let _keychain_locks = acquire_keychain_interaction_locks().map_err(|()| {
             SecureStoreError::OperationFailed("provider journal keychain lock".into())
         })?;
         let account = self.provider_journal_key_account(key.key_ref());
@@ -143,7 +142,7 @@ impl ProviderJournalKeyring for MacOsKeychainStore {
         &self,
         key_ref: ProviderJournalKeyRef,
     ) -> Result<ProviderJournalKeyMaterial, SecureStoreError> {
-        let _operation_lock = KEYCHAIN_INTERACTION_LOCK.lock().map_err(|_| {
+        let _keychain_locks = acquire_keychain_interaction_locks().map_err(|()| {
             SecureStoreError::OperationFailed("provider journal keychain lock".into())
         })?;
         let account = self.provider_journal_key_account(key_ref);
@@ -166,7 +165,7 @@ impl ProviderJournalKeyring for MacOsKeychainStore {
         key_ref: ProviderJournalKeyRef,
         _proof: ProviderJournalKeyDeletionProof,
     ) -> Result<(), SecureStoreError> {
-        let _operation_lock = KEYCHAIN_INTERACTION_LOCK.lock().map_err(|_| {
+        let _keychain_locks = acquire_keychain_interaction_locks().map_err(|()| {
             SecureStoreError::OperationFailed("provider journal keychain lock".into())
         })?;
         let account = self.provider_journal_key_account(key_ref);

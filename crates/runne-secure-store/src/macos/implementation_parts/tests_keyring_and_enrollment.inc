@@ -28,8 +28,8 @@
         holder.join().unwrap();
         assert_eq!(early, Err(std::sync::mpsc::RecvTimeoutError::Timeout));
         assert_eq!(
-            result_rx.recv_timeout(std::time::Duration::from_secs(1)),
-            Ok(Ok(ProviderJournalKeyStatus::Missing))
+            result_rx.recv().unwrap(),
+            Ok(ProviderJournalKeyStatus::Missing)
         );
         worker.join().unwrap();
     }
