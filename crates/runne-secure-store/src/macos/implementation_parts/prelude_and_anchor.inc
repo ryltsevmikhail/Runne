@@ -6,7 +6,7 @@ use std::cell::Cell;
 use runne_macos_keychain_acl::{
     ExactKeychainAccess, KeychainAclError, ProviderCredentialProcessLock,
 };
-use security_framework::os::macos::keychain::SecKeychain;
+use security_framework::os::macos::keychain::{KeychainUserInteractionLock, SecKeychain};
 use security_framework::os::macos::keychain_item::SecKeychainItem;
 
 use crate::provider_credential::{
@@ -54,13 +54,24 @@ const ERR_SEC_NO_ACCESS_FOR_ITEM: i32 = -25_243;
 const ERR_SEC_INVALID_OWNER_EDIT: i32 = -25_244;
 static KEYCHAIN_INTERACTION_LOCK: Mutex<()> = Mutex::new(());
 
-pub fn acquire_keychain_interaction_locks(
-) -> Result<(ProviderCredentialProcessLock, MutexGuard<'static, ()>), ()> {
-    // Keep this order: the kernel lock is process-reentrant, so taking it first
-    // lets a sibling hold it while waiting for this mutex and can block a child.
+pub struct KeychainInteractionGuard {
+    // Drop this first so UI is restored while both serialization locks remain held.
+    _user_interaction: KeychainUserInteractionLock,
+    _process: ProviderCredentialProcessLock,
+    _interaction: MutexGuard<'static, ()>,
+}
+
+pub fn acquire_keychain_interaction_locks() -> Result<KeychainInteractionGuard, ()> {
+    // Take the process-reentrant kernel lock only after the process-local mutex;
+    // otherwise a sibling can hold it while waiting here and block a child.
     let interaction = KEYCHAIN_INTERACTION_LOCK.lock().map_err(|_| ())?;
     let process = ProviderCredentialProcessLock::acquire().map_err(|_| ())?;
-    Ok((process, interaction))
+    let user_interaction = SecKeychain::disable_user_interaction().map_err(|_| ())?;
+    Ok(KeychainInteractionGuard {
+        _user_interaction: user_interaction,
+        _process: process,
+        _interaction: interaction,
+    })
 }
 #[cfg(test)]
 std::thread_local! {

@@ -1,4 +1,10 @@
     #[test]
+    fn shared_keychain_window_disables_user_interaction() {
+        let _keychain_locks = acquire_keychain_interaction_locks().unwrap();
+        assert!(!SecKeychain::user_interaction_allowed().unwrap());
+    }
+
+    #[test]
     fn provider_journal_waits_for_provider_noninteractive_window() {
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
