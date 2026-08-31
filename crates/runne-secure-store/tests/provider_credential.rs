@@ -8,8 +8,11 @@ struct ControlledExecutable {
     _permissions: CurrentExecutablePermissions,
 }
 
+static CURRENT_EXECUTABLE_PERMISSIONS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 struct CurrentExecutablePermissions {
     path: std::path::PathBuf,
+    _lock: std::sync::MutexGuard<'static, ()>,
     #[cfg(unix)]
     original_mode: u32,
 }
@@ -28,6 +31,9 @@ impl Drop for CurrentExecutablePermissions {
 }
 
 fn controlled_executable() -> ControlledExecutable {
+    let lock = CURRENT_EXECUTABLE_PERMISSIONS_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let executable = std::env::current_exe().expect("current test executable");
     #[cfg(unix)]
     let original_mode = {
@@ -46,6 +52,7 @@ fn controlled_executable() -> ControlledExecutable {
         access,
         _permissions: CurrentExecutablePermissions {
             path: executable,
+            _lock: lock,
             #[cfg(unix)]
             original_mode,
         },
@@ -167,6 +174,7 @@ fn provider_identity_and_status_vocabulary_are_exact() {
             .unwrap_err(),
         SecureStoreError::ProviderCredentialSourceRevisionUnavailable
     );
+    drop(executable);
 }
 
 #[cfg(target_os = "macos")]
@@ -182,6 +190,7 @@ fn native_store_routes_deepseek_to_distinct_missing_account() {
             .unwrap(),
         ProviderCredentialStatus::Missing
     );
+    drop(executable);
 }
 
 #[test]
