@@ -1,5 +1,7 @@
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::application::workspace_internal::LoopbackCredentialVersionStoreFactory;
 use runne_provider::{
     CredentialAuthorityPair, CredentialDispatchCapability, CredentialGcClaim, CredentialLease,
     CredentialNativeCreateClaim, CredentialVersionRef, CredentialVersionState,
@@ -7,9 +9,10 @@ use runne_provider::{
     ProviderCredentialVersionStore, ProviderId, RevokeCredentialVersion,
 };
 use runne_secure_store::{
-    NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy,
+    NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
     ProviderCredentialMaterial, SecureStoreError,
 };
+use runne_store::provider::SqliteProviderCredentialLifecycleStore;
 
 use super::*;
 

@@ -6,6 +6,7 @@ const PRODUCTION_FILES: &[&str] = &[
     "canonical_provider/composition.rs",
     "canonical_provider/composition/credential_reader.rs",
     "canonical_provider/credential_reader.rs",
+    "canonical_provider/credential_versions.rs",
     "canonical_provider/effect_adapter.rs",
     "canonical_provider/readiness.rs",
     "doctor.rs",

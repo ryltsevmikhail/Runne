@@ -1,4 +1,4 @@
-trait LegacyCredentialSource {
+pub(super) trait LegacyCredentialSource {
     fn load_source(
         &self,
         provider: ProviderCredentialId,
@@ -17,7 +17,7 @@ impl LegacyCredentialSource for NativeProviderCredentialStore {
     }
 }
 
-fn provision_active_from_legacy_source(
+pub(super) fn provision_active_from_legacy_source(
     store: &SqliteProviderCredentialLifecycleStore,
     native: &dyn NativeProviderCredentialVersionStore,
     provider: &ProviderId,
