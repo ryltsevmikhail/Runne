@@ -13,18 +13,20 @@ fn one_compare_and_set_active_winner() {
     let setup = store(&path);
     prepare(&setup, first.clone());
     prepare(&setup, second.clone());
-    drop(setup);
+    let shared = Arc::new(setup);
 
     let barrier = Arc::new(Barrier::new(3));
-    let handles = [(first, OWNER_A, 21), (second, OWNER_B, 22)].map(|(reference, owner, fence)| {
-        let path = path.clone();
-        let barrier = Arc::clone(&barrier);
-        std::thread::spawn(move || {
-            let store = store(&path);
-            barrier.wait();
-            store.activate(lease(reference, owner, 500, fence))
+    let handles = [(first, OWNER_A, 21), (second, OWNER_B, 22)]
+        .into_iter()
+        .map(|(reference, owner, fence)| {
+            let store = Arc::clone(&shared);
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                store.activate(lease(reference, owner, 500, fence))
+            })
         })
-    });
+        .collect::<Vec<_>>();
     barrier.wait();
     let winners = handles
         .into_iter()
@@ -33,7 +35,7 @@ fn one_compare_and_set_active_winner() {
         .count();
 
     assert_eq!(winners, 1);
-    assert_eq!(store(&path).active_version_count("openai").unwrap(), 1);
+    assert_eq!(shared.active_version_count("openai").unwrap(), 1);
 }
 
 #[test]
