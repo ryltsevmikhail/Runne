@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+source scripts/macos-ci-keychain.sh
+trap runne_ci_macos_keychain_cleanup EXIT
+
 # The macOS self-hosted worker runs under launchd, which applies a default
 # soft RLIMIT_NOFILE of 256 (unlike an interactive shell). The parallel daemon
 # integration suite spawns in-process daemons plus many loopback TLS/TCP
@@ -131,6 +134,7 @@ if [ "$MODE" = "pinned" ]; then
     "$PYTHON_BIN" -m unittest \
         scripts.tests.test_check_deps \
         scripts.tests.test_check_source_file_length \
+        scripts.tests.test_macos_ci_keychain \
         scripts.tests.test_verify_task_6c_release_exclusion \
         -v
 
@@ -145,6 +149,7 @@ else
 fi
 
 echo "--- test (unit) ---"
+runne_ci_macos_keychain_setup
 cargo test --workspace --all-targets --all-features --locked
 
 echo "--- test (doc) ---"

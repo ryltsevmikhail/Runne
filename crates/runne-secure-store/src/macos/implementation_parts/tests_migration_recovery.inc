@@ -48,7 +48,7 @@
         let account = account.into_string().expect("UTF-8 account");
         let _interaction_lock =
             SecKeychain::disable_user_interaction().expect("disable Keychain UI");
-        let keychain = SecKeychain::default().expect("default Keychain");
+        let keychain = active_keychain().expect("active Keychain");
         let error = keychain
             .find_generic_password(&service, &account)
             .expect_err("unenrolled process must not read raw credential");

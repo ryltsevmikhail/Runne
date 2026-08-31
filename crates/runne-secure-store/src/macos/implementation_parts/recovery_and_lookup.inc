@@ -162,7 +162,8 @@ impl MacOsProviderCredentialStore {
     ) -> Result<T, SecureStoreError> {
         let _keychain_locks = acquire_keychain_interaction_locks()
             .map_err(|()| SecureStoreError::ProviderCredentialOperationFailed)?;
-        let keychain = SecKeychain::default().map_err(map_keychain_error)?;
+        let keychain = active_keychain()
+            .map_err(|()| SecureStoreError::ProviderCredentialOperationFailed)?;
         operation(&keychain)
     }
 

@@ -89,7 +89,7 @@ impl ProviderJournalKeyring for MacOsKeychainStore {
     ) -> Result<ProviderJournalKeyStatus, SecureStoreError> {
         let _keychain_locks = acquire_keychain_interaction_locks()
             .map_err(|()| SecureStoreError::Unavailable)?;
-        let keychain = SecKeychain::default().map_err(|_| SecureStoreError::Unavailable)?;
+        let keychain = active_keychain().map_err(|()| SecureStoreError::Unavailable)?;
         let account = self.provider_journal_key_account(key_ref);
         runne_macos_keychain_acl::generic_password_exists(&keychain, SERVICE_NAME, &account)
             .map_err(|_| SecureStoreError::Unavailable)
@@ -109,10 +109,11 @@ impl ProviderJournalKeyring for MacOsKeychainStore {
         let _keychain_locks = acquire_keychain_interaction_locks().map_err(|()| {
             SecureStoreError::OperationFailed("provider journal keychain lock".into())
         })?;
+        let keychain = active_keychain().map_err(|()| SecureStoreError::Unavailable)?;
         let account = self.provider_journal_key_account(key.key_ref());
-        match security_framework::passwords::get_generic_password(SERVICE_NAME, &account) {
-            Ok(encoded) => {
-                let encoded = Zeroizing::new(encoded);
+        match keychain.find_generic_password(SERVICE_NAME, &account) {
+            Ok((encoded, _)) => {
+                let encoded = Zeroizing::new(encoded.as_ref().to_vec());
                 let existing = decode_provider_journal_key(&encoded, key.key_ref())?;
                 return existing.with_bytes(|existing_bytes| {
                     key.with_bytes(|new_bytes| {
@@ -132,7 +133,7 @@ impl ProviderJournalKeyring for MacOsKeychainStore {
             }
         }
         let encoded = encode_provider_journal_key(key);
-        security_framework::passwords::set_generic_password(SERVICE_NAME, &account, &encoded)
+        keychain.set_generic_password(SERVICE_NAME, &account, &encoded)
             .map_err(|error| {
                 SecureStoreError::OperationFailed(format!("provider journal keychain set: {error}"))
             })
@@ -145,10 +146,11 @@ impl ProviderJournalKeyring for MacOsKeychainStore {
         let _keychain_locks = acquire_keychain_interaction_locks().map_err(|()| {
             SecureStoreError::OperationFailed("provider journal keychain lock".into())
         })?;
+        let keychain = active_keychain().map_err(|()| SecureStoreError::Unavailable)?;
         let account = self.provider_journal_key_account(key_ref);
-        match security_framework::passwords::get_generic_password(SERVICE_NAME, &account) {
-            Ok(encoded) => {
-                let encoded = Zeroizing::new(encoded);
+        match keychain.find_generic_password(SERVICE_NAME, &account) {
+            Ok((encoded, _)) => {
+                let encoded = Zeroizing::new(encoded.as_ref().to_vec());
                 decode_provider_journal_key(&encoded, key_ref)
             }
             Err(error) if error.code() == -25300 => {
@@ -168,9 +170,14 @@ impl ProviderJournalKeyring for MacOsKeychainStore {
         let _keychain_locks = acquire_keychain_interaction_locks().map_err(|()| {
             SecureStoreError::OperationFailed("provider journal keychain lock".into())
         })?;
+        let keychain = active_keychain().map_err(|()| SecureStoreError::Unavailable)?;
         let account = self.provider_journal_key_account(key_ref);
-        match security_framework::passwords::delete_generic_password(SERVICE_NAME, &account) {
-            Ok(()) => Ok(()),
+        match keychain.find_generic_password(SERVICE_NAME, &account) {
+            Ok((_, item)) => runne_macos_keychain_acl::delete_item(&item).map_err(|error| {
+                SecureStoreError::OperationFailed(format!(
+                    "provider journal keychain delete: {error:?}"
+                ))
+            }),
             Err(error) if error.code() == -25300 => {
                 Err(SecureStoreError::ProviderJournalKeyNotFound)
             }

@@ -22,15 +22,14 @@
             ]
             .into_iter()
             .try_for_each(|service| {
-                match security_framework::passwords::delete_generic_password(
-                    &service,
-                    &self.account,
-                ) {
-                    Ok(()) => {}
+                let keychain = active_keychain().map_err(|()| "open test Keychain".to_owned())?;
+                match keychain.find_generic_password(&service, &self.account) {
+                    Ok((_, item)) => runne_macos_keychain_acl::delete_item(&item)
+                        .map_err(|error| format!("delete {service}: {error:?}"))?,
                     Err(error) if error.code() == ERR_SEC_ITEM_NOT_FOUND => {}
                     Err(error) => return Err(format!("delete {service}: {error}")),
                 }
-                match security_framework::passwords::get_generic_password(&service, &self.account) {
+                match keychain.find_generic_password(&service, &self.account) {
                     Err(error) if error.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(()),
                     Ok(_) => Err(format!("cleanup left {service}")),
                     Err(error) => Err(format!("verify {service}: {error}")),
