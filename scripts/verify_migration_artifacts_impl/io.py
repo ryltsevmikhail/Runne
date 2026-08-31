@@ -1,5 +1,7 @@
 """Argument parsing, JSON loading, canonicalization, and digest checks."""
 
+from __future__ import annotations
+
 import argparse
 import hashlib
 import json
