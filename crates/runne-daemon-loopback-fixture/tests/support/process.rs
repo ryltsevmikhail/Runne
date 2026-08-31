@@ -10,6 +10,8 @@ use runne_platform_desktop::{
 };
 use runne_runtime_client::AuthenticatedRuntimeClient;
 
+const PROTECTED_CLIENT_TIMEOUT: Duration = Duration::from_secs(30);
+
 pub fn executable(name: &str, fixture_root: &Path) -> PathBuf {
     let source = match name {
         "activation_process" => PathBuf::from(env!("CARGO_BIN_EXE_activation_process")),
@@ -47,7 +49,7 @@ pub async fn protected_client(
         .take_runtime_profile()
         .expect("one-time protected profile");
     let client = profile
-        .connect(Duration::from_secs(10))
+        .connect(PROTECTED_CLIENT_TIMEOUT)
         .await
         .expect("authenticated protected runtime client");
     assert!(process.matches_client(&client));
