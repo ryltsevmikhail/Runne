@@ -1,10 +1,13 @@
+#[cfg(target_os = "macos")]
 use ed25519_dalek::{Signer, SigningKey};
+#[cfg(target_os = "macos")]
 use zeroize::Zeroizing;
 
 #[cfg(all(target_os = "macos", debug_assertions, feature = "dev-keyset-init"))]
 use crate::input::UpdatePublicKeyManifest;
 use crate::issuer::ProducerError;
 
+#[cfg(target_os = "macos")]
 const SERVICE: &str = "runne.desktop.update-metadata/2";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
