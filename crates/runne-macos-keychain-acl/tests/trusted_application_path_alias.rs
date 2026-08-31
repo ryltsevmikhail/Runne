@@ -42,7 +42,13 @@ impl Drop for TempExecutable {
 }
 
 fn unique_temp_directory() -> PathBuf {
-    let temporary_root = std::env::temp_dir();
+    let canonical_root =
+        fs::canonicalize(std::env::temp_dir()).expect("canonical macOS temporary directory");
+    let temporary_root = Path::new("/").join(
+        canonical_root
+            .strip_prefix("/private")
+            .expect("macOS temporary directory below /private"),
+    );
     let process_id = std::process::id();
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -72,13 +78,16 @@ fn set_owner_private(directory: &Path) {
 }
 
 #[test]
-fn var_alias_and_private_var_canonical_path_have_identical_digest() {
+fn private_prefix_alias_and_canonical_path_have_identical_digest() {
     let executable = TempExecutable::create();
     let canonical =
         fs::canonicalize(&executable.raw_path).expect("canonical copied test binary path");
 
-    assert!(executable.raw_path.starts_with("/var/"));
-    assert!(canonical.starts_with("/private/var/"));
+    assert!(!executable.raw_path.starts_with("/private/"));
+    assert_eq!(
+        canonical,
+        Path::new("/private").join(executable.raw_path.strip_prefix("/").unwrap())
+    );
 
     let raw_access = ExactKeychainAccess::new(&executable.raw_path, &executable.raw_path).unwrap();
     let canonical_access = ExactKeychainAccess::new(&canonical, &canonical).unwrap();
