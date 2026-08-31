@@ -42,7 +42,7 @@ use crate::{
 /// ```
 #[cfg_attr(
     not(feature = "test-support"),
-    doc = r#"The test-only factory is absent from the normal writer-feature API too:
+    doc = r"The test-only factory is absent from the normal writer-feature API too:
 
 ```compile_fail
 use runne_secure_store::{NativeProviderCredentialWriters, ProviderCredentialAccessPolicy};
@@ -50,7 +50,7 @@ use runne_secure_store::{NativeProviderCredentialWriters, ProviderCredentialAcce
 fn test_factory_is_not_production_api(access: ProviderCredentialAccessPolicy) {
     let _ = NativeProviderCredentialWriters::new_for_test(access);
 }
-```"#
+```"
 )]
 pub struct NativeProviderCredentialWriters {
     issuer: CredentialWriterClaimIssuer,
