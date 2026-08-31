@@ -27,6 +27,7 @@ async fn native_desktop_controller_uses_exact_openai_v2_without_v1_downgrade() {
         .expect("protect temporary desktop profile");
     let fixture = Path::new(env!("CARGO_BIN_EXE_activation_process"));
     let desktop = copied_executable(fixture, temporary.path().join("runne-desktop"));
+    copied_executable(fixture, temporary.path().join("runne"));
     copied_executable(fixture, temporary.path().join("runned"));
 
     let core = Arc::new(
@@ -44,13 +45,13 @@ async fn native_desktop_controller_uses_exact_openai_v2_without_v1_downgrade() {
     )
     .expect("discover bundled production daemon fixture");
 
-    assert_eq!(
-        controller
-            .connect_runtime()
-            .await
-            .expect("protected V2 connection"),
-        RuntimeAvailability::Live
-    );
+    let availability = controller.connect_runtime().await.unwrap_or_else(|error| {
+        panic!(
+            "protected V2 connection: {error:?}; bootstrap: {:?}",
+            core.bootstrap()
+        )
+    });
+    assert_eq!(availability, RuntimeAvailability::Live);
     assert_eq!(
         core.bootstrap().expect("sanitized bootstrap").runtime,
         RuntimeAvailability::Live
