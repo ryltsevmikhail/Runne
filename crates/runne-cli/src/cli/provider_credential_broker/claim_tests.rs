@@ -228,7 +228,7 @@ fn native_writers() -> NativeProviderCredentialWriters {
     let executable = std::env::current_exe().expect("test executable");
     let access = ProviderCredentialAccessPolicy::new(&executable, &executable)
         .expect("measured writer policy");
-    NativeProviderCredentialWriters::new(access)
+    NativeProviderCredentialWriters::new_for_test(access)
 }
 
 struct TestControl {

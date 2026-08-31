@@ -1,36 +1,68 @@
 use std::sync::Arc;
 
+#[cfg(any(test, feature = "test-support"))]
+use runne_provider::{CredentialAuthorityPair, CredentialWriterAuthorityPair};
 use runne_provider::{
-    CredentialAuthorityPair, CredentialLifecycleAuthority, CredentialLifecycleError,
-    CredentialNativeCreateValidator, CredentialVersionRef, CredentialWriterAuthorityPair,
-    CredentialWriterClaimIssuer, ProviderId,
+    CredentialLifecycleAuthority, CredentialLifecycleError, CredentialNativeCreateValidator,
+    CredentialVersionRef, CredentialWriterClaimIssuer, ProviderId,
 };
 
+#[cfg(any(test, feature = "test-support"))]
+use super::BrokeredProviderCredentialWriterAdapter;
 use super::{
     BrokeredCreateInput, BrokeredDeleteInput, BrokeredLegacySourceDeleteInput,
     BrokeredMigrateLegacyInput, BrokeredProviderCredentialWriter,
-    BrokeredProviderCredentialWriterAdapter, BrokeredProviderCredentialWriterNative,
-    BrokeredWriterIdentityMigrationInput, BrokeredWriterIdentityVerificationInput,
+    BrokeredProviderCredentialWriterNative, BrokeredWriterIdentityMigrationInput,
+    BrokeredWriterIdentityVerificationInput,
 };
+#[cfg(any(test, feature = "test-support"))]
+use crate::NativeProviderCredentialStore;
 use crate::{
-    NativeProviderCredentialStore, NativeProviderCredentialVersionStore,
-    ProviderCredentialAccessPolicy, ProviderCredentialId, ProviderCredentialMaterial,
-    ProviderCredentialStore, SecureStoreError,
+    NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
+    ProviderCredentialMaterial, ProviderCredentialStore, SecureStoreError,
 };
 
-/// Feature-gated production construction for the packaged broker writer.
+/// Packaged broker writer authority bundle.
 ///
-/// It yields only the broker claim issuer and writer port. The paired native
-/// authority is retained by the private adapter, never exposed to callers.
+/// Production construction stays closed until authenticated broker admission
+/// supplies this bundle. Once admitted, it yields only the broker claim issuer
+/// and writer port; the paired native authority remains in the private adapter.
+/// A normal writer-feature consumer cannot restore the former self-minting path
+/// from path-derived ACL expectation data:
+///
+/// ```compile_fail
+/// use runne_secure_store::{
+///     NativeProviderCredentialWriters, ProviderCredentialAccessPolicy,
+/// };
+///
+/// fn cannot_self_mint_writer_authority(access: ProviderCredentialAccessPolicy) {
+///     let writers = NativeProviderCredentialWriters::new(access);
+///     let (_issuer, _effect_capable_writer) = writers.into_parts();
+/// }
+/// ```
+#[cfg_attr(
+    not(feature = "test-support"),
+    doc = r#"The test-only factory is absent from the normal writer-feature API too:
+
+```compile_fail
+use runne_secure_store::{NativeProviderCredentialWriters, ProviderCredentialAccessPolicy};
+
+fn test_factory_is_not_production_api(access: ProviderCredentialAccessPolicy) {
+    let _ = NativeProviderCredentialWriters::new_for_test(access);
+}
+```"#
+)]
 pub struct NativeProviderCredentialWriters {
     issuer: CredentialWriterClaimIssuer,
     writer: Arc<dyn BrokeredProviderCredentialWriter>,
 }
 
 impl NativeProviderCredentialWriters {
-    /// Constructs one isolated writer/native authority domain.
+    /// Constructs one isolated writer/native authority domain for tests only.
+    #[cfg(any(test, feature = "test-support"))]
+    #[doc(hidden)]
     #[must_use]
-    pub fn new(access: ProviderCredentialAccessPolicy) -> Self {
+    pub fn new_for_test(access: ProviderCredentialAccessPolicy) -> Self {
         let (issuer, effects) = CredentialWriterAuthorityPair::new().split();
         let (lifecycle, native_authority) = CredentialAuthorityPair::new().split();
         let native = NativeProviderCredentialStore::new_versioned(native_authority);

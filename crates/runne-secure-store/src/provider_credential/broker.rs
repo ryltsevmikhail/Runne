@@ -1,13 +1,25 @@
 mod errors;
 mod factory;
 #[cfg(feature = "provider-credential-broker-writer")]
+#[cfg_attr(
+    not(any(test, feature = "test-support")),
+    expect(dead_code, reason = "B1 is closed until B2 supplies broker admission")
+)]
 mod migration;
 #[cfg(feature = "provider-credential-broker-writer")]
+#[cfg_attr(
+    not(any(test, feature = "test-support")),
+    expect(dead_code, reason = "B1 is closed until B2 supplies broker admission")
+)]
 mod migration_identity;
 mod readback;
 mod readback_observation;
 mod verification_readback;
 #[cfg(feature = "provider-credential-broker-writer")]
+#[cfg_attr(
+    not(any(test, feature = "test-support")),
+    expect(dead_code, reason = "B1 is closed until B2 supplies broker admission")
+)]
 mod writer;
 
 pub use factory::{NativeProviderCredentialReaderParts, NativeProviderCredentialReaders};
