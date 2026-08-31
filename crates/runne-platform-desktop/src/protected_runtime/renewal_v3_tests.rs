@@ -104,22 +104,21 @@ fn assert_v3_renewal_fenced(process: &mut ProtectedBundledRuntimeProcess) {
 
 #[test]
 fn v3_renewal_accepts_a_ticket_at_the_shared_continuous_tick() {
-    let written = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let server_written = written.clone();
     let (mut process, server) = scripted_v3_process(move |daemon, renewal, keys| {
         let frame = signed_v3_ticket(renewal, keys, 100, 200);
         write_frame(daemon, &frame).expect("ticket response");
-        server_written.store(true, std::sync::atomic::Ordering::Release);
     });
+    let clock_samples = std::cell::Cell::new(0);
 
     let profile = process
         .renew_v3_profile_for_test(|| {
-            assert!(written.load(std::sync::atomic::Ordering::Acquire));
+            clock_samples.set(clock_samples.get() + 1);
             Ok(100)
         })
         .expect("shared continuous tick");
     server.join().expect("ticket server");
 
+    assert_eq!(clock_samples.get(), 1);
     assert_eq!(process.renewal_sequence, 1);
     assert_eq!(profile.enrollment_owned_launch(), Some(&v3_owned(&process)));
 }
