@@ -2,10 +2,11 @@ use std::any::Any;
 use std::sync::Arc;
 
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue};
-use runne_provider::{DispatchError, DispatchRequest, NativeCredentialAuthority, ProviderStreamId};
+use runne_provider::{DispatchError, DispatchRequest, ProviderStreamId};
 use runne_provider_openai::{
     OpenAiCredentialMaterializer, OpenAiTransportPolicy, OpenAiTransportResponse,
 };
+use runne_secure_store::ProviderCredentialDispatchMaterializer;
 use runne_store::provider::{
     CredentialDispatchBinding, ProviderEffectStartReceipt, ProviderReadyEffect,
 };
@@ -29,14 +30,13 @@ impl ProviderReadyEffect for AuthorizedReady {
 }
 
 impl dyn OpenAiEffect {
-    /// Creates the production effect with mandatory native credential authority.
+    /// Creates the production effect with the runtime-owned credential materializer.
     pub fn production(
-        authority: NativeCredentialAuthority,
+        materializer: Arc<dyn ProviderCredentialDispatchMaterializer>,
     ) -> Result<Arc<dyn OpenAiEffect>, OpenAiEffectError> {
         let profile = profile().map_err(|_| OpenAiEffectError)?;
         let policy = OpenAiTransportPolicy::for_profile(&profile).map_err(|_| OpenAiEffectError)?;
-        let credential =
-            client::NativeCredential::versioned(authority).map_err(|_| OpenAiEffectError)?;
+        let credential = client::NativeCredential::from_materializer(materializer);
         Ok(Arc::new(
             Sender::new(
                 profile,
@@ -122,5 +122,34 @@ impl<C: OpenAiCredentialMaterializer> Sender<C> {
         timeout_at(receipt.deadline().into(), effect)
             .await
             .map_err(|_| DispatchError::MaybeDispatched)?
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use runne_provider::CredentialDispatchCapability;
+    use runne_secure_store::{
+        ProviderCredentialDispatchMaterializer, ProviderCredentialMaterial, SecureStoreError,
+    };
+
+    use super::*;
+
+    struct DenyingMaterializer;
+
+    impl ProviderCredentialDispatchMaterializer for DenyingMaterializer {
+        fn materialize_active(
+            &self,
+            _: &CredentialDispatchCapability,
+        ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
+            Err(SecureStoreError::CredentialAccessDenied)
+        }
+    }
+
+    #[test]
+    fn production_accepts_narrow_dispatch_materializer() {
+        let materializer: Arc<dyn ProviderCredentialDispatchMaterializer> =
+            Arc::new(DenyingMaterializer);
+
+        assert!(<dyn OpenAiEffect>::production(materializer).is_ok());
     }
 }

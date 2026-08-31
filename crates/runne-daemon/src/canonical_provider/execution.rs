@@ -31,16 +31,20 @@ impl CanonicalProviderExecutionService for DaemonCanonicalProviderService {
                 .profile
                 .price_usage_micros(maximum_usage)
                 .map_err(|_| CanonicalProviderExecutionError::Conflict)?;
+            let credential = runne_store::provider::CredentialDispatchAuthority::new(
+                self.credential_store.as_ref(),
+                &self.launch_capability,
+            );
+            let effect = super::dispatch_binding::OnlineDispatchFence::new(
+                credential,
+                self.adapter.as_ref(),
+            );
             let coordinator = SqliteProviderDispatchCoordinator::new(
                 self.dispatch_store.as_ref(),
                 self.execution_store.as_ref(),
-                runne_store::provider::CredentialDispatchAuthority::new(
-                    self.credential_store.as_ref(),
-                    self.runtime_authority_id,
-                    self.runtime_generation,
-                ),
+                credential,
                 self.adapter.as_ref(),
-                self.adapter.as_ref(),
+                &effect,
                 self.prohibited_content.as_ref(),
             );
             let outcome = coordinator

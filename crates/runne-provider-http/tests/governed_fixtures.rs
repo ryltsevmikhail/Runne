@@ -108,6 +108,7 @@ fn dispatch_request(
     provider_idempotency_key: &str,
 ) -> DispatchRequest {
     let claim = ProviderDispatchClaim {
+        provider_id: ProviderId::new("fixture-provider").unwrap(),
         call_id: prepared.call().call_id(),
         attempt_id,
         permit_id: [4; 16],

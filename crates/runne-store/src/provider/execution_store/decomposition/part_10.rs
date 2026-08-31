@@ -171,6 +171,7 @@ fn ensure_call_is_unclaimed(
 struct ExistingAdmission {
     semantic_digest: [u8; 32],
     state: ProviderRepositoryState,
+    provider_id: Option<String>,
 }
 
 fn load_existing_admission(
@@ -179,16 +180,19 @@ fn load_existing_admission(
 ) -> Result<Option<ExistingAdmission>, ProviderAdmissionError> {
     transaction
         .query_row(
-            "SELECT admission.semantic_digest, dispatch.state
+            "SELECT admission.semantic_digest, dispatch.state, claim_provider.provider_id
              FROM provider_execution_admissions admission
              JOIN provider_dispatch_attempts dispatch
                ON dispatch.attempt_id = admission.dispatch_attempt_id
+             LEFT JOIN provider_online_dispatch_claim_providers claim_provider
+               ON claim_provider.dispatch_attempt_id = admission.dispatch_attempt_id
              WHERE admission.provider_idempotency_key = ?1",
             [idempotency_key],
             |row| {
                 Ok(ExistingAdmission {
                     semantic_digest: fixed_bytes(row.get(0)?)?,
                     state: decode_repository_state(row.get(1)?)?,
+                    provider_id: row.get(2)?,
                 })
             },
         )

@@ -14,11 +14,13 @@ use runne_runtime::provider_execution::{
 };
 use runne_store::provider::{
     MarkProviderStreaming, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
-    ProviderRuntimeAuthorityConfig, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
+    ProviderRuntimeAuthorityConfig, ProviderRuntimeLaunchCapability, SqliteProviderDispatchStore,
+    SqliteProviderExecutionStore,
 };
 use rusqlite::Connection;
 struct Fixture {
     execution: SqliteProviderExecutionStore,
+    launch: ProviderRuntimeLaunchCapability,
     dispatch: SqliteProviderDispatchStore,
     attempt_id: runne_provider::DispatchAttemptId,
     fencing_token: u64,
@@ -48,11 +50,10 @@ fn fixture() -> Fixture {
         render_digest: *prepared.render_digest(),
         profile_digest: [2; 32],
     };
-    let dispatch = database.dispatch();
-    dispatch.persist_prepared(&prepared_record).unwrap();
     let execution = database.execution();
-    execution
-        .install_runtime_authority(&ProviderRuntimeAuthorityConfig {
+    let key = ProviderJournalKeyBinding::new([10; 16], 1, [1; 16], 7).unwrap();
+    let launch = execution
+        .activate_runtime_launch(&ProviderRuntimeAuthorityConfig {
             runtime_authority_id: [1; 16],
             database_generation: 7,
             principal_id: "principal-1".to_owned(),
@@ -79,26 +80,35 @@ fn fixture() -> Fixture {
             lease_ttl_seconds: 600,
         })
         .unwrap();
+    crate::online_proof::arm_binding(&execution, key);
+    let dispatch = database.dispatch();
+    dispatch
+        .persist_prepared(&launch, &prepared_record)
+        .unwrap();
     let ProviderAuthorityIssueOutcome::Winner(admitted) = execution
-        .issue(&ProviderAuthorityIssueRequest {
-            principal_id: "principal-1".to_owned(),
-            conversation_id: ConversationId::from_bytes([6; 16]),
-            taskrun_id: TaskRunId::from_bytes([7; 16]),
-            execution_attempt_id: AttemptId::from_bytes([8; 16]),
-            prepared: ContractPreparedProviderRecord {
-                call_id: prepared_record.call_id,
-                call_digest_version: prepared_record.call_digest_version,
-                prepared_digest: prepared_record.prepared_digest,
-                render_digest: prepared_record.render_digest,
-                profile_digest: prepared_record.profile_digest,
+        .issue(
+            &launch,
+            &ProviderAuthorityIssueRequest {
+                provider_id: ProviderId::new("fixture-provider").unwrap(),
+                principal_id: "principal-1".to_owned(),
+                conversation_id: ConversationId::from_bytes([6; 16]),
+                taskrun_id: TaskRunId::from_bytes([7; 16]),
+                execution_attempt_id: AttemptId::from_bytes([8; 16]),
+                prepared: ContractPreparedProviderRecord {
+                    call_id: prepared_record.call_id,
+                    call_digest_version: prepared_record.call_digest_version,
+                    prepared_digest: prepared_record.prepared_digest,
+                    render_digest: prepared_record.render_digest,
+                    profile_digest: prepared_record.profile_digest,
+                },
+                pricing_revision_digest: [3; 32],
+                requested_input_tokens: 512,
+                requested_output_tokens: 1_024,
+                max_cost_micros: 50_000,
+                currency: "USD".to_owned(),
+                provider_idempotency_key: "provider-terminal-1".to_owned(),
             },
-            pricing_revision_digest: [3; 32],
-            requested_input_tokens: 512,
-            requested_output_tokens: 1_024,
-            max_cost_micros: 50_000,
-            currency: "USD".to_owned(),
-            provider_idempotency_key: "provider-terminal-1".to_owned(),
-        })
+        )
         .unwrap()
     else {
         panic!("first issue must win")
@@ -110,10 +120,9 @@ fn fixture() -> Fixture {
             stream_id: ProviderStreamId::from_bytes([9; 16]),
         })
         .unwrap();
-    let key = ProviderJournalKeyBinding::new([10; 16], 1, [1; 16], 7).unwrap();
-    execution.activate_journal_key(key).unwrap();
     Fixture {
         execution,
+        launch,
         dispatch,
         attempt_id: admitted.claim().attempt_id,
         fencing_token: admitted.claim().fencing_token,

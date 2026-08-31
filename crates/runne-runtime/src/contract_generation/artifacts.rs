@@ -72,6 +72,10 @@ fn generated_artifacts() -> Result<BTreeMap<&'static str, Vec<u8>>, ContractGene
             canonical_json(&operational_telemetry_golden())?,
         ),
         (
+            "golden/provider-credential-enrollment-v2.json",
+            canonical_json(&provider_credential_enrollment_golden())?,
+        ),
+        (
             "golden/project-workspace.json",
             canonical_json(&project_workspace_golden())?,
         ),
@@ -127,6 +131,14 @@ fn generated_artifacts() -> Result<BTreeMap<&'static str, Vec<u8>>, ContractGene
         (
             "schemas/provider-credentials-v1.schema.json",
             canonical_json(&provider_credentials_schema())?,
+        ),
+        (
+            "schemas/provider-credential-enrollment-v2.schema.json",
+            canonical_json(&provider_credential_enrollment_schema())?,
+        ),
+        (
+            "schemas/approval-v1.schema.json",
+            canonical_json(&approval_schema())?,
         ),
         (
             "schemas/replay-v1.schema.json",

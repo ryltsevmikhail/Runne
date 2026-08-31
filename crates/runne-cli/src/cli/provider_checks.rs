@@ -9,9 +9,7 @@
 #[must_use]
 pub fn format_status_lines(probe: &ActiveProviderProbe) -> String {
     match probe {
-        ActiveProviderProbe::Deterministic => {
-            "provider: none (deterministic_v1)".to_owned()
-        }
+        ActiveProviderProbe::Deterministic => "provider: none (deterministic_v1)".to_owned(),
         ActiveProviderProbe::Live(live) => {
             let credential = probe_credential(credential_id_for(live.provider));
             format!(
@@ -62,11 +60,7 @@ pub fn active_provider_check(probe: &ActiveProviderProbe) -> DiagnosticCheck {
 
 /// Builds the doctor check for one provider credential (metadata only).
 #[must_use]
-pub fn credential_check(
-    id: ProviderCredentialId,
-    provider: &str,
-    active: bool,
-) -> DiagnosticCheck {
+pub fn credential_check(id: ProviderCredentialId, provider: &str, active: bool) -> DiagnosticCheck {
     let probe = probe_credential(id);
     let (status, message) = match probe {
         CredentialProbe::Configured => {
@@ -99,7 +93,7 @@ pub fn credential_check(
     };
     let details = match probe {
         CredentialProbe::Missing | CredentialProbe::AccessDenied => format!(
-            "Run: runne provider credential set --provider {provider} --stdin\nSource: {}",
+            "Credential enrollment requires the authenticated provider-credential broker.\nSource: {}",
             credential_source()
         ),
         _ => format!("Source: {}", credential_source()),
@@ -118,8 +112,7 @@ mod provider_checks_tests {
 
     #[test]
     fn active_provider_probe_reports_deterministic_when_config_missing() {
-        let config_path = std::env::temp_dir()
-            .join("runne-provider-readiness-missing-config.toml");
+        let config_path = std::env::temp_dir().join("runne-provider-readiness-missing-config.toml");
         let _ = std::fs::remove_file(&config_path);
         assert_eq!(
             read_active_provider(&config_path),
@@ -131,11 +124,7 @@ mod provider_checks_tests {
     fn active_provider_probe_rejects_unknown_keys_and_schema_versions() {
         let directory = tempfile::tempdir().unwrap();
         let config_path = directory.path().join("config.toml");
-        std::fs::write(
-            &config_path,
-            "schema_version = 2\nunknown_key = true\n",
-        )
-        .unwrap();
+        std::fs::write(&config_path, "schema_version = 2\nunknown_key = true\n").unwrap();
         assert!(matches!(
             read_active_provider(&config_path),
             ActiveProviderProbe::Unavailable(_)

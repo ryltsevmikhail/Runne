@@ -23,9 +23,9 @@ impl ProviderRecoveryObserver for CountingObserver {
 #[tokio::test(flavor = "current_thread")]
 async fn runtime_application_conflict_keeps_pending_outbox_without_mutation() {
     let fixture = fixture();
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let writer = runtime(&keyring, fixture.execution.as_ref());
-    writer.create_and_activate_key([1; 16], 7, 1).unwrap();
+    writer.preflight_existing_active_key([1; 16], 7).unwrap();
     poll_events(&writer, &fixture, successful_events("runtime-conflict")).await;
     writer.finalize_terminal_output(&context(&fixture)).unwrap();
     let before = validated_connection(&fixture);

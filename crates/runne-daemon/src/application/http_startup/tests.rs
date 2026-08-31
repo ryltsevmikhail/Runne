@@ -1,5 +1,5 @@
 use super::super::http_startup_support::replay_cursor_integrity_secret;
-use super::runtime_capabilities;
+use super::provider_credentials::runtime_capabilities;
 use crate::replay_key::ReplayIntegrityKeyManager;
 
 mod replay_cursor_fixture;

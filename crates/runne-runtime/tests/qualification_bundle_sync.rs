@@ -17,7 +17,7 @@ const BUNDLE_JSON_PATH: &str = concat!(
 /// at the pinned base SHA; pins reproducibility of `ordered_capability_digest`
 /// without any external source.
 const EXPECTED_CAPABILITY_DIGEST: &str =
-    "ccf46662f10d748060c6e6ee498eea2d4f6851633ece4fd7850aad09734e29c2";
+    "ff72ab932ecbd320f1b88b5dd6e9ea1caeb6ebf7432393b7e7e2abcaeb1043bc";
 
 #[test]
 fn bundle_json_sha256_matches_published_hash() {
@@ -46,10 +46,16 @@ fn retention_baseline_resume_v2_is_published_after_v1() {
 }
 
 #[test]
-fn published_capabilities_equal_catalog_exact_order() {
-    // Both sets are pinned to the same committed bundle.json: exact order and
-    // content must stay identical.
-    assert_eq!(PUBLISHED_RUNTIME_CAPABILITIES, RUNTIME_CAPABILITY_CATALOG);
+fn published_capabilities_are_an_ordered_catalog_prefix() {
+    assert_eq!(
+        RUNTIME_CAPABILITY_CATALOG.get(..PUBLISHED_RUNTIME_CAPABILITIES.len()),
+        Some(PUBLISHED_RUNTIME_CAPABILITIES),
+    );
+    assert!(!PUBLISHED_RUNTIME_CAPABILITIES.contains(&"provider.credential-enrollment.v2"));
+    assert_eq!(
+        RUNTIME_CAPABILITY_CATALOG.last(),
+        Some(&"provider.credential-enrollment.v2")
+    );
 }
 
 #[test]

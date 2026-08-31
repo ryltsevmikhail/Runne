@@ -15,7 +15,6 @@ pub const REQUIRED_RUNTIME_CAPABILITIES: &[&str] = &[
     "replay.aggregate.sse.v1",
     "runtime.operational-telemetry.v1",
     "approval.control.v1",
-    "provider.credential-control.v1",
     "project.list.v1",
     "project.get.v1",
     "project.create.v1",
@@ -45,7 +44,6 @@ pub const PROTECTED_RUNTIME_CAPABILITIES: &[&str] = &[
     "replay.aggregate.sse.v1",
     "runtime.operational-telemetry.v1",
     "approval.control.v1",
-    "provider.credential-control.v1",
     "project.list.v1",
     "project.get.v1",
     "project.create.v1",
@@ -62,6 +60,41 @@ pub const PROTECTED_RUNTIME_CAPABILITIES: &[&str] = &[
     "workspace.editor.open.v1",
 ];
 
+/// Exact protected profile shape that Task 15 may select after native release
+/// qualification. Defining it does not authorize a profile to use it.
+pub const ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES: &[&str] = &[
+    "conversation.create.v1",
+    "conversation.generate_text.v1",
+    "conversation.list_messages.v1",
+    "task_run.get.v1",
+    "task_run.cancel.v1",
+    "replay.aggregate.open.v1",
+    "replay.aggregate.retention_baseline.v1",
+    "replay.aggregate.retention_baseline_resume.v2",
+    "replay.aggregate.read_page.v1",
+    "replay.aggregate.acknowledge.v1",
+    "replay.aggregate.complete_catch_up.v1",
+    "replay.aggregate.continue_live.v1",
+    "replay.aggregate.sse.v1",
+    "runtime.operational-telemetry.v1",
+    "approval.control.v1",
+    "project.list.v1",
+    "project.get.v1",
+    "project.create.v1",
+    "project.archive.v1",
+    "project.restore.v1",
+    "project.delete.v1",
+    "workspace.list.v1",
+    "workspace.get.v1",
+    "workspace.create.v1",
+    "workspace.open.v1",
+    "workspace.bind_root.v3",
+    "workspace.files.read.v1",
+    "workspace.changes.read.v1",
+    "workspace.editor.open.v1",
+    PROVIDER_CREDENTIAL_ENROLLMENT_CAPABILITY_V2,
+];
+
 pub fn is_supported_capability_profile(values: &[String]) -> bool {
     [
         REQUIRED_RUNTIME_CAPABILITIES,
@@ -74,6 +107,13 @@ pub fn is_supported_capability_profile(values: &[String]) -> bool {
             .map(String::as_str)
             .eq(expected.iter().copied())
     })
+}
+
+fn is_enrollment_qualified_capability_profile(values: &[String]) -> bool {
+    values
+        .iter()
+        .map(String::as_str)
+        .eq(ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES.iter().copied())
 }
 
 /// Verifies every protected-bundled profile field used by the native root
@@ -125,4 +165,38 @@ fn nonempty_identity(session: &RuntimeSessionInfo) -> bool {
     .all(|value| !value.is_empty())
         && session.launch_generation != 0
         && session.authorization_epoch != 0
+}
+
+#[cfg(test)]
+mod capabilities_tests {
+    use super::*;
+
+    #[test]
+    fn v1_credential_control_is_not_advertised_by_any_supported_profile() {
+        for profile in [
+            REQUIRED_RUNTIME_CAPABILITIES,
+            PROTECTED_RUNTIME_CAPABILITIES,
+        ] {
+            assert!(
+                !profile.contains(&"provider.credential-control.v1"),
+                "V1 credential control must remain a compatibility artifact only"
+            );
+        }
+    }
+
+    #[test]
+    fn enrollment_profile_is_exact_but_not_yet_selectable() {
+        for profile in [REQUIRED_RUNTIME_CAPABILITIES, PROTECTED_RUNTIME_CAPABILITIES] {
+            assert!(!profile.iter().any(|value| value.starts_with("provider.credential-")));
+        }
+        assert_eq!(ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES.iter().filter(|value| **value == PROVIDER_CREDENTIAL_ENROLLMENT_CAPABILITY_V2).count(), 1);
+        assert!(!ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES.contains(&"provider.credential-control.v1"));
+        let qualified = ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES.iter().map(|value| (*value).to_owned()).collect::<Vec<_>>();
+        assert!(is_enrollment_qualified_capability_profile(&qualified));
+        assert!(!is_supported_capability_profile(&qualified));
+        let mut mixed = qualified.clone(); mixed.swap(0, 1);
+        assert!(!is_enrollment_qualified_capability_profile(&mixed));
+        mixed = qualified; mixed.push("compile-only-qualification".to_owned());
+        assert!(!is_enrollment_qualified_capability_profile(&mixed));
+    }
 }

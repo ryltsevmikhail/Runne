@@ -72,30 +72,86 @@ fn get_provider_status(
 }
 
 #[tauri::command]
-async fn pair_provider_credential(
+async fn get_provider_credential_enrollment_status(
     state: tauri::State<'_, std::sync::Arc<AppCore>>,
-    provider: String,
-    credential: String,
-) -> Result<runne_app_core::CanonicalProviderCredentialMutation, IpcError> {
+    provider: runne_api::ProviderCredentialProviderV2,
+) -> Result<runne_app_core::ProviderCredentialEnrollmentProjection, IpcError> {
     state
-        .pair_provider_credential(&provider, credential.into_bytes())
+        .provider_credential_enrollment_status(provider)
         .await
         .map_err(|_| IpcError {
-            code: "provider_credential_pair_rejected",
+            code: "provider_credential_status_unavailable",
         })
 }
 
 #[tauri::command]
-async fn revoke_provider_credential(
-    state: tauri::State<'_, std::sync::Arc<AppCore>>,
-    provider: String,
-) -> Result<runne_app_core::CanonicalProviderCredentialMutation, IpcError> {
-    state
-        .revoke_provider_credential(&provider)
-        .await
-        .map_err(|_| IpcError {
-            code: "provider_credential_revoke_rejected",
-        })
+async fn request_provider_credential_intent(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+    selections: tauri::State<'_, DirectorySelectionManager>,
+    lifecycle: tauri::State<'_, RuntimeLifecycleManager>,
+    updater: tauri::State<'_, UpdateStatusStore>,
+    intents: tauri::State<'_, crate::provider_credential_enrollment::CredentialIntentRegistry>,
+    request: crate::provider_credential_enrollment::CredentialIntentIpc,
+) -> Result<crate::provider_credential_enrollment::CredentialIntentProjection, IpcError> {
+    let focused = window.is_focused().map_err(|_| IpcError {
+        code: "provider_credential_intent_rejected",
+    })?;
+    if !request.valid()
+        || !credential_intent_window_is_current(
+            focused,
+            &selections,
+            window.label(),
+            request.renderer_generation,
+        )
+    {
+        return Err(IpcError {
+            code: "provider_credential_intent_rejected",
+        });
+    }
+    // Trusted native chain only: leases, native prompt, exact daemon
+    // confirmation, V3 transition with writer handoff. The renderer receives
+    // just the closed projection; every failure is fail-closed and actionable.
+    crate::provider_credential_enrollment::dispatch_credential_intent(
+        &app,
+        window,
+        lifecycle.inner(),
+        updater.inner(),
+        intents.inner(),
+        request,
+    )
+    .await
+    .map_err(|code| IpcError { code })
+}
+
+fn credential_intent_window_is_current(
+    focused: bool,
+    selections: &DirectorySelectionManager,
+    label: &str,
+    renderer_generation: u64,
+) -> bool {
+    focused
+        && selections.renderer_generations().current(label).ok() == Some(renderer_generation)
+}
+
+#[cfg(test)]
+mod provider_credential_intent_tests {
+    use super::*;
+
+    #[test]
+    fn credential_intent_admission_requires_focused_exact_current_renderer() {
+        let selections = DirectorySelectionManager::new(std::time::Duration::from_secs(30))
+            .expect("selection manager");
+        let current = selections
+            .renderer_generations()
+            .page_loaded("main")
+            .expect("renderer generation");
+
+        assert!(!credential_intent_window_is_current(false, &selections, "main", current));
+        assert!(!credential_intent_window_is_current(true, &selections, "main", current + 1));
+        assert!(credential_intent_window_is_current(true, &selections, "main", current));
+        drop(selections);
+    }
 }
 
 #[tauri::command]

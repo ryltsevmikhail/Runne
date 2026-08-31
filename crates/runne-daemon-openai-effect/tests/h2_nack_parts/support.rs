@@ -2,6 +2,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 use std::time::Duration;
 
+use runne_application::provider::{ProviderExecutionStore, ProviderJournalKeyBinding};
 use runne_daemon_openai_effect::{
     FixtureRequestAuthenticator, effect_from_loopback_fixture, loopback_fixture_client,
     loopback_fixture_request_authenticator,
@@ -10,6 +11,10 @@ use runne_provider::{
     DispatchError, ReconcileRequest, ReconciliationDisposition,
 };
 use runne_provider_openai::{OpenAiResponsesTextProfile, OpenAiTransportPolicy};
+use runne_secure_store::{
+    ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
+    ProviderJournalKeyStatus, ProviderJournalKeyring, SecureStoreError,
+};
 use rcgen::{CertificateParams, KeyPair, SanType};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio::net::TcpListener;
@@ -19,6 +24,59 @@ use tokio_rustls::TlsAcceptor;
 enum Nack {
     RefusedStream,
     GoawayNoError,
+}
+
+struct TestKeyring;
+
+impl ProviderJournalKeyring for TestKeyring {
+    fn retains_multiple_provider_journal_keys(&self) -> bool {
+        true
+    }
+
+    fn provider_journal_key_status(
+        &self,
+        _: ProviderJournalKeyRef,
+    ) -> Result<ProviderJournalKeyStatus, SecureStoreError> {
+        Ok(ProviderJournalKeyStatus::Available)
+    }
+
+    fn store_provider_journal_key(
+        &self,
+        _: &ProviderJournalKeyMaterial,
+    ) -> Result<(), SecureStoreError> {
+        Ok(())
+    }
+
+    fn load_provider_journal_key(
+        &self,
+        key: ProviderJournalKeyRef,
+    ) -> Result<ProviderJournalKeyMaterial, SecureStoreError> {
+        ProviderJournalKeyMaterial::new(key, [7; 32])
+    }
+
+    fn delete_provider_journal_key(
+        &self,
+        _: ProviderJournalKeyRef,
+        _: ProviderJournalKeyDeletionProof,
+    ) -> Result<(), SecureStoreError> {
+        Ok(())
+    }
+}
+
+fn activate_launch_and_arm(
+    store: &runne_store::provider::SqliteProviderExecutionStore,
+    config: &runne_store::provider::ProviderRuntimeAuthorityConfig,
+) -> runne_store::provider::ProviderRuntimeLaunchCapability {
+    let launch = store.activate_runtime_launch(config).expect("runtime launch");
+    let binding = ProviderJournalKeyBinding::new([9; 16], 1, [1; 16], 7).expect("key binding");
+    let keyring = TestKeyring;
+    store
+        .activate_journal_key_with_keyring(&keyring, binding)
+        .expect("active journal key");
+    store
+        .install_online_effect_proof_capability(&keyring, binding)
+        .expect("online effect proof");
+    launch
 }
 
 struct NackServer {

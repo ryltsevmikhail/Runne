@@ -1,12 +1,13 @@
 {
   "name": "@runne/desktop",
-  "version": "0.1.0",
+  "version": "0.0.3",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "vue-tsc -b && vite build",
     "dev": "vite",
     "stage:bundled-daemon": "node ../../scripts/desktop/stage_bundled_daemon.mjs",
+    "stage:bundled-cli": "node ../../scripts/desktop/stage_bundled_cli.mjs",
     "tauri": "tauri",
     "test": "vitest run",
     "typecheck": "vue-tsc -b"

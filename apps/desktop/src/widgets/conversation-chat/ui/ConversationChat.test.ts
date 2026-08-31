@@ -105,7 +105,7 @@ describe('conversation chat widget', () => {
     })
     await flushPromises()
     expect(wrapper.get('[data-capability="conversation-controls"]')).toBeTruthy()
-    expect(wrapper.get('form.conversation-chat__composer')).toBeTruthy()
+    expect(wrapper.get('.conversation-chat__composer')).toBeTruthy()
     await wrapper.get('textarea').setValue('hello')
     await wrapper.get('form').trigger('submit')
     await flushPromises()

@@ -1,7 +1,7 @@
-#[path = "task5_support.rs"]
-mod task5_support;
 #[path = "task5_fixture.rs"]
 mod task5_fixture;
+#[path = "task5_support.rs"]
+mod task5_support;
 
 #[tokio::test(flavor = "current_thread")]
 async fn terminal_scanner_failure_has_no_publication() {
@@ -19,12 +19,11 @@ async fn terminal_scanner_failure_has_no_publication() {
     use task5_fixture::Task5ProductionFixture;
     use task5_support::*;
 
-    let fixture = Task5ProductionFixture::new();
+    let keyring = MemoryKeyring::default();
+    let fixture = Task5ProductionFixture::new(&keyring);
     let recovery = SqliteProviderRecoveryStore::open(fixture.path(), [1; 16]).unwrap();
     let tails = SecretTailStore::default();
-    let redaction =
-        ProviderEventRedactionBoundary::new(&tails, &recovery, &SecretMatcher);
-    let keyring = MemoryKeyring::default();
+    let redaction = ProviderEventRedactionBoundary::new(&tails, &recovery, &SecretMatcher);
     let runtime = RuntimeProviderExecution::new(
         &keyring,
         fixture.execution(),
@@ -32,7 +31,9 @@ async fn terminal_scanner_failure_has_no_publication() {
         &AllowingGuard,
         &redaction,
     );
-    runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
+    runtime
+        .use_existing_active_key(fixture.journal_key())
+        .unwrap();
     let provider = SecretProvider::default();
 
     runtime

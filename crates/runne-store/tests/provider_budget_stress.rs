@@ -11,6 +11,8 @@ use runne_store::provider::{
     SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
 
+#[path = "support/online_proof.rs"]
+mod online_proof;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 
@@ -46,7 +48,11 @@ fn authority() -> ProviderRuntimeAuthorityConfig {
     }
 }
 
-fn request(index: u8, dispatch: &SqliteProviderDispatchStore) -> ProviderAuthorityIssueRequest {
+fn request(
+    index: u8,
+    dispatch: &SqliteProviderDispatchStore,
+    launch: &runne_store::provider::ProviderRuntimeLaunchCapability,
+) -> ProviderAuthorityIssueRequest {
     let call = ProviderCall::new(
         ProviderCallId::from_bytes([index; 16]),
         ModelRef::new(ProviderId::new("fixture").unwrap(), "model", "2026-08-01").unwrap(),
@@ -63,8 +69,9 @@ fn request(index: u8, dispatch: &SqliteProviderDispatchStore) -> ProviderAuthori
         render_digest: *prepared.render_digest(),
         profile_digest: [2; 32],
     };
-    dispatch.persist_prepared(&record).unwrap();
+    dispatch.persist_prepared(launch, &record).unwrap();
     ProviderAuthorityIssueRequest {
+        provider_id: ProviderId::new("fixture").unwrap(),
         principal_id: "principal".into(),
         conversation_id: ConversationId::from_bytes([index; 16]),
         taskrun_id: TaskRunId::from_bytes([index; 16]),
@@ -91,11 +98,12 @@ fn cumulative_limits_are_exact_across_many_admissions_and_reopen() {
     let dispatch = database.dispatch();
     assert!(SqliteProviderExecutionStore::open(database.as_path()).is_err());
     let execution = database.execution();
-    execution.install_runtime_authority(&authority()).unwrap();
+    let launch = execution.activate_runtime_launch(&authority()).unwrap();
+    online_proof::arm(&execution, 7);
 
     for index in 1..=ATTEMPTS {
         assert!(matches!(
-            execution.issue(&request(index, &dispatch)),
+            execution.issue(&launch, &request(index, &dispatch, &launch)),
             Ok(ProviderAuthorityIssueOutcome::Winner(_))
         ));
     }
@@ -116,10 +124,11 @@ fn cumulative_limits_are_exact_across_many_admissions_and_reopen() {
 
     let reopened = database.execution();
     assert_eq!(reopened.utilization().unwrap(), (tokens, cost));
-    reopened.install_runtime_authority(&authority()).unwrap();
+    let reopened_launch = reopened.activate_runtime_launch(&authority()).unwrap();
+    online_proof::arm(&reopened, 7);
     assert_eq!(reopened.utilization().unwrap(), (tokens, cost));
     assert_eq!(
-        reopened.issue(&request(11, &dispatch)),
+        reopened.issue(&reopened_launch, &request(11, &dispatch, &reopened_launch)),
         Err(ProviderAdmissionError::TokenBudgetDenied)
     );
 }

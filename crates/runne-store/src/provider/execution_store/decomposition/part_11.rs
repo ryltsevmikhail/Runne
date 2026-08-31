@@ -1,6 +1,8 @@
 #[allow(clippy::too_many_arguments)]
 fn commit_issuance(
     transaction: &Transaction<'_>,
+    issuance_guard: &crate::schema::OnlineIssuanceGuard,
+    online_proof: &OnlineEffectProofCapabilitySet,
     request: &ProviderAuthorityIssueRequest,
     state: &RuntimeAuthorityState,
     claim: &ProviderDispatchClaim,
@@ -18,6 +20,15 @@ fn commit_issuance(
     let fence_i64 = as_i64(state.expected_fencing_token)?;
     let database_generation_i64 = as_i64(state.database_generation)?;
     let authority_revision_i64 = as_i64(authority_ref.revision())?;
+    let _issuance_scope = issuance_guard
+        .enable(
+            *claim.attempt_id.as_bytes(),
+            request.provider_id.as_str(),
+            authority_ref.authority_id(),
+            authority_revision_i64,
+            issued_at,
+        )
+        .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
     let intent_id = format!("provider:{}", encode_hex(claim.attempt_id.as_bytes()));
     let budget_binding = format!(
         "provider:{}:{}",
@@ -25,7 +36,6 @@ fn commit_issuance(
         encode_hex(&claim.cost_reservation_id)
     );
     let permit_hex = encode_hex(&claim.permit_id);
-
     let reserved = transaction
         .execute(
             "UPDATE provider_runtime_authority_state SET
@@ -162,6 +172,7 @@ fn commit_issuance(
             ],
         )
         .map_err(|_| ProviderAdmissionError::AuthorityConflict)?;
+    persist_online_issuance_binding(transaction, request, claim, online_proof)?;
     for (reservation_id, dimension, amount) in [
         (claim.token_reservation_id, 1_i64, requested_tokens_i64),
         (claim.cost_reservation_id, 2_i64, max_cost_i64),

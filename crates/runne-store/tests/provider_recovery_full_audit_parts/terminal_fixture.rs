@@ -13,7 +13,7 @@ fn terminal_setup(
     name: &str,
     call_byte: u8,
 ) -> (
-    validated_reopen::ProviderTestDatabase,
+    ArmedProviderTestDatabase,
     ProviderDispatchClaim,
     ProviderTerminalCommitRequest,
 ) {
@@ -33,13 +33,21 @@ fn terminal_request_for_claim(
         .mark_streaming(&MarkProviderStreaming {
             attempt_id: claim.attempt_id,
             fencing_token: claim.fencing_token,
-            stream_id: runne_provider::ProviderStreamId::from_bytes([call_byte.wrapping_add(40); 16]),
+            stream_id: runne_provider::ProviderStreamId::from_bytes(
+                [call_byte.wrapping_add(40); 16],
+            ),
         })
         .unwrap();
-    let key = ProviderJournalKeyBinding::new([call_byte.wrapping_add(50); 16], 1, [1; 16], 7)
-        .unwrap();
+    let config = runtime_config();
+    let key = ProviderJournalKeyBinding::new(
+        [9; 16],
+        1,
+        config.runtime_authority_id,
+        config.database_generation,
+    )
+    .unwrap();
     let execution = database.execution();
-    execution.activate_journal_key(key).unwrap();
+    crate::online_proof::activate(&execution, key);
     execution
         .begin_provider_poll(&ProviderPollRequest {
             attempt_id: claim.attempt_id,
@@ -61,7 +69,10 @@ fn terminal_request_for_claim(
                 profile_digest: [2; 32],
                 runtime_generation: 11,
                 key,
-                encrypted: encrypted_payload(call_byte.wrapping_add(60), call_byte.wrapping_add(70)),
+                encrypted: encrypted_payload(
+                    call_byte.wrapping_add(60),
+                    call_byte.wrapping_add(70)
+                ),
             })
             .unwrap(),
         ProviderJournalAppendOutcome::Inserted

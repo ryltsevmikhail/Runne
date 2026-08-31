@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 23;
+pub const CURRENT_SCHEMA_VERSION: i64 = 32;
 
 /// Fail-closed reason returned before a file-backed database is made writable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,6 +96,24 @@ include!("schema/migrations/v17_bootstrap_reservations.rs");
 include!("schema/migrations/v21_process.rs");
 include!("schema/migrations/v22_process_intent.rs");
 include!("schema/migrations/v23_approvals.rs");
+include!("schema/migrations/v24_provider_credential_online.rs");
+include!("schema/provider_credential_v24_schema.rs");
+include!("schema/migrations/v25_provider_credential_begin_expiry.rs");
+include!("schema/provider_credential_v25_schema.rs");
+include!("schema/migrations/v26_provider_online_effect_binding.rs");
+include!("schema/provider_credential_v26_schema.rs");
+include!("schema/migrations/v27_provider_credential_migration_provenance.rs");
+include!("schema/provider_credential_v27_schema.rs");
+include!("schema/migrations/v28_provider_credential_completion_receipt.rs");
+include!("schema/provider_credential_v28_schema.rs");
+include!("schema/migrations/v29_provider_credential_attachment.rs");
+include!("schema/provider_credential_v29_schema.rs");
+include!("schema/migrations/v30_provider_credential_verification_binding.rs");
+include!("schema/provider_credential_v30_schema.rs");
+include!("schema/migrations/v31_provider_credential_legacy_cutover.rs");
+include!("schema/provider_credential_v31_schema.rs");
+include!("schema/migrations/v32_provider_credential_legacy_cutover_atomic.rs");
+include!("schema/provider_credential_v32_schema.rs");
 mod project_workspace_backfill;
 mod project_workspace_schema;
 pub(crate) mod provider_schema;
@@ -105,6 +123,22 @@ include!("schema/open.rs");
 include!("schema/authority_identity.rs");
 include!("schema/authority_launch.rs");
 include!("schema/replay.rs");
+
+#[cfg(test)]
+pub(crate) fn restore_v25_credential_triggers_for_test(
+    connection: &Connection,
+) -> SqliteResult<()> {
+    let insert_trigger = V24_TRIGGERS
+        .iter()
+        .find(|(name, _)| *name == "provider_credential_operation_insert_prepared")
+        .expect("V24 insert trigger exists")
+        .1;
+    connection.execute_batch(&v25_trigger(
+        "provider_credential_operation_insert_prepared",
+        insert_trigger,
+    ))?;
+    connection.execute_batch(v24_head_active_lifecycle_trigger())
+}
 
 #[cfg(test)]
 mod tests {
@@ -133,4 +167,21 @@ mod tests {
     include!("schema/tests/migrations.rs");
     include!("schema/tests/released.rs");
     include!("schema/tests/recovery_compatibility.rs");
+    include!("schema/tests/credential_v24.rs");
+    include!("schema/tests/credential_v24_invariants.rs");
+    include!("schema/tests/credential_v24_observation_invariants.rs");
+    include!("schema/tests/credential_v24_legacy_corruption.rs");
+    include!("schema/tests/credential_v24_active_invariants.rs");
+    include!("schema/tests/credential_v24_target_invariants.rs");
+    include!("schema/tests/credential_v24_shape_invariants.rs");
+    include!("schema/tests/credential_v24_owner_invariants.rs");
+    include!("schema/tests/credential_v24_verification_ref_invariants.rs");
+    include!("schema/tests/credential_v25.rs");
+    include!("schema/tests/credential_v26.rs");
+    include!("schema/tests/credential_v27.rs");
+    include!("schema/tests/credential_v28.rs");
+    include!("schema/tests/credential_v29.rs");
+    include!("schema/tests/credential_v30.rs");
+    include!("schema/tests/credential_v32.rs");
+    include!("schema/tests/frozen_migrations.rs");
 }

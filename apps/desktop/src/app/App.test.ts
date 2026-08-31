@@ -1,12 +1,31 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { appTheme } from '@/shared/model/theme'
+
+const nativeTheme = vi.hoisted(() => ({
+  isTauri: vi.fn(() => false),
+  saveTheme: vi.fn(),
+}))
+
+vi.mock('@tauri-apps/api/core', () => ({ isTauri: nativeTheme.isTauri }))
+vi.mock('@/shared/api/platform/bootstrap', async importOriginal => ({
+  ...await importOriginal<typeof import('@/shared/api/platform/bootstrap')>(),
+  saveTheme: nativeTheme.saveTheme,
+}))
 
 import { currentLocale } from '@/shared/i18n'
 import App from './App.vue'
 import { routes } from './router'
 
+
 describe('desktop application shell', () => {
+  beforeEach(() => {
+    appTheme.value = 'dark'
+    nativeTheme.isTauri.mockReturnValue(false)
+    nativeTheme.saveTheme.mockReset()
+  })
   it('renders navigation and the selected route inside the workspace', async () => {
     const router = createRouter({
       history: createMemoryHistory(),
@@ -139,25 +158,6 @@ describe('desktop application shell', () => {
     const titleBar = wrapper.get('.desktop-title-bar')
     expect(titleBar.attributes('data-tauri-drag-region')).toBe('')
     expect(titleBar.get('.gc-title-bar-logo').attributes('alt')).toBe('Runne')
-  })
-
-  it('toggles the desktop color theme from the sidebar', async () => {
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes,
-    })
-    await router.push('/')
-    await router.isReady()
-
-    const wrapper = mount(App, {
-      global: { plugins: [router] },
-    })
-
-    await wrapper.get('[aria-label="Use light theme"]').trigger('click')
-
-    expect(wrapper.attributes('data-theme')).toBe('light')
-    expect(wrapper.find('[aria-label="Use dark theme"]').exists()).toBe(true)
-    expect(wrapper.get('.app-shell').attributes('data-theme')).toBe('light')
   })
 
   it('collapses the desktop navigation without hiding its accessible name', async () => {

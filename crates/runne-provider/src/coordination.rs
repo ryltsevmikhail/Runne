@@ -1,6 +1,8 @@
 use thiserror::Error;
 
-use crate::{DispatchAttemptId, ProviderCallDigestVersion, ProviderCallId, ProviderStreamId};
+use crate::{
+    DispatchAttemptId, ProviderCallDigestVersion, ProviderCallId, ProviderId, ProviderStreamId,
+};
 
 /// Immutable provider prepare metadata persisted before dispatch claim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,6 +22,8 @@ pub struct PreparedProviderRecord {
 /// Runtime-neutral atomic provider dispatch claim.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderDispatchClaim {
+    /// Canonical provider durably bound when this claim was issued.
+    pub provider_id: ProviderId,
     /// Owning provider call.
     pub call_id: ProviderCallId,
     /// Durable dispatch attempt.

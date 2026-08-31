@@ -74,6 +74,21 @@ impl NativeRootAdmissionLifecycle for BundledRuntimeController {
             .await;
         })
     }
+
+    fn acquire_credential_enrollment_lease(&self) -> crate::bundled_runtime::CredentialEnrollmentFuture {
+        let supervisor = Arc::clone(&self.supervisor);
+        let fence = Arc::clone(&self.operation_fence);
+        Box::pin(async move {
+            let operation_permit = fence
+                .enter()
+                .await
+                .ok_or(AppCoreError::RuntimeUnavailable)?;
+            Ok(crate::bundled_runtime::NativeCredentialEnrollmentLease {
+                supervisor,
+                operation_permit,
+            })
+        })
+    }
 }
 
 fn map_protected_failure(error: ProtectedBundledRuntimeError) -> RuntimeFailureCode {

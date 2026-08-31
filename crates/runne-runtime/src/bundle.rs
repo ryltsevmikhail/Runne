@@ -16,7 +16,7 @@ pub const GENERATOR_SCHEMA_VERSION: u32 = 1;
 ///
 /// Updated only by the authoritative contract generator.
 pub const PUBLISHED_BUNDLE_HASH: &str =
-    "4f38e7d4f59ff55081033c483992f4094eb50fb5d785ed8f1f0b5b4fb3b0597a";
+    "0ba6f71a5fde9f735d2d03c9bec014acd5958f578ed431b904d038ff8093d4fe";
 
 /// Exact additive command/query and Aggregate replay surface mounted by the
 /// current local daemon.
@@ -36,7 +36,6 @@ pub const PUBLISHED_RUNTIME_CAPABILITIES: &[&str] = &[
     "replay.aggregate.sse.v1",
     "runtime.operational-telemetry.v1",
     "approval.control.v1",
-    "provider.credential-control.v1",
     "project.list.v1",
     "project.get.v1",
     "project.create.v1",
@@ -70,7 +69,6 @@ pub const BASE_RUNTIME_CAPABILITIES: &[&str] = &[
     "replay.aggregate.sse.v1",
     "runtime.operational-telemetry.v1",
     "approval.control.v1",
-    "provider.credential-control.v1",
     "project.list.v1",
     "project.get.v1",
     "project.create.v1",
@@ -100,7 +98,6 @@ pub const RUNTIME_CAPABILITY_CATALOG: &[&str] = &[
     "replay.aggregate.sse.v1",
     "runtime.operational-telemetry.v1",
     "approval.control.v1",
-    "provider.credential-control.v1",
     "project.list.v1",
     "project.get.v1",
     "project.create.v1",
@@ -115,6 +112,7 @@ pub const RUNTIME_CAPABILITY_CATALOG: &[&str] = &[
     "workspace.files.read.v1",
     "workspace.changes.read.v1",
     "workspace.editor.open.v1",
+    "provider.credential-enrollment.v2",
 ];
 
 #[cfg(test)]
@@ -122,7 +120,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn replay_capabilities_are_published_in_catalog_order() {
+    fn unqualified_profile_omits_enrollment_while_catalog_supports_it() {
         let expected = [
             "conversation.create.v1",
             "conversation.generate_text.v1",
@@ -139,7 +137,6 @@ mod tests {
             "replay.aggregate.sse.v1",
             "runtime.operational-telemetry.v1",
             "approval.control.v1",
-            "provider.credential-control.v1",
             "project.list.v1",
             "project.get.v1",
             "project.create.v1",
@@ -156,7 +153,11 @@ mod tests {
             "workspace.editor.open.v1",
         ];
         assert_eq!(PUBLISHED_RUNTIME_CAPABILITIES, expected);
-        assert_eq!(RUNTIME_CAPABILITY_CATALOG, expected);
+        assert!(!PUBLISHED_RUNTIME_CAPABILITIES.contains(&"provider.credential-enrollment.v2"));
+        assert_eq!(
+            RUNTIME_CAPABILITY_CATALOG,
+            [&expected[..], &["provider.credential-enrollment.v2"]].concat()
+        );
     }
 
     #[test]

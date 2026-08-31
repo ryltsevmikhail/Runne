@@ -58,6 +58,11 @@ const FIRST_ACTIVATION_COMMIT_DOMAIN: &[u8] = b"gocode/bundled-launch/first-acti
 const READINESS_DOMAIN_V2: &[u8] = b"gocode/bundled-launch/readiness/v2";
 const RENEW_DOMAIN_V2: &[u8] = b"gocode/bundled-launch/renew/v2";
 const SHUTDOWN_DOMAIN_V2: &[u8] = b"gocode/bundled-launch/shutdown/v2";
+const READINESS_DOMAIN_V3: &[u8] = b"gocode/credential-enrollment-launch/readiness/v3";
+const RENEW_DOMAIN_V3: &[u8] = b"gocode/credential-enrollment-launch/renew/v3";
+const SHUTDOWN_DOMAIN_V3: &[u8] = b"gocode/credential-enrollment-launch/shutdown/v3";
+const ENROLLMENT_REQUEST_BINDING_DOMAIN_V3: &[u8] =
+    b"gocode/credential-enrollment-launch/request-binding/v3\0";
 
 type HmacSha256 = Hmac<Sha256>;
 

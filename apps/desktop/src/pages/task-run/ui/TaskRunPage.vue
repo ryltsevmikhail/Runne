@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { TaskRunWorkspace } from '@runne/product/task-run-workspace'
+import { CancelTaskRun } from '@runne/product/cancel-task-run'
 import { GcButton } from '@runne/product/shared/ui'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -157,14 +158,12 @@ onBeforeUnmount(() => { requestGeneration += 1; resyncOperation += 1; resyncing.
     :recovery="snapshot.recovery"
     :approval-attention="approvalAttention"
   />
-  <GcButton
+  <CancelTaskRun
     v-if="snapshot?.recovery === 'live' && ['created', 'queued', 'admitted', 'running', 'waiting', 'retrying', 'checkpointing'].includes(snapshot.state)"
-    variant="secondary"
-    :disabled="cancelling || runtimeStatus !== 'live'"
-    @click="requestCancellation"
-  >
-    {{ translate('taskRun.requestCancellation') }}
-  </GcButton>
+    :disabled="runtimeStatus !== 'live'"
+    :pending="cancelling"
+    @request="requestCancellation"
+  />
   <GcButton
     v-if="snapshot?.recovery === 'resync_required'"
     variant="secondary"

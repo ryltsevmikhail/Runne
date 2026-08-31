@@ -30,6 +30,7 @@ fn dispatch_request(
     provider_idempotency_key: &str,
 ) -> DispatchRequest {
     let claim = ProviderDispatchClaim {
+        provider_id: prepared.call().model_ref().provider_id().clone(),
         call_id: prepared.call().call_id(),
         attempt_id,
         permit_id: [4; 16],

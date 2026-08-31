@@ -21,18 +21,8 @@ impl ProviderDispatchRepository for SqliteProviderDispatchStore {
         &self,
         record: &ContractPreparedProviderRecord,
     ) -> Result<(), ProviderRepositoryError> {
-        SqliteProviderDispatchStore::persist_prepared(
-            self,
-            &PreparedProviderRecord {
-                call_id: record.call_id,
-                call_digest_version: record.call_digest_version,
-                prepared_digest: record.prepared_digest,
-                render_digest: record.render_digest,
-                profile_digest: record.profile_digest,
-            },
-        )
-        .map(|_| ())
-        .map_err(repository_error)
+        let _ = record;
+        Err(repository_error(ProviderStoreError::LaunchCapabilityRequired))
     }
 
     fn claim(

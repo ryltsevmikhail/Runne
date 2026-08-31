@@ -45,6 +45,7 @@ pub fn dispatch_request(
     profile: &OpenAiResponsesTextProfile,
 ) -> DispatchRequest {
     let claim = ProviderDispatchClaim {
+        provider_id: ProviderId::new("openai").expect("provider id"),
         call_id: prepared.call().call_id(),
         attempt_id,
         permit_id: [4; 16],

@@ -20,6 +20,21 @@ pub trait NativeProviderCredentialVersionStore: Send + Sync {
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialStatus, SecureStoreError>;
 
+    /// Returns the non-secret source revision retained by one exact version.
+    ///
+    /// Backends without revision metadata fail closed for legacy migration.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed access, missing metadata, corruption, or backend failure.
+    fn version_source_revision(
+        &self,
+        _reference: &CredentialVersionRef,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialSourceRevision, SecureStoreError> {
+        Err(SecureStoreError::ProviderCredentialSourceRevisionUnavailable)
+    }
+
     /// Idempotently creates immutable native material for a prepared version.
     ///
     /// ```compile_fail

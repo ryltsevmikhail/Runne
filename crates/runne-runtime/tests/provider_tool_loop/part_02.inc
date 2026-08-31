@@ -11,6 +11,7 @@ async fn dispatch(provider: &ScriptedProvider) -> runne_provider::ProviderStream
     .with_required_capabilities(vec![ProviderCapability::Streaming]);
     let prepared = provider.prepare(&call).unwrap();
     let claim = ProviderDispatchClaim {
+        provider_id: ProviderId::new("fake").unwrap(),
         call_id: prepared.call().call_id(),
         attempt_id: DispatchAttemptId::from_bytes([3; 16]),
         permit_id: [4; 16],

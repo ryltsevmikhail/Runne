@@ -40,6 +40,13 @@ pub fn apply_migrations_through_v19_for_test(conn: &Connection) -> SqliteResult<
     apply_migrations_internal(conn, 19)
 }
 
+/// Builds the released V23 boundary for compatibility fixtures only.
+#[doc(hidden)]
+#[cfg(debug_assertions)]
+pub fn apply_migrations_through_v23_for_test(conn: &Connection) -> SqliteResult<()> {
+    apply_migrations_internal(conn, 23)
+}
+
 fn apply_migrations_internal(conn: &Connection, target_version: i64) -> SqliteResult<()> {
     let source_version = classify_schema_version(conn)?;
     conn.execute_batch(
@@ -94,6 +101,15 @@ fn classify_schema_version(conn: &Connection) -> SqliteResult<i64> {
         21 => v21_matches(conn, version)?,
         22 => v22_matches(conn, version)?,
         23 => v23_matches(conn, version)?,
+        24 => v24_matches(conn, version)?,
+        25 => v25_matches(conn, version)?,
+        26 => v26_matches(conn, version)?,
+        27 => v27_matches(conn, version)?,
+        28 => v28_matches(conn, version)?,
+        29 => v29_matches(conn, version)?,
+        30 => v30_matches(conn, version)?,
+        31 => v31_matches(conn, version)?,
+        32 => v32_matches(conn, version)?,
         _ => false,
     };
     compatible
@@ -187,6 +203,33 @@ fn apply_v12_and_later(
     }
     if source_version < 23 && target_version >= 23 {
         apply_v23_migration(conn)?;
+    }
+    if source_version < 24 && target_version >= 24 {
+        apply_v24_migration(conn)?;
+    }
+    if source_version < 25 && target_version >= 25 {
+        apply_v25_migration(conn)?;
+    }
+    if source_version < 26 && target_version >= 26 {
+        apply_v26_migration(conn)?;
+    }
+    if source_version < 27 && target_version >= 27 {
+        apply_v27_migration(conn)?;
+    }
+    if source_version < 28 && target_version >= 28 {
+        apply_v28_migration(conn)?;
+    }
+    if source_version < 29 && target_version >= 29 {
+        apply_v29_migration(conn)?;
+    }
+    if source_version < 30 && target_version >= 30 {
+        apply_v30_migration(conn)?;
+    }
+    if source_version < 31 && target_version >= 31 {
+        apply_v31_migration(conn)?;
+    }
+    if source_version < 32 && target_version >= 32 {
+        apply_v32_migration(conn)?;
     }
     Ok(())
 }

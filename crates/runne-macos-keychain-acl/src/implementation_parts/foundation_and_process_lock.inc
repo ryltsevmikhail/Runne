@@ -64,8 +64,6 @@ unsafe extern "C" {
         prompt_selector: u16,
     ) -> OSStatus;
     fn SecKeychainItemCopyAccess(item: SecKeychainItemRef, access: *mut SecAccessRef) -> OSStatus;
-    #[cfg(test)]
-    fn SecKeychainItemSetAccess(item: SecKeychainItemRef, access: SecAccessRef) -> OSStatus;
     fn SecKeychainItemCreateFromContent(
         item_class: u32,
         attributes: *mut SecKeychainAttributeList,

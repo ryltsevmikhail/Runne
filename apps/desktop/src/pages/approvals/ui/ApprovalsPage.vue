@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { AttentionQueue } from '@runne/product/attention-queue'
 
 import { acquireRendererGeneration } from '@/entities/project'
 import { decideApproval, listPendingApprovals, type ApprovalDecision, type ApprovalSummary } from '@/entities/approval'
@@ -31,6 +32,11 @@ async function decideItem(approval: ApprovalSummary, decision: ApprovalDecision)
   }
 }
 
+function decideById(approvalId: string, decision: ApprovalDecision) {
+  const approval = approvals.value.find(item => item.approvalId === approvalId)
+  if (approval !== undefined) void decideItem(approval, decision)
+}
+
 onMounted(async () => {
   try { approvals.value = await props.load() }
   catch { unavailable.value = true }
@@ -49,33 +55,12 @@ onMounted(async () => {
     <p v-else-if="unavailable" role="alert">{{ translate('approvals.unavailable') }}</p>
     <p v-else-if="decisionFailed" role="alert">{{ translate('approvals.decisionFailed') }}</p>
     <p v-else-if="approvals.length === 0">{{ translate('approvals.empty') }}</p>
-    <ul v-else class="approval-list">
-      <li v-for="approval in approvals" :key="approval.approvalId" class="approval-card">
-        <div>
-          <strong>{{ approval.action }}</strong>
-          <span>{{ approval.resource }}</span>
-          <small>{{ approval.riskSummary }}</small>
-        </div>
-        <span class="approval-state">{{ approval.state }}</span>
-        <div v-if="approval.state === 'pending'" class="approval-actions">
-          <button
-            type="button"
-            data-approval-action="approve"
-            :disabled="decisionId !== null"
-            @click="decideItem(approval, 'approve')"
-          >
-            {{ translate('approvals.approve') }}
-          </button>
-          <button
-            type="button"
-            data-approval-action="deny"
-            :disabled="decisionId !== null"
-            @click="decideItem(approval, 'deny')"
-          >
-            {{ translate('approvals.deny') }}
-          </button>
-        </div>
-      </li>
-    </ul>
+    <AttentionQueue
+      v-else
+      :items="approvals"
+      :disabled="unavailable"
+      :pending-id="decisionId"
+      @decide="decideById"
+    />
   </section>
 </template>

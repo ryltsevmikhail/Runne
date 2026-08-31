@@ -1,9 +1,9 @@
 #[tokio::test(flavor = "current_thread")]
 async fn pending_outbox_is_not_decrypted_or_applied_without_scanner_completed() {
     let fixture = fixture();
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let writer = runtime(&keyring, fixture.execution.as_ref());
-    writer.create_and_activate_key([1; 16], 7, 1).unwrap();
+    writer.preflight_existing_active_key([1; 16], 7).unwrap();
     poll_events(
         &writer,
         &fixture,
@@ -24,7 +24,7 @@ async fn pending_outbox_is_not_decrypted_or_applied_without_scanner_completed() 
     let tails = ExecutionTailStore::default();
     let redaction = ProviderEventRedactionBoundary::new(&tails, &recovery, &ExecutionMatcher);
     let blocked = RuntimeProviderExecution::new(
-        &keyring,
+        keyring.as_ref(),
         fixture.execution.as_ref(),
         &FIXED_PRICING,
         &ALLOWING_GUARD,
@@ -83,15 +83,15 @@ async fn every_provider_string_surface_is_scanned_before_journal() {
         let recovery = SqliteProviderRecoveryStore::open(&fixture.path, [1; 16]).unwrap();
         let tails = ExecutionTailStore::default();
         let redaction = ProviderEventRedactionBoundary::new(&tails, &recovery, &ExecutionMatcher);
-        let keyring = MemoryKeyring::default();
+        let keyring = fixture.keyring();
         let runtime = RuntimeProviderExecution::new(
-            &keyring,
+            keyring.as_ref(),
             fixture.execution.as_ref(),
             &FIXED_PRICING,
             &ALLOWING_GUARD,
             &redaction,
         );
-        runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
+        runtime.preflight_existing_active_key([1; 16], 7).unwrap();
         let provider = CommitCheckingProvider {
             store: Arc::clone(&fixture.execution),
             attempt_id: fixture.attempt_id,

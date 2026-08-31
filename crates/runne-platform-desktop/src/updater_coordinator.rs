@@ -6,6 +6,9 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
+use crate::updater_installed_metadata::{
+    InstalledUpdateMetadataError, InstalledUpdateMetadataJournal,
+};
 use crate::{
     StagedUpdate, UpdateFeedClient, UpdateFeedError, UpdateInstallError, UpdateInstallPlan,
     UpdateInstallRecord, UpdateInstallState, UpdateJournal, UpdateJournalError,
@@ -13,7 +16,10 @@ use crate::{
     VerifiedUpdateV2,
 };
 
-const MAX_BINDING_VALUE_BYTES: usize = 512;
+#[path = "updater_coordinator/config.rs"]
+mod config;
+mod installed_tuple;
+use config::validate_binding;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateTargetBindingConfig {
@@ -38,6 +44,10 @@ pub enum UpdateCoordinatorError {
     Journal(#[source] UpdateJournalError),
     #[error("updater trust operation failed")]
     Trust(#[source] UpdateTrustError),
+    #[error("installed update metadata operation failed")]
+    InstalledMetadata(#[source] InstalledUpdateMetadataError),
+    #[error("installed update metadata verification failed")]
+    Verification(#[source] crate::UpdateV2VerificationError),
     #[error("active task runs require explicit update confirmation")]
     ActiveTaskRuns,
     #[error("updater transaction is already active")]
@@ -54,6 +64,7 @@ pub struct UpdateCoordinator {
     staging_directory: PathBuf,
     journal: UpdateJournal,
     trust_journal: UpdateTrustJournal,
+    installed_metadata: InstalledUpdateMetadataJournal,
 }
 
 impl UpdateCoordinator {
@@ -62,8 +73,27 @@ impl UpdateCoordinator {
         binding: UpdateTargetBindingConfig,
         profile_directory: &Path,
     ) -> Result<Self, UpdateCoordinatorError> {
-        validate_binding(&binding)?;
         let feed = UpdateFeedClient::new().map_err(UpdateCoordinatorError::Feed)?;
+        Self::with_feed(feed, trust, binding, profile_directory)
+    }
+
+    #[cfg(all(feature = "dev-loopback-updater", debug_assertions))]
+    pub fn new_dev_loopback(
+        trust: UpdateTrustRootV2,
+        binding: UpdateTargetBindingConfig,
+        profile_directory: &Path,
+    ) -> Result<Self, UpdateCoordinatorError> {
+        let feed = UpdateFeedClient::new_dev_loopback().map_err(UpdateCoordinatorError::Feed)?;
+        Self::with_feed(feed, trust, binding, profile_directory)
+    }
+
+    fn with_feed(
+        feed: UpdateFeedClient,
+        trust: UpdateTrustRootV2,
+        binding: UpdateTargetBindingConfig,
+        profile_directory: &Path,
+    ) -> Result<Self, UpdateCoordinatorError> {
+        validate_binding(&binding)?;
         let updates = profile_directory.join("updates");
         Ok(Self {
             feed,
@@ -72,6 +102,9 @@ impl UpdateCoordinator {
             staging_directory: updates.join("staged"),
             journal: UpdateJournal::new(updates.join("install-state.json")),
             trust_journal: UpdateTrustJournal::new(updates.join("trust-state.json")),
+            installed_metadata: InstalledUpdateMetadataJournal::new(
+                updates.join("installed-metadata.json"),
+            ),
         })
     }
 
@@ -130,8 +163,12 @@ impl UpdateCoordinator {
             .download_and_stage(update, &path)
             .await
             .map_err(UpdateCoordinatorError::Feed)?;
+        let metadata_sha256 = self
+            .installed_metadata
+            .persist(update)
+            .map_err(UpdateCoordinatorError::InstalledMetadata)?;
         self.journal
-            .record_staged(&target.version, &staged)
+            .record_staged_bound(&target.version, &staged, metadata_sha256)
             .map_err(UpdateCoordinatorError::Journal)?;
         self.journal
             .read()
@@ -145,6 +182,8 @@ impl UpdateCoordinator {
         confirm_active_task_runs: bool,
     ) -> Result<UpdateInstallRecord, UpdateCoordinatorError> {
         let record = self.current_record()?;
+        installed_tuple::ensure_staged_metadata(&self.installed_metadata, &record)
+            .map_err(UpdateCoordinatorError::InstalledMetadata)?;
         if active_task_runs > 0 && !confirm_active_task_runs {
             return Err(UpdateCoordinatorError::ActiveTaskRuns);
         }
@@ -244,27 +283,6 @@ impl UpdateCoordinator {
     }
 }
 
-fn validate_binding(binding: &UpdateTargetBindingConfig) -> Result<(), UpdateCoordinatorError> {
-    let values = [
-        &binding.product_id,
-        &binding.platform,
-        &binding.arch,
-        &binding.min_os,
-        &binding.profile_id,
-        &binding.bundle_sha256,
-        &binding.runtime_version,
-        &binding.runtime_digest,
-        &binding.channel,
-    ];
-    if values
-        .iter()
-        .any(|value| value.is_empty() || value.len() > MAX_BINDING_VALUE_BYTES)
-    {
-        return Err(UpdateCoordinatorError::InvalidConfiguration);
-    }
-    Ok(())
-}
-
 const fn map_install_error(error: UpdateInstallError) -> UpdateCoordinatorError {
     match error {
         UpdateInstallError::ActiveTaskRuns => UpdateCoordinatorError::ActiveTaskRuns,
@@ -273,8 +291,9 @@ const fn map_install_error(error: UpdateInstallError) -> UpdateCoordinatorError 
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     include!("updater_coordinator/tests.rs");
+    include!("updater_coordinator/installed_tuple_tests.rs");
+    include!("updater_coordinator/native_admission_tests.rs");
 }

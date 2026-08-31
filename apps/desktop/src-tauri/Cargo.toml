@@ -7,6 +7,7 @@ rust-version.workspace = true
 build = "build.rs"
 
 [features]
+dev-loopback-updater = ["runne-platform-desktop/dev-loopback-updater"]
 test-support = ["runne-app-core/test-support"]
 
 [build-dependencies]
@@ -20,6 +21,7 @@ hex.workspace = true
 rand = "0.8"
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 tauri.workspace = true
 tauri-plugin-dialog = "=2.7.2"
 tauri-plugin-single-instance = "=2.4.3"
@@ -27,10 +29,22 @@ notify-rust = { version = "=4.18.0", features = ["preview-macos-un"] }
 tokio.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
+zeroize.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "=0.6.2"
+objc2 = "=0.6.4"
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSAlert", "NSApplication", "NSButton", "NSControl", "NSResponder", "NSSecureTextField", "NSTextField", "NSView", "NSWindow", "block2"] }
+objc2-foundation = { version = "=0.3.2", features = ["NSRange", "NSString"] }
 
 [dev-dependencies]
 tempfile = "=3.27.0"
 tokio = { workspace = true, features = ["test-util"] }
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"
+nursery = "deny"

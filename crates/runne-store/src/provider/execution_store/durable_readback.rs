@@ -19,8 +19,8 @@ pub(super) fn load_durable_authority_record(
         .query_row(
             "SELECT authority_id, authority_revision, generation, permit_id,
                         token_reservation_id, cost_reservation_id, fencing_token
-                   FROM provider_execution_admissions
-                  WHERE provider_idempotency_key = ?1 AND dispatch_attempt_id = ?2
+                   FROM provider_execution_admissions admission
+                  WHERE admission.provider_idempotency_key = ?1 AND admission.dispatch_attempt_id = ?2
                     AND semantic_digest = ?3 AND principal_id = ?4
                     AND conversation_id = ?5 AND taskrun_id = ?6
                     AND execution_attempt_id = ?7 AND call_id = ?8
@@ -83,8 +83,7 @@ pub(super) fn load_durable_authority_record(
                     positive_u64(row.get(1)?)?,
                     positive_u64(row.get(2)?)?,
                     fixed_bytes::<16>(row.get(3)?)?,
-                    fixed_bytes::<16>(row.get(4)?)?,
-                    fixed_bytes::<16>(row.get(5)?)?,
+                    fixed_bytes::<16>(row.get(4)?)?, fixed_bytes::<16>(row.get(5)?)?,
                     positive_u64(row.get(6)?)?,
                 ))
             },
@@ -93,7 +92,9 @@ pub(super) fn load_durable_authority_record(
         .map_err(|_| ProviderAdmissionError::RepositoryFailure)?
         .ok_or(ProviderAdmissionError::AuthorityDenied)?;
     let authority_ref = ProviderEffectAuthorityRef::new(durable.0, durable.1)?;
+    let provider_id = request.provider_id.clone();
     let claim = ProviderDispatchClaim {
+        provider_id,
         call_id: request.prepared.call_id,
         attempt_id,
         permit_id: durable.3,

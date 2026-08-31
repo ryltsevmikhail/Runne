@@ -70,6 +70,39 @@ pub fn journal_file_has_moved(
     }
 }
 
+fn persistent_wal_control(
+    connection: &rusqlite::Connection,
+    mut value: i32,
+) -> Result<i32, HandleIdentityError> {
+    // SAFETY: SQLite reads and writes one live i32 during this synchronous call.
+    let result = unsafe {
+        rusqlite::ffi::sqlite3_file_control(
+            connection.handle(),
+            c"main".as_ptr(),
+            rusqlite::ffi::SQLITE_FCNTL_PERSIST_WAL,
+            std::ptr::from_mut(&mut value).cast(),
+        )
+    };
+    (result == rusqlite::ffi::SQLITE_OK)
+        .then_some(value)
+        .ok_or(HandleIdentityError)
+}
+
+/// Keeps one stable WAL/SHM file set for a caller-owned inspection window.
+pub fn configure_persistent_wal(
+    connection: &rusqlite::Connection,
+) -> Result<(), HandleIdentityError> {
+    persistent_wal_control(connection, 1)
+        .and_then(|value| (value == 1).then_some(()).ok_or(HandleIdentityError))
+}
+
+/// Reads back the main file's persistent-WAL setting.
+pub fn persistent_wal_enabled(
+    connection: &rusqlite::Connection,
+) -> Result<bool, HandleIdentityError> {
+    persistent_wal_control(connection, -1).map(|value| value == 1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

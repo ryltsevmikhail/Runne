@@ -195,28 +195,18 @@ fn bootstrap_inner(
     }
     .map_err(|_| DaemonError::Bootstrap("generate launch TLS identity".into()))?;
 
-    // ── Step 13: reconcile metadata ─────────────────────────────────
-    reconcile_metadata(
-        &metadata_snapshot,
-        db_existed,
-        &db_authority_after,
-        &authority_id,
-        &locks,
-    )?;
-
-    // Verify metadata was written correctly
+    reconcile_metadata(&metadata_snapshot, db_existed, &db_authority_after, &authority_id, &locks)?;
     verify_metadata_writeback(&locks, &authority_id)?;
-
-    // ── Step 14: startup purge ──────────────────────────────────────
     schema::purge_replay_subscriptions(&db_conn)
         .map_err(|e| DaemonError::Bootstrap(format!("startup purge: {e}")))?;
+    #[cfg(target_os = "macos")]
+    let installation_anchor_dir =
+        InstallationAnchorDir::retain(&daemon_dir, &db_path, &replay_integrity_key_path)?;
     schema::readiness_from_managed(&db_conn)
         .and_then(|_| schema::publication_from_managed(&db_conn).map(|_| ()))
         .map_err(|e| DaemonError::Bootstrap(format!("publish bootstrap database: {e}")))?;
-
-    // ── Step 15: recovery is informational; caller may invoke
-    //    `crate::recovery::enumerate_recovery_tasks` separately. ──────
-
+    #[cfg(target_os = "macos")]
+    installation_anchor_dir.verify_current()?;
     Ok(BootstrapOutcome {
         locks,
         db_conn,
@@ -227,6 +217,8 @@ fn bootstrap_inner(
         launch_identity,
         launch_generation,
         replay_integrity_key,
+        #[cfg(target_os = "macos")]
+        installation_anchor_dir,
     })
 }
 

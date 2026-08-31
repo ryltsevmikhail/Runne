@@ -1,4 +1,3 @@
-import hashlib
 import os
 import stat
 import subprocess
@@ -7,6 +6,7 @@ from pathlib import Path
 from typing import Protocol
 
 from .command_grammar import ParsedCommand, parse_command_spec
+from .hashing import sha256_file
 from .models import CommandResult, CommandSpec, EntitlementBinding, FailureCode
 from .policy import MAX_CAPTURED_OUTPUT_BYTES
 from .state import artifact_is_current
@@ -39,7 +39,7 @@ class LiveRunner:
         self.candidate_root = candidate_root
 
     def run(self, command: CommandSpec) -> CommandResult:
-        if not _is_executable_program(command.program):
+        if not executable_program_available(command.program):
             return _closed_result(FailureCode.TOOL_UNAVAILABLE)
         if not _artifact_binding_is_exact(command):
             return _closed_result(FailureCode.UNKNOWN_STATUS)
@@ -50,20 +50,47 @@ class LiveRunner:
         if invocation is None:
             return _closed_result(FailureCode.ARTIFACT_IDENTITY_MISMATCH)
         argv, cwd = invocation
-        try:
-            with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
-                completed = subprocess.run(argv, shell=False, cwd=cwd, env=_ENVIRONMENT, stdout=stdout, stderr=stderr, timeout=_timeout(parsed))
-                output = _spooled_result(completed.returncode, stdout, stderr)
-        except subprocess.TimeoutExpired:
-            return _closed_result(FailureCode.NOTARIZATION_FAILED if parsed.operation == "submit" else FailureCode.TOOL_UNAVAILABLE)
-        except OSError:
-            return _closed_result(FailureCode.TOOL_UNAVAILABLE)
-        return output
+        timeout_failure = (
+            FailureCode.NOTARIZATION_FAILED
+            if parsed.operation == "submit"
+            else FailureCode.TOOL_UNAVAILABLE
+        )
+        return run_bounded_subprocess(argv, cwd, _timeout(parsed), timeout_failure)
 
 
-def _is_executable_program(program: str) -> bool:
+def executable_program_available(program: str) -> bool:
     path = Path(program)
     return path.is_absolute() and path.is_file() and os.access(path, os.X_OK)
+
+
+def run_bounded_subprocess(
+    argv: list[str],
+    cwd: str,
+    timeout: int,
+    timeout_failure: FailureCode,
+    max_output_bytes: int | None = None,
+) -> CommandResult:
+    try:
+        with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+            completed = subprocess.run(
+                argv,
+                shell=False,
+                cwd=cwd,
+                env=_ENVIRONMENT,
+                stdout=stdout,
+                stderr=stderr,
+                timeout=timeout,
+            )
+            return _spooled_result(
+                completed.returncode,
+                stdout,
+                stderr,
+                max_output_bytes or MAX_CAPTURED_OUTPUT_BYTES,
+            )
+    except subprocess.TimeoutExpired:
+        return _closed_result(timeout_failure)
+    except OSError:
+        return _closed_result(FailureCode.TOOL_UNAVAILABLE)
 
 
 def _artifact_binding_is_exact(command: CommandSpec) -> bool:
@@ -131,19 +158,19 @@ def _bound_entitlement(binding: EntitlementBinding | None) -> Path | None:
             return None
         if (info.st_dev, info.st_ino) != (binding.device, binding.inode):
             return None
-        if hashlib.sha256(resolved.read_bytes()).hexdigest() != binding.sha256:
+        if sha256_file(resolved) != binding.sha256:
             return None
     except (OSError, ValueError):
         return None
     return resolved
 
 
-def _spooled_result(exit_code: int, stdout, stderr) -> CommandResult:
+def _spooled_result(exit_code: int, stdout, stderr, limit: int) -> CommandResult:
     values = []
     for stream in (stdout, stderr):
         stream.seek(0)
-        value = stream.read(MAX_CAPTURED_OUTPUT_BYTES + 1)
-        if len(value) > MAX_CAPTURED_OUTPUT_BYTES:
+        value = stream.read(limit + 1)
+        if len(value) > limit:
             return _closed_result(FailureCode.UNKNOWN_STATUS)
         values.append(value.decode("utf-8", "ignore"))
     return CommandResult(exit_code, *values)

@@ -6,6 +6,7 @@ use thiserror::Error;
 use crate::ProviderId;
 
 mod authority;
+mod enrollment;
 
 pub use authority::{
     CredentialAuthorityPair, CredentialDispatchCapability, CredentialGcClaim,
@@ -14,6 +15,7 @@ pub use authority::{
     CredentialNativeCreateValidator, CredentialProvisionSource, NativeCredentialAuthority,
     NativeCredentialDeletionProof,
 };
+pub use enrollment::*;
 
 const CREDENTIAL_REF_DOMAIN: &[u8] = b"GOCODE_CREDENTIAL_VERSION_REF_V1\0";
 

@@ -9,6 +9,7 @@ impl LocalSessionService {
             legacy_identity,
             bootstrap_secret,
             Arc::new(UnavailableBootstrapReservationStore),
+            Arc::new(UnavailableEnrollmentLaunchGenerationStore),
             BootstrapPolicy::ReusableExternal,
             None,
         )
@@ -28,6 +29,7 @@ impl LocalSessionService {
             executable_sha256,
             bootstrap_secret,
             reservation_store,
+            Arc::new(UnavailableEnrollmentLaunchGenerationStore),
             BootstrapPolicy::ReusableExternal,
             None,
         )
@@ -55,6 +57,7 @@ impl LocalSessionService {
             legacy_identity,
             bootstrap_secret,
             Arc::new(UnavailableBootstrapReservationStore),
+            Arc::new(UnavailableEnrollmentLaunchGenerationStore),
             BootstrapPolicy::OneTimeProtected,
             Some(expires_at),
         ))
@@ -67,6 +70,30 @@ impl LocalSessionService {
         executable_sha256: [u8; 32],
         bootstrap_secret: [u8; 32],
         reservation_store: Arc<dyn BootstrapReservationStore>,
+        now: Duration,
+        expires_at: Duration,
+    ) -> Result<Self, LocalSessionError> {
+        Self::new_protected_with_stores(
+            binding,
+            launch_authority_id,
+            executable_sha256,
+            bootstrap_secret,
+            reservation_store,
+            Arc::new(UnavailableEnrollmentLaunchGenerationStore),
+            now,
+            expires_at,
+        )
+    }
+
+    /// Builds a protected service with durable bootstrap and generation ports.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_protected_with_stores(
+        binding: RuntimeSessionBinding,
+        launch_authority_id: [u8; 16],
+        executable_sha256: [u8; 32],
+        bootstrap_secret: [u8; 32],
+        reservation_store: Arc<dyn BootstrapReservationStore>,
+        enrollment_generation_store: Arc<dyn EnrollmentLaunchGenerationStore>,
         now: Duration,
         expires_at: Duration,
     ) -> Result<Self, LocalSessionError> {
@@ -84,17 +111,20 @@ impl LocalSessionService {
             executable_sha256,
             bootstrap_secret,
             reservation_store,
+            enrollment_generation_store,
             BootstrapPolicy::OneTimeProtected,
             Some(expires_at),
         ))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn with_policy(
         binding: RuntimeSessionBinding,
         launch_authority_id: [u8; 16],
         executable_sha256: [u8; 32],
         bootstrap_secret: [u8; 32],
         reservation_store: Arc<dyn BootstrapReservationStore>,
+        enrollment_generation_store: Arc<dyn EnrollmentLaunchGenerationStore>,
         bootstrap_policy: BootstrapPolicy,
         bootstrap_expires_at: Option<Duration>,
     ) -> Self {
@@ -102,6 +132,7 @@ impl LocalSessionService {
             authorization_epoch: binding.ephemeral().authorization_epoch(),
             sensitivity_ceiling: binding.ephemeral().sensitivity_ceiling(),
             reservation_store,
+            enrollment_generation_store,
             binding,
             launch_authority_id,
             executable_sha256,

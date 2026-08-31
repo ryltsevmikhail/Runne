@@ -79,7 +79,12 @@ class CommandSpec:
             not isinstance(self.argv, tuple)
             or not all(isinstance(item, str) for item in self.argv)
             or not program_is_allowed(self.program)
-            or not command_arguments_are_safe(self.argv)
+            or not command_arguments_are_safe(
+                self.argv,
+                ("--keychain",)
+                if self.phase in ("notary-app-submit", "notary-dmg-submit")
+                else (),
+            )
         ):
             raise ValueError("invalid command specification")
         if self.entitlement is not None and not isinstance(self.entitlement, EntitlementBinding):

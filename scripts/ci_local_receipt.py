@@ -110,7 +110,7 @@ def _valid_shape(record: object) -> bool:
     gates = record["gate_results"]
     if not isinstance(gates, list) or len(gates) != len(GATES):
         return False
-    for expected, gate in zip(GATES, gates, strict=True):
+    for expected, gate in zip(GATES, gates):
         if (
             not isinstance(gate, dict)
             or set(gate) != {"gate", "result"}

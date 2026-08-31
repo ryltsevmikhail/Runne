@@ -62,6 +62,14 @@ def assert_checked_observation_contract(case) -> None:
     requirement = parse_designated_requirement(CommandResult(0, "designated => identifier com.example.runne\n", ""))
     case.assertNotIsInstance(observed, FailureCode)
     case.assertNotIsInstance(requirement, FailureCode)
+    split_requirement = parse_designated_requirement(
+        CommandResult(
+            0,
+            "designated => identifier com.example.runne\n",
+            "Executable=/Applications/Runne.app/Contents/MacOS/runne\n",
+        )
+    )
+    case.assertEqual(split_requirement, requirement)
     for result, code in ((CommandResult(0, "", metadata.stderr + "Identifier=duplicate\n"), FailureCode.UNKNOWN_STATUS), (CommandResult(0, "", metadata.stderr.replace("runtime", "other")), FailureCode.HARDENED_RUNTIME_MISSING), (CommandResult(0, "designated => bad\x01\n", ""), FailureCode.UNKNOWN_STATUS), (CommandResult(0, plistlib.dumps({"unexpected": True}).decode(), ""), FailureCode.ENTITLEMENTS_MISMATCH), (CommandResult(0, "not-a-plist", ""), FailureCode.UNKNOWN_STATUS)):
         with case.subTest(result=result):
             if "CodeDirectory" in result.stderr or "Identifier" in result.stderr:

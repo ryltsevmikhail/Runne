@@ -4,6 +4,32 @@ type ProtectedChannel = UnixStream;
 #[cfg(windows)]
 type ProtectedChannel = File;
 
+/// Daemon-committed rendezvous facts from one verified enrollment prelude.
+#[derive(Clone, Copy)]
+#[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
+pub struct EnrollmentBrokerFacts {
+    binding: [u8; 32],
+    publication_public_key: [u8; 32],
+}
+
+#[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
+impl EnrollmentBrokerFacts {
+    pub const fn new(binding: [u8; 32], publication_public_key: [u8; 32]) -> Self {
+        Self {
+            binding,
+            publication_public_key,
+        }
+    }
+
+    #[must_use] pub const fn binding(&self) -> [u8; 32] {
+        self.binding
+    }
+
+    #[must_use] pub const fn publication_public_key(&self) -> [u8; 32] {
+        self.publication_public_key
+    }
+}
+
 /// Exact child handle, control channel, and authenticated ownership tuple for
 /// one desktop-spawned bundled daemon.
 pub struct ProtectedBundledRuntimeProcess {
@@ -18,6 +44,10 @@ pub struct ProtectedBundledRuntimeProcess {
     #[cfg(all(any(unix, windows), feature = "protected-channel-integration"))]
     root_control_sequence: u64,
     graceful_requested: bool,
+    /// Rendezvous facts retained from the verified enrollment prelude; only a
+    /// same-process V2→V3 transition carries them. Absent facts fail closed.
+    #[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
+    enrollment_broker_facts: Option<EnrollmentBrokerFacts>,
     #[cfg(feature = "test-support")]
     captured_stdout: Option<std::process::ChildStdout>,
     #[cfg(feature = "test-support")]

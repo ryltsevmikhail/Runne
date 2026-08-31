@@ -46,6 +46,8 @@ def _artifact_binding_is_exact(command: CommandSpec) -> bool:
 def _codesign(command: CommandSpec) -> ParsedCommand | None:
     argv, phase = command.argv, command.phase
     if phase.startswith("sign-"):
+        if len(argv) == 9:
+            return _product_codesign(command)
         runtime = len(argv) == 8 and argv[5:7] == ("--options", "runtime")
         if len(argv) not in (6, 8) or argv[:2] != ("--force", "--sign") or argv[3] != "--entitlements":
             return None
@@ -60,7 +62,11 @@ def _codesign(command: CommandSpec) -> ParsedCommand | None:
             return None
         target = _phase_target(phase, argv[-1])
         return ParsedCommand("verify", target, False, None, (len(argv) - 1,)) if target else None
-    if phase.startswith("metadata-") and len(argv) == 2 and argv[:1] == ("-dvv",):
+    if (
+        phase.startswith("metadata-")
+        and len(argv) == 2
+        and argv[0] in ("-dvv", "-dvvv")
+    ):
         target = _phase_target(phase, argv[-1])
         return ParsedCommand("metadata", target, False, None, (1,)) if target else None
     if phase.startswith("requirement-") and len(argv) == 3 and argv[:2] == ("-d", "-r-"):
@@ -92,6 +98,8 @@ def _phase_target(phase: str, target: str) -> str | None:
     suffix = _suffix(phase)
     if suffix == "daemon" and _daemon(target):
         return target
+    if suffix == "cli" and _cli(target):
+        return target
     if suffix == "app" and _app(target):
         return target
     return None
@@ -117,6 +125,28 @@ def _zip(value: str) -> bool:
 def _daemon(value: str) -> bool:
     path = Path(value)
     return _relative(value) and len(path.parts) == 4 and path.parts[1:] == ("Contents", "MacOS", "runned") and _app(path.parts[0])
+
+
+def _cli(value: str) -> bool:
+    path = Path(value)
+    return _relative(value) and len(path.parts) == 4 and path.parts[1:] == ("Contents", "MacOS", "runne") and _app(path.parts[0])
+
+
+def _product_codesign(command: CommandSpec) -> ParsedCommand | None:
+    argv, phase = command.argv, command.phase
+    if (
+        argv[:2] != ("--force", "--sign")
+        or argv[3:7] != ("--timestamp", "--options", "runtime", "--entitlements")
+        or not _identity(argv[2])
+        or argv[2] == "-"
+        or argv[7] != _suffix(phase) + ".plist"
+        or not isinstance(command.entitlement, EntitlementBinding)
+    ):
+        return None
+    target = _phase_target(phase, argv[8])
+    if target is None:
+        return None
+    return ParsedCommand("sign", target, True, command.entitlement.sha256, (8,), 7)
 
 
 def _reference(value: object) -> bool:

@@ -6,18 +6,24 @@ use runne_provider::{
     ModelRef, PreparedProviderRecord, PreparedRequest, ProviderCall, ProviderCallId, ProviderId,
 };
 use runne_store::provider::{
-    ProviderRuntimeAuthorityConfig, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
+    ProviderRuntimeAuthorityConfig, ProviderRuntimeLaunchCapability, SqliteProviderExecutionStore,
 };
 use rusqlite::Connection;
 
+#[path = "support/online_proof.rs"]
+mod online_proof;
+#[path = "support/validated_reopen.rs"]
+mod validated_reopen;
+
 fn fixture() -> (
-    tempfile::TempDir,
+    validated_reopen::ProviderTestDatabase,
     PathBuf,
     SqliteProviderExecutionStore,
     ProviderAuthorityIssueRequest,
+    ProviderRuntimeLaunchCapability,
 ) {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("provider-evidence.sqlite");
+    let database = validated_reopen::ProviderTestDatabase::new("provider-post-commit-readback");
+    let path = database.as_path().to_path_buf();
     let call = ProviderCall::new(
         ProviderCallId::from_bytes([4; 16]),
         ModelRef::new(
@@ -39,19 +45,9 @@ fn fixture() -> (
         render_digest: *prepared.render_digest(),
         profile_digest: [2; 32],
     };
-    SqliteProviderDispatchStore::open(&path)
-        .unwrap()
-        .persist_prepared(&runne_store::provider::PreparedProviderRecord {
-            call_id: prepared_record.call_id,
-            call_digest_version: prepared_record.call_digest_version,
-            prepared_digest: prepared_record.prepared_digest,
-            render_digest: prepared_record.render_digest,
-            profile_digest: prepared_record.profile_digest,
-        })
-        .unwrap();
-    let store = SqliteProviderExecutionStore::open(&path).unwrap();
-    store
-        .install_runtime_authority(&ProviderRuntimeAuthorityConfig {
+    let store = database.execution();
+    let launch = store
+        .activate_runtime_launch(&ProviderRuntimeAuthorityConfig {
             runtime_authority_id: [1; 16],
             database_generation: 7,
             principal_id: "principal-1".into(),
@@ -78,7 +74,22 @@ fn fixture() -> (
             lease_ttl_seconds: 600,
         })
         .unwrap();
+    database
+        .dispatch()
+        .persist_prepared(
+            &launch,
+            &runne_store::provider::PreparedProviderRecord {
+                call_id: prepared_record.call_id,
+                call_digest_version: prepared_record.call_digest_version,
+                prepared_digest: prepared_record.prepared_digest,
+                render_digest: prepared_record.render_digest,
+                profile_digest: prepared_record.profile_digest,
+            },
+        )
+        .unwrap();
+    online_proof::arm(&store, 7);
     let request = ProviderAuthorityIssueRequest {
+        provider_id: call.model_ref().provider_id().clone(),
         principal_id: "principal-1".into(),
         conversation_id: ConversationId::from_bytes([6; 16]),
         taskrun_id: TaskRunId::from_bytes([7; 16]),
@@ -91,7 +102,7 @@ fn fixture() -> (
         currency: "USD".into(),
         provider_idempotency_key: "provider-execution-1".into(),
     };
-    (directory, path, store, request)
+    (database, path, store, request, launch)
 }
 
 fn install_mutating_trigger(path: &PathBuf, assignment: &str) {
@@ -109,10 +120,10 @@ fn install_mutating_trigger(path: &PathBuf, assignment: &str) {
 }
 
 fn assert_post_claim_uncertain(assignment: &str) {
-    let (_directory, path, store, request) = fixture();
+    let (_database, path, store, request, launch) = fixture();
     install_mutating_trigger(&path, assignment);
     assert_eq!(
-        store.issue(&request),
+        store.issue(&launch, &request),
         Err(ProviderAdmissionError::PostClaimUncertain)
     );
     assert_eq!(store.admitted_count().unwrap(), 1);

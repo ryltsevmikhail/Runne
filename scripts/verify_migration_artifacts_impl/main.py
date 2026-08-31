@@ -1,5 +1,7 @@
 """Command-line orchestration for migration artifact verification."""
 
+from __future__ import annotations
+
 import json
 import os
 

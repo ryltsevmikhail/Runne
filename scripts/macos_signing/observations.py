@@ -67,7 +67,7 @@ def parse_designated_requirement(result: CommandResult) -> str | FailureCode:
     failed = _failed(result)
     if failed:
         return failed
-    lines = _lines(result)
+    lines = _combined_lines(result)
     if lines is None:
         return FailureCode.UNKNOWN_STATUS
     requirements = [line for line in lines if line.startswith("designated => ")]
@@ -77,6 +77,15 @@ def parse_designated_requirement(result: CommandResult) -> str | FailureCode:
 
 
 def parse_embedded_entitlements(result: CommandResult) -> FailureCode | None:
+    payload = parse_embedded_entitlement_payload(result)
+    if isinstance(payload, FailureCode):
+        return payload
+    return None if payload == {} else FailureCode.ENTITLEMENTS_MISMATCH
+
+
+def parse_embedded_entitlement_payload(
+    result: CommandResult,
+) -> dict | FailureCode:
     failed = _failed(result)
     if failed:
         return failed
@@ -84,7 +93,8 @@ def parse_embedded_entitlements(result: CommandResult) -> FailureCode | None:
     if not isinstance(value, str) or len(value.encode()) > MAX_CAPTURED_OUTPUT_BYTES or _control(value):
         return FailureCode.UNKNOWN_STATUS
     try:
-        return None if plistlib.loads(value.encode()) == {} else FailureCode.ENTITLEMENTS_MISMATCH
+        payload = plistlib.loads(value.encode())
+        return payload if type(payload) is dict else FailureCode.UNKNOWN_STATUS
     except (plistlib.InvalidFileException, ValueError):
         return FailureCode.UNKNOWN_STATUS
 
@@ -129,6 +139,16 @@ def _lines(result: CommandResult) -> list[str] | None:
     if not isinstance(value, str) or len(value.encode()) > MAX_CAPTURED_OUTPUT_BYTES or _control(value):
         return None
     return [line for line in value.splitlines() if line]
+
+
+def _combined_lines(result: CommandResult) -> list[str] | None:
+    values = (result.stdout, result.stderr)
+    if not all(isinstance(value, str) for value in values):
+        return None
+    combined = "\n".join(value for value in values if value)
+    if len(combined.encode()) > MAX_CAPTURED_OUTPUT_BYTES or _control(combined):
+        return None
+    return [line for line in combined.splitlines() if line]
 
 
 def _control(value: str) -> bool:

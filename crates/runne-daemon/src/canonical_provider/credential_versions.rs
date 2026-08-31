@@ -1,22 +1,36 @@
 use super::composition::PROVIDER_POLICY_V1_LEASE_SECONDS;
 use crate::application::workspace_internal::LoopbackCredentialVersionStoreFactory;
 use crate::error::DaemonError;
+#[cfg(test)]
+use runne_provider::NativeCredentialAuthority;
 use runne_provider::{
-    CredentialAuthorityPair, CredentialLease, NativeCredentialAuthority,
-    ProviderCredentialVersionStore, ProviderId, RevokeCredentialVersion,
+    CredentialAuthorityPair, CredentialLease, ProviderCredentialVersionStore, ProviderId,
+    RevokeCredentialVersion,
 };
+#[cfg(test)]
+use runne_secure_store::ProviderCredentialStore;
 use runne_secure_store::{
     NativeProviderCredentialStore, NativeProviderCredentialVersionStore,
     ProviderCredentialAccessPolicy, ProviderCredentialId, ProviderCredentialMaterial,
-    ProviderCredentialStatus, ProviderCredentialStore,
+    ProviderCredentialStatus,
 };
 use runne_store::provider::SqliteProviderCredentialLifecycleStore;
 use runne_store::schema::ManagedConnection;
 use std::sync::Arc;
+#[cfg(test)]
 include!("credential_versions/source.rs");
 const FIXTURE_SOURCE_REVISION: [u8; 16] = [0xF1; 16];
+
+#[derive(Clone, Copy)]
+struct ProvisionActivation {
+    owner: [u8; 16],
+    fencing_token: u64,
+    now: i64,
+}
+
 pub(super) struct ComposedCredentialLifecycle {
     pub(super) store: Arc<SqliteProviderCredentialLifecycleStore>,
+    #[cfg(test)]
     pub(super) native_authority: NativeCredentialAuthority,
 }
 
@@ -85,6 +99,7 @@ pub(super) fn compose_credential_lifecycle(
         .map_err(|_| unavailable())?;
     Ok(ComposedCredentialLifecycle {
         store,
+        #[cfg(test)]
         native_authority,
     })
 }
@@ -135,28 +150,19 @@ fn provision_active(
     native: &dyn NativeProviderCredentialVersionStore,
     provider: &ProviderId,
     activation: ProvisionActivation,
-    credential_id: ProviderCredentialId,
+    _credential_id: ProviderCredentialId,
     fixture: bool,
 ) -> Result<(), DaemonError> {
-    if fixture {
-        return provision_active_with_material(
-            store,
-            native,
-            provider,
-            activation,
-            FIXTURE_SOURCE_REVISION,
-            None,
-        );
+    if !fixture {
+        return Err(unavailable());
     }
-    let access = credential_access_policy()?;
-    provision_active_from_legacy_source(
+    provision_active_with_material(
         store,
         native,
         provider,
-        credential_id,
         activation,
-        &NativeProviderCredentialStore::new(),
-        &access,
+        FIXTURE_SOURCE_REVISION,
+        None,
     )
 }
 
@@ -264,13 +270,6 @@ pub(super) fn reconcile_native(
             .map_err(|_| unavailable())?;
     }
     Ok(())
-}
-
-fn credential_access_policy() -> Result<ProviderCredentialAccessPolicy, DaemonError> {
-    let reader = std::fs::canonicalize(std::env::current_exe().map_err(|_| unavailable())?)
-        .map_err(|_| unavailable())?;
-    let writer = reader.parent().ok_or_else(unavailable)?.join("runne");
-    ProviderCredentialAccessPolicy::new(&writer, &reader).map_err(|_| unavailable())
 }
 
 fn unavailable() -> DaemonError {

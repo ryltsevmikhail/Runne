@@ -1,6 +1,6 @@
 use super::*;
 use runne_api::ProviderActivationReadinessV1;
-use runne_secure_store::{ProviderCredentialId, SecureStoreError};
+use runne_secure_store::ProviderCredentialId;
 
 /// Typed pre-readiness failures for exact provider composition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -47,6 +47,14 @@ pub struct ProviderReadinessEvidence {
 impl ProviderReadinessEvidence {
     /// Validates every exact non-secret gate.
     pub fn validate(&self) -> Result<(), ProviderReadinessError> {
+        self.validate_control_plane()?;
+        if self.credential_status != ProviderCredentialStatus::Configured {
+            return Err(ProviderReadinessError::Credential);
+        }
+        Ok(())
+    }
+
+    pub(super) fn validate_control_plane(&self) -> Result<(), ProviderReadinessError> {
         if self.profile_id != self.activation_profile_id
             || self.profile_digest != self.activation_profile_digest
         {
@@ -54,9 +62,6 @@ impl ProviderReadinessEvidence {
         }
         if !self.retained_key_backend {
             return Err(ProviderReadinessError::SecureStoreBackend);
-        }
-        if self.credential_status != ProviderCredentialStatus::Configured {
-            return Err(ProviderReadinessError::Credential);
         }
         let binding = self
             .journal_binding
@@ -82,31 +87,11 @@ pub(crate) async fn probe_provider_readiness(
     if !keyring.retains_multiple_provider_journal_keys() {
         return ProviderActivationReadinessV1::SecureStoreUnavailable;
     }
-    let access = match credential_access_policy(credential_id) {
-        Ok(access) => access,
+    match credential_access_policy(credential_id) {
+        Ok(_) => {}
         Err(_) => return ProviderActivationReadinessV1::CredentialIdentityMismatch,
-    };
-    let store: Arc<dyn ProviderCredentialStore> = Arc::new(NativeProviderCredentialStore::new());
-    let probe = tokio::task::spawn_blocking(move || {
-        store.provider_credential_status(credential_id, &access)
-    })
-    .await;
-    match probe {
-        Ok(Ok(ProviderCredentialStatus::Configured)) => ProviderActivationReadinessV1::Ready,
-        Ok(Ok(ProviderCredentialStatus::Missing)) => {
-            ProviderActivationReadinessV1::CredentialMissing
-        }
-        Ok(Ok(ProviderCredentialStatus::Unsupported)) => {
-            ProviderActivationReadinessV1::SecureStoreUnavailable
-        }
-        Ok(Err(SecureStoreError::CredentialAccessDenied)) => {
-            ProviderActivationReadinessV1::CredentialAccessDenied
-        }
-        Ok(Err(SecureStoreError::CredentialIdentityMismatch)) => {
-            ProviderActivationReadinessV1::CredentialIdentityMismatch
-        }
-        _ => ProviderActivationReadinessV1::SecureStoreUnavailable,
     }
+    ProviderActivationReadinessV1::CredentialMissing
 }
 
 pub(crate) fn credential_access_policy(

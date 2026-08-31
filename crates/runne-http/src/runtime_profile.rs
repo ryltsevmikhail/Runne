@@ -1,6 +1,7 @@
 //! Authenticated exact runtime profile query.
 #![allow(dead_code)] // Mounted only by the crate-owned local TLS boundary in Task 4B.
 
+use crate::provider_credentials::provider_credential_router;
 use crate::runtime_profile_helpers::sensitivity_label;
 use axum::{
     Json, Router,
@@ -8,13 +9,27 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use runne_api::{ApiActor, ProviderCredentialControlHostPort, ProviderStatusSnapshotV1};
+use runne_api::ProviderStatusSnapshotV1;
 use runne_application::local_session::AuthenticatedRuntimeSession;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
-use crate::provider_credentials::{ProviderCredentialHttpState, provider_credential_router};
+#[derive(Clone)]
+enum ProviderStatuses {
+    Static(Vec<ProviderStatusSnapshotV1>),
+    Dynamic(Arc<dyn Fn() -> Vec<ProviderStatusSnapshotV1> + Send + Sync>),
+}
+
+impl ProviderStatuses {
+    fn current(&self) -> Vec<ProviderStatusSnapshotV1> {
+        match self {
+            Self::Static(statuses) => statuses.clone(),
+            Self::Dynamic(provider) => provider(),
+        }
+    }
+}
+
 /// Immutable exact profile advertised by the running daemon.
 #[derive(Clone)]
 pub struct RuntimeProfileHttpState {
@@ -22,8 +37,7 @@ pub struct RuntimeProfileHttpState {
     schema_hash: &'static str,
     runtime_version: &'static str,
     capabilities: &'static [&'static str],
-    provider_statuses: Vec<ProviderStatusSnapshotV1>,
-    provider_credential_control: Option<ProviderCredentialHttpState>,
+    provider_statuses: ProviderStatuses,
 }
 
 impl RuntimeProfileHttpState {
@@ -39,24 +53,23 @@ impl RuntimeProfileHttpState {
             schema_hash,
             runtime_version,
             capabilities,
-            provider_statuses: Vec::new(),
-            provider_credential_control: None,
+            provider_statuses: ProviderStatuses::Static(Vec::new()),
         }
     }
 
     #[must_use]
     pub fn with_provider_statuses(mut self, statuses: Vec<ProviderStatusSnapshotV1>) -> Self {
-        self.provider_statuses = statuses;
+        self.provider_statuses = ProviderStatuses::Static(statuses);
         self
     }
 
+    /// Reads provider status on each profile request without changing profile identity.
     #[must_use]
-    pub fn with_provider_credential_control(
+    pub fn with_dynamic_provider_statuses(
         mut self,
-        host: Arc<dyn ProviderCredentialControlHostPort>,
-        actor: ApiActor,
+        statuses: Arc<dyn Fn() -> Vec<ProviderStatusSnapshotV1> + Send + Sync>,
     ) -> Self {
-        self.provider_credential_control = Some(ProviderCredentialHttpState::new(host, actor));
+        self.provider_statuses = ProviderStatuses::Dynamic(statuses);
         self
     }
 }
@@ -105,7 +118,7 @@ pub fn runtime_profile_router(state: RuntimeProfileHttpState) -> Router {
                 schema_hash: state.schema_hash,
                 runtime_version: state.runtime_version,
                 capabilities: state.capabilities,
-                provider_statuses: state.provider_statuses,
+                provider_statuses: state.provider_statuses.current(),
             })
         }),
     )
@@ -117,17 +130,10 @@ pub fn runtime_profile_router(state: RuntimeProfileHttpState) -> Router {
 /// extension rather than from daemon-owned handler state. This keeps the
 /// advertised profile tied to the authority validated by `SessionAuthLayer`.
 pub(crate) fn runtime_profile_session_router(state: RuntimeProfileHttpState) -> Router {
-    let provider_control = state
-        .provider_credential_control
-        .clone()
-        .filter(|_| state.advertises(runne_api::PROVIDER_CREDENTIAL_CONTROL_CAPABILITY_V1));
     let router = Router::new()
         .route("/v1/runtime/profile", get(session_runtime_profile))
         .with_state(state.clone());
-    match provider_control {
-        Some(control) => router.merge(provider_credential_router(control)),
-        None => router,
-    }
+    router.merge(provider_credential_router())
 }
 
 async fn session_runtime_profile(
@@ -151,7 +157,7 @@ async fn session_runtime_profile(
         authorization_epoch: ephemeral.authorization_epoch(),
         sensitivity_ceiling: sensitivity_label(ephemeral.sensitivity_ceiling()).to_owned(),
         certificate_sha256: hex::encode(session.binding.certificate_sha256()),
-        provider_statuses: state.provider_statuses,
+        provider_statuses: state.provider_statuses.current(),
     })
     .into_response()
 }

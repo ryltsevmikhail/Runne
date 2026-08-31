@@ -1,16 +1,26 @@
 //! Desktop implementations of native capability ports.
 
+#[cfg(all(feature = "dev-loopback-updater", not(debug_assertions)))]
+compile_error!("dev-loopback-updater cannot be compiled without debug assertions");
+
 mod protected_runtime;
+/// Platform-validated writer-process handoff for protected credential enrollment.
+pub mod provider_credential_broker;
+mod provider_credential_prompt;
 mod root_handle_broker;
 mod updater;
 mod updater_artifact;
+mod updater_compiled_config;
 mod updater_coordinator;
 mod updater_feed;
 mod updater_install;
+mod updater_installed_metadata;
 mod updater_journal;
 mod updater_metadata;
 mod updater_trust;
 
+#[cfg(target_os = "macos")]
+pub use protected_runtime::CredentialWriterHandoff;
 #[cfg(feature = "test-support")]
 pub use protected_runtime::FirstActivationFaultPoint;
 pub use protected_runtime::{
@@ -18,6 +28,8 @@ pub use protected_runtime::{
     ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeProcess,
     ProtectedBundledRuntimeSupervisor, discover_bundled_runtime,
 };
+#[cfg(target_os = "linux")]
+pub use provider_credential_prompt::LinuxPinentryPrompt;
 #[cfg(all(any(unix, windows), feature = "protected-channel-integration"))]
 pub use root_handle_broker::ProtectedRootHandleEndpoint;
 #[cfg(feature = "test-support")]
@@ -31,22 +43,42 @@ pub use root_handle_broker::{RootFileEntry, RootFileKind};
 pub use root_handle_broker::{test_transfer_receiver, test_transfer_sender};
 pub use runne_api::WorkspaceId;
 pub use runne_api::{PROTECTED_BUNDLED_SESSION_RENEW_AFTER, ProtectedRootHandleAdmission};
+#[cfg(target_os = "macos")]
+pub use runne_macos_process_identity::{MacOsContinuousClock, MacOsContinuousClockError};
+pub use runne_platform_ports::provider_credential_broker::{
+    VerifiedWriterArtifact, VerifiedWriterArtifactError, VerifiedWriterArtifactPort,
+};
+pub use runne_platform_ports::provider_credential_prompt::{
+    CredentialPipeBytes, CredentialPromptAction, CredentialPromptProvider, MAX_CREDENTIAL_BYTES,
+    SecureCredentialMaterial, SecureCredentialPromptDisposition, SecureCredentialPromptError,
+    SecureCredentialPromptPort, SecureCredentialPromptRequest,
+};
 pub use updater::{
     StagedUpdate, UpdateInstallError, UpdateInstallPlan, UpdateInstallState, UpdateMetadataV1,
     UpdatePayloadV1, UpdateTarget, UpdateVerificationError, VerifiedUpdate,
     stage_verified_artifact, verify_update,
 };
 pub use updater_artifact::{UpdateArtifactKind, UpdateArtifactKindError};
+pub use updater_compiled_config::CompiledUpdateTrustRootV2;
 pub use updater_coordinator::{
     UpdateCoordinator, UpdateCoordinatorError, UpdateTargetBindingConfig,
 };
 pub use updater_feed::{UpdateFeedClient, UpdateFeedError};
 pub use updater_install::{NativeUpdateInstallError, install_staged_update};
+pub use updater_installed_metadata::InstalledUpdateMetadataError;
 pub use updater_journal::{UpdateInstallRecord, UpdateJournal, UpdateJournalError};
+#[cfg(all(feature = "dev-loopback-updater", debug_assertions))]
+pub use updater_metadata::verify_update_v2_dev_loopback;
 pub use updater_metadata::{
-    UpdateMetadataV2, UpdateRootRoleV2, UpdateSignatureV2, UpdateSnapshotRoleV2, UpdateTargetV2,
+    ConfirmedInstalledNativeEnrollment, EnrollmentTransitionFacts,
+    MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentQualification,
+    NativeEnrollmentQualificationBinding, NativeEnrollmentQualificationRowV1,
+    NativeEnrollmentTupleAdmission, NativeEnrollmentTupleError, NativeEnrollmentTupleV2,
+    PreparedInstalledNativeEnrollment, UpdateMetadataSigningError, UpdateMetadataV2,
+    UpdateRootRoleV2, UpdateSignatureV2, UpdateSnapshotRoleV2, UpdateTargetV2,
     UpdateTargetV2Binding, UpdateTargetsRoleV2, UpdateTimestampRoleV2, UpdateTrustRootV2,
-    UpdateV2VerificationError, VerifiedUpdateV2, verify_update_v2,
+    UpdateV2VerificationError, VerifiedDaemonNativeEnrollmentPrepare, VerifiedMacOsWriterLaunch,
+    VerifiedUpdateV2, update_metadata_signing_bytes, verify_update_v2,
 };
 pub use updater_trust::{UpdateTrustError, UpdateTrustJournal, UpdateTrustState};
 

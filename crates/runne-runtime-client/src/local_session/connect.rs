@@ -52,6 +52,7 @@ fn session_peer_from_ready(
         schema_hash: *profile.profile_hash(),
         capabilities: ready.capabilities().to_vec(),
         capability_digest: *profile.capability_digest(),
+        provider_binding: None,
     })
 }
 
@@ -94,6 +95,7 @@ pub async fn connect(
             schema_hash,
             capabilities,
             capability_digest,
+            provider_binding: None,
         },
         BootstrapMaterial::ExternalPath(bootstrap_secret_path),
         RuntimeTransportKind::ExternalLocal,

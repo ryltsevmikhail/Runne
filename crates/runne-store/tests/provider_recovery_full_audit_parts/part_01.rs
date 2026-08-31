@@ -19,15 +19,13 @@ fn unknown_call_digest_version_row_fails_closed_without_mutation() {
 #[test]
 fn crash_before_issue_commit_leaves_no_attempt_or_reservation() {
     let (database, request, _record) = setup("recovery-before-issue-commit", 2);
-    let execution = database.execution();
     let injection_connection = database.connection();
     install_fault(&injection_connection, Task9FaultPoint::BeforeIssueCommit).unwrap();
 
     assert_eq!(
-        execution.issue(&request),
+        database.issue(&request),
         Err(ProviderAdmissionError::AuthorityConflict)
     );
-    drop(execution);
     remove_fault(&injection_connection).unwrap();
     drop(injection_connection);
     let reopened = database.connection();
@@ -47,7 +45,7 @@ fn crash_before_issue_commit_leaves_no_attempt_or_reservation() {
     drop(reopened);
 
     assert!(matches!(
-        database.execution().issue(&request),
+        database.issue(&request),
         Ok(ProviderAuthorityIssueOutcome::Winner(_))
     ));
 }

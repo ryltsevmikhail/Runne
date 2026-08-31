@@ -1,37 +1,62 @@
 use runne_provider::{
     CredentialDispatchCapability, CredentialLease, CredentialVersionRef, DispatchAttemptId,
-    ProviderCallDigestVersion, ProviderDispatchClaim, ProviderStreamId,
+    ProviderCallDigestVersion, ProviderDispatchClaim, ProviderId, ProviderStreamId,
 };
 
 use super::PreparedProviderRecord;
+use super::ProviderRuntimeLaunchCapability;
 use super::SqliteProviderCredentialLifecycleStore;
+
+mod online;
+pub(crate) use online::{OnlineCredentialDispatchBinding, OnlineEffectStartBinding};
+
+#[derive(Debug, Clone)]
+pub(super) struct OnlineDispatchSeal {
+    provider: ProviderId,
+    active: CredentialVersionRef,
+    lifecycle_revision: u64,
+    credential_fence: u64,
+    launch_generation: u64,
+}
+
+impl OnlineDispatchSeal {
+    pub(super) fn new(
+        provider: ProviderId,
+        active: CredentialVersionRef,
+        lifecycle_revision: u64,
+        credential_fence: u64,
+        launch_generation: u64,
+    ) -> Self {
+        Self {
+            provider,
+            active,
+            lifecycle_revision,
+            credential_fence,
+            launch_generation,
+        }
+    }
+}
 
 /// Exact credential authority required by one coordinator instance.
 #[derive(Clone, Copy)]
 pub struct CredentialDispatchAuthority<'a> {
     pub(super) store: &'a SqliteProviderCredentialLifecycleStore,
-    pub(super) owner: [u8; 16],
-    pub(super) fencing_token: u64,
+    pub(super) launch: &'a ProviderRuntimeLaunchCapability,
 }
 
 impl<'a> CredentialDispatchAuthority<'a> {
-    /// Binds the lifecycle store to the runtime owner and monotonic fence.
+    /// Binds the lifecycle store to one exact activated runtime launch.
     pub const fn new(
         store: &'a SqliteProviderCredentialLifecycleStore,
-        owner: [u8; 16],
-        fencing_token: u64,
+        launch: &'a ProviderRuntimeLaunchCapability,
     ) -> Self {
-        Self {
-            store,
-            owner,
-            fencing_token,
-        }
+        Self { store, launch }
     }
 }
 
 /// Non-forgeable store-produced active credential lease/fence tuple.
 #[derive(Debug, Clone)]
-pub struct CredentialDispatchBinding(CredentialDispatchCapability);
+pub struct CredentialDispatchBinding(CredentialDispatchCapability, Option<OnlineDispatchSeal>);
 
 impl PartialEq for CredentialDispatchBinding {
     fn eq(&self, other: &Self) -> bool {
@@ -45,7 +70,12 @@ impl CredentialDispatchBinding {
     pub(super) const fn from_authoritative_capability(
         capability: CredentialDispatchCapability,
     ) -> Self {
-        Self(capability)
+        Self(capability, None)
+    }
+
+    pub(super) fn with_online_seal(mut self, seal: OnlineDispatchSeal) -> Self {
+        self.1 = Some(seal);
+        self
     }
 
     /// Returns the active version reference.
@@ -75,6 +105,27 @@ impl CredentialDispatchBinding {
     /// Returns the native-load capability bound to this authoritative lease.
     pub const fn native_capability(&self) -> &CredentialDispatchCapability {
         &self.0
+    }
+
+    /// Rechecks the store-owned online tuple immediately before native loading.
+    /// The durable tuple itself remains sealed inside the binding.
+    pub fn validate_online_materialization(
+        &self,
+        authority: CredentialDispatchAuthority<'_>,
+        claim: &ProviderDispatchClaim,
+        now: i64,
+    ) -> Result<(), runne_provider::CredentialLifecycleError> {
+        let Some(seal) = self.1.as_ref() else {
+            return Err(runne_provider::CredentialLifecycleError::StaleLease);
+        };
+        let current = authority
+            .store
+            .authorize_online_dispatch(authority.launch, claim, now)?;
+        if current.matches(seal) {
+            Ok(())
+        } else {
+            Err(runne_provider::CredentialLifecycleError::StaleLease)
+        }
     }
 }
 

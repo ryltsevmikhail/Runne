@@ -60,15 +60,6 @@ fn durable_dispatch(
     let dispatch_store =
         SqliteProviderDispatchStore::open_with_connection(path_str, dispatch_connection)
             .expect("dispatch store");
-    dispatch_store
-        .persist_prepared(&PreparedProviderRecord {
-            call_id: prepared.call().call_id(),
-            call_digest_version: prepared.request_ref().digest_version(),
-            prepared_digest: *prepared.request_ref().as_bytes(),
-            render_digest: *prepared.render_digest(),
-            profile_digest: profile.profile_digest(),
-        })
-        .expect("durable prepared request");
     let hot_wal_guard = Connection::open_with_flags(
         &path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -83,11 +74,21 @@ fn durable_dispatch(
     let execution_store =
         SqliteProviderExecutionStore::open_with_connection(path_str, execution_connection)
             .expect("execution store");
-    execution_store
-        .install_runtime_authority(&runtime_authority(profile))
-        .expect("runtime authority");
+    let launch = activate_launch_and_arm(&execution_store, &runtime_authority(profile));
+    dispatch_store
+        .persist_prepared(
+            &launch,
+            &PreparedProviderRecord {
+                call_id: prepared.call().call_id(),
+                call_digest_version: prepared.request_ref().digest_version(),
+                prepared_digest: *prepared.request_ref().as_bytes(),
+                render_digest: *prepared.render_digest(),
+                profile_digest: profile.profile_digest(),
+            },
+        )
+        .expect("durable prepared request");
     let admission = match execution_store
-        .issue(&authority_issue_request(&prepared, profile))
+        .issue(&launch, &authority_issue_request(&prepared, profile))
         .expect("durable provider authority")
     {
         ProviderAuthorityIssueOutcome::Winner(admission) => admission,
@@ -219,6 +220,7 @@ fn authority_issue_request(
     profile: &OpenAiResponsesTextProfile,
 ) -> ProviderAuthorityIssueRequest {
     ProviderAuthorityIssueRequest {
+        provider_id: ProviderId::new("openai").expect("provider ID"),
         principal_id: "principal-1".into(),
         conversation_id: ConversationId::from_bytes([6; 16]),
         taskrun_id: TaskRunId::from_bytes([7; 16]),

@@ -18,6 +18,8 @@ use runne_store::provider::{
     SqliteProviderDispatchCoordinator, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
 
+#[path = "support/online_proof.rs"]
+mod online_proof;
 #[path = "support/provider_credential_fixture.rs"]
 mod provider_credential_fixture;
 #[path = "support/validated_reopen.rs"]
@@ -145,6 +147,7 @@ fn fixture(
     SqliteProviderDispatchStore,
     SqliteProviderExecutionStore,
     SqliteProviderCredentialLifecycleStore,
+    runne_store::provider::ProviderRuntimeLaunchCapability,
     ProviderCoordinatorRequest,
 ) {
     let database = validated_reopen::ProviderTestDatabase::new("provider-authority-denials");
@@ -184,7 +187,8 @@ fn fixture(
         Denial::CostBudget => config.cost_budget_limit_micros = 1,
         Denial::Pricing | Denial::StaleFence => {}
     }
-    execution.install_runtime_authority(&config).unwrap();
+    let launch = execution.activate_runtime_launch(&config).unwrap();
+    online_proof::arm(&execution, 1);
     if matches!(denial, Denial::StaleFence) {
         execution.advance_worker_lease(2, 2).unwrap();
     }
@@ -213,7 +217,7 @@ fn fixture(
     if matches!(denial, Denial::Pricing) {
         request.pricing_revision_digest = [4; 32];
     }
-    (database, dispatch, execution, credential, request)
+    (database, dispatch, execution, credential, launch, request)
 }
 
 #[test]
@@ -227,12 +231,12 @@ fn authority_denials_never_dispatch_or_commit_a_partial_claim() {
         Denial::Pricing,
         Denial::StaleFence,
     ] {
-        let (_directory, dispatch, execution, credential, request) = fixture(denial);
+        let (_directory, dispatch, execution, credential, launch, request) = fixture(denial);
         let provider = Provider(Mutex::new(0));
         let coordinator = SqliteProviderDispatchCoordinator::new(
             &dispatch,
             &execution,
-            runne_store::provider::CredentialDispatchAuthority::new(&credential, [1; 16], 1),
+            runne_store::provider::CredentialDispatchAuthority::new(&credential, &launch),
             &provider,
             &provider,
             &Allowed,

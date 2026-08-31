@@ -19,11 +19,9 @@ describe('approval adapter', () => {
   })
 
   it('submits the exact version-bound decision and validates the acknowledgement', async () => {
-    const invoke = vi.fn().mockResolvedValue({
-      approvalId: id,
-      taskRunId: id,
-      newVersion: 4,
-      state: 'approved',
+    const invoke = vi.fn(async (command: string) => {
+      if (command === 'prepare_approval_decision') return 'a'.repeat(64)
+      return { approvalId: id, taskRunId: id, newVersion: 4, state: 'approved' }
     })
 
     await expect(decideApproval(approval, 'approve', 8, invoke)).resolves.toEqual({
@@ -32,7 +30,7 @@ describe('approval adapter', () => {
       newVersion: 4,
       state: 'approved',
     })
-    expect(invoke).toHaveBeenCalledWith('respond_to_approval', {
+    expect(invoke).toHaveBeenCalledWith('prepare_approval_decision', {
       request: {
         approvalId: id,
         expectedVersion: 3,
@@ -42,5 +40,16 @@ describe('approval adapter', () => {
         rendererGeneration: 8,
       },
     })
+    expect(invoke).toHaveBeenCalledWith(
+      'consume_approval_decision',
+      expect.objectContaining({ intent: 'a'.repeat(64) }),
+    )
+    expect(invoke).not.toHaveBeenCalledWith('respond_to_approval', expect.anything())
+  })
+
+  it('fails closed before consume when prepare does not return an opaque intent', async () => {
+    const invoke = vi.fn().mockResolvedValue('not-an-intent')
+    await expect(decideApproval(approval, 'approve', 8, invoke)).rejects.toThrow('Invalid approval intent')
+    expect(invoke).toHaveBeenCalledTimes(1)
   })
 })

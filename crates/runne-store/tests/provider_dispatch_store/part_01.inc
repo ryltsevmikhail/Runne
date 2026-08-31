@@ -4,19 +4,13 @@ use runne_application::provider::ProviderAuthorityIssueRequest;
 use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{
     DispatchAttemptId, ProviderCallDigestVersion, ProviderCallId, ProviderDispatchRepository,
-    ProviderPreEffectRejection, ProviderStreamId,
+    ProviderId, ProviderPreEffectRejection, ProviderStreamId,
 };
 use runne_store::provider::{
     MarkProviderStreaming, PersistPreparedOutcome, PreparedProviderRecord,
     ProviderAuthorityIssueOutcome, ProviderDispatchClaim, ProviderDispatchState,
-    ProviderRuntimeAuthorityConfig, ProviderStoreError, SettleProviderDispatch,
-    SqliteProviderDispatchStore,
+    ProviderStoreError, SettleProviderDispatch,
 };
-fn fresh_store(name: &str) -> (validated_reopen::ProviderTestDatabase, SqliteProviderDispatchStore) {
-    let database = validated_reopen::ProviderTestDatabase::new(name);
-    let store = database.dispatch();
-    (database, store)
-}
 fn prepared(call_byte: u8) -> PreparedProviderRecord {
     PreparedProviderRecord {
         call_id: ProviderCallId::from_bytes([call_byte; 16]),
@@ -46,36 +40,13 @@ fn issue_dispatch(
 ) -> runne_provider::ProviderDispatchClaim {
     let record = prepared(call_byte);
     let execution = database.execution();
-    execution
-        .install_runtime_authority(&ProviderRuntimeAuthorityConfig {
-            runtime_authority_id: [21; 16],
-            database_generation: 1,
-            principal_id: "provider-dispatch-test-principal".to_owned(),
-            owner_id: "provider-dispatch-test-runtime".to_owned(),
-            scope: "provider.dispatch".to_owned(),
-            generation: 1,
-            fencing_token: 9,
-            capability_grant_id: "provider-dispatch-test-grant".to_owned(),
-            capability_revision: 1,
-            capability_allowed: true,
-            capability_revocation_epoch: 1,
-            approval_id: "provider-dispatch-test-approval".to_owned(),
-            approval_revision: 1,
-            approval_allowed: true,
-            approval_revocation_epoch: 1,
-            profile_digest: record.profile_digest,
-            pricing_revision_digest: [22; 32],
-            activation_binding_kind:
-                runne_application::provider::ProviderLeaseBindingKind::ProtectedV2,
-            activation_binding_digest: [23; 32],
-            token_budget_limit: 10_000,
-            cost_budget_limit_micros: 1_000_000,
-            authority_ttl_seconds: 120,
-            lease_ttl_seconds: 600,
-        })
+    let launch = execution
+        .activate_runtime_launch(&fixture::config())
         .unwrap();
+    crate::online_proof::arm(&execution, 1);
     let ProviderAuthorityIssueOutcome::Winner(admitted) = execution
-        .issue(&ProviderAuthorityIssueRequest {
+        .issue(&launch, &ProviderAuthorityIssueRequest {
+            provider_id: ProviderId::new("fixture-provider").unwrap(),
             principal_id: "provider-dispatch-test-principal".to_owned(),
             conversation_id: ConversationId::from_bytes([call_byte.wrapping_add(30); 16]),
             taskrun_id: TaskRunId::from_bytes([call_byte.wrapping_add(40); 16]),
@@ -103,22 +74,22 @@ fn issue_dispatch(
 
 #[test]
 fn persist_prepared_exact_replay_is_idempotent_and_changed_digest_conflicts() {
-    let (_database, store) = fresh_store("persist-replay");
+    let (_database, store, launch) = fresh_store("persist-replay");
     let record = prepared(1);
 
     assert_eq!(
-        store.persist_prepared(&record).unwrap(),
+        store.persist_prepared(&launch, &record).unwrap(),
         PersistPreparedOutcome::Inserted
     );
     assert_eq!(
-        store.persist_prepared(&record).unwrap(),
+        store.persist_prepared(&launch, &record).unwrap(),
         PersistPreparedOutcome::Replayed
     );
 
     let mut changed = record;
     changed.render_digest = [99; 32];
     assert_eq!(
-        store.persist_prepared(&changed),
+        store.persist_prepared(&launch, &changed),
         Err(ProviderStoreError::PreparedConflict)
     );
     assert_eq!(store.get_prepared(record.call_id).unwrap(), Some(record));
@@ -126,12 +97,12 @@ fn persist_prepared_exact_replay_is_idempotent_and_changed_digest_conflicts() {
 
 #[test]
 fn prepared_outer_digest_domains_are_versioned_and_mismatch_fails_closed() {
-    let (database, store) = fresh_store("prepared-domains");
+    let (database, store, launch) = fresh_store("prepared-domains");
     let mut v1 = prepared(1);
     v1.call_digest_version = ProviderCallDigestVersion::V1;
     let v2 = prepared(2);
-    store.persist_prepared(&v1).unwrap();
-    store.persist_prepared(&v2).unwrap();
+    store.persist_prepared(&launch, &v1).unwrap();
+    store.persist_prepared(&launch, &v2).unwrap();
 
     let connection = database.connection();
     for (call_id, expected_hex) in [
@@ -173,8 +144,8 @@ fn prepared_outer_digest_domains_are_versioned_and_mismatch_fails_closed() {
 
 #[test]
 fn impossible_dispatch_state_shape_is_corrupt_not_recoverable() {
-    let (database, store) = fresh_store("corrupt-state-shape");
-    store.persist_prepared(&prepared(1)).unwrap();
+    let (database, store, launch) = fresh_store("corrupt-state-shape");
+    store.persist_prepared(&launch, &prepared(1)).unwrap();
     let dispatch_claim = issue_dispatch(&database, 1);
 
     let connection = database.connection();
@@ -199,8 +170,8 @@ fn impossible_dispatch_state_shape_is_corrupt_not_recoverable() {
 
 #[test]
 fn v2_dispatch_cannot_downgrade_to_legacy_settlement_without_stream_evidence() {
-    let (database, store) = fresh_store("legacy-settlement-downgrade");
-    store.persist_prepared(&prepared(1)).unwrap();
+    let (database, store, launch) = fresh_store("legacy-settlement-downgrade");
+    store.persist_prepared(&launch, &prepared(1)).unwrap();
     let dispatch_claim = issue_dispatch(&database, 1);
 
     let connection = database.connection();
@@ -235,8 +206,8 @@ fn v2_dispatch_cannot_downgrade_to_legacy_settlement_without_stream_evidence() {
 
 #[test]
 fn legacy_caller_selected_claim_is_typed_and_leaves_no_effect_rows() {
-    let (database, store) = fresh_store("claim-disabled");
-    store.persist_prepared(&prepared(1)).unwrap();
+    let (database, store, launch) = fresh_store("claim-disabled");
+    store.persist_prepared(&launch, &prepared(1)).unwrap();
 
     assert_eq!(
         store.claim(&legacy_claim(1)),
@@ -263,8 +234,8 @@ fn legacy_caller_selected_claim_is_typed_and_leaves_no_effect_rows() {
 
 #[test]
 fn dispatch_lifecycle_replays_exactly_and_reopens_incomplete_as_uncertain() {
-    let (database, store) = fresh_store("lifecycle");
-    store.persist_prepared(&prepared(1)).unwrap();
+    let (database, store, launch) = fresh_store("lifecycle");
+    store.persist_prepared(&launch, &prepared(1)).unwrap();
     let dispatch_claim = issue_dispatch(&database, 1);
 
     let streaming = MarkProviderStreaming {

@@ -3,6 +3,15 @@ use rusqlite::Connection;
 use super::*;
 
 #[test]
+fn production_startup_has_no_legacy_credential_import_path() {
+    const PRODUCTION: &str = include_str!("../../credential_versions.rs");
+    assert!(
+        !PRODUCTION.contains("provision_active_from_legacy_source("),
+        "legacy credential material must enter only through Task 14's brokered migration"
+    );
+}
+
+#[test]
 fn expired_active_pending_command_completes_before_gc_and_uses_next_version() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("expired-active-pending.sqlite");

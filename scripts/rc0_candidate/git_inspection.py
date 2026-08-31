@@ -18,6 +18,7 @@ from .git_layout import (
     GitLayoutError,
     descriptor_state,
     entry_state,
+    fd_reference,
 )
 from .git_policy import GitInspectionError
 
@@ -90,7 +91,7 @@ def _run(
     extra_fds: tuple[int, ...] = (),
 ) -> bytes:
     result = subprocess.run(
-        (_GIT, "-C", f"/proc/self/fd/{root_fd}", "--no-pager", "--no-replace-objects", *arguments),
+        (_GIT, "-C", fd_reference(root_fd), "--no-pager", "--no-replace-objects", *arguments),
         check=False,
         capture_output=True,
         env=dict(_ENVIRONMENT),

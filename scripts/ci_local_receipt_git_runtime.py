@@ -10,7 +10,7 @@ from pathlib import Path
 
 from scripts.ci_local_receipt_common import LocalInputReceiptError, digest
 from scripts.ci_local_receipt_runtime import _system_directories
-from scripts.rc0_candidate.git_layout import GitLayout
+from scripts.rc0_candidate.git_layout import GitLayout, fd_reference
 from scripts.rc0_candidate.git_policy import GitInspectionError
 from scripts.rc0_policy.canonical import canonical_bytes
 
@@ -49,7 +49,7 @@ def run_command(
 def bootstrap(git: Path, root_fd: int, *arguments: str, **options) -> bytes:
     extra = options.get("extra_fds", ())
     return run_command(
-        (git, "-C", f"/proc/self/fd/{root_fd}", "--no-pager",
+        (git, "-C", fd_reference(root_fd), "--no-pager",
          "--no-replace-objects", *_OVERRIDES, *arguments),
         (root_fd, *extra),
     )
@@ -60,8 +60,8 @@ def runner(git: Path, layout: GitLayout):
         extra = options.get("extra_fds", ())
         return run_command(
             (git, "--no-pager", "--no-replace-objects",
-             f"--git-dir=/proc/self/fd/{layout.git_fd}",
-             f"--work-tree=/proc/self/fd/{layout.root_fd}",
+             f"--git-dir={fd_reference(layout.git_fd)}",
+             f"--work-tree={fd_reference(layout.root_fd)}",
              *_OVERRIDES, *arguments),
             (layout.root_fd, layout.git_fd, layout.common_fd, *extra),
             options.get("data", b""),

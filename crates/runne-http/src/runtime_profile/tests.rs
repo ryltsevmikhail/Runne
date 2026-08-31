@@ -6,7 +6,13 @@ use axum::{
 use runne_api::{ApiPrincipalId, DaemonInstanceId, RuntimeSessionBinding, StableRuntimeBinding};
 use runne_application::local_session::AuthenticatedRuntimeSession;
 use runne_domain::{event::Sensitivity, id::EventLogLineageId};
-use std::time::Duration;
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 use tower::ServiceExt;
 
 fn binding() -> RuntimeSessionBinding {
@@ -129,4 +135,54 @@ fn ordered_capability_digest_is_domain_separated_and_ordered() {
         ordered_capability_digest(&["a", "b"]),
         ordered_capability_digest(&["b", "a"])
     );
+}
+
+#[tokio::test]
+async fn session_profile_reads_provider_statuses_at_each_request() {
+    let ready = Arc::new(AtomicBool::new(false));
+    let dynamic_ready = Arc::clone(&ready);
+    let state = RuntimeProfileHttpState::new("profile", "schema", "0.1.0-test", &[])
+        .with_dynamic_provider_statuses(Arc::new(move || {
+            vec![
+                ProviderStatusSnapshotV1::new(
+                    "openai",
+                    "openai_responses_text_v1",
+                    "openai-responses-text-v1",
+                    [7; 32],
+                    if dynamic_ready.load(Ordering::SeqCst) {
+                        runne_api::ProviderReadinessStatusV1::Ready
+                    } else {
+                        runne_api::ProviderReadinessStatusV1::CredentialMissing
+                    },
+                    true,
+                )
+                .unwrap(),
+            ]
+        }));
+    let router = runtime_profile_session_router(state);
+    let first = profile_readiness(&router).await;
+    ready.store(true, Ordering::SeqCst);
+    let second = profile_readiness(&router).await;
+    assert_eq!(first, "credential_missing");
+    assert_eq!(second, "ready");
+}
+
+async fn profile_readiness(router: &axum::Router) -> String {
+    let mut request = Request::builder()
+        .uri("/v1/runtime/profile")
+        .body(Body::empty())
+        .unwrap();
+    request
+        .extensions_mut()
+        .insert(AuthenticatedRuntimeSession {
+            binding: binding(),
+            expires_at_monotonic: Duration::from_secs(600),
+        });
+    let response = router.clone().oneshot(request).await.unwrap();
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 8192).await.unwrap()).unwrap();
+    body["providerStatuses"][0]["readiness"]
+        .as_str()
+        .unwrap()
+        .to_owned()
 }

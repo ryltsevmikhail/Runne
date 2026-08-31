@@ -28,6 +28,8 @@ pub mod project_workspace;
 pub mod protected_activation;
 /// Runtime-owned provider credential control contracts.
 pub mod provider_credential;
+/// Protected metadata-only provider credential enrollment contracts.
+pub mod provider_credential_enrollment;
 /// Runtime-owned provider readiness projections.
 pub mod provider_status;
 /// Public replay binding contracts.
@@ -61,6 +63,7 @@ pub use process::*;
 pub use project_workspace::*;
 pub use protected_activation::*;
 pub use provider_credential::*;
+pub use provider_credential_enrollment::*;
 pub use provider_status::*;
 pub use replay::*;
 pub use session_info::*;

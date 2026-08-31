@@ -133,9 +133,9 @@ impl ProviderJournalKeyring for MemoryKeyring {
 #[test]
 fn existing_key_preflight_validates_metadata_without_loading_key_bytes() {
     let fixture = fixture();
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let writer = runtime(&keyring, fixture.execution.as_ref());
-    let key = writer.create_and_activate_key([1; 16], 7, 1).unwrap();
+    let key = writer.preflight_existing_active_key([1; 16], 7).unwrap();
     keyring.loads.store(0, Ordering::SeqCst);
 
     let restarted = runtime(&keyring, fixture.execution.as_ref());

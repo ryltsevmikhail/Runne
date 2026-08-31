@@ -42,6 +42,10 @@ FORBIDDEN_PROJECT_OWNER_AUTHORITY_EDGES = {
     "runne-cli", "runne-store", "runne-runtime",
 }
 PROJECT_OWNER_STORE_FEATURE = "project-owner-key-store"
+PROJECT_OWNER_STORE_FEATURES = {
+    PROJECT_OWNER_STORE_FEATURE,
+    "provider-credential-broker-writer",
+}
 PROJECT_OWNER_STORE_OWNER = "runne-cli"
 PROJECT_OWNER_STORE_SYMBOLS = re.compile(
     r"\b(?:PendingProjectOwnerKey|ProjectOwnerAnchorFloor|ProjectOwnerKey\w*|StoreStatus|"
@@ -158,16 +162,27 @@ def project_owner_store_declaration_errors(packages: list[dict]) -> list[str]:
                 and dependency.get("rename") is None
                 and dependency.get("optional") is False
                 and dependency.get("uses_default_features") is False
-                and features == {PROJECT_OWNER_STORE_FEATURE}
+                and features == PROJECT_OWNER_STORE_FEATURES
                 and dependency.get("path", "").endswith("/crates/runne-secure-store")
             )
             if is_owner:
                 owners += 1
                 continue
+            is_test_support_dev_dependency = (
+                dependency.get("kind") == "dev"
+                and dependency.get("target") is None
+                and dependency.get("rename") is None
+                and dependency.get("optional") is False
+                and dependency.get("uses_default_features") is False
+                and features == {"test-support"}
+                and dependency.get("path", "").endswith("/crates/runne-secure-store")
+            )
+            if is_test_support_dev_dependency:
+                continue
             if dependency.get("uses_default_features", True):
                 errors.append(f"FAIL: {package_name} must disable runne-secure-store default features")
             if package_name == PROJECT_OWNER_STORE_OWNER:
-                errors.append("FAIL: runne-cli owner declaration must be normal, unrenamed, nonoptional, untargeted, workspace-path exact-feature and default-features=false")
+                errors.append("FAIL: runne-cli owner declaration must be normal, unrenamed, nonoptional, untargeted, workspace-path exact-features and default-features=false")
             if features:
                 errors.append(f"FAIL: {package_name} must not enable secure-store features")
             if dependency.get("rename") is not None:

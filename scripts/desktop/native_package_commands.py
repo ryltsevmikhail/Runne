@@ -6,11 +6,12 @@ import shlex
 
 def _posix_runtime(app: str, *, macos: bool) -> str:
     data = (
-        'export HOME="$probe_root/home"\n'
+        'profile_root="$HOME/Library/Application Support/com.runne.desktop"\n'
         if macos
         else 'export XDG_DATA_HOME="$probe_root/data"\n'
         'export XDG_CONFIG_HOME="$probe_root/config"\n'
         'export XDG_STATE_HOME="$probe_root/state"\n'
+        'profile_root="$probe_root"\n'
     )
     return f'''set -eu
 root="$NATIVE_PROBE_INSTALL_ROOT"
@@ -62,12 +63,12 @@ def _posix_command(operation: str, app: str, *, macos: bool) -> str:
     elif operation == "secure-store-writer-reader":
         body = (
             "launch_once\nstop_once\n"
-            'find "$probe_root" -type f -name profile.sqlite3 -print -quit | grep -q .\n'
+            'find "$profile_root" -type f -name profile.sqlite3 -print -quit | grep -q .\n'
             "launch_once\nstop_once\n"
         )
     elif operation == "secure-store-third-process-deny":
         body = '''launch_once
-lock="$(find "$probe_root" -type f -name profile.lock -print -quit)"
+lock="$(find "$profile_root" -type f -name profile.lock -print -quit)"
 test -n "$lock"
 python3 - "$lock" <<'PY'
 import fcntl
@@ -164,22 +165,36 @@ def command(pair: str, operation: str, package: str, main_binary_name: str) -> l
     windows_package = package.replace("'", "''")
     app = "$NATIVE_PROBE_INSTALL_ROOT/Runne.app"
     daemon = f"{app}/Contents/MacOS/runned"
+    writer = f"{app}/Contents/MacOS/runne"
     main = f"{app}/Contents/MacOS/{main_binary_name}"
+    linux_identity = f'''set -eu
+for binary in '{main_binary_name}' runne runned; do
+  path="$(find "$NATIVE_PROBE_INSTALL_ROOT" -type f -name "$binary" -print -quit)"
+  test -n "$path"
+  sha256sum "$path"
+done'''
+    windows_components = (
+        f"$main = Get-ChildItem $env:ProgramFiles -Filter '{main_binary_name}.exe' -Recurse -File | Select-Object -First 1; "
+        "if ($null -eq $main) { throw 'installed main executable not found' }; "
+        "$componentRoot = Split-Path -Parent $main.FullName; "
+        "$components = @($main.FullName, (Join-Path $componentRoot 'runne.exe'), (Join-Path $componentRoot 'runned.exe')); "
+        "$components | ForEach-Object { if (-not (Test-Path -PathType Leaf $_)) { throw \"installed component not found: $_\" } }"
+    )
     mac = {
         "install": f"ditto {quoted} \"{app}\"",
         "discover-installed-artifact": f"test -d \"{app}\"",
-        "executable-identity": f"codesign -dvv \"{main}\" && codesign -dvv \"{daemon}\"",
+        "executable-identity": f"codesign -dvv \"{main}\" && codesign -dvv \"{writer}\" && codesign -dvv \"{daemon}\"",
         "protected-launch": _posix_command(operation, main, macos=True) if operation == "protected-launch" else None,
         "protected-relaunch": _posix_command(operation, main, macos=True) if operation == "protected-relaunch" else None,
         "secure-store-writer-reader": _posix_command(operation, main, macos=True) if operation == "secure-store-writer-reader" else None,
         "secure-store-third-process-deny": _posix_command(operation, main, macos=True) if operation == "secure-store-third-process-deny" else None,
-        "signing-notarization": f"codesign --verify --strict \"{daemon}\" && codesign --verify --strict \"{app}\" && spctl --assess --type execute \"{app}\"",
+        "signing-notarization": f"codesign --verify --strict \"{writer}\" && codesign --verify --strict \"{daemon}\" && codesign --verify --strict \"{app}\" && spctl --assess --type execute \"{app}\"",
         "uninstall": f"rm -rf \"{app}\"",
     }
     linux = {
         "install": f"dpkg --root \"$NATIVE_PROBE_INSTALL_ROOT\" --admindir \"$NATIVE_PROBE_INSTALL_ROOT/var/lib/dpkg\" --instdir \"$NATIVE_PROBE_INSTALL_ROOT\" -i {quoted}",
         "discover-installed-artifact": f"find \"$NATIVE_PROBE_INSTALL_ROOT\" -type f -name '{main_binary_name}' -print -quit | grep -q .",
-        "executable-identity": f"find \"$NATIVE_PROBE_INSTALL_ROOT\" -type f -name '{main_binary_name}' -exec sha256sum {{}} \\;",
+        "executable-identity": linux_identity,
         "protected-launch": _posix_command(operation, f"$(find \"$NATIVE_PROBE_INSTALL_ROOT\" -type f -name '{main_binary_name}' -perm -u+x -print -quit)", macos=False) if operation == "protected-launch" else None,
         "protected-relaunch": _posix_command(operation, f"$(find \"$NATIVE_PROBE_INSTALL_ROOT\" -type f -name '{main_binary_name}' -perm -u+x -print -quit)", macos=False) if operation == "protected-relaunch" else None,
         "secure-store-writer-reader": _posix_command(operation, f"$(find \"$NATIVE_PROBE_INSTALL_ROOT\" -type f -name '{main_binary_name}' -perm -u+x -print -quit)", macos=False) if operation == "secure-store-writer-reader" else None,
@@ -190,12 +205,12 @@ def command(pair: str, operation: str, package: str, main_binary_name: str) -> l
     windows = {
         "install": f"$process = Start-Process -Wait -PassThru -FilePath '{windows_package}' -ArgumentList '/S'; exit $process.ExitCode",
         "discover-installed-artifact": f"Get-ChildItem $env:ProgramFiles -Filter '{main_binary_name}.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object {{$_.FullName}}",
-        "executable-identity": f"Get-AuthenticodeSignature (Get-ChildItem $env:ProgramFiles -Filter '{main_binary_name}.exe' -Recurse | Select-Object -First 1).FullName",
+        "executable-identity": windows_components + "; $components | ForEach-Object { Get-AuthenticodeSignature $_ }",
         "protected-launch": _windows_command(operation) if operation == "protected-launch" else None,
         "protected-relaunch": _windows_command(operation) if operation == "protected-relaunch" else None,
         "secure-store-writer-reader": _windows_command(operation) if operation == "secure-store-writer-reader" else None,
         "secure-store-third-process-deny": _windows_command(operation) if operation == "secure-store-third-process-deny" else None,
-        "signing-notarization": f"(Get-AuthenticodeSignature (Get-ChildItem $env:ProgramFiles -Filter '{main_binary_name}.exe' -Recurse | Select-Object -First 1).FullName).Status -eq 'Valid'",
+        "signing-notarization": windows_components + "; $components | ForEach-Object { if ((Get-AuthenticodeSignature $_).Status -ne 'Valid') { throw \"invalid signature: $_\" } }",
         "uninstall": "$uninstaller = Get-ChildItem $env:ProgramFiles -Filter unins*.exe -Recurse | Select-Object -First 1; if ($null -eq $uninstaller) { exit 1 }; $process = Start-Process -Wait -PassThru -FilePath $uninstaller.FullName -ArgumentList '/S'; exit $process.ExitCode",
     }
     values = windows if pair.startswith("windows") else mac if pair.startswith("macos") else linux

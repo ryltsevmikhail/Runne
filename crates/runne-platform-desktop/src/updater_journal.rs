@@ -3,20 +3,29 @@
 #![allow(clippy::missing_errors_doc)]
 
 use std::fs::{self, OpenOptions};
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::io::Write;
+use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-const SCHEMA_VERSION: u32 = 1;
 const MAX_JOURNAL_BYTES: u64 = 16 * 1024;
-const MAX_PATH_BYTES: usize = 4 * 1024;
+
+#[path = "updater_journal/wire.rs"]
+mod journal_wire;
+#[cfg(test)]
+#[path = "updater_journal/tests.rs"]
+mod tests;
+use journal_wire::{
+    WireRecord, decode, numbered_path, publish_no_replace, read_bounded_regular_file, sequence_any,
+    sequence_of, state_name, sync_parent, valid_transition, validate_record,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateInstallRecord {
     pub version: String,
     pub artifact_sha256: String,
+    pub metadata_sha256: Option<String>,
+    pub legacy_unbound: bool,
     pub staged_path: PathBuf,
     pub state: super::UpdateInstallState,
 }
@@ -33,16 +42,6 @@ pub enum UpdateJournalError {
     InvalidTransition,
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct WireRecord {
-    schema_version: u32,
-    state: String,
-    version: String,
-    artifact_sha256: String,
-    staged_path: String,
-}
-
 /// Persists only the non-secret identity and lifecycle of one staged artifact.
 #[derive(Clone, Debug)]
 pub struct UpdateJournal {
@@ -56,22 +55,14 @@ impl UpdateJournal {
     }
 
     pub fn read(&self) -> Result<Option<UpdateInstallRecord>, UpdateJournalError> {
-        let Some(path) = self.latest_path()? else {
-            return Ok(None);
+        let path = match self.latest_path()? {
+            Some(path) => path,
+            None => match self.legacy_path()? {
+                Some(path) => path,
+                None => return Ok(None),
+            },
         };
-        let metadata = fs::symlink_metadata(&path).map_err(|_| UpdateJournalError::Io)?;
-        if !metadata.is_file() || metadata.len() > MAX_JOURNAL_BYTES {
-            return Err(UpdateJournalError::Corrupt);
-        }
-        let mut bytes = Vec::new();
-        fs::File::open(&path)
-            .map_err(|_| UpdateJournalError::Io)?
-            .take(MAX_JOURNAL_BYTES + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|_| UpdateJournalError::Io)?;
-        if bytes.len() as u64 > MAX_JOURNAL_BYTES {
-            return Err(UpdateJournalError::Corrupt);
-        }
+        let bytes = read_bounded_regular_file(&path, MAX_JOURNAL_BYTES)?;
         let wire: WireRecord =
             serde_json::from_slice(&bytes).map_err(|_| UpdateJournalError::Corrupt)?;
         decode(wire).map(Some)
@@ -85,6 +76,24 @@ impl UpdateJournal {
         self.write(UpdateInstallRecord {
             version: version.to_owned(),
             artifact_sha256: staged.artifact_sha256.clone(),
+            metadata_sha256: None,
+            legacy_unbound: false,
+            staged_path: staged.path.clone(),
+            state: super::UpdateInstallState::Staged,
+        })
+    }
+
+    pub fn record_staged_bound(
+        &self,
+        version: &str,
+        staged: &super::StagedUpdate,
+        metadata_sha256: String,
+    ) -> Result<(), UpdateJournalError> {
+        self.write(UpdateInstallRecord {
+            version: version.to_owned(),
+            artifact_sha256: staged.artifact_sha256.clone(),
+            metadata_sha256: Some(metadata_sha256),
+            legacy_unbound: false,
             staged_path: staged.path.clone(),
             state: super::UpdateInstallState::Staged,
         })
@@ -100,13 +109,30 @@ impl UpdateJournal {
     }
 
     pub fn clear(&self) -> Result<(), UpdateJournalError> {
+        if let Some(path) = self.legacy_path()? {
+            fs::remove_file(path).map_err(|_| UpdateJournalError::Io)?;
+        }
         for path in self.candidate_paths()? {
             fs::remove_file(path).map_err(|_| UpdateJournalError::Io)?;
         }
         Ok(())
     }
 
+    pub fn discard_unbound_legacy(&self) -> Result<bool, UpdateJournalError> {
+        let Some(record) = self.read()? else {
+            return Ok(false);
+        };
+        if !record.legacy_unbound || record.metadata_sha256.is_some() {
+            return Ok(false);
+        }
+        self.clear()?;
+        Ok(true)
+    }
+
     fn write(&self, record: UpdateInstallRecord) -> Result<(), UpdateJournalError> {
+        if record.legacy_unbound {
+            return Err(UpdateJournalError::Corrupt);
+        }
         validate_record(&record)?;
         let parent = self.path.parent().ok_or(UpdateJournalError::Io)?;
         fs::create_dir_all(parent).map_err(|_| UpdateJournalError::Io)?;
@@ -114,10 +140,11 @@ impl UpdateJournal {
         let temporary = numbered_path(&self.path, sequence, "tmp");
         let final_path = numbered_path(&self.path, sequence, "json");
         let wire = WireRecord {
-            schema_version: SCHEMA_VERSION,
+            schema_version: 2,
             state: state_name(record.state).to_owned(),
             version: record.version,
             artifact_sha256: record.artifact_sha256,
+            metadata_sha256: record.metadata_sha256,
             staged_path: record.staged_path.to_string_lossy().into_owned(),
         };
         let bytes = serde_json::to_vec(&wire).map_err(|_| UpdateJournalError::Corrupt)?;
@@ -130,6 +157,7 @@ impl UpdateJournal {
         file.sync_all().map_err(|_| UpdateJournalError::Io)?;
         drop(file);
         publish_no_replace(&temporary, &final_path)?;
+        sync_parent(parent)?;
         for path in self.candidate_paths()? {
             if path != final_path {
                 let _ = fs::remove_file(path);
@@ -140,32 +168,34 @@ impl UpdateJournal {
 
     fn latest_path(&self) -> Result<Option<PathBuf>, UpdateJournalError> {
         let mut candidates = self.candidate_paths()?;
-        candidates.sort_by_key(|path| sequence_of(path));
+        candidates.sort_by_key(|path| sequence_of(&self.path, path, "json"));
         Ok(candidates.pop())
     }
 
     fn next_sequence(&self) -> Result<u64, UpdateJournalError> {
-        Ok(self
-            .latest_path()?
-            .as_deref()
-            .and_then(sequence_of)
-            .unwrap_or(0)
-            + 1)
+        let Some(parent) = self.path.parent() else {
+            return Err(UpdateJournalError::Io);
+        };
+        let entries = match fs::read_dir(parent) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(1),
+            Err(_) => return Err(UpdateJournalError::Io),
+        };
+        let maximum = entries
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter_map(|path| sequence_any(&self.path, &path))
+            .max();
+        maximum.map_or(Ok(1), |value| {
+            value.checked_add(1).ok_or(UpdateJournalError::Corrupt)
+        })
     }
 
     fn candidate_paths(&self) -> Result<Vec<PathBuf>, UpdateJournalError> {
         let Some(parent) = self.path.parent() else {
             return Err(UpdateJournalError::Io);
         };
-        let base = self
-            .path
-            .file_name()
-            .ok_or(UpdateJournalError::Io)?
-            .to_string_lossy();
         let mut paths = Vec::new();
-        if self.path.exists() {
-            paths.push(self.path.clone());
-        }
         let entries = match fs::read_dir(parent) {
             Ok(entries) => entries,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(paths),
@@ -173,105 +203,29 @@ impl UpdateJournal {
         };
         for entry in entries {
             let path = entry.map_err(|_| UpdateJournalError::Io)?.path();
-            let name = path.file_name().unwrap_or_default().to_string_lossy();
-            if name.starts_with(&format!("{base}.")) && sequence_of(&path).is_some() {
+            if sequence_of(&self.path, &path, "json").is_some() {
                 paths.push(path);
             }
         }
         Ok(paths)
     }
-}
 
-fn decode(wire: WireRecord) -> Result<UpdateInstallRecord, UpdateJournalError> {
-    let state = match wire.state.as_str() {
-        "staged" => super::UpdateInstallState::Staged,
-        "restart_required" => super::UpdateInstallState::RestartRequired,
-        "health_check" => super::UpdateInstallState::HealthCheck,
-        "committed" => super::UpdateInstallState::Committed,
-        "rolled_back" => super::UpdateInstallState::RolledBack,
-        _ => return Err(UpdateJournalError::Corrupt),
-    };
-    let record = UpdateInstallRecord {
-        version: wire.version,
-        artifact_sha256: wire.artifact_sha256,
-        staged_path: PathBuf::from(wire.staged_path),
-        state,
-    };
-    (wire.schema_version == SCHEMA_VERSION)
-        .then_some(record)
-        .ok_or(UpdateJournalError::Corrupt)
-        .and_then(|record| {
-            validate_record(&record)?;
-            Ok(record)
-        })
-}
-
-fn validate_record(record: &UpdateInstallRecord) -> Result<(), UpdateJournalError> {
-    if crate::updater::parse_version(&record.version).is_err()
-        || !crate::updater::is_sha256(&record.artifact_sha256)
-        || record.staged_path.as_os_str().is_empty()
-        || record.staged_path.as_os_str().to_string_lossy().len() > MAX_PATH_BYTES
-        || !record.staged_path.is_absolute()
-    {
-        return Err(UpdateJournalError::Corrupt);
-    }
-    Ok(())
-}
-
-const fn valid_transition(from: super::UpdateInstallState, to: super::UpdateInstallState) -> bool {
-    matches!(
-        (from, to),
-        (
-            super::UpdateInstallState::Staged,
-            super::UpdateInstallState::RestartRequired
-        ) | (
-            super::UpdateInstallState::RestartRequired,
-            super::UpdateInstallState::Staged | super::UpdateInstallState::HealthCheck
-        ) | (
-            super::UpdateInstallState::HealthCheck,
-            super::UpdateInstallState::Committed | super::UpdateInstallState::RolledBack
-        )
-    )
-}
-
-const fn state_name(state: super::UpdateInstallState) -> &'static str {
-    match state {
-        super::UpdateInstallState::Staged => "staged",
-        super::UpdateInstallState::RestartRequired => "restart_required",
-        super::UpdateInstallState::HealthCheck => "health_check",
-        super::UpdateInstallState::Committed => "committed",
-        super::UpdateInstallState::RolledBack => "rolled_back",
-    }
-}
-
-fn numbered_path(base: &Path, sequence: u64, suffix: &str) -> PathBuf {
-    let mut path = base.as_os_str().to_os_string();
-    path.push(format!(".{sequence}.{suffix}"));
-    PathBuf::from(path)
-}
-
-fn sequence_of(path: &Path) -> Option<u64> {
-    path.file_name()?
-        .to_string_lossy()
-        .rsplit('.')
-        .nth(1)
-        .and_then(|value| value.parse().ok())
-}
-
-fn publish_no_replace(temporary: &Path, final_path: &Path) -> Result<(), UpdateJournalError> {
-    #[cfg(windows)]
-    {
-        let source = runne_windows_native_handle::inspect_regular_file(temporary)
-            .map_err(|_| UpdateJournalError::Io)?;
-        runne_windows_native_handle::move_regular_file_no_replace_write_through(
-            temporary,
-            final_path,
-            source.id(),
-        )
-        .map_err(|_| UpdateJournalError::Io)
-    }
-    #[cfg(not(windows))]
-    {
-        fs::rename(temporary, final_path).map_err(|_| UpdateJournalError::Io)
+    fn legacy_path(&self) -> Result<Option<PathBuf>, UpdateJournalError> {
+        let Some(parent) = self.path.parent() else {
+            return Err(UpdateJournalError::Io);
+        };
+        let base = self.path.file_name().ok_or(UpdateJournalError::Io)?;
+        let entries = match fs::read_dir(parent) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err(UpdateJournalError::Io),
+        };
+        for entry in entries {
+            let path = entry.map_err(|_| UpdateJournalError::Io)?.path();
+            if path.file_name().is_some_and(|name| name == base) {
+                return Ok(Some(path));
+            }
+        }
+        Ok(None)
     }
 }

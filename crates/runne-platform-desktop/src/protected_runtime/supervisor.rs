@@ -95,6 +95,9 @@ impl DevelopmentBundledRuntimeLauncher {
         let state_store = ActivationStateStore::open(&runtime_root)?;
         let (launch_executable_path, executable) = state_store
             .stage_trusted_executable(&executable_path, spec.trusted_source_identity())?;
+        if spec.provider_activation().is_some() {
+            state_store.stage_provider_writer(&executable_path)?;
+        }
         let stable = state_store.load_stable()?;
         let pending = state_store.load_pending()?;
 
@@ -196,7 +199,7 @@ impl DevelopmentBundledRuntimeLauncher {
         let result = (|| {
             let spawned_identity = ExecutableIdentityV1::measure(&launch_executable_path)
                 .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-            if spawned_identity != *request.compatibility().executable() {
+            if spawned_identity != *request.executable() {
                 return Err(ProtectedBundledRuntimeError::ExecutableIdentityMismatch);
             }
             let launch_frame = Zeroizing::new(request.encode_frame()?);
@@ -204,21 +207,24 @@ impl DevelopmentBundledRuntimeLauncher {
             let mut keys = request.derive_keys_and_forget();
 
             let prepared_pending = if matches!(
-                request.compatibility().activation_disposition(),
+                request.activation_disposition(),
                 ActivationDispositionV1::FirstActivation
             ) {
                 let prepared_frame = read_frame(&mut parent_channel)?;
                 let prepared = ProtectedFirstActivationPreparedV1::decode_frame(&prepared_frame)
                     .map_err(|_| LaunchAuthorityError::FirstActivationPreparationMismatch)?;
-                prepared.verify_exact(request.compatibility(), &keys)?;
+                let request_v1 = request
+                    .compatibility()
+                    .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
+                prepared.verify_exact(request_v1, &keys)?;
                 controls.checkpoint(ActivationCheckpoint::BeforePreparePersistence)?;
                 state_store.persist_pending_exact(prepared.pending(), controls)?;
                 controls.checkpoint(ActivationCheckpoint::AfterPreparePersistence)?;
                 let pending = prepared.pending().clone();
                 controls.checkpoint(ActivationCheckpoint::BeforeCommit)?;
                 let mut commit = ProtectedFirstActivationCommitV1::new(
-                    request.compatibility().launch_authority_id(),
-                    request.compatibility().desktop_host_instance_id(),
+                    request_v1.launch_authority_id(),
+                    request_v1.desktop_host_instance_id(),
                     pending.clone(),
                 );
                 commit.sign(&keys);
@@ -237,7 +243,7 @@ impl DevelopmentBundledRuntimeLauncher {
             let ready_frame = read_frame(&mut parent_channel)?;
             let ready = request.decode_ready(&ready_frame, &keys)?;
             if let Some(readiness) = ready.provider_readiness()
-                && !readiness.is_ready()
+                && provider_readiness_blocks_launch(readiness)
             {
                 return Err(ProtectedBundledRuntimeError::ProviderActivationNotReady(
                     readiness,
@@ -246,24 +252,16 @@ impl DevelopmentBundledRuntimeLauncher {
             controls.checkpoint(ActivationCheckpoint::AfterEventLogCreation)?;
             if prepared_pending
                 .as_ref()
-                .is_some_and(|pending| ready.compatibility().stable() != pending.stable())
+                .is_some_and(|pending| ready.stable() != pending.stable())
             {
                 return Err(ProtectedBundledRuntimeError::LaunchAuthority(
                     LaunchAuthorityError::FirstActivationPreparationMismatch,
                 ));
             }
-            let runtime_profile = match (&request, &ready) {
-                (DesktopLaunchRequest::V1(request), DesktopReady::V1(ready)) => {
-                    ProtectedBundledRuntimeProfile::from_ready(ready, request, &keys)?
-                }
-                (DesktopLaunchRequest::V2(request), DesktopReady::V2(ready)) => {
-                    ProtectedBundledRuntimeProfile::from_ready_v2(ready, request, &keys)?
-                }
-                _ => return Err(ProtectedBundledRuntimeError::InvalidState),
-            };
+            let runtime_profile = request.runtime_profile(&ready, unix_millis()?, &keys)?;
             keys.forget_bootstrap_key();
             controls.checkpoint(ActivationCheckpoint::BeforeFinalPin)?;
-            state_store.persist_stable_exact(ready.compatibility().stable(), controls)?;
+            state_store.persist_stable_exact(ready.stable(), controls)?;
             controls.checkpoint(ActivationCheckpoint::AfterFinalPin)?;
             state_store.remove_pending()?;
             let activation = ready.into_process_activation(request)?;
@@ -279,6 +277,7 @@ impl DevelopmentBundledRuntimeLauncher {
                 #[cfg(all(any(unix, windows), feature = "protected-channel-integration"))]
                 root_control_sequence: 0,
                 graceful_requested: false,
+                enrollment_broker_facts: None,
                 #[cfg(feature = "test-support")]
                 captured_stdout,
                 #[cfg(feature = "test-support")]

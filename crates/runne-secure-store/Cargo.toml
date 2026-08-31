@@ -18,6 +18,7 @@ zeroize.workspace = true
 [features]
 default = []
 project-owner-key-store = ["dep:ed25519-dalek"]
+provider-credential-broker-writer = []
 test-support = []
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -32,6 +33,7 @@ keyring = { version = "=3.6.3", default-features = false, features = ["windows-n
 
 [dev-dependencies]
 hex.workspace = true
+runne-provider = { path = "../runne-provider", features = ["test-support"] }
 serde.workspace = true
 tempfile = "=3.27.0"
 

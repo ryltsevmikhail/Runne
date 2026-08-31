@@ -54,17 +54,22 @@ pub(super) fn list_relative(
     limit: usize,
 ) -> Result<Vec<RootFileEntry>, RootHandleBrokerError> {
     let directory = open_directory_below(root, path)?;
-    let descriptor_path = format!("/dev/fd/{}", directory.as_raw_fd());
+    let mut directory = nix::dir::Dir::from_fd(directory.into())
+        .map_err(|_| RootHandleBrokerError::Unavailable)?;
     let mut entries = Vec::new();
-    for item in std::fs::read_dir(descriptor_path)
-        .map_err(|_| RootHandleBrokerError::Unavailable)?
-    {
-        let item = item.map_err(|_| RootHandleBrokerError::Unavailable)?;
-        let name = item
-            .file_name()
-            .to_str()
-            .ok_or(RootHandleBrokerError::Rejected)?
-            .to_owned();
+    let names = directory
+        .iter()
+        .map(|item| {
+            item.map_err(|_| RootHandleBrokerError::Unavailable)
+                .and_then(|item| {
+                    item.file_name()
+                        .to_str()
+                        .map(str::to_owned)
+                        .map_err(|_| RootHandleBrokerError::Rejected)
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    for name in names {
         if name == "." || name == ".." {
             continue;
         }
@@ -73,7 +78,7 @@ pub(super) fn list_relative(
         }
         let opened = openat(
             &directory,
-            item.file_name(),
+            name.as_str(),
             OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOFOLLOW | OFlags::CLOEXEC,
             Mode::empty(),
         )
@@ -120,7 +125,15 @@ pub(super) fn read_text_relative(
 }
 
 pub(super) fn open_directory_below(root: &NativeDirectoryHandle, path: &Path) -> Result<File, RootHandleBrokerError> {
-    let mut current = root.try_clone().map_err(|_| RootHandleBrokerError::Unavailable)?;
+    let mut current = File::from(
+        openat(
+            root,
+            ".",
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| RootHandleBrokerError::Unavailable)?,
+    );
     let root_device = fstat(&current).map_err(|_| RootHandleBrokerError::Unavailable)?.st_dev;
     for component in path.components() {
         let Component::Normal(component) = component else { return Err(RootHandleBrokerError::Rejected); };

@@ -1,9 +1,9 @@
-import hashlib
-import plistlib
 import re
 import stat
 from pathlib import Path
 
+from .entitlements import bind_entitlements, entitlement_binding_is_current
+from .hashing import sha256_file
 from .models import (
     CandidateIdentity,
     EntitlementBinding,
@@ -100,10 +100,7 @@ def validate_entitlements(
     daemon_path: Path,
 ) -> tuple[EntitlementBinding, EntitlementBinding] | SigningFailure:
     try:
-        app_binding = _entitlement_binding(app_path)
-        daemon_binding = _entitlement_binding(daemon_path)
-        if (app_binding.device, app_binding.inode) == (daemon_binding.device, daemon_binding.inode):
-            raise ValueError
+        app_binding, daemon_binding = bind_entitlements((app_path, daemon_path))
     except Exception:
         return _failure(FailureCode.ENTITLEMENTS_MISMATCH, "entitlements")
     return app_binding, daemon_binding
@@ -148,31 +145,11 @@ def _regular_executable(path: Path) -> bool:
 
 
 def _target(candidate: Path, path: Path) -> ValidatedTarget:
-    return ValidatedTarget(str(path.relative_to(candidate)), _sha256(path.read_bytes()))
-
-
-def _entitlement_binding(path: Path) -> EntitlementBinding:
-    if not isinstance(path, Path) or path.is_symlink():
-        raise ValueError("invalid entitlement path")
-    canonical = path.resolve(strict=True)
-    information = canonical.lstat()
-    if canonical.is_symlink() or not stat.S_ISREG(information.st_mode):
-        raise ValueError("invalid entitlement file")
-    value = canonical.read_bytes()
-    if type(plistlib.loads(value)) is not dict or plistlib.loads(value) != {}:
-        raise ValueError("invalid entitlement plist")
-    return EntitlementBinding(canonical, _sha256(value), information.st_dev, information.st_ino)
+    return ValidatedTarget(str(path.relative_to(candidate)), sha256_file(path))
 
 
 def _binding_is_current(binding: EntitlementBinding) -> bool:
-    try:
-        return _entitlement_binding(binding.canonical_path) == binding
-    except (OSError, ValueError, plistlib.InvalidFileException):
-        return False
-
-
-def _sha256(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+    return entitlement_binding_is_current(binding)
 
 
 def _failure(code: FailureCode, phase: str) -> SigningFailure:

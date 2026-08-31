@@ -9,6 +9,7 @@ runne-provider = { path = "../runne-provider" }
 runne-domain = { path = "../runne-domain" }
 runne-api = { path = "../runne-api" }
 runne-pairing-crypto = { path = "../runne-pairing-crypto" }
+runne-secure-store = { path = "../runne-secure-store", default-features = false }
 async-trait = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }

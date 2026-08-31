@@ -22,6 +22,9 @@ pub(crate) enum SecureLocalHttpHostError {
     /// Telemetry state was supplied without its advertised capability.
     #[error("operational telemetry capability is not advertised")]
     OperationalTelemetryCapabilityMissing,
+    /// V2 credential enrollment needs a transport-owned authenticated admission.
+    #[error("provider credential enrollment V2 admission is unavailable")]
+    ProviderCredentialEnrollmentAdmissionMissing,
 }
 
 impl SecureLocalHttpHost {
@@ -87,6 +90,7 @@ impl SecureLocalHttpHost {
         {
             return Err(SecureLocalHttpHostError::CapabilityDigestMismatch);
         }
+        require_provider_credential_enrollment_admission(&runtime_profile_state)?;
         let advertises_telemetry = runtime_profile_state.advertises(OPERATIONAL_TELEMETRY_CAPABILITY_V1);
         if operational_telemetry_state.is_some() && !advertises_telemetry {
             return Err(SecureLocalHttpHostError::OperationalTelemetryCapabilityMissing);

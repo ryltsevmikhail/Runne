@@ -80,20 +80,10 @@ fn credential_commands_reject_open_or_ambiguous_provider_forms() {
 }
 
 #[test]
-fn credential_input_rejects_secret_shaped_invalid_bytes_and_bounds_reads() {
-    for mut invalid in [b"".as_slice(), b"a\0b", b"a\rb", b"a\nb"] {
-        assert!(read_credential_bytes(&mut invalid, false).is_err());
-    }
-    assert!(read_credential_bytes(&mut vec![b'a'; 4_097].as_slice(), false).is_err());
-    assert!(read_credential_bytes(&mut vec![b'a'; 4_096].as_slice(), false).is_ok());
-    assert!(read_credential_bytes(&mut b"credential".as_slice(), true).is_err());
-}
-
-#[test]
 fn credential_execution_uses_closed_outputs_and_redacts_backend_errors() {
     let resolver = FakeResolver::new();
     let mut backend = FakeBackend::default();
-    assert_eq!(
+    assert!(matches!(
         execute_provider_credential_on_platform(
             ProviderCredentialCommand::Set(ProviderCredentialId::OpenAi),
             &mut b"secret".as_slice(),
@@ -101,10 +91,10 @@ fn credential_execution_uses_closed_outputs_and_redacts_backend_errors() {
             &mut backend,
             &resolver,
             true
-        )
-        .unwrap(),
-        "configured"
-    );
+        ),
+        Err(CliError::UnsupportedCredentialBackend)
+    ));
+    backend.configured = true;
     assert_eq!(
         execute_provider_credential_on_platform(
             ProviderCredentialCommand::Status(ProviderCredentialId::OpenAi),
@@ -117,7 +107,7 @@ fn credential_execution_uses_closed_outputs_and_redacts_backend_errors() {
         .unwrap(),
         "configured"
     );
-    assert_eq!(
+    assert!(matches!(
         execute_provider_credential_on_platform(
             ProviderCredentialCommand::Delete(ProviderCredentialId::OpenAi),
             &mut b"".as_slice(),
@@ -125,10 +115,9 @@ fn credential_execution_uses_closed_outputs_and_redacts_backend_errors() {
             &mut backend,
             &resolver,
             true
-        )
-        .unwrap(),
-        "missing"
-    );
+        ),
+        Err(CliError::UnsupportedCredentialBackend)
+    ));
     backend.failure = true;
     let error = execute_provider_credential_on_platform(
         ProviderCredentialCommand::Status(ProviderCredentialId::OpenAi),
@@ -143,66 +132,6 @@ fn credential_execution_uses_closed_outputs_and_redacts_backend_errors() {
     assert_eq!(error, "provider credential operation failed");
     assert!(!error.contains("sensitive-marker"));
     assert!(!error.contains("backend-detail"));
-}
-
-#[test]
-fn unsupported_backend_never_reports_persistence() {
-    let mut backend = FakeBackend::unsupported();
-    let resolver = FakeResolver::new();
-    assert_eq!(
-        execute_provider_credential_on_platform(
-            ProviderCredentialCommand::Set(ProviderCredentialId::OpenAi),
-            &mut b"secret".as_slice(),
-            false,
-            &mut backend,
-            &resolver,
-            true
-        )
-        .unwrap(),
-        "unsupported"
-    );
-    assert!(!backend.configured);
-}
-
-#[test]
-fn unsupported_platform_validates_set_input_before_returning_unsupported() {
-    let mut backend = FakeBackend::default();
-    let resolver = FakeResolver::new();
-    assert!(matches!(
-        execute_provider_credential_on_platform(
-            ProviderCredentialCommand::Set(ProviderCredentialId::OpenAi),
-            &mut b"invalid\ncredential".as_slice(),
-            false,
-            &mut backend,
-            &resolver,
-            false
-        ),
-        Err(CliError::CredentialInput)
-    ));
-    assert!(matches!(
-        execute_provider_credential_on_platform(
-            ProviderCredentialCommand::Set(ProviderCredentialId::OpenAi),
-            &mut b"credential".as_slice(),
-            true,
-            &mut backend,
-            &resolver,
-            false
-        ),
-        Err(CliError::CredentialInput)
-    ));
-    assert_eq!(
-        execute_provider_credential_on_platform(
-            ProviderCredentialCommand::Set(ProviderCredentialId::OpenAi),
-            &mut vec![b'x'; 4_096].as_slice(),
-            false,
-            &mut backend,
-            &resolver,
-            false
-        )
-        .unwrap(),
-        "unsupported"
-    );
-    assert!(!backend.configured);
 }
 
 fn args(values: &[&str]) -> VecDeque<OsString> {
@@ -245,17 +174,7 @@ impl CredentialIdentityResolver for FakeResolver {
 #[derive(Default)]
 struct FakeBackend {
     configured: bool,
-    unsupported: bool,
     failure: bool,
-}
-
-impl FakeBackend {
-    fn unsupported() -> Self {
-        Self {
-            unsupported: true,
-            ..Self::default()
-        }
-    }
 }
 
 impl CredentialBackend for FakeBackend {
@@ -267,30 +186,53 @@ impl CredentialBackend for FakeBackend {
         if self.failure {
             return Err(SecureStoreError::OperationFailed("backend-detail".into()));
         }
-        Ok(if self.unsupported {
-            CredentialOutcome::Unsupported
-        } else if self.configured {
+        Ok(if self.configured {
             CredentialOutcome::Configured
         } else {
             CredentialOutcome::Missing
         })
     }
+}
+#[tokio::test]
+async fn broker_mode_is_not_reachable_from_async_dispatch() {
+    assert!(matches!(
+        run(
+            vec![OsString::from(
+                runne_provider::PROVIDER_CREDENTIAL_BROKER_MODE_V1
+            )],
+            OutputFormat::Text
+        )
+        .await,
+        Err(CliError::Usage)
+    ));
+    assert!(matches!(
+        run(
+            vec![
+                OsString::from(runne_provider::PROVIDER_CREDENTIAL_BROKER_MODE_V1),
+                OsString::from("credential=secret"),
+            ],
+            OutputFormat::Text,
+        )
+        .await,
+        Err(CliError::Usage)
+    ));
+}
 
-    fn store(
-        &mut self,
-        _id: ProviderCredentialId,
-        _credential: &ProviderCredentialMaterial,
-        _access: &ProviderCredentialAccessPolicy,
-    ) -> Result<(), SecureStoreError> {
-        if self.unsupported {
-            return Err(SecureStoreError::UnsupportedSecureStoreBackend);
-        }
-        self.configured = true;
-        Ok(())
+#[test]
+fn broker_secret_envelope_reader_rejects_invalid_or_oversized_eof_input() {
+    for invalid in [
+        b"".as_slice(),
+        b"secret\n".as_slice(),
+        b"secret\ntrailing".as_slice(),
+    ] {
+        assert!(matches!(
+            read_sealed_pair_envelope(&mut std::io::Cursor::new(invalid)),
+            Err(CliError::CredentialOperation)
+        ));
     }
-
-    fn delete(&mut self, _id: ProviderCredentialId) -> Result<(), SecureStoreError> {
-        self.configured = false;
-        Ok(())
-    }
+    let oversized = vec![b'a'; runne_provider::CredentialSecretEnvelopeCodec::MAX_BYTES + 1];
+    assert!(matches!(
+        read_sealed_pair_envelope(&mut std::io::Cursor::new(oversized)),
+        Err(CliError::CredentialOperation)
+    ));
 }

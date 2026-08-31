@@ -105,30 +105,21 @@ Usage:
   runne provider credential <subcommand> [<args>]
 
 Subcommands:
-  set      Store a provider credential
   status   Check credential status
-  delete   Delete a stored credential
+
+Legacy commands:
+  set      Unavailable direct credential enrollment
+  delete   Unavailable direct credential deletion
 
 Run 'runne help provider credential <subcommand>' for more information.";
 
 /// Help text for `provider credential set`.
 pub const PROVIDER_CREDENTIAL_SET_HELP: &str = "\
-Store a provider credential.
+Direct provider credential enrollment is unavailable.
 
-Usage:
-  runne provider credential set --provider openai --stdin
-  runne provider credential set --provider deepseek --stdin
-
-Options:
-  --provider <provider>   Provider name: openai or deepseek
-  --stdin             Read credential from standard input
-
-The credential is read from stdin as raw bytes. It must not contain
-null bytes, carriage returns, or newlines. Maximum size is 4096 bytes.
-
-Examples:
-  echo -n \"sk-...\" | runne provider credential set --provider openai --stdin
-  echo -n \"sk-...\" | runne provider credential set --provider deepseek --stdin";
+The legacy stdin command is retained only for compatibility and always
+returns an unsupported credential-backend error. Credential material is
+not read from standard input.";
 
 /// Help text for `provider credential status`.
 pub const PROVIDER_CREDENTIAL_STATUS_HELP: &str = "\
@@ -152,18 +143,10 @@ Examples:
 
 /// Help text for `provider credential delete`.
 pub const PROVIDER_CREDENTIAL_DELETE_HELP: &str = "\
-Delete a stored credential.
+Direct provider credential deletion is unavailable.
 
-Usage:
-  runne provider credential delete --provider openai
-  runne provider credential delete --provider deepseek
-
-Options:
-  --provider <provider>   Provider name: openai or deepseek
-
-Examples:
-  runne provider credential delete --provider openai
-  runne provider credential delete --provider deepseek";
+The legacy command is retained only for compatibility and always returns
+an unsupported credential-backend error.";
 
 /// Help text for the `status` command.
 pub const STATUS_HELP: &str = "\
@@ -221,8 +204,7 @@ pub const AUTHORITY_HELP: &str =
     "Manage project-owner authority.\n\nUsage:\n  runne authority --help";
 
 /// Help text for the `release` command.
-pub const RELEASE_HELP: &str =
-    "Manage release authority.\n\nUsage:\n  runne release --help";
+pub const RELEASE_HELP: &str = "Manage release authority.\n\nUsage:\n  runne release --help";
 
 /// Help text for the `health` command.
 pub const HEALTH_HELP: &str = "\

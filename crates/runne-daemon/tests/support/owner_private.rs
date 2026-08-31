@@ -62,6 +62,21 @@ impl ControlledExecutable {
         Self { _root: root, path }
     }
 
+    pub fn copy_with_writer_from(source: impl AsRef<Path>) -> Self {
+        let source = source.as_ref();
+        let executable = Self::copy_from(source);
+        let writer = executable._root.path().join("runne");
+        fs::copy(source, &writer).expect("copy controlled writer executable");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            fs::set_permissions(&writer, fs::Permissions::from_mode(0o700))
+                .expect("secure controlled writer executable");
+        }
+        executable
+    }
+
     pub fn path(&self) -> &Path {
         &self.path
     }

@@ -14,6 +14,10 @@
       "sha256": "ff16f1e8af8af2fa19031e29fcb926a9e96ec49ebf415b3ec65fbd46919a38c7"
     },
     {
+      "path": "golden/provider-credential-enrollment-v2.json",
+      "sha256": "56aa27f4c6a1fd61facda64ba5b55b5ef2922e8b0a50d24bb30c0395706915ba"
+    },
+    {
       "path": "golden/replay-conversation.json",
       "sha256": "cfbee2bfc609386a884231c2df9f4f37e821c9a90dfac5b43b83eff28d116e68"
     },
@@ -47,11 +51,15 @@
     },
     {
       "path": "openapi.json",
-      "sha256": "3c6b377314573f54f48b421303df6418e9794bf02ab399ec06867ef2c840cc98"
+      "sha256": "0d907676d163c04fc90a47201cad0a8e0e2e656e6173667a6a177a31ca779b4d"
+    },
+    {
+      "path": "schemas/approval-v1.schema.json",
+      "sha256": "3ef34c6ef6c6d5ed3de95e5a5d673757a47e7bd726a7cb03b3f6939de3e3285d"
     },
     {
       "path": "schemas/local-runtime-profile-v3.schema.json",
-      "sha256": "f30da485276d765f0dfbca4ec2b917759f0fe6227de24a6dbe1f15daebb01c8f"
+      "sha256": "4d0612914cb3349de071aa71b5ce3e3f14a83d1c1d536d1ec3a663187ce2c7e1"
     },
     {
       "path": "schemas/local-session-v2.schema.json",
@@ -64,6 +72,10 @@
     {
       "path": "schemas/project-workspace-v2.schema.json",
       "sha256": "dd98570035a6878845a2019348825cc208f340828b3517de6de60785051d8515"
+    },
+    {
+      "path": "schemas/provider-credential-enrollment-v2.schema.json",
+      "sha256": "f06062177a773d8fedddf4f8223f520ef9f897b29304f64fc29e9aa58719f1ae"
     },
     {
       "path": "schemas/provider-credentials-v1.schema.json",
@@ -110,7 +122,6 @@
     "replay.aggregate.sse.v1",
     "runtime.operational-telemetry.v1",
     "approval.control.v1",
-    "provider.credential-control.v1",
     "project.list.v1",
     "project.get.v1",
     "project.create.v1",
@@ -124,7 +135,8 @@
     "workspace.bind_root.v3",
     "workspace.files.read.v1",
     "workspace.changes.read.v1",
-    "workspace.editor.open.v1"
+    "workspace.editor.open.v1",
+    "provider.credential-enrollment.v2"
   ],
   "generatorSchemaVersion": 1,
   "publishedCapabilities": [
@@ -143,7 +155,6 @@
     "replay.aggregate.sse.v1",
     "runtime.operational-telemetry.v1",
     "approval.control.v1",
-    "provider.credential-control.v1",
     "project.list.v1",
     "project.get.v1",
     "project.create.v1",

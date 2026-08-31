@@ -215,7 +215,6 @@ fn supported_capability_profiles_are_exactly_ordered() {
             "replay.aggregate.sse.v1",
             "runtime.operational-telemetry.v1",
             "approval.control.v1",
-            "provider.credential-control.v1",
             "project.list.v1",
             "project.get.v1",
             "project.create.v1",

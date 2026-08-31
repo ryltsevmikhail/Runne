@@ -197,6 +197,7 @@ fn opaque_version_operations_never_expose_secret_bytes() {
             .unwrap_err(),
         SecureStoreError::ProviderCredentialNotFound
     );
+    drop(executable);
 }
 
 #[test]
@@ -237,6 +238,7 @@ fn foreign_capabilities_cannot_load_or_delete_native_version() {
             .unwrap_err(),
         SecureStoreError::CredentialAccessDenied
     );
+    drop(executable);
 }
 
 #[test]
@@ -290,4 +292,5 @@ fn immutable_create_repairs_incomplete_state_and_serializes_competing_bytes() {
             .with_bytes(<[u8]>::to_vec),
         b"repaired-secret"
     );
+    drop(executable);
 }

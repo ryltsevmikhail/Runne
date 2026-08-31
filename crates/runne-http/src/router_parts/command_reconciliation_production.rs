@@ -39,6 +39,7 @@ impl SecureLocalHttpHost {
         {
             return Err(SecureLocalHttpHostError::CapabilityDigestMismatch);
         }
+        require_provider_credential_enrollment_admission(&runtime_profile_state)?;
         if !runtime_profile_state.advertises(OPERATIONAL_TELEMETRY_CAPABILITY_V1) {
             return Err(SecureLocalHttpHostError::OperationalTelemetryCapabilityMissing);
         }

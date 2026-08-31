@@ -119,6 +119,10 @@ pub(crate) fn run_control_loop(
 
 /// Serves V2 control messages and rejects every V1 frame rather than allowing
 /// a provider-bound launch to downgrade its authenticated transcript.
+///
+/// On Apple Silicon an authenticated enrollment prepare frame upgrades this
+/// loop in place: the same channel continues into the V3 control loop without
+/// a second entry handshake.
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 pub(crate) fn run_control_loop_v2(
     mut channel: ProtectedActivationChannel,
@@ -127,6 +131,15 @@ pub(crate) fn run_control_loop_v2(
     local_session_service: Arc<Mutex<LocalSessionService>>,
     session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
     #[cfg(feature = "desktop-protected")] root_admission: Option<Arc<ProtectedRootControl>>,
+    #[cfg(all(
+        target_os = "macos",
+        target_arch = "aarch64",
+        feature = "desktop-protected"
+    ))]
+    enrollment_transition: Option<(
+        super::enrollment_control_transition::EnrollmentControlComposition,
+        super::installation_anchor::VerifiedNativeEnrollmentInstallation,
+    )>,
 ) -> Result<(), LaunchAuthorityError> {
     channel.enter_control_loop()?;
     let mut last_renew_sequence = 0_u64;
@@ -136,6 +149,40 @@ pub(crate) fn run_control_loop_v2(
     let mut used_root_transfers = std::collections::VecDeque::new();
     loop {
         let frame = channel.read_control_frame()?;
+        #[cfg(all(
+            target_os = "macos",
+            target_arch = "aarch64",
+            feature = "desktop-protected"
+        ))]
+        if let Some((composition, installation)) = enrollment_transition.as_ref()
+            && let Ok(prepare) =
+                runne_api::ProtectedCredentialEnrollmentPrepareV2::decode_frame(&frame)
+        {
+            let outcome = super::enrollment_control_transition::run_enrollment_control_exchange(
+                &mut channel,
+                &prepare,
+                &keys,
+                &owned_launch,
+                composition,
+                &local_session_service,
+                &session_clock,
+                installation,
+            )?;
+            let (v3_keys, v3_owned_launch, rendezvous) = outcome.into_parts();
+            // The rendezvous feeds the authenticated writer handoff mounted in
+            // the V3 control loop. Every failure above and below the rotation
+            // already terminated this loop; the daemon never retries the
+            // transition on another authority path.
+            return super::control_v3::run_control_loop_v3_entered(
+                channel,
+                v3_keys,
+                v3_owned_launch,
+                local_session_service,
+                session_clock,
+                composition.ticket_clock(),
+                rendezvous,
+            );
+        }
         #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
         if let Some(sequence) = dispatch_root_handle_control_frame(
             &mut channel,

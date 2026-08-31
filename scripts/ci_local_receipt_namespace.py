@@ -90,6 +90,7 @@ def _environment(runtime: TrustedRuntime, paths: dict[str, Path]) -> dict[str, s
         "CARGO_HOME": os.fspath(paths["cargo"]),
         "RUSTUP_HOME": os.fspath(paths["rustup"]),
         "TMPDIR": os.fspath(paths["tmp"]),
+        "XDG_RUNTIME_DIR": os.fspath(paths["tmp"]),
         "XDG_CONFIG_HOME": os.fspath(paths["xdg-config"]),
         "XDG_CACHE_HOME": os.fspath(paths["xdg-cache"]),
         "XDG_DATA_HOME": os.fspath(paths["xdg-data"]),

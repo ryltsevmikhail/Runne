@@ -1,13 +1,11 @@
 use runne_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ProhibitedContentPort,
 };
-use runne_application::provider::{
-    ProviderAdmissionError, ProviderAuthorityIssueRequest, ProviderCoordinatorRequest,
-};
+use runne_application::provider::{ProviderAdmissionError, ProviderCoordinatorRequest};
+use runne_provider::CredentialLifecycleError;
 use runne_provider::{
-    DispatchError, DispatchRequest, PreparedProviderRecord as ContractPreparedProviderRecord,
-    ProviderDispatchClaim, ProviderDispatchRepository, ProviderPort, ProviderPreEffectRejection,
-    ProviderRepositoryState,
+    DispatchError, DispatchRequest, ProviderDispatchRepository, ProviderPort,
+    ProviderPreEffectRejection, ProviderRepositoryState,
 };
 
 use super::{
@@ -15,6 +13,9 @@ use super::{
     ProviderAuthorityIssueOutcome, ProviderEffectPort, ProviderExecutionBinding,
     SqliteProviderDispatchStore, SqliteProviderExecutionStore, VersionedProviderExecutionBinding,
 };
+
+mod request;
+use request::{claim_matches, issue_request};
 
 /// Concrete SQLite provider dispatch outcome.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,11 +104,16 @@ where
             profile_digest: request.profile_digest,
         };
         self.dispatch_store
-            .persist_prepared(&prepared_record)
-            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+            .persist_prepared(self.credential.launch, &prepared_record)
+            .map_err(|error| match error {
+                crate::provider::ProviderStoreError::StaleFencingToken => {
+                    ProviderAdmissionError::StaleFencingToken
+                }
+                _ => ProviderAdmissionError::RepositoryFailure,
+            })?;
         let issue = issue_request(
             &request,
-            ContractPreparedProviderRecord {
+            runne_provider::PreparedProviderRecord {
                 call_id: prepared_record.call_id,
                 call_digest_version: prepared_record.call_digest_version,
                 prepared_digest: prepared_record.prepared_digest,
@@ -115,17 +121,7 @@ where
                 profile_digest: prepared_record.profile_digest,
             },
         )?;
-        let credential = self
-            .credential
-            .store
-            .authorize_active(
-                request.call.model_ref().provider_id(),
-                self.credential.owner,
-                self.credential.fencing_token,
-                self.execution_store.credential_validation_time(),
-            )
-            .map_err(|_| ProviderAdmissionError::AuthorityDenied)?;
-        let admitted = match self.execution_store.issue(&issue)? {
+        let admitted = match self.execution_store.issue(self.credential.launch, &issue)? {
             ProviderAuthorityIssueOutcome::Winner(admitted) => admitted,
             ProviderAuthorityIssueOutcome::Existing { state } => {
                 return Ok(ProviderCoordinatorOutcome::Existing { state });
@@ -141,6 +137,35 @@ where
                 .mark_uncertain(attempt_id, fencing_token);
             return Ok(ProviderCoordinatorOutcome::Uncertain);
         }
+        let online = match self.credential.store.authorize_online_dispatch(
+            self.credential.launch,
+            &claim,
+            self.execution_store.now(),
+        ) {
+            Ok(online) => online,
+            Err(
+                CredentialLifecycleError::InvalidInput
+                | CredentialLifecycleError::NotFound
+                | CredentialLifecycleError::Conflict
+                | CredentialLifecycleError::LifecycleClosed
+                | CredentialLifecycleError::StaleLease,
+            ) => {
+                return self.reject_before_effect(
+                    attempt_id,
+                    fencing_token,
+                    ProviderPreEffectRejection::AdapterRejected,
+                );
+            }
+            Err(
+                CredentialLifecycleError::StoreUnavailable | CredentialLifecycleError::CorruptState,
+            ) => {
+                let _ = self
+                    .dispatch_store
+                    .mark_uncertain(attempt_id, fencing_token);
+                return Ok(ProviderCoordinatorOutcome::Uncertain);
+            }
+        };
+        let (credential, effect_binding) = online.split();
         let dispatch = match DispatchRequest::new(prepared, claim.clone()) {
             Ok(dispatch) => dispatch,
             Err(_) => {
@@ -163,9 +188,16 @@ where
                 return Ok(ProviderCoordinatorOutcome::Uncertain);
             }
         };
-        let effect = match self.execution_store.start_effect(&claim, &credential) {
-            Ok(effect) => effect,
-            Err(ProviderAdmissionError::PostClaimUncertain) => {
+        let effect = match self.execution_store.start_online_effect(
+            self.credential.launch,
+            &claim,
+            &effect_binding,
+        ) {
+            Ok(effect) => effect.into_effect_receipt(),
+            Err(
+                ProviderAdmissionError::PostClaimUncertain
+                | ProviderAdmissionError::StaleFencingToken,
+            ) => {
                 let _ = self
                     .dispatch_store
                     .mark_uncertain(attempt_id, fencing_token);
@@ -245,40 +277,4 @@ where
             Ok(ProviderCoordinatorOutcome::RejectedBeforeEffect { reason })
         }
     }
-}
-
-fn issue_request(
-    request: &ProviderCoordinatorRequest,
-    prepared: ContractPreparedProviderRecord,
-) -> Result<ProviderAuthorityIssueRequest, ProviderAdmissionError> {
-    if request.requested_output_tokens != request.call.max_output_tokens() {
-        return Err(ProviderAdmissionError::InvalidSemanticContext);
-    }
-    let issue = ProviderAuthorityIssueRequest {
-        principal_id: request.principal_id.clone(),
-        conversation_id: request.conversation_id,
-        taskrun_id: request.taskrun_id,
-        execution_attempt_id: request.execution_attempt_id,
-        prepared,
-        pricing_revision_digest: request.pricing_revision_digest,
-        requested_input_tokens: request.requested_input_tokens,
-        requested_output_tokens: u64::from(request.requested_output_tokens),
-        max_cost_micros: request.max_cost_micros,
-        currency: request.currency.clone(),
-        provider_idempotency_key: request.provider_idempotency_key.clone(),
-    };
-    issue.validate()?;
-    Ok(issue)
-}
-
-fn claim_matches(
-    request: &ProviderCoordinatorRequest,
-    issue: &ProviderAuthorityIssueRequest,
-    claim: &ProviderDispatchClaim,
-) -> bool {
-    claim.call_id == request.call.call_id()
-        && claim.prepared_digest == issue.prepared.prepared_digest
-        && claim.render_digest == issue.prepared.render_digest
-        && claim.profile_digest == issue.prepared.profile_digest
-        && claim.provider_idempotency_key == issue.provider_idempotency_key
 }

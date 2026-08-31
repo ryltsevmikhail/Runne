@@ -7,7 +7,7 @@ fn v12_write_latch_closed(conn: &Connection) -> SqliteResult<bool> {
 }
 
 fn authoritative_v12_tables(conn: &Connection) -> SqliteResult<Vec<String>> {
-    conn.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_version', 'schema_upgrade_fence', 'schema_upgrade_write_latch', 'provider_effect_starts', 'process_registry', 'process_output', 'approvals') ORDER BY name")?.query_map([], |row| row.get::<_, String>(0))?.collect()
+    conn.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_version', 'schema_upgrade_fence', 'schema_upgrade_write_latch', 'provider_effect_starts', 'process_registry', 'process_output', 'approvals', 'provider_online_credential_effect_bindings') ORDER BY name")?.query_map([], |row| row.get::<_, String>(0))?.collect()
 }
 
 fn v12_fence_trigger(table: &str, operation: &str) -> (String, String) {

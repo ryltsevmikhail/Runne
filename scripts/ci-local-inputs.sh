@@ -99,6 +99,7 @@ if gate_enabled local-structural; then
     "$trusted_python" -m unittest \
         scripts.tests.test_check_source_file_length \
         scripts.tests.test_verify_task_6c_release_exclusion \
+        scripts.tests.test_ci_local_receipt_compatibility \
         scripts.tests.test_ci_local_scope \
         -v
     "$trusted_python" -m unittest \

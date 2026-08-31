@@ -1,7 +1,14 @@
 from .models import FailureCode, SigningFailure, SigningProfile
 
 
-ALLOWED_PROGRAMS = {"/usr/bin/codesign", "/usr/sbin/spctl", "/usr/bin/xcrun"}
+ALLOWED_PROGRAMS = {
+    "/usr/bin/codesign",
+    "/usr/bin/ditto",
+    "/usr/bin/hdiutil",
+    "/usr/bin/security",
+    "/usr/sbin/spctl",
+    "/usr/bin/xcrun",
+}
 MAX_ARGV_ITEMS = 32
 MAX_ARGV_ITEM_BYTES = 1024
 MAX_CAPTURED_OUTPUT_BYTES = 4096
@@ -9,6 +16,12 @@ MAX_CAPTURED_OUTPUT_BYTES = 4096
 _RAW_CREDENTIAL_ARGUMENTS = {
     "--password",
     "--key",
+    "--key-id",
+    "--issuer",
+    "--sync",
+    "--keychain",
+    "--apple-id",
+    "--team-id",
     "--token",
     "--api-key",
     "--credential",
@@ -36,8 +49,12 @@ def program_is_allowed(program: str) -> bool:
     return program.startswith("/") and program in ALLOWED_PROGRAMS
 
 
-def command_arguments_are_safe(argv: tuple[str, ...]) -> bool:
-    if len(argv) > MAX_ARGV_ITEMS or contains_raw_credential_argument(argv):
+def command_arguments_are_safe(
+    argv: tuple[str, ...],
+    allowed_reference_arguments: tuple[str, ...] = (),
+) -> bool:
+    forbidden = _RAW_CREDENTIAL_ARGUMENTS.difference(allowed_reference_arguments)
+    if len(argv) > MAX_ARGV_ITEMS or any(item in forbidden for item in argv):
         return False
     return all(_argument_is_safe(item) for item in argv)
 

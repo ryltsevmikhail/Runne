@@ -11,6 +11,8 @@ use runne_security::SecretBroker;
 use runne_store::provider::{PersistPreparedOutcome, PreparedProviderRecord};
 use runne_store::schema::{CURRENT_SCHEMA_VERSION, SchemaRollbackError, rollback_pre_v12_snapshot};
 
+#[path = "support/runtime_launch.rs"]
+mod runtime_launch;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 
@@ -39,6 +41,8 @@ fn rollback_without_atomic_cutover_is_unavailable_to_open_store_handles() {
             .unwrap();
     let provider_store =
         validated_reopen::open_provider_dispatch(database.path(), identity).unwrap();
+    let execution = validated_reopen::open_provider_execution(database.path(), identity).unwrap();
+    let launch = runtime_launch::activate(&execution);
     validated_reopen::seed_canonical_workspace(
         &application_store,
         "test-principal",
@@ -52,13 +56,16 @@ fn rollback_without_atomic_cutover_is_unavailable_to_open_store_handles() {
 
     assert_eq!(
         provider_store
-            .persist_prepared(&PreparedProviderRecord {
-                call_id: ProviderCallId::from_bytes([1; 16]),
-                call_digest_version: ProviderCallDigestVersion::V2,
-                prepared_digest: [2; 32],
-                render_digest: [3; 32],
-                profile_digest: [4; 32],
-            })
+            .persist_prepared(
+                &launch,
+                &PreparedProviderRecord {
+                    call_id: ProviderCallId::from_bytes([1; 16]),
+                    call_digest_version: ProviderCallDigestVersion::V2,
+                    prepared_digest: [2; 32],
+                    render_digest: [3; 32],
+                    profile_digest: [4; 32],
+                }
+            )
             .unwrap(),
         PersistPreparedOutcome::Inserted
     );

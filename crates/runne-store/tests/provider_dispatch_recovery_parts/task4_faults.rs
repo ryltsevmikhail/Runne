@@ -8,14 +8,14 @@ fn every_fault_point_has_static_disposition_and_reopens_authoritative_state() {
         RecoveryFaultPoint::AfterSettleBeforeAcknowledgement,
     ] {
         let (directory, store, claim) = prepared_setup("task4-fault");
-        let path = directory.path().join("s");
+        let path = directory.as_path().to_path_buf();
         let provider = CountingProvider::new();
         let streaming = stream_request(&claim);
         let settlement = settlement_request(&claim);
 
         {
             let decorator = RecoveryFaultDecorator::new(
-                directory.path().join("s"),
+                directory.as_path().to_path_buf(),
                 &store,
                 &provider,
                 fault,
@@ -94,11 +94,16 @@ fn every_fault_point_has_static_disposition_and_reopens_authoritative_state() {
                     reopened.recover_attempt(claim.attempt_id, claim.fencing_token, Dispatching),
                     Ok(AlreadySettled)
                 );
-                assert_eq!(DispatchSnapshot::load(&path, claim.attempt_id), before_recovery);
+                assert_eq!(
+                    DispatchSnapshot::load(&path, claim.attempt_id),
+                    before_recovery
+                );
             }
             Uncertain => unreachable!(),
             RejectedBeforeEffect | TerminalPendingCommit => unreachable!(),
         }
-        provider.assert_count(usize::from(fault != RecoveryFaultPoint::AfterClaimBeforeDispatch));
+        provider.assert_count(usize::from(
+            fault != RecoveryFaultPoint::AfterClaimBeforeDispatch,
+        ));
     }
 }

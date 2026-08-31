@@ -1,3 +1,5 @@
+#[cfg(test)]
+use std::sync::Barrier;
 use std::{
     path::Path,
     sync::{Arc, Mutex},
@@ -5,11 +7,12 @@ use std::{
 };
 
 use runne_provider::{
-    CredentialAuthorityPair, CredentialLease, CredentialLifecycleAuthority,
-    CredentialLifecycleError, CredentialNativeCreateClaim, CredentialNativeCreateValidator,
-    CredentialProvisionSource, CredentialVersionRef, CredentialVersionState,
-    NativeCredentialDeletionProof, PrepareCredentialVersion, ProviderCredentialVersionStore,
-    ReconcileCredentialVersions, RevokeCredentialVersion,
+    CredentialAuthorityPair, CredentialEnrollmentAuthorityPair, CredentialEnrollmentStoreAuthority,
+    CredentialLease, CredentialLifecycleAuthority, CredentialLifecycleError,
+    CredentialNativeCreateClaim, CredentialNativeCreateValidator, CredentialProvisionSource,
+    CredentialVersionRef, CredentialVersionState, NativeCredentialDeletionProof,
+    PrepareCredentialVersion, ProviderCredentialVersionStore, ReconcileCredentialVersions,
+    RevokeCredentialVersion,
 };
 use rusqlite::{TransactionBehavior, params};
 use sha2::{Digest, Sha256};
@@ -27,6 +30,7 @@ include!("credential_lifecycle/sql.rs");
 include!("credential_lifecycle/dispatch_ops.rs");
 include!("credential_lifecycle/diagnostics.rs");
 include!("credential_lifecycle/provision.rs");
+include!("credential_lifecycle/online.rs");
 
 #[cfg(test)]
 mod tests;
@@ -38,6 +42,9 @@ pub struct SqliteProviderCredentialLifecycleStore {
     connection: Arc<Mutex<ManagedConnection>>,
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
     authority: CredentialLifecycleAuthority,
+    enrollment_authority: CredentialEnrollmentStoreAuthority,
+    #[cfg(test)]
+    before_online_authorization_pause: Mutex<Option<(Arc<Barrier>, Arc<Barrier>)>>,
 }
 
 impl SqliteProviderCredentialLifecycleStore {
@@ -51,16 +58,23 @@ impl SqliteProviderCredentialLifecycleStore {
         now: Arc<dyn Fn() -> i64 + Send + Sync>,
     ) -> Result<Self, CredentialLifecycleError> {
         let (authority, _) = CredentialAuthorityPair::new().split();
-        Self::open_with_authority_and_now(path, authority, now)
+        let (enrollment_authority, _) = CredentialEnrollmentAuthorityPair::new().split();
+        Self::open_with_authorities_and_now(path, authority, enrollment_authority, now)
     }
 
-    fn open_with_authority_and_now(
+    fn open_with_authorities_and_now(
         path: &Path,
         authority: CredentialLifecycleAuthority,
+        enrollment_authority: CredentialEnrollmentStoreAuthority,
         now: Arc<dyn Fn() -> i64 + Send + Sync>,
     ) -> Result<Self, CredentialLifecycleError> {
         let connection = open_managed_connection(path, ConnectionMode::Writer).map_err(map_sql)?;
-        Self::open_with_connection_authority_and_now(connection, authority, now)
+        Self::open_with_connection_authorities_and_now(
+            connection,
+            authority,
+            enrollment_authority,
+            now,
+        )
     }
 
     /// Opens the lifecycle store in one process-local native authority domain.
@@ -68,7 +82,27 @@ impl SqliteProviderCredentialLifecycleStore {
         path: &Path,
         authority: CredentialLifecycleAuthority,
     ) -> Result<Self, CredentialLifecycleError> {
-        Self::open_with_authority_and_now(path, authority, Arc::new(unix_timestamp))
+        let (enrollment_authority, _) = CredentialEnrollmentAuthorityPair::new().split();
+        Self::open_with_authorities_and_now(
+            path,
+            authority,
+            enrollment_authority,
+            Arc::new(unix_timestamp),
+        )
+    }
+
+    /// Opens with explicitly injected version and enrollment authorities.
+    pub fn open_with_authorities(
+        path: &Path,
+        authority: CredentialLifecycleAuthority,
+        enrollment_authority: CredentialEnrollmentStoreAuthority,
+    ) -> Result<Self, CredentialLifecycleError> {
+        Self::open_with_authorities_and_now(
+            path,
+            authority,
+            enrollment_authority,
+            Arc::new(unix_timestamp),
+        )
     }
 
     /// Adopts a factory-issued managed writable connection.
@@ -76,9 +110,11 @@ impl SqliteProviderCredentialLifecycleStore {
         connection: ManagedConnection,
     ) -> Result<Self, CredentialLifecycleError> {
         let (authority, _) = CredentialAuthorityPair::new().split();
-        Self::open_with_connection_authority_and_now(
+        let (enrollment_authority, _) = CredentialEnrollmentAuthorityPair::new().split();
+        Self::open_with_connection_authorities_and_now(
             connection,
             authority,
+            enrollment_authority,
             Arc::new(unix_timestamp),
         )
     }
@@ -88,16 +124,33 @@ impl SqliteProviderCredentialLifecycleStore {
         connection: ManagedConnection,
         authority: CredentialLifecycleAuthority,
     ) -> Result<Self, CredentialLifecycleError> {
-        Self::open_with_connection_authority_and_now(
+        let (enrollment_authority, _) = CredentialEnrollmentAuthorityPair::new().split();
+        Self::open_with_connection_authorities_and_now(
             connection,
             authority,
+            enrollment_authority,
             Arc::new(unix_timestamp),
         )
     }
 
-    fn open_with_connection_authority_and_now(
+    /// Adopts a connection with explicitly injected version and enrollment authorities.
+    pub fn open_with_connection_and_authorities(
         connection: ManagedConnection,
         authority: CredentialLifecycleAuthority,
+        enrollment_authority: CredentialEnrollmentStoreAuthority,
+    ) -> Result<Self, CredentialLifecycleError> {
+        Self::open_with_connection_authorities_and_now(
+            connection,
+            authority,
+            enrollment_authority,
+            Arc::new(unix_timestamp),
+        )
+    }
+
+    fn open_with_connection_authorities_and_now(
+        connection: ManagedConnection,
+        authority: CredentialLifecycleAuthority,
+        enrollment_authority: CredentialEnrollmentStoreAuthority,
         now: Arc<dyn Fn() -> i64 + Send + Sync>,
     ) -> Result<Self, CredentialLifecycleError> {
         apply_migrations(&connection).map_err(map_sql)?;
@@ -107,6 +160,9 @@ impl SqliteProviderCredentialLifecycleStore {
             connection: Arc::new(Mutex::new(connection)),
             now,
             authority,
+            enrollment_authority,
+            #[cfg(test)]
+            before_online_authorization_pause: Mutex::new(None),
         })
     }
 
@@ -123,7 +179,13 @@ impl SqliteProviderCredentialLifecycleStore {
         authority: CredentialLifecycleAuthority,
         now: i64,
     ) -> Result<Self, CredentialLifecycleError> {
-        Self::open_with_authority_and_now(path, authority, Arc::new(move || now))
+        let (enrollment_authority, _) = CredentialEnrollmentAuthorityPair::new().split();
+        Self::open_with_authorities_and_now(
+            path,
+            authority,
+            enrollment_authority,
+            Arc::new(move || now),
+        )
     }
 
     /// Adopts a validated test connection with a fixed clock.
@@ -133,7 +195,13 @@ impl SqliteProviderCredentialLifecycleStore {
         now: i64,
     ) -> Result<Self, CredentialLifecycleError> {
         let (authority, _) = CredentialAuthorityPair::new().split();
-        Self::open_with_connection_authority_and_now(connection, authority, Arc::new(move || now))
+        let (enrollment_authority, _) = CredentialEnrollmentAuthorityPair::new().split();
+        Self::open_with_connection_authorities_and_now(
+            connection,
+            authority,
+            enrollment_authority,
+            Arc::new(move || now),
+        )
     }
 }
 

@@ -1,6 +1,6 @@
 /// Golden SHA-256 of the exact canonical `bundle.json` bytes.
 pub const GOLDEN_BUNDLE_HASH: &str =
-    "4f38e7d4f59ff55081033c483992f4094eb50fb5d785ed8f1f0b5b4fb3b0597a";
+    "0ba6f71a5fde9f735d2d03c9bec014acd5958f578ed431b904d038ff8093d4fe";
 
 /// Bundle ID expected from the runtime.
 pub const EXPECTED_BUNDLE_ID: &str = "gocode-ui-client/2";

@@ -12,7 +12,7 @@ pub(crate) trait CanonicalProviderEffect: ProviderPort + ProviderEffectPort {}
 impl<T> CanonicalProviderEffect for T where T: ProviderPort + ProviderEffectPort {}
 
 pub(crate) type ProviderEffectFactory = dyn Fn(
-        runne_provider::NativeCredentialAuthority,
+        Arc<dyn runne_secure_store::ProviderCredentialDispatchMaterializer>,
     ) -> Result<Arc<dyn CanonicalProviderEffect>, DaemonError>
     + Send
     + Sync;

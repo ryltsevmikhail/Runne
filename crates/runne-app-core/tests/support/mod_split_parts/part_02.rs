@@ -149,7 +149,9 @@ async fn open_session(
             ))
             .expect("retention response");
     }
-    let events = {
+    let events = if body["aggregateType"].as_str() == Some("taskRun") {
+        Vec::new()
+    } else {
         let inner = state.inner.lock().expect("mock state");
         let start = body
             .get("fromCursor")

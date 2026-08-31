@@ -4,9 +4,11 @@ use runne_platform_desktop::{
 };
 use serde::Serialize;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use crate::updater_config::CompiledUpdater;
+
+pub mod enrollment;
 
 /// Renderer-safe updater state. Artifact paths, URLs and signatures stay native.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -48,7 +50,7 @@ impl UpdateStatusSnapshot {
 pub struct UpdateStatusStore {
     journal: UpdateJournal,
     trust_journal: UpdateTrustJournal,
-    updater: Option<tokio::sync::Mutex<CompiledUpdater>>,
+    updater: Option<Arc<tokio::sync::Mutex<CompiledUpdater>>>,
     candidate: Mutex<Option<VerifiedUpdateV2>>,
 }
 
@@ -60,7 +62,9 @@ impl UpdateStatusStore {
             trust_journal: UpdateTrustJournal::new(
                 profile_directory.join("updates/trust-state.json"),
             ),
-            updater: CompiledUpdater::load(profile_directory).map(tokio::sync::Mutex::new),
+            updater: CompiledUpdater::load(profile_directory)
+                .map(tokio::sync::Mutex::new)
+                .map(Arc::new),
             candidate: Mutex::new(None),
         }
     }
@@ -272,3 +276,7 @@ mod tests {
         assert_eq!(store.snapshot().reason, Some("trust_state_corrupt"));
     }
 }
+
+#[cfg(test)]
+#[path = "updater_status/enrollment_tests.rs"]
+mod enrollment_tests;

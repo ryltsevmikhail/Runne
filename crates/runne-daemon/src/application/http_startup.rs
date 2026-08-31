@@ -2,7 +2,9 @@ use super::replay_authorization::DaemonReplayAuthorization;
 use super::shutdown::map_recovery_state;
 use super::*;
 mod command_hosts;
+mod provider_credentials;
 mod session;
+use provider_credentials::runtime_capabilities;
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn start_http_and_runtime(
     config: &ConfigurationSnapshot,
@@ -140,6 +142,7 @@ pub(super) async fn start_http_and_runtime(
         executable_sha256,
         bootstrap.launch_identity.bootstrap_secret(),
         Arc::clone(&bootstrap_reservation_store),
+        store.clone(),
         protected_activation,
     )?;
     let replay_service = ReplayService::new(
@@ -155,7 +158,6 @@ pub(super) async fn start_http_and_runtime(
         provider_service.as_ref(),
         &binding,
     );
-    let provider_credential_control = super::http_startup_support::provider_credential_control();
     let command_hosts = command_hosts::compose(
         &store,
         root_admission_keys,
@@ -164,6 +166,26 @@ pub(super) async fn start_http_and_runtime(
     );
     #[cfg(feature = "desktop-protected")]
     let root_control = command_hosts.root_control.clone();
+    let runtime_profile_state = RuntimeProfileHttpState::new(
+        runne_runtime::bundle::BUNDLE_ID,
+        runne_runtime::bundle::PUBLISHED_BUNDLE_HASH,
+        env!("CARGO_PKG_VERSION"),
+        runtime_capabilities,
+    );
+    let runtime_profile_state = match provider_service.clone() {
+        Some(service) => {
+            let activation = provider_activation.clone();
+            runtime_profile_state.with_dynamic_provider_statuses(Arc::new(move || {
+                super::provider_status::provider_statuses(
+                    &activation,
+                    service.current_provider_readiness(),
+                )
+            }))
+        }
+        None => runtime_profile_state.with_provider_statuses(
+            super::provider_status::provider_statuses(&provider_activation, provider_readiness),
+        ),
+    };
     let http_host = LocalRuntimeTlsHost::bind_with_project_workspace_and_command_reconciliation(
         &config.http_bind,
         Arc::clone(bootstrap.launch_identity.server_config()),
@@ -175,17 +197,7 @@ pub(super) async fn start_http_and_runtime(
         binding.clone(),
         protected_activation,
         Arc::clone(&session_clock),
-        RuntimeProfileHttpState::new(
-            runne_runtime::bundle::BUNDLE_ID,
-            runne_runtime::bundle::PUBLISHED_BUNDLE_HASH,
-            env!("CARGO_PKG_VERSION"),
-            runtime_capabilities,
-        )
-        .with_provider_statuses(super::provider_status::provider_statuses(
-            &provider_activation,
-            provider_readiness,
-        ))
-        .with_provider_credential_control(provider_credential_control, actor.clone()),
+        runtime_profile_state,
         TaskRunHttpState::new(task_run_host, actor.clone()),
         ConversationHttpState::new(conversation_host, actor.clone()),
         runne_http::project_workspace::ProjectWorkspaceHttpState::new(
@@ -280,18 +292,5 @@ pub(super) async fn start_http_and_runtime(
         runtime_capabilities,
     })
 }
-#[cfg(feature = "desktop-protected")]
-fn runtime_capabilities(protected: bool, has_keys: bool) -> &'static [&'static str] {
-    if protected && has_keys {
-        runne_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES
-    } else {
-        runne_runtime::bundle::BASE_RUNTIME_CAPABILITIES
-    }
-}
-#[cfg(not(feature = "desktop-protected"))]
-fn runtime_capabilities(_: bool, _: bool) -> &'static [&'static str] {
-    runne_runtime::bundle::BASE_RUNTIME_CAPABILITIES
-}
-
 #[cfg(test)]
 mod tests;

@@ -2,7 +2,10 @@
 fn interrupted_v16_migration_recovers_on_reopen() {
     use runne_store::{
         provider::SqliteProviderExecutionStore,
-        schema::{ConnectionMode, apply_migrations_through_v15_for_test, open_managed_connection},
+        schema::{
+            CURRENT_SCHEMA_VERSION, ConnectionMode, apply_migrations_through_v15_for_test,
+            open_managed_connection,
+        },
     };
 
     let directory = tempfile::tempdir().unwrap();
@@ -44,7 +47,7 @@ fn interrupted_v16_migration_recovers_on_reopen() {
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
                 .get::<_, i64>(0))
             .unwrap(),
-        23
+        CURRENT_SCHEMA_VERSION
     );
     assert_eq!(
         reopened

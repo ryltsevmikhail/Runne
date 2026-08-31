@@ -9,11 +9,9 @@ use std::io::{IsTerminal as _, Read};
 use std::process::{Command, Stdio};
 
 use runne_secure_store::{
-    MAX_PROVIDER_CREDENTIAL_BYTES, NativeProviderCredentialStore, ProviderCredentialAccessPolicy,
-    ProviderCredentialId, ProviderCredentialMaterial, ProviderCredentialStatus,
-    ProviderCredentialStore, SecureStoreError,
+    NativeProviderCredentialStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
+    ProviderCredentialStatus, ProviderCredentialStore, SecureStoreError,
 };
-use zeroize::Zeroize as _;
 
 const TEST_USAGE: &str = "\
 Runne command-line interface.
@@ -74,7 +72,6 @@ include!("../src/cli/provider_credential.rs");
 enum CliError {
     Help(String),
     Usage,
-    CredentialInput,
     CredentialOperation,
     UnsupportedCredentialBackend,
 }
@@ -84,9 +81,7 @@ impl CliError {
         match self {
             Self::Help(_) => 0,
             Self::Usage => 2,
-            Self::CredentialInput
-            | Self::CredentialOperation
-            | Self::UnsupportedCredentialBackend => 4,
+            Self::CredentialOperation | Self::UnsupportedCredentialBackend => 4,
         }
     }
 }
@@ -96,7 +91,6 @@ impl std::fmt::Display for CliError {
         formatter.write_str(match self {
             Self::Help(text) => text,
             Self::Usage => TEST_USAGE,
-            Self::CredentialInput => "provider credential input is invalid",
             Self::CredentialOperation => "provider credential operation failed",
             Self::UnsupportedCredentialBackend => "provider credential backend is unsupported",
         })
@@ -124,9 +118,12 @@ fn main() {
         false,
         "delete",
     );
-    assert_eq!(delete.outcome.stdout, "missing\n");
-    assert_eq!(delete.outcome.stderr, "");
-    assert_eq!(delete.delete_calls, 1);
+    assert_eq!(delete.outcome.stdout, "");
+    assert_eq!(
+        delete.outcome.stderr,
+        "provider credential backend is unsupported\n"
+    );
+    assert_eq!(delete.outcome.exit_code, 4);
     assert_eq!(delete.resolver_calls, 0);
 
     let set = credential_test_support::run(
@@ -145,35 +142,13 @@ fn main() {
         false,
         "set",
     );
-    assert_eq!(set.outcome.stdout, "configured\n");
-    assert_eq!(set.store_calls, 1);
-    assert!(set.store_received_stdin_secret);
-
-    for (scenario, expected_store_calls) in [("set-resolver-error", 0), ("set-backend-error", 1)] {
-        let failed_set = credential_test_support::run(
-            [
-                "provider",
-                "credential",
-                "set",
-                "--provider",
-                "openai",
-                "--stdin",
-            ]
-            .into_iter()
-            .map(OsString::from)
-            .collect(),
-            &mut b"stdin-secret".as_slice(),
-            false,
-            scenario,
-        );
-        assert_eq!(failed_set.outcome.stdout, "");
-        assert_eq!(
-            failed_set.outcome.stderr,
-            "provider credential operation failed\n"
-        );
-        assert_eq!(failed_set.resolver_calls, 1);
-        assert_eq!(failed_set.store_calls, expected_store_calls);
-    }
+    assert_eq!(set.outcome.stdout, "");
+    assert_eq!(
+        set.outcome.stderr,
+        "provider credential backend is unsupported\n"
+    );
+    assert_eq!(set.outcome.exit_code, 4);
+    assert_eq!(set.resolver_calls, 0);
     subprocess_scenarios();
 }
 
@@ -211,10 +186,10 @@ fn subprocess_scenarios() {
 fn expected_stderr(scenario: &str, code: i32) -> &'static str {
     match (scenario, code) {
         (_, 0) => "",
-        ("tty", _) => "provider credential input is invalid\n",
-        ("missing-stdin", _) => {
-            "Runne command-line interface.\n\nUsage:\n  runne [options] <command> [<args>]\n  runne help [<command>]\n  runne authority --help\n  runne release --help\n\nOptions:\n  -h, --help       Show this help message\n  -V, --version    Show version information\n\nCommands:\n  conversation     Manage conversations\n  provider         Manage provider credentials\n  status           Show runtime connection status\n  health           Check runtime health status\n  doctor           Run comprehensive system diagnostics\n  completion       Generate shell completion scripts\n  authority        Manage project-owner authority\n  release          Manage release authority\n\nRun 'runne help <command>' for more information on a command.\n"
-        }
+        (
+            "set" | "delete" | "exact4096" | "tty" | "set-resolver-error" | "set-backend-error",
+            _,
+        ) => "provider credential backend is unsupported\n",
         _ => "provider credential operation failed\n",
     }
 }

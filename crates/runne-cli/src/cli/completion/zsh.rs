@@ -62,10 +62,9 @@ _runne() {
                     ;;
                 credential)
                     _arguments \
-                        '1:subcommand:((set:"Store credential" status:"Check status" delete:"Delete credential"))' \
+                        '1:subcommand:((status:"Check status"))' \
                         '--help[Show help]' \
-                        '--provider[Provider name]:provider:(openai deepseek)' \
-                        '--stdin[Read from stdin]'
+                        '--provider[Provider name]:provider:(openai deepseek)'
                     ;;
                 completion)
                     _arguments \

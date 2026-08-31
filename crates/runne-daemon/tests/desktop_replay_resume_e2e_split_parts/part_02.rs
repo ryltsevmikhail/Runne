@@ -100,7 +100,8 @@ async fn real_process_resume_reapplies_unacknowledged_duplicate_once() {
     );
     assert!(
         daemon_has_unacknowledged_delivery(&daemon_database, first_identity.generation),
-        "the child daemon must retain a delivery beyond its acknowledged position"
+        "the child daemon must retain a delivery beyond its acknowledged position: {:?}",
+        daemon_replay_rows(&daemon_database)
     );
     drop(first_core);
     first_daemon.stop();

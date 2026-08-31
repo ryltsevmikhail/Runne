@@ -33,12 +33,9 @@ complete -c runne -n '__fish_seen_subcommand_from provider' -a credential -d 'Ma
 complete -c runne -n '__fish_seen_subcommand_from provider' -l help -d 'Show help'
 
 # Credential subcommands
-complete -c runne -n '__fish_seen_subcommand_from credential' -a set -d 'Store credential'
 complete -c runne -n '__fish_seen_subcommand_from credential' -a status -d 'Check status'
-complete -c runne -n '__fish_seen_subcommand_from credential' -a delete -d 'Delete credential'
 complete -c runne -n '__fish_seen_subcommand_from credential' -l help -d 'Show help'
 complete -c runne -n '__fish_seen_subcommand_from credential' -l provider -xa 'openai deepseek' -d 'Provider name'
-complete -c runne -n '__fish_seen_subcommand_from credential' -l stdin -d 'Read from stdin'
 
 # Completion subcommands
 complete -c runne -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish powershell' -d 'Shell type'

@@ -87,15 +87,15 @@ async fn authoritative_append_boundary_releases_clean_tail_only_after_completed(
     let recovery = SqliteProviderRecoveryStore::open(&fixture.path, [1; 16]).unwrap();
     let tails = ExecutionTailStore::default();
     let redaction = ProviderEventRedactionBoundary::new(&tails, &recovery, &ExecutionMatcher);
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let runtime = RuntimeProviderExecution::new(
-        &keyring,
+        keyring.as_ref(),
         fixture.execution.as_ref(),
         &FIXED_PRICING,
         &ALLOWING_GUARD,
         &redaction,
     );
-    runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
+    runtime.preflight_existing_active_key([1; 16], 7).unwrap();
     let events = successful_events("clean scanner output");
     let provider = CommitCheckingProvider {
         store: Arc::clone(&fixture.execution),
@@ -143,15 +143,15 @@ async fn authoritative_append_boundary_blocks_split_secret_before_text_journal()
     let recovery = SqliteProviderRecoveryStore::open(&fixture.path, [1; 16]).unwrap();
     let tails = ExecutionTailStore::default();
     let redaction = ProviderEventRedactionBoundary::new(&tails, &recovery, &ExecutionMatcher);
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let runtime = RuntimeProviderExecution::new(
-        &keyring,
+        keyring.as_ref(),
         fixture.execution.as_ref(),
         &FIXED_PRICING,
         &ALLOWING_GUARD,
         &redaction,
     );
-    runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
+    runtime.preflight_existing_active_key([1; 16], 7).unwrap();
     let events = vec![
         ProviderStreamEvent::new(0, ProviderStreamEventKind::Started).unwrap(),
         ProviderStreamEvent::new(

@@ -3,6 +3,10 @@
 pub mod desktop;
 /// Domain-neutral, fail-closed process platform contracts.
 pub mod process;
+/// Native-only provider credential broker contracts.
+pub mod provider_credential_broker;
+/// Native-only secure credential prompt contracts.
+pub mod provider_credential_prompt;
 
 use std::fmt;
 

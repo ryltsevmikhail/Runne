@@ -21,17 +21,18 @@ pub use canonical::{
     ApprovalDecisionRequest, ApprovalStateDto, ApprovalSummaryDto, AuthenticatedRuntimeClient,
     CancelTaskRunRequest, CanonicalId, CommandIdentity, ConversationCreated, ConversationMessage,
     ConversationMessageRole, ConversationMessages, ConversationTextResult,
-    CreateConversationRequest, EditorLaunchReceiptDto, EditorLaunchTargetDto, GenerateTextRequest,
-    OpenEditorCommandRequest, PROCESS_CONTROL_CAPABILITY_V1, PROTECTED_RUNTIME_CAPABILITIES,
-    ProcessOutputChunkDto, ProcessOutputPageDto, ProcessOutputStreamDto, ProcessSnapshotDto,
-    ProcessStateDto, REQUIRED_RUNTIME_CAPABILITIES, RuntimeApiError, RuntimeApiErrorKind,
-    RuntimeSessionAuthority, RuntimeSessionInfo, RuntimeTransportKind, StartProcessRequest,
-    StopProcessRequest, TaskRunCancellationAcknowledgement, TaskRunSnapshot, TaskRunState,
-    TaskRunTerminalResult, WORKSPACE_DIFFS_CAPABILITY_V1, WORKSPACE_EDITOR_CAPABILITY_V1,
-    WORKSPACE_FILES_CAPABILITY_V1, WorkspaceChangeEntryDto, WorkspaceChangeKindDto,
-    WorkspaceChangeSetDto, WorkspaceDiffDto, WorkspaceDiffHunkDto, WorkspaceDiffLineDto,
-    WorkspaceDiffLineKindDto, WorkspaceFileContentDto, WorkspaceFileEntryDto, WorkspaceFileKindDto,
-    WorkspaceFilePageDto, protected_profile_matches,
+    CreateConversationRequest, ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES, EditorLaunchReceiptDto,
+    EditorLaunchTargetDto, GenerateTextRequest, OpenEditorCommandRequest,
+    PROCESS_CONTROL_CAPABILITY_V1, PROTECTED_RUNTIME_CAPABILITIES,
+    PROVIDER_CREDENTIAL_ENROLLMENT_CAPABILITY_V2, ProcessOutputChunkDto, ProcessOutputPageDto,
+    ProcessOutputStreamDto, ProcessSnapshotDto, ProcessStateDto, REQUIRED_RUNTIME_CAPABILITIES,
+    RuntimeApiError, RuntimeApiErrorKind, RuntimeSessionAuthority, RuntimeSessionInfo,
+    RuntimeTransportKind, StartProcessRequest, StopProcessRequest,
+    TaskRunCancellationAcknowledgement, TaskRunSnapshot, TaskRunState, TaskRunTerminalResult,
+    WORKSPACE_DIFFS_CAPABILITY_V1, WORKSPACE_EDITOR_CAPABILITY_V1, WORKSPACE_FILES_CAPABILITY_V1,
+    WorkspaceChangeEntryDto, WorkspaceChangeKindDto, WorkspaceChangeSetDto, WorkspaceDiffDto,
+    WorkspaceDiffHunkDto, WorkspaceDiffLineDto, WorkspaceDiffLineKindDto, WorkspaceFileContentDto,
+    WorkspaceFileEntryDto, WorkspaceFileKindDto, WorkspaceFilePageDto, protected_profile_matches,
 };
 pub use canonical::{
     BindWorkspaceRootRequest, CreateProjectRequest, CreateWorkspaceRequest, ExistingProjectRequest,
@@ -58,6 +59,13 @@ pub use replay::{
     ReplayRecoveryDisposition, ReplayRetentionBaselineV1, ReplayRetentionBaselineV2, ReplayScope,
     ReplaySensitivity, ReplaySessionId, ReplayStreamEvent, ReplayTerminal, ReplayTerminalCode,
     TaskRunReplayPayload, TaskRunTimelineKind, replay_persistence_digest,
+};
+pub use runne_api::{
+    BeginProviderCredentialEnrollment, ProviderCredentialEnrollmentActionV2,
+    ProviderCredentialOperationHandleV2, ProviderCredentialOperationKindV2,
+    ProviderCredentialOperationSnapshotV2, ProviderCredentialProviderV2,
+    ProviderCredentialSafeSnapshotV2, ProviderCredentialVerificationKindV2,
+    VerifyProviderCredential,
 };
 pub use runne_api::{
     ExpiryAggregateV1, MAX_OPERATIONAL_TELEMETRY_WIRE_BYTES_V1,

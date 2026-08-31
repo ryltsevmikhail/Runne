@@ -1,8 +1,8 @@
 
 #[test]
 fn settlement_is_idempotent_and_conflicting_settlement_preserves_original() {
-    let (database, store) = fresh_store("settlement");
-    store.persist_prepared(&prepared(1)).unwrap();
+    let (database, store, launch) = fresh_store("settlement");
+    store.persist_prepared(&launch, &prepared(1)).unwrap();
     let dispatch_claim = issue_dispatch(&database, 1);
     store
         .mark_streaming(&MarkProviderStreaming {
@@ -75,8 +75,8 @@ fn settlement_is_idempotent_and_conflicting_settlement_preserves_original() {
 
 #[test]
 fn terminal_settlement_and_uncertainty_race_has_one_authoritative_winner() {
-    let (database, first) = fresh_store("terminal-race");
-    first.persist_prepared(&prepared(1)).unwrap();
+    let (database, first, launch) = fresh_store("terminal-race");
+    first.persist_prepared(&launch, &prepared(1)).unwrap();
     let dispatch_claim = issue_dispatch(&database, 1);
     first
         .mark_streaming(&MarkProviderStreaming {
@@ -128,8 +128,8 @@ fn terminal_settlement_and_uncertainty_race_has_one_authoritative_winner() {
 
 #[test]
 fn repository_port_commits_terminal_settlement_after_stream_binding() {
-    let (database, store) = fresh_store("settlement-port");
-    store.persist_prepared(&prepared(1)).unwrap();
+    let (database, store, launch) = fresh_store("settlement-port");
+    store.persist_prepared(&launch, &prepared(1)).unwrap();
     let dispatch_claim = issue_dispatch(&database, 1);
     store
         .mark_streaming(&MarkProviderStreaming {
@@ -164,8 +164,8 @@ fn repository_port_commits_terminal_settlement_after_stream_binding() {
 
 #[test]
 fn settlement_before_stream_binding_fails_without_terminal_mutation() {
-    let (database, store) = fresh_store("settlement-before-stream");
-    store.persist_prepared(&prepared(1)).unwrap();
+    let (database, store, launch) = fresh_store("settlement-before-stream");
+    store.persist_prepared(&launch, &prepared(1)).unwrap();
     let dispatch_claim = issue_dispatch(&database, 1);
     let settlement = SettleProviderDispatch {
         attempt_id: dispatch_claim.attempt_id,
@@ -184,8 +184,8 @@ fn settlement_before_stream_binding_fails_without_terminal_mutation() {
 
 #[test]
 fn settlement_before_terminal_evidence_preserves_streaming_state() {
-    let (database, store) = fresh_store("settlement-before-terminal");
-    store.persist_prepared(&prepared(1)).unwrap();
+    let (database, store, launch) = fresh_store("settlement-before-terminal");
+    store.persist_prepared(&launch, &prepared(1)).unwrap();
     let dispatch_claim = issue_dispatch(&database, 1);
     store
         .mark_streaming(&MarkProviderStreaming {
@@ -214,8 +214,8 @@ fn settlement_before_terminal_evidence_preserves_streaming_state() {
 
 #[test]
 fn pre_effect_rejection_is_terminal_exact_and_never_becomes_streaming() {
-    let (database, store) = fresh_store("pre-effect-rejection");
-    store.persist_prepared(&prepared(1)).unwrap();
+    let (database, store, launch) = fresh_store("pre-effect-rejection");
+    store.persist_prepared(&launch, &prepared(1)).unwrap();
     let dispatch_claim = issue_dispatch(&database, 1);
 
     ProviderDispatchRepository::mark_rejected_before_effect(

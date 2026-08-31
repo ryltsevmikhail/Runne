@@ -82,9 +82,9 @@ fn assert_pending_terminal_settlement(
 
 async fn assert_versioned_terminal_recovery(digest_version: ProviderCallDigestVersion) {
     let fixture = fixture_with_digest_version(digest_version);
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let writer = runtime(&keyring, fixture.execution.as_ref());
-    writer.create_and_activate_key([1; 16], 7, 1).unwrap();
+    writer.preflight_existing_active_key([1; 16], 7).unwrap();
     let output = format!("versioned-terminal-output-{}", digest_version as u8);
     let events = successful_events(&output);
     poll_events(&writer, &fixture, events.clone()).await;
@@ -188,9 +188,9 @@ async fn v2_prepared_end_to_end_recovers_through_outbox_and_settlement() {
 #[tokio::test(flavor = "current_thread")]
 async fn call_digest_version_mismatch_fails_closed_without_mutation() {
     let fixture = fixture_with_digest_version(ProviderCallDigestVersion::V1);
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let runtime = runtime(&keyring, fixture.execution.as_ref());
-    runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
+    runtime.preflight_existing_active_key([1; 16], 7).unwrap();
     poll_events(
         &runtime,
         &fixture,

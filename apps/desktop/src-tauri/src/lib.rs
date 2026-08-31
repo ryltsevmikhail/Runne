@@ -10,6 +10,7 @@ mod open_selected_workspace_request;
 mod operational_telemetry_command;
 mod prepare_workspace_request;
 mod prepared_workspace;
+pub(crate) mod provider_credential_enrollment;
 mod renderer_generation;
 pub mod task_run_channel;
 mod tray;
@@ -53,7 +54,6 @@ pub use updater_status::{UpdateStatusSnapshot, UpdateStatusStore};
 struct IpcError {
     code: &'static str,
 }
-
 pub type RuntimeConnectionFuture<'a> =
     Pin<Box<dyn Future<Output = Result<RuntimeAvailability, AppCoreError>> + Send + 'a>>;
 struct NativeRootAdmission {
@@ -61,7 +61,6 @@ struct NativeRootAdmission {
     pub(crate) admission: ProtectedRootHandleAdmission,
     operation_permit: tokio::sync::OwnedMutexGuard<()>,
 }
-
 impl NativeRootAdmission {
     fn into_parts(
         self,
@@ -73,11 +72,9 @@ impl NativeRootAdmission {
         (self.root, self.admission, self.operation_permit)
     }
 }
-
 type RootAdmissionFuture =
     Pin<Box<dyn Future<Output = Result<NativeRootAdmission, AppCoreError>> + Send + 'static>>;
 type RootAdmissionReapFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
-
 /// Host-only lifecycle control for a runtime proven owned by this desktop.
 ///
 /// Implementations must retain ownership evidence internally and must not
@@ -104,10 +101,13 @@ trait NativeRootAdmissionLifecycle: OwnedRuntimeLifecycle {
         &self,
         permit: tokio::sync::OwnedMutexGuard<()>,
     ) -> RootAdmissionReapFuture;
+
+    #[allow(dead_code)] // The protected prompt composition owns this fail-closed default.
+    fn acquire_credential_enrollment_lease(&self) -> bundled_runtime::CredentialEnrollmentFuture {
+        Box::pin(async { Err(AppCoreError::RuntimeUnavailable) })
+    }
 }
 
-/// Renderer-private runtime lifecycle hook registered by the desktop host.
-///
 /// External runtimes have no controller and therefore remain an intentional
 /// no-op. Bundled mode registers only a controller that proves the exact owned
 /// launch before it signals or terminates it.

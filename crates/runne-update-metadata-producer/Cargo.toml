@@ -1,0 +1,32 @@
+[package]
+name = "runne-update-metadata-producer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+dev-keyset-init = []
+dev-loopback-updater = ["runne-platform-desktop/dev-loopback-updater"]
+
+[dependencies]
+ed25519-dalek.workspace = true
+hex.workspace = true
+rand = "0.8"
+runne-platform-desktop = { path = "../runne-platform-desktop" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+zeroize.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "=3.7.0", features = ["OSX_10_15"] }
+
+[dev-dependencies]
+tempfile = "=3.27.0"
+
+[lints]
+workspace = true

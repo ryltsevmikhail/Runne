@@ -1,14 +1,14 @@
-import { ref } from 'vue'
 import { isTauri } from '@tauri-apps/api/core'
 
 import { loadLocale, type Locale } from '@/shared/api/platform/locale'
+import { applyOwnerLocale, captureLocaleRead, currentLocale } from '@/shared/model/locale'
 
 import english from './english'
 import russian from './russian'
 
 export const localeCatalogs = { en: english, ru: russian } as const
 export type LocaleKey = keyof typeof english
-export const currentLocale = ref<Locale>('en')
+export { currentLocale }
 
 export function validateLocaleCatalogs(
   catalogs: Readonly<Record<Locale, Readonly<Record<string, string>>>>,
@@ -42,7 +42,8 @@ export function translate(
 
 export async function loadOwnedLocale(): Promise<Locale> {
   if (!isTauri()) return currentLocale.value
+  const readOrder = captureLocaleRead()
   const snapshot = await loadLocale()
-  currentLocale.value = snapshot.locale
-  return snapshot.locale
+  applyOwnerLocale(snapshot.locale, readOrder)
+  return currentLocale.value
 }

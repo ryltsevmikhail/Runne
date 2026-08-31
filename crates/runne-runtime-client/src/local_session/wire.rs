@@ -27,6 +27,7 @@ fn verify_remote_profile(
         || remote.runtime_version.len() > 64
         || remote.runtime_version.chars().any(char::is_control)
         || !valid_provider_statuses(&remote.provider_statuses)
+        || !selected_provider_matches(&remote.provider_statuses, local.provider_binding.as_ref())
     {
         return Err(incompatible());
     }
@@ -46,6 +47,30 @@ fn verify_remote_profile(
         certificate_sha256: remote.certificate_sha256,
         capability_digest: remote.capability_digest,
     }, remote.provider_statuses))
+}
+
+fn selected_provider_matches(
+    statuses: &[runne_api::ProviderStatusSnapshotV1],
+    binding: Option<&runne_api::ProviderActivationBindingV1>,
+) -> bool {
+    let Some(binding) = binding else {
+        return true;
+    };
+    let Some(selected) = statuses.iter().find(|status| status.selected()) else {
+        return false;
+    };
+    selected.provider_id() == provider_id(binding.mode())
+        && selected.mode() == binding.mode().as_str()
+        && selected.profile_id() == binding.profile_id()
+        && selected.profile_digest() == hex::encode(binding.profile_digest())
+}
+
+const fn provider_id(mode: runne_api::ProviderActivationModeV1) -> &'static str {
+    match mode {
+        runne_api::ProviderActivationModeV1::DeterministicV1 => "deterministic",
+        runne_api::ProviderActivationModeV1::OpenAiResponsesTextV1 => "openai",
+        runne_api::ProviderActivationModeV1::DeepSeekResponsesTextV1 => "deepseek",
+    }
 }
 
 fn valid_provider_statuses(statuses: &[runne_api::ProviderStatusSnapshotV1]) -> bool {

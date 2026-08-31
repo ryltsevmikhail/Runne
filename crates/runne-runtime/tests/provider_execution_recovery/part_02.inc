@@ -68,9 +68,9 @@ where
 async fn aead_journal_recovers_exact_event_and_plaintext_is_absent_from_database_files() {
     const MARKER: &str = "provider-journal-plaintext-marker-71";
     let fixture = fixture();
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let runtime = runtime(&keyring, fixture.execution.as_ref());
-    runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
+    runtime.preflight_existing_active_key([1; 16], 7).unwrap();
     let events = vec![
         ProviderStreamEvent::new(0, ProviderStreamEventKind::Started).unwrap(),
         ProviderStreamEvent::new(
@@ -101,9 +101,9 @@ async fn aead_journal_recovers_exact_event_and_plaintext_is_absent_from_database
 #[tokio::test(flavor = "current_thread")]
 async fn corrupt_ciphertext_and_missing_retired_key_fail_closed() {
     let fixture = fixture();
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let runtime = runtime(&keyring, fixture.execution.as_ref());
-    let first_key = runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
+    let first_key = runtime.preflight_existing_active_key([1; 16], 7).unwrap();
     let events = vec![
         ProviderStreamEvent::new(0, ProviderStreamEventKind::Started).unwrap(),
         ProviderStreamEvent::new(
@@ -137,9 +137,9 @@ async fn corrupt_ciphertext_and_missing_retired_key_fail_closed() {
 async fn terminal_output_is_encrypted_recoverable_and_settled_only_after_receipt() {
     const OUTPUT: &[u8] = b"assembled-provider-output-marker-81";
     let fixture = fixture();
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let runtime = runtime(&keyring, fixture.execution.as_ref());
-    runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
+    runtime.preflight_existing_active_key([1; 16], 7).unwrap();
     poll_events(
         &runtime,
         &fixture,
@@ -174,15 +174,15 @@ async fn terminal_output_is_encrypted_recoverable_and_settled_only_after_receipt
 #[tokio::test(flavor = "current_thread")]
 async fn zero_input_reservation_admits_streams_and_settles_completed_usage() {
     let fixture = fixture_with_input_tokens(0);
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let runtime = RuntimeProviderExecution::new(
-        &keyring,
+        keyring.as_ref(),
         fixture.execution.as_ref(),
         &ZERO_INPUT_PRICING,
         &ALLOWING_GUARD,
         &ALLOWING_REDACTION,
     );
-    runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
+    runtime.preflight_existing_active_key([1; 16], 7).unwrap();
     let events = vec![
         ProviderStreamEvent::new(0, ProviderStreamEventKind::Started).unwrap(),
         ProviderStreamEvent::new(

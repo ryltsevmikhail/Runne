@@ -14,3 +14,5 @@ include!("provider_execution_recovery/part_09.inc");
 include!("provider_execution_recovery/part_10.inc");
 include!("provider_execution_recovery/part_11.inc");
 include!("provider_execution_recovery/part_12.inc");
+include!("provider_execution_recovery/part_13.inc");
+include!("provider_execution_recovery/part_14.inc");

@@ -174,6 +174,9 @@ pub enum ProviderStoreError {
     /// Prepared identity was reused with different content.
     #[error("prepared provider record conflicts with existing content")]
     PreparedConflict,
+    /// Prepared persistence requires one current runtime launch capability.
+    #[error("provider prepared persistence requires a current runtime launch")]
+    LaunchCapabilityRequired,
     /// Dispatch claim does not match the committed prepared record.
     #[error("provider dispatch claim does not match prepared evidence")]
     PreparedMismatch,

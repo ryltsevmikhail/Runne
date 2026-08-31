@@ -1,9 +1,9 @@
 #[tokio::test(flavor = "current_thread")]
 async fn validated_reopen_after_outbox_ack_does_not_reapply_terminal_output() {
     let fixture = fixture();
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let writer = runtime(&keyring, fixture.execution.as_ref());
-    writer.create_and_activate_key([1; 16], 7, 1).unwrap();
+    writer.preflight_existing_active_key([1; 16], 7).unwrap();
     poll_events(
         &writer,
         &fixture,
@@ -59,9 +59,9 @@ async fn validated_reopen_after_outbox_ack_does_not_reapply_terminal_output() {
 #[tokio::test(flavor = "current_thread")]
 async fn stale_generation_finalize_is_recovery_frozen() {
     let fixture = fixture();
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let runtime = runtime(&keyring, fixture.execution.as_ref());
-    runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
+    runtime.preflight_existing_active_key([1; 16], 7).unwrap();
     poll_events(
         &runtime,
         &fixture,

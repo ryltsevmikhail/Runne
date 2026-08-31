@@ -54,10 +54,14 @@ impl ProtectedBundledRuntimeProcess {
         let effective_uid = 0;
         let now = unix_millis()?;
         let expires = now.checked_add(30_000).ok_or(ProtectedBundledRuntimeError::InvalidState)?;
+        let owned = self
+            .activation
+            .compatibility_owned()
+            .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
         let context = runne_api::RootHandleTransferContext::new(
-            *self.activation.compatibility_owned().launch_authority_id(),
-            *self.activation.compatibility_owned().session_id(),
-            self.activation.compatibility_owned().launch_generation(), sender_pid, receiver_pid,
+            *owned.launch_authority_id(),
+            *owned.session_id(),
+            owned.launch_generation(), sender_pid, receiver_pid,
             effective_uid, workspace_id, expected_version, *uuid::Uuid::now_v7().as_bytes(), now, expires,
         )?;
         let authenticator = runne_api::RootHandleTransferAuthenticator::from_protected_activation(&self.keys);

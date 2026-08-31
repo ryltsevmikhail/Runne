@@ -7,6 +7,12 @@ use runne_provider::ProviderDispatchClaim;
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
 include!("effect_start/receipt.rs");
+mod online;
+mod online_proof;
+mod online_receipt;
+
+pub(super) use online::start_online_effect;
+pub(crate) use online_receipt::ProviderOnlineEffectStartReceipt;
 
 pub(super) fn start_effect(
     connection: &mut ManagedConnection,
@@ -101,7 +107,10 @@ pub(super) fn start_effect(
                            AND credential.lease_expires_at = ?15
                            AND credential.lease_fencing_token = ?16
                            AND credential.lease_expires_at > ?8
-                           AND credential.revocation_fence < credential.lease_fencing_token)
+                           AND credential.revocation_fence < credential.lease_fencing_token
+                           AND NOT EXISTS(
+                               SELECT 1 FROM provider_credential_authority_heads online_head
+                               WHERE online_head.provider_id = credential.provider_id))
         )",
         params![
             claim.attempt_id.as_bytes().as_slice(), claim.permit_id.as_slice(),

@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 #[cfg(test)]
 use std::cell::Cell;
@@ -6,7 +6,7 @@ use std::cell::Cell;
 use runne_macos_keychain_acl::{
     ExactKeychainAccess, KeychainAclError, ProviderCredentialProcessLock,
 };
-use security_framework::os::macos::keychain::SecKeychain;
+use security_framework::os::macos::keychain::{KeychainUserInteractionLock, SecKeychain};
 use security_framework::os::macos::keychain_item::SecKeychainItem;
 
 use crate::provider_credential::{
@@ -52,7 +52,41 @@ const ERR_SEC_ITEM_NOT_FOUND: i32 = -25_300;
 const ERR_SEC_INTERACTION_NOT_ALLOWED: i32 = -25_308;
 const ERR_SEC_NO_ACCESS_FOR_ITEM: i32 = -25_243;
 const ERR_SEC_INVALID_OWNER_EDIT: i32 = -25_244;
-static PROVIDER_CREDENTIAL_KEYCHAIN_LOCK: Mutex<()> = Mutex::new(());
+static KEYCHAIN_INTERACTION_LOCK: Mutex<()> = Mutex::new(());
+
+pub struct KeychainInteractionGuard {
+    // Drop this first so UI is restored while both serialization locks remain held.
+    _user_interaction: KeychainUserInteractionLock,
+    _process: ProviderCredentialProcessLock,
+    _interaction: MutexGuard<'static, ()>,
+}
+
+pub fn acquire_keychain_interaction_locks() -> Result<KeychainInteractionGuard, ()> {
+    // Take the process-reentrant kernel lock only after the process-local mutex;
+    // otherwise a sibling can hold it while waiting here and block a child.
+    let interaction = KEYCHAIN_INTERACTION_LOCK.lock().map_err(|_| ())?;
+    let process = ProviderCredentialProcessLock::acquire().map_err(|_| ())?;
+    let user_interaction = SecKeychain::disable_user_interaction().map_err(|_| ())?;
+    Ok(KeychainInteractionGuard {
+        _user_interaction: user_interaction,
+        _process: process,
+        _interaction: interaction,
+    })
+}
+
+fn active_keychain() -> Result<SecKeychain, ()> {
+    #[cfg(any(test, feature = "test-support"))]
+    if let Some(path) = std::env::var_os("RUNNE_CI_MACOS_KEYCHAIN") {
+        let home = std::env::var_os("HOME").ok_or(())?;
+        let expected = std::path::PathBuf::from(home)
+            .join("Library/Keychains/runne-ci.keychain-db");
+        if std::path::Path::new(&path) != expected {
+            return Err(());
+        }
+        return SecKeychain::open(path).map_err(|_| ());
+    }
+    SecKeychain::default().map_err(|_| ())
+}
 #[cfg(test)]
 std::thread_local! {
     static PROVIDER_CREDENTIAL_PASSWORD_READS: Cell<usize> = const { Cell::new(0) };
@@ -161,27 +195,36 @@ impl MacOsKeychainStore {
     }
 
     fn load_security_anchor(&self) -> Result<StoredSecurityAnchor, SecureStoreError> {
-        match security_framework::passwords::get_generic_password(SERVICE_NAME, &self.account_name) {
-            Ok(value) if value.len() == 8 => {
+        let _keychain_locks = acquire_keychain_interaction_locks()
+            .map_err(|()| SecureStoreError::Unavailable)?;
+        let keychain = active_keychain().map_err(|()| SecureStoreError::Unavailable)?;
+        match keychain.find_generic_password(SERVICE_NAME, &self.account_name) {
+            Ok((value, _)) if value.len() == 8 => {
                 let generation = decode_anchor(&value)?;
                 if generation == 0 { Err(SecureStoreError::CorruptAnchor) } else { Ok(StoredSecurityAnchor::LegacyGeneration(generation)) }
             }
-            Ok(value) => decode_security_anchor(&value).map(StoredSecurityAnchor::V1),
+            Ok((value, _)) => decode_security_anchor(&value).map(StoredSecurityAnchor::V1),
             Err(error) if error.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(StoredSecurityAnchor::Missing),
             Err(_) => Err(SecureStoreError::Unavailable),
         }
     }
 
     fn save_security_anchor(&self, anchor: &SecurityAnchorV1) -> Result<(), SecureStoreError> {
+        let _keychain_locks = acquire_keychain_interaction_locks()
+            .map_err(|()| SecureStoreError::Unavailable)?;
         let encoded = encode_security_anchor(anchor);
-        security_framework::passwords::set_generic_password(SERVICE_NAME, &self.account_name, &encoded)
+        active_keychain().map_err(|()| SecureStoreError::Unavailable)?
+            .set_generic_password(SERVICE_NAME, &self.account_name, &encoded)
             .map_err(|_| SecureStoreError::OperationFailed("security anchor keychain write".into()))
     }
 
     #[cfg(test)]
     fn store_anchor(&self, generation: u64) -> Result<(), SecureStoreError> {
+        let _keychain_locks = acquire_keychain_interaction_locks()
+            .map_err(|()| SecureStoreError::Unavailable)?;
         let value = generation.to_le_bytes();
-        security_framework::passwords::set_generic_password(SERVICE_NAME, &self.account_name, &value)
+        active_keychain().map_err(|()| SecureStoreError::Unavailable)?
+            .set_generic_password(SERVICE_NAME, &self.account_name, &value)
             .map_err(|_| SecureStoreError::OperationFailed("legacy anchor keychain write".into()))
     }
 
@@ -196,8 +239,12 @@ impl MacOsKeychainStore {
 
     #[cfg(test)]
     fn delete_anchor(&self) -> Result<(), SecureStoreError> {
-        match security_framework::passwords::delete_generic_password(SERVICE_NAME, &self.account_name) {
-            Ok(()) => Ok(()),
+        let _keychain_locks = acquire_keychain_interaction_locks()
+            .map_err(|()| SecureStoreError::Unavailable)?;
+        let keychain = active_keychain().map_err(|()| SecureStoreError::Unavailable)?;
+        match keychain.find_generic_password(SERVICE_NAME, &self.account_name) {
+            Ok((_, item)) => runne_macos_keychain_acl::delete_item(&item)
+                .map_err(|_| SecureStoreError::Unavailable),
             Err(error) if error.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(()),
             Err(_) => Err(SecureStoreError::Unavailable),
         }

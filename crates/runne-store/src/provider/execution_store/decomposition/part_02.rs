@@ -3,7 +3,6 @@ impl SqliteProviderExecutionStore {
     pub fn open(path: &Path) -> Result<Self, ProviderAdmissionError> {
         Self::open_with_now(path, Arc::new(unix_timestamp))
     }
-
     fn open_with_now(
         path: &Path,
         now: Arc<dyn Fn() -> i64 + Send + Sync>,
@@ -15,7 +14,6 @@ impl SqliteProviderExecutionStore {
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
         Self::open_with_connection_and_now(path, connection, now)
     }
-
     /// Adopts a validated writable connection without reopening its path.
     pub fn open_with_connection(
         path: &str,
@@ -29,23 +27,28 @@ impl SqliteProviderExecutionStore {
         connection: ManagedConnection,
         now: Arc<dyn Fn() -> i64 + Send + Sync>,
     ) -> Result<Self, ProviderAdmissionError> {
+        connection
+            .restore_online_issuance_guard()
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
         apply_migrations(&connection).map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
         readiness_from_managed(&connection)
             .and_then(|_| publication_from_managed(&connection).map(|_| ()))
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-        Ok(Self {
+        let store = Self {
             connection: Mutex::new(connection),
             now,
+            online_effect_proof: OnlineEffectProofState::new(),
             #[cfg(test)]
             fail_effect_readback: AtomicBool::new(false),
             #[cfg(test)]
             effect_receipt_pause: Mutex::new(None),
-        })
+        };
+        Ok(store)
     }
-
     /// Atomically commits authority state and returns exact durable read-back.
     pub fn issue(
         &self,
+        launch: &ProviderRuntimeLaunchCapability,
         request: &ProviderAuthorityIssueRequest,
     ) -> Result<ProviderAuthorityIssueOutcome, ProviderAdmissionError> {
         request.validate()?;
@@ -54,13 +57,21 @@ impl SqliteProviderExecutionStore {
             .connection
             .lock()
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+        let issuance_guard = connection.online_issuance_guard();
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
 
+        let state =
+            load_runtime_authority(&transaction)?.ok_or(ProviderAdmissionError::AuthorityDenied)?;
+        launch.verify_state(&state)?;
+
         if let Some(existing) =
             load_existing_admission(&transaction, &request.provider_idempotency_key)?
         {
+            if existing.provider_id.as_deref() != Some(request.provider_id.as_str()) {
+                return Err(ProviderAdmissionError::AuthorityConflict);
+            }
             return if existing.semantic_digest == semantic_digest {
                 Ok(ProviderAuthorityIssueOutcome::Existing {
                     state: existing.state,
@@ -69,9 +80,10 @@ impl SqliteProviderExecutionStore {
                 Err(ProviderAdmissionError::AuthorityConflict)
             };
         }
-
-        let state =
-            load_runtime_authority(&transaction)?.ok_or(ProviderAdmissionError::AuthorityDenied)?;
+        let online_proof = self.online_effect_proof(&transaction)?;
+        let online_proof = online_proof
+            .as_ref()
+            .ok_or(ProviderAdmissionError::AuthorityDenied)?;
         verify_runtime_authority(&state, request, self.now())?;
         verify_prepared(&transaction, request)?;
         ensure_call_is_unclaimed(&transaction, request.prepared.call_id)?;
@@ -104,6 +116,7 @@ impl SqliteProviderExecutionStore {
             return Err(ProviderAdmissionError::AuthorityDenied);
         }
         let claim = ProviderDispatchClaim {
+            provider_id: request.provider_id.clone(),
             call_id: request.prepared.call_id,
             attempt_id: DispatchAttemptId::from_bytes(ids.dispatch_attempt_id),
             permit_id: ids.permit_id,
@@ -119,6 +132,8 @@ impl SqliteProviderExecutionStore {
             ProviderEffectAuthorityRef::new(ids.authority_id, state.state_revision)?;
         commit_issuance(
             &transaction,
+            &issuance_guard,
+            online_proof,
             request,
             &state,
             &claim,
@@ -158,9 +173,7 @@ impl SqliteProviderExecutionStore {
             || self.now(),
             || {
                 #[cfg(test)]
-                if let Some((reached, release)) =
-                    self.effect_receipt_pause.lock().unwrap().take()
-                {
+                if let Some((reached, release)) = self.effect_receipt_pause.lock().unwrap().take() {
                     reached.wait();
                     release.wait();
                 }
@@ -181,73 +194,6 @@ impl SqliteProviderExecutionStore {
     #[cfg(test)]
     pub(crate) fn fail_next_effect_readback(&self) {
         self.fail_effect_readback.store(true, Ordering::SeqCst);
-    }
-
-    /// Installs or advances runtime-owned authority state.
-    ///
-    /// Aggregate settled and reserved budgets survive authority refresh.
-    /// Generation rollback and same-generation fence replacement fail closed.
-    pub fn install_runtime_authority(
-        &self,
-        config: &ProviderRuntimeAuthorityConfig,
-    ) -> Result<(), ProviderAdmissionError> {
-        config.validate()?;
-        let mut connection = self
-            .connection
-            .lock()
-            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-        install_runtime_authority_in_transaction(&transaction, config, self.now(), false)?;
-        transaction
-            .commit()
-            .map_err(|_| ProviderAdmissionError::RepositoryFailure)
-    }
-
-    /// Installs runtime authority, freezes attempts owned by an older worker
-    /// lease, and advances the lease in one crash-safe transaction.
-    pub fn install_runtime_authority_and_advance_worker_lease(
-        &self,
-        config: &ProviderRuntimeAuthorityConfig,
-    ) -> Result<(), ProviderAdmissionError> {
-        config.validate()?;
-        let mut connection = self
-            .connection
-            .lock()
-            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-        install_runtime_authority_in_transaction(&transaction, config, self.now(), true)?;
-        advance_worker_lease_in_transaction(&transaction, config.generation, config.fencing_token)?;
-        transaction
-            .commit()
-            .map_err(|_| ProviderAdmissionError::RepositoryFailure)
-    }
-
-    /// Advances only the worker lease projection, used by supervisor recovery.
-    ///
-    /// Issuance freezes until a matching authority state is installed.
-    pub fn advance_worker_lease(
-        &self,
-        generation: u64,
-        fencing_token: u64,
-    ) -> Result<(), ProviderAdmissionError> {
-        if generation == 0 || fencing_token == 0 {
-            return Err(ProviderAdmissionError::StaleFencingToken);
-        }
-        let mut connection = self
-            .connection
-            .lock()
-            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-        advance_worker_lease_in_transaction(&transaction, generation, fencing_token)?;
-        transaction
-            .commit()
-            .map_err(|_| ProviderAdmissionError::RepositoryFailure)
     }
 
     /// Returns the number of atomically admitted provider executions.
@@ -278,12 +224,8 @@ impl SqliteProviderExecutionStore {
         load_utilization(&connection)
     }
 
-    fn now(&self) -> i64 {
+    pub(super) fn now(&self) -> i64 {
         (self.now)()
-    }
-
-    pub(super) fn credential_validation_time(&self) -> i64 {
-        self.now()
     }
 }
 

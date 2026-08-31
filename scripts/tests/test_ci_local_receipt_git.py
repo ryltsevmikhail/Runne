@@ -1,5 +1,6 @@
 import importlib
 import copy
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -10,6 +11,16 @@ from scripts.rc0_policy.canonical import canonical_bytes
 
 
 class LocalInputReceiptGitTests(unittest.TestCase):
+    def test_descriptor_path_is_available_on_the_host_platform(self):
+        layout_module = importlib.import_module("scripts.rc0_candidate.git_layout")
+        with tempfile.TemporaryDirectory() as location:
+            directory = Path(location).resolve()
+            descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                self.assertEqual(layout_module.fd_path(descriptor), directory)
+            finally:
+                os.close(descriptor)
+
     def test_lying_fsmonitor_cannot_hide_tracked_byte_mutation(self):
         receipt_module = importlib.import_module("scripts.ci_local_receipt")
         with tempfile.TemporaryDirectory() as location:

@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [features]
 default = []
+dev-loopback-updater = []
 protected-channel-integration = []
 test-support = ["runne-api/test-support", "runne-runtime-client/test-support"]
 
@@ -27,10 +28,15 @@ zeroize = "=1.9.0"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-rustix = { version = "=1.1.4", features = ["fs", "net", "process"] }
+rustix = { version = "=1.1.4", features = ["fs", "net", "pipe", "process"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-nix = { version = "=0.31.3", default-features = false, features = ["socket"] }
+nix = { version = "=0.31.3", default-features = false, features = ["dir", "fs", "process", "signal", "socket", "term", "user"] }
+runne-macos-process-identity = { path = "../runne-macos-process-identity" }
+security-framework = { version = "=3.7.0", features = ["OSX_10_15"] }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+runne-macos-process-identity = { path = "../runne-macos-process-identity", features = ["test-support"] }
 
 [target.'cfg(windows)'.dependencies]
 runne-windows-native-handle = { path = "../runne-windows-native-handle" }
@@ -40,3 +46,4 @@ workspace = true
 
 [dev-dependencies]
 tempfile = "=3.27.0"
+runne-api = { path = "../runne-api", features = ["test-support"] }

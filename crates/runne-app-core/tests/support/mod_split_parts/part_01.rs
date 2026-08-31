@@ -255,6 +255,10 @@ impl MockRuntime {
         self.state.close_count.load(Ordering::SeqCst)
     }
 
+    pub fn clear_close_count(&self) {
+        self.state.close_count.store(0, Ordering::SeqCst);
+    }
+
     pub async fn reset_close_count(&self) {
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
         self.state.close_count.store(0, Ordering::SeqCst);

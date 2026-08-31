@@ -21,15 +21,16 @@ fn get_bootstrap(state: State<'_, Arc<AppCore>>) -> Result<BootstrapState, IpcEr
         code: "bootstrap_unavailable",
     })
 }
-
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
-fn set_theme(state: State<'_, Arc<AppCore>>, theme: String) -> Result<(), IpcError> {
+fn set_theme(
+    state: State<'_, Arc<AppCore>>,
+    theme: String,
+) -> Result<runne_app_core::ThemeAcknowledgement, IpcError> {
     state.set_theme(&theme).map_err(|_| IpcError {
         code: "theme_update_rejected",
     })
 }
-
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 fn list_projects(state: State<'_, Arc<AppCore>>) -> Result<Vec<ProjectSummary>, IpcError> {

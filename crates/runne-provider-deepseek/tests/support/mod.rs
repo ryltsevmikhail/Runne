@@ -1,5 +1,4 @@
-#![allow(dead_code)]
-#![allow(clippy::needless_pass_by_value)]
+#![allow(dead_code, clippy::needless_pass_by_value)]
 use runne_provider::{
     DispatchAttemptId, DispatchRequest, ModelRef, PreparedRequest, ProviderCall, ProviderCallId,
     ProviderCapability, ProviderDispatchClaim, ProviderId, ProviderInputRole, ProviderTextInput,
@@ -46,6 +45,7 @@ pub fn dispatch_request(
     profile: &DeepSeekResponsesTextProfile,
 ) -> DispatchRequest {
     let claim = ProviderDispatchClaim {
+        provider_id: ProviderId::new("deepseek").expect("provider id"),
         call_id: prepared.call().call_id(),
         attempt_id,
         permit_id: [4; 16],

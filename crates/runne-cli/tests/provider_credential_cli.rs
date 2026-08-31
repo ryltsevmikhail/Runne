@@ -48,7 +48,7 @@ fn credential_set_rejects_forbidden_arguments_without_disclosing_them() {
 }
 
 #[test]
-fn credential_set_rejects_invalid_stdin_without_disclosure() {
+fn credential_set_rejects_without_reading_stdin_or_disclosing_it() {
     for input in [
         Vec::new(),
         b"nul\0marker".to_vec(),
@@ -82,6 +82,7 @@ fn credential_set_rejects_invalid_stdin_without_disclosure() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(!stderr.contains("marker"));
         assert!(!stderr.contains("xxxx"));
+        assert_eq!(stderr, "provider credential backend is unsupported\n");
     }
 }
 
@@ -94,4 +95,28 @@ fn credential_cli_requires_stdin_flag() {
     assert!(!missing_stdin.status.success());
     assert!(missing_stdin.stdout.is_empty());
     assert!(!String::from_utf8_lossy(&missing_stdin.stderr).contains("ambient-secret-marker"));
+}
+
+#[test]
+fn credential_help_and_completion_do_not_advertise_direct_secret_ingress() {
+    let help = Command::new(env!("CARGO_BIN_EXE_runne"))
+        .args(["help", "provider", "credential"])
+        .output()
+        .expect("show credential help");
+    assert!(help.status.success());
+    let help = String::from_utf8_lossy(&help.stdout);
+    assert!(!help.contains("--stdin"));
+    assert!(help.contains("Unavailable direct credential enrollment"));
+
+    for shell in ["fish", "zsh", "powershell"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_runne"))
+            .args(["completion", shell])
+            .output()
+            .expect("generate completion");
+        assert!(output.status.success(), "{shell}");
+        let completion = String::from_utf8_lossy(&output.stdout);
+        assert!(!completion.contains("Read from stdin"), "{shell}");
+        assert!(!completion.contains("Store credential"), "{shell}");
+        assert!(!completion.contains("Delete credential"), "{shell}");
+    }
 }

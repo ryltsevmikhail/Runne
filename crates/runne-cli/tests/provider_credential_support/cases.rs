@@ -17,7 +17,6 @@ const SET_COMMAND: &[&str] = &[
 ];
 const STATUS_COMMAND: &[&str] = &["provider", "credential", "status", "--provider", "openai"];
 const DELETE_COMMAND: &[&str] = &["provider", "credential", "delete", "--provider", "openai"];
-const MISSING_STDIN_COMMAND: &[&str] = &["provider", "credential", "set", "--provider", "openai"];
 const LARGE_CREDENTIAL: &[u8; 4_096] = &[b'x'; 4_096];
 
 pub const CHILD_CASES: &[ChildCase] = &[
@@ -26,8 +25,8 @@ pub const CHILD_CASES: &[ChildCase] = &[
         command: SET_COMMAND,
         input: b"stdin-secret",
         terminal: false,
-        expected_stdout: "configured\n",
-        expected_code: 0,
+        expected_stdout: "",
+        expected_code: 4,
     },
     ChildCase {
         scenario: "status",
@@ -42,16 +41,16 @@ pub const CHILD_CASES: &[ChildCase] = &[
         command: DELETE_COMMAND,
         input: b"",
         terminal: false,
-        expected_stdout: "missing\n",
-        expected_code: 0,
+        expected_stdout: "",
+        expected_code: 4,
     },
     ChildCase {
         scenario: "exact4096",
         command: SET_COMMAND,
         input: LARGE_CREDENTIAL,
         terminal: false,
-        expected_stdout: "configured\n",
-        expected_code: 0,
+        expected_stdout: "",
+        expected_code: 4,
     },
     ChildCase {
         scenario: "tty",
@@ -84,13 +83,5 @@ pub const CHILD_CASES: &[ChildCase] = &[
         terminal: false,
         expected_stdout: "",
         expected_code: 4,
-    },
-    ChildCase {
-        scenario: "missing-stdin",
-        command: MISSING_STDIN_COMMAND,
-        input: b"",
-        terminal: false,
-        expected_stdout: "",
-        expected_code: 2,
     },
 ];

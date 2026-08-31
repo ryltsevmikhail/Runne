@@ -16,8 +16,8 @@
       "oneOf": [
         {
           "items": false,
-          "maxItems": 26,
-          "minItems": 26,
+          "maxItems": 25,
+          "minItems": 25,
           "prefixItems": [
             {
               "const": "conversation.create.v1",
@@ -77,10 +77,6 @@
             },
             {
               "const": "approval.control.v1",
-              "type": "string"
-            },
-            {
-              "const": "provider.credential-control.v1",
               "type": "string"
             },
             {
@@ -128,8 +124,8 @@
         },
         {
           "items": false,
-          "maxItems": 30,
-          "minItems": 30,
+          "maxItems": 29,
+          "minItems": 29,
           "prefixItems": [
             {
               "const": "conversation.create.v1",
@@ -189,10 +185,6 @@
             },
             {
               "const": "approval.control.v1",
-              "type": "string"
-            },
-            {
-              "const": "provider.credential-control.v1",
               "type": "string"
             },
             {

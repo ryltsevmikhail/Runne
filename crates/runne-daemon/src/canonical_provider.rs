@@ -27,25 +27,28 @@ use runne_runtime::provider_redaction::{
     ProhibitedContentCredentialMatcher, ProviderEventRedactionBoundary,
 };
 use runne_secure_store::{
-    NativeProviderCredentialStore, NativeWithheldTailStore, ProviderCredentialAccessPolicy,
-    ProviderCredentialId, ProviderCredentialStatus, ProviderCredentialStore,
-    ProviderJournalKeyStatus, ProviderJournalKeyring,
+    NativeWithheldTailStore, ProviderCredentialAccessPolicy, ProviderCredentialReadback,
+    ProviderCredentialStatus, ProviderJournalKeyStatus, ProviderJournalKeyring,
 };
 use runne_store::provider::{
     ProviderCoordinatorOutcome, ProviderEffectPort, ProviderRuntimeAuthorityConfig,
-    SqliteProviderCredentialLifecycleStore, SqliteProviderDispatchCoordinator,
-    SqliteProviderDispatchStore, SqliteProviderExecutionStore, SqliteProviderRecoveryStore,
+    ProviderRuntimeLaunchCapability, SqliteProviderCredentialLifecycleStore,
+    SqliteProviderDispatchCoordinator, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
+    SqliteProviderRecoveryStore,
 };
 use runne_store::store::StoreTransaction;
 use sha2::{Digest, Sha256};
 
 use crate::error::DaemonError;
-use crate::provider_activation::ProviderActivation;
 
 mod activation_provenance;
 mod composition;
 mod composition_telemetry;
-mod credential_versions;
+mod credential_reader;
+#[cfg(test)]
+pub(crate) mod credential_versions;
+mod dispatch_binding;
+mod dynamic_readiness;
 mod effect_adapter;
 mod execution;
 mod loopback_tail;
@@ -53,20 +56,23 @@ mod openai_profile;
 mod projection;
 pub(crate) mod readiness;
 mod recovery;
+mod runtime_launch;
 mod runtime_store;
+mod selected_provider;
 mod shared_profile;
 
 use loopback_tail::LoopbackWithheldTailStore;
 
 pub(crate) use activation_provenance::DaemonActivationProvenance;
 pub(crate) use composition::DaemonCanonicalProviderComposition;
-pub use composition::{DaemonCanonicalProviderService, compose_selected_provider};
+pub use composition::DaemonCanonicalProviderService;
 pub(crate) use effect_adapter::{
     CanonicalProviderEffect, ProviderEffectFactory, deepseek_effect_adapter, openai_effect_adapter,
 };
 pub(crate) use openai_profile::OpenAiTextProviderProfile;
 pub(crate) use readiness::probe_provider_readiness;
 pub use readiness::{ProviderReadinessError, ProviderReadinessEvidence};
+pub use selected_provider::compose_selected_provider;
 pub(crate) use shared_profile::SharedTextProviderProfile;
 
 pub(crate) type RuntimeStoreDecorator = dyn Fn(

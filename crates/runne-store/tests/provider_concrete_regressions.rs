@@ -20,8 +20,10 @@ use runne_store::provider::{
     SqliteProviderDispatchCoordinator, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
 
-#[path = "support/provider_credential_fixture.rs"]
-mod provider_credential_fixture;
+#[path = "support/online_credential_fixture.rs"]
+mod online_credential_fixture;
+#[path = "support/online_proof.rs"]
+mod online_proof;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 
@@ -157,14 +159,15 @@ fn fixture() -> (
     SqliteProviderDispatchStore,
     SqliteProviderExecutionStore,
     SqliteProviderCredentialLifecycleStore,
+    runne_store::provider::ProviderRuntimeLaunchCapability,
     ProviderCoordinatorRequest,
 ) {
     let database = validated_reopen::ProviderTestDatabase::new("provider-concrete-regressions");
     let dispatch = database.dispatch();
     let execution = database.execution();
-    let credential = provider_credential_fixture::credential(&database, "fixture", [1; 16], 1, 100);
-    execution
-        .install_runtime_authority(&ProviderRuntimeAuthorityConfig {
+    let credential = online_credential_fixture::credential(&database, "fixture", 4);
+    let launch = execution
+        .activate_runtime_launch(&ProviderRuntimeAuthorityConfig {
             runtime_authority_id: [1; 16],
             database_generation: 1,
             principal_id: "principal".into(),
@@ -191,6 +194,7 @@ fn fixture() -> (
             lease_ttl_seconds: 600,
         })
         .unwrap();
+    online_proof::arm(&execution, 1);
     let call = ProviderCall::new(
         ProviderCallId::from_bytes([4; 16]),
         ModelRef::new(ProviderId::new("fixture").unwrap(), "model", "2026-08-01").unwrap(),
@@ -204,6 +208,7 @@ fn fixture() -> (
         dispatch,
         execution,
         credential,
+        launch,
         ProviderCoordinatorRequest {
             call,
             principal_id: "principal".into(),
@@ -223,18 +228,21 @@ fn fixture() -> (
 
 #[test]
 fn released_v1_prepared_replay_uses_stored_domain_without_redispatch() {
-    let (_directory, dispatch, execution, credential, request) = fixture();
+    let (_directory, dispatch, execution, credential, launch, request) = fixture();
     let v1 =
         PreparedRequest::from_call_for_digest_version(&request.call, ProviderCallDigestVersion::V1)
             .unwrap();
     dispatch
-        .persist_prepared(&PreparedProviderRecord {
-            call_id: request.call.call_id(),
-            call_digest_version: ProviderCallDigestVersion::V1,
-            prepared_digest: *v1.request_ref().as_bytes(),
-            render_digest: *v1.render_digest(),
-            profile_digest: [2; 32],
-        })
+        .persist_prepared(
+            &launch,
+            &PreparedProviderRecord {
+                call_id: request.call.call_id(),
+                call_digest_version: ProviderCallDigestVersion::V1,
+                prepared_digest: *v1.request_ref().as_bytes(),
+                render_digest: *v1.render_digest(),
+                profile_digest: [2; 32],
+            },
+        )
         .unwrap();
     let provider = Provider::new(Response::Stream);
     let guard = Guard {
@@ -244,7 +252,7 @@ fn released_v1_prepared_replay_uses_stored_domain_without_redispatch() {
     let coordinator = SqliteProviderDispatchCoordinator::new(
         &dispatch,
         &execution,
-        runne_store::provider::CredentialDispatchAuthority::new(&credential, [1; 16], 1),
+        runne_store::provider::CredentialDispatchAuthority::new(&credential, &launch),
         &provider,
         &provider,
         &guard,
@@ -264,34 +272,7 @@ fn released_v1_prepared_replay_uses_stored_domain_without_redispatch() {
     assert_eq!(*provider.dispatched.lock().unwrap(), 1);
 }
 
-#[test]
-fn maybe_dispatched_is_durable_uncertain_and_never_retries() {
-    let (_directory, dispatch, execution, credential, request) = fixture();
-    let provider = Provider::new(Response::MaybeDispatched);
-    let guard = Guard {
-        mode: GuardMode::Allowed,
-        saw_marker: Mutex::new(false),
-    };
-    let coordinator = SqliteProviderDispatchCoordinator::new(
-        &dispatch,
-        &execution,
-        runne_store::provider::CredentialDispatchAuthority::new(&credential, [1; 16], 1),
-        &provider,
-        &provider,
-        &guard,
-    );
-    assert_eq!(
-        block_on(coordinator.dispatch(request.clone())).unwrap(),
-        ProviderCoordinatorOutcome::Uncertain
-    );
-    assert!(matches!(
-        block_on(coordinator.dispatch(request)),
-        Ok(ProviderCoordinatorOutcome::Existing {
-            state: runne_provider::ProviderRepositoryState::Uncertain
-        })
-    ));
-    assert_eq!(*provider.dispatched.lock().unwrap(), 1);
-}
+include!("provider_concrete_regressions_parts/maybe_dispatched.rs");
 
 #[path = "support/provider_concrete_regressions_policy_tests.rs"]
 mod provider_concrete_regressions_policy_tests;

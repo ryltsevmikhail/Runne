@@ -10,6 +10,10 @@
   "exports": {
     "./shared/ui": "./shared/ui/index.ts",
     "./task-run-workspace": "./widgets/task-run-workspace/index.ts",
+    "./submit-prompt": "./features/submit-prompt/index.ts",
+    "./cancel-task-run": "./features/cancel-task-run/index.ts",
+    "./respond-to-approval": "./features/respond-to-approval/index.ts",
+    "./attention-queue": "./widgets/attention-queue/index.ts",
     "./shared/ui/styles/*": "./shared/ui/styles/*"
   },
   "dependencies": {

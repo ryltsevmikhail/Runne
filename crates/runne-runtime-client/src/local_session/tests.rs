@@ -152,6 +152,7 @@ mod tests {
             schema_hash,
             capabilities,
             capability_digest,
+            provider_binding: None,
         }
     }
 

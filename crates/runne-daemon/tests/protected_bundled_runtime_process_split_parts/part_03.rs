@@ -2,7 +2,8 @@
 async fn provider_bound_v2_bundled_process_renews_and_stops_without_v1_downgrade() {
     let _process_guard = PROCESS_FAULT_AUDIT_LOCK.lock().await;
     let temporary = owner_private::tempdir();
-    let executable = owner_private::ControlledExecutable::copy_from(env!("CARGO_BIN_EXE_runned"));
+    let executable =
+        owner_private::ControlledExecutable::copy_with_writer_from(env!("CARGO_BIN_EXE_runned"));
     let spec =
         ProtectedBundledRuntimeLaunchSpec::new(executable.path(), &temporary.path().join("runtime"))
             .expect("protected launch spec")

@@ -9,7 +9,7 @@ use runne_provider::{
 };
 use runne_store::provider::{
     PreparedProviderRecord, ProviderAuthorityIssueOutcome, ProviderRuntimeAuthorityConfig,
-    SqliteProviderExecutionStore,
+    ProviderRuntimeLaunchCapability, SqliteProviderExecutionStore,
 };
 use std::sync::{Arc, Barrier};
 type AuthorityMutation = (
@@ -81,6 +81,7 @@ fn prepared() -> (
 }
 fn issue_request(prepared: ContractPreparedProviderRecord) -> ProviderAuthorityIssueRequest {
     ProviderAuthorityIssueRequest {
+        provider_id: ProviderId::new("fixture-provider").unwrap(),
         principal_id: "principal-1".to_owned(),
         conversation_id: ConversationId::from_bytes([6; 16]),
         taskrun_id: TaskRunId::from_bytes([7; 16]),
@@ -94,21 +95,29 @@ fn issue_request(prepared: ContractPreparedProviderRecord) -> ProviderAuthorityI
         provider_idempotency_key: "provider-execution-1".to_owned(),
     }
 }
+fn arm(store: &SqliteProviderExecutionStore) {
+    crate::online_proof::arm(store, 7);
+}
 fn initialize(
     database: &validated_reopen::ProviderTestDatabase,
-) -> (SqliteProviderExecutionStore, ProviderAuthorityIssueRequest) {
+) -> (
+    SqliteProviderExecutionStore,
+    Arc<ProviderRuntimeLaunchCapability>,
+    ProviderAuthorityIssueRequest,
+) {
     let (prepared, contract, _) = prepared();
-    let dispatch = database.dispatch();
-    dispatch.persist_prepared(&prepared).unwrap();
     let execution = database.execution();
-    execution.install_runtime_authority(&config()).unwrap();
-    (execution, issue_request(contract))
+    let launch = Arc::new(execution.activate_runtime_launch(&config()).unwrap());
+    arm(&execution);
+    database.dispatch().persist_prepared(&launch, &prepared).unwrap();
+    (execution, launch, issue_request(contract))
 }
 #[test]
 fn issuance_atomically_commits_claim_reservations_authority_audit_intent_and_permit() {
     let database = validated_reopen::ProviderTestDatabase::new("provider-execution");
-    let (store, request) = initialize(&database);
-    let ProviderAuthorityIssueOutcome::Winner(admitted) = store.issue(&request).unwrap() else {
+    let (store, launch, request) = initialize(&database);
+    let ProviderAuthorityIssueOutcome::Winner(admitted) = store.issue(&launch, &request).unwrap()
+    else {
         panic!("first exact issue must win")
     };
     let (tokens, cost) = store.utilization().unwrap();
@@ -154,14 +163,14 @@ fn issuance_atomically_commits_claim_reservations_authority_audit_intent_and_per
 #[test]
 fn exact_retry_replays_without_new_ids_or_budget_and_changed_semantics_conflict() {
     let database = validated_reopen::ProviderTestDatabase::new("provider-retry");
-    let (store, request) = initialize(&database);
+    let (store, launch, request) = initialize(&database);
 
     assert!(matches!(
-        store.issue(&request).unwrap(),
+        store.issue(&launch, &request).unwrap(),
         ProviderAuthorityIssueOutcome::Winner(_)
     ));
     assert_eq!(
-        store.issue(&request).unwrap(),
+        store.issue(&launch, &request).unwrap(),
         ProviderAuthorityIssueOutcome::Existing {
             state: runne_provider::ProviderRepositoryState::Dispatching,
         }
@@ -170,7 +179,7 @@ fn exact_retry_replays_without_new_ids_or_budget_and_changed_semantics_conflict(
     let mut conflict = request;
     conflict.max_cost_micros += 1;
     assert_eq!(
-        store.issue(&conflict),
+        store.issue(&launch, &conflict),
         Err(ProviderAdmissionError::AuthorityConflict)
     );
 
@@ -213,24 +222,22 @@ fn policy_approval_budget_pricing_and_generation_denials_leave_no_claim() {
     for (index, (mutate, expected)) in mutations.into_iter().enumerate() {
         let database = validated_reopen::ProviderTestDatabase::new(&format!("provider-denial-{index}"));
         let (prepared, contract, _) = prepared();
-        database
-            .dispatch()
-            .persist_prepared(&prepared)
-            .unwrap();
         let store = database.execution();
         let mut runtime = config();
         mutate(&mut runtime);
-        store.install_runtime_authority(&runtime).unwrap();
+        let launch = store.activate_runtime_launch(&runtime).unwrap();
+        arm(&store);
+        database.dispatch().persist_prepared(&launch, &prepared).unwrap();
 
-        assert_eq!(store.issue(&issue_request(contract)), Err(expected));
+        assert_eq!(store.issue(&launch, &issue_request(contract)), Err(expected));
         assert_eq!(store.admitted_count().unwrap(), 0);
     }
 
     let database = validated_reopen::ProviderTestDatabase::new("provider-pricing");
-    let (store, mut request) = initialize(&database);
+    let (store, launch, mut request) = initialize(&database);
     request.pricing_revision_digest = [99; 32];
     assert_eq!(
-        store.issue(&request),
+        store.issue(&launch, &request),
         Err(ProviderAdmissionError::PricingRevisionMismatch)
     );
     assert_eq!(store.admitted_count().unwrap(), 0);
@@ -247,7 +254,7 @@ fn policy_approval_budget_pricing_and_generation_denials_leave_no_claim() {
     store.advance_worker_lease(12, 14).unwrap();
     request.pricing_revision_digest = [3; 32];
     assert_eq!(
-        store.issue(&request),
+        store.issue(&launch, &request),
         Err(ProviderAdmissionError::StaleFencingToken)
     );
     assert_eq!(store.admitted_count().unwrap(), 0);

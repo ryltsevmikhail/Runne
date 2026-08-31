@@ -28,13 +28,6 @@ trait CredentialBackend {
         id: ProviderCredentialId,
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<CredentialOutcome, SecureStoreError>;
-    fn store(
-        &mut self,
-        id: ProviderCredentialId,
-        credential: &ProviderCredentialMaterial,
-        access: &ProviderCredentialAccessPolicy,
-    ) -> Result<(), SecureStoreError>;
-    fn delete(&mut self, id: ProviderCredentialId) -> Result<(), SecureStoreError>;
 }
 
 impl<T: ProviderCredentialStore> CredentialBackend for T {
@@ -49,19 +42,6 @@ impl<T: ProviderCredentialStore> CredentialBackend for T {
                 ProviderCredentialStatus::Missing => CredentialOutcome::Missing,
                 ProviderCredentialStatus::Unsupported => CredentialOutcome::Unsupported,
             })
-    }
-
-    fn store(
-        &mut self,
-        id: ProviderCredentialId,
-        credential: &ProviderCredentialMaterial,
-        access: &ProviderCredentialAccessPolicy,
-    ) -> Result<(), SecureStoreError> {
-        self.store_provider_credential(id, credential, access)
-    }
-
-    fn delete(&mut self, id: ProviderCredentialId) -> Result<(), SecureStoreError> {
-        self.delete_provider_credential(id)
     }
 }
 
@@ -196,19 +176,15 @@ fn execute_provider_credential_on_platform(
     native_backend_supported: bool,
 ) -> Result<String, CliError> {
     match command {
-        ProviderCredentialCommand::Set(id) => {
-            let credential = read_credential_bytes(stdin, stdin_is_terminal)?;
-            if !native_backend_supported {
-                return Ok(CredentialOutcome::Unsupported.stdout().to_owned());
-            }
-            let access = resolver.resolve()?;
-            match backend.store(id, &credential, &access) {
-                Ok(()) => Ok(CredentialOutcome::Configured.stdout().to_owned()),
-                Err(
-                    SecureStoreError::UnsupportedSecureStoreBackend | SecureStoreError::Unavailable,
-                ) => Ok(CredentialOutcome::Unsupported.stdout().to_owned()),
-                Err(error) => Err(map_credential_error(&error)),
-            }
+        ProviderCredentialCommand::Set(_) | ProviderCredentialCommand::Delete(_) => {
+            let _ = (
+                stdin,
+                stdin_is_terminal,
+                backend,
+                resolver,
+                native_backend_supported,
+            );
+            Err(CliError::UnsupportedCredentialBackend)
         }
         ProviderCredentialCommand::Status(id) => {
             if !native_backend_supported {
@@ -220,35 +196,7 @@ fn execute_provider_credential_on_platform(
                 .map(|outcome| outcome.stdout().to_owned())
                 .map_err(|error| map_credential_error(&error))
         }
-        ProviderCredentialCommand::Delete(id) => {
-            if !native_backend_supported {
-                return Ok(CredentialOutcome::Unsupported.stdout().to_owned());
-            }
-            match backend.delete(id) {
-                Ok(()) => Ok(CredentialOutcome::Missing.stdout().to_owned()),
-                Err(
-                    SecureStoreError::UnsupportedSecureStoreBackend | SecureStoreError::Unavailable,
-                ) => Ok(CredentialOutcome::Unsupported.stdout().to_owned()),
-                Err(error) => Err(map_credential_error(&error)),
-            }
-        }
     }
-}
-
-fn read_credential_bytes(
-    stdin: &mut impl Read,
-    stdin_is_terminal: bool,
-) -> Result<ProviderCredentialMaterial, CliError> {
-    if stdin_is_terminal {
-        return Err(CliError::CredentialInput);
-    }
-    let mut bytes = Vec::with_capacity(MAX_PROVIDER_CREDENTIAL_BYTES.saturating_add(1));
-    let mut bounded = stdin.take((MAX_PROVIDER_CREDENTIAL_BYTES + 1) as u64);
-    if bounded.read_to_end(&mut bytes).is_err() || bytes.len() > MAX_PROVIDER_CREDENTIAL_BYTES {
-        bytes.zeroize();
-        return Err(CliError::CredentialInput);
-    }
-    ProviderCredentialMaterial::new(bytes).map_err(|_| CliError::CredentialInput)
 }
 
 const fn map_credential_error(error: &SecureStoreError) -> CliError {
