@@ -118,6 +118,10 @@ pub fn verify_item_access(
     access_owner.disarm();
     // SAFETY: `SecKeychainItemCopyAccess` returned a non-null retained reference.
     let access = unsafe { SecAccess::wrap_under_create_rule(access) };
+    verify_access(&access, expected_digest)
+}
+
+fn verify_access(access: &SecAccess, expected_digest: [u8; 32]) -> Result<(), KeychainAclError> {
     // SAFETY: the access reference and static authorization tag are valid.
     let acl_list = unsafe {
         SecAccessCopyMatchingACLList(

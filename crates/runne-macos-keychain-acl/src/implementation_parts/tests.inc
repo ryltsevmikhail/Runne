@@ -1,27 +1,6 @@
 mod tests {
     use super::*;
 
-    struct TestItem(SecKeychainItem);
-
-    impl Drop for TestItem {
-        fn drop(&mut self) {
-            let _ = delete_item(&self.0);
-        }
-    }
-
-    fn item_access(item: &SecKeychainItem) -> SecAccess {
-        let mut access = ptr::null_mut();
-        // SAFETY: item is live and access is a valid retained out-pointer.
-        let access_status =
-            unsafe { SecKeychainItemCopyAccess(item.as_concrete_TypeRef(), &raw mut access) };
-        let access_owner = RetainedCfOutput::new(access);
-        status(access_status).unwrap();
-        assert!(!access.is_null());
-        access_owner.disarm();
-        // SAFETY: the copy call returned a retained access reference.
-        unsafe { SecAccess::wrap_under_create_rule(access) }
-    }
-
     fn decrypt_acl_list(access: &SecAccess) -> CFArray<CFType> {
         // SAFETY: access and the static authorization tag are live.
         let acl_list = unsafe {
@@ -51,9 +30,8 @@ mod tests {
         .0
     }
 
-    fn set_item_prompt_selector(item: &SecKeychainItem, prompt_selector: u16) {
-        let access = item_access(item);
-        let acl_list = decrypt_acl_list(&access);
+    fn set_access_prompt_selector(access: &SecAccess, prompt_selector: u16) {
+        let acl_list = decrypt_acl_list(access);
         for acl in acl_list.iter() {
             let mut applications = ptr::null();
             let mut description = ptr::null();
@@ -88,11 +66,6 @@ mod tests {
             })
             .unwrap();
         }
-        // SAFETY: item and access are live for the native update.
-        status(unsafe {
-            SecKeychainItemSetAccess(item.as_concrete_TypeRef(), access.as_concrete_TypeRef())
-        })
-        .unwrap();
     }
 
     #[test]
@@ -198,34 +171,17 @@ mod tests {
 
     #[test]
     fn repeated_native_prompt_acl_rejection_releases_copied_applications() {
-        let _interaction = SecKeychain::disable_user_interaction().unwrap();
-        let keychain = SecKeychain::default().unwrap();
         let current = std::env::current_exe().unwrap();
         let exact = ExactKeychainAccess::new(&current, &current).unwrap();
-        let unique = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let item = TestItem(
-            create_empty_generic_password(
-                &keychain,
-                &format!("dev.runne.prompt-ownership-test.{unique}"),
-                &format!("prompt-ownership-{unique}"),
-                b"non-secret-test-metadata",
-                &exact,
-            )
-            .unwrap(),
-        );
-        set_item_prompt_selector(&item.0, 1);
-        let access = item_access(&item.0);
-        let acl_list = decrypt_acl_list(&access);
+        set_access_prompt_selector(&exact.access, 1);
+        let acl_list = decrypt_acl_list(&exact.access);
         let applications = copy_acl_applications(&acl_list.get(0).unwrap());
         let before = applications.retain_count();
         LIVE_COPIED_APPLICATION_LISTS.store(0, Ordering::Relaxed);
 
         for _ in 0..256 {
             assert_eq!(
-                verify_item_access(&item.0, exact.digest()),
+                verify_access(&exact.access, exact.digest()),
                 Err(KeychainAclError::AccessDenied)
             );
         }
