@@ -15,6 +15,12 @@ mod writer_bootstrap_transcript;
 mod writer_endpoint_handoff;
 
 #[cfg(test)]
+extern crate self as runne_macos_process_identity;
+
+#[cfg(test)]
+mod provisional_writer_session_tests;
+
+#[cfg(test)]
 #[path = "packaged_writer_observation_tests.rs"]
 mod packaged_writer_observation_tests;
 
@@ -74,6 +80,11 @@ impl MacOsProcessStartIdentity {
     #[must_use]
     pub const fn digest(&self) -> [u8; 32] {
         self.0
+    }
+
+    #[cfg(test)]
+    const fn test_only_corrupt(&mut self) {
+        self.0[0] ^= 0x80;
     }
 }
 

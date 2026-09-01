@@ -76,6 +76,11 @@ impl NativeCodeObservation {
     pub(crate) const fn code(&self) -> &SecCode {
         &self.code
     }
+
+    #[cfg(test)]
+    pub(crate) fn test_only_corrupt_main_executable(&mut self) {
+        self.main_executable.push("test-only-final-race");
+    }
 }
 
 fn check_requirement_free_validity(

@@ -86,6 +86,16 @@ impl PackagedLiveProcessObservation {
         &self.code
     }
 
+    #[cfg(test)]
+    pub(crate) const fn test_only_corrupt_start(&mut self) {
+        self.start.test_only_corrupt();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_only_corrupt_native_code(&mut self) {
+        self.code.test_only_corrupt_main_executable();
+    }
+
     fn revalidate(
         &self,
         package: &PackagedWriterArtifacts,

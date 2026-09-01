@@ -25,6 +25,15 @@ pub(super) struct CapturedPackagedWriterObservationV1 {
     peer: MacOsLocalPeerProcessIdentity,
 }
 
+#[cfg(test)]
+#[derive(Clone, Copy)]
+pub(crate) enum FinalRaceDrift {
+    Package,
+    Peer,
+    Process,
+    SecCode,
+}
+
 /// Opaque native observation that grants no enrollment authority.
 ///
 /// ```compile_fail
@@ -208,6 +217,16 @@ impl CapturedPackagedWriterObservationV1 {
         peer_process.revalidate_peer(package, peer)?;
         peer.revalidate_same_peer(handoff.observation_control())
             .map_err(map_peer_error)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_only_inject_final_race(&mut self, race: FinalRaceDrift) {
+        match race {
+            FinalRaceDrift::Package => self.package.test_only_corrupt_writer_digest(),
+            FinalRaceDrift::Peer => self.peer.test_only_corrupt_process_start(),
+            FinalRaceDrift::Process => self.self_process.test_only_corrupt_start(),
+            FinalRaceDrift::SecCode => self.self_process.test_only_corrupt_native_code(),
+        }
     }
 }
 

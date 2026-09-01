@@ -74,6 +74,11 @@ impl RetainedArtifact {
         &self.digest
     }
 
+    #[cfg(test)]
+    pub(super) const fn test_only_corrupt_digest(&mut self) {
+        self.digest[0] ^= 0x80;
+    }
+
     pub(super) fn observe_executable_mapping(
         &self,
         pid: NonZeroU32,

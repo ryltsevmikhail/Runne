@@ -142,6 +142,11 @@ impl PackagedWriterArtifacts {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) const fn test_only_corrupt_writer_digest(&mut self) {
+        self.writer.test_only_corrupt_digest();
+    }
+
     fn require_distinct_roles(&self) -> Result<(), MacOsPackagedWriterObservationError> {
         let roles = [&self.desktop, &self.writer, &self.daemon, &self.contract];
         for (index, role) in roles.iter().enumerate() {

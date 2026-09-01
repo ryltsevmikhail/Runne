@@ -91,6 +91,11 @@ impl MacOsLocalPeerProcessIdentity {
             .then_some(())
             .ok_or(MacOsLocalPeerProcessIdentityError::Rejected)
     }
+
+    #[cfg(test)]
+    pub(crate) const fn test_only_corrupt_process_start(&mut self) {
+        self.process_start_digest[0] ^= 0x80;
+    }
 }
 
 fn socket_identity<S: AsFd>(stream: &S) -> Result<(i32, u64), MacOsLocalPeerProcessIdentityError> {

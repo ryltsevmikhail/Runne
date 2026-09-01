@@ -7,6 +7,20 @@ use crate::packaged_writer_observation::{
 use crate::signed_code_identity::match_retained_code_identities;
 use crate::{MacOsPackagedWriterObservationError, MacOsUntrustedWriterEndpointHandoffV1};
 
+/// Opaque provisional release match with no ordinary constructor or conversion.
+///
+/// ```compile_fail
+/// fn require_clone<T: Clone>() {}
+/// require_clone::<runne_macos_process_identity::MacOsPendingProvisionalReleaseMatchV1>();
+/// ```
+///
+/// ```compile_fail
+/// fn convert(
+///     value: runne_macos_process_identity::MacOsPendingPackagedWriterObservationV1,
+/// ) -> runne_macos_process_identity::MacOsPendingProvisionalReleaseMatchV1 {
+///     value.into()
+/// }
+/// ```
 #[doc(hidden)]
 pub struct MacOsPendingProvisionalReleaseMatchV1 {
     handoff: MacOsUntrustedWriterEndpointHandoffV1,
@@ -15,6 +29,28 @@ pub struct MacOsPendingProvisionalReleaseMatchV1 {
     observation: CapturedPackagedWriterObservationV1,
 }
 
+/// Opaque provisional session that exposes neither facts nor authority.
+///
+/// ```compile_fail
+/// fn require_default<T: Default>() {}
+/// require_default::<runne_macos_process_identity::MacOsPendingProvisionalWriterSessionV1>();
+/// ```
+///
+/// ```compile_fail
+/// fn raw_release(
+///     value: &runne_macos_process_identity::MacOsPendingProvisionalWriterSessionV1,
+/// ) {
+///     let _ = value.release();
+/// }
+/// ```
+///
+/// ```compile_fail
+/// fn mint(
+///     value: runne_macos_process_identity::MacOsPendingProvisionalWriterSessionV1,
+/// ) {
+///     let _ = value.mint();
+/// }
+/// ```
 #[doc(hidden)]
 pub struct MacOsPendingProvisionalWriterSessionV1 {
     #[allow(dead_code)]
@@ -87,6 +123,16 @@ impl MacOsPendingProvisionalReleaseMatchV1 {
             release,
             observation,
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_only_revalidate_after_final_race(
+        mut self,
+        race: crate::packaged_writer_observation::FinalRaceDrift,
+    ) -> Result<(), MacOsPackagedWriterObservationError> {
+        self.observation.test_only_inject_final_race(race);
+        self.observation
+            .revalidate_for_provisional_session(&self.handoff)
     }
 }
 
