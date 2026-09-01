@@ -117,13 +117,13 @@ fn broker_source_has_one_authority_receive_and_no_local_receiver() {
     assert!(
         sources
             .iter()
-            .any(|source| source.0.ends_with("effect_test_support/pair.rs")),
+            .any(|source| source_path_ends_with(&source.0, &["effect_test_support", "pair.rs"])),
         "recursive source scan did not reach a nested broker source"
     );
     assert!(
         sources
             .iter()
-            .any(|source| source.0.ends_with("/src/main.rs")),
+            .any(|source| source_path_ends_with(&source.0, &["src", "main.rs"])),
         "source scan did not cover the complete CLI production tree"
     );
     for source in sources {
@@ -131,7 +131,7 @@ fn broker_source_has_one_authority_receive_and_no_local_receiver() {
             assert!(
                 !source.1.contains(forbidden),
                 "{} retained forbidden {forbidden}",
-                source.0
+                source.0.display()
             );
         }
     }
@@ -139,6 +139,15 @@ fn broker_source_has_one_authority_receive_and_no_local_receiver() {
     let removed = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src/cli/provider_credential_broker/bootstrap.rs");
     assert!(!removed.exists());
+}
+
+#[test]
+fn recursive_coverage_path_matching_uses_native_components() {
+    let path = ["workspace", "crates", "runne-cli", "src", "main.rs"]
+        .iter()
+        .collect::<std::path::PathBuf>();
+    assert!(source_path_ends_with(&path, &["src", "main.rs"]));
+    assert!(!source_path_ends_with(&path, &["src", "other.rs"]));
 }
 
 #[test]
@@ -248,7 +257,7 @@ fn run_with_kept_open_stdin(arguments: &[&str]) -> Output {
     output
 }
 
-fn broker_sources() -> Vec<(String, String)> {
+fn broker_sources() -> Vec<(std::path::PathBuf, String)> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut paths = Vec::new();
     collect_rust_sources(&root, &mut paths);
@@ -256,9 +265,13 @@ fn broker_sources() -> Vec<(String, String)> {
         .into_iter()
         .map(|path| {
             let source = std::fs::read_to_string(&path).unwrap();
-            (path.display().to_string(), source)
+            (path, source)
         })
         .collect()
+}
+
+fn source_path_ends_with(path: &std::path::Path, components: &[&str]) -> bool {
+    path.ends_with(components.iter().collect::<std::path::PathBuf>())
 }
 
 fn collect_rust_sources(directory: &std::path::Path, paths: &mut Vec<std::path::PathBuf>) {

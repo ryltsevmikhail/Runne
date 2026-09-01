@@ -14,7 +14,7 @@ pub struct ProcessResult {
 
 pub fn run(
     arguments: Vec<OsString>,
-    stdin: &mut impl Read,
+    input: &mut impl Read,
     stdin_is_terminal: bool,
     scenario: &str,
 ) -> ProcessResult {
@@ -27,7 +27,7 @@ pub fn run(
     );
     let result = run_provider_credential_with(
         VecDeque::from(arguments),
-        stdin,
+        input,
         stdin_is_terminal,
         &mut backend,
         &resolver,

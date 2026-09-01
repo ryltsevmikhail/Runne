@@ -12,6 +12,7 @@ runne-provider = { path = "../runne-provider" }
 runne-macos-process-identity = { path = "../runne-macos-process-identity" }
 
 [dev-dependencies]
+proc-macro2 = "1"
 serde.workspace = true
 syn = { version = "2", features = ["full", "visit"] }
 

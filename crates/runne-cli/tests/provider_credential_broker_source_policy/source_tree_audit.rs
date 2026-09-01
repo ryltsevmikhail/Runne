@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use syn::visit::{self, Visit};
-use syn::{Expr, ExprCall, ExprPath, File, Ident, Macro, UseTree};
+use syn::{Attribute, Expr, ExprCall, ExprPath, File, Ident, Macro, UseTree};
+
+use super::source_reference_audit::{include_reference_violation, path_attribute_violation};
 
 const PROVIDER_CREDENTIAL: &str = "cli/provider_credential.rs";
 const BROKER: &str = "cli/provider_credential_broker.rs";
@@ -67,9 +69,18 @@ fn collect_rust_sources(root: &Path, paths: &mut Vec<PathBuf>, violations: &mut 
                 continue;
             }
         };
-        if kind.is_dir() {
+        if kind.is_symlink() {
+            violations.push(format!(
+                "symbolic link source is forbidden: {}",
+                path.display()
+            ));
+        } else if kind.is_dir() {
             collect_rust_sources(&path, paths, violations);
-        } else if kind.is_file() && path.extension().is_some_and(|extension| extension == "rs") {
+        } else if kind.is_file()
+            && path
+                .extension()
+                .is_some_and(|extension| extension == "rs" || extension == "inc")
+        {
             paths.push(path);
         }
     }
@@ -88,6 +99,10 @@ fn audit_file(root: &Path, path: &Path, counts: &mut SurfaceCounts, violations: 
             return;
         }
     };
+    if path.extension().is_some_and(|extension| extension == "inc") {
+        audit_included_tokens(&relative, &source, violations);
+        return;
+    }
     let file: File = match syn::parse_file(&source) {
         Ok(file) => file,
         Err(error) => {
@@ -101,6 +116,26 @@ fn audit_file(root: &Path, path: &Path, counts: &mut SurfaceCounts, violations: 
         violations,
     }
     .visit_file(&file);
+}
+
+fn audit_included_tokens(relative: &str, source: &str, violations: &mut Vec<String>) {
+    let tokens = match source.parse::<proc_macro2::TokenStream>() {
+        Ok(tokens) => tokens,
+        Err(error) => {
+            violations.push(format!("cannot tokenize {relative}: {error}"));
+            return;
+        }
+    };
+    for identifier in macro_identifiers(tokens) {
+        if RAW_RECEIVER_IDENTIFIERS.contains(&identifier.as_str())
+            || identifier == "stdin"
+            || identifier == "receive_from_stdin"
+            || identifier == "include"
+            || identifier == "path"
+        {
+            violations.push(format!("{relative} contains forbidden {identifier}"));
+        }
+    }
 }
 
 #[derive(Default)]
@@ -123,6 +158,13 @@ impl SourceVisitor<'_> {
 }
 
 impl<'ast> Visit<'ast> for SourceVisitor<'_> {
+    fn visit_attribute(&mut self, node: &'ast Attribute) {
+        if let Some(violation) = path_attribute_violation(node) {
+            self.reject(&violation);
+        }
+        visit::visit_attribute(self, node);
+    }
+
     fn visit_ident(&mut self, identifier: &'ast Ident) {
         if RAW_RECEIVER_IDENTIFIERS
             .iter()
@@ -134,13 +176,11 @@ impl<'ast> Visit<'ast> for SourceVisitor<'_> {
 
     fn visit_expr_path(&mut self, expression: &'ast ExprPath) {
         let last = expression.path.segments.last().map(|part| &part.ident);
-        if last.is_some_and(|identifier| identifier == "stdin")
-            && expression.path.segments.len() > 1
-        {
-            self.reject("stdin expression path outside a reviewed call");
+        if last.is_some_and(|identifier| identifier == "stdin") {
+            self.reject("stdin identifier outside a reviewed call");
         }
         if last.is_some_and(|identifier| identifier == "receive_from_stdin") {
-            self.reject("receive_from_stdin expression path outside a reviewed call");
+            self.reject("receive_from_stdin identifier outside a reviewed call");
         }
         visit::visit_expr_path(self, expression);
     }
@@ -157,7 +197,7 @@ impl<'ast> Visit<'ast> for SourceVisitor<'_> {
                 && path_is(&function.path, &["std", "io", "stdin"])
             {
                 self.counts.stdin += 1;
-            } else if function.path.segments.len() > 1 {
+            } else {
                 self.reject("stdin call path");
             }
             visit_call_arguments(self, call);
@@ -197,6 +237,9 @@ impl<'ast> Visit<'ast> for SourceVisitor<'_> {
     }
 
     fn visit_macro(&mut self, node: &'ast Macro) {
+        if let Some(violation) = include_reference_violation(node) {
+            self.reject(&violation);
+        }
         for identifier in macro_identifiers(node.tokens.clone()) {
             if RAW_RECEIVER_IDENTIFIERS.contains(&identifier.as_str())
                 || identifier == "stdin"

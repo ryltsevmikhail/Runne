@@ -4149,6 +4149,7 @@ dependencies = [
 name = "runne-native-enrollment-authority"
 version = "0.0.3"
 dependencies = [
+ "proc-macro2",
  "runne-macos-process-identity",
  "runne-provider",
  "serde",

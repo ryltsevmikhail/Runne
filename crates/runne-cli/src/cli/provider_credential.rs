@@ -91,7 +91,7 @@ fn run_provider_credential(arguments: VecDeque<OsString>) -> Result<String, CliE
 
 fn run_provider_credential_with(
     arguments: VecDeque<OsString>,
-    stdin: &mut impl Read,
+    input: &mut impl Read,
     stdin_is_terminal: bool,
     backend: &mut impl CredentialBackend,
     resolver: &impl CredentialIdentityResolver,
@@ -100,7 +100,7 @@ fn run_provider_credential_with(
     let command = parse_provider_credential(arguments)?;
     execute_provider_credential_on_platform(
         command,
-        stdin,
+        input,
         stdin_is_terminal,
         backend,
         resolver,
@@ -169,7 +169,7 @@ fn parse_provider(arguments: &mut VecDeque<OsString>) -> Result<ProviderCredenti
 
 fn execute_provider_credential_on_platform(
     command: ProviderCredentialCommand,
-    stdin: &mut impl Read,
+    input: &mut impl Read,
     stdin_is_terminal: bool,
     backend: &mut impl CredentialBackend,
     resolver: &impl CredentialIdentityResolver,
@@ -178,7 +178,7 @@ fn execute_provider_credential_on_platform(
     match command {
         ProviderCredentialCommand::Set(_) | ProviderCredentialCommand::Delete(_) => {
             let _ = (
-                stdin,
+                input,
                 stdin_is_terminal,
                 backend,
                 resolver,
