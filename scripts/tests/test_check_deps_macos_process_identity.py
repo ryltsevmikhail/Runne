@@ -30,6 +30,7 @@ class MacOsProcessIdentityCheckDepsTest(unittest.TestCase):
                 "libc",
                 "nix",
                 "runne-api",
+                "runne-provider",
                 "security-framework",
                 "security-framework-sys",
                 "sha2",

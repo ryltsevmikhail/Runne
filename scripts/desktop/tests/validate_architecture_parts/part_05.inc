@@ -23,6 +23,9 @@ class PendingPackagedWriterDependencyTest(unittest.TestCase):
             ("renamed sha", "sha2", "rename", "digest"),
             ("alternate registry", "libc", "source", "registry+https://example.invalid/index"),
             ("external api path", "runne-api", "path", "/external/runne-api"),
+            ("provider wrong target", "runne-provider", "target", None),
+            ("provider feature", "runne-provider", "features", ["test-support"]),
+            ("provider optional", "runne-provider", "optional", True),
         )
         for label, dependency, field, value in mutations:
             with self.subTest(label=label):
@@ -59,6 +62,12 @@ class PendingPackagedWriterDependencyTest(unittest.TestCase):
             ),
             cls.dependency("runne-api", target, "*", path="/workspace/crates/runne-api"),
             cls.dependency(
+                "runne-provider",
+                target,
+                "*",
+                path="/workspace/crates/runne-provider",
+            ),
+            cls.dependency(
                 "security-framework",
                 target,
                 "=3.7.0",
@@ -77,6 +86,11 @@ class PendingPackagedWriterDependencyTest(unittest.TestCase):
             {
                 "name": "runne-api",
                 "manifest_path": "/workspace/crates/runne-api/Cargo.toml",
+                "dependencies": [],
+            },
+            {
+                "name": "runne-provider",
+                "manifest_path": "/workspace/crates/runne-provider/Cargo.toml",
                 "dependencies": [],
             },
         ]

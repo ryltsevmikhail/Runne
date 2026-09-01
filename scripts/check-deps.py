@@ -16,7 +16,7 @@ POLICIES = {
     "runne-observability": {"runne-application"},
     "runne-platform": {"runne-application", "runne-platform-ports", "libc", "thiserror", "uuid"},
     "runne-macos-process-identity": {
-        "core-foundation", "libc", "nix", "runne-api", "security-framework", "security-framework-sys", "sha2",
+        "core-foundation", "libc", "nix", "runne-api", "runne-provider", "security-framework", "security-framework-sys", "sha2",
     },
     "runne-native-enrollment-authority": {
         "runne-api", "runne-macos-process-identity", "runne-provider",

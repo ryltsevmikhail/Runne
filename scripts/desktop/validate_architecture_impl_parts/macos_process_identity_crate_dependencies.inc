@@ -6,6 +6,7 @@ MACOS_IDENTITY_EXACT_DEPENDENCIES = {
     "libc": ("^0.2", (), True, "registry"),
     "nix": ("=0.31.3", ("fs", "poll", "socket"), False, "registry"),
     "runne-api": ("*", (), True, "local"),
+    "runne-provider": ("*", (), True, "local"),
     "security-framework": ("=3.7.0", ("OSX_10_15",), True, "registry"),
     "security-framework-sys": ("=2.17.0", (), True, "registry"),
     "sha2": ("=0.10.8", (), True, "registry"),
