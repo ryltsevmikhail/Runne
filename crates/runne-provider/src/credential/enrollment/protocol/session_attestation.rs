@@ -31,8 +31,8 @@ pub use signer::CredentialWriterSessionAttestationSigner;
 /// }
 /// ```
 /// ```compile_fail
-/// fn no_current_time_predicate(value: &runne_provider::SignedCredentialWriterSessionAttestationV1) {
-///     let _ = value.matches_current_time(0);
+/// fn no_caller_supplied_time(value: &runne_provider::SignedCredentialWriterSessionAttestationV1) {
+///     let _ = value.is_current_now(0);
 /// }
 /// ```
 pub struct SignedCredentialWriterSessionAttestationV1 {

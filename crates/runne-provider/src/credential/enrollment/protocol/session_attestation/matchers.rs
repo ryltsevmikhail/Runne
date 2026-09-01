@@ -49,4 +49,36 @@ impl SignedCredentialWriterSessionAttestationV1 {
     ) -> bool {
         release_binding.matches(&self.claims.runtime.release_tuple.as_bytes())
     }
+
+    /// Projects the signed release binding as an opaque equality expectation.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn release_binding_expectation(&self) -> DigestEqualityMatcherV1 {
+        DigestEqualityMatcherV1::from_expected(self.claims.runtime.release_tuple.as_bytes())
+    }
+
+    /// Checks the signed one-shot window against the process wall clock.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn is_current_now(&self) -> bool {
+        let Ok(elapsed) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) else {
+            return false;
+        };
+        let Ok(now) = i64::try_from(elapsed.as_secs()) else {
+            return false;
+        };
+        is_current_window(
+            self.claims.ticket.issued_at,
+            self.claims.ticket.expires_at,
+            now,
+        )
+    }
 }
+
+fn is_current_window(issued_at: i64, expires_at: i64, now: i64) -> bool {
+    issued_at <= now && now < expires_at
+}
+
+#[cfg(test)]
+#[path = "matchers_tests.rs"]
+mod tests;

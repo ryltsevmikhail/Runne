@@ -94,24 +94,30 @@ fn pending_ticket_has_one_opaque_reader_and_no_escape_surface() {
 }
 
 #[test]
-fn attestation_exposes_only_the_four_boolean_matchers() {
+fn attestation_exposes_only_locked_opaque_match_surface() {
     let root = crate_root();
     let attestation =
         production_source(&root.join("src/credential/enrollment/protocol/session_attestation.rs"));
     let matchers = production_source(
         &root.join("src/credential/enrollment/protocol/session_attestation/matchers.rs"),
     );
-    assert_eq!(matchers.matches("pub fn ").count(), 4);
+    assert_eq!(matchers.matches("pub fn ").count(), 6);
     for name in [
         "matches_pending_issue_ticket",
         "matches_handoff",
         "matches_live_processes",
         "matches_provisional_release_binding",
+        "release_binding_expectation",
+        "is_current_now",
     ] {
         assert_eq!(matchers.matches(name).count(), 1, "missing matcher {name}");
     }
-    assert_eq!(matchers.matches("-> bool").count(), 4);
+    assert_eq!(matchers.matches("-> bool").count(), 6);
     assert!(matchers.contains("release_binding: &DigestEqualityMatcherV1"));
+    assert!(
+        matchers.contains("pub fn release_binding_expectation(&self) -> DigestEqualityMatcherV1")
+    );
+    assert!(matchers.contains("pub fn is_current_now(&self) -> bool"));
     for forbidden in [
         "pub fn binding_digest",
         "pub fn ticket_claims",
@@ -120,8 +126,8 @@ fn attestation_exposes_only_the_four_boolean_matchers() {
         "pub fn channel_binding",
         "pub fn publication_public_key",
         "matches_current_time",
-        "now:",
-        "clock:",
+        "pub fn is_current_now(&self,",
+        "pub fn release_binding_expectation(&self,",
     ] {
         assert!(
             !attestation.contains(forbidden) && !matchers.contains(forbidden),

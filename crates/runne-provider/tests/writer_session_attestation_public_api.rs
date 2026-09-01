@@ -84,6 +84,10 @@ fn decoded_attestation_matches_only_exact_observable_facts() {
     ));
     let release_matcher = DigestEqualityMatcherV1::from_expected([runtime_facts.release_tuple; 32]);
     assert!(decoded.matches_provisional_release_binding(&release_matcher));
+    let release_expectation = decoded.release_binding_expectation();
+    assert!(release_expectation.matches(&[runtime_facts.release_tuple; 32]));
+    assert!(!release_expectation.matches(&[31; 32]));
+    assert!(!decoded.is_current_now());
 
     assert!(!decoded.matches_pending_issue_ticket(&pending_ticket(
         &CredentialBrokerFrameCodec::encode(issue_frame(ticket_facts, 1)).unwrap()
