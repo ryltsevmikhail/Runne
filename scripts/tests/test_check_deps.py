@@ -29,6 +29,77 @@ class CheckDepsTests(unittest.TestCase):
         self.assertEqual(checker.EXACT_VERSION_POLICIES[name], checker.POLICIES[name])
         self.assertFalse(checker.POLICIES[name] & forbidden)
 
+    def test_native_enrollment_authority_dependencies_are_narrow_and_isolated(self) -> None:
+        name = "runne-native-enrollment-authority"
+        self.assertEqual(
+            checker.POLICIES[name],
+            {
+                "runne-api",
+                "runne-macos-process-identity",
+                "runne-provider",
+            },
+        )
+        self.assertFalse(
+            checker.POLICIES[name]
+            & {
+                "runne-cli",
+                "runne-daemon",
+                "runne-platform-desktop",
+                "runne-platform-ports",
+                "runne-release-authority",
+                "runne-runtime-client",
+                "runne-secure-store",
+            }
+        )
+
+    def test_native_enrollment_authority_allows_only_writer_side_consumers(self) -> None:
+        dependency = {
+            "name": "runne-native-enrollment-authority",
+            "kind": None,
+        }
+        allowed = [
+            {"name": "runne-cli", "dependencies": [dependency]},
+            {"name": "runne-secure-store", "dependencies": [dependency]},
+        ]
+        self.assertFalse(checker.native_enrollment_authority_consumer_errors([]))
+        self.assertFalse(
+            checker.native_enrollment_authority_consumer_errors(allowed)
+        )
+        for package in (
+            "runne-api",
+            "runne-daemon",
+            "runne-platform-desktop",
+            "runne-platform-ports",
+            "runne-provider",
+            "runne-runtime-client",
+        ):
+            with self.subTest(package=package):
+                self.assertEqual(
+                    [
+                        "FAIL: runne-native-enrollment-authority has forbidden "
+                        f"production consumers: ['{package}']"
+                    ],
+                    checker.native_enrollment_authority_consumer_errors(
+                        [{"name": package, "dependencies": [dependency]}]
+                    ),
+                )
+
+    def test_native_enrollment_authority_ignores_dev_only_consumers(self) -> None:
+        packages = [
+            {
+                "name": "runne-daemon",
+                "dependencies": [
+                    {
+                        "name": "runne-native-enrollment-authority",
+                        "kind": "dev",
+                    }
+                ],
+            }
+        ]
+        self.assertFalse(
+            checker.native_enrollment_authority_consumer_errors(packages)
+        )
+
     def test_release_authority_boundary_requires_the_cli_only(self) -> None:
         packages = [
             {"name": "runne-release-authority", "manifest_path": __file__, "dependencies": []},

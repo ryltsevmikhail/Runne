@@ -12,6 +12,9 @@ POLICIES = {
     "runne-plugin-protocol": set(),
     "runne-observability": {"runne-application"},
     "runne-platform": {"runne-application", "runne-platform-ports", "libc", "thiserror", "uuid"},
+    "runne-native-enrollment-authority": {
+        "runne-api", "runne-macos-process-identity", "runne-provider",
+    },
     "runne-project-owner-authority": {
         "argon2", "base64", "chacha20poly1305", "ed25519-dalek", "serde",
         "serde_json", "sha2", "thiserror", "zeroize", "runne-promotion-contracts",
@@ -38,6 +41,8 @@ INTERNAL_AUTHORITY_EDGES = {
     ("runne-release-authority", "runne-project-owner-authority"),
     ("runne-release-authority", "runne-promotion-contracts"),
 }
+NATIVE_ENROLLMENT_AUTHORITY = "runne-native-enrollment-authority"
+NATIVE_ENROLLMENT_AUTHORITY_CONSUMERS = {"runne-cli", "runne-secure-store"}
 FORBIDDEN_PROJECT_OWNER_AUTHORITY_EDGES = {
     "runne-cli", "runne-store", "runne-runtime",
 }
@@ -111,6 +116,7 @@ def main() -> int:
 
     errors.extend(project_owner_store_declaration_errors(metadata["packages"]))
     errors.extend(project_owner_store_consumer_errors(metadata["packages"]))
+    errors.extend(native_enrollment_authority_consumer_errors(metadata["packages"]))
     errors.extend(release_authority_boundary_errors(metadata["packages"]))
     errors.extend(internal_authority_edge_errors(metadata["packages"]))
 
@@ -240,6 +246,26 @@ def release_authority_boundary_errors(packages: list[dict]) -> list[str]:
     if any("runne_secure_store" in path.read_text(encoding="utf-8") for path in sources.rglob("*.rs")):
         errors.append("FAIL: runne-release-authority must not import runne-secure-store APIs")
     return errors
+
+
+def native_enrollment_authority_consumer_errors(packages: list[dict]) -> list[str]:
+    """Keep the opaque writer admission on the two writer-side edges."""
+    consumers = sorted(
+        package["name"]
+        for package in packages
+        if package["name"] not in NATIVE_ENROLLMENT_AUTHORITY_CONSUMERS
+        and any(
+            dependency["name"] == NATIVE_ENROLLMENT_AUTHORITY
+            and dependency.get("kind") != "dev"
+            for dependency in package.get("dependencies", [])
+        )
+    )
+    if not consumers:
+        return []
+    return [
+        "FAIL: runne-native-enrollment-authority has forbidden "
+        f"production consumers: {consumers}"
+    ]
 
 
 def internal_authority_edge_errors(packages: list[dict]) -> list[str]:

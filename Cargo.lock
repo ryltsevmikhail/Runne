@@ -4142,6 +4142,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "runne-native-enrollment-authority"
+version = "0.0.3"
+dependencies = [
+ "runne-provider",
+ "serde",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "runne-observability"
 version = "0.1.0"
 dependencies = [

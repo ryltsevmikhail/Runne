@@ -1,0 +1,16 @@
+[package]
+name = "runne-native-enrollment-authority"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+runne-provider = { path = "../runne-provider" }
+
+[dev-dependencies]
+serde.workspace = true
+syn = { version = "2", features = ["full"] }
+
+[lints]
+workspace = true
