@@ -64,6 +64,7 @@ class MacOsProcessIdentityDependencyTest(unittest.TestCase):
             ("CLI authority deleted", "cli", 0, "delete", None),
             ("CLI authority Unix-wide", "cli", 0, "target", "cfg(unix)"),
             ("CLI authority dev-only", "cli", 0, "kind", "dev"),
+            ("CLI authority wrong local path", "cli", 0, "path", "/workspace/impostor"),
             (
                 "CLI direct low-level edge",
                 "cli",
@@ -74,6 +75,13 @@ class MacOsProcessIdentityDependencyTest(unittest.TestCase):
             ("CLI rustix production", "cli", 1, "kind", None),
             ("CLI rustix Unix-wide", "cli", 1, "target", "cfg(unix)"),
             ("CLI rustix floating", "cli", 1, "req", "^1"),
+            (
+                "CLI rustix alternate registry",
+                "cli",
+                1,
+                "source",
+                "registry+https://example.invalid/index",
+            ),
             ("CLI rustix extra feature", "cli", 1, "features", ["fs", "net"]),
         )
         for label, package, index, key, value in mutations:
@@ -91,45 +99,122 @@ class MacOsProcessIdentityDependencyTest(unittest.TestCase):
                     ),
                 )
 
+    def test_rejects_unapproved_authority_normal_dependencies_and_sources(self):
+        for dependency in (
+            self.dependency("libc", req="^0.2", source="registry+crates.io"),
+            self.dependency("nix", req="^0.31", source="registry+crates.io"),
+        ):
+            with self.subTest(dependency=dependency["name"]):
+                packages = self.native_writer_packages()
+                packages[0]["dependencies"].append(dependency)
+                self.assertNotEqual(
+                    [],
+                    architecture.find_native_writer_bootstrap_dependency_violations(
+                        packages
+                    ),
+                )
+
+        for label, key, value in (
+            ("provider registry substitution", "source", "registry+crates.io"),
+            ("provider wrong local path", "path", "/workspace/crates/impostor"),
+            ("macOS identity registry substitution", "source", "registry+crates.io"),
+            ("macOS identity wrong local path", "path", "/workspace/crates/impostor"),
+        ):
+            with self.subTest(label=label):
+                packages = self.native_writer_packages()
+                index = 1 if label.startswith("macOS") else 0
+                packages[0]["dependencies"][index][key] = value
+                self.assertNotEqual(
+                    [],
+                    architecture.find_native_writer_bootstrap_dependency_violations(
+                        packages
+                    ),
+                )
+
     @staticmethod
     def native_writer_packages():
-        def dependency(name, *, kind=None, target=None, req="*", features=None):
-            return {
-                "name": name,
-                "kind": kind,
-                "target": target,
-                "req": req,
-                "features": features or [],
-                "rename": None,
-                "optional": False,
-                "uses_default_features": True,
-            }
-
         macos = 'cfg(target_os = "macos")'
         return [
             {
                 "name": "runne-native-enrollment-authority",
+                "manifest_path": "/workspace/crates/runne-native-enrollment-authority/Cargo.toml",
                 "dependencies": [
-                    dependency("runne-provider"),
-                    dependency("runne-macos-process-identity", target=macos),
+                    MacOsProcessIdentityDependencyTest.dependency(
+                        "runne-provider",
+                        path="/workspace/crates/../crates/runne-provider",
+                    ),
+                    MacOsProcessIdentityDependencyTest.dependency(
+                        "runne-macos-process-identity", target=macos
+                    ),
+                    MacOsProcessIdentityDependencyTest.dependency(
+                        "serde",
+                        kind="dev",
+                        req="=1.0.229",
+                        source=architecture.CRATES_IO_REGISTRY_SOURCE,
+                    ),
+                    MacOsProcessIdentityDependencyTest.dependency(
+                        "syn",
+                        kind="dev",
+                        req="^2",
+                        features=["full", "visit"],
+                        source=architecture.CRATES_IO_REGISTRY_SOURCE,
+                    ),
                 ],
             },
             {
                 "name": "runne-cli",
+                "manifest_path": "/workspace/crates/runne-cli/Cargo.toml",
                 "dependencies": [
-                    dependency(
+                    MacOsProcessIdentityDependencyTest.dependency(
                         "runne-native-enrollment-authority", target=macos
                     ),
-                    dependency(
+                    MacOsProcessIdentityDependencyTest.dependency(
                         "rustix",
                         kind="dev",
                         target=macos,
                         req="=1.1.4",
                         features=["net"],
+                        source=architecture.CRATES_IO_REGISTRY_SOURCE,
                     ),
                 ],
             },
+            {
+                "name": "runne-provider",
+                "manifest_path": "/workspace/crates/runne-provider/Cargo.toml",
+                "dependencies": [],
+            },
+            {
+                "name": "runne-macos-process-identity",
+                "manifest_path": "/workspace/crates/runne-macos-process-identity/Cargo.toml",
+                "dependencies": [],
+            },
         ]
+
+    @staticmethod
+    def dependency(
+        name,
+        *,
+        kind=None,
+        target=None,
+        req="*",
+        features=None,
+        source=None,
+        path=None,
+    ):
+        if path is None and name.startswith("runne-"):
+            path = f"/workspace/crates/{name}"
+        return {
+            "name": name,
+            "kind": kind,
+            "target": target,
+            "req": req,
+            "features": features or [],
+            "rename": None,
+            "optional": False,
+            "uses_default_features": True,
+            "source": source,
+            "path": path,
+        }
 
     def test_allows_native_enrollment_authority_only_on_the_macos_target(self):
         package = "runne-native-enrollment-authority"

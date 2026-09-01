@@ -18,10 +18,7 @@ const OPERATION_FAILED: &str = "provider credential operation failed\n";
 
 #[test]
 fn broker_mode_with_extra_argument_is_rejected_before_stdin_bootstrap() {
-    let output = Command::new(env!("CARGO_BIN_EXE_runne"))
-        .args([BROKER_MODE, "unexpected"])
-        .output()
-        .expect("run broker mode");
+    let output = run_with_kept_open_stdin(&[BROKER_MODE, "unexpected"]);
 
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
@@ -42,11 +39,7 @@ fn broker_mode_without_inherited_endpoint_is_closed() {
 #[test]
 #[cfg(not(target_os = "macos"))]
 fn non_macos_broker_mode_is_typed_unsupported_without_stdin() {
-    let output = Command::new(env!("CARGO_BIN_EXE_runne"))
-        .arg(BROKER_MODE)
-        .stdin(Stdio::null())
-        .output()
-        .expect("run broker mode");
+    let output = run_with_kept_open_stdin(&[BROKER_MODE]);
 
     assert_closed(&output, UNSUPPORTED);
 }
@@ -120,8 +113,21 @@ fn broker_source_has_one_authority_receive_and_no_local_receiver() {
         "stdin must not be read before argv validation"
     );
 
-    for source in broker_sources() {
-        for forbidden in ["recvmsg", "RecvAncillary", "SCM_RIGHTS", "bootstrap"] {
+    let sources = broker_sources();
+    assert!(
+        sources
+            .iter()
+            .any(|source| source.0.ends_with("effect_test_support/pair.rs")),
+        "recursive source scan did not reach a nested broker source"
+    );
+    assert!(
+        sources
+            .iter()
+            .any(|source| source.0.ends_with("/src/main.rs")),
+        "source scan did not cover the complete CLI production tree"
+    );
+    for source in sources {
+        for forbidden in ["recvmsg", "RecvAncillary", "SCM_RIGHTS", "ScmRights"] {
             assert!(
                 !source.1.contains(forbidden),
                 "{} retained forbidden {forbidden}",
@@ -129,6 +135,10 @@ fn broker_source_has_one_authority_receive_and_no_local_receiver() {
             );
         }
     }
+    assert!(!broker.contains("mod bootstrap"));
+    let removed = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src/cli/provider_credential_broker/bootstrap.rs");
+    assert!(!removed.exists());
 }
 
 #[test]
@@ -211,16 +221,37 @@ fn assert_closed(output: &Output, expected_stderr: &str) {
     assert_eq!(String::from_utf8_lossy(&output.stderr), expected_stderr);
 }
 
+fn run_with_kept_open_stdin(arguments: &[&str]) -> Output {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_runne"))
+        .args(arguments)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("run broker mode");
+    let kept_open = child.stdin.take().expect("inherited stdin pipe");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if child.try_wait().expect("poll broker process").is_some() {
+            break;
+        }
+        if std::time::Instant::now() >= deadline {
+            child.kill().expect("kill broker blocked on stdin");
+            drop(kept_open);
+            let _ = child.wait();
+            panic!("broker read stdin instead of returning before the test deadline");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let output = child.wait_with_output().expect("collect broker output");
+    drop(kept_open);
+    output
+}
+
 fn broker_sources() -> Vec<(String, String)> {
-    let root =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/cli/provider_credential_broker");
-    let mut paths = vec![root.with_extension("rs")];
-    paths.extend(
-        std::fs::read_dir(root)
-            .unwrap()
-            .map(|entry| entry.unwrap().path())
-            .filter(|path| path.extension().is_some_and(|extension| extension == "rs")),
-    );
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut paths = Vec::new();
+    collect_rust_sources(&root, &mut paths);
     paths
         .into_iter()
         .map(|path| {
@@ -228,4 +259,15 @@ fn broker_sources() -> Vec<(String, String)> {
             (path.display().to_string(), source)
         })
         .collect()
+}
+
+fn collect_rust_sources(directory: &std::path::Path, paths: &mut Vec<std::path::PathBuf>) {
+    for entry in std::fs::read_dir(directory).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            collect_rust_sources(&path, paths);
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            paths.push(path);
+        }
+    }
 }

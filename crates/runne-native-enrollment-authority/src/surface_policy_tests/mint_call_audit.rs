@@ -3,7 +3,7 @@
 use std::fs;
 
 use syn::visit::{self, Visit};
-use syn::{Attribute, Expr, ImplItemFn, ItemFn, ItemMod, Meta};
+use syn::{Attribute, ImplItemFn, ItemFn, ItemMod, Meta, UseTree};
 
 use super::source_discovery::production_sources;
 
@@ -20,6 +20,36 @@ fn private_session_mint_has_zero_production_call_sites() {
         .visit_file(&file);
     }
     assert!(calls.is_empty(), "production mint calls: {calls:#?}");
+}
+
+#[test]
+fn function_pointer_alias_to_private_mint_is_a_production_call() {
+    let file = syn::parse_file(
+        "fn bypass() { let alias = AuthenticatedProviderCredentialWriterSession::mint; }",
+    )
+    .unwrap();
+    let mut calls = Vec::new();
+    MintCalls {
+        source: "mutation".to_owned(),
+        calls: &mut calls,
+    }
+    .visit_file(&file);
+    assert_eq!(calls, ["mutation"]);
+}
+
+#[test]
+fn imported_alias_to_private_mint_is_a_production_call() {
+    let file = syn::parse_file(
+        "fn bypass() { use AuthenticatedProviderCredentialWriterSession::mint as alias; let _ = alias; }",
+    )
+    .unwrap();
+    let mut calls = Vec::new();
+    MintCalls {
+        source: "mutation".to_owned(),
+        calls: &mut calls,
+    }
+    .visit_file(&file);
+    assert_eq!(calls, ["mutation"]);
 }
 
 struct MintCalls<'a> {
@@ -46,13 +76,16 @@ impl<'ast> Visit<'ast> for MintCalls<'_> {
         }
     }
 
-    fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
-        if matches!(&*node.func, Expr::Path(path)
-            if path.path.segments.last().is_some_and(|segment| segment.ident == "mint"))
+    fn visit_expr_path(&mut self, node: &'ast syn::ExprPath) {
+        if node
+            .path
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "mint")
         {
             self.calls.push(self.source.clone());
         }
-        visit::visit_expr_call(self, node);
+        visit::visit_expr_path(self, node);
     }
 
     fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
@@ -60,6 +93,19 @@ impl<'ast> Visit<'ast> for MintCalls<'_> {
             self.calls.push(self.source.clone());
         }
         visit::visit_expr_method_call(self, node);
+    }
+
+    fn visit_use_tree(&mut self, node: &'ast UseTree) {
+        let imported = match node {
+            UseTree::Name(name) => Some(&name.ident),
+            UseTree::Rename(rename) => Some(&rename.ident),
+            UseTree::Path(path) => Some(&path.ident),
+            UseTree::Glob(_) | UseTree::Group(_) => None,
+        };
+        if imported.is_some_and(|identifier| identifier == "mint") {
+            self.calls.push(self.source.clone());
+        }
+        visit::visit_use_tree(self, node);
     }
 }
 

@@ -5,6 +5,7 @@ MACOS_PROCESS_IDENTITY_TARGET = 'cfg(target_os = "macos")'
 NATIVE_ENROLLMENT_AUTHORITY_PACKAGE = "runne-native-enrollment-authority"
 CLI_PACKAGE = "runne-cli"
 RUSTIX_PACKAGE = "rustix"
+CRATES_IO_REGISTRY_SOURCE = "registry+https://github.com/rust-lang/crates.io-index"
 MACOS_PROCESS_IDENTITY_CONSUMERS = {
     "runne-platform-desktop",
     NATIVE_ENROLLMENT_AUTHORITY_PACKAGE,
@@ -51,23 +52,32 @@ def find_native_writer_bootstrap_dependency_violations(
     by_name = {package.get("name"): package for package in packages}
     violations = []
     authority = by_name.get(NATIVE_ENROLLMENT_AUTHORITY_PACKAGE, {})
-    authority_runne = [
+    authority_normal = [
         dependency
         for dependency in authority.get("dependencies", [])
-        if dependency.get("name", "").startswith("runne-")
+        if dependency.get("kind") is None
     ]
     expected_authority = {
-        "runne-provider": (None, None, "*", ()),
+        "runne-provider": (
+            None,
+            None,
+            "*",
+            (),
+            "local",
+            _package_directory(by_name, "runne-provider"),
+        ),
         MACOS_PROCESS_IDENTITY_PACKAGE: (
             None,
             MACOS_PROCESS_IDENTITY_TARGET,
             "*",
             (),
+            "local",
+            _package_directory(by_name, MACOS_PROCESS_IDENTITY_PACKAGE),
         ),
     }
     violations += _exact_dependencies(
         NATIVE_ENROLLMENT_AUTHORITY_PACKAGE,
-        authority_runne,
+        authority_normal,
         expected_authority,
     )
 
@@ -88,12 +98,16 @@ def find_native_writer_bootstrap_dependency_violations(
             MACOS_PROCESS_IDENTITY_TARGET,
             "*",
             (),
+            "local",
+            _package_directory(by_name, NATIVE_ENROLLMENT_AUTHORITY_PACKAGE),
         ),
         RUSTIX_PACKAGE: (
             "dev",
             MACOS_PROCESS_IDENTITY_TARGET,
             "=1.1.4",
             ("net",),
+            "registry",
+            None,
         ),
     }
     violations += _exact_dependencies(CLI_PACKAGE, relevant_cli, expected_cli)
@@ -126,6 +140,8 @@ def _dependency_has_shape(
     target: str | None,
     requirement: str,
     features: tuple[str, ...],
+    source_kind: str,
+    expected_path: str | None,
 ) -> bool:
     return (
         dependency.get("kind") == kind
@@ -135,4 +151,34 @@ def _dependency_has_shape(
         and dependency.get("rename") is None
         and dependency.get("optional") is False
         and dependency.get("uses_default_features") is True
+        and _dependency_source_is_exact(dependency, source_kind, expected_path)
     )
+
+
+def _dependency_source_is_exact(
+    dependency: dict,
+    source_kind: str,
+    expected_path: str | None,
+) -> bool:
+    if source_kind == "local":
+        path = dependency.get("path")
+        return (
+            dependency.get("source") is None
+            and expected_path is not None
+            and isinstance(path, str)
+            and str(Path(path).resolve()) == expected_path
+        )
+    source = dependency.get("source")
+    return (
+        source_kind == "registry"
+        and isinstance(source, str)
+        and source == CRATES_IO_REGISTRY_SOURCE
+        and dependency.get("path") is None
+    )
+
+
+def _package_directory(packages: dict[str, dict], name: str) -> str | None:
+    manifest = packages.get(name, {}).get("manifest_path")
+    if not isinstance(manifest, str):
+        return None
+    return str(Path(manifest).resolve().parent)
