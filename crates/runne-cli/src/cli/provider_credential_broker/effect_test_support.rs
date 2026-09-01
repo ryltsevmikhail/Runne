@@ -23,6 +23,9 @@ use super::claim::{ClaimedWriterControl, claim_writer_authorization_with_parts};
 #[path = "effect_test_support/pair.rs"]
 mod pair;
 pub use pair::{pair_authorized, pair_authorized_with_diagnostic_failure};
+#[path = "effect_test_support/canary.rs"]
+mod canary;
+pub use canary::panicking_pair_claimed_with_ticket;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EffectCall {

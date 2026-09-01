@@ -22,6 +22,9 @@ mod channel_tests;
 #[path = "provider_credential_broker/effect_tests.rs"]
 mod effect_tests;
 #[cfg(test)]
+#[path = "provider_credential_broker/leakage_tests.rs"]
+mod leakage_tests;
+#[cfg(test)]
 #[path = "provider_credential_broker/effect_test_support.rs"]
 mod effect_test_support;
 #[cfg(test)]

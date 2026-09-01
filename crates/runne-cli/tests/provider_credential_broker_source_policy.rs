@@ -4,6 +4,8 @@ mod branch_audit;
 mod branch_mutations;
 #[path = "provider_credential_broker_source_policy/claim_source_audit.rs"]
 mod claim_source_audit;
+#[path = "provider_credential_broker_source_policy/disclosure_sink_audit.rs"]
+mod disclosure_sink_audit;
 #[path = "provider_credential_broker_source_policy/source_reference_audit.rs"]
 mod source_reference_audit;
 #[path = "provider_credential_broker_source_policy/source_substitution_mutations.rs"]
@@ -14,6 +16,7 @@ mod source_tree_audit;
 mod source_tree_helpers;
 
 use branch_audit::broker_branch_violations;
+use disclosure_sink_audit::{broker_disclosure_sink_violations, disclosure_sink_violations};
 use source_tree_audit::source_tree_violations;
 
 const BROKER_SOURCE: &str = include_str!("../src/cli/provider_credential_broker.rs");
@@ -32,6 +35,71 @@ fn complete_cli_source_tree_has_no_raw_or_alternate_stdin_receiver() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let violations = source_tree_violations(&root);
     assert!(violations.is_empty(), "{violations:#?}");
+}
+
+#[test]
+fn provider_credential_broker_production_sources_have_no_disclosure_sinks() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src/cli/provider_credential_broker.rs");
+    let violations = broker_disclosure_sink_violations(&root);
+    assert!(violations.is_empty(), "{violations:#?}");
+}
+
+#[test]
+fn provider_credential_broker_disclosure_sink_mutations_are_rejected() {
+    for (expected, source) in [
+        ("print macro", "fn leak() { println!(\"secret\"); }"),
+        ("print macro", "fn leak() { eprintln!(\"secret\"); }"),
+        ("debug macro", "fn leak(secret: &str) { dbg!(secret); }"),
+        ("panic sink", "fn leak() { panic!(\"secret\"); }"),
+        (
+            "print macro",
+            "use std::println as report; fn leak() { report!(\"secret\"); }",
+        ),
+        (
+            "debug macro",
+            "use std::dbg as inspect; fn leak(secret: &str) { inspect!(secret); }",
+        ),
+        (
+            "panic sink",
+            "use std::panic as stop; fn leak() { stop!(\"secret\"); }",
+        ),
+        ("log sink", "fn leak() { log::error!(\"secret\"); }"),
+        ("tracing sink", "fn leak() { tracing::error!(\"secret\"); }"),
+        ("stdout/stderr sink", "fn leak() { std::io::stdout(); }"),
+        ("stdout/stderr sink", "fn leak() { std::io::stderr(); }"),
+    ] {
+        let violations = disclosure_sink_violations("mutation.rs", source);
+        assert!(
+            violations
+                .iter()
+                .any(|violation| violation.contains(expected)),
+            "{expected} mutation escaped: {violations:#?}"
+        );
+    }
+}
+
+#[test]
+fn provider_credential_broker_sink_policy_does_not_skip_mixed_test_cfg() {
+    let directory = tempfile::tempdir().expect("policy fixture");
+    let root = directory.path().join("broker.rs");
+    let modules = directory.path().join("broker");
+    std::fs::create_dir(&modules).expect("module directory");
+    std::fs::write(&root, "#[cfg(any(test, target_os = \"macos\"))] mod leaky;")
+        .expect("broker fixture");
+    std::fs::write(
+        modules.join("leaky.rs"),
+        "fn leak() { println!(\"secret\"); }",
+    )
+    .expect("leaky fixture");
+
+    let violations = broker_disclosure_sink_violations(&root);
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.contains("print macro")),
+        "mixed production cfg escaped: {violations:#?}"
+    );
 }
 
 #[test]

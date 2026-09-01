@@ -35,6 +35,7 @@ rustix = { version = "=1.1.4", features = ["net", "pipe"] }
 ed25519-dalek.workspace = true
 proc-macro2 = "1"
 runne-daemon = { path = "../runne-daemon", features = ["test-support"] }
+runne-provider = { path = "../runne-provider", features = ["test-support"] }
 runne-secure-store = { path = "../runne-secure-store", default-features = false, features = ["test-support"] }
 syn = { version = "2", features = ["full", "visit"] }
 tempfile = "=3.27.0"
