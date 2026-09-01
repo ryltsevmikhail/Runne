@@ -39,10 +39,9 @@ pub fn sealed_pair_for_test(
     let (offer, pending) = CredentialSecretClaimOffer::prepare(command, binding)?;
     let verified_offer =
         CredentialSecretOfferCodec::decode(&CredentialSecretOfferCodec::encode(&offer))?;
-    let signer =
-        publication::CredentialSecretPublicationSigner::generate(channel.digest().as_bytes())?;
+    let signer = super::session_attestation::attested_publication_signer_for_test(channel, &offer)?;
     let public_key = signer.public_key();
-    let publication = signer.sign(offer);
+    let publication = signer.sign(offer, channel.digest())?;
     let verified = publication::CredentialSecretPublicationVerifier::new(public_key, channel)
         .verify(verified_offer, publication)?;
     let envelope = verified.seal(zeroize::Zeroizing::new(secret))?;

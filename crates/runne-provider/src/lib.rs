@@ -71,6 +71,42 @@
 //! let _ = CredentialSecretPublicationSigner::generate([1; 32]);
 //! ```
 //! ```compile_fail
+//! use runne_provider::daemon_credential_publication::CredentialSecretPublicationSigner;
+//! let _ = CredentialSecretPublicationSigner::generate([1; 32]);
+//! ```
+//! ```compile_fail
+//! use runne_provider::daemon_credential_publication::CredentialWriterSessionAttestationSigner;
+//! use runne_provider::CredentialWriterSessionAttestationClaimsV1;
+//! fn attest_twice(
+//!     signer: CredentialWriterSessionAttestationSigner,
+//!     first: CredentialWriterSessionAttestationClaimsV1,
+//!     second: CredentialWriterSessionAttestationClaimsV1,
+//! ) {
+//!     let _ = signer.sign(first);
+//!     let _ = signer.sign(second);
+//! }
+//! ```
+//! ```compile_fail
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<runne_provider::SignedCredentialWriterSessionAttestationV1>();
+//! require_clone::<runne_provider::daemon_credential_publication::CredentialWriterSessionAttestationSigner>();
+//! ```
+//! ```compile_fail
+//! fn require_serialize<T: serde::Serialize>() {}
+//! require_serialize::<runne_provider::SignedCredentialWriterSessionAttestationV1>();
+//! require_serialize::<runne_provider::daemon_credential_publication::CredentialWriterSessionAttestationSigner>();
+//! ```
+//! ```compile_fail
+//! use runne_provider::SignedCredentialWriterSessionAttestationV1;
+//! let _ = SignedCredentialWriterSessionAttestationV1 {};
+//! ```
+//! ```compile_fail
+//! use runne_provider::daemon_credential_publication::CredentialWriterSessionAttestationSigner;
+//! fn escape(signer: CredentialWriterSessionAttestationSigner) {
+//!     let _ = signer.into_private_key();
+//! }
+//! ```
+//! ```compile_fail
 //! fn cannot_expose(envelope: runne_provider::SealedCredentialEnvelope) {
 //!     let _ = envelope.into_vec();
 //! }
@@ -137,24 +173,27 @@ pub use credential::{
     CredentialClaimBinding, CredentialCompletionReceipt, CredentialDispatchCapability,
     CredentialDisposition, CredentialEnrollmentAuthorityPair, CredentialEnrollmentError,
     CredentialEnrollmentMeasurementAuthority, CredentialEnrollmentStoreAuthority, CredentialFence,
-    CredentialGcClaim, CredentialInstallationOwnerId, CredentialLease,
-    CredentialLifecycleAuthority, CredentialLifecycleError, CredentialLifecycleRevision,
-    CredentialLifecycleSnapshot, CredentialMeasurementSnapshot, CredentialMigrationMetadata,
-    CredentialNativeCreateAuthorization, CredentialNativeCreateClaim, CredentialNativeCreateIssuer,
-    CredentialNativeCreateProgression, CredentialNativeCreateValidator,
-    CredentialNativeEffectDisposition, CredentialOperationAction, CredentialOperationId,
-    CredentialOperationMetadata, CredentialOperationSnapshot, CredentialOperationState,
-    CredentialProcessBinding, CredentialProvisionSource, CredentialQualifiedReleaseTuple,
-    CredentialReadbackDisposition, CredentialReadinessDisposition, CredentialReadinessObservation,
-    CredentialReadinessRevision, CredentialRecoveryWork, CredentialReleaseMigrationBinding,
-    CredentialSafeSnapshot, CredentialSecretClaimOffer, CredentialSecretEnvelopeCodec,
-    CredentialSecretOfferCodec, CredentialSecretPublication, CredentialSecretPublicationCodec,
-    CredentialTerminalDisposition, CredentialTicketAttempt, CredentialTransitionEvidence,
-    CredentialVerificationCapability, CredentialVerificationContext, CredentialVerificationKind,
-    CredentialVerificationLease, CredentialVerificationObservation, CredentialVerificationResult,
-    CredentialVerificationSnapshot, CredentialVerifierRevision, CredentialVersionRef,
-    CredentialVersionState, CredentialWriterAuthorityPair, CredentialWriterClaimIssuer,
-    CredentialWriterEffectAuthority, DaemonAuthorityId, DesktopExecutableIdentity,
+    CredentialGcClaim, CredentialInstallationOwnerId, CredentialIssueTicketBindingV1,
+    CredentialLease, CredentialLifecycleAuthority, CredentialLifecycleError,
+    CredentialLifecycleRevision, CredentialLifecycleSnapshot, CredentialMeasurementSnapshot,
+    CredentialMigrationMetadata, CredentialNativeCreateAuthorization, CredentialNativeCreateClaim,
+    CredentialNativeCreateIssuer, CredentialNativeCreateProgression,
+    CredentialNativeCreateValidator, CredentialNativeEffectDisposition, CredentialOperationAction,
+    CredentialOperationId, CredentialOperationMetadata, CredentialOperationSnapshot,
+    CredentialOperationState, CredentialProcessBinding, CredentialProvisionSource,
+    CredentialQualifiedReleaseTuple, CredentialReadbackDisposition, CredentialReadinessDisposition,
+    CredentialReadinessObservation, CredentialReadinessRevision, CredentialRecoveryWork,
+    CredentialReleaseMigrationBinding, CredentialSafeSnapshot, CredentialSecretClaimOffer,
+    CredentialSecretEnvelopeCodec, CredentialSecretOfferCodec, CredentialSecretPublication,
+    CredentialSecretPublicationCodec, CredentialTerminalDisposition, CredentialTicketAttempt,
+    CredentialTransitionEvidence, CredentialVerificationCapability, CredentialVerificationContext,
+    CredentialVerificationKind, CredentialVerificationLease, CredentialVerificationObservation,
+    CredentialVerificationResult, CredentialVerificationSnapshot, CredentialVerifierRevision,
+    CredentialVersionRef, CredentialVersionState, CredentialWriterAuthorityPair,
+    CredentialWriterClaimIssuer, CredentialWriterEffectAuthority,
+    CredentialWriterSessionAttestationClaimsV1, CredentialWriterSessionAttestationCodec,
+    CredentialWriterSessionProcessClaimsV1, CredentialWriterSessionRuntimeClaimsV1,
+    CredentialWriterSessionTicketClaimsV1, DaemonAuthorityId, DesktopExecutableIdentity,
     DesktopSupervisorGeneration, ExpectedInstallMeasurement, FailCredentialOperation,
     HardFenceProvider, IssueCredentialTicketDigest, IssuedCredentialTicketAttempt,
     NativeCredentialAuthority, NativeCredentialDeletionProof, ObserveNativeEffect,
@@ -162,9 +201,10 @@ pub use credential::{
     PendingCredentialWriterClaim, PrepareCredentialVersion, ProtectedSessionId,
     ProviderCredentialEnrollmentStore, ProviderCredentialVersionStore, RawCredentialTicket,
     ReaderExecutableIdentity, ReconcileCredentialVersions, ReleaseManifestDigest,
-    RevokeCredentialVersion, SealedCredentialEnvelope, TombstoneCredentialOperation,
-    TransitionCommand, WriterExecutableIdentity, WriterIdentityMigrationPhase, WriterLaunchId,
-    WriterProcessHandleIdentity, WriterProcessStartIdentity, allows_structural_transition,
+    RevokeCredentialVersion, SealedCredentialEnvelope, SignedCredentialWriterSessionAttestationV1,
+    TombstoneCredentialOperation, TransitionCommand, WriterExecutableIdentity,
+    WriterIdentityMigrationPhase, WriterLaunchId, WriterProcessHandleIdentity,
+    WriterProcessStartIdentity, allows_structural_transition,
 };
 #[cfg(feature = "test-support")]
 #[doc(hidden)]

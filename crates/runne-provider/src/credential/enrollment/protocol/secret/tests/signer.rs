@@ -1,4 +1,3 @@
-use crate::daemon_credential_publication::CredentialSecretPublicationSigner;
 use crate::{
     CredentialBindingDigest, CredentialBrokerCommand, CredentialBrokerTarget, CredentialFence,
     CredentialLifecycleRevision, CredentialOperationAction, CredentialOperationId,
@@ -16,9 +15,12 @@ fn daemon_signer_signs_one_offer_for_its_exact_channel() {
     let (offer, _) = CredentialSecretClaimOffer::prepare(&command, claim).unwrap();
     let replay =
         CredentialSecretOfferCodec::decode(&CredentialSecretOfferCodec::encode(&offer)).unwrap();
-    let signer = CredentialSecretPublicationSigner::generate([72; 32]).unwrap();
+    let signer = super::super::super::session_attestation::attested_publication_signer_for_test(
+        &channel, &offer,
+    )
+    .unwrap();
     let public_key = signer.public_key();
-    let publication = signer.sign(offer);
+    let publication = signer.sign(offer, channel.digest()).unwrap();
 
     let encoded = CredentialSecretPublicationCodec::encode(&publication);
     assert_ne!(public_key, [0; 32]);

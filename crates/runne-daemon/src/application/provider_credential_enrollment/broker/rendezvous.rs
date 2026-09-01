@@ -9,7 +9,7 @@ use rand::{RngCore, rngs::OsRng};
 #[cfg(feature = "desktop-protected")]
 use runne_api::ProviderCredentialBrokerTransferAuthority;
 use runne_api::ProviderCredentialEnrollmentHostError;
-use runne_provider::daemon_credential_publication::CredentialSecretPublicationSigner;
+use runne_provider::daemon_credential_publication::CredentialWriterSessionAttestationSigner;
 
 const RENDEZVOUS_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -21,7 +21,7 @@ pub(crate) struct DaemonOwnedUnixBrokerRendezvous {
     daemon: Option<UnixStream>,
     writer: Option<UnixStream>,
     channel_binding: [u8; 32],
-    signer: Option<CredentialSecretPublicationSigner>,
+    signer: Option<CredentialWriterSessionAttestationSigner>,
     publication_public_key: [u8; 32],
 }
 
@@ -42,7 +42,7 @@ pub(crate) struct DaemonBrokerAuthority {
         ),
         expect(dead_code, reason = "the kill-capability ACK unlocks this signer")
     )]
-    signer: Option<CredentialSecretPublicationSigner>,
+    signer: Option<CredentialWriterSessionAttestationSigner>,
     publication_public_key: [u8; 32],
 }
 
@@ -70,7 +70,7 @@ impl DaemonBrokerAuthority {
         (
             UnixStream,
             [u8; 32],
-            CredentialSecretPublicationSigner,
+            CredentialWriterSessionAttestationSigner,
             [u8; 32],
         ),
         ProviderCredentialEnrollmentHostError,
@@ -98,7 +98,7 @@ impl DaemonBrokerAuthority {
     }
 
     pub(super) fn for_test_endpoint(binding: [u8; 32], endpoint: UnixStream) -> Self {
-        let signer = CredentialSecretPublicationSigner::generate(binding).unwrap();
+        let signer = CredentialWriterSessionAttestationSigner::generate(binding).unwrap();
         let publication_public_key = signer.public_key();
         Self {
             endpoint,
@@ -123,7 +123,7 @@ impl DaemonOwnedUnixBrokerRendezvous {
         if channel_binding == [0; 32] {
             return Err(ProviderCredentialEnrollmentHostError::Unavailable);
         }
-        let signer = CredentialSecretPublicationSigner::generate(channel_binding)
+        let signer = CredentialWriterSessionAttestationSigner::generate(channel_binding)
             .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
         let publication_public_key = signer.public_key();
         Ok(Self {

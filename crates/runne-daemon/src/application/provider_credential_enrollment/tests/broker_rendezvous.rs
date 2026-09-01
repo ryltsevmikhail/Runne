@@ -1,11 +1,14 @@
 use std::io::{Read, Write};
 
 use runne_provider::{
-    CredentialBrokerCommand, CredentialBrokerTarget, CredentialFence, CredentialLifecycleRevision,
+    CredentialBindingDigest, CredentialBrokerCommand, CredentialBrokerFrame,
+    CredentialBrokerTarget, CredentialFence, CredentialLifecycleRevision,
     CredentialOperationAction, CredentialOperationId, CredentialSecretClaimOffer,
     CredentialSecretOfferCodec, CredentialTicketAttempt, CredentialVersionRef, ProviderId,
+    RawCredentialTicket,
 };
 
+use super::super::writer_session_test_support::attest_publication_signer;
 use super::*;
 
 #[test]
@@ -38,10 +41,16 @@ fn rendezvous_public_key_and_channel_verify_its_one_shot_publication() {
     let authority = rendezvous.take_daemon_authority().unwrap();
     assert_eq!(authority.publication_public_key(), public_key);
     let (_, binding, signer, stable_key) = authority.into_parts().unwrap();
-    let offer = offer(binding);
+    let (offer, issue_ticket) = offer_and_issue_ticket(binding);
     let replay =
         CredentialSecretOfferCodec::decode(&CredentialSecretOfferCodec::encode(&offer)).unwrap();
-    let publication = signer.sign(offer);
+    let signer = attest_publication_signer(signer, &issue_ticket).unwrap();
+    let publication = signer
+        .sign(
+            offer,
+            CredentialBindingDigest::from_measured(binding).unwrap(),
+        )
+        .unwrap();
 
     assert_eq!(stable_key, public_key);
     assert!(
@@ -60,7 +69,9 @@ fn rendezvous_public_key_and_channel_verify_its_one_shot_publication() {
     ));
 }
 
-fn offer(binding: [u8; 32]) -> CredentialSecretClaimOffer {
+fn offer_and_issue_ticket(
+    binding: [u8; 32],
+) -> (CredentialSecretClaimOffer, CredentialBrokerFrame) {
     let provider = ProviderId::new("openai").unwrap();
     let operation = CredentialOperationId::from_bytes([1; 16]).unwrap();
     let command = CredentialBrokerCommand::new(
@@ -74,10 +85,17 @@ fn offer(binding: [u8; 32]) -> CredentialSecretClaimOffer {
         None,
     )
     .unwrap();
-    CredentialSecretClaimOffer::prepare(
-        &command,
-        runne_provider::CredentialBindingDigest::from_measured(binding).unwrap(),
-    )
-    .unwrap()
-    .0
+    let claim = CredentialBindingDigest::from_measured(binding).unwrap();
+    let offer = CredentialSecretClaimOffer::prepare(&command, claim)
+        .unwrap()
+        .0;
+    let frame = CredentialBrokerFrame::IssueTicket {
+        operation_id: operation,
+        attempt: CredentialTicketAttempt::new(1).unwrap(),
+        ticket: RawCredentialTicket::generate().unwrap(),
+        channel_binding: binding,
+        binding: claim,
+        command,
+    };
+    (offer, frame)
 }

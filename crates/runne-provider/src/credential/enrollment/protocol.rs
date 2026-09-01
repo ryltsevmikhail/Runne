@@ -11,10 +11,14 @@ mod command_tests;
     reason = "sealed credential relay stays crate-private until the native Pair writer consumes it"
 )]
 mod secret;
+mod session_attestation;
 
 #[cfg(test)]
 #[path = "protocol/codec_claim_tests.rs"]
 mod codec_claim_tests;
+#[cfg(test)]
+#[path = "protocol/session_attestation_tests.rs"]
+mod session_attestation_tests;
 #[cfg(test)]
 mod tests;
 
@@ -29,11 +33,18 @@ pub use secret::{
 #[cfg(feature = "test-support")]
 #[doc(hidden)]
 pub use secret::{SealedPairFixture, sealed_pair_for_test};
+pub use session_attestation::{
+    CredentialIssueTicketBindingV1, CredentialWriterSessionAttestationClaimsV1,
+    CredentialWriterSessionAttestationCodec, CredentialWriterSessionProcessClaimsV1,
+    CredentialWriterSessionRuntimeClaimsV1, CredentialWriterSessionTicketClaimsV1,
+    SignedCredentialWriterSessionAttestationV1,
+};
 
 /// Deliberately narrow daemon-only publication adapter.
 #[doc(hidden)]
 pub mod daemon_credential_publication {
     pub use super::secret::DaemonCredentialSecretPublicationSigner as CredentialSecretPublicationSigner;
+    pub use super::session_attestation::CredentialWriterSessionAttestationSigner;
 }
 
 /// Test-only verifier for asserting the sealed daemon publication boundary.

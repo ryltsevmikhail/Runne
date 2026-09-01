@@ -106,6 +106,8 @@ impl CredentialBrokerChannel for UnixCredentialBrokerChannel {
         if signer.public_key() != self.publication_public_key {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
-        Ok(signer.sign(offer))
+        signer
+            .sign(offer, self.binding)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
     }
 }

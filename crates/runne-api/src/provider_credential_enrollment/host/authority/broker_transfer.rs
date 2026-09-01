@@ -78,6 +78,8 @@ impl ProviderCredentialBrokerKillBindingV1 {
         self.transcript(KILL_READY)
     }
 }
+
+include!("broker_transfer_digest.rs");
 /// Desktop proof that it relinquished all signal paths and retained reap only.
 ///
 /// ```compile_fail
@@ -269,3 +271,6 @@ include!("broker_handoff_control.rs");
 #[cfg(test)]
 #[path = "broker_handoff_tests.rs"]
 mod broker_handoff_tests;
+#[cfg(test)]
+#[path = "broker_transfer_digest_tests.rs"]
+mod broker_transfer_digest_tests;

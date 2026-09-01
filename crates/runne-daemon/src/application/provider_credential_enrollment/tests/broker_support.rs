@@ -6,17 +6,18 @@ use std::{
 
 use runne_api::ProviderCredentialEnrollmentHostError;
 use runne_domain::id::{CommandId, IdempotencyKey};
-use runne_provider::daemon_credential_publication::CredentialSecretPublicationSigner;
+use runne_provider::daemon_credential_publication::CredentialWriterSessionAttestationSigner;
 use runne_provider::{
     BeginCredentialOperation, BeginCredentialOperationOutcome, ClaimCredentialOperation,
     CredentialAuthorityPair, CredentialBrokerCommand, CredentialEnrollmentAuthorityPair,
     CredentialFence, CredentialLifecycleRevision, CredentialMeasurementSnapshot,
     CredentialOperationAction, CredentialOperationId, CredentialSecretClaimOffer,
-    ProviderCredentialEnrollmentStore, ProviderId,
+    CredentialWriterSessionAttestationClaimsV1, ProviderCredentialEnrollmentStore, ProviderId,
 };
 use zeroize::Zeroizing;
 
 use super::super::broker::issue::ClaimIssueContext;
+use super::super::broker::writer_session_test_support::writer_session_claims;
 use super::super::broker::{CredentialBrokerChannel, ProviderCredentialBroker};
 
 pub(crate) struct Fixture {
@@ -149,7 +150,8 @@ pub(crate) struct RecordingChannel {
     received: VecDeque<Zeroizing<Vec<u8>>>,
     fail_send: bool,
     binding: runne_provider::CredentialBindingDigest,
-    signer: Option<CredentialSecretPublicationSigner>,
+    attestation_signer: Option<CredentialWriterSessionAttestationSigner>,
+    attestation_claims: Option<CredentialWriterSessionAttestationClaimsV1>,
     publication_public_key: [u8; 32],
     pub(crate) sign_invocations: u8,
     pub(crate) receive_calls: u8,
@@ -157,14 +159,15 @@ pub(crate) struct RecordingChannel {
 
 impl RecordingChannel {
     pub(crate) fn with_channel_binding(binding: [u8; 32]) -> Self {
-        let signer = CredentialSecretPublicationSigner::generate(binding).unwrap();
+        let signer = CredentialWriterSessionAttestationSigner::generate(binding).unwrap();
         let publication_public_key = signer.public_key();
         Self {
             frames: Vec::new(),
             received: VecDeque::new(),
             fail_send: false,
             binding: runne_provider::CredentialBindingDigest::from_measured(binding).unwrap(),
-            signer: Some(signer),
+            attestation_signer: Some(signer),
+            attestation_claims: None,
             publication_public_key,
             sign_invocations: 0,
             receive_calls: 0,
@@ -202,6 +205,17 @@ impl CredentialBrokerChannel for RecordingChannel {
         if std::mem::take(&mut self.fail_send) {
             return Err(ProviderCredentialEnrollmentHostError::Unavailable);
         }
+        let decoded = runne_provider::CredentialBrokerFrameCodec::decode(&frame)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        if matches!(
+            decoded,
+            runne_provider::CredentialBrokerFrame::IssueTicket { .. }
+        ) {
+            self.attestation_claims = Some(
+                writer_session_claims(&decoded)
+                    .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?,
+            );
+        }
         self.frames.push(frame.to_vec());
         Ok(())
     }
@@ -219,11 +233,20 @@ impl CredentialBrokerChannel for RecordingChannel {
     ) -> Result<runne_provider::CredentialSecretPublication, ProviderCredentialEnrollmentHostError>
     {
         let signer = self
-            .signer
+            .attestation_signer
             .take()
             .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        let claims = self
+            .attestation_claims
+            .take()
+            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        let (_, signer) = signer
+            .sign(claims)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
         self.sign_invocations = self.sign_invocations.saturating_add(1);
-        Ok(signer.sign(offer))
+        signer
+            .sign(offer, self.binding)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
     }
 }
 

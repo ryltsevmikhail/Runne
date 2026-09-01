@@ -20,6 +20,8 @@ mod pending_writer;
 pub(crate) mod rendezvous;
 #[cfg(all(unix, feature = "desktop-protected"))]
 mod unix;
+#[cfg(test)]
+pub(crate) mod writer_session_test_support;
 
 /// Authenticated inherited control channel; Task 11 owns its platform adapters.
 #[cfg_attr(

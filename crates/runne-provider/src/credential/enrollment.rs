@@ -59,10 +59,14 @@ pub use protocol::daemon_credential_publication;
 pub use protocol::daemon_credential_publication_test_support;
 pub use protocol::{
     CredentialBrokerCommand, CredentialBrokerCommandCodec, CredentialBrokerFrame,
-    CredentialBrokerFrameCodec, CredentialBrokerTarget, CredentialSecretClaimOffer,
-    CredentialSecretEnvelopeCodec, CredentialSecretOfferCodec, CredentialSecretPublication,
-    CredentialSecretPublicationCodec, PROVIDER_CREDENTIAL_BROKER_MODE_V1,
+    CredentialBrokerFrameCodec, CredentialBrokerTarget, CredentialIssueTicketBindingV1,
+    CredentialSecretClaimOffer, CredentialSecretEnvelopeCodec, CredentialSecretOfferCodec,
+    CredentialSecretPublication, CredentialSecretPublicationCodec,
+    CredentialWriterSessionAttestationClaimsV1, CredentialWriterSessionAttestationCodec,
+    CredentialWriterSessionProcessClaimsV1, CredentialWriterSessionRuntimeClaimsV1,
+    CredentialWriterSessionTicketClaimsV1, PROVIDER_CREDENTIAL_BROKER_MODE_V1,
     PendingCredentialSecretOpening, SealedCredentialEnvelope,
+    SignedCredentialWriterSessionAttestationV1,
 };
 #[cfg(feature = "test-support")]
 #[doc(hidden)]
