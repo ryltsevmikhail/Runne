@@ -1,4 +1,5 @@
 """Target-scoped native process identity dependency checks."""
+from __future__ import annotations
 
 MACOS_PROCESS_IDENTITY_PACKAGE = "runne-macos-process-identity"
 MACOS_PROCESS_IDENTITY_TARGET = 'cfg(target_os = "macos")'
