@@ -2,7 +2,7 @@
 
 use syn::{FnArg, GenericArgument, ItemImpl, PathArguments, ReturnType, Type};
 
-use super::{CLAIM, EFFECT, HANDOFF, SESSION, attribute_audit, type_opaque_name};
+use super::{CLAIM, EFFECT, HANDOFF, PINNED, SESSION, attribute_audit, type_opaque_name};
 
 pub(super) fn exact_public_method(
     item: &ItemImpl,
@@ -12,9 +12,32 @@ pub(super) fn exact_public_method(
         Some("split")
     } else if is_exact_stdin_receiver(item, method) {
         Some("receive_from_stdin")
+    } else if is_exact_pinned_observer(item, method) {
+        Some("observe_current_pinned_writer_session")
     } else {
         None
     }
+}
+
+fn is_exact_pinned_observer(item: &ItemImpl, method: &syn::ImplItemFn) -> bool {
+    type_opaque_name(&item.self_ty) == Some(HANDOFF)
+        && item.trait_.is_none()
+        && method.defaultness.is_none()
+        && method.sig.ident == "observe_current_pinned_writer_session"
+        && method.sig.constness.is_none()
+        && method.sig.asyncness.is_none()
+        && method.sig.unsafety.is_none()
+        && method.sig.abi.is_none()
+        && method.sig.variadic.is_none()
+        && method.sig.generics.params.is_empty()
+        && method.sig.generics.where_clause.is_none()
+        && !attribute_audit::has_cfg_or_path_substitution(&method.attrs)
+        && method.sig.inputs.len() == 1
+        && matches!(method.sig.inputs.first(), Some(FnArg::Receiver(receiver))
+            if receiver.reference.is_none()
+                && receiver.mutability.is_none()
+                && receiver.colon_token.is_none())
+        && returns_exact_pinned_result(&method.sig.output)
 }
 
 fn is_exact_consuming_split(item: &ItemImpl, method: &syn::ImplItemFn) -> bool {
@@ -95,4 +118,45 @@ fn returns_std_io_result_self(output: &ReturnType) -> bool {
                 && value.path.segments.len() == 1
                 && value.path.segments[0].ident == "Self"
                 && matches!(value.path.segments[0].arguments, PathArguments::None))
+}
+
+fn returns_exact_pinned_result(output: &ReturnType) -> bool {
+    let ReturnType::Type(_, value) = output else {
+        return false;
+    };
+    let Type::Path(result) = value.as_ref() else {
+        return false;
+    };
+    let Some(segment) = result.path.segments.first() else {
+        return false;
+    };
+    if result.qself.is_some()
+        || result.path.leading_colon.is_some()
+        || result.path.segments.len() != 1
+        || segment.ident != "Result"
+    {
+        return false;
+    }
+    let PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+        return false;
+    };
+    let mut arguments = arguments.args.iter();
+    let Some(GenericArgument::Type(ok)) = arguments.next() else {
+        return false;
+    };
+    let Some(GenericArgument::Type(Type::Path(error))) = arguments.next() else {
+        return false;
+    };
+    arguments.next().is_none()
+        && type_opaque_name(ok) == Some(PINNED)
+        && error.qself.is_none()
+        && error.path.leading_colon.is_none()
+        && error.path.segments.len() == 2
+        && error.path.segments[0].ident == "runne_macos_process_identity"
+        && error.path.segments[1].ident == "MacOsPackagedWriterObservationError"
+        && error
+            .path
+            .segments
+            .iter()
+            .all(|segment| matches!(segment.arguments, PathArguments::None))
 }

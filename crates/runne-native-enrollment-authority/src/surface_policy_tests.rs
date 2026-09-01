@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use syn::{Fields, ImplItem, Item, Type, Visibility};
+use syn::{Fields, ImplItem, Item, Visibility};
 
 #[path = "surface_policy_tests/attribute_audit.rs"]
 mod attribute_audit;
@@ -14,17 +14,25 @@ mod mint_call_audit;
 mod mutations;
 #[path = "surface_policy_tests/source_discovery.rs"]
 mod source_discovery;
+#[path = "surface_policy_tests/type_audit.rs"]
+mod type_audit;
 #[path = "surface_policy_tests/use_audit.rs"]
 mod use_audit;
 use source_discovery::production_sources;
+use type_audit::{is_exact_native_wrapper, opaque_module, opaque_name, type_opaque_name};
 
 const SESSION: &str = "AuthenticatedProviderCredentialWriterSession";
 const CLAIM: &str = "AuthenticatedWriterClaimContext";
 const EFFECT: &str = "AuthenticatedWriterEffectAdmission";
 const HANDOFF: &str = "UntrustedProviderCredentialWriterEndpointHandoffV1";
+const PINNED: &str = "PendingPinnedProviderCredentialWriterSessionV1";
 const HANDOFF_MODULE: &str = "untrusted_writer_endpoint_handoff";
-const OPAQUE_TYPES: [&str; 4] = [SESSION, CLAIM, EFFECT, HANDOFF];
-const PUBLIC_METHODS: [&str; 2] = ["split", "receive_from_stdin"];
+const OPAQUE_TYPES: [&str; 5] = [SESSION, CLAIM, EFFECT, HANDOFF, PINNED];
+const PUBLIC_METHODS: [&str; 3] = [
+    "split",
+    "receive_from_stdin",
+    "observe_current_pinned_writer_session",
+];
 
 #[test]
 fn current_crate_exposes_only_the_exact_opaque_authority_surface() {
@@ -173,9 +181,9 @@ fn audit_struct(item: &syn::ItemStruct, source: &str, audit: &mut Audit) {
                 .push(format!("{source}: {name} has a non-private field"));
         }
     }
-    if name == HANDOFF && !is_exact_handoff_wrapper(item) {
+    if matches!(name, HANDOFF | PINNED) && !is_exact_native_wrapper(item, name) {
         audit.violations.push(format!(
-            "{source}: {HANDOFF} must retain exactly one private low-level handoff"
+            "{source}: {name} must retain exactly one private low-level native value"
         ));
     }
 }
@@ -221,54 +229,6 @@ fn audit_impl(item: &syn::ItemImpl, source: &str, audit: &mut Audit) {
     }
 }
 
-fn is_exact_handoff_wrapper(item: &syn::ItemStruct) -> bool {
-    if !item.generics.params.is_empty() || item.generics.where_clause.is_some() {
-        return false;
-    }
-    let Fields::Named(fields) = &item.fields else {
-        return false;
-    };
-    let Some(field) = fields.named.first() else {
-        return false;
-    };
-    fields.named.len() == 1
-        && matches!(field.vis, Visibility::Inherited)
-        && !attribute_audit::has_cfg_or_path_substitution(&field.attrs)
-        && type_path_is_exact(
-            &field.ty,
-            &[
-                "runne_macos_process_identity",
-                "MacOsUntrustedWriterEndpointHandoffV1",
-            ],
-        )
-}
-
-fn type_path_is_exact(value: &Type, expected: &[&str]) -> bool {
-    let Type::Path(path) = value else {
-        return false;
-    };
-    path.qself.is_none()
-        && path.path.leading_colon.is_none()
-        && path.path.segments.len() == expected.len()
-        && path
-            .path
-            .segments
-            .iter()
-            .zip(expected)
-            .all(|(segment, expected)| {
-                normalized_ident(&segment.ident) == *expected
-                    && matches!(segment.arguments, syn::PathArguments::None)
-            })
-}
-
-fn opaque_module(name: &str) -> &'static str {
-    if name == HANDOFF {
-        HANDOFF_MODULE
-    } else {
-        "session"
-    }
-}
-
 fn reject_public(visibility: &Visibility, kind: &str, source: &str, audit: &mut Audit) {
     if is_public(visibility) {
         audit
@@ -277,22 +237,8 @@ fn reject_public(visibility: &Visibility, kind: &str, source: &str, audit: &mut 
     }
 }
 
-fn type_opaque_name(value: &Type) -> Option<&'static str> {
-    let Type::Path(path) = value else {
-        return None;
-    };
-    path.path
-        .segments
-        .last()
-        .and_then(|segment| opaque_name(&normalized_ident(&segment.ident)))
-}
-
 fn normalized_ident(value: &syn::Ident) -> String {
     value.to_string().trim_start_matches("r#").to_owned()
-}
-
-fn opaque_name(value: &str) -> Option<&'static str> {
-    OPAQUE_TYPES.into_iter().find(|name| *name == value)
 }
 
 const fn is_public(visibility: &Visibility) -> bool {

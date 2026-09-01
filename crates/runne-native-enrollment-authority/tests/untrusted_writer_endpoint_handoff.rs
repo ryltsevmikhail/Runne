@@ -2,9 +2,23 @@
 
 use std::process::{Command, Stdio};
 
-use runne_native_enrollment_authority::UntrustedProviderCredentialWriterEndpointHandoffV1;
+use runne_native_enrollment_authority::{
+    PendingPinnedProviderCredentialWriterSessionV1,
+    UntrustedProviderCredentialWriterEndpointHandoffV1,
+};
 
 const PROBE_ENV: &str = "RUNNE_AUTHORITY_HANDOFF_PROBE";
+
+#[test]
+fn handoff_exposes_one_consuming_pinned_observation_transition() {
+    let observe: fn(
+        UntrustedProviderCredentialWriterEndpointHandoffV1,
+    ) -> Result<
+        PendingPinnedProviderCredentialWriterSessionV1,
+        runne_macos_process_identity::MacOsPackagedWriterObservationError,
+    > = UntrustedProviderCredentialWriterEndpointHandoffV1::observe_current_pinned_writer_session;
+    let _ = observe;
+}
 
 #[test]
 fn missing_stdin_socket_is_rejected_without_authority() {

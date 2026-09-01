@@ -4,7 +4,7 @@ use std::path::Path;
 
 use syn::{Attribute, UseTree};
 
-use super::{HANDOFF, attribute_audit, normalized_ident, opaque_module, opaque_name};
+use super::{HANDOFF, PINNED, attribute_audit, normalized_ident, opaque_module, opaque_name};
 
 pub(super) fn exact_public_reexports(
     tree: &UseTree,
@@ -24,7 +24,7 @@ pub(super) fn exact_public_reexports(
             && !binding.renamed
             && binding.origin == [opaque_module(name), name]
             && binding.exposed == name
-            && if name == HANDOFF {
+            && if matches!(name, HANDOFF | PINNED) {
                 attribute_audit::has_exact_macos_cfg(attributes)
             } else {
                 !attribute_audit::has_cfg_or_path_substitution(attributes)

@@ -10,7 +10,10 @@ pub use session::{
 };
 #[cfg(target_os = "macos")]
 #[doc(hidden)]
-pub use untrusted_writer_endpoint_handoff::UntrustedProviderCredentialWriterEndpointHandoffV1;
+pub use untrusted_writer_endpoint_handoff::{
+    PendingPinnedProviderCredentialWriterSessionV1,
+    UntrustedProviderCredentialWriterEndpointHandoffV1,
+};
 
 #[cfg(test)]
 mod surface_policy_tests;

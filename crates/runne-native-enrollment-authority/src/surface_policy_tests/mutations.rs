@@ -11,12 +11,59 @@ impl UntrustedProviderCredentialWriterEndpointHandoffV1 {
 }
 ";
 
+const EXACT_PINNED: &str = r"
+pub struct PendingPinnedProviderCredentialWriterSessionV1 {
+    inner: runne_macos_process_identity::MacOsPendingProvisionalWriterSessionV1,
+}
+impl UntrustedProviderCredentialWriterEndpointHandoffV1 {
+    pub fn observe_current_pinned_writer_session(self) -> Result<PendingPinnedProviderCredentialWriterSessionV1, runne_macos_process_identity::MacOsPackagedWriterObservationError> { todo!() }
+}
+";
+
 #[test]
 fn authority_surface_accepts_only_the_exact_handoff_shape() {
     assert!(
         authority_surface_violations(EXACT_HANDOFF).is_empty(),
         "the exact wrapper shape must remain representable"
     );
+}
+
+#[test]
+fn authority_surface_accepts_only_the_exact_pinned_shape() {
+    assert!(
+        authority_surface_violations(EXACT_PINNED).is_empty(),
+        "the exact pinned shape must remain representable"
+    );
+}
+
+#[test]
+fn authority_surface_rejects_pinned_shape_mutations() {
+    let cases = [
+        EXACT_PINNED.replace("MacOsPendingProvisionalWriterSessionV1", "OwnedFd"),
+        EXACT_PINNED.replace("    inner:", "    pub inner:"),
+        EXACT_PINNED.replace(
+            "observe_current_pinned_writer_session(self)",
+            "observe_current_pinned_writer_session(&self)",
+        ),
+        EXACT_PINNED.replace(
+            "Result<PendingPinnedProviderCredentialWriterSessionV1, runne_macos_process_identity::MacOsPackagedWriterObservationError>",
+            "Result<AuthenticatedProviderCredentialWriterSession, ()>",
+        ),
+        EXACT_PINNED.replace(
+            "    pub fn observe_current_pinned_writer_session",
+            "    #[cfg(any())]\n    pub fn observe_current_pinned_writer_session",
+        ),
+    ];
+    let accepted: Vec<_> = cases
+        .iter()
+        .enumerate()
+        .filter_map(|(index, source)| {
+            authority_surface_violations(source)
+                .is_empty()
+                .then_some(index)
+        })
+        .collect();
+    assert!(accepted.is_empty(), "policy accepted {accepted:?}");
 }
 
 #[test]
