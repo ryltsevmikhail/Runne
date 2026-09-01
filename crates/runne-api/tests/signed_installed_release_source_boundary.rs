@@ -157,7 +157,12 @@ fn pending_release_frame_has_one_opaque_bounded_ingress() {
         frame.matches("pub fn read_from<R: std::io::Read>(").count(),
         1
     );
-    assert_eq!(frame.matches("pub fn ").count(), 1);
+    assert_eq!(frame.matches("pub fn ").count(), 2);
+    assert_eq!(frame.matches("pub fn verify_current_pinned(").count(), 1);
+    assert!(frame.contains("expected: DigestEqualityMatcherV1"));
+    assert!(!frame.contains("pub fn verify_current_pinned(\n        self,\n        trust:"));
+    assert!(!frame.contains("pub fn verify_current_pinned(\n        self,\n        now:"));
+    assert!(!frame.contains("expected: [u8; 32]"));
     assert_eq!(
         frame
             .matches("Ok(PendingSignedInstalledReleaseMetadataV2 {")
@@ -200,7 +205,7 @@ fn pending_release_frame_has_one_opaque_bounded_ingress() {
         "pub fn audit_token",
         "pub fn candidate",
         "pub fn metadata",
-        "pub fn verify",
+        "pub fn verify_exact",
         "pub fn authenticate",
         "pub fn admit",
         "pub fn mint",

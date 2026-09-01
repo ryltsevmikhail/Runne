@@ -2,7 +2,9 @@ use std::io::{self, Cursor, Read};
 
 use runne_api::{
     PendingSignedInstalledReleaseMetadataV2, SignedInstalledReleaseVerificationErrorV2 as Error,
+    VerifiedSignedInstalledReleaseV2,
 };
+use runne_domain::DigestEqualityMatcherV1;
 
 use super::canonical::fixture;
 
@@ -40,6 +42,16 @@ fn frame_reads_one_canonical_payload_without_consuming_the_sentinel() {
     let mut sentinel = [0_u8; 1];
     reader.read_exact(&mut sentinel).unwrap();
     assert_eq!(sentinel, [0xa5]);
+}
+
+#[test]
+fn pending_frame_exposes_one_pinned_zero_clock_zero_trust_transition() {
+    let verify: fn(
+        PendingSignedInstalledReleaseMetadataV2,
+        DigestEqualityMatcherV1,
+    ) -> Result<VerifiedSignedInstalledReleaseV2, Error> =
+        PendingSignedInstalledReleaseMetadataV2::verify_current_pinned;
+    let _ = verify;
 }
 
 #[test]

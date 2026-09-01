@@ -1,5 +1,5 @@
+use runne_domain::DigestEqualityMatcherV1;
 use sha2::{Digest, Sha256};
-use subtle::ConstantTimeEq;
 
 use super::model::{UpdateMetadataV2, UpdateTargetV2, update_metadata_signing_bytes};
 use super::tuple::NativeEnrollmentTupleV2;
@@ -235,10 +235,20 @@ pub(super) fn exact(
     verified: VerifiedSignedUpdateMetadataV2,
     expected: [u8; 32],
 ) -> Result<VerifiedSignedInstalledReleaseV2, SignedInstalledReleaseVerificationErrorV2> {
+    if expected == [0; 32] {
+        return Err(SignedInstalledReleaseVerificationErrorV2::ReleaseBindingMismatch);
+    }
+    exact_with_matcher(verified, &DigestEqualityMatcherV1::from_expected(expected))
+}
+
+pub(super) fn exact_with_matcher(
+    verified: VerifiedSignedUpdateMetadataV2,
+    expected: &DigestEqualityMatcherV1,
+) -> Result<VerifiedSignedInstalledReleaseV2, SignedInstalledReleaseVerificationErrorV2> {
     let candidate = verified
         .qualified_release_candidate
         .ok_or(SignedInstalledReleaseVerificationErrorV2::Unqualified)?;
-    if expected == [0; 32] || !bool::from(candidate.release_binding_digest.ct_eq(&expected)) {
+    if !expected.matches(&candidate.release_binding_digest) {
         return Err(SignedInstalledReleaseVerificationErrorV2::ReleaseBindingMismatch);
     }
     Ok(VerifiedSignedInstalledReleaseV2 {
