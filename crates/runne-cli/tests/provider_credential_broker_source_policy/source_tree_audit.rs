@@ -239,6 +239,9 @@ impl<'ast> Visit<'ast> for SourceVisitor<'_> {
     }
 
     fn visit_macro(&mut self, node: &'ast Macro) {
+        if node.path.is_ident("macro_rules") {
+            self.reject("macro_rules definition");
+        }
         if let Some(violation) = include_reference_violation(node) {
             self.reject(&violation);
         }

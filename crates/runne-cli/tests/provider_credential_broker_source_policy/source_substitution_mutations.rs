@@ -1,6 +1,18 @@
 use super::source_tree_audit::source_tree_violations;
 
 #[test]
+fn production_cli_has_no_local_macro_rules_definitions() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let violations = source_tree_violations(&root);
+    assert!(
+        violations
+            .iter()
+            .all(|violation| !violation.contains("macro_rules definition")),
+        "production macro_rules definition found: {violations:#?}"
+    );
+}
+
+#[test]
 fn macro_emitted_source_references_are_rejected() {
     let cases = [
         (
@@ -22,6 +34,10 @@ fn macro_emitted_source_references_are_rejected() {
         (
             "macro-emitted path attribute",
             "macro_rules! hidden { () => { #[path = \"../outside.rs\"] mod escaped; } } hidden!();",
+        ),
+        (
+            "macro_rules definition",
+            "macro_rules! hidden { ($name:ident) => { #[$name = \"../outside.rs\"] mod escaped; } } hidden!(path);",
         ),
     ];
     for (expected, source) in cases {
