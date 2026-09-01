@@ -20,8 +20,8 @@ pub use host::{
 };
 
 pub use signed_installed_release::{
-    MacOsCodeIdentityExpectationV1, NativeEnrollmentQualificationRowV1, NativeEnrollmentTupleError,
-    NativeEnrollmentTupleV2, PendingSignedInstalledReleaseMetadataV2,
+    CompiledUpdateTrustRootV2, MacOsCodeIdentityExpectationV1, NativeEnrollmentQualificationRowV1,
+    NativeEnrollmentTupleError, NativeEnrollmentTupleV2, PendingSignedInstalledReleaseMetadataV2,
     SignedInstalledReleaseCandidateV2, SignedInstalledReleaseVerificationErrorV2,
     UpdateMetadataSigningError, UpdateMetadataV2, UpdateRootRoleV2, UpdateSignatureV2,
     UpdateSnapshotRoleV2, UpdateTargetV2, UpdateTargetsRoleV2, UpdateTimestampRoleV2,

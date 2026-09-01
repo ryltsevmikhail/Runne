@@ -10,7 +10,6 @@ mod provider_credential_prompt;
 mod root_handle_broker;
 mod updater;
 mod updater_artifact;
-mod updater_compiled_config;
 mod updater_coordinator;
 mod updater_feed;
 mod updater_install;
@@ -41,6 +40,7 @@ pub use root_handle_broker::{
 pub use root_handle_broker::{RootFileEntry, RootFileKind};
 #[cfg(all(unix, feature = "test-support"))]
 pub use root_handle_broker::{test_transfer_receiver, test_transfer_sender};
+pub use runne_api::CompiledUpdateTrustRootV2;
 pub use runne_api::WorkspaceId;
 pub use runne_api::{PROTECTED_BUNDLED_SESSION_RENEW_AFTER, ProtectedRootHandleAdmission};
 #[cfg(target_os = "macos")]
@@ -59,7 +59,6 @@ pub use updater::{
     stage_verified_artifact, verify_update,
 };
 pub use updater_artifact::{UpdateArtifactKind, UpdateArtifactKindError};
-pub use updater_compiled_config::CompiledUpdateTrustRootV2;
 pub use updater_coordinator::{
     UpdateCoordinator, UpdateCoordinatorError, UpdateTargetBindingConfig,
 };

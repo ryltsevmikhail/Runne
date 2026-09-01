@@ -1,4 +1,5 @@
 mod binding;
+mod compiled_trust;
 mod frame;
 mod model;
 mod qualification;
@@ -10,6 +11,7 @@ pub use binding::{
     SignedInstalledReleaseCandidateV2, VerifiedSignedInstalledReleaseV2,
     VerifiedSignedNativeEnrollmentTupleV2, VerifiedSignedUpdateMetadataV2,
 };
+pub use compiled_trust::CompiledUpdateTrustRootV2;
 pub use frame::PendingSignedInstalledReleaseMetadataV2;
 pub use model::{
     UpdateMetadataSigningError, UpdateMetadataV2, UpdateRootRoleV2, UpdateSignatureV2,

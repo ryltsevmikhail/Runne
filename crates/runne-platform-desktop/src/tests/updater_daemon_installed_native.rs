@@ -12,7 +12,9 @@ fn daemon_installed_native_composition_has_only_peer_bound_entrypoint() {
 #[test]
 fn shared_compiled_trust_never_embeds_runtime_or_bundle_bindings() {
     let sources = [
-        include_str!("../updater_compiled_config.rs"),
+        include_str!(
+            "../../../runne-api/src/provider_credential_enrollment/signed_installed_release/compiled_trust.rs"
+        ),
         include_str!("../updater_metadata/enrollment_tuple/daemon_installed.rs"),
     ];
 

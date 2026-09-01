@@ -1,6 +1,6 @@
-use crate::UpdateTrustRootV2;
+use super::model::UpdateTrustRootV2;
 
-/// Opaque updater trust root compiled into a native desktop or daemon binary.
+/// Opaque updater trust root compiled into every native consumer binary.
 pub struct CompiledUpdateTrustRootV2 {
     trust: UpdateTrustRootV2,
 }
@@ -24,7 +24,7 @@ impl CompiledUpdateTrustRootV2 {
         Self::from_values(&values)
     }
 
-    /// Transfers the verified opaque trust root to one update composition root.
+    /// Transfers the verified opaque trust root to an existing updater composition root.
     #[must_use]
     pub fn into_trust_root(self) -> UpdateTrustRootV2 {
         self.trust
@@ -94,6 +94,5 @@ struct RequiredCompiledUpdateTrustRootValues {
 }
 
 #[cfg(test)]
-mod tests {
-    include!("tests/compiled_update_config.rs");
-}
+#[path = "compiled_trust_tests.rs"]
+mod tests;
