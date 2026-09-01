@@ -140,7 +140,7 @@ impl MacOsWriterRelinquishmentOutcome {
     }
 
     #[must_use]
-    pub fn into_reap_only_owner(self) -> MacOsWriterReapOnlyOwner {
+    pub const fn into_reap_only_owner(self) -> MacOsWriterReapOnlyOwner {
         self.owner
     }
 }
@@ -151,6 +151,13 @@ impl MacOsWriterReapOnlyOwner {
     /// Returns a closed failure if the exact retained writer cannot be reaped.
     pub fn reap_exact_writer(&mut self) -> Result<(), BrokerHandoffError> {
         self.process.reap()
+    }
+
+    pub(crate) fn reap_exact_writer_bounded(
+        &mut self,
+        timeout: std::time::Duration,
+    ) -> Result<(), BrokerHandoffError> {
+        self.process.reap_with_timeout(timeout)
     }
 }
 

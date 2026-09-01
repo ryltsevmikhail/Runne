@@ -6,8 +6,9 @@ use std::time::{Duration, Instant};
 
 use super::{ProtectedWriterCleanup, RecoverableWriterHandoff};
 use crate::bundled_runtime::test_only_live_enrollment_runtime;
-use crate::provider_credential_enrollment::prepared::reap_guard::{
-    ExactWriterRecovery, RetainedWriterCleanup,
+use crate::provider_credential_enrollment::prepared::reap_guard::RetainedWriterCleanup;
+use crate::provider_credential_enrollment::prepared::reaper_registry::{
+    CredentialWriterReaperRegistry, ReaperOperationId,
 };
 use runne_platform_desktop::ProtectedBundledRuntimeError;
 
@@ -25,25 +26,50 @@ async fn poisoned_supervisor_retains_post_ack_reap_until_outer_stop() {
     let reap_attempts = Arc::new(AtomicUsize::new(0));
     let handoff =
         DaemonLifetimeWriter::spawn(daemon_pid, Arc::clone(&reaped), Arc::clone(&reap_attempts));
-    let recovery = ExactWriterRecovery::new();
+    let recovery = CredentialWriterReaperRegistry::start(Duration::from_millis(20)).unwrap();
+    let operation = ReaperOperationId::new("poisoned-supervisor").unwrap();
     let retained = RetainedWriterCleanup::new(
         ProtectedWriterCleanup::new(handoff, lease.supervisor_handle()),
-        recovery.clone(),
+        operation.clone(),
+        Arc::clone(&recovery),
     );
 
     assert!(retained.abort().is_err(), "abort error remains fail-closed");
     assert_eq!(reap_attempts.load(Ordering::SeqCst), 1);
     assert!(
-        !recovery.is_empty(),
+        recovery.snapshot()[0].owner_retained(),
         "timed-out reap owner must be retained"
     );
 
     cleanup.abort().await;
-    assert!(recovery.retry_exact(), "retry after outer stop must reap");
-    assert!(recovery.is_empty());
+    assert!(
+        recovery.retry_after_outer_stop(&operation),
+        "retry after outer stop must reap"
+    );
+    assert!(!recovery.snapshot()[0].owner_retained());
     assert_eq!(reaped.load(Ordering::SeqCst), 1);
     assert_eq!(reap_attempts.load(Ordering::SeqCst), 2);
     assert!(runtime.cleanup_completed());
+    assert!(recovery.shutdown());
+    drop(runtime);
+}
+
+#[tokio::test]
+async fn production_runtime_lease_and_cleanup_share_the_managed_reaper_registry() {
+    let directory = tempfile::tempdir().expect("runtime directory");
+    let fixture = runne_platform_desktop::test_only_ready_v3_enrollment_supervisor();
+    let mut runtime = test_only_live_enrollment_runtime(directory.path(), fixture).await;
+    let runtime_reapers = runtime.writer_reaper_registry();
+    let (lease, cleanup) = runtime.take_lease_with_cleanup();
+    let lease_reapers = lease.writer_reaper_registry();
+    let cleanup_reapers = cleanup.writer_reaper_registry();
+
+    assert!(Arc::ptr_eq(&runtime_reapers, &lease_reapers));
+    assert!(Arc::ptr_eq(&runtime_reapers, &cleanup_reapers));
+    assert!(runtime.writer_reaper_snapshot().is_empty());
+    cleanup.abort().await;
+    assert!(runtime_reapers.shutdown());
+    drop(lease);
     drop(runtime);
 }
 

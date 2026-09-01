@@ -8,7 +8,10 @@ use super::post_fence::spawn_pre_fence_enrollment_owner;
 use super::{LivePostFenceAdmission, run_post_fence_branches};
 use crate::bundled_runtime::test_only_live_enrollment_runtime;
 use crate::provider_credential_enrollment::prepared::reap_guard::{
-    ExactWriterCleanup, ExactWriterRecovery, RetainedWriterCleanup,
+    ExactWriterCleanup, RetainedWriterCleanup,
+};
+use crate::provider_credential_enrollment::prepared::reaper_registry::{
+    CredentialWriterReaperRegistry, ReaperOperationId,
 };
 use crate::provider_credential_enrollment::{CredentialIntentIpc, CredentialIntentRegistry};
 use crate::updater_status::enrollment::{
@@ -64,7 +67,8 @@ async fn pre_fence_owner_survives_command_cancellation_at_every_lifecycle_stage(
                 degrade.fetch_add(1, Ordering::SeqCst);
             },
             || (),
-        );
+        )
+        .unwrap_or_else(|()| panic!("watcher spawn"));
         let command = tokio::spawn(result);
         loop {
             let reached = tokio::time::timeout(Duration::from_secs(1), events_rx.recv())
@@ -102,6 +106,8 @@ async fn blocking_worker_panic_is_outer_cleanup_once() {
     let reaped = Arc::new(AtomicUsize::new(0));
     let worker_child = Arc::clone(&child);
     let worker_reaped = Arc::clone(&reaped);
+    let reapers = CredentialWriterReaperRegistry::start(Duration::from_millis(20)).unwrap();
+    let worker_reapers = Arc::clone(&reapers);
     let (result, completion) = spawn_pre_fence_enrollment_owner(
         || async move {
             tauri::async_runtime::spawn_blocking(move || {
@@ -110,7 +116,8 @@ async fn blocking_worker_panic_is_outer_cleanup_once() {
                         child: worker_child,
                         reaped: worker_reaped,
                     },
-                    ExactWriterRecovery::new(),
+                    ReaperOperationId::new("blocking-worker-panic").unwrap(),
+                    worker_reapers,
                 );
                 panic!("injected transcript panic");
             })
@@ -122,13 +129,15 @@ async fn blocking_worker_panic_is_outer_cleanup_once() {
             degrade.fetch_add(1, Ordering::SeqCst);
         },
         || (),
-    );
+    )
+    .expect("watcher spawn");
     assert_eq!(result.await.expect("owner result"), Err(()));
     completion.wait().await.expect("owner completion");
     assert_eq!(stopped.load(Ordering::SeqCst), 1);
     assert_eq!(degraded.load(Ordering::SeqCst), 1);
     assert_eq!(reaped.load(Ordering::SeqCst), 1);
     assert!(child.lock().expect("child").try_wait().unwrap().is_some());
+    assert!(reapers.shutdown());
 }
 
 struct ChildCleanup {
@@ -225,7 +234,8 @@ async fn exact_live_post_fence_branches_fail_closed_before_writer() {
             },
             move || async move { cleanup.abort().await },
             || super::DispatchFailure::Closed("provider_credential_exchange_rejected"),
-        );
+        )
+        .unwrap_or_else(|_| panic!("watcher spawn"));
         assert!(result.await.expect("owner result").is_err());
         completion.wait().await.expect("owner completion");
         assert_eq!(writer_calls.load(Ordering::SeqCst), 0);

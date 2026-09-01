@@ -23,7 +23,8 @@ impl OwnedRuntimeLifecycle for BundledRuntimeController {
                     BundledRuntimeStopDisposition::Forced => BundledShutdownOutcome::Forced,
                 },
             );
-        let outcome = if core_fenced {
+        let reapers_reaped = self.writer_reapers.shutdown();
+        let outcome = if core_fenced && reapers_reaped {
             stop_outcome
         } else {
             BundledShutdownOutcome::Incomplete
@@ -78,19 +79,34 @@ impl NativeRootAdmissionLifecycle for BundledRuntimeController {
     fn acquire_credential_enrollment_lease(&self) -> crate::bundled_runtime::CredentialEnrollmentFuture {
         let core = Arc::clone(&self.core);
         let supervisor = Arc::clone(&self.supervisor);
+        let writer_reapers = Arc::clone(&self.writer_reapers);
         let fence = Arc::clone(&self.operation_fence);
         Box::pin(async move {
-            let operation_permit = fence
-                .enter()
-                .await
-                .ok_or(AppCoreError::RuntimeUnavailable)?;
+            let operation_permit = acquire_fenced_enrollment_permit(&fence, || {
+                writer_reapers.accepts_writer()
+            })
+            .await?;
             Ok(crate::bundled_runtime::NativeCredentialEnrollmentLease {
                 core,
                 supervisor,
+                writer_reapers,
                 operation_permit,
             })
         })
     }
+}
+
+async fn acquire_fenced_enrollment_permit(
+    fence: &RuntimeOperationFence,
+    accepts_writer: impl FnOnce() -> bool,
+) -> Result<tokio::sync::OwnedMutexGuard<()>, AppCoreError> {
+    let permit = fence
+        .enter()
+        .await
+        .ok_or(AppCoreError::RuntimeUnavailable)?;
+    accepts_writer()
+        .then_some(permit)
+        .ok_or(AppCoreError::RuntimeUnavailable)
 }
 
 fn map_protected_failure(error: ProtectedBundledRuntimeError) -> RuntimeFailureCode {

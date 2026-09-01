@@ -4,7 +4,8 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-use super::reap_guard::{ExactWriterCleanup, ExactWriterRecovery, RetainedWriterCleanup};
+use super::reap_guard::{ExactWriterCleanup, RetainedWriterCleanup};
+use super::reaper_registry::{CredentialWriterReaperRegistry, ReaperOperationId};
 
 #[test]
 fn panic_after_ack_stops_and_reaps_the_exact_child_at_every_transcript_step() {
@@ -17,12 +18,14 @@ fn panic_after_ack_stops_and_reaps_the_exact_child_at_every_transcript_step() {
         let reaped = Arc::new(AtomicBool::new(false));
         let observed = Arc::clone(&reaped);
         let owned_child = Arc::clone(&child);
+        let registry = CredentialWriterReaperRegistry::start(Duration::from_millis(20)).unwrap();
         let cleanup = RetainedWriterCleanup::new(
             ChildReap {
                 child: owned_child,
                 reaped: observed,
             },
-            ExactWriterRecovery::new(),
+            ReaperOperationId::new(&format!("panic-step-{step}")).unwrap(),
+            Arc::clone(&registry),
         );
         let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
             let _retained = cleanup;
@@ -31,6 +34,8 @@ fn panic_after_ack_stops_and_reaps_the_exact_child_at_every_transcript_step() {
         assert!(unwind.is_err());
         assert!(reaped.load(Ordering::SeqCst));
         assert!(child.lock().expect("child").try_wait().unwrap().is_some());
+        assert!(registry.snapshot().is_empty());
+        assert!(registry.shutdown());
     }
 }
 

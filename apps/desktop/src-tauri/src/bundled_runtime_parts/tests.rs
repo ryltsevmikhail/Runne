@@ -3,7 +3,7 @@
 
     use super::{
         BundledRuntimeController, ProtectedSessionRenewalSchedule, RuntimeOperationFence,
-        map_protected_failure,
+        acquire_fenced_enrollment_permit, map_protected_failure,
     };
     use runne_api::ProviderActivationReadinessV1;
     use runne_app_core::{AppCore, RuntimeFailureCode, RuntimeMode};
@@ -143,6 +143,37 @@
             .expect("runtime");
         assert!(runtime.block_on(fence.enter()).is_none());
         assert!(!fence.begin_shutdown());
+    }
+
+    #[tokio::test]
+    async fn enrollment_reaper_admission_is_checked_after_the_operation_fence() {
+        let fence = Arc::new(RuntimeOperationFence::new());
+        let held_permit = fence.enter().await.expect("hold operation fence");
+        let accepts_writer = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let candidate_fence = Arc::clone(&fence);
+        let candidate_accepts_writer = Arc::clone(&accepts_writer);
+        let (checked_tx, mut checked_rx) = tokio::sync::oneshot::channel();
+        let candidate = tokio::spawn(async move {
+            acquire_fenced_enrollment_permit(&candidate_fence, move || {
+                let _ = checked_tx.send(());
+                candidate_accepts_writer.load(std::sync::atomic::Ordering::SeqCst)
+            })
+            .await
+        });
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), &mut checked_rx)
+                .await
+                .is_err(),
+            "a queued request must not inspect reaper state before it owns the fence"
+        );
+        accepts_writer.store(false, std::sync::atomic::Ordering::SeqCst);
+        drop(held_permit);
+        checked_rx.await.expect("reaper state checked after fence");
+        assert!(
+            candidate.await.expect("candidate task").is_err(),
+            "a retained writer must reject the next queued enrollment"
+        );
     }
 
     #[test]

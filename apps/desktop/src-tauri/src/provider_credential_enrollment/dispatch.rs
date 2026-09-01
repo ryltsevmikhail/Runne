@@ -20,9 +20,7 @@ mod post_fence;
 #[cfg(target_os = "macos")]
 use super::host_prompt::MacOsHostCredentialPrompt;
 #[cfg(target_os = "macos")]
-use super::prepared::{
-    NativeEnrollmentConfirmation, PreparedCredentialEnrollmentExchange, ProtectedWriterRecovery,
-};
+use super::prepared::{NativeEnrollmentConfirmation, PreparedCredentialEnrollmentExchange};
 use post_fence::{
     PostFenceEnrollmentDependencies, run_post_fence_branches, spawn_pre_fence_enrollment_owner,
 };
@@ -202,10 +200,10 @@ async fn dispatch_pair_inner(
     // Fence the V2 AppCore generation, transition to V3, and install the
     // rotated authenticated client before durable Begin or writer spawn.
     let cleanup = runtime_lease.cleanup_handle();
+    let writer_reapers = runtime_lease.writer_reaper_registry();
     let intents = intents.clone();
     let owner_intents = intents.clone();
-    let writer_recovery = ProtectedWriterRecovery::new();
-    let work_recovery = writer_recovery.clone();
+    let work_reapers = writer_reapers;
     let (result, _owner_completion) = spawn_pre_fence_enrollment_owner(
         move || async move {
             let confirmed = runtime_lease
@@ -222,20 +220,14 @@ async fn dispatch_pair_inner(
                 updater: updater_lease,
                 intent_session: None,
             })?;
-            tauri::async_runtime::spawn_blocking(move || {
-                exchange.run(&owner_intents, work_recovery)
-            })
-            .await
-            .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))?
-            .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))
+            tauri::async_runtime::spawn_blocking(move || exchange.run(&owner_intents, work_reapers))
+                .await
+                .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))?
+                .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))
         },
-        move || async move {
-            cleanup.abort().await;
-            let _ =
-                tauri::async_runtime::spawn_blocking(move || writer_recovery.retry_exact()).await;
-        },
+        move || async move { cleanup.abort().await },
         || DispatchFailure::Closed("provider_credential_exchange_rejected"),
-    );
+    )?;
     result
         .await
         .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))??;
@@ -267,3 +259,6 @@ mod round3_tests;
 #[cfg(test)]
 #[path = "dispatch/round4_watcher_tests.rs"]
 mod round4_watcher_tests;
+#[cfg(test)]
+#[path = "dispatch/round5_watcher_tests.rs"]
+mod round5_watcher_tests;

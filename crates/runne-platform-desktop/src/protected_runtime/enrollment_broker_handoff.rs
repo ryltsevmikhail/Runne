@@ -45,11 +45,23 @@ impl CredentialWriterHandoff {
     ///
     /// Returns a closed failure when the retained writer cannot be reaped.
     pub fn reap_exact_writer(&mut self) -> Result<(), ProtectedBundledRuntimeError> {
+        self.reap_exact_writer_bounded(std::time::Duration::from_secs(2))
+    }
+
+    /// Performs one bounded exact-child reap attempt for managed maintenance.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed failure while retaining the exact wait owner.
+    pub fn reap_exact_writer_bounded(
+        &mut self,
+        timeout: std::time::Duration,
+    ) -> Result<(), ProtectedBundledRuntimeError> {
         let Some(owner) = self.owner.as_mut() else {
             return Ok(());
         };
         owner
-            .reap_exact_writer()
+            .reap_exact_writer_bounded(timeout)
             .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
         self.owner = None;
         Ok(())

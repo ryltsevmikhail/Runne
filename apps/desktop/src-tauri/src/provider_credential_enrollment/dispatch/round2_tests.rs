@@ -35,7 +35,8 @@ async fn cancelled_command_cannot_cancel_the_cleanup_supervisor() {
                 degrade.fetch_add(1, Ordering::SeqCst);
             },
             || (),
-        );
+        )
+        .expect("watcher spawn");
         let command = tokio::spawn(result);
         if cancel_at == 0 {
             command.abort();

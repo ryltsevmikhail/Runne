@@ -9,6 +9,10 @@ mod projection;
 
 pub use command::CredentialIntentIpc;
 pub use intent::CredentialIntentRegistry;
+pub use prepared::ProtectedWriterReaperRegistry;
+pub use prepared::{
+    CredentialWriterReaperLastError, CredentialWriterReaperSnapshot, CredentialWriterReaperState,
+};
 pub use projection::CredentialIntentProjection;
 
 pub use dispatch::dispatch_credential_intent;

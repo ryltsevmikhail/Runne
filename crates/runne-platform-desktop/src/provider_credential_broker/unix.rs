@@ -69,7 +69,7 @@ impl UnixWriterReapOnlyProcess {
         self.reap_with_timeout(std::time::Duration::from_secs(2))
     }
 
-    fn reap_with_timeout(
+    pub(super) fn reap_with_timeout(
         &mut self,
         timeout: std::time::Duration,
     ) -> Result<(), BrokerHandoffError> {
@@ -79,15 +79,6 @@ impl UnixWriterReapOnlyProcess {
         wait_for_pid_bounded(nix::unistd::Pid::from_raw(pid), timeout)?;
         self.pid = None;
         Ok(())
-    }
-}
-
-#[cfg(target_os = "macos")]
-impl Drop for UnixWriterReapOnlyProcess {
-    fn drop(&mut self) {
-        if let Some(pid) = self.pid.take() {
-            retain_reap_ownership(nix::unistd::Pid::from_raw(pid));
-        }
     }
 }
 
@@ -160,30 +151,6 @@ fn wait_for_pid_bounded(
     }
 }
 
-#[cfg(target_os = "macos")]
-fn retain_reap_ownership(pid: nix::unistd::Pid) {
-    let retained = std::sync::Arc::new(pid);
-    let worker = std::sync::Arc::clone(&retained);
-    if std::thread::Builder::new()
-        .name("runne-writer-reaper".into())
-        .spawn(move || wait_for_pid_unbounded(*worker))
-        .is_err()
-    {
-        wait_for_pid_unbounded(*retained);
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn wait_for_pid_unbounded(pid: nix::unistd::Pid) {
-    loop {
-        match nix::sys::wait::waitpid(pid, None) {
-            Ok(_) | Err(nix::errno::Errno::ECHILD) => return,
-            Err(nix::errno::Errno::EINTR) => (),
-            Err(_) => std::thread::sleep(std::time::Duration::from_millis(10)),
-        }
-    }
-}
-
 #[cfg(all(test, target_os = "macos"))]
 mod bounded_reap_tests {
     use std::time::{Duration, Instant};
@@ -236,32 +203,23 @@ mod bounded_reap_tests {
     }
 
     #[test]
-    fn final_failed_retry_moves_exact_reap_into_an_independent_owner() {
+    fn failed_reap_owner_drop_never_starts_a_detached_waiter() {
         let child = std::process::Command::new("/bin/sleep")
             .arg("30")
             .spawn()
             .unwrap();
         let pid = nix::unistd::Pid::from_raw(i32::try_from(child.id()).unwrap());
         drop(child);
-        let mut owner = super::UnixWriterReapOnlyProcess {
-            pid: Some(pid.as_raw()),
-        };
-        assert!(owner.reap_with_timeout(Duration::from_millis(20)).is_err());
-        drop(owner);
+        {
+            let mut owner = super::UnixWriterReapOnlyProcess {
+                pid: Some(pid.as_raw()),
+            };
+            assert!(owner.reap_with_timeout(Duration::from_millis(20)).is_err());
+        }
 
         nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGKILL).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(1);
-        let independently_reaped = loop {
-            match nix::sys::signal::kill(pid, None) {
-                Err(nix::errno::Errno::ESRCH) => break true,
-                _ if Instant::now() >= deadline => break false,
-                _ => std::thread::sleep(Duration::from_millis(5)),
-            }
-        };
-        if !independently_reaped {
-            let _ = nix::sys::wait::waitpid(pid, None);
-        }
-        assert!(independently_reaped);
+        let observed = nix::sys::wait::waitpid(pid, None).unwrap();
+        assert!(!matches!(observed, nix::sys::wait::WaitStatus::StillAlive));
     }
 
     #[test]

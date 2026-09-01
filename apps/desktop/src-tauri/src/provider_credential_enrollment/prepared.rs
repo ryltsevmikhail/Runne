@@ -16,12 +16,19 @@ use runne_platform_desktop::{
 use sha2::{Digest as _, Sha256};
 use std::fmt;
 use std::time::Instant;
-pub(super) mod reap_guard;
+pub mod reap_guard;
 #[cfg(test)]
 #[path = "prepared/reap_guard_tests.rs"]
 mod reap_guard_tests;
+pub mod reaper_registry;
+#[cfg(test)]
+#[path = "prepared/reaper_registry_tests.rs"]
+mod reaper_registry_tests;
 mod runner;
-pub(super) use runner::ProtectedWriterRecovery;
+pub use reaper_registry::{
+    CredentialWriterReaperLastError, CredentialWriterReaperSnapshot, CredentialWriterReaperState,
+};
+pub use runner::ProtectedWriterReaperRegistry;
 /// Opaque native-only exchange retained for the later daemon control slice.
 ///
 /// This value is deliberately neither serializable nor cloneable and exposes no

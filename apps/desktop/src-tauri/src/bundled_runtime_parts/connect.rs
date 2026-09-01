@@ -19,6 +19,8 @@ impl BundledRuntimeController {
             DevelopmentBundledRuntimeLauncher::new(),
             spec,
         );
+        let writer_reapers = ProtectedWriterReaperRegistry::start(WRITER_REAPER_POLL_INTERVAL)
+            .map_err(|_| RuntimeFailureCode::ProtectedActivationUnavailable)?;
         Ok(Arc::new(Self {
             core,
             supervisor: Arc::new(Mutex::new(supervisor)),
@@ -27,6 +29,7 @@ impl BundledRuntimeController {
                 PROTECTED_BUNDLED_SESSION_RENEW_AFTER,
             )),
             shutdown_outcome: Mutex::new(None),
+            writer_reapers,
         }))
     }
 
@@ -53,6 +56,8 @@ impl BundledRuntimeController {
             .with_openai_provider_activation();
         let supervisor =
             ProtectedBundledRuntimeSupervisor::new(DevelopmentBundledRuntimeLauncher::new(), spec);
+        let writer_reapers = ProtectedWriterReaperRegistry::start(WRITER_REAPER_POLL_INTERVAL)
+            .map_err(|_| RuntimeFailureCode::ProtectedActivationUnavailable)?;
         Ok(Arc::new(Self {
             core,
             supervisor: Arc::new(Mutex::new(supervisor)),
@@ -61,6 +66,7 @@ impl BundledRuntimeController {
                 PROTECTED_BUNDLED_SESSION_RENEW_AFTER,
             )),
             shutdown_outcome: Mutex::new(None),
+            writer_reapers,
         }))
     }
 
@@ -77,6 +83,11 @@ impl BundledRuntimeController {
         self.shutdown_outcome
             .lock()
             .map_or(Some(BundledShutdownOutcome::Incomplete), |outcome| *outcome)
+    }
+
+    #[must_use]
+    pub fn credential_writer_reaper_snapshot(&self) -> Vec<CredentialWriterReaperSnapshot> {
+        self.writer_reapers.snapshot()
     }
 
     async fn connect(&self) -> Result<RuntimeAvailability, AppCoreError> {

@@ -30,6 +30,9 @@ use prepared_workspace::{
     PreparedWorkspaceBinding, PreparedWorkspaceManager, PreparedWorkspaceReservationGuard,
     PreparedWorkspaceResponse,
 };
+pub use provider_credential_enrollment::{
+    CredentialWriterReaperLastError, CredentialWriterReaperSnapshot, CredentialWriterReaperState,
+};
 use runne_api::ProviderStatusSnapshotV1;
 use runne_app_core::{
     AppCore, AppCoreError, BootstrapState, CanonicalProcessOutputPage, CanonicalProcessSnapshot,
@@ -107,7 +110,6 @@ trait NativeRootAdmissionLifecycle: OwnedRuntimeLifecycle {
         Box::pin(async { Err(AppCoreError::RuntimeUnavailable) })
     }
 }
-
 /// External runtimes have no controller and therefore remain an intentional
 /// no-op. Bundled mode registers only a controller that proves the exact owned
 /// launch before it signals or terminates it.
@@ -248,7 +250,6 @@ impl RuntimeLifecycleManager {
         }
     }
 }
-
 /// Closed rejection for conflicting native runtime-mode flags.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RuntimeModeSelectionError;
@@ -260,7 +261,6 @@ impl std::fmt::Display for RuntimeModeSelectionError {
 }
 
 impl std::error::Error for RuntimeModeSelectionError {}
-
 /// Selects bundled mode by default; external mode requires an explicit native
 /// flag. No profile or connection failure can change the selected mode.
 ///

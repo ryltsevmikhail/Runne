@@ -13,6 +13,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::provider_credential_enrollment::{
+    CredentialWriterReaperSnapshot, ProtectedWriterReaperRegistry,
+};
 use crate::{
     NativeRootAdmission, NativeRootAdmissionLifecycle, OwnedRuntimeLifecycle, RootAdmissionFuture,
     RootAdmissionReapFuture, RuntimeConnectionFuture,
@@ -33,6 +36,7 @@ use runne_platform_desktop::{
 
 const BUNDLED_CLIENT_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const SUPERVISOR_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const WRITER_REAPER_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Opaque compile-time gate for the native loopback fixture only.
 ///
@@ -129,6 +133,7 @@ pub struct BundledRuntimeController {
     operation_fence: Arc<RuntimeOperationFence>,
     renewal_schedule: Mutex<ProtectedSessionRenewalSchedule>,
     shutdown_outcome: Mutex<Option<BundledShutdownOutcome>>,
+    writer_reapers: Arc<ProtectedWriterReaperRegistry>,
 }
 
 /// Exclusive native-operation lease retained while a credential prompt is open.
@@ -138,6 +143,7 @@ pub struct BundledRuntimeController {
 pub struct NativeCredentialEnrollmentLease {
     core: Arc<AppCore>,
     supervisor: Arc<Mutex<ProtectedBundledRuntimeSupervisor>>,
+    writer_reapers: Arc<ProtectedWriterReaperRegistry>,
     /// Held for its exclusive-fence side effect; never read directly.
     #[cfg_attr(target_os = "macos", expect(dead_code))]
     operation_permit: tokio::sync::OwnedMutexGuard<()>,
@@ -147,6 +153,7 @@ pub struct NativeCredentialEnrollmentLease {
 pub struct NativeCredentialEnrollmentCleanup {
     core: Arc<AppCore>,
     supervisor: Arc<Mutex<ProtectedBundledRuntimeSupervisor>>,
+    writer_reapers: Arc<ProtectedWriterReaperRegistry>,
 }
 
 pub type CredentialEnrollmentFuture = Pin<

@@ -2,8 +2,10 @@ use super::{
     AppCoreError, Arc, BUNDLED_CLIENT_CONNECT_TIMEOUT, BundledRuntimeActivationLease,
     ConfirmedInstalledNativeEnrollment, Mutex, NativeCredentialEnrollmentCleanup,
     NativeCredentialEnrollmentLease, PreparedInstalledNativeEnrollment,
-    ProtectedBundledRuntimeSupervisor, RuntimeFailureCode,
+    ProtectedBundledRuntimeSupervisor, ProtectedWriterReaperRegistry, RuntimeFailureCode,
 };
+#[cfg(test)]
+use super::{CredentialWriterReaperSnapshot, WRITER_REAPER_POLL_INTERVAL};
 
 impl NativeCredentialEnrollmentLease {
     pub(crate) fn supervisor_handle(&self) -> Arc<Mutex<ProtectedBundledRuntimeSupervisor>> {
@@ -14,7 +16,12 @@ impl NativeCredentialEnrollmentLease {
         NativeCredentialEnrollmentCleanup {
             core: Arc::clone(&self.core),
             supervisor: Arc::clone(&self.supervisor),
+            writer_reapers: Arc::clone(&self.writer_reapers),
         }
+    }
+
+    pub(crate) fn writer_reaper_registry(&self) -> Arc<ProtectedWriterReaperRegistry> {
+        Arc::clone(&self.writer_reapers)
     }
 
     pub(crate) async fn confirm(
@@ -113,6 +120,14 @@ impl NativeCredentialEnrollmentCleanup {
             .core
             .mark_bundled_runtime_degraded(RuntimeFailureCode::ProtectedActivationUnavailable)
             .await;
+        let reapers = Arc::clone(&self.writer_reapers);
+        let _ = tauri::async_runtime::spawn_blocking(move || reapers.retry_all_after_outer_stop())
+            .await;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn writer_reaper_registry(&self) -> Arc<ProtectedWriterReaperRegistry> {
+        Arc::clone(&self.writer_reapers)
     }
 }
 
@@ -121,6 +136,7 @@ pub struct TestOnlyLiveEnrollmentRuntime {
     lease: Option<NativeCredentialEnrollmentLease>,
     core: Arc<runne_app_core::AppCore>,
     supervisor: Arc<Mutex<ProtectedBundledRuntimeSupervisor>>,
+    writer_reapers: Arc<ProtectedWriterReaperRegistry>,
 }
 
 #[cfg(test)]
@@ -157,6 +173,14 @@ impl TestOnlyLiveEnrollmentRuntime {
     pub(crate) fn supervisor_handle(&self) -> Arc<Mutex<ProtectedBundledRuntimeSupervisor>> {
         Arc::clone(&self.supervisor)
     }
+
+    pub(crate) fn writer_reaper_snapshot(&self) -> Vec<CredentialWriterReaperSnapshot> {
+        self.writer_reapers.snapshot()
+    }
+
+    pub(crate) fn writer_reaper_registry(&self) -> Arc<ProtectedWriterReaperRegistry> {
+        Arc::clone(&self.writer_reapers)
+    }
 }
 
 #[cfg(test)]
@@ -172,14 +196,18 @@ pub async fn test_only_live_enrollment_runtime(
         .expect("test AppCore"),
     );
     let supervisor = Arc::new(Mutex::new(fixture.into_supervisor()));
+    let writer_reapers = ProtectedWriterReaperRegistry::start(WRITER_REAPER_POLL_INTERVAL)
+        .expect("test writer reaper registry");
     let operation = Arc::new(tokio::sync::Mutex::new(())).lock_owned().await;
     TestOnlyLiveEnrollmentRuntime {
         lease: Some(NativeCredentialEnrollmentLease {
             core: Arc::clone(&core),
             supervisor: Arc::clone(&supervisor),
+            writer_reapers: Arc::clone(&writer_reapers),
             operation_permit: operation,
         }),
         core,
         supervisor,
+        writer_reapers,
     }
 }

@@ -1,4 +1,5 @@
-use super::reap_guard::{ExactWriterCleanup, ExactWriterRecovery, RetainedWriterCleanup};
+use super::reap_guard::{ExactWriterCleanup, RetainedWriterCleanup};
+use super::reaper_registry::{CredentialWriterReaperRegistry, ReaperOperationId};
 use super::*;
 use runne_api::{BeginProviderCredentialEnrollment, ProviderCredentialEnrollmentActionV2};
 use runne_platform_desktop::NativeProtectedCredentialEnrollmentBegin;
@@ -8,6 +9,10 @@ pub(in crate::provider_credential_enrollment) trait RecoverableWriterHandoff {
     type Error;
 
     fn reap_exact_writer(&mut self) -> Result<(), Self::Error>;
+
+    fn maintain_exact_writer(&mut self) -> Result<(), Self::Error> {
+        self.reap_exact_writer()
+    }
 }
 
 impl RecoverableWriterHandoff for runne_platform_desktop::CredentialWriterHandoff {
@@ -16,11 +21,13 @@ impl RecoverableWriterHandoff for runne_platform_desktop::CredentialWriterHandof
     fn reap_exact_writer(&mut self) -> Result<(), Self::Error> {
         self.reap_exact_writer()
     }
+
+    fn maintain_exact_writer(&mut self) -> Result<(), Self::Error> {
+        self.reap_exact_writer_bounded(std::time::Duration::from_millis(100))
+    }
 }
 
-pub(in crate::provider_credential_enrollment) struct ProtectedWriterCleanup<
-    H = runne_platform_desktop::CredentialWriterHandoff,
-> {
+pub struct ProtectedWriterCleanup<H = runne_platform_desktop::CredentialWriterHandoff> {
     handoff: H,
     supervisor: Arc<std::sync::Mutex<runne_platform_desktop::ProtectedBundledRuntimeSupervisor>>,
 }
@@ -62,10 +69,13 @@ where
     fn retry_exact(&mut self) -> Result<(), Self::Error> {
         self.handoff.reap_exact_writer()
     }
+
+    fn maintain_exact(&mut self) -> Result<(), Self::Error> {
+        self.handoff.maintain_exact_writer()
+    }
 }
 
-pub(in crate::provider_credential_enrollment) type ProtectedWriterRecovery =
-    ExactWriterRecovery<ProtectedWriterCleanup>;
+pub type ProtectedWriterReaperRegistry = CredentialWriterReaperRegistry<ProtectedWriterCleanup>;
 
 pub(super) fn begin_then_handoff<B, H, E: Default>(
     begin_operation: impl FnOnce() -> Result<B, E>,
@@ -86,15 +96,15 @@ impl PreparedCredentialEnrollmentExchange {
     pub(in crate::provider_credential_enrollment) fn run(
         mut self,
         registry: &CredentialIntentRegistry,
-        recovery: ProtectedWriterRecovery,
+        reapers: Arc<ProtectedWriterReaperRegistry>,
     ) -> Result<(), PreparedCredentialEnrollmentError> {
-        self.run_retained(registry, recovery)
+        self.run_retained(registry, reapers)
     }
 
     fn run_retained(
         &mut self,
         registry: &CredentialIntentRegistry,
-        recovery: ProtectedWriterRecovery,
+        reapers: Arc<ProtectedWriterReaperRegistry>,
     ) -> Result<(), PreparedCredentialEnrollmentError> {
         self.updater_lease
             .revalidate_confirmed(&self.installed)
@@ -117,6 +127,8 @@ impl PreparedCredentialEnrollmentExchange {
             return Err(PreparedCredentialEnrollmentError);
         }
         let command_id = uuid::Uuid::now_v7().to_string();
+        let reaper_operation =
+            ReaperOperationId::new(&command_id).ok_or(PreparedCredentialEnrollmentError)?;
         let command = BeginProviderCredentialEnrollment::new(
             self.request.action,
             self.request.provider,
@@ -152,7 +164,8 @@ impl PreparedCredentialEnrollmentExchange {
         )?;
         let mut handoff = RetainedWriterCleanup::new(
             ProtectedWriterCleanup::new(retained_handoff, Arc::clone(&supervisor)),
-            recovery,
+            reaper_operation,
+            reapers,
         );
         let exchange = (|| {
             supervisor

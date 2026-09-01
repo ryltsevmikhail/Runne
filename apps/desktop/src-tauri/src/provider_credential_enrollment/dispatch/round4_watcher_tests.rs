@@ -20,7 +20,8 @@ async fn panic_while_constructing_transition_is_published_after_exact_cleanup() 
             observed.fetch_add(1, Ordering::SeqCst);
         },
         || (),
-    );
+    )
+    .expect("watcher spawn");
 
     assert_eq!(result.await.expect("watcher publishes panic"), Err(()));
     await_watcher(completion).await;
@@ -42,7 +43,8 @@ async fn panic_inside_async_transition_is_published_after_exact_cleanup() {
             observed.fetch_add(1, Ordering::SeqCst);
         },
         || (),
-    );
+    )
+    .expect("watcher spawn");
 
     assert_eq!(result.await.expect("watcher publishes panic"), Err(()));
     await_watcher(completion).await;
@@ -62,7 +64,8 @@ async fn dropped_result_receiver_never_cancels_owner_cleanup_or_completion() {
             observed.fetch_add(1, Ordering::SeqCst);
         },
         || (),
-    );
+    )
+    .expect("watcher spawn");
     drop(result);
 
     await_watcher(completion).await;
@@ -79,7 +82,8 @@ async fn exact_success_alone_disarms_outer_cleanup() {
             observed.fetch_add(1, Ordering::SeqCst);
         },
         || (),
-    );
+    )
+    .expect("watcher spawn");
 
     assert_eq!(result.await.expect("watcher result"), Ok(7));
     await_watcher(completion).await;
@@ -94,7 +98,8 @@ async fn cleanup_panic_is_observed_without_panicking_the_watcher() {
             panic!("injected cleanup panic");
         },
         || (),
-    );
+    )
+    .expect("watcher spawn");
 
     assert_eq!(result.await.expect("watcher publishes failure"), Err(()));
     await_watcher(watcher).await;
