@@ -1,6 +1,5 @@
 use std::io::Cursor;
 
-use runne_domain::DigestEqualityMatcherV1;
 use runne_provider::{
     CredentialBindingDigest, CredentialBrokerCommand, CredentialBrokerFrame,
     CredentialBrokerFrameCodec, CredentialBrokerTarget, CredentialFence,
@@ -82,8 +81,6 @@ fn decoded_attestation_matches_only_exact_observable_facts() {
         &[process_facts[4]; 32],
         &[process_facts[5]; 32],
     ));
-    let release_matcher = DigestEqualityMatcherV1::from_expected([runtime_facts.release_tuple; 32]);
-    assert!(decoded.matches_provisional_release_binding(&release_matcher));
     let release_expectation = decoded.release_binding_expectation();
     assert!(release_expectation.matches(&[runtime_facts.release_tuple; 32]));
     assert!(!release_expectation.matches(&[31; 32]));
@@ -144,8 +141,6 @@ fn decoded_attestation_matches_only_exact_observable_facts() {
             &[mutation[5]; 32],
         ));
     }
-    let mutated_release_matcher = DigestEqualityMatcherV1::from_expected([31; 32]);
-    assert!(!decoded.matches_provisional_release_binding(&mutated_release_matcher));
 }
 
 fn mutated_issue_bytes(frame_bytes: &[u8], facts: TicketFacts, version: u64) -> Vec<u8> {

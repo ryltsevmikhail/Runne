@@ -131,6 +131,23 @@ fn only_exact_verifier_constructs_exact_installed_release() {
         1
     );
     assert!(source.contains("pub(super) fn exact("));
+    assert_eq!(
+        source.matches("pub(super) fn exact_with_matcher(").count(),
+        1
+    );
+    let raw_exact = source
+        .split("pub(super) fn exact(")
+        .nth(1)
+        .unwrap()
+        .split("pub(super) fn exact_with_matcher(")
+        .next()
+        .unwrap();
+    assert_eq!(raw_exact.matches("exact_with_matcher(").count(), 1);
+    let opaque_exact = source
+        .split("pub(super) fn exact_with_matcher(")
+        .nth(1)
+        .unwrap();
+    assert!(opaque_exact.contains("candidate.release_binding_digest == [0; 32]"));
     assert!(!source.contains("From<SignedInstalledReleaseCandidateV2>"));
 }
 

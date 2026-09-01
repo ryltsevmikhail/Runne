@@ -101,19 +101,17 @@ fn attestation_exposes_only_locked_opaque_match_surface() {
     let matchers = production_source(
         &root.join("src/credential/enrollment/protocol/session_attestation/matchers.rs"),
     );
-    assert_eq!(matchers.matches("pub fn ").count(), 6);
+    assert_eq!(matchers.matches("pub fn ").count(), 5);
     for name in [
         "matches_pending_issue_ticket",
         "matches_handoff",
         "matches_live_processes",
-        "matches_provisional_release_binding",
         "release_binding_expectation",
         "is_current_now",
     ] {
         assert_eq!(matchers.matches(name).count(), 1, "missing matcher {name}");
     }
-    assert_eq!(matchers.matches("-> bool").count(), 6);
-    assert!(matchers.contains("release_binding: &DigestEqualityMatcherV1"));
+    assert_eq!(matchers.matches("-> bool").count(), 5);
     assert!(
         matchers.contains("pub fn release_binding_expectation(&self) -> DigestEqualityMatcherV1")
     );

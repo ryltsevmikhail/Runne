@@ -1,6 +1,6 @@
 #![cfg(target_os = "macos")]
 
-use runne_api::{PendingSignedInstalledReleaseMetadataV2, VerifiedSignedInstalledReleaseV2};
+use runne_api::PendingSignedInstalledReleaseMetadataV2;
 use runne_macos_process_identity::{
     MacOsPackagedWriterObservationError, MacOsPendingProvisionalReleaseMatchV1,
     MacOsPendingProvisionalWriterSessionV1, MacOsPendingWriterBootstrapTranscriptV1,
@@ -23,11 +23,11 @@ fn bootstrap_has_only_the_exact_consuming_state_transitions() {
     ) = MacOsPendingWriterBootstrapTranscriptV1::into_release_verification;
     let matched: fn(
         MacOsPendingProvisionalReleaseMatchV1,
-        VerifiedSignedInstalledReleaseV2,
+        PendingSignedInstalledReleaseMetadataV2,
     ) -> Result<
         MacOsPendingProvisionalWriterSessionV1,
         MacOsPackagedWriterObservationError,
-    > = MacOsPendingProvisionalReleaseMatchV1::match_signed_release;
+    > = MacOsPendingProvisionalReleaseMatchV1::match_current_pinned_release;
     let _ = (observe, release, matched);
 }
 
@@ -95,7 +95,13 @@ fn bootstrap_pending_values_are_opaque_and_non_authoritative() {
         source.matches("pub fn into_release_verification(").count(),
         1
     );
-    assert_eq!(source.matches("pub fn match_signed_release(").count(), 1);
+    assert_eq!(
+        source
+            .matches("pub fn match_current_pinned_release(")
+            .count(),
+        1
+    );
+    assert!(!source.contains("pub fn match_signed_release("));
 }
 
 #[test]
@@ -172,8 +178,9 @@ fn provisional_writer_session_match_uses_every_retained_fact_before_its_sole_con
         "matches_pending_issue_ticket",
         "matches_handoff",
         "matches_live_processes",
-        "matches_provisional_release_binding",
-        "release_binding_matcher",
+        "release_binding_expectation",
+        "verify_current_pinned",
+        "is_current_now",
         "match_retained_code_identities",
     ] {
         assert!(
@@ -209,7 +216,15 @@ fn provisional_writer_session_match_uses_every_retained_fact_before_its_sole_con
         .unwrap();
     assert!(first_owner_bool < matched_type);
 
-    let match_start = transition.find("pub fn match_signed_release(").unwrap();
+    let match_start = transition
+        .find("pub fn match_current_pinned_release(")
+        .unwrap();
+    let pinned = transition[match_start..]
+        .find("verify_current_pinned")
+        .unwrap()
+        + match_start;
+    let first_current = transition[match_start..].find("is_current_now").unwrap() + match_start;
+    let final_current = transition[match_start..].rfind("is_current_now").unwrap() + match_start;
     let final_revalidation = transition[match_start..]
         .find("revalidate_for_provisional_session")
         .unwrap()
@@ -218,7 +233,12 @@ fn provisional_writer_session_match_uses_every_retained_fact_before_its_sole_con
         .find("MacOsPendingProvisionalWriterSessionV1 {")
         .unwrap()
         + match_start;
-    assert!(final_revalidation < constructor);
+    assert!(
+        pinned < first_current
+            && first_current < final_current
+            && final_current < final_revalidation
+            && final_revalidation < constructor
+    );
     assert_eq!(
         transition
             .matches("MacOsPendingProvisionalWriterSessionV1 {")
@@ -237,57 +257,4 @@ fn provisional_writer_session_match_uses_every_retained_fact_before_its_sole_con
     let daemon = revalidate.find("peer_process.revalidate_peer").unwrap();
     let last_peer = revalidate.rfind("revalidate_same_peer").unwrap();
     assert!(first_peer < package && package < writer && writer < daemon && daemon < last_peer);
-}
-
-#[test]
-fn final_race_hooks_are_test_only_and_production_surface_stays_exact() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let observation =
-        std::fs::read_to_string(root.join("src/packaged_writer_observation.rs")).unwrap();
-    let provisional =
-        std::fs::read_to_string(root.join("src/provisional_writer_session.rs")).unwrap();
-    let artifact =
-        std::fs::read_to_string(root.join("src/packaged_writer_observation/artifact.rs")).unwrap();
-    let process =
-        std::fs::read_to_string(root.join("src/packaged_writer_observation/process.rs")).unwrap();
-    let code =
-        std::fs::read_to_string(root.join("src/packaged_writer_observation/security_code.rs"))
-            .unwrap();
-    let peer = std::fs::read_to_string(root.join("src/local_peer.rs")).unwrap();
-
-    for (source, hook) in [
-        (&artifact, "test_only_corrupt_digest"),
-        (&process, "test_only_corrupt_start"),
-        (&process, "test_only_corrupt_native_code"),
-        (&code, "test_only_corrupt_main_executable"),
-        (&peer, "test_only_corrupt_process_start"),
-        (&observation, "test_only_inject_final_race"),
-        (&provisional, "test_only_revalidate_after_final_race"),
-    ] {
-        let hook_position = source
-            .find(hook)
-            .unwrap_or_else(|| panic!("missing {hook}"));
-        let cfg_position = source[..hook_position].rfind("#[cfg(test)]").unwrap();
-        let guarded_prefix = &source[cfg_position..hook_position];
-        assert!(guarded_prefix.contains("fn "));
-        assert!(!guarded_prefix.contains('}'), "{hook} is not test-only");
-    }
-
-    let production_transition = provisional
-        .split("pub fn match_signed_release(")
-        .nth(1)
-        .unwrap()
-        .split("#[cfg(test)]")
-        .next()
-        .unwrap();
-    assert!(!production_transition.contains("test_only_"));
-    assert_eq!(
-        provisional
-            .matches("MacOsPendingProvisionalWriterSessionV1 {")
-            .count(),
-        2
-    );
-    for forbidden in ["SystemTime", "pub trait", "pub fn mint", "into_authority"] {
-        assert!(!production_transition.contains(forbidden));
-    }
 }

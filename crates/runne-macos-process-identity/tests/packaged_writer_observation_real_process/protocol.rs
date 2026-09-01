@@ -82,6 +82,13 @@ fn claims(
     writer_start: [u8; 32],
     daemon_start: [u8; 32],
 ) -> CredentialWriterSessionAttestationClaimsV1 {
+    let issued_at = i64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("test clock after epoch")
+            .as_secs(),
+    )
+    .expect("test clock fits signed seconds");
     let CredentialBrokerFrame::IssueTicket {
         operation_id,
         attempt,
@@ -100,8 +107,8 @@ fn claims(
             *binding,
             CredentialInstallationOwnerId::from_bytes([5; 32]).expect("owner"),
             digest([6; 32]),
-            13,
-            14,
+            issued_at,
+            issued_at + 60,
         )
         .expect("ticket claims"),
         CredentialWriterSessionRuntimeClaimsV1::new(

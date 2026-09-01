@@ -1,4 +1,4 @@
-use runne_api::VerifiedSignedInstalledReleaseV2;
+use runne_api::{PendingSignedInstalledReleaseMetadataV2, VerifiedSignedInstalledReleaseV2};
 use runne_provider::{PendingCredentialIssueTicketV1, SignedCredentialWriterSessionAttestationV1};
 
 use crate::packaged_writer_observation::{
@@ -80,13 +80,28 @@ impl MacOsPendingProvisionalReleaseMatchV1 {
         }
     }
 
-    /// Matches retained native facts to one exact signed installed release.
+    /// Verifies pinned metadata and matches every retained native fact.
     ///
     /// # Errors
     ///
     /// Returns a closed failure when any retained fact does not match.
     #[doc(hidden)]
-    pub fn match_signed_release(
+    pub fn match_current_pinned_release(
+        self,
+        metadata: PendingSignedInstalledReleaseMetadataV2,
+    ) -> Result<MacOsPendingProvisionalWriterSessionV1, MacOsPackagedWriterObservationError> {
+        let expectation = self.attestation.release_binding_expectation();
+        let release = metadata
+            .verify_current_pinned(expectation)
+            .map_err(|_| MacOsPackagedWriterObservationError::Rejected)?;
+        self.attestation
+            .is_current_now()
+            .then_some(())
+            .ok_or(MacOsPackagedWriterObservationError::Rejected)?;
+        self.match_verified_current_release(release)
+    }
+
+    fn match_verified_current_release(
         self,
         release: VerifiedSignedInstalledReleaseV2,
     ) -> Result<MacOsPendingProvisionalWriterSessionV1, MacOsPackagedWriterObservationError> {
@@ -105,16 +120,14 @@ impl MacOsPendingProvisionalReleaseMatchV1 {
             observation.self_process(),
             observation.peer_process(),
         )?;
-        matches_attested_facts(
-            &attestation,
-            &issue_ticket,
-            &handoff,
-            &observation,
-            &release,
-        )
-        .then_some(())
-        .ok_or(MacOsPackagedWriterObservationError::Rejected)?;
+        matches_attested_facts(&attestation, &issue_ticket, &handoff, &observation)
+            .then_some(())
+            .ok_or(MacOsPackagedWriterObservationError::Rejected)?;
 
+        attestation
+            .is_current_now()
+            .then_some(())
+            .ok_or(MacOsPackagedWriterObservationError::Rejected)?;
         observation.revalidate_for_provisional_session(&handoff)?;
         Ok(MacOsPendingProvisionalWriterSessionV1 {
             handoff,
@@ -123,6 +136,16 @@ impl MacOsPendingProvisionalReleaseMatchV1 {
             release,
             observation,
         })
+    }
+
+    /// Exercises native matching with a synthetic exact release in integration tests.
+    #[cfg(feature = "test-support")]
+    #[doc(hidden)]
+    pub fn test_only_match_verified_release(
+        self,
+        release: VerifiedSignedInstalledReleaseV2,
+    ) -> Result<MacOsPendingProvisionalWriterSessionV1, MacOsPackagedWriterObservationError> {
+        self.match_verified_current_release(release)
     }
 
     #[cfg(test)]
@@ -151,11 +174,9 @@ fn matches_attested_facts(
     issue_ticket: &PendingCredentialIssueTicketV1,
     handoff: &MacOsUntrustedWriterEndpointHandoffV1,
     observation: &CapturedPackagedWriterObservationV1,
-    release: &VerifiedSignedInstalledReleaseV2,
 ) -> bool {
     let writer_start = observation.self_process().start_digest();
     let daemon_start = observation.peer().process_start_digest();
-    let release_binding = release.release_binding_matcher();
     attestation.matches_pending_issue_ticket(issue_ticket)
         && attestation.matches_handoff(
             handoff.observation_channel_binding(),
@@ -168,5 +189,4 @@ fn matches_attested_facts(
             &daemon_start,
             observation.package().daemon_digest(),
         )
-        && attestation.matches_provisional_release_binding(&release_binding)
 }

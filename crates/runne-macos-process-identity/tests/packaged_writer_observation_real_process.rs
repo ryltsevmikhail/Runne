@@ -128,7 +128,7 @@ fn writer_helper(expected: ExpectedMatch) {
         .expect("correct bootstrap prefix reaches retained native observation");
     let (pending_match, _pending_metadata) = transcript.into_release_verification();
     let release = ReleaseFixture::for_package(&PackageView::from_current_executable());
-    let result = pending_match.match_signed_release(release.verified_exact());
+    let result = pending_match.test_only_match_verified_release(release.verified_exact());
     match expected {
         ExpectedMatch::Accepted => {
             result.expect("Developer-ID package must reach one provisional writer session");

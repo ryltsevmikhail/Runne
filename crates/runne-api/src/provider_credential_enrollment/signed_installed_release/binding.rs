@@ -248,7 +248,9 @@ pub(super) fn exact_with_matcher(
     let candidate = verified
         .qualified_release_candidate
         .ok_or(SignedInstalledReleaseVerificationErrorV2::Unqualified)?;
-    if !expected.matches(&candidate.release_binding_digest) {
+    if candidate.release_binding_digest == [0; 32]
+        || !expected.matches(&candidate.release_binding_digest)
+    {
         return Err(SignedInstalledReleaseVerificationErrorV2::ReleaseBindingMismatch);
     }
     Ok(VerifiedSignedInstalledReleaseV2 {

@@ -40,16 +40,6 @@ impl SignedCredentialWriterSessionAttestationV1 {
             && self.claims.process.daemon_image.as_bytes() == *daemon_image
     }
 
-    /// Compares the provisional signed-release binding without admitting trust or time.
-    #[doc(hidden)]
-    #[must_use]
-    pub fn matches_provisional_release_binding(
-        &self,
-        release_binding: &DigestEqualityMatcherV1,
-    ) -> bool {
-        release_binding.matches(&self.claims.runtime.release_tuple.as_bytes())
-    }
-
     /// Projects the signed release binding as an opaque equality expectation.
     #[doc(hidden)]
     #[must_use]
