@@ -4129,6 +4129,7 @@ dependencies = [
  "libc",
  "nix 0.31.3",
  "runne-api",
+ "serde",
  "sha2",
 ]
 

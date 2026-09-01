@@ -10,9 +10,12 @@ test-support = []
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
-nix = { version = "=0.31.3", default-features = false, features = ["fs", "socket"] }
+nix = { version = "=0.31.3", default-features = false, features = ["fs", "poll", "socket"] }
 runne-api = { path = "../runne-api" }
 sha2.workspace = true
+
+[dev-dependencies]
+serde.workspace = true
 
 [lints.rust]
 unsafe_code = "allow"
