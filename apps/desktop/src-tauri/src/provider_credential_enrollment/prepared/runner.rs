@@ -1,8 +1,29 @@
-use super::reap_guard::RetainedWriterCleanup;
+use super::reap_guard::{ExactWriterCleanup, RetainedWriterCleanup};
 use super::*;
 use runne_api::{BeginProviderCredentialEnrollment, ProviderCredentialEnrollmentActionV2};
 use runne_platform_desktop::NativeProtectedCredentialEnrollmentBegin;
 use std::sync::Arc;
+
+struct ProtectedWriterCleanup {
+    handoff: runne_platform_desktop::CredentialWriterHandoff,
+    supervisor: Arc<std::sync::Mutex<runne_platform_desktop::ProtectedBundledRuntimeSupervisor>>,
+}
+
+impl ExactWriterCleanup for ProtectedWriterCleanup {
+    type Error = runne_platform_desktop::ProtectedBundledRuntimeError;
+
+    fn finish_exact(self) -> Result<(), Self::Error> {
+        self.handoff.reap_exact_writer()
+    }
+
+    fn abort_exact(self) -> Result<(), Self::Error> {
+        self.supervisor
+            .lock()
+            .map_err(|_| runne_platform_desktop::ProtectedBundledRuntimeError::OwnershipMismatch)?
+            .abort_protected_credential_enrollment()?;
+        self.handoff.reap_exact_writer()
+    }
+}
 
 pub(super) fn begin_then_handoff<B, H, E: Default>(
     begin_operation: impl FnOnce() -> Result<B, E>,
@@ -65,7 +86,6 @@ impl PreparedCredentialEnrollmentExchange {
             NativeProtectedCredentialEnrollmentBegin::new(command, self.native_confirmation)
                 .map_err(|_| PreparedCredentialEnrollmentError)?;
         let supervisor = self.runtime_lease.supervisor_handle();
-        let cleanup_supervisor = Arc::clone(&supervisor);
         let (mut enrollment, retained_handoff) = begin_then_handoff(
             || {
                 supervisor
@@ -86,8 +106,9 @@ impl PreparedCredentialEnrollmentExchange {
                     .map_err(|_| PreparedCredentialEnrollmentError)
             },
         )?;
-        let mut handoff = RetainedWriterCleanup::new(retained_handoff, move || {
-            let _ = cleanup_supervisor.lock().map(|mut value| value.stop());
+        let mut handoff = RetainedWriterCleanup::new(ProtectedWriterCleanup {
+            handoff: retained_handoff,
+            supervisor: Arc::clone(&supervisor),
         });
         let exchange = (|| {
             supervisor
@@ -105,8 +126,9 @@ impl PreparedCredentialEnrollmentExchange {
                 .into_pipe_bytes()
                 .into_zeroizing();
             handoff
-                .handoff_mut()
+                .cleanup_mut()
                 .ok_or(PreparedCredentialEnrollmentError)?
+                .handoff
                 .take_pair_secret_relay()
                 .ok_or(PreparedCredentialEnrollmentError)?
                 .seal_and_write(&relay, secret)

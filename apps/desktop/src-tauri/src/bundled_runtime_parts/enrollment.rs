@@ -38,13 +38,8 @@ impl NativeCredentialEnrollmentLease {
         confirmed: ConfirmedInstalledNativeEnrollment,
     ) -> Result<ConfirmedInstalledNativeEnrollment, AppCoreError> {
         let activation = self.core.begin_bundled_runtime_restart().await?;
-        match self
-            .install_transitioned_profile(activation, confirmed)
+        self.install_transitioned_profile(activation, confirmed)
             .await
-        {
-            Ok(confirmed) => Ok(confirmed),
-            Err(_) => self.fail_transition().await,
-        }
     }
 
     pub(crate) fn rotated_intent_session_binding(&self) -> Result<[u8; 32], AppCoreError> {
@@ -98,22 +93,11 @@ impl NativeCredentialEnrollmentLease {
             .map_err(|_| AppCoreError::RuntimeUnavailable)?;
         Ok(confirmed)
     }
-
-    async fn fail_transition<T>(&self) -> Result<T, AppCoreError> {
-        self.cleanup_handle().abort().await;
-        Err(AppCoreError::RuntimeUnavailable)
-    }
 }
 
 impl NativeCredentialEnrollmentCleanup {
     pub(crate) async fn abort(&self) {
-        let cleanup = self.clone();
-        let (sender, receiver) = tokio::sync::oneshot::channel();
-        tauri::async_runtime::spawn(async move {
-            cleanup.stop_and_degrade().await;
-            let _ = sender.send(());
-        });
-        let _ = receiver.await;
+        self.clone().stop_and_degrade().await;
     }
 
     async fn stop_and_degrade(self) {
@@ -126,5 +110,65 @@ impl NativeCredentialEnrollmentCleanup {
             .core
             .mark_bundled_runtime_degraded(RuntimeFailureCode::ProtectedActivationUnavailable)
             .await;
+    }
+}
+
+#[cfg(test)]
+pub struct TestOnlyLiveEnrollmentRuntime {
+    lease: Option<NativeCredentialEnrollmentLease>,
+    core: Arc<runne_app_core::AppCore>,
+    supervisor: Arc<Mutex<ProtectedBundledRuntimeSupervisor>>,
+}
+
+#[cfg(test)]
+impl TestOnlyLiveEnrollmentRuntime {
+    pub(crate) fn take_lease_with_cleanup(
+        &mut self,
+    ) -> (
+        NativeCredentialEnrollmentLease,
+        NativeCredentialEnrollmentCleanup,
+    ) {
+        let lease = self.lease.take().expect("test enrollment lease");
+        let cleanup = lease.cleanup_handle();
+        (lease, cleanup)
+    }
+
+    pub(crate) fn cleanup_completed(&self) -> bool {
+        let stopped = self.supervisor.lock().is_ok_and(|value| {
+            matches!(
+                value.state(),
+                runne_platform_desktop::BundledRuntimeLifecycleState::Stopped
+                    | runne_platform_desktop::BundledRuntimeLifecycleState::FailedStart
+            )
+        });
+        let degraded = self.core.bootstrap().is_ok_and(|value| {
+            value.runtime_failure == Some(RuntimeFailureCode::ProtectedActivationUnavailable)
+        });
+        stopped && degraded
+    }
+}
+
+#[cfg(test)]
+pub async fn test_only_live_enrollment_runtime(
+    directory: &std::path::Path,
+    fixture: runne_platform_desktop::TestOnlyReadyV3EnrollmentSupervisor,
+) -> TestOnlyLiveEnrollmentRuntime {
+    let core = Arc::new(
+        runne_app_core::AppCore::open_with_runtime_mode(
+            &directory.join("profile.sqlite3"),
+            runne_app_core::RuntimeMode::Bundled,
+        )
+        .expect("test AppCore"),
+    );
+    let supervisor = Arc::new(Mutex::new(fixture.into_supervisor()));
+    let operation = Arc::new(tokio::sync::Mutex::new(())).lock_owned().await;
+    TestOnlyLiveEnrollmentRuntime {
+        lease: Some(NativeCredentialEnrollmentLease {
+            core: Arc::clone(&core),
+            supervisor: Arc::clone(&supervisor),
+            operation_permit: operation,
+        }),
+        core,
+        supervisor,
     }
 }

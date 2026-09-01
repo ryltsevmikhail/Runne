@@ -120,7 +120,7 @@ fn v2_update_requires_two_root_and_two_targets_signatures() {
     let verified = verify_update_v2(&metadata, &trust, &binding, 100, "1.0.0", "1.0.0").unwrap();
     assert_eq!(verified.target().version, "1.2.3");
     assert!(verified.native_enrollment_tuple().is_some());
-    let measured = MeasuredNativeEnrollmentArtifactsV1::new(
+    let measured = MeasuredNativeEnrollmentArtifactsV1::test_only_from_digests(
         "e".repeat(64),
         writer_digest.clone(),
         "f".repeat(64),
@@ -137,7 +137,7 @@ fn v2_update_requires_two_root_and_two_targets_signatures() {
     }
     std::fs::write(&writer, b"modified writer").unwrap();
     assert!(admission.verified_writer(writer).is_err());
-    let swapped = MeasuredNativeEnrollmentArtifactsV1::new(
+    let swapped = MeasuredNativeEnrollmentArtifactsV1::test_only_from_digests(
         "e".repeat(64),
         "f".repeat(64),
         writer_digest,

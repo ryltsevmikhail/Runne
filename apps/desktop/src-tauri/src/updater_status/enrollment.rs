@@ -13,6 +13,8 @@ use super::{CompiledUpdater, UpdateStatusStore};
 pub struct NativeInstalledEnrollmentLease {
     updater: OwnedMutexGuard<CompiledUpdater>,
     prepared: Option<PreparedInstalledNativeEnrollment>,
+    #[cfg(test)]
+    test_revalidation: Option<runne_platform_desktop::TestOnlyEnrollmentRevalidation>,
 }
 
 impl NativeInstalledEnrollmentLease {
@@ -37,6 +39,14 @@ impl NativeInstalledEnrollmentLease {
         &self,
         confirmed: &ConfirmedInstalledNativeEnrollment,
     ) -> Result<(), ()> {
+        #[cfg(test)]
+        if let Some(revalidation) = self.test_revalidation.as_ref() {
+            return revalidation
+                .revalidate(&self.updater.coordinator, confirmed)
+                .map_err(|_| ())?
+                .then_some(())
+                .ok_or(());
+        }
         self.updater
             .coordinator
             .revalidate_confirmed_native_enrollment(confirmed)
@@ -60,6 +70,54 @@ impl UpdateStatusStore {
         Ok(prepared.map(|prepared| NativeInstalledEnrollmentLease {
             updater,
             prepared: Some(prepared),
+            #[cfg(test)]
+            test_revalidation: None,
         }))
+    }
+}
+
+#[cfg(test)]
+pub struct TestOnlyEnrollmentUpdater {
+    pub(crate) lease: NativeInstalledEnrollmentLease,
+    pub(crate) confirmed: ConfirmedInstalledNativeEnrollment,
+}
+
+#[cfg(test)]
+pub async fn test_only_current_enrollment_updater(
+    directory: &std::path::Path,
+) -> TestOnlyEnrollmentUpdater {
+    test_only_enrollment_updater(
+        runne_platform_desktop::test_only_current_enrollment_updater_fixture(directory),
+    )
+    .await
+}
+
+#[cfg(test)]
+pub async fn test_only_expired_enrollment_updater(
+    directory: &std::path::Path,
+) -> TestOnlyEnrollmentUpdater {
+    test_only_enrollment_updater(
+        runne_platform_desktop::test_only_expired_enrollment_updater_fixture(directory),
+    )
+    .await
+}
+
+#[cfg(test)]
+async fn test_only_enrollment_updater(
+    fixture: runne_platform_desktop::TestOnlyEnrollmentUpdaterFixture,
+) -> TestOnlyEnrollmentUpdater {
+    let (coordinator, confirmed, revalidation) = fixture.into_parts();
+    let updater = std::sync::Arc::new(tokio::sync::Mutex::new(CompiledUpdater {
+        endpoint: "https://updates.example.test",
+        rollback_floor: "1.0.0",
+        coordinator,
+    }));
+    TestOnlyEnrollmentUpdater {
+        lease: NativeInstalledEnrollmentLease {
+            updater: updater.lock_owned().await,
+            prepared: None,
+            test_revalidation: Some(revalidation),
+        },
+        confirmed,
     }
 }

@@ -165,19 +165,3 @@
             .expect("rotated client installed");
         assert!(restart < install);
     }
-
-    #[test]
-    fn every_post_fence_transition_failure_enters_cleanup() {
-        let source = include_str!("enrollment.rs");
-        let transition = source
-            .split("pub(crate) async fn transition_and_install")
-            .nth(1)
-            .expect("transition method");
-        let body = transition
-            .split("async fn install_transitioned_profile")
-            .next()
-            .expect("outer transition body");
-        assert!(body.contains(".install_transitioned_profile"));
-        assert!(body.contains("Err(_) => self.fail_transition().await"));
-        assert_eq!(body.matches("begin_bundled_runtime_restart").count(), 1);
-    }

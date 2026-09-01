@@ -157,6 +157,8 @@ pub type CredentialEnrollmentFuture = Pin<
 
 #[path = "bundled_runtime_parts/enrollment.rs"]
 mod enrollment;
+#[cfg(test)]
+pub use enrollment::test_only_live_enrollment_runtime;
 
 impl crate::RuntimeLifecycleManager {
     pub(crate) async fn acquire_credential_enrollment_lease(

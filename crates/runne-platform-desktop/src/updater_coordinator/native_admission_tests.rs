@@ -66,7 +66,7 @@ fn native_fixture(
     coordinator.prepare_restart(0, false).unwrap(); coordinator.begin_health_check().unwrap(); coordinator.complete_health(true, "1.2.0").unwrap();
     (
         coordinator,
-        MeasuredNativeEnrollmentArtifactsV1::new(
+        MeasuredNativeEnrollmentArtifactsV1::test_only_from_digests(
             hashes[0].clone(), hashes[1].clone(), hashes[2].clone(), hashes[3].clone(),
         ).unwrap(),
         verified,
@@ -79,7 +79,7 @@ fn test_admission_rejects_measured_substitution_and_expiry() {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
     let (coordinator, artifacts, _) = native_fixture(directory.path(), now + 60, "f".repeat(64));
     assert!(coordinator.admit_installed_native_enrollment_at(now, &artifacts).unwrap().is_some());
-    let substituted = MeasuredNativeEnrollmentArtifactsV1::new(
+    let substituted = MeasuredNativeEnrollmentArtifactsV1::test_only_from_digests(
         digest(b"other desktop"), digest(b"writer"), digest(b"daemon"), digest(b"contract"),
     ).unwrap();
     assert!(coordinator.admit_installed_native_enrollment_at(now, &substituted).unwrap().is_none());

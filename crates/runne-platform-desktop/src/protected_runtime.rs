@@ -39,6 +39,8 @@ include!("protected_runtime/enrollment_broker_handoff.rs");
 include!("protected_runtime/enrollment_transition_tests.rs");
 #[cfg(feature = "test-support")]
 include!("protected_runtime/test_root_transport.rs");
+#[cfg(all(feature = "test-support", unix))]
+include!("protected_runtime/test_enrollment_fixture.rs");
 include!("protected_runtime/root_handle_transport.rs");
 #[cfg(windows)]
 include!("protected_runtime/windows_channel.rs");

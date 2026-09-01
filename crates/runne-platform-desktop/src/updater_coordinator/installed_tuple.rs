@@ -131,7 +131,17 @@ impl UpdateCoordinator {
     }
 
     #[cfg(test)]
-    pub(crate) fn revalidate_confirmed_native_enrollment_at(
+    pub(crate) fn test_only_revalidate_confirmed_native_enrollment_at(
+        &self,
+        confirmed: &ConfirmedInstalledNativeEnrollment,
+        now_unix_seconds: u64,
+        artifacts: &MeasuredNativeEnrollmentArtifactsV1,
+    ) -> Result<bool, UpdateCoordinatorError> {
+        self.test_support_revalidate_confirmed_at(confirmed, now_unix_seconds, artifacts)
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub(super) fn test_support_revalidate_confirmed_at(
         &self,
         confirmed: &ConfirmedInstalledNativeEnrollment,
         now_unix_seconds: u64,

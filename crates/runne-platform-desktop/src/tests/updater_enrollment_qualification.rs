@@ -23,7 +23,7 @@ fn macos_tuple(target: &UpdateTargetV2) -> NativeEnrollmentTupleV2 {
 }
 
 fn artifacts(target: &UpdateTargetV2) -> MeasuredNativeEnrollmentArtifactsV1 {
-    MeasuredNativeEnrollmentArtifactsV1::new(
+    MeasuredNativeEnrollmentArtifactsV1::test_only_from_digests(
         "c".repeat(64), "e".repeat(64), "f".repeat(64), target.bundle_sha256.clone(),
     )
     .unwrap()
@@ -80,7 +80,7 @@ fn absent_or_stale_signed_qualification_remains_unqualified() {
 #[test]
 fn independently_measured_artifact_substitution_never_qualifies() {
     let target = qualified_target(200);
-    let substituted = MeasuredNativeEnrollmentArtifactsV1::new(
+    let substituted = MeasuredNativeEnrollmentArtifactsV1::test_only_from_digests(
         "8".repeat(64), "e".repeat(64), "f".repeat(64), target.bundle_sha256.clone(),
     )
     .unwrap();

@@ -69,7 +69,7 @@ fn signed_legacy_intel_tuple_cannot_reach_native_admission() {
 fn macos_tuple_binds_distinct_exact_desktop_code_identity() {
     let mut macos = target();
     let tuple = tuple(&macos);
-    let artifacts = MeasuredNativeEnrollmentArtifactsV1::new(
+    let artifacts = MeasuredNativeEnrollmentArtifactsV1::test_only_from_digests(
         "c".repeat(64),
         "e".repeat(64),
         "f".repeat(64),

@@ -176,7 +176,7 @@ impl ConfirmedInstalledNativeEnrollment {
         self.admission == *admission
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn test_only_from_admission(admission: NativeEnrollmentTupleAdmission) -> Self {
         Self {
             evidence: ProtectedDaemonTupleEvidence {

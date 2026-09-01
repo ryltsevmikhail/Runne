@@ -9,44 +9,35 @@ pub(super) trait PostFenceEnrollmentDependencies {
     fn admit_registry(self) -> Result<Self::Output, Self::Error>;
 }
 
-pub(super) async fn run_post_fence_branches<D, X, F>(
-    mut dependencies: D,
-    cleanup: X,
-) -> Result<D::Output, D::Error>
+pub(super) fn run_post_fence_branches<D>(mut dependencies: D) -> Result<D::Output, D::Error>
 where
     D: PostFenceEnrollmentDependencies,
-    X: FnOnce() -> F,
-    F: Future<Output = ()>,
 {
-    let result = dependencies
+    dependencies
         .require_rotated_session()
         .and_then(|()| dependencies.revalidate_updater())
-        .and_then(|()| dependencies.admit_registry());
-    if result.is_err() {
-        cleanup().await;
-    }
-    result
+        .and_then(|()| dependencies.admit_registry())
 }
 
-pub(super) fn spawn_cleanup_supervised_transcript<W, X, F>(
+pub(super) fn spawn_pre_fence_enrollment_owner<W, O, X, F, T, E>(
     work: W,
     cleanup: X,
 ) -> (
-    tokio::sync::oneshot::Receiver<Result<(), ()>>,
+    tokio::sync::oneshot::Receiver<Result<T, E>>,
     tokio::sync::oneshot::Receiver<()>,
 )
 where
-    W: FnOnce() -> Result<(), ()> + Send + 'static,
+    W: FnOnce() -> O + Send + 'static,
+    O: Future<Output = Result<T, E>> + Send + 'static,
     X: FnOnce() -> F + Send + 'static,
     F: Future<Output = ()> + Send + 'static,
+    T: Send + 'static,
+    E: Send + 'static,
 {
     let (result_sender, result) = tokio::sync::oneshot::channel();
     let (completion_sender, completion) = tokio::sync::oneshot::channel();
     tauri::async_runtime::spawn(async move {
-        let outcome = tauri::async_runtime::spawn_blocking(work)
-            .await
-            .map_err(|_| ())
-            .and_then(core::convert::identity);
+        let outcome = work().await;
         if outcome.is_err() {
             cleanup().await;
         }

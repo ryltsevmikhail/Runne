@@ -18,8 +18,10 @@ use crate::{
 
 #[path = "updater_coordinator/config.rs"]
 mod config;
+mod install_error;
 mod installed_tuple;
 use config::validate_binding;
+use install_error::map_install_error;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateTargetBindingConfig {
@@ -283,14 +285,8 @@ impl UpdateCoordinator {
     }
 }
 
-const fn map_install_error(error: UpdateInstallError) -> UpdateCoordinatorError {
-    match error {
-        UpdateInstallError::ActiveTaskRuns => UpdateCoordinatorError::ActiveTaskRuns,
-        UpdateInstallError::InvalidTransition | UpdateInstallError::InvalidDigest => {
-            UpdateCoordinatorError::InvalidTransition
-        }
-    }
-}
+#[cfg(feature = "test-support")]
+include!("updater_coordinator/test_enrollment_fixture.rs");
 #[cfg(test)]
 mod tests {
     include!("updater_coordinator/tests.rs");

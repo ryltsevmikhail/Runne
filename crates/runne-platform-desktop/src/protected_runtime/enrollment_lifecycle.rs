@@ -12,6 +12,23 @@ use enrollment_lifecycle_facts::{command_context, require_admission};
 const CONTROL_TTL_MILLIS: u64 = 20_000;
 
 impl ProtectedBundledRuntimeSupervisor {
+    /// Fails a nonterminal enrollment through the authenticated V3 channel so
+    /// the daemon consumes its exact writer-kill authority before desktop reap.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed failure when no exact protected process is retained.
+    pub fn abort_protected_credential_enrollment(
+        &mut self,
+    ) -> Result<(), ProtectedBundledRuntimeError> {
+        let process = self
+            .process
+            .as_mut()
+            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        process.abort_protected_credential_enrollment();
+        Ok(())
+    }
+
     /// Returns an opaque binding to the actual rotated V3 session.
     ///
     /// # Errors
@@ -86,6 +103,13 @@ impl ProtectedBundledRuntimeSupervisor {
 }
 
 impl ProtectedBundledRuntimeProcess {
+    fn abort_protected_credential_enrollment(&mut self) {
+        // A Shutdown while enrollment is nonterminal is rejected by the daemon
+        // only after its V3 loop terminates the exact retained writer. EOF is
+        // therefore the acknowledgement for this fail-closed cleanup purpose.
+        let _ = self.request_graceful_stop();
+    }
+
     fn credential_enrollment_intent_binding(
         &self,
     ) -> Result<[u8; 32], ProtectedBundledRuntimeError> {

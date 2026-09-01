@@ -4,7 +4,7 @@
 )]
 use super::intent::{CredentialIntentError, NativeCredentialIntent};
 use super::{CredentialIntentIpc, CredentialIntentRegistry};
-use crate::bundled_runtime::{NativeCredentialEnrollmentCleanup, NativeCredentialEnrollmentLease};
+use crate::bundled_runtime::NativeCredentialEnrollmentLease;
 use crate::updater_status::enrollment::NativeInstalledEnrollmentLease;
 use runne_api::{
     ProviderCredentialEnrollmentActionV2, ProviderCredentialProviderV2,
@@ -16,7 +16,7 @@ use runne_platform_desktop::{
 use sha2::{Digest as _, Sha256};
 use std::fmt;
 use std::time::Instant;
-mod reap_guard;
+pub(super) mod reap_guard;
 #[cfg(test)]
 #[path = "prepared/reap_guard_tests.rs"]
 mod reap_guard_tests;
@@ -91,10 +91,6 @@ impl PreparedCredentialEnrollmentExchange {
             _renderer_binding: renderer_binding,
             native_confirmation,
         })
-    }
-
-    pub(super) fn cleanup_handle(&self) -> NativeCredentialEnrollmentCleanup {
-        self.runtime_lease.cleanup_handle()
     }
 }
 

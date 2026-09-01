@@ -1,4 +1,9 @@
 //! Desktop implementations of native capability ports.
+//!
+//! Test-only enrollment fixtures are absent from the production feature graph:
+//! ```compile_fail
+//! use runne_platform_desktop::test_only_ready_v3_enrollment_supervisor;
+//! ```
 
 #[cfg(all(feature = "dev-loopback-updater", not(debug_assertions)))]
 compile_error!("dev-loopback-updater cannot be compiled without debug assertions");
@@ -29,6 +34,12 @@ pub use protected_runtime::{
     DevelopmentBundledRuntimeLauncher, ProtectedBundledRuntimeError,
     ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeProcess,
     ProtectedBundledRuntimeSupervisor, discover_bundled_runtime,
+};
+#[cfg(all(feature = "test-support", unix))]
+#[doc(hidden)]
+pub use protected_runtime::{
+    TestOnlyReadyV3EnrollmentSupervisor, test_only_absent_enrollment_supervisor,
+    test_only_ready_v3_enrollment_supervisor,
 };
 #[cfg(target_os = "linux")]
 pub use provider_credential_prompt::LinuxPinentryPrompt;
@@ -62,6 +73,12 @@ pub use updater::{
     stage_verified_artifact, verify_update,
 };
 pub use updater_artifact::{UpdateArtifactKind, UpdateArtifactKindError};
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub use updater_coordinator::{
+    TestOnlyEnrollmentRevalidation, TestOnlyEnrollmentUpdaterFixture,
+    test_only_current_enrollment_updater_fixture, test_only_expired_enrollment_updater_fixture,
+};
 pub use updater_coordinator::{
     UpdateCoordinator, UpdateCoordinatorError, UpdateTargetBindingConfig,
 };

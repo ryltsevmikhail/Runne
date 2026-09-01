@@ -57,8 +57,8 @@ impl MeasuredNativeEnrollmentArtifactsV1 {
             .ok_or(NativeEnrollmentTupleError::Rejected)
     }
 
-    #[cfg(test)]
-    pub fn new(
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn test_only_from_digests(
         desktop_sha256: String,
         writer_sha256: String,
         daemon_sha256: String,
@@ -207,7 +207,7 @@ fn same_identity(first: &Metadata, second: &Metadata) -> bool {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn valid_digest(value: &str) -> bool {
     value.len() == 64
         && value

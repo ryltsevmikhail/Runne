@@ -22,7 +22,7 @@ use super::host_prompt::MacOsHostCredentialPrompt;
 #[cfg(target_os = "macos")]
 use super::prepared::{NativeEnrollmentConfirmation, PreparedCredentialEnrollmentExchange};
 use post_fence::{
-    PostFenceEnrollmentDependencies, run_post_fence_branches, spawn_cleanup_supervised_transcript,
+    PostFenceEnrollmentDependencies, run_post_fence_branches, spawn_pre_fence_enrollment_owner,
 };
 
 const NATIVE_PROMPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -199,36 +199,35 @@ async fn dispatch_pair_inner(
 
     // Fence the V2 AppCore generation, transition to V3, and install the
     // rotated authenticated client before durable Begin or writer spawn.
-    let confirmed = runtime_lease
-        .transition_and_install(confirmed)
-        .await
-        .map_err(|_| DispatchFailure::Closed("provider_credential_handoff_failed"))?;
     let cleanup = runtime_lease.cleanup_handle();
-    let exchange = run_post_fence_branches(
-        LivePostFenceAdmission {
-            intents,
-            disposition,
-            window: window_label,
-            request,
-            installed: confirmed,
-            runtime: runtime_lease,
-            updater: updater_lease,
-            intent_session: None,
+    let intents = intents.clone();
+    let owner_intents = intents.clone();
+    let (result, _owner_completion) = spawn_pre_fence_enrollment_owner(
+        move || async move {
+            let confirmed = runtime_lease
+                .transition_and_install(confirmed)
+                .await
+                .map_err(|_| DispatchFailure::Closed("provider_credential_handoff_failed"))?;
+            let exchange = run_post_fence_branches(LivePostFenceAdmission {
+                intents: &owner_intents,
+                disposition,
+                window: window_label,
+                request,
+                installed: confirmed,
+                runtime: runtime_lease,
+                updater: updater_lease,
+                intent_session: None,
+            })?;
+            tauri::async_runtime::spawn_blocking(move || exchange.run(&owner_intents))
+                .await
+                .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))?
+                .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))
         },
         move || async move { cleanup.abort().await },
-    )
-    .await?;
-    let cleanup = exchange.cleanup_handle();
-    let intents = intents.clone();
-    let (result, _supervisor_completion) = spawn_cleanup_supervised_transcript(
-        move || exchange.run(&intents).map_err(|_| ()),
-        move || async move { cleanup.abort().await },
     );
-    if !matches!(result.await, Ok(Ok(()))) {
-        return Err(DispatchFailure::Closed(
-            "provider_credential_exchange_rejected",
-        ));
-    }
+    result
+        .await
+        .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))??;
     Ok(CredentialIntentProjection::Completed)
 }
 
@@ -248,3 +247,9 @@ async fn dispatch_inner(
 #[cfg(test)]
 #[path = "dispatch/round2_tests.rs"]
 mod round2_tests;
+#[cfg(test)]
+#[path = "dispatch/round3_surface_tests.rs"]
+mod round3_surface_tests;
+#[cfg(test)]
+#[path = "dispatch/round3_tests.rs"]
+mod round3_tests;

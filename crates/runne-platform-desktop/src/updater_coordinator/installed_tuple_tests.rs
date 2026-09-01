@@ -39,7 +39,7 @@ fn installed_tuple_admission_rejects_non_current_or_substituted_artifacts() {
         .admit_installed_native_enrollment_at(100, &artifacts())
         .unwrap()
         .is_none());
-    let substituted = MeasuredNativeEnrollmentArtifactsV1::new(
+    let substituted = MeasuredNativeEnrollmentArtifactsV1::test_only_from_digests(
         "c".repeat(64),
         "f".repeat(64),
         "e".repeat(64),
@@ -85,15 +85,15 @@ fn confirmed_enrollment_revalidation_is_atomic_against_expiry_and_trust() {
         verified.admit_native_enrollment(&artifacts).unwrap(),
     );
     assert!(coordinator
-        .revalidate_confirmed_native_enrollment_at(&confirmed, now, &artifacts)
+        .test_only_revalidate_confirmed_native_enrollment_at(&confirmed, now, &artifacts)
         .unwrap());
     assert!(coordinator
-        .revalidate_confirmed_native_enrollment_at(&confirmed, now + 61, &artifacts)
+        .test_only_revalidate_confirmed_native_enrollment_at(&confirmed, now + 61, &artifacts)
         .is_err());
 
     coordinator.trust_journal.commit_install("1.2.1").unwrap();
     assert!(!coordinator
-        .revalidate_confirmed_native_enrollment_at(&confirmed, now, &artifacts)
+        .test_only_revalidate_confirmed_native_enrollment_at(&confirmed, now, &artifacts)
         .unwrap());
 }
 

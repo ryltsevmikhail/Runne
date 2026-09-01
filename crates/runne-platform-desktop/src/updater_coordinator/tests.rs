@@ -151,7 +151,7 @@ fn verified_update() -> VerifiedUpdateV2 {
 }
 
 fn artifacts() -> MeasuredNativeEnrollmentArtifactsV1 {
-    MeasuredNativeEnrollmentArtifactsV1::new(
+    MeasuredNativeEnrollmentArtifactsV1::test_only_from_digests(
         "b".repeat(64),
         "d".repeat(64),
         "e".repeat(64),

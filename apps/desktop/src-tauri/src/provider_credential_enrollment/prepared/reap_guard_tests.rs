@@ -4,7 +4,7 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-use super::reap_guard::{ExactWriterReap, RetainedWriterCleanup};
+use super::reap_guard::{ExactWriterCleanup, RetainedWriterCleanup};
 
 #[test]
 fn panic_after_ack_stops_and_reaps_the_exact_child_at_every_transcript_step() {
@@ -17,16 +17,10 @@ fn panic_after_ack_stops_and_reaps_the_exact_child_at_every_transcript_step() {
         let reaped = Arc::new(AtomicBool::new(false));
         let observed = Arc::clone(&reaped);
         let owned_child = Arc::clone(&child);
-        let stopped_child = Arc::clone(&child);
-        let cleanup = RetainedWriterCleanup::new(
-            ChildReap {
-                child: owned_child,
-                reaped: observed,
-            },
-            move || {
-                let _ = stopped_child.lock().expect("child").kill();
-            },
-        );
+        let cleanup = RetainedWriterCleanup::new(ChildReap {
+            child: owned_child,
+            reaped: observed,
+        });
         let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
             let _retained = cleanup;
             panic!("injected transcript panic after ACK at step {step}");
@@ -42,10 +36,21 @@ struct ChildReap {
     reaped: Arc<AtomicBool>,
 }
 
-impl ExactWriterReap for ChildReap {
+impl ExactWriterCleanup for ChildReap {
     type Error = ();
 
-    fn reap_exact(self) -> Result<(), ()> {
+    fn finish_exact(self) -> Result<(), ()> {
+        self.reap()
+    }
+
+    fn abort_exact(self) -> Result<(), ()> {
+        self.child.lock().map_err(|_| ())?.kill().map_err(|_| ())?;
+        self.reap()
+    }
+}
+
+impl ChildReap {
+    fn reap(self) -> Result<(), ()> {
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
             if self

@@ -148,7 +148,7 @@ fn verified_macos_tuple_admission_mints_only_a_tuple_bound_launch() {
         .unwrap(),
     );
     let verified = verify_target(&macos).unwrap();
-    let artifacts = MeasuredNativeEnrollmentArtifactsV1::new(
+    let artifacts = MeasuredNativeEnrollmentArtifactsV1::test_only_from_digests(
         "c".repeat(64),
         writer_digest,
         "f".repeat(64),
