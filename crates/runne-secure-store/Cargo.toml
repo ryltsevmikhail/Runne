@@ -18,11 +18,12 @@ zeroize.workspace = true
 [features]
 default = []
 project-owner-key-store = ["dep:ed25519-dalek"]
-provider-credential-broker-writer = []
+provider-credential-broker-writer = ["dep:runne-native-enrollment-authority"]
 test-support = []
 
 [target.'cfg(target_os = "macos")'.dependencies]
 runne-macos-keychain-acl = { path = "../runne-macos-keychain-acl" }
+runne-native-enrollment-authority = { path = "../runne-native-enrollment-authority", optional = true }
 security-framework = { version = "=3.7.0", features = ["OSX_10_15"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]

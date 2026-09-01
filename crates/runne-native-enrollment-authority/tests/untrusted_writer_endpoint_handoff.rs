@@ -3,7 +3,7 @@
 use std::process::{Command, Stdio};
 
 use runne_native_enrollment_authority::{
-    PendingPinnedProviderCredentialWriterSessionV1,
+    AuthenticatedProviderCredentialWriterSession, PendingPinnedProviderCredentialWriterSessionV1,
     UntrustedProviderCredentialWriterEndpointHandoffV1,
 };
 
@@ -18,6 +18,14 @@ fn handoff_exposes_one_consuming_pinned_observation_transition() {
         runne_macos_process_identity::MacOsPackagedWriterObservationError,
     > = UntrustedProviderCredentialWriterEndpointHandoffV1::observe_current_pinned_writer_session;
     let _ = observe;
+
+    let authenticate: fn(
+        PendingPinnedProviderCredentialWriterSessionV1,
+    ) -> Result<
+        AuthenticatedProviderCredentialWriterSession,
+        runne_macos_process_identity::MacOsPackagedWriterObservationError,
+    > = PendingPinnedProviderCredentialWriterSessionV1::authenticate_current_writer;
+    let _ = authenticate;
 }
 
 #[test]

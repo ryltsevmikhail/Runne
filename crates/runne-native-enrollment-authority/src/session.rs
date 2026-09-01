@@ -2,14 +2,22 @@ use runne_provider::{
     CredentialWriterAuthorityPair, CredentialWriterClaimIssuer, CredentialWriterEffectAuthority,
 };
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "B2b will construct this only after live process and release verification"
-    )
+#[allow(
+    clippy::redundant_pub_crate,
+    reason = "the sibling verifier is the sole constructor boundary"
 )]
-enum VerifiedEnrollmentSession {
+pub(crate) enum VerifiedEnrollmentSession {
+    #[cfg(target_os = "macos")]
+    MacOs(
+        Box<(
+            std::os::unix::net::UnixStream,
+            runne_provider::BrokerChannelBinding,
+            runne_provider::PendingCredentialIssueTicketV1,
+            std::path::PathBuf,
+            std::path::PathBuf,
+        )>,
+    ),
+    #[cfg(test)]
     Verified,
 }
 
@@ -80,15 +88,14 @@ pub struct AuthenticatedProviderCredentialWriterSession {
 /// let (issuer, _) = runne_provider::CredentialWriterAuthorityPair::new().split();
 /// let _ = AuthenticatedWriterClaimContext { issuer };
 /// ```
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "B2b will add the authenticated CLI claim consumer"
-    )
-)]
 pub struct AuthenticatedWriterClaimContext {
     issuer: CredentialWriterClaimIssuer,
+    #[cfg(target_os = "macos")]
+    native: Option<(
+        std::os::unix::net::UnixStream,
+        runne_provider::BrokerChannelBinding,
+        runne_provider::PendingCredentialIssueTicketV1,
+    )>,
 }
 
 /// Effect-side admission created from the same authenticated writer session.
@@ -119,26 +126,18 @@ pub struct AuthenticatedWriterClaimContext {
 /// let (_, effects) = runne_provider::CredentialWriterAuthorityPair::new().split();
 /// let _ = AuthenticatedWriterEffectAdmission { effects };
 /// ```
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "B2b will add the authenticated secure-store effect consumer"
-    )
-)]
 pub struct AuthenticatedWriterEffectAdmission {
     effects: CredentialWriterEffectAuthority,
+    #[cfg(target_os = "macos")]
+    native_paths: Option<(std::path::PathBuf, std::path::PathBuf)>,
 }
 
 impl AuthenticatedProviderCredentialWriterSession {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "B2b verifier will be the sole production caller of this private mint"
-        )
+    #[allow(
+        clippy::redundant_pub_crate,
+        reason = "the sibling verifier is the sole production caller"
     )]
-    const fn mint(verified: VerifiedEnrollmentSession) -> Self {
+    pub(crate) const fn mint(verified: VerifiedEnrollmentSession) -> Self {
         Self { verified }
     }
 
@@ -155,14 +154,90 @@ impl AuthenticatedProviderCredentialWriterSession {
         AuthenticatedWriterClaimContext,
         AuthenticatedWriterEffectAdmission,
     ) {
-        let pair = match self.verified {
-            VerifiedEnrollmentSession::Verified => CredentialWriterAuthorityPair::new(),
+        #[cfg(target_os = "macos")]
+        let (native, native_paths) = match self.verified {
+            #[cfg(target_os = "macos")]
+            VerifiedEnrollmentSession::MacOs(parts) => {
+                let (control, channel, ticket, writer, reader) = *parts;
+                (Some((control, channel, ticket)), Some((writer, reader)))
+            }
+            #[cfg(test)]
+            VerifiedEnrollmentSession::Verified => (None, None),
         };
+        #[cfg(not(target_os = "macos"))]
+        match self.verified {
+            #[cfg(test)]
+            VerifiedEnrollmentSession::Verified => {}
+        }
+        let pair = CredentialWriterAuthorityPair::new();
         let (issuer, effects) = pair.split();
         (
-            AuthenticatedWriterClaimContext { issuer },
-            AuthenticatedWriterEffectAdmission { effects },
+            AuthenticatedWriterClaimContext {
+                issuer,
+                #[cfg(target_os = "macos")]
+                native,
+            },
+            AuthenticatedWriterEffectAdmission {
+                effects,
+                #[cfg(target_os = "macos")]
+                native_paths,
+            },
         )
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl AuthenticatedWriterClaimContext {
+    /// Consumes the claim side into the already-authenticated native channel.
+    ///
+    /// # Errors
+    ///
+    /// Rejects synthetic or incomplete contexts before any broker frame write.
+    #[doc(hidden)]
+    #[allow(
+        clippy::type_complexity,
+        reason = "the secure-store admission keeps the resources move-only"
+    )]
+    pub fn into_macos_claim_parts(
+        self,
+    ) -> Result<
+        (
+            CredentialWriterClaimIssuer,
+            std::os::unix::net::UnixStream,
+            runne_provider::BrokerChannelBinding,
+            runne_provider::PendingCredentialIssueTicketV1,
+        ),
+        runne_macos_process_identity::MacOsPackagedWriterObservationError,
+    > {
+        let (control, channel, ticket) = self
+            .native
+            .ok_or(runne_macos_process_identity::MacOsPackagedWriterObservationError::Rejected)?;
+        Ok((self.issuer, control, channel, ticket))
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl AuthenticatedWriterEffectAdmission {
+    /// Consumes the effect side with the two verified packaged executable paths.
+    ///
+    /// # Errors
+    ///
+    /// Rejects synthetic or incomplete contexts before native-store construction.
+    #[doc(hidden)]
+    pub fn into_macos_effect_parts(
+        self,
+    ) -> Result<
+        (
+            CredentialWriterEffectAuthority,
+            std::path::PathBuf,
+            std::path::PathBuf,
+        ),
+        runne_macos_process_identity::MacOsPackagedWriterObservationError,
+    > {
+        let (writer, reader) = self
+            .native_paths
+            .ok_or(runne_macos_process_identity::MacOsPackagedWriterObservationError::Rejected)?;
+        Ok((self.effects, writer, reader))
     }
 }
 

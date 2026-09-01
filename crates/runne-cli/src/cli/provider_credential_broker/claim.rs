@@ -8,8 +8,10 @@ use std::{
 use runne_provider::{
     BrokerChannelBinding, ClaimedWriterAuthorization, CredentialBindingDigest,
     CredentialBrokerCommand, CredentialBrokerFrame, CredentialBrokerFrameCodec,
-    CredentialOperationAction, CredentialWriterClaimIssuer, PendingCredentialSecretOpening,
+    PendingCredentialSecretOpening,
 };
+#[cfg(test)]
+use runne_provider::{CredentialOperationAction, CredentialWriterClaimIssuer};
 use runne_secure_store::{
     BrokeredProviderCredentialWriter, NativeProviderCredentialWriters,
 };
@@ -36,14 +38,15 @@ impl<T: Read + Write> BrokerControl for T {
 /// There is deliberately no production constructor. Native admission must mint
 /// it only from retained daemon peer, release tuple and channel evidence. The
 /// first exact `IssueTicket` on that channel is the sole command source.
+#[cfg(test)]
 pub struct AuthenticatedDaemonControlEndpoint {
     control: Box<dyn BrokerControl>,
     channel_bytes: [u8; 32],
     channel: BrokerChannelBinding,
 }
 
+#[cfg(test)]
 impl AuthenticatedDaemonControlEndpoint {
-    #[cfg(test)]
     pub fn for_test<T: Read + Write + 'static>(
         control: T,
         channel_bytes: [u8; 32],
@@ -166,12 +169,32 @@ impl AuthorizedWriterControl {
 }
 
 /// Claims one exact issued ticket and returns only a matching post-ack authority.
+#[cfg(target_os = "macos")]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the separate authenticated secret pipe is composed by native orchestration"
+    )
+)]
 pub fn claim_writer_authorization(
-    endpoint: AuthenticatedDaemonControlEndpoint,
     writers: NativeProviderCredentialWriters,
 ) -> Result<ClaimedWriterControl, CliError> {
-    let (issuer, writer) = writers.into_parts();
-    claim_writer_authorization_with_parts(endpoint, &issuer, writer)
+    let (mut control, channel, ticket, issuer, writer) = writers
+        .into_authenticated_parts()
+        .map_err(|_| CliError::CredentialOperation)?;
+    let (authorization, command, binding, pending_pair_secret_opening) = ticket
+        .claim_on(&mut control, &issuer, &channel)
+        .map_err(|_| CliError::CredentialOperation)?;
+    Ok(ClaimedWriterControl {
+        control: Box::new(control),
+        writer,
+        authorization,
+        command,
+        binding,
+        channel,
+        pending_pair_secret_opening,
+    })
 }
 
 #[cfg(test)]
@@ -183,6 +206,7 @@ pub fn claim_writer_authorization_for_test(
     claim_writer_authorization_with_parts(endpoint, issuer, writer)
 }
 
+#[cfg(test)]
 fn claim_writer_authorization_with_parts(
     mut endpoint: AuthenticatedDaemonControlEndpoint,
     issuer: &CredentialWriterClaimIssuer,

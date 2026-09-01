@@ -40,6 +40,17 @@ use crate::{
 ///     let (_issuer, _effect_capable_writer) = writers.into_parts();
 /// }
 /// ```
+///
+/// An authenticated production bundle cannot discard its retained ticket and
+/// recover the locally paired issuer/effect writer directly either:
+///
+/// ```compile_fail
+/// use runne_secure_store::NativeProviderCredentialWriters;
+///
+/// fn cannot_bypass_retained_ticket(writers: NativeProviderCredentialWriters) {
+///     let (_issuer, _effect_capable_writer) = writers.into_parts();
+/// }
+/// ```
 #[cfg_attr(
     not(feature = "test-support"),
     doc = r"The test-only factory is absent from the normal writer-feature API too:
@@ -53,8 +64,10 @@ fn test_factory_is_not_production_api(access: ProviderCredentialAccessPolicy) {
 ```"
 )]
 pub struct NativeProviderCredentialWriters {
-    issuer: CredentialWriterClaimIssuer,
-    writer: Arc<dyn BrokeredProviderCredentialWriter>,
+    pub(super) issuer: CredentialWriterClaimIssuer,
+    pub(super) writer: Arc<dyn BrokeredProviderCredentialWriter>,
+    #[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
+    pub(super) authenticated: Option<super::native_authenticated::AuthenticatedNativeWriterParts>,
 }
 
 impl NativeProviderCredentialWriters {
@@ -72,10 +85,14 @@ impl NativeProviderCredentialWriters {
             writer: Arc::new(BrokeredProviderCredentialWriterAdapter::new(
                 effects, writer, access,
             )),
+            #[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
+            authenticated: None,
         }
     }
 
     /// Separates the broker-side issuer from the only mutation capability.
+    #[cfg(any(test, feature = "test-support"))]
+    #[doc(hidden)]
     #[must_use]
     pub fn into_parts(
         self,

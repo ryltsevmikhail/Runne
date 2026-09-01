@@ -157,3 +157,33 @@ impl UntrustedProviderCredentialWriterEndpointHandoffV1 {
             .map(|inner| PendingPinnedProviderCredentialWriterSessionV1 { inner })
     }
 }
+
+impl PendingPinnedProviderCredentialWriterSessionV1 {
+    /// Revalidates and consumes this pinned state into one authenticated session.
+    ///
+    /// # Errors
+    ///
+    /// Fails closed if freshness, release, package, code identity, or live peer
+    /// evidence drifted since the provisional pinned session was created.
+    #[doc(hidden)]
+    pub fn authenticate_current_writer(
+        self,
+    ) -> Result<
+        crate::AuthenticatedProviderCredentialWriterSession,
+        runne_macos_process_identity::MacOsPackagedWriterObservationError,
+    > {
+        let (control, channel_bytes, ticket, writer, reader) =
+            self.inner.into_authenticated_parts()?;
+        let (_, measurements) = runne_provider::CredentialEnrollmentAuthorityPair::new().split();
+        let channel = measurements
+            .broker_channel_binding(channel_bytes)
+            .map_err(|_| {
+                runne_macos_process_identity::MacOsPackagedWriterObservationError::Rejected
+            })?;
+        Ok(crate::AuthenticatedProviderCredentialWriterSession::mint(
+            crate::session::VerifiedEnrollmentSession::MacOs(Box::new((
+                control, channel, ticket, writer, reader,
+            ))),
+        ))
+    }
+}

@@ -1,10 +1,11 @@
-use std::io::Cursor;
+use std::io::{Cursor, Read, Write};
 
 use crate::{
     CredentialBrokerCommand, CredentialBrokerFrame, CredentialBrokerFrameCodec,
-    CredentialBrokerTarget, CredentialFence, CredentialIssueTicketBindingV1,
-    CredentialLifecycleRevision, CredentialOperationAction, CredentialOperationId,
-    CredentialTicketAttempt, CredentialVersionRef, PendingCredentialIssueTicketV1, ProviderId,
+    CredentialBrokerTarget, CredentialEnrollmentAuthorityPair, CredentialFence,
+    CredentialIssueTicketBindingV1, CredentialLifecycleRevision, CredentialOperationAction,
+    CredentialOperationId, CredentialTicketAttempt, CredentialVersionRef,
+    CredentialWriterAuthorityPair, PendingCredentialIssueTicketV1, ProviderId,
     WriterIdentityMigrationPhase,
 };
 
@@ -42,6 +43,47 @@ fn pending_ticket_reader_rejects_a_non_issue_frame() {
     .unwrap();
 
     assert!(PendingCredentialIssueTicketV1::read_from(&mut Cursor::new(bytes)).is_err());
+}
+
+#[test]
+fn retained_ticket_is_the_only_command_source_for_writer_claim() {
+    let issued = frame(1, 2, 3, 4, 5, 1);
+    let (operation_id, attempt, command) = match &issued {
+        CredentialBrokerFrame::IssueTicket {
+            operation_id,
+            attempt,
+            command,
+            ..
+        } => (*operation_id, *attempt, command.clone()),
+        _ => unreachable!(),
+    };
+    let encoded = CredentialBrokerFrameCodec::encode(issued).unwrap();
+    let pending = PendingCredentialIssueTicketV1::read_from(&mut Cursor::new(encoded)).unwrap();
+    let accepted = CredentialBrokerFrameCodec::encode(CredentialBrokerFrame::ClaimAccepted {
+        operation_id,
+        attempt,
+    })
+    .unwrap();
+    let mut control = ScriptedControl::new(accepted);
+    let (_, measurements) = CredentialEnrollmentAuthorityPair::new().split();
+    let channel = measurements.broker_channel_binding([4; 32]).unwrap();
+    let (issuer, _effects) = CredentialWriterAuthorityPair::new().split();
+
+    let (_authorization, actual_command, actual_binding, pending_opening) =
+        pending.claim_on(&mut control, &issuer, &channel).unwrap();
+
+    assert_eq!(actual_command, command);
+    assert_eq!(actual_binding, digest(5));
+    assert!(pending_opening.is_some());
+    assert!(matches!(
+        CredentialBrokerFrameCodec::read_from(&mut Cursor::new(control.written)),
+        Ok(CredentialBrokerFrame::Claim {
+            operation_id: actual_operation,
+            attempt: actual_attempt,
+            secret_offer: Some(_),
+            ..
+        }) if actual_operation == operation_id && actual_attempt == attempt
+    ));
 }
 
 #[test]
@@ -198,4 +240,35 @@ fn migration_command(binding: u8) -> CredentialBrokerCommand {
         Some(digest(binding)),
     )
     .unwrap()
+}
+
+struct ScriptedControl {
+    readable: Cursor<Vec<u8>>,
+    written: Vec<u8>,
+}
+
+impl ScriptedControl {
+    fn new(readable: Vec<u8>) -> Self {
+        Self {
+            readable: Cursor::new(readable),
+            written: Vec::new(),
+        }
+    }
+}
+
+impl Read for ScriptedControl {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        self.readable.read(buffer)
+    }
+}
+
+impl Write for ScriptedControl {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.written.extend_from_slice(buffer);
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }

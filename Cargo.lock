@@ -4461,6 +4461,7 @@ dependencies = [
  "ring",
  "runne-api",
  "runne-macos-keychain-acl",
+ "runne-native-enrollment-authority",
  "runne-provider",
  "security-framework",
  "serde",

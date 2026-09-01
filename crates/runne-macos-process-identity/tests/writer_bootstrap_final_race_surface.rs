@@ -53,7 +53,13 @@ fn final_race_hooks_are_test_only_and_production_surface_stays_exact() {
         provisional
             .matches("MacOsPendingProvisionalWriterSessionV1 {")
             .count(),
-        2
+        3
+    );
+    assert_eq!(
+        provisional
+            .matches("pub fn into_authenticated_parts(")
+            .count(),
+        1
     );
     for forbidden in ["SystemTime", "pub trait", "pub fn mint", "into_authority"] {
         assert!(!production_transition.contains(forbidden));

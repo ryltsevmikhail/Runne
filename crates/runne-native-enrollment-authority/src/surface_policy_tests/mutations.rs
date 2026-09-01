@@ -18,6 +18,9 @@ pub struct PendingPinnedProviderCredentialWriterSessionV1 {
 impl UntrustedProviderCredentialWriterEndpointHandoffV1 {
     pub fn observe_current_pinned_writer_session(self) -> Result<PendingPinnedProviderCredentialWriterSessionV1, runne_macos_process_identity::MacOsPackagedWriterObservationError> { todo!() }
 }
+impl PendingPinnedProviderCredentialWriterSessionV1 {
+    pub fn authenticate_current_writer(self) -> Result<AuthenticatedProviderCredentialWriterSession, runne_macos_process_identity::MacOsPackagedWriterObservationError> { todo!() }
+}
 ";
 
 #[test]
@@ -52,6 +55,14 @@ fn authority_surface_rejects_pinned_shape_mutations() {
         EXACT_PINNED.replace(
             "    pub fn observe_current_pinned_writer_session",
             "    #[cfg(any())]\n    pub fn observe_current_pinned_writer_session",
+        ),
+        EXACT_PINNED.replace(
+            "authenticate_current_writer(self)",
+            "authenticate_current_writer(&self)",
+        ),
+        EXACT_PINNED.replace(
+            "Result<AuthenticatedProviderCredentialWriterSession, runne_macos_process_identity::MacOsPackagedWriterObservationError>",
+            "AuthenticatedProviderCredentialWriterSession",
         ),
     ];
     let accepted: Vec<_> = cases

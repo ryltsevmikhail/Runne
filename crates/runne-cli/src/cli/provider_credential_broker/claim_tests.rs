@@ -9,7 +9,21 @@ use runne_provider::{
 };
 use runne_secure_store::{NativeProviderCredentialWriters, ProviderCredentialAccessPolicy};
 
-use super::claim::{AuthenticatedDaemonControlEndpoint, claim_writer_authorization};
+use super::claim::{
+    AuthenticatedDaemonControlEndpoint, claim_writer_authorization_for_test,
+};
+#[cfg(target_os = "macos")]
+use super::claim::claim_writer_authorization;
+
+#[test]
+#[cfg(target_os = "macos")]
+fn production_claim_accepts_only_the_native_authenticated_bundle() {
+    let claim: fn(
+        NativeProviderCredentialWriters,
+    ) -> Result<super::claim::ClaimedWriterControl, super::CliError> =
+        claim_writer_authorization;
+    let _ = claim;
+}
 
 #[test]
 fn claim_runner_rejects_wrong_first_frame_without_writing_a_claim() {
@@ -22,7 +36,7 @@ fn claim_runner_rejects_wrong_first_frame_without_writing_a_claim() {
         None,
     );
 
-    assert!(claim_writer_authorization(endpoint, native_writers()).is_err());
+    assert!(claim_for_test(endpoint).is_err());
     assert!(written.lock().expect("written").is_empty());
 }
 
@@ -30,7 +44,7 @@ fn claim_runner_rejects_wrong_first_frame_without_writing_a_claim() {
 fn claim_runner_rejects_substituted_channel_without_writing_a_claim() {
     let command = command(2, CredentialOperationAction::Pair);
     let (endpoint, written) = endpoint(issue(command, binding(), [12; 32]), None);
-    assert!(claim_writer_authorization(endpoint, native_writers()).is_err());
+    assert!(claim_for_test(endpoint).is_err());
     assert!(written.lock().expect("written").is_empty());
 }
 
@@ -40,7 +54,7 @@ fn claim_runner_rejects_internally_mismatched_channel_authority() {
     let (endpoint, written) =
         endpoint_with_channel(issue(command, binding(), [11; 32]), None, [12; 32]);
 
-    assert!(claim_writer_authorization(endpoint, native_writers()).is_err());
+    assert!(claim_for_test(endpoint).is_err());
     assert!(written.lock().expect("written").is_empty());
 }
 
@@ -60,7 +74,7 @@ fn claim_runner_rejects_denied_or_mismatched_ack_after_one_claim() {
         },
     ] {
         let (endpoint, written) = endpoint(issue(command.clone(), binding(), [11; 32]), Some(ack));
-        assert!(claim_writer_authorization(endpoint, native_writers()).is_err());
+        assert!(claim_for_test(endpoint).is_err());
         assert_one_claim(&written, true);
     }
 }
@@ -73,8 +87,7 @@ fn pair_claim_sends_one_ticket_and_returns_post_ack_authorization() {
         Some(accepted(&command)),
     );
 
-    let claimed =
-        claim_writer_authorization(endpoint, native_writers()).expect("exact acknowledgement");
+    let claimed = claim_for_test(endpoint).expect("exact acknowledgement");
     assert_eq!(Arc::strong_count(&written), 2, "control remains retained");
     drop(claimed);
     assert_eq!(
@@ -93,8 +106,7 @@ fn non_pair_claim_never_creates_a_secret_offer_or_pending_opening() {
         Some(accepted(&command)),
     );
 
-    let claimed =
-        claim_writer_authorization(endpoint, native_writers()).expect("exact acknowledgement");
+    let claimed = claim_for_test(endpoint).expect("exact acknowledgement");
     let authorized = claimed.authorize_without_secret().expect("non-pair effect");
     assert_eq!(authorized.command_for_test(), &command);
     assert_eq!(Arc::strong_count(&written), 2, "control remains retained");
@@ -114,8 +126,7 @@ fn secret_path_is_pair_only_and_consumes_the_post_ack_state() {
         issue(pair.clone(), binding(), [11; 32]),
         Some(accepted(&pair)),
     );
-    let claimed =
-        claim_writer_authorization(pair_endpoint, native_writers()).expect("pair acknowledgement");
+    let claimed = claim_for_test(pair_endpoint).expect("pair acknowledgement");
     assert!(claimed.authorize_without_secret().is_err());
 
     let revoke = command(10, CredentialOperationAction::Revoke);
@@ -123,8 +134,7 @@ fn secret_path_is_pair_only_and_consumes_the_post_ack_state() {
         issue(revoke.clone(), binding(), [11; 32]),
         Some(accepted(&revoke)),
     );
-    let claimed = claim_writer_authorization(revoke_endpoint, native_writers())
-        .expect("revoke acknowledgement");
+    let claimed = claim_for_test(revoke_endpoint).expect("revoke acknowledgement");
     assert!(claimed.read_pair_secret(&mut PanicReader).is_err());
 }
 
@@ -133,6 +143,14 @@ fn endpoint(
     ack: Option<CredentialBrokerFrame>,
 ) -> (AuthenticatedDaemonControlEndpoint, Arc<Mutex<Vec<u8>>>) {
     endpoint_with_channel(issue, ack, [11; 32])
+}
+
+fn claim_for_test(
+    endpoint: AuthenticatedDaemonControlEndpoint,
+) -> Result<super::claim::ClaimedWriterControl, super::CliError> {
+    let writers = native_writers();
+    let (issuer, writer) = writers.into_parts();
+    claim_writer_authorization_for_test(endpoint, &issuer, writer)
 }
 
 fn endpoint_with_channel(

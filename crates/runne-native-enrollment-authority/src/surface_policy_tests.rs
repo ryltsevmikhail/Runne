@@ -12,6 +12,8 @@ mod method_audit;
 mod mint_call_audit;
 #[path = "surface_policy_tests/mutations.rs"]
 mod mutations;
+#[path = "surface_policy_tests/platform_method_audit.rs"]
+mod platform_method_audit;
 #[path = "surface_policy_tests/source_discovery.rs"]
 mod source_discovery;
 #[path = "surface_policy_tests/type_audit.rs"]
@@ -28,10 +30,13 @@ const HANDOFF: &str = "UntrustedProviderCredentialWriterEndpointHandoffV1";
 const PINNED: &str = "PendingPinnedProviderCredentialWriterSessionV1";
 const HANDOFF_MODULE: &str = "untrusted_writer_endpoint_handoff";
 const OPAQUE_TYPES: [&str; 5] = [SESSION, CLAIM, EFFECT, HANDOFF, PINNED];
-const PUBLIC_METHODS: [&str; 3] = [
+const PUBLIC_METHODS: [&str; 6] = [
     "split",
     "receive_from_stdin",
     "observe_current_pinned_writer_session",
+    "authenticate_current_writer",
+    "into_macos_claim_parts",
+    "into_macos_effect_parts",
 ];
 
 #[test]
@@ -194,8 +199,12 @@ fn audit_impl(item: &syn::ItemImpl, source: &str, audit: &mut Audit) {
             .violations
             .push(format!("{source}: trait impl is outside the exact surface"));
     }
-    if type_opaque_name(&item.self_ty).is_some()
+    let opaque = type_opaque_name(&item.self_ty);
+    let platform_parts =
+        matches!(opaque, Some(CLAIM | EFFECT)) && attribute_audit::has_exact_macos_cfg(&item.attrs);
+    if opaque.is_some()
         && attribute_audit::has_cfg_or_path_substitution(&item.attrs)
+        && !platform_parts
     {
         audit
             .violations

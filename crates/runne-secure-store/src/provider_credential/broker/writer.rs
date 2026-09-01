@@ -13,6 +13,8 @@ use super::{
 use crate::{ProviderCredentialAccessPolicy, ProviderCredentialMaterial, SecureStoreError};
 
 mod native;
+#[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
+mod native_authenticated;
 #[cfg(test)]
 pub use native::NativeBrokeredProviderCredentialWriter;
 pub use native::NativeProviderCredentialWriters;

@@ -1,5 +1,6 @@
 use runne_api::{PendingSignedInstalledReleaseMetadataV2, VerifiedSignedInstalledReleaseV2};
 use runne_provider::{PendingCredentialIssueTicketV1, SignedCredentialWriterSessionAttestationV1};
+use std::path::PathBuf;
 
 use crate::packaged_writer_observation::{
     CapturedPackagedWriterObservationV1, package::PackagedWriterArtifacts,
@@ -156,6 +157,80 @@ impl MacOsPendingProvisionalReleaseMatchV1 {
         self.observation.test_only_inject_final_race(race);
         self.observation
             .revalidate_for_provisional_session(&self.handoff)
+    }
+}
+
+impl MacOsPendingProvisionalWriterSessionV1 {
+    fn reauthenticate_current(self) -> Result<Self, MacOsPackagedWriterObservationError> {
+        matches_release_artifacts(&self.release, self.observation.package())
+            .then_some(())
+            .ok_or(MacOsPackagedWriterObservationError::Rejected)?;
+        match_retained_code_identities(
+            &self.release,
+            self.observation.package(),
+            self.observation.self_process(),
+            self.observation.peer_process(),
+        )?;
+        matches_attested_facts(
+            &self.attestation,
+            &self.issue_ticket,
+            &self.handoff,
+            &self.observation,
+        )
+        .then_some(())
+        .ok_or(MacOsPackagedWriterObservationError::Rejected)?;
+        self.attestation
+            .is_current_now()
+            .then_some(())
+            .ok_or(MacOsPackagedWriterObservationError::Rejected)?;
+        self.observation
+            .revalidate_for_provisional_session(&self.handoff)?;
+        Ok(self)
+    }
+
+    /// Revalidates and consumes every retained native resource exactly once.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed failure when any fact drifted before extraction.
+    #[doc(hidden)]
+    #[allow(
+        clippy::type_complexity,
+        reason = "the authority layer immediately wraps all five resources"
+    )]
+    pub fn into_authenticated_parts(
+        self,
+    ) -> Result<
+        (
+            std::os::unix::net::UnixStream,
+            [u8; 32],
+            PendingCredentialIssueTicketV1,
+            PathBuf,
+            PathBuf,
+        ),
+        MacOsPackagedWriterObservationError,
+    > {
+        let verified = self.reauthenticate_current()?;
+        let writer = verified
+            .observation
+            .self_process()
+            .native_code()
+            .main_executable()
+            .to_path_buf();
+        let reader = verified
+            .observation
+            .peer_process()
+            .native_code()
+            .main_executable()
+            .to_path_buf();
+        let (control, channel) = verified.handoff.into_authenticated_control();
+        Ok((
+            std::os::unix::net::UnixStream::from(control),
+            channel,
+            verified.issue_ticket,
+            writer,
+            reader,
+        ))
     }
 }
 

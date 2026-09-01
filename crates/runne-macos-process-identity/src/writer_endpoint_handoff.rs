@@ -114,6 +114,10 @@ impl MacOsUntrustedWriterEndpointHandoffV1 {
         &self.handoff_digest
     }
 
+    pub(super) fn into_authenticated_control(self) -> (OwnedFd, [u8; 32]) {
+        (self.control, self.channel_binding)
+    }
+
     /// Receives one fixed untrusted handoff from this process's stdin.
     ///
     /// # Errors

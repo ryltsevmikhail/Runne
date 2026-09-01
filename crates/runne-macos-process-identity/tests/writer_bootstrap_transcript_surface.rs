@@ -219,20 +219,18 @@ fn provisional_writer_session_match_uses_every_retained_fact_before_its_sole_con
     let match_start = transition
         .find("pub fn match_current_pinned_release(")
         .unwrap();
-    let pinned = transition[match_start..]
-        .find("verify_current_pinned")
+    let match_end = transition[match_start..]
+        .find("    /// Exercises native matching")
         .unwrap()
         + match_start;
-    let first_current = transition[match_start..].find("is_current_now").unwrap() + match_start;
-    let final_current = transition[match_start..].rfind("is_current_now").unwrap() + match_start;
-    let final_revalidation = transition[match_start..]
-        .find("revalidate_for_provisional_session")
-        .unwrap()
-        + match_start;
-    let constructor = transition[match_start..]
+    let matching = &transition[match_start..match_end];
+    let pinned = matching.find("verify_current_pinned").unwrap();
+    let first_current = matching.find("is_current_now").unwrap();
+    let final_current = matching.rfind("is_current_now").unwrap();
+    let final_revalidation = matching.find("revalidate_for_provisional_session").unwrap();
+    let constructor = matching
         .find("MacOsPendingProvisionalWriterSessionV1 {")
-        .unwrap()
-        + match_start;
+        .unwrap();
     assert!(
         pinned < first_current
             && first_current < final_current
@@ -241,9 +239,9 @@ fn provisional_writer_session_match_uses_every_retained_fact_before_its_sole_con
     );
     assert_eq!(
         transition
-            .matches("MacOsPendingProvisionalWriterSessionV1 {")
+            .matches("Ok(MacOsPendingProvisionalWriterSessionV1 {")
             .count(),
-        2
+        1
     );
 
     assert!(observation.contains("peer.process_start_digest() == peer_process.start_digest()"));

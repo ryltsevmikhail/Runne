@@ -8,18 +8,22 @@ use syn::{Attribute, ImplItemFn, ItemFn, ItemMacro, ItemMod, Macro, Meta, UseTre
 use super::source_discovery::production_sources;
 
 #[test]
-fn private_session_mint_has_zero_production_call_sites() {
+fn private_session_mint_has_one_reviewed_production_call_site() {
     let mut calls = Vec::new();
     for path in production_sources() {
         let source = fs::read_to_string(&path).unwrap();
         let file = syn::parse_file(&source).unwrap();
         MintCalls {
-            source: path.display().to_string(),
+            source: path.file_name().unwrap().to_string_lossy().into_owned(),
             calls: &mut calls,
         }
         .visit_file(&file);
     }
-    assert!(calls.is_empty(), "production mint calls: {calls:#?}");
+    assert_eq!(
+        calls,
+        ["untrusted_writer_endpoint_handoff.rs"],
+        "production mint calls drifted"
+    );
 }
 
 #[test]
