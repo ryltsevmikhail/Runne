@@ -17,6 +17,12 @@ rust-version = "1.95"
 [profile.test]
 debug = 0
 
+# Protected process fixtures repeatedly measure staged daemon and writer
+# identities. Keep the production-equivalent SHA-256 checks exact while
+# preventing unoptimized test hashing from consuming the client deadline.
+[profile.test.package.sha2]
+opt-level = 3
+
 [workspace.dependencies]
 aho-corasick = "=1.1.4"
 async-trait = "0.1"

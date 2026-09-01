@@ -111,7 +111,12 @@ pub async fn send_canonical_conversation(
         )
         .await
         .expect_err("fixture ACK fault must project as an invalid response");
-    assert_eq!(error.kind(), RuntimeApiErrorKind::InvalidResponse);
+    assert_eq!(
+        error.kind(),
+        RuntimeApiErrorKind::InvalidResponse,
+        "fixture ACK fault returned an unexpected error; request_id={:?}",
+        error.request_id()
+    );
     assert_eq!(error.request_id(), None);
     let timeline = client
         .list_messages(conversation_id)
