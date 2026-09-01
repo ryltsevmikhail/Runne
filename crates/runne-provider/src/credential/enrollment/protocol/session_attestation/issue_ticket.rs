@@ -10,8 +10,96 @@ use crate::credential::enrollment::{
 
 const DOMAIN: &[u8] = b"GOCODE_CREDENTIAL_ISSUE_TICKET_SESSION_V1\0";
 
+/// One prefetched broker ticket retained for a later authenticated claim.
+///
+/// ```compile_fail
+/// fn require_clone<T: Clone>() {}
+/// require_clone::<runne_provider::PendingCredentialIssueTicketV1>();
+/// ```
+/// ```compile_fail
+/// fn require_copy<T: Copy>() {}
+/// require_copy::<runne_provider::PendingCredentialIssueTicketV1>();
+/// ```
+/// ```compile_fail
+/// fn require_debug<T: std::fmt::Debug>() {}
+/// require_debug::<runne_provider::PendingCredentialIssueTicketV1>();
+/// ```
+/// ```compile_fail
+/// fn require_default<T: Default>() {}
+/// require_default::<runne_provider::PendingCredentialIssueTicketV1>();
+/// ```
+/// ```compile_fail
+/// fn require_serialize<T: serde::Serialize>() {}
+/// require_serialize::<runne_provider::PendingCredentialIssueTicketV1>();
+/// ```
+/// ```compile_fail
+/// fn require_deserialize<T: serde::de::DeserializeOwned>() {}
+/// require_deserialize::<runne_provider::PendingCredentialIssueTicketV1>();
+/// ```
+/// ```compile_fail
+/// fn require_as_fd<T: std::os::fd::AsFd>() {}
+/// require_as_fd::<runne_provider::PendingCredentialIssueTicketV1>();
+/// ```
+/// ```compile_fail
+/// fn require_as_raw_fd<T: std::os::fd::AsRawFd>() {}
+/// require_as_raw_fd::<runne_provider::PendingCredentialIssueTicketV1>();
+/// ```
+/// ```compile_fail
+/// fn require_into_raw_fd<T: std::os::fd::IntoRawFd>() {}
+/// require_into_raw_fd::<runne_provider::PendingCredentialIssueTicketV1>();
+/// ```
+/// ```compile_fail
+/// let _ = runne_provider::PendingCredentialIssueTicketV1 {};
+/// ```
+/// ```compile_fail
+/// let _ = runne_provider::PendingCredentialIssueTicketV1::from_parts();
+/// ```
+/// ```compile_fail
+/// fn pending_has_no_raw_projection(value: runne_provider::PendingCredentialIssueTicketV1) {
+///     let _ = value.frame();
+///     let _ = value.binding();
+///     let _ = value.into_frame();
+/// }
+/// ```
+pub struct PendingCredentialIssueTicketV1 {
+    frame: CredentialBrokerFrame,
+    binding: CredentialIssueTicketBindingV1,
+}
+
+impl PendingCredentialIssueTicketV1 {
+    /// Reads and retains exactly one bounded `IssueTicket` frame.
+    pub fn read_from<R: std::io::Read>(reader: &mut R) -> Result<Self, CredentialEnrollmentError> {
+        let frame = CredentialBrokerFrameCodec::read_from(reader)?;
+        let binding = CredentialIssueTicketBindingV1::from_issue_ticket(&frame)?;
+        Ok(Self { frame, binding })
+    }
+
+    pub(super) fn matches_attested(&self, attested: &CredentialIssueTicketBindingV1) -> bool {
+        CredentialIssueTicketBindingV1::from_issue_ticket(&self.frame)
+            .is_ok_and(|actual| actual == self.binding && &actual == attested)
+    }
+}
+
 /// Digest of one actual structured `IssueTicket`; raw ticket bytes never escape.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+///
+/// ```compile_fail
+/// fn require_clone<T: Clone>() {}
+/// require_clone::<runne_provider::CredentialIssueTicketBindingV1>();
+/// ```
+/// ```compile_fail
+/// fn require_copy<T: Copy>() {}
+/// require_copy::<runne_provider::CredentialIssueTicketBindingV1>();
+/// ```
+/// ```compile_fail
+/// fn require_debug<T: std::fmt::Debug>() {}
+/// require_debug::<runne_provider::CredentialIssueTicketBindingV1>();
+/// ```
+/// ```compile_fail
+/// fn raw_binding_getter(value: &runne_provider::CredentialIssueTicketBindingV1) {
+///     let _ = value.digest();
+/// }
+/// ```
+#[derive(Eq, PartialEq)]
 pub struct CredentialIssueTicketBindingV1 {
     digest: CredentialBindingDigest,
     operation: CredentialOperationId,
@@ -67,9 +155,12 @@ impl CredentialIssueTicketBindingV1 {
         })
     }
 
-    /// Returns only the non-secret binding digest.
-    #[must_use]
-    pub const fn digest(self) -> CredentialBindingDigest {
+    pub(super) const fn digest(&self) -> CredentialBindingDigest {
+        self.digest
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn test_only_digest(&self) -> CredentialBindingDigest {
         self.digest
     }
 
@@ -92,7 +183,7 @@ impl CredentialIssueTicketBindingV1 {
     }
 
     pub(super) fn matches_claims(
-        self,
+        &self,
         operation: CredentialOperationId,
         attempt: CredentialTicketAttempt,
         claim: CredentialBindingDigest,
@@ -100,7 +191,7 @@ impl CredentialIssueTicketBindingV1 {
         self.operation == operation && self.attempt == attempt && self.claim == claim
     }
 
-    pub(super) const fn channel(self) -> CredentialBindingDigest {
+    pub(super) const fn channel(&self) -> CredentialBindingDigest {
         self.channel
     }
 }

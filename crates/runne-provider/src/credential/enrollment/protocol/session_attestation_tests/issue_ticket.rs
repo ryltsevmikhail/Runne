@@ -1,11 +1,48 @@
+use std::io::Cursor;
+
 use crate::{
-    CredentialBrokerCommand, CredentialBrokerFrame, CredentialBrokerTarget, CredentialFence,
-    CredentialIssueTicketBindingV1, CredentialLifecycleRevision, CredentialOperationAction,
-    CredentialOperationId, CredentialTicketAttempt, CredentialVersionRef, ProviderId,
+    CredentialBrokerCommand, CredentialBrokerFrame, CredentialBrokerFrameCodec,
+    CredentialBrokerTarget, CredentialFence, CredentialIssueTicketBindingV1,
+    CredentialLifecycleRevision, CredentialOperationAction, CredentialOperationId,
+    CredentialTicketAttempt, CredentialVersionRef, PendingCredentialIssueTicketV1, ProviderId,
     WriterIdentityMigrationPhase,
 };
 
 use super::support::{command, digest, frame, frame_with_command};
+
+#[test]
+fn pending_ticket_reader_consumes_one_issue_ticket_and_leaves_the_next_frame() {
+    let first = CredentialBrokerFrameCodec::encode(frame(1, 2, 3, 4, 5, 1)).unwrap();
+    let operation_id = CredentialOperationId::from_bytes([9; 16]).unwrap();
+    let attempt = CredentialTicketAttempt::new(8).unwrap();
+    let second = CredentialBrokerFrameCodec::encode(CredentialBrokerFrame::ClaimAccepted {
+        operation_id,
+        attempt,
+    })
+    .unwrap();
+    let mut reader = Cursor::new([first, second].concat());
+
+    let _pending = PendingCredentialIssueTicketV1::read_from(&mut reader).unwrap();
+
+    assert!(matches!(
+        CredentialBrokerFrameCodec::read_from(&mut reader),
+        Ok(CredentialBrokerFrame::ClaimAccepted {
+            operation_id: actual_operation,
+            attempt: actual_attempt,
+        }) if actual_operation == operation_id && actual_attempt == attempt
+    ));
+}
+
+#[test]
+fn pending_ticket_reader_rejects_a_non_issue_frame() {
+    let bytes = CredentialBrokerFrameCodec::encode(CredentialBrokerFrame::ClaimAccepted {
+        operation_id: CredentialOperationId::from_bytes([9; 16]).unwrap(),
+        attempt: CredentialTicketAttempt::new(8).unwrap(),
+    })
+    .unwrap();
+
+    assert!(PendingCredentialIssueTicketV1::read_from(&mut Cursor::new(bytes)).is_err());
+}
 
 #[test]
 fn issue_ticket_binding_matches_independent_sha256_vector() {
@@ -13,7 +50,7 @@ fn issue_ticket_binding_matches_independent_sha256_vector() {
     let binding = CredentialIssueTicketBindingV1::from_issue_ticket(&frame).unwrap();
 
     assert_eq!(
-        binding.digest().as_bytes(),
+        binding.test_only_digest().as_bytes(),
         [
             0xd9, 0xc2, 0x40, 0x0a, 0xfc, 0xdd, 0xe8, 0x12, 0x77, 0xac, 0x62, 0x04, 0xea, 0xfe,
             0xe9, 0xff, 0xf4, 0xed, 0xb7, 0x9a, 0xb1, 0x07, 0x22, 0x93, 0xae, 0x51, 0xde, 0xf9,
@@ -26,7 +63,7 @@ fn issue_ticket_binding_matches_independent_sha256_vector() {
 fn issue_ticket_binding_changes_for_every_structured_field() {
     let baseline = CredentialIssueTicketBindingV1::from_issue_ticket(&frame(1, 2, 3, 4, 5, 1))
         .unwrap()
-        .digest();
+        .test_only_digest();
     for changed in [
         frame(2, 2, 3, 4, 5, 1),
         frame(1, 3, 3, 4, 5, 1),
@@ -38,7 +75,7 @@ fn issue_ticket_binding_changes_for_every_structured_field() {
         assert_ne!(
             CredentialIssueTicketBindingV1::from_issue_ticket(&changed)
                 .unwrap()
-                .digest(),
+                .test_only_digest(),
             baseline
         );
     }
@@ -129,7 +166,7 @@ fn issue_ticket_binding_rejects_zero_channel() {
 fn binding(frame: CredentialBrokerFrame) -> crate::CredentialBindingDigest {
     CredentialIssueTicketBindingV1::from_issue_ticket(&frame)
         .unwrap()
-        .digest()
+        .test_only_digest()
 }
 
 fn pair_command(provider: ProviderId, revision: u64, fence: u64) -> CredentialBrokerCommand {

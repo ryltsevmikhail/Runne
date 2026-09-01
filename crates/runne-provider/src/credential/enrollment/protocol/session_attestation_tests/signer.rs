@@ -45,6 +45,26 @@ fn ticket_claims_reject_issue_ticket_claim_substitution() {
 }
 
 #[test]
+fn ticket_claims_reject_lifetime_over_one_hour() {
+    assert!(ticket_claims_with_lifetime(&frame(40, 1, 46, 42, 41, 1), 13, 3_613).is_ok());
+    assert!(ticket_claims_with_lifetime(&frame(40, 1, 46, 42, 41, 1), 13, 3_614).is_err());
+    assert!(
+        ticket_claims_with_lifetime(&frame(40, 1, 46, 42, 41, 1), i64::MAX - 3_600, i64::MAX,)
+            .is_ok()
+    );
+    assert!(
+        ticket_claims_with_lifetime(&frame(40, 1, 46, 42, 41, 1), i64::MAX - 3_601, i64::MAX,)
+            .is_err()
+    );
+    assert!(
+        ticket_claims_with_lifetime(&frame(40, 1, 46, 42, 41, 1), i64::MIN, i64::MAX,).is_err()
+    );
+    assert!(
+        ticket_claims_with_lifetime(&frame(40, 1, 46, 42, 41, 1), i64::MAX, i64::MIN,).is_err()
+    );
+}
+
+#[test]
 fn attestation_signer_rejects_issue_ticket_channel_substitution() {
     let actual = frame(40, 1, 46, 42, 41, 1);
     let signer =
@@ -69,6 +89,23 @@ fn ticket_claims(
         digest(6),
         13,
         14,
+    )
+}
+
+fn ticket_claims_with_lifetime(
+    actual: &crate::CredentialBrokerFrame,
+    issued_at: i64,
+    expires_at: i64,
+) -> Result<CredentialWriterSessionTicketClaimsV1, crate::CredentialEnrollmentError> {
+    CredentialWriterSessionTicketClaimsV1::new(
+        CredentialOperationId::from_bytes([40; 16])?,
+        CredentialTicketAttempt::new(1)?,
+        CredentialIssueTicketBindingV1::from_issue_ticket(actual)?,
+        digest(41),
+        CredentialInstallationOwnerId::from_bytes([5; 32])?,
+        digest(6),
+        issued_at,
+        expires_at,
     )
 }
 

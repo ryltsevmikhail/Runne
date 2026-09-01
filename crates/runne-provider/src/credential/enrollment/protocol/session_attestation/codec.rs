@@ -127,6 +127,18 @@ impl CredentialWriterSessionAttestationCodec {
             signature: fixed(bytes, 577)?,
         })
     }
+
+    /// Reads exactly one fixed-width attestation without consuming the next frame.
+    pub fn read_from<R: std::io::Read>(
+        reader: &mut R,
+        expected_public_key: [u8; 32],
+    ) -> Result<SignedCredentialWriterSessionAttestationV1, CredentialEnrollmentError> {
+        let mut bytes = [0; BYTES];
+        reader
+            .read_exact(&mut bytes)
+            .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
+        Self::decode_and_verify(&bytes, expected_public_key)
+    }
 }
 
 pub(super) fn signature_message(value: &SignedCredentialWriterSessionAttestationV1) -> Vec<u8> {

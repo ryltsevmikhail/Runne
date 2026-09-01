@@ -65,7 +65,7 @@ pub use protocol::{
     CredentialWriterSessionAttestationClaimsV1, CredentialWriterSessionAttestationCodec,
     CredentialWriterSessionProcessClaimsV1, CredentialWriterSessionRuntimeClaimsV1,
     CredentialWriterSessionTicketClaimsV1, PROVIDER_CREDENTIAL_BROKER_MODE_V1,
-    PendingCredentialSecretOpening, SealedCredentialEnvelope,
+    PendingCredentialIssueTicketV1, PendingCredentialSecretOpening, SealedCredentialEnvelope,
     SignedCredentialWriterSessionAttestationV1,
 };
 #[cfg(feature = "test-support")]

@@ -37,7 +37,7 @@ pub use session_attestation::{
     CredentialIssueTicketBindingV1, CredentialWriterSessionAttestationClaimsV1,
     CredentialWriterSessionAttestationCodec, CredentialWriterSessionProcessClaimsV1,
     CredentialWriterSessionRuntimeClaimsV1, CredentialWriterSessionTicketClaimsV1,
-    SignedCredentialWriterSessionAttestationV1,
+    PendingCredentialIssueTicketV1, SignedCredentialWriterSessionAttestationV1,
 };
 
 /// Deliberately narrow daemon-only publication adapter.

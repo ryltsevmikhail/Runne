@@ -5,18 +5,19 @@ use super::{
 };
 use crate::credential::enrollment::{
     BrokerChannelBinding, CredentialBindingDigest, CredentialBrokerCommand, CredentialBrokerFrame,
-    CredentialBrokerTarget, CredentialFence, CredentialInstallationOwnerId,
-    CredentialLifecycleRevision, CredentialOperationAction, CredentialSecretClaimOffer,
-    RawCredentialTicket,
+    CredentialBrokerTarget, CredentialEnrollmentError, CredentialFence,
+    CredentialInstallationOwnerId, CredentialLifecycleRevision, CredentialOperationAction,
+    CredentialSecretClaimOffer, RawCredentialTicket,
+    protocol::secret::DaemonCredentialSecretPublicationSigner,
 };
 use crate::{CredentialVersionRef, ProviderId};
 
 pub(in crate::credential::enrollment::protocol) fn attested_publication_signer_for_test(
     channel: &BrokerChannelBinding,
     offer: &CredentialSecretClaimOffer,
-) -> Result<super::DaemonCredentialSecretPublicationSigner, super::CredentialEnrollmentError> {
+) -> Result<DaemonCredentialSecretPublicationSigner, CredentialEnrollmentError> {
     let provider =
-        ProviderId::new("openai").map_err(|_| super::CredentialEnrollmentError::InvalidEvidence)?;
+        ProviderId::new("openai").map_err(|_| CredentialEnrollmentError::InvalidEvidence)?;
     let command = CredentialBrokerCommand::new(
         offer.operation_id,
         offer.attempt,
@@ -24,7 +25,7 @@ pub(in crate::credential::enrollment::protocol) fn attested_publication_signer_f
         CredentialOperationAction::Pair,
         CredentialBrokerTarget::Version(
             CredentialVersionRef::new(provider, 1)
-                .map_err(|_| super::CredentialEnrollmentError::InvalidEvidence)?,
+                .map_err(|_| CredentialEnrollmentError::InvalidEvidence)?,
         ),
         CredentialLifecycleRevision::new(1)?,
         CredentialFence::new(1)?,
@@ -71,6 +72,6 @@ pub(in crate::credential::enrollment::protocol) fn attested_publication_signer_f
         .map(|(_, signer)| signer)
 }
 
-fn digest(value: u8) -> Result<CredentialBindingDigest, super::CredentialEnrollmentError> {
+fn digest(value: u8) -> Result<CredentialBindingDigest, CredentialEnrollmentError> {
     CredentialBindingDigest::from_measured([value; 32])
 }

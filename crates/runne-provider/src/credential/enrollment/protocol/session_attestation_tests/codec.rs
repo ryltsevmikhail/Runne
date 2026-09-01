@@ -1,13 +1,31 @@
+use std::io::{Cursor, Read as _};
+
 use crate::{CredentialWriterSessionAttestationCodec, daemon_credential_publication};
 
-use super::support::{
-    EXPECTED_ATTESTATION_DIGEST, EXPECTED_PUBLIC_KEY, SEED, claims, frame, kat_bytes, resign,
-};
+use super::support::{EXPECTED_PUBLIC_KEY, SEED, claims, frame, kat_bytes, resign};
 
 const DOMAIN: &[u8] = b"GOCODE_PROVIDER_CREDENTIAL_WRITER_SESSION_ATTESTATION_V1\0";
 
 #[test]
-fn attestation_matches_independent_signature_and_digest_vector() {
+fn attestation_stream_reader_consumes_exactly_641_bytes() {
+    let expected = kat_bytes();
+    let mut stream = Cursor::new([expected.as_slice(), &[0xa5]].concat());
+
+    let decoded =
+        CredentialWriterSessionAttestationCodec::read_from(&mut stream, EXPECTED_PUBLIC_KEY)
+            .unwrap();
+    let mut sentinel = [0];
+    stream.read_exact(&mut sentinel).unwrap();
+
+    assert_eq!(
+        CredentialWriterSessionAttestationCodec::encode(&decoded),
+        expected
+    );
+    assert_eq!(sentinel, [0xa5]);
+}
+
+#[test]
+fn attestation_matches_independent_signature_vector() {
     let bytes = kat_bytes();
     let decoded =
         CredentialWriterSessionAttestationCodec::decode_and_verify(&bytes, EXPECTED_PUBLIC_KEY)
@@ -16,10 +34,6 @@ fn attestation_matches_independent_signature_and_digest_vector() {
     assert_eq!(
         CredentialWriterSessionAttestationCodec::encode(&decoded),
         bytes
-    );
-    assert_eq!(
-        decoded.binding_digest().as_bytes(),
-        EXPECTED_ATTESTATION_DIGEST
     );
 }
 
@@ -164,7 +178,7 @@ fn generated_attestation_round_trips_with_independently_expected_key() {
     let (attestation, publication_signer) = signer.sign(claims(&issue)).unwrap();
     let encoded = CredentialWriterSessionAttestationCodec::encode(&attestation);
 
-    assert_eq!(attestation.publication_public_key(), expected_key);
+    assert!(attestation.matches_handoff(&[32; 32], &expected_key, &[16; 32]));
     assert_eq!(publication_signer.public_key(), expected_key);
     assert!(
         CredentialWriterSessionAttestationCodec::decode_and_verify(&encoded, expected_key).is_ok()

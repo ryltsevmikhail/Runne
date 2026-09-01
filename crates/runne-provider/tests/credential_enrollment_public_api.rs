@@ -13,11 +13,11 @@ use runne_provider::{
     CredentialVerificationCapability, CredentialVerificationContext, CredentialVerificationLease,
     CredentialVerificationObservation, CredentialVersionRef, DaemonAuthorityId,
     DesktopExecutableIdentity, DesktopSupervisorGeneration, FailCredentialOperation,
-    HardFenceProvider, IssueCredentialTicketDigest, ObserveNativeEffect, ProtectedSessionId,
-    ProviderId, RawCredentialTicket, ReaderExecutableIdentity, ReleaseManifestDigest,
-    TombstoneCredentialOperation, TransitionCommand, WriterExecutableIdentity,
-    WriterIdentityMigrationPhase, WriterLaunchId, WriterProcessHandleIdentity,
-    WriterProcessStartIdentity,
+    HardFenceProvider, IssueCredentialTicketDigest, ObserveNativeEffect,
+    PendingCredentialIssueTicketV1, ProtectedSessionId, ProviderId, RawCredentialTicket,
+    ReaderExecutableIdentity, ReleaseManifestDigest, TombstoneCredentialOperation,
+    TransitionCommand, WriterExecutableIdentity, WriterIdentityMigrationPhase, WriterLaunchId,
+    WriterProcessHandleIdentity, WriterProcessStartIdentity,
 };
 
 #[test]
@@ -64,6 +64,7 @@ fn credential_enrollment_public_api_is_consumer_visible() {
         HardFenceProvider,
         IssueCredentialTicketDigest,
         ObserveNativeEffect,
+        PendingCredentialIssueTicketV1,
         ProtectedSessionId,
         ProviderId,
         RawCredentialTicket,

@@ -1,3 +1,5 @@
+use std::io::Cursor;
+
 use runne_provider::{
     CredentialBindingDigest, CredentialBrokerCommand, CredentialBrokerFrame,
     CredentialBrokerFrameCodec, CredentialBrokerTarget, CredentialFence,
@@ -5,8 +7,8 @@ use runne_provider::{
     CredentialOperationAction, CredentialOperationId, CredentialTicketAttempt,
     CredentialVersionRef, CredentialWriterSessionAttestationClaimsV1,
     CredentialWriterSessionAttestationCodec, CredentialWriterSessionProcessClaimsV1,
-    CredentialWriterSessionRuntimeClaimsV1, CredentialWriterSessionTicketClaimsV1, ProviderId,
-    RawCredentialTicket, daemon_credential_publication,
+    CredentialWriterSessionRuntimeClaimsV1, CredentialWriterSessionTicketClaimsV1,
+    PendingCredentialIssueTicketV1, ProviderId, RawCredentialTicket, daemon_credential_publication,
 };
 
 #[derive(Clone, Copy)]
@@ -28,7 +30,7 @@ struct RuntimeFacts {
 }
 
 #[test]
-fn decoded_claims_compare_to_independently_constructed_exact_expectations() {
+fn decoded_attestation_matches_only_exact_observable_facts() {
     let ticket_facts = TicketFacts {
         operation: 1,
         attempt: 2,
@@ -67,15 +69,30 @@ fn decoded_claims_compare_to_independently_constructed_exact_expectations() {
     )
     .unwrap();
 
-    let expected_ticket = ticket_claims(issue, ticket_facts);
-    let expected_runtime = runtime_claims(runtime_facts);
-    let expected_process = process_claims(process_facts);
-    assert!(decoded.ticket_claims() == &expected_ticket);
-    assert!(decoded.runtime_claims() == &expected_runtime);
-    assert!(decoded.process_claims() == &expected_process);
+    assert!(decoded.matches_pending_issue_ticket(&pending_ticket(&frame_bytes)));
+    assert!(decoded.matches_handoff(
+        &[ticket_facts.channel; 32],
+        &expected_public_key,
+        &[process_facts[0]; 32],
+    ));
+    assert!(decoded.matches_live_processes(
+        &[process_facts[1]; 32],
+        &[process_facts[2]; 32],
+        &[process_facts[4]; 32],
+        &[process_facts[5]; 32],
+    ));
+    assert!(decoded.matches_provisional_release_binding(&[runtime_facts.release_tuple; 32]));
 
-    let digest_mutation = issue_binding(&frame_bytes, ticket_facts, 2);
-    assert!(decoded.ticket_claims() != &ticket_claims(digest_mutation, ticket_facts));
+    assert!(!decoded.matches_pending_issue_ticket(&pending_ticket(
+        &CredentialBrokerFrameCodec::encode(issue_frame(ticket_facts, 1)).unwrap()
+    )));
+    assert!(
+        !decoded.matches_pending_issue_ticket(&pending_ticket(&mutated_issue_bytes(
+            &frame_bytes,
+            ticket_facts,
+            2
+        )))
+    );
     for mutation in [
         TicketFacts {
             operation: 22,
@@ -94,60 +111,47 @@ fn decoded_claims_compare_to_independently_constructed_exact_expectations() {
             ..ticket_facts
         },
     ] {
-        let mutated_issue = issue_binding(&frame_bytes, mutation, 1);
-        assert!(decoded.ticket_claims() != &ticket_claims(mutated_issue, mutation));
+        assert!(
+            !decoded.matches_pending_issue_ticket(&pending_ticket(&mutated_issue_bytes(
+                &frame_bytes,
+                mutation,
+                1
+            )))
+        );
     }
 
-    for mutation in [
-        RuntimeFacts {
-            protected_session: 26,
-            ..runtime_facts
-        },
-        RuntimeFacts {
-            tauri_peer: 27,
-            ..runtime_facts
-        },
-        RuntimeFacts {
-            daemon_authority: 28,
-            ..runtime_facts
-        },
-        RuntimeFacts {
-            database_generation: 29,
-            ..runtime_facts
-        },
-        RuntimeFacts {
-            supervisor_generation: 30,
-            ..runtime_facts
-        },
-        RuntimeFacts {
-            release_tuple: 31,
-            ..runtime_facts
-        },
+    for (channel, public_key, handoff) in [
+        ([25; 32], expected_public_key, [process_facts[0]; 32]),
+        ([ticket_facts.channel; 32], [26; 32], [process_facts[0]; 32]),
+        ([ticket_facts.channel; 32], expected_public_key, [27; 32]),
     ] {
-        assert!(decoded.runtime_claims() != &runtime_claims(mutation));
+        assert!(!decoded.matches_handoff(&channel, &public_key, &handoff));
     }
 
-    for index in 0..process_facts.len() {
+    for index in [1, 2, 4, 5] {
         let mut mutation = process_facts;
         mutation[index] = 32 + u8::try_from(index).unwrap();
-        assert!(decoded.process_claims() != &process_claims(mutation));
+        assert!(!decoded.matches_live_processes(
+            &[mutation[1]; 32],
+            &[mutation[2]; 32],
+            &[mutation[4]; 32],
+            &[mutation[5]; 32],
+        ));
     }
+    assert!(!decoded.matches_provisional_release_binding(&[31; 32]));
 }
 
-fn issue_binding(
-    frame_bytes: &[u8],
-    facts: TicketFacts,
-    version: u64,
-) -> CredentialIssueTicketBindingV1 {
+fn mutated_issue_bytes(frame_bytes: &[u8], facts: TicketFacts, version: u64) -> Vec<u8> {
     let CredentialBrokerFrame::IssueTicket { ticket, .. } =
         CredentialBrokerFrameCodec::decode(frame_bytes).unwrap()
     else {
         unreachable!()
     };
-    CredentialIssueTicketBindingV1::from_issue_ticket(&issue_frame_with_ticket(
-        facts, version, ticket,
-    ))
-    .unwrap()
+    CredentialBrokerFrameCodec::encode(issue_frame_with_ticket(facts, version, ticket)).unwrap()
+}
+
+fn pending_ticket(frame_bytes: &[u8]) -> PendingCredentialIssueTicketV1 {
+    PendingCredentialIssueTicketV1::read_from(&mut Cursor::new(frame_bytes)).unwrap()
 }
 
 fn issue_frame(facts: TicketFacts, version: u64) -> CredentialBrokerFrame {
