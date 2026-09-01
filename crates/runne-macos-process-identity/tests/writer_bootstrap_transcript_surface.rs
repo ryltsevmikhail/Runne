@@ -1,9 +1,10 @@
 #![cfg(target_os = "macos")]
 
-use runne_api::PendingSignedInstalledReleaseMetadataV2;
+use runne_api::{PendingSignedInstalledReleaseMetadataV2, VerifiedSignedInstalledReleaseV2};
 use runne_macos_process_identity::{
     MacOsPackagedWriterObservationError, MacOsPendingProvisionalReleaseMatchV1,
-    MacOsPendingWriterBootstrapTranscriptV1, MacOsUntrustedWriterEndpointHandoffV1,
+    MacOsPendingProvisionalWriterSessionV1, MacOsPendingWriterBootstrapTranscriptV1,
+    MacOsUntrustedWriterEndpointHandoffV1,
 };
 
 #[test]
@@ -20,18 +21,30 @@ fn bootstrap_has_only_the_exact_consuming_state_transitions() {
         MacOsPendingProvisionalReleaseMatchV1,
         PendingSignedInstalledReleaseMetadataV2,
     ) = MacOsPendingWriterBootstrapTranscriptV1::into_release_verification;
-    let _ = (observe, release);
+    let matched: fn(
+        MacOsPendingProvisionalReleaseMatchV1,
+        VerifiedSignedInstalledReleaseV2,
+    ) -> Result<
+        MacOsPendingProvisionalWriterSessionV1,
+        MacOsPackagedWriterObservationError,
+    > = MacOsPendingProvisionalReleaseMatchV1::match_signed_release;
+    let _ = (observe, release, matched);
 }
 
 #[test]
 fn bootstrap_pending_values_are_opaque_and_non_authoritative() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let source = std::fs::read_to_string(root.join("src/writer_bootstrap_transcript.rs")).unwrap();
+    let transcript =
+        std::fs::read_to_string(root.join("src/writer_bootstrap_transcript.rs")).unwrap();
+    let provisional =
+        std::fs::read_to_string(root.join("src/provisional_writer_session.rs")).unwrap();
+    let source = format!("{transcript}\n{provisional}");
     let facade = std::fs::read_to_string(root.join("src/lib.rs")).unwrap();
 
     for name in [
         "MacOsPendingWriterBootstrapTranscriptV1",
         "MacOsPendingProvisionalReleaseMatchV1",
+        "MacOsPendingProvisionalWriterSessionV1",
     ] {
         assert_eq!(source.matches(&format!("pub struct {name}")).count(), 1);
         for forbidden in ["Clone for", "Copy for", "Debug for", "Default for"] {
@@ -43,6 +56,7 @@ fn bootstrap_pending_values_are_opaque_and_non_authoritative() {
     }
     assert!(facade.contains("MacOsPendingWriterBootstrapTranscriptV1"));
     assert!(facade.contains("MacOsPendingProvisionalReleaseMatchV1"));
+    assert!(facade.contains("MacOsPendingProvisionalWriterSessionV1"));
     for forbidden in [
         "#[derive(",
         "pub fn from_parts",
@@ -81,6 +95,7 @@ fn bootstrap_pending_values_are_opaque_and_non_authoritative() {
         source.matches("pub fn into_release_verification(").count(),
         1
     );
+    assert_eq!(source.matches("pub fn match_signed_release(").count(), 1);
 }
 
 #[test]
@@ -138,4 +153,88 @@ fn cheap_peer_prefix_deadline_and_heavy_capture_have_locked_ordering() {
             "blocking deadline escape: {forbidden}"
         );
     }
+}
+
+#[test]
+fn provisional_writer_session_match_uses_every_retained_fact_before_its_sole_constructor() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let transition =
+        std::fs::read_to_string(root.join("src/provisional_writer_session.rs")).unwrap();
+    let signing = std::fs::read_to_string(root.join("src/signed_code_identity.rs")).unwrap();
+    let observation =
+        std::fs::read_to_string(root.join("src/packaged_writer_observation.rs")).unwrap();
+
+    for predicate in [
+        "matches_desktop_digest",
+        "matches_writer_digest",
+        "matches_daemon_digest",
+        "matches_contract_digest",
+        "matches_pending_issue_ticket",
+        "matches_handoff",
+        "matches_live_processes",
+        "matches_provisional_release_binding",
+        "release_binding_matcher",
+        "match_retained_code_identities",
+    ] {
+        assert!(
+            transition.contains(predicate),
+            "missing predicate: {predicate}"
+        );
+    }
+    for predicate in [
+        "matches_desktop_code_identity",
+        "matches_writer_code_identity",
+        "matches_daemon_code_identity",
+    ] {
+        assert!(
+            signing.contains(predicate),
+            "missing predicate: {predicate}"
+        );
+    }
+    assert!(signing.contains("struct MatchedSignedCodeIdentity"));
+    assert!(signing.contains("Result<MatchedSignedCodeIdentity"));
+    for helper in ["fn match_static_code(", "fn match_dynamic_code("] {
+        let body = signing.split(helper).nth(1).unwrap();
+        let owner_match = body.find("match_release_code_identity").unwrap();
+        let requirement_check = body.find("matched.check_").unwrap();
+        assert!(owner_match < requirement_check);
+    }
+    let owner_matcher = signing
+        .split("fn match_release_code_identity(")
+        .nth(1)
+        .unwrap();
+    let first_owner_bool = owner_matcher.find("release.matches_").unwrap();
+    let matched_type = owner_matcher
+        .find("then_some(MatchedSignedCodeIdentity")
+        .unwrap();
+    assert!(first_owner_bool < matched_type);
+
+    let match_start = transition.find("pub fn match_signed_release(").unwrap();
+    let final_revalidation = transition[match_start..]
+        .find("revalidate_for_provisional_session")
+        .unwrap()
+        + match_start;
+    let constructor = transition[match_start..]
+        .find("MacOsPendingProvisionalWriterSessionV1 {")
+        .unwrap()
+        + match_start;
+    assert!(final_revalidation < constructor);
+    assert_eq!(
+        transition
+            .matches("MacOsPendingProvisionalWriterSessionV1 {")
+            .count(),
+        2
+    );
+
+    assert!(observation.contains("peer.process_start_digest() == peer_process.start_digest()"));
+    let revalidate = observation
+        .split("fn revalidate_for_provisional_session")
+        .nth(1)
+        .unwrap();
+    let first_peer = revalidate.find("revalidate_same_peer").unwrap();
+    let package = revalidate.find("package.revalidate").unwrap();
+    let writer = revalidate.find("self_process.revalidate_self").unwrap();
+    let daemon = revalidate.find("peer_process.revalidate_peer").unwrap();
+    let last_peer = revalidate.rfind("revalidate_same_peer").unwrap();
+    assert!(first_peer < package && package < writer && writer < daemon && daemon < last_peer);
 }

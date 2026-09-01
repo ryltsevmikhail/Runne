@@ -102,8 +102,16 @@ impl MacOsUntrustedWriterEndpointHandoffV1 {
         &self.control
     }
 
-    pub(super) const fn observation_publication_public_key(&self) -> [u8; 32] {
-        self.publication_public_key
+    pub(super) const fn observation_channel_binding(&self) -> &[u8; 32] {
+        &self.channel_binding
+    }
+
+    pub(super) const fn observation_publication_public_key(&self) -> &[u8; 32] {
+        &self.publication_public_key
+    }
+
+    pub(super) const fn observation_handoff_digest(&self) -> &[u8; 32] {
+        &self.handoff_digest
     }
 
     /// Receives one fixed untrusted handoff from this process's stdin.

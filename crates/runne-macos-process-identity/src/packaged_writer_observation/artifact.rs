@@ -70,6 +70,10 @@ impl RetainedArtifact {
         &self.captured
     }
 
+    pub(super) const fn digest(&self) -> &[u8; 32] {
+        &self.digest
+    }
+
     pub(super) fn observe_executable_mapping(
         &self,
         pid: NonZeroU32,

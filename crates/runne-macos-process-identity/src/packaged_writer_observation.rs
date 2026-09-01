@@ -19,10 +19,10 @@ use crate::{
 };
 
 pub(super) struct CapturedPackagedWriterObservationV1 {
-    _package: PackagedWriterArtifacts,
-    _self_process: PackagedLiveProcessObservation,
-    _peer_process: PackagedLiveProcessObservation,
-    _peer: MacOsLocalPeerProcessIdentity,
+    package: PackagedWriterArtifacts,
+    self_process: PackagedLiveProcessObservation,
+    peer_process: PackagedLiveProcessObservation,
+    peer: MacOsLocalPeerProcessIdentity,
 }
 
 /// Opaque native observation that grants no enrollment authority.
@@ -156,6 +156,9 @@ impl CapturedPackagedWriterObservationV1 {
         peer: MacOsLocalPeerProcessIdentity,
     ) -> Result<Self, MacOsPackagedWriterObservationError> {
         let peer_process = PackagedLiveProcessObservation::capture_peer(&package, &peer)?;
+        (peer.process_start_digest() == peer_process.start_digest())
+            .then_some(())
+            .ok_or(MacOsPackagedWriterObservationError::Rejected)?;
 
         package.revalidate()?;
         peer.revalidate_same_peer(handoff.observation_control())
@@ -167,11 +170,44 @@ impl CapturedPackagedWriterObservationV1 {
             .map_err(map_peer_error)?;
 
         Ok(Self {
-            _package: package,
-            _self_process: self_process,
-            _peer_process: peer_process,
-            _peer: peer,
+            package,
+            self_process,
+            peer_process,
+            peer,
         })
+    }
+
+    pub(crate) const fn package(&self) -> &PackagedWriterArtifacts {
+        &self.package
+    }
+
+    pub(crate) const fn self_process(&self) -> &PackagedLiveProcessObservation {
+        &self.self_process
+    }
+
+    pub(crate) const fn peer_process(&self) -> &PackagedLiveProcessObservation {
+        &self.peer_process
+    }
+
+    pub(crate) const fn peer(&self) -> &MacOsLocalPeerProcessIdentity {
+        &self.peer
+    }
+
+    pub(crate) fn revalidate_for_provisional_session(
+        &self,
+        handoff: &MacOsUntrustedWriterEndpointHandoffV1,
+    ) -> Result<(), MacOsPackagedWriterObservationError> {
+        let package = &self.package;
+        let self_process = &self.self_process;
+        let peer_process = &self.peer_process;
+        let peer = &self.peer;
+        peer.revalidate_same_peer(handoff.observation_control())
+            .map_err(map_peer_error)?;
+        package.revalidate()?;
+        self_process.revalidate_self(package)?;
+        peer_process.revalidate_peer(package, peer)?;
+        peer.revalidate_same_peer(handoff.observation_control())
+            .map_err(map_peer_error)
     }
 }
 

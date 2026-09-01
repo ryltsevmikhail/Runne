@@ -11,6 +11,7 @@ use open::{directory_flags, file_flags, open_absolute_directory, open_absolute_f
 use roles::{CONTRACT, DAEMON, DESKTOP, WRITER, fixed_application_from_writer};
 
 mod open;
+mod release_match;
 mod roles;
 
 pub(super) use roles::PackageRole;
@@ -111,6 +112,7 @@ impl PackagedWriterArtifacts {
         role: PackageRole,
     ) -> Result<(), MacOsPackagedWriterObservationError> {
         let expected = match role {
+            PackageRole::Desktop => self.application_path.join("Contents/MacOS/runne-desktop"),
             PackageRole::Writer => self.application_path.join("Contents/MacOS/runne"),
             PackageRole::Daemon => self.application_path.join("Contents/MacOS/runned"),
         };
@@ -134,6 +136,7 @@ impl PackagedWriterArtifacts {
 
     pub(super) const fn role(&self, role: PackageRole) -> &RetainedArtifact {
         match role {
+            PackageRole::Desktop => &self.desktop,
             PackageRole::Writer => &self.writer,
             PackageRole::Daemon => &self.daemon,
         }

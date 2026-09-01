@@ -15,6 +15,7 @@ pub(super) const CONTRACT: &[&str] = &[
 
 #[derive(Clone, Copy)]
 pub(in crate::packaged_writer_observation) enum PackageRole {
+    Desktop,
     Writer,
     Daemon,
 }

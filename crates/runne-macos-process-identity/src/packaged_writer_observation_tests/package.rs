@@ -25,6 +25,29 @@ fn fixed_descriptor_opened_package_captures_and_revalidates() {
 }
 
 #[test]
+fn retained_package_exposes_exact_role_digests_inside_the_crate() {
+    let fixture = PackageFixture::new();
+    let package = PackagedWriterArtifacts::capture_for_test(fixture.application()).unwrap();
+
+    assert_eq!(
+        hex(package.desktop_digest()),
+        "1119593faf9665a14105817a3facaeeb17962178be74f1b47bd5bffebe5d3c20"
+    );
+    assert_eq!(
+        hex(package.writer_digest()),
+        "3a1dc6ead6434388e4961fe76bd112a31f7b66a3c074c84766a859b46ad3f21d"
+    );
+    assert_eq!(
+        hex(package.daemon_digest()),
+        "d4375538e8bc2b9b78c2c780d9028d761f7ec9527dd0040153a107d348033f5e"
+    );
+    assert_eq!(
+        hex(package.contract_digest()),
+        "4f60ba79cba832dbc098dc5c13aac548152b6ccb60d75ab80f7dff2d91a4cdc3"
+    );
+}
+
+#[test]
 fn owner_or_device_skew_is_rejected_by_the_real_shape_predicates() {
     let regular = u32::from(libc::S_IFREG | 0o755);
     assert!(test_only_valid_file_shape(
@@ -56,4 +79,14 @@ fn owner_or_device_skew_is_rejected_by_the_real_shape_predicates() {
         (7, 501),
         (7, 502, directory, 2)
     ));
+}
+
+fn hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
 }

@@ -10,6 +10,7 @@ use runne_provider::{
 
 use self::deadline::DeadlineReader;
 use crate::packaged_writer_observation::{CapturedPackagedWriterObservationV1, map_peer_error};
+use crate::provisional_writer_session::MacOsPendingProvisionalReleaseMatchV1;
 use crate::{
     MacOsLocalPeerProcessIdentity, MacOsPackagedWriterObservationError,
     MacOsUntrustedWriterEndpointHandoffV1,
@@ -35,18 +36,6 @@ pub struct MacOsPendingWriterBootstrapTranscriptV1 {
     attestation: SignedCredentialWriterSessionAttestationV1,
     issue_ticket: PendingCredentialIssueTicketV1,
     release: PendingSignedInstalledReleaseMetadataV2,
-    observation: CapturedPackagedWriterObservationV1,
-}
-
-#[doc(hidden)]
-pub struct MacOsPendingProvisionalReleaseMatchV1 {
-    #[allow(dead_code)]
-    handoff: MacOsUntrustedWriterEndpointHandoffV1,
-    #[allow(dead_code)]
-    attestation: SignedCredentialWriterSessionAttestationV1,
-    #[allow(dead_code)]
-    issue_ticket: PendingCredentialIssueTicketV1,
-    #[allow(dead_code)]
     observation: CapturedPackagedWriterObservationV1,
 }
 
@@ -77,12 +66,12 @@ impl MacOsPendingWriterBootstrapTranscriptV1 {
         PendingSignedInstalledReleaseMetadataV2,
     ) {
         (
-            MacOsPendingProvisionalReleaseMatchV1 {
-                handoff: self.handoff,
-                attestation: self.attestation,
-                issue_ticket: self.issue_ticket,
-                observation: self.observation,
-            },
+            MacOsPendingProvisionalReleaseMatchV1::from_bootstrap(
+                self.handoff,
+                self.attestation,
+                self.issue_ticket,
+                self.observation,
+            ),
             self.release,
         )
     }
@@ -92,7 +81,7 @@ fn observe(
     handoff: MacOsUntrustedWriterEndpointHandoffV1,
     budget: &PrefixBudget,
 ) -> Result<MacOsPendingWriterBootstrapTranscriptV1, MacOsPackagedWriterObservationError> {
-    let expected_public_key = handoff.observation_publication_public_key();
+    let expected_public_key = *handoff.observation_publication_public_key();
     let peer = MacOsLocalPeerProcessIdentity::capture(handoff.observation_control())
         .map_err(map_peer_error)?;
     let prefix = {

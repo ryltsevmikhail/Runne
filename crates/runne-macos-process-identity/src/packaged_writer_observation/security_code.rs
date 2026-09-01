@@ -72,6 +72,10 @@ impl NativeCodeObservation {
     pub(crate) fn main_executable(&self) -> &Path {
         &self.main_executable
     }
+
+    pub(crate) const fn code(&self) -> &SecCode {
+        &self.code
+    }
 }
 
 fn check_requirement_free_validity(

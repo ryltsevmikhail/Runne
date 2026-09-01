@@ -4131,6 +4131,7 @@ name = "runne-macos-process-identity"
 version = "0.0.3"
 dependencies = [
  "core-foundation 0.10.1",
+ "ed25519-dalek",
  "libc",
  "nix 0.31.3",
  "runne-api",
@@ -4138,6 +4139,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "serde",
+ "serde_json",
  "sha2",
 ]
 

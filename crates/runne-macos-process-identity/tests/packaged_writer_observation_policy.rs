@@ -95,17 +95,25 @@ fn final_gate_revalidates_package_socket_audit_start_code_and_vnodes() {
 
     assert!(facade.matches("package.revalidate()?").count() >= 2);
     assert!(facade.matches("revalidate_same_peer(").count() >= 2);
-    let last_package = facade.rfind("package.revalidate()?").unwrap();
-    let last_self_process = facade
-        .rfind("self_process.revalidate_self(&package)?")
+    let final_gate = facade
+        .split("fn revalidate_for_provisional_session")
+        .nth(1)
         .unwrap();
-    let last_peer_process = facade
-        .rfind("peer_process.revalidate_peer(&package, &peer)?")
+    let first_same_peer = final_gate.find("revalidate_same_peer(").unwrap();
+    let package = final_gate.find("package.revalidate()?").unwrap();
+    let self_process = final_gate
+        .find("self_process.revalidate_self(package)?")
         .unwrap();
-    let last_same_peer = facade.rfind("peer.revalidate_same_peer(").unwrap();
-    assert!(last_self_process < last_package);
-    assert!(last_peer_process < last_package);
-    assert!(last_package < last_same_peer);
+    let peer_process = final_gate
+        .find("peer_process.revalidate_peer(package, peer)?")
+        .unwrap();
+    let last_same_peer = final_gate.rfind("revalidate_same_peer(").unwrap();
+    assert!(
+        first_same_peer < package
+            && package < self_process
+            && self_process < peer_process
+            && peer_process < last_same_peer
+    );
     for fact in [
         "same_audit_token(&self.token, &fresh.token)",
         "fresh.pid == self.pid",

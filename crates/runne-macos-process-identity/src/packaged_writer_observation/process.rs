@@ -6,7 +6,7 @@ use super::security_code::NativeCodeObservation;
 use crate::ffi::ExecutableVnodeIdentity;
 use crate::{MacOsLocalPeerProcessIdentity, MacOsProcessStartIdentity};
 
-pub(super) struct PackagedLiveProcessObservation {
+pub(crate) struct PackagedLiveProcessObservation {
     pid: NonZeroU32,
     start: MacOsProcessStartIdentity,
     code: NativeCodeObservation,
@@ -76,6 +76,14 @@ impl PackagedLiveProcessObservation {
             .ok_or(MacOsPackagedWriterObservationError::Rejected)?;
         let fresh = NativeCodeObservation::capture_peer(peer)?;
         self.revalidate(package, &fresh)
+    }
+
+    pub(crate) const fn start_digest(&self) -> [u8; 32] {
+        self.start.digest()
+    }
+
+    pub(crate) const fn native_code(&self) -> &NativeCodeObservation {
+        &self.code
     }
 
     fn revalidate(
