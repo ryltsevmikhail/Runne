@@ -56,6 +56,7 @@ impl InheritedSecretInputSlot {
         closed.map_err(|_| CliError::CredentialOperation)?;
         validate_read_pipe(&file)?;
         require_cloexec(&file)?;
+        require_nonblocking(&file)?;
         Ok(InheritedSecretInput {
             file,
             deadline: Instant::now() + timeout,
@@ -86,21 +87,29 @@ pub struct InheritedSecretInput {
 
 impl Read for InheritedSecretInput {
     fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
-        let remaining = self
-            .deadline
-            .checked_duration_since(Instant::now())
-            .ok_or_else(read_timeout)?;
-        let timeout = PollTimeout::try_from(remaining).unwrap_or(PollTimeout::MAX);
-        let mut descriptors = [PollFd::new(self.file.as_fd(), PollFlags::POLLIN)];
-        let ready = poll(&mut descriptors, timeout).map_err(std::io::Error::other)?;
-        if ready == 0 {
-            return Err(read_timeout());
+        if bytes.is_empty() {
+            return Ok(0);
         }
-        let events = descriptors[0].revents().unwrap_or(PollFlags::POLLNVAL);
-        if events.intersects(PollFlags::POLLERR | PollFlags::POLLNVAL) {
-            return Err(std::io::Error::other("invalid sealed-secret pipe"));
+        loop {
+            let remaining = self
+                .deadline
+                .checked_duration_since(Instant::now())
+                .ok_or_else(read_timeout)?;
+            let timeout = PollTimeout::try_from(remaining).unwrap_or(PollTimeout::MAX);
+            let mut descriptors = [PollFd::new(self.file.as_fd(), PollFlags::POLLIN)];
+            let ready = poll(&mut descriptors, timeout).map_err(std::io::Error::other)?;
+            if ready == 0 {
+                return Err(read_timeout());
+            }
+            let events = descriptors[0].revents().unwrap_or(PollFlags::POLLNVAL);
+            if events.intersects(PollFlags::POLLERR | PollFlags::POLLNVAL) {
+                return Err(std::io::Error::other("invalid sealed-secret pipe"));
+            }
+            match self.file.read(bytes) {
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                result => return result,
+            }
         }
-        self.file.read(bytes)
     }
 }
 
@@ -159,6 +168,17 @@ fn require_cloexec(file: &File) -> Result<(), CliError> {
     }
 }
 
+fn require_nonblocking(file: &File) -> Result<(), CliError> {
+    let current = fcntl(file, FcntlArg::F_GETFL).map_err(|_| CliError::CredentialOperation)?;
+    let flags = OFlag::from_bits_retain(current) | OFlag::O_NONBLOCK;
+    fcntl(file, FcntlArg::F_SETFL(flags)).map_err(|_| CliError::CredentialOperation)?;
+    let verified = fcntl(file, FcntlArg::F_GETFL).map_err(|_| CliError::CredentialOperation)?;
+    OFlag::from_bits_retain(verified)
+        .contains(OFlag::O_NONBLOCK)
+        .then_some(())
+        .ok_or(CliError::CredentialOperation)
+}
+
 #[cfg(test)]
 pub fn inspect_secret_input_at_for_test(
     descriptor: RawFd,
@@ -188,4 +208,11 @@ pub fn secret_input_has_cloexec_for_test(input: &InheritedSecretInput) -> bool {
     fcntl(&input.file, FcntlArg::F_GETFD)
         .map(FdFlag::from_bits_retain)
         .is_ok_and(|flags| flags.contains(FdFlag::FD_CLOEXEC))
+}
+
+#[cfg(test)]
+pub fn secret_input_is_nonblocking_for_test(input: &InheritedSecretInput) -> bool {
+    fcntl(&input.file, FcntlArg::F_GETFL)
+        .map(OFlag::from_bits_retain)
+        .is_ok_and(|flags| flags.contains(OFlag::O_NONBLOCK))
 }

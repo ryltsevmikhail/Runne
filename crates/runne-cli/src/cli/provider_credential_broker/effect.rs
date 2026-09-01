@@ -6,7 +6,11 @@ use runne_secure_store::{
     BrokeredMigrateLegacyInput,
 };
 
-use super::{CliError, claim::AuthorizedWriterControl, pair::AuthorizedPairWriterControl};
+use super::{
+    CliError,
+    claim::{AuthorizedWriterControl, NonPairWriterEffectKind},
+    pair::AuthorizedPairWriterControl,
+};
 
 /// Executes a sealed Pair effect only after source decoding and claim acceptance.
 pub fn execute_pair_effect(authority: AuthorizedPairWriterControl) -> Result<(), CliError> {
@@ -37,10 +41,17 @@ pub fn execute_pair_effect(authority: AuthorizedPairWriterControl) -> Result<(),
 
 /// Executes a closed non-Pair effect only after native endpoint admission.
 pub fn execute_non_pair_effect(authority: AuthorizedWriterControl) -> Result<(), CliError> {
-    let (mut control, writer, authorization, command, binding, channel) =
-        authority.into_effect_parts();
-    let result = match command.action() {
-        CredentialOperationAction::Revoke | CredentialOperationAction::RetiredVersionCleanup => {
+    let super::claim::NonPairEffectParts {
+        mut control,
+        writer,
+        authorization,
+        command,
+        binding,
+        channel,
+        effect_kind,
+    } = authority.into_effect_parts();
+    let result = match effect_kind {
+        NonPairWriterEffectKind::Delete => {
             let input = BrokeredDeleteInput::new(command.clone(), binding, channel)
                 .map_err(|_| CliError::CredentialOperation)?;
             writer
@@ -48,24 +59,19 @@ pub fn execute_non_pair_effect(authority: AuthorizedWriterControl) -> Result<(),
                 .map(|_| ())
                 .map_err(|_| CliError::CredentialOperation)
         }
-        CredentialOperationAction::MigrateLegacy => {
+        NonPairWriterEffectKind::ImportLegacy => {
             let input = BrokeredMigrateLegacyInput::new(command.clone(), binding, channel)
                 .map_err(|_| CliError::CredentialOperation)?;
             writer
                 .import_legacy_exact(authorization, input)
                 .map_err(|_| CliError::CredentialOperation)
         }
-        CredentialOperationAction::LegacySourceCleanup => {
+        NonPairWriterEffectKind::DeleteLegacySource => {
             let input = BrokeredLegacySourceDeleteInput::new(command.clone(), binding, channel)
                 .map_err(|_| CliError::CredentialOperation)?;
             writer
                 .delete_legacy_source_exact(authorization, input)
                 .map_err(|_| CliError::CredentialOperation)
-        }
-        CredentialOperationAction::Pair
-        | CredentialOperationAction::WriterIdentityMigrationEffect
-        | CredentialOperationAction::WriterIdentityMigrationVerify => {
-            return Err(CliError::CredentialOperation);
         }
     };
     control.write_frame(CredentialBrokerFrame::NativeEffectObserved {

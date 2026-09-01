@@ -9,7 +9,7 @@ use runne_provider::{
 use runne_secure_store::BrokeredProviderCredentialWriter;
 
 use super::{
-    EffectCall, FakeWriter, claim_writer_authorization_for_test, command, endpoint,
+    EffectCall, FakeWriter, claim_writer_authorization_with_parts, command, endpoint,
 };
 use super::super::pair::AuthorizedPairWriterControl;
 
@@ -32,15 +32,17 @@ fn pair_authorized_with_control(
     fail_after_claim: bool,
 ) -> PairFixture {
     let command = command(CredentialOperationAction::Pair);
-    let (endpoint, written) = endpoint(&command, fail_after_claim);
+    let (control, channel, ticket, written) = endpoint(&command, fail_after_claim);
     let calls = Arc::new(Mutex::new(Vec::new()));
     let writer: Arc<dyn BrokeredProviderCredentialWriter> = Arc::new(FakeWriter {
         calls: calls.clone(),
         create_succeeds,
     });
     let (issuer, _) = CredentialWriterAuthorityPair::new().split();
-    let claimed = claim_writer_authorization_for_test(
-        endpoint,
+    let claimed = claim_writer_authorization_with_parts(
+        control,
+        channel,
+        ticket,
         &issuer,
         writer,
         CredentialSecretInputPresence::Present,

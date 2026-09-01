@@ -16,7 +16,8 @@ pub use codec::CredentialWriterSessionAttestationCodec;
 #[cfg(any(test, feature = "test-support"))]
 pub(super) use fixture::attested_publication_signer_for_test;
 pub use issue_ticket::{
-    CredentialIssueTicketBindingV1, CredentialSecretInputPresence, PendingCredentialIssueTicketV1,
+    CredentialIssueTicketBindingV1, CredentialSecretInputPresence, CredentialWriterCommandKindV1,
+    CredentialWriterCommandScopeV1, PendingCredentialIssueTicketV1,
 };
 pub use signer::CredentialWriterSessionAttestationSigner;
 

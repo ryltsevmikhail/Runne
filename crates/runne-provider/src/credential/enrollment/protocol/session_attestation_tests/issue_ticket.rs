@@ -5,8 +5,8 @@ use crate::{
     CredentialBrokerTarget, CredentialEnrollmentAuthorityPair, CredentialFence,
     CredentialIssueTicketBindingV1, CredentialLifecycleRevision, CredentialOperationAction,
     CredentialOperationId, CredentialSecretInputPresence, CredentialTicketAttempt,
-    CredentialVersionRef, CredentialWriterAuthorityPair, PendingCredentialIssueTicketV1,
-    ProviderId, WriterIdentityMigrationPhase,
+    CredentialVersionRef, CredentialWriterAuthorityPair, CredentialWriterCommandScopeV1,
+    PendingCredentialIssueTicketV1, ProviderId, WriterIdentityMigrationPhase,
 };
 
 use super::support::{command, digest, frame, frame_with_command};
@@ -69,12 +69,13 @@ fn retained_ticket_is_the_only_command_source_for_writer_claim() {
     let channel = measurements.broker_channel_binding([4; 32]).unwrap();
     let (issuer, _effects) = CredentialWriterAuthorityPair::new().split();
 
-    let (_authorization, actual_command, actual_binding, pending_opening) = pending
+    let (_authorization, actual_command, actual_binding, _command_kind, pending_opening) = pending
         .claim_on(
             &mut control,
             &issuer,
             &channel,
             CredentialSecretInputPresence::Present,
+            CredentialWriterCommandScopeV1::D1_1A,
         )
         .unwrap();
 

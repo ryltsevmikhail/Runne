@@ -29,3 +29,23 @@ fn secret_slot_presence_must_match_the_retained_command_before_claim() {
         assert!(written.lock().expect("written").is_empty());
     }
 }
+
+#[test]
+fn provider_credential_broker_rejects_identity_migration_before_claim() {
+    for action in [
+        CredentialOperationAction::WriterIdentityMigrationEffect,
+        CredentialOperationAction::WriterIdentityMigrationVerify,
+    ] {
+        let command = super::super::effect_test_support::command(action);
+        let (parts, written) = endpoint(
+            issue(command.clone(), binding(), [11; 32]),
+            Some(accepted(&command)),
+        );
+
+        assert!(
+            claim_for_test(parts, CredentialSecretInputPresence::Absent).is_err(),
+            "{action:?} escaped the D1.1a command scope"
+        );
+        assert!(written.lock().expect("written").is_empty());
+    }
+}

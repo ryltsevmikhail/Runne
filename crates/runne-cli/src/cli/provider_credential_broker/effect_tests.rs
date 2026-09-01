@@ -27,24 +27,6 @@ fn pair_diagnostic_failure_closes_after_native_writer_invocation() {
 }
 
 #[test]
-fn writer_identity_migration_is_rejected_without_native_observation() {
-    for action in [
-        CredentialOperationAction::WriterIdentityMigrationEffect,
-        CredentialOperationAction::WriterIdentityMigrationVerify,
-    ] {
-        let fixture = claimed(action);
-        let authority = fixture
-            .claimed
-            .authorize_without_secret()
-            .expect("non-pair authority");
-
-        assert!(execute_non_pair_effect(authority).is_err());
-        assert!(fixture.calls.lock().expect("calls").is_empty());
-        assert_frames(&fixture.written, false);
-    }
-}
-
-#[test]
 fn non_pair_effects_dispatch_exact_writer_input_and_observe_native_result() {
     for (action, expected, succeeds) in [
         (

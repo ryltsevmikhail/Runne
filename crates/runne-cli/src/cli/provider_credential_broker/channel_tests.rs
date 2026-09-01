@@ -1,20 +1,22 @@
 #![cfg(target_os = "macos")]
 
 use std::io::{Read as _, Write as _};
-use std::os::fd::{AsRawFd as _, IntoRawFd as _};
+use std::os::fd::IntoRawFd as _;
 
 use runne_provider::CredentialSecretInputPresence;
 
 use super::channel::{
     inspect_secret_input_at_for_test, secret_input_has_cloexec_for_test,
+    secret_input_is_nonblocking_for_test,
 };
 
 #[test]
 fn secret_slot_presence_check_does_not_adopt_or_read_the_pipe() {
     let (reader, writer) = rustix::pipe::pipe().expect("pipe");
     let mut writer = std::fs::File::from(writer);
+    let descriptor = reader.into_raw_fd();
 
-    let slot = inspect_secret_input_at_for_test(reader.as_raw_fd()).expect("presence");
+    let slot = inspect_secret_input_at_for_test(descriptor).expect("presence");
     assert!(matches!(
         slot.presence(),
         CredentialSecretInputPresence::Present
@@ -22,13 +24,13 @@ fn secret_slot_presence_check_does_not_adopt_or_read_the_pipe() {
     writer.write_all(b"still-unread").expect("write after probe");
     drop(writer);
 
-    let descriptor = reader.into_raw_fd();
     assert_eq!(descriptor, slot.descriptor_for_test());
     let mut channel = slot.adopt().expect("adopt");
     let mut actual = Vec::new();
     channel.read_to_end(&mut actual).expect("read after adoption");
     assert_eq!(actual, b"still-unread");
     assert!(secret_input_has_cloexec_for_test(&channel));
+    assert!(secret_input_is_nonblocking_for_test(&channel));
 }
 
 #[test]
@@ -85,8 +87,9 @@ fn dropping_a_present_secret_slot_closes_the_inherited_descriptor() {
 #[test]
 fn open_secret_pipe_without_eof_is_rejected_by_the_read_deadline() {
     let (reader, _writer_kept_open) = rustix::pipe::pipe().expect("pipe");
-    let slot = inspect_secret_input_at_for_test(reader.as_raw_fd()).expect("presence");
-    assert_eq!(reader.into_raw_fd(), slot.descriptor_for_test());
+    let descriptor = reader.into_raw_fd();
+    let slot = inspect_secret_input_at_for_test(descriptor).expect("presence");
+    assert_eq!(descriptor, slot.descriptor_for_test());
     let mut channel = slot
         .adopt_with_timeout_for_test(std::time::Duration::from_millis(20))
         .expect("adopt");
@@ -94,4 +97,24 @@ fn open_secret_pipe_without_eof_is_rejected_by_the_read_deadline() {
 
     assert!(super::read_sealed_pair_envelope(&mut channel).is_err());
     assert!(started.elapsed() < std::time::Duration::from_secs(1));
+}
+
+#[test]
+fn nonblocking_secret_pipe_accepts_delayed_input_before_its_deadline() {
+    let (reader, writer) = rustix::pipe::pipe().expect("pipe");
+    let descriptor = reader.into_raw_fd();
+    let slot = inspect_secret_input_at_for_test(descriptor).expect("presence");
+    let mut channel = slot
+        .adopt_with_timeout_for_test(std::time::Duration::from_secs(1))
+        .expect("adopt");
+    let writer = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let mut writer = std::fs::File::from(writer);
+        writer.write_all(b"delayed").expect("write delayed bytes");
+    });
+    let mut actual = Vec::new();
+
+    channel.read_to_end(&mut actual).expect("read delayed bytes");
+    writer.join().expect("writer thread");
+    assert_eq!(actual, b"delayed");
 }

@@ -62,6 +62,7 @@ pub use protocol::{
     CredentialBrokerFrameCodec, CredentialBrokerTarget, CredentialIssueTicketBindingV1,
     CredentialSecretClaimOffer, CredentialSecretEnvelopeCodec, CredentialSecretInputPresence,
     CredentialSecretOfferCodec, CredentialSecretPublication, CredentialSecretPublicationCodec,
+    CredentialWriterCommandKindV1, CredentialWriterCommandScopeV1,
     CredentialWriterSessionAttestationClaimsV1, CredentialWriterSessionAttestationCodec,
     CredentialWriterSessionProcessClaimsV1, CredentialWriterSessionRuntimeClaimsV1,
     CredentialWriterSessionTicketClaimsV1, PROVIDER_CREDENTIAL_BROKER_MODE_V1,

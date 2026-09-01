@@ -8,10 +8,9 @@ use std::{
 use runne_provider::{
     BrokerChannelBinding, ClaimedWriterAuthorization, CredentialBindingDigest,
     CredentialBrokerCommand, CredentialBrokerFrame, CredentialBrokerFrameCodec,
-    CredentialSecretInputPresence, PendingCredentialSecretOpening,
+    CredentialSecretInputPresence, CredentialWriterClaimIssuer, CredentialWriterCommandKindV1,
+    CredentialWriterCommandScopeV1, PendingCredentialIssueTicketV1, PendingCredentialSecretOpening,
 };
-#[cfg(test)]
-use runne_provider::{CredentialOperationAction, CredentialWriterClaimIssuer};
 use runne_secure_store::{
     BrokeredProviderCredentialWriter, NativeProviderCredentialWriters,
 };
@@ -19,46 +18,12 @@ use runne_secure_store::{
 use super::CliError;
 
 pub trait BrokerControl {
-    #[cfg(test)]
-    fn read_frame(&mut self) -> Result<CredentialBrokerFrame, CliError>;
     fn write_frame(&mut self, frame: CredentialBrokerFrame) -> Result<(), CliError>;
 }
 
 impl<T: Read + Write> BrokerControl for T {
-    #[cfg(test)]
-    fn read_frame(&mut self) -> Result<CredentialBrokerFrame, CliError> {
-        CredentialBrokerFrameCodec::read_from(self).map_err(|_| CliError::CredentialOperation)
-    }
-
     fn write_frame(&mut self, frame: CredentialBrokerFrame) -> Result<(), CliError> {
         CredentialBrokerFrameCodec::write_to(self, frame).map_err(|_| CliError::CredentialOperation)
-    }
-}
-
-/// Opaque authority for one live, native-admitted daemon control endpoint.
-///
-/// There is deliberately no production constructor. Native admission must mint
-/// it only from retained daemon peer, release tuple and channel evidence. The
-/// first exact `IssueTicket` on that channel is the sole command source.
-#[cfg(test)]
-pub struct AuthenticatedDaemonControlEndpoint {
-    control: Box<dyn BrokerControl>,
-    channel_bytes: [u8; 32],
-    channel: BrokerChannelBinding,
-}
-
-#[cfg(test)]
-impl AuthenticatedDaemonControlEndpoint {
-    pub fn for_test<T: Read + Write + 'static>(
-        control: T,
-        channel_bytes: [u8; 32],
-        channel: BrokerChannelBinding,
-    ) -> Self {
-        Self {
-            control: Box::new(control),
-            channel_bytes,
-            channel,
-        }
     }
 }
 
@@ -70,6 +35,7 @@ pub struct ClaimedWriterControl {
     command: CredentialBrokerCommand,
     binding: CredentialBindingDigest,
     channel: BrokerChannelBinding,
+    command_kind: CredentialWriterCommandKindV1,
     pending_pair_secret_opening: Option<PendingCredentialSecretOpening>,
 }
 
@@ -83,6 +49,22 @@ pub struct ClaimedPairParts {
     pub pending_opening: Option<PendingCredentialSecretOpening>,
 }
 
+pub enum NonPairWriterEffectKind {
+    Delete,
+    ImportLegacy,
+    DeleteLegacySource,
+}
+
+pub struct NonPairEffectParts {
+    pub control: Box<dyn BrokerControl>,
+    pub writer: Arc<dyn BrokeredProviderCredentialWriter>,
+    pub authorization: ClaimedWriterAuthorization,
+    pub command: CredentialBrokerCommand,
+    pub binding: CredentialBindingDigest,
+    pub channel: BrokerChannelBinding,
+    pub effect_kind: NonPairWriterEffectKind,
+}
+
 /// Effect authority retaining the same channel for the later exact diagnostic.
 pub struct AuthorizedWriterControl {
     _control: Box<dyn BrokerControl>,
@@ -91,19 +73,11 @@ pub struct AuthorizedWriterControl {
     command: CredentialBrokerCommand,
     _binding: CredentialBindingDigest,
     _channel: BrokerChannelBinding,
+    effect_kind: NonPairWriterEffectKind,
 }
 
 impl AuthorizedWriterControl {
-    pub(super) fn into_effect_parts(
-        self,
-    ) -> (
-        Box<dyn BrokerControl>,
-        Arc<dyn BrokeredProviderCredentialWriter>,
-        ClaimedWriterAuthorization,
-        CredentialBrokerCommand,
-        CredentialBindingDigest,
-        BrokerChannelBinding,
-    ) {
+    pub(super) fn into_effect_parts(self) -> NonPairEffectParts {
         let Self {
             _control: control,
             _writer: writer,
@@ -111,8 +85,17 @@ impl AuthorizedWriterControl {
             command,
             _binding: binding,
             _channel: channel,
+            effect_kind,
         } = self;
-        (control, writer, authorization, command, binding, channel)
+        NonPairEffectParts {
+            control,
+            writer,
+            authorization,
+            command,
+            binding,
+            channel,
+            effect_kind,
+        }
     }
 }
 
@@ -125,6 +108,7 @@ impl ClaimedWriterControl {
             command,
             binding,
             channel,
+            command_kind: _,
             pending_pair_secret_opening,
         } = self;
         ClaimedPairParts {
@@ -147,11 +131,25 @@ impl ClaimedWriterControl {
             command,
             binding,
             channel,
+            command_kind,
             pending_pair_secret_opening,
         } = self;
         if pending_pair_secret_opening.is_some() {
             return Err(CliError::CredentialOperation);
         }
+        let effect_kind = match command_kind {
+            CredentialWriterCommandKindV1::Revoke
+            | CredentialWriterCommandKindV1::RetiredVersionCleanup => {
+                NonPairWriterEffectKind::Delete
+            }
+            CredentialWriterCommandKindV1::MigrateLegacy => {
+                NonPairWriterEffectKind::ImportLegacy
+            }
+            CredentialWriterCommandKindV1::LegacySourceCleanup => {
+                NonPairWriterEffectKind::DeleteLegacySource
+            }
+            CredentialWriterCommandKindV1::Pair => return Err(CliError::CredentialOperation),
+        };
         Ok(AuthorizedWriterControl {
             _control: control,
             _writer: writer,
@@ -159,6 +157,7 @@ impl ClaimedWriterControl {
             command,
             _binding: binding,
             _channel: channel,
+            effect_kind,
         })
     }
 }
@@ -176,11 +175,36 @@ pub fn claim_writer_authorization(
     writers: NativeProviderCredentialWriters,
     secret_input: CredentialSecretInputPresence,
 ) -> Result<ClaimedWriterControl, CliError> {
-    let (mut control, channel, ticket, issuer, writer) = writers
+    let (control, channel, ticket, issuer, writer) = writers
         .into_authenticated_parts()
         .map_err(|_| CliError::CredentialOperation)?;
-    let (authorization, command, binding, pending_pair_secret_opening) = ticket
-        .claim_on(&mut control, &issuer, &channel, secret_input)
+    claim_writer_authorization_with_parts(
+        control,
+        channel,
+        ticket,
+        &issuer,
+        writer,
+        secret_input,
+    )
+}
+
+#[cfg(any(test, target_os = "macos"))]
+pub fn claim_writer_authorization_with_parts<C: Read + Write + 'static>(
+    mut control: C,
+    channel: BrokerChannelBinding,
+    ticket: PendingCredentialIssueTicketV1,
+    issuer: &CredentialWriterClaimIssuer,
+    writer: Arc<dyn BrokeredProviderCredentialWriter>,
+    secret_input: CredentialSecretInputPresence,
+) -> Result<ClaimedWriterControl, CliError> {
+    let (authorization, command, binding, command_kind, pending_pair_secret_opening) = ticket
+        .claim_on(
+            &mut control,
+            issuer,
+            &channel,
+            secret_input,
+            CredentialWriterCommandScopeV1::D1_1A,
+        )
         .map_err(|_| CliError::CredentialOperation)?;
     Ok(ClaimedWriterControl {
         control: Box::new(control),
@@ -189,87 +213,7 @@ pub fn claim_writer_authorization(
         command,
         binding,
         channel,
-        pending_pair_secret_opening,
-    })
-}
-
-#[cfg(test)]
-pub fn claim_writer_authorization_for_test(
-    endpoint: AuthenticatedDaemonControlEndpoint,
-    issuer: &CredentialWriterClaimIssuer,
-    writer: Arc<dyn BrokeredProviderCredentialWriter>,
-    secret_input: CredentialSecretInputPresence,
-) -> Result<ClaimedWriterControl, CliError> {
-    claim_writer_authorization_with_parts(endpoint, issuer, writer, secret_input)
-}
-
-#[cfg(test)]
-fn claim_writer_authorization_with_parts(
-    mut endpoint: AuthenticatedDaemonControlEndpoint,
-    issuer: &CredentialWriterClaimIssuer,
-    writer: Arc<dyn BrokeredProviderCredentialWriter>,
-    secret_input: CredentialSecretInputPresence,
-) -> Result<ClaimedWriterControl, CliError> {
-    if endpoint.channel.digest().as_bytes() != endpoint.channel_bytes {
-        return Err(CliError::CredentialOperation);
-    }
-    let CredentialBrokerFrame::IssueTicket {
-        operation_id,
-        attempt,
-        ticket,
-        channel_binding,
-        binding,
-        command,
-    } = endpoint.control.read_frame()?
-    else {
-        return Err(CliError::CredentialOperation);
-    };
-    if operation_id != command.operation_id()
-        || attempt != command.ticket_attempt()
-        || channel_binding != endpoint.channel_bytes
-    {
-        return Err(CliError::CredentialOperation);
-    }
-    let expects_secret = command.action() == CredentialOperationAction::Pair;
-    if (secret_input == CredentialSecretInputPresence::Present) != expects_secret {
-        return Err(CliError::CredentialOperation);
-    }
-
-    let pending_claim = issuer.issue_pending_claim(&command, binding, &endpoint.channel);
-    let (secret_offer, pending_pair_secret_opening) =
-        if command.action() == CredentialOperationAction::Pair {
-            let (offer, pending) =
-                runne_provider::CredentialSecretClaimOffer::prepare(&command, binding)
-                    .map_err(|_| CliError::CredentialOperation)?;
-            (Some(offer), Some(pending))
-        } else {
-            (None, None)
-        };
-    endpoint.control.write_frame(CredentialBrokerFrame::Claim {
-        operation_id,
-        attempt,
-        ticket,
-        binding,
-        secret_offer,
-    })?;
-    let accepted = endpoint.control.read_frame()?;
-    let authorization = issuer
-        .claim_accepted(
-            pending_claim,
-            accepted,
-            &command,
-            binding,
-            &endpoint.channel,
-        )
-        .map_err(|_| CliError::CredentialOperation)?;
-
-    Ok(ClaimedWriterControl {
-        control: endpoint.control,
-        writer,
-        authorization,
-        command,
-        binding,
-        channel: endpoint.channel,
+        command_kind,
         pending_pair_secret_opening,
     })
 }

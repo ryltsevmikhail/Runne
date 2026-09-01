@@ -5,19 +5,19 @@ use runne_provider::{
     CredentialBindingDigest, CredentialBrokerCommand, CredentialBrokerFrame,
     CredentialBrokerFrameCodec, CredentialBrokerTarget, CredentialEnrollmentAuthorityPair,
     CredentialFence, CredentialLifecycleRevision, CredentialOperationAction, CredentialOperationId,
-    CredentialSecretInputPresence, CredentialTicketAttempt, CredentialVersionRef, ProviderId,
-    RawCredentialTicket,
+    CredentialSecretInputPresence, CredentialTicketAttempt, CredentialVersionRef,
+    PendingCredentialIssueTicketV1, ProviderId, RawCredentialTicket,
 };
 use runne_secure_store::{NativeProviderCredentialWriters, ProviderCredentialAccessPolicy};
 
-use super::claim::{
-    AuthenticatedDaemonControlEndpoint, claim_writer_authorization_for_test,
-};
+use super::claim::claim_writer_authorization_with_parts;
 #[cfg(target_os = "macos")]
 use super::claim::claim_writer_authorization;
 
 #[path = "claim_tests/presence.rs"]
 mod presence;
+#[path = "claim_tests/secret_path.rs"]
+mod secret_path;
 
 #[test]
 #[cfg(target_os = "macos")]
@@ -33,16 +33,17 @@ fn production_claim_accepts_only_the_native_authenticated_bundle() {
 #[test]
 fn claim_runner_rejects_wrong_first_frame_without_writing_a_claim() {
     let command = command(1, CredentialOperationAction::Pair);
-    let (endpoint, written) = endpoint(
+    let mut encoded = Vec::new();
+    CredentialBrokerFrameCodec::write_to(
+        &mut encoded,
         CredentialBrokerFrame::ClaimAccepted {
             operation_id: command.operation_id(),
             attempt: command.ticket_attempt(),
         },
-        None,
-    );
+    )
+    .expect("frame");
 
-    assert!(claim_for_test(endpoint, CredentialSecretInputPresence::Present).is_err());
-    assert!(written.lock().expect("written").is_empty());
+    assert!(PendingCredentialIssueTicketV1::read_from(&mut Cursor::new(encoded)).is_err());
 }
 
 #[test]
@@ -126,50 +127,39 @@ fn non_pair_claim_never_creates_a_secret_offer_or_pending_opening() {
     assert_one_claim(&written, false);
 }
 
-#[test]
-fn secret_path_is_pair_only_and_consumes_the_post_ack_state() {
-    let pair = command(9, CredentialOperationAction::Pair);
-    let (pair_endpoint, _) = endpoint(
-        issue(pair.clone(), binding(), [11; 32]),
-        Some(accepted(&pair)),
-    );
-    let claimed = claim_for_test(pair_endpoint, CredentialSecretInputPresence::Present)
-        .expect("pair acknowledgement");
-    assert!(claimed.authorize_without_secret().is_err());
-
-    let revoke = command(10, CredentialOperationAction::Revoke);
-    let (revoke_endpoint, _) = endpoint(
-        issue(revoke.clone(), binding(), [11; 32]),
-        Some(accepted(&revoke)),
-    );
-    let claimed = claim_for_test(revoke_endpoint, CredentialSecretInputPresence::Absent)
-        .expect("revoke acknowledgement");
-    assert!(claimed.read_pair_secret(&mut PanicReader).is_err());
-}
-
 fn endpoint(
     issue: CredentialBrokerFrame,
     ack: Option<CredentialBrokerFrame>,
-) -> (AuthenticatedDaemonControlEndpoint, Arc<Mutex<Vec<u8>>>) {
+) -> (TestClaimParts, Arc<Mutex<Vec<u8>>>) {
     endpoint_with_channel(issue, ack, [11; 32])
 }
 
 fn claim_for_test(
-    endpoint: AuthenticatedDaemonControlEndpoint,
+    parts: TestClaimParts,
     secret_input: CredentialSecretInputPresence,
 ) -> Result<super::claim::ClaimedWriterControl, super::CliError> {
     let writers = native_writers();
     let (issuer, writer) = writers.into_parts();
-    claim_writer_authorization_for_test(endpoint, &issuer, writer, secret_input)
+    claim_writer_authorization_with_parts(
+        parts.control,
+        parts.channel,
+        parts.ticket,
+        &issuer,
+        writer,
+        secret_input,
+    )
 }
 
 fn endpoint_with_channel(
     issue: CredentialBrokerFrame,
     ack: Option<CredentialBrokerFrame>,
     measured_channel: [u8; 32],
-) -> (AuthenticatedDaemonControlEndpoint, Arc<Mutex<Vec<u8>>>) {
+) -> (TestClaimParts, Arc<Mutex<Vec<u8>>>) {
+    let mut encoded_issue = Vec::new();
+    CredentialBrokerFrameCodec::write_to(&mut encoded_issue, issue).expect("issue frame");
+    let ticket = PendingCredentialIssueTicketV1::read_from(&mut Cursor::new(encoded_issue))
+        .expect("pending ticket");
     let mut incoming = Vec::new();
-    CredentialBrokerFrameCodec::write_to(&mut incoming, issue).expect("issue frame");
     if let Some(ack) = ack {
         CredentialBrokerFrameCodec::write_to(&mut incoming, ack).expect("ack frame");
     }
@@ -179,13 +169,19 @@ fn endpoint_with_channel(
         .expect("channel binding");
     let written = Arc::new(Mutex::new(Vec::new()));
     (
-        AuthenticatedDaemonControlEndpoint::for_test(
-            TestControl::new(incoming, written.clone()),
-            [11; 32],
+        TestClaimParts {
+            control: TestControl::new(incoming, written.clone()),
             channel,
-        ),
+            ticket,
+        },
         written,
     )
+}
+
+struct TestClaimParts {
+    control: TestControl,
+    channel: runne_provider::BrokerChannelBinding,
+    ticket: PendingCredentialIssueTicketV1,
 }
 
 fn issue(
@@ -286,13 +282,5 @@ impl Write for TestControl {
 
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
-    }
-}
-
-struct PanicReader;
-
-impl Read for PanicReader {
-    fn read(&mut self, _bytes: &mut [u8]) -> std::io::Result<usize> {
-        panic!("non-Pair path must not read a secret source")
     }
 }

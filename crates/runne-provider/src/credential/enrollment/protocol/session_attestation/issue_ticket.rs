@@ -10,6 +10,12 @@ use crate::credential::enrollment::{
     CredentialWriterClaimIssuer, PendingCredentialSecretOpening,
 };
 
+#[path = "issue_ticket/scope.rs"]
+mod scope;
+pub use scope::{
+    CredentialSecretInputPresence, CredentialWriterCommandKindV1, CredentialWriterCommandScopeV1,
+};
+
 const DOMAIN: &[u8] = b"GOCODE_CREDENTIAL_ISSUE_TICKET_SESSION_V1\0";
 
 /// One prefetched broker ticket retained for a later authenticated claim.
@@ -68,19 +74,6 @@ pub struct PendingCredentialIssueTicketV1 {
     binding: CredentialIssueTicketBindingV1,
 }
 
-/// Whether the fixed inherited sealed-secret slot exists for this writer.
-///
-/// Presence grants no authority and never opens or reads the descriptor. The
-/// retained ticket consumes this fact before writing a claim so Pair cannot run
-/// without a secret slot and every non-Pair action rejects one.
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub enum CredentialSecretInputPresence {
-    /// No inherited sealed-secret slot is present.
-    Absent,
-    /// The inherited sealed-secret slot is present but remains unopened.
-    Present,
-}
-
 impl PendingCredentialIssueTicketV1 {
     /// Reads and retains exactly one bounded `IssueTicket` frame.
     pub fn read_from<R: std::io::Read>(reader: &mut R) -> Result<Self, CredentialEnrollmentError> {
@@ -108,11 +101,13 @@ impl PendingCredentialIssueTicketV1 {
         issuer: &CredentialWriterClaimIssuer,
         channel: &BrokerChannelBinding,
         secret_input: CredentialSecretInputPresence,
+        scope: CredentialWriterCommandScopeV1,
     ) -> Result<
         (
             ClaimedWriterAuthorization,
             CredentialBrokerCommand,
             CredentialBindingDigest,
+            CredentialWriterCommandKindV1,
             Option<PendingCredentialSecretOpening>,
         ),
         CredentialEnrollmentError,
@@ -139,6 +134,9 @@ impl PendingCredentialIssueTicketV1 {
         if channel_binding != channel.digest().as_bytes() {
             return Err(CredentialEnrollmentError::InvalidEvidence);
         }
+        let command_kind = scope
+            .classify(command.action())
+            .ok_or(CredentialEnrollmentError::InvalidEvidence)?;
         let expects_secret = command.action() == CredentialOperationAction::Pair;
         if (secret_input == CredentialSecretInputPresence::Present) != expects_secret {
             return Err(CredentialEnrollmentError::InvalidEvidence);
@@ -164,7 +162,13 @@ impl PendingCredentialIssueTicketV1 {
         let accepted = CredentialBrokerFrameCodec::read_from(control)?;
         let authorization =
             issuer.claim_accepted(pending_claim, accepted, &command, binding, channel)?;
-        Ok((authorization, command, binding, pending_opening))
+        Ok((
+            authorization,
+            command,
+            binding,
+            command_kind,
+            pending_opening,
+        ))
     }
 
     pub(super) fn matches_attested(&self, attested: &CredentialIssueTicketBindingV1) -> bool {

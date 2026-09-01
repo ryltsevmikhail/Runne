@@ -6,7 +6,7 @@ use runne_provider::{
     CredentialBrokerFrame, CredentialBrokerFrameCodec, CredentialBrokerTarget,
     CredentialEnrollmentAuthorityPair, CredentialFence, CredentialLifecycleRevision,
     CredentialOperationAction, CredentialOperationId, CredentialSecretInputPresence,
-    CredentialTicketAttempt,
+    CredentialTicketAttempt, PendingCredentialIssueTicketV1,
     CredentialVersionRef, CredentialWriterAuthorityPair, NativeCredentialDeletionProof, ProviderId,
     RawCredentialTicket, PendingCredentialSecretOpening, SealedCredentialEnvelope,
     WriterIdentityMigrationPhase,
@@ -18,9 +18,7 @@ use runne_secure_store::{
     SecureStoreError, WriterIdentityMigrationObservation,
 };
 
-use super::claim::{
-    AuthenticatedDaemonControlEndpoint, ClaimedWriterControl, claim_writer_authorization_for_test,
-};
+use super::claim::{ClaimedWriterControl, claim_writer_authorization_with_parts};
 
 #[path = "effect_test_support/pair.rs"]
 mod pair;
@@ -42,18 +40,20 @@ pub struct ClaimFixture {
 
 pub fn claimed(action: CredentialOperationAction) -> ClaimFixture {
     let command = command(action);
-    let (endpoint, written) = endpoint(&command, false);
-    claimed_from_endpoint(endpoint, written, action)
+    let (control, channel, ticket, written) = endpoint(&command, false);
+    claimed_from_parts(control, channel, ticket, written, action)
 }
 
 pub fn claimed_with_diagnostic_failure(action: CredentialOperationAction) -> ClaimFixture {
     let command = command(action);
-    let (endpoint, written) = endpoint(&command, true);
-    claimed_from_endpoint(endpoint, written, action)
+    let (control, channel, ticket, written) = endpoint(&command, true);
+    claimed_from_parts(control, channel, ticket, written, action)
 }
 
-fn claimed_from_endpoint(
-    endpoint: AuthenticatedDaemonControlEndpoint,
+fn claimed_from_parts(
+    control: TestControl,
+    channel: runne_provider::BrokerChannelBinding,
+    ticket: PendingCredentialIssueTicketV1,
     written: Arc<Mutex<Vec<u8>>>,
     action: CredentialOperationAction,
 ) -> ClaimFixture {
@@ -69,8 +69,15 @@ fn claimed_from_endpoint(
         CredentialSecretInputPresence::Absent
     };
     ClaimFixture {
-        claimed: claim_writer_authorization_for_test(endpoint, &issuer, writer, secret_input)
-            .expect("claim"),
+        claimed: claim_writer_authorization_with_parts(
+            control,
+            channel,
+            ticket,
+            &issuer,
+            writer,
+            secret_input,
+        )
+        .expect("claim"),
         calls,
         written,
     }
@@ -106,11 +113,16 @@ pub fn assert_frames(written: &Arc<Mutex<Vec<u8>>>, native_observed: bool) {
 fn endpoint(
     command: &CredentialBrokerCommand,
     fail_after_claim: bool,
-) -> (AuthenticatedDaemonControlEndpoint, Arc<Mutex<Vec<u8>>>) {
+) -> (
+    TestControl,
+    runne_provider::BrokerChannelBinding,
+    PendingCredentialIssueTicketV1,
+    Arc<Mutex<Vec<u8>>>,
+) {
     let binding = CredentialBindingDigest::from_measured([13; 32]).expect("binding");
-    let mut input = Vec::new();
+    let mut encoded_ticket = Vec::new();
     CredentialBrokerFrameCodec::write_to(
-        &mut input,
+        &mut encoded_ticket,
         CredentialBrokerFrame::IssueTicket {
             operation_id: command.operation_id(),
             attempt: command.ticket_attempt(),
@@ -121,6 +133,9 @@ fn endpoint(
         },
     )
     .expect("issue");
+    let ticket = PendingCredentialIssueTicketV1::read_from(&mut Cursor::new(encoded_ticket))
+        .expect("pending ticket");
+    let mut input = Vec::new();
     CredentialBrokerFrameCodec::write_to(
         &mut input,
         CredentialBrokerFrame::ClaimAccepted {
@@ -132,14 +147,8 @@ fn endpoint(
     let (_, measurements) = CredentialEnrollmentAuthorityPair::new().split();
     let channel = measurements.broker_channel_binding([11; 32]).expect("channel");
     let written = Arc::new(Mutex::new(Vec::new()));
-    (
-        AuthenticatedDaemonControlEndpoint::for_test(
-            TestControl::new(input, written.clone(), fail_after_claim),
-            [11; 32],
-            channel,
-        ),
-        written,
-    )
+    let control = TestControl::new(input, written.clone(), fail_after_claim);
+    (control, channel, ticket, written)
 }
 
 pub fn command(action: CredentialOperationAction) -> CredentialBrokerCommand {
