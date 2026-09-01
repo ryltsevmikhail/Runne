@@ -46,4 +46,13 @@ mod tests;
 /// use runne_api::VerifiedSignedInstalledReleaseV2;
 /// let _ = VerifiedSignedInstalledReleaseV2::default();
 /// ```
+///
+/// ```compile_fail
+/// use runne_api::VerifiedSignedInstalledReleaseV2;
+/// fn inspect(value: &VerifiedSignedInstalledReleaseV2) {
+///     let _ = value.signed_candidate();
+///     let _ = value.metadata();
+///     let _ = value.release_binding_digest();
+/// }
+/// ```
 const _: () = ();

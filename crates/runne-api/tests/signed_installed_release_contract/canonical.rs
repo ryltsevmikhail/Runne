@@ -61,6 +61,27 @@ fn nibble(value: u8) -> u8 {
     }
 }
 
+fn assert_only_exact_digest(expected: [u8; 32], matches: impl Fn(&[u8; 32]) -> bool) {
+    assert!(matches(&expected));
+    for index in 0..expected.len() {
+        let mut candidate = expected;
+        candidate[index] ^= 0x80;
+        assert!(!matches(&candidate), "accepted digest mutation at {index}");
+    }
+}
+
+fn assert_only_exact_identity(
+    identifier: &str,
+    team_identifier: &str,
+    cdhash: &str,
+    matches: impl Fn(&str, &str, &str) -> bool,
+) {
+    assert!(matches(identifier, team_identifier, cdhash));
+    assert!(!matches("com.runne.other", team_identifier, cdhash));
+    assert!(!matches(identifier, "OTHER12345", cdhash));
+    assert!(!matches(identifier, team_identifier, &"0".repeat(40)));
+}
+
 #[test]
 fn frozen_signed_release_matches_independent_known_answers() {
     let metadata: UpdateMetadataV2 = serde_json::from_slice(fixture()).expect("literal metadata");
@@ -72,16 +93,10 @@ fn frozen_signed_release_matches_independent_known_answers() {
         hex_32(TARGETS_SHA256)
     );
 
-    let verified = verify_exact_signed_installed_release_v2(
-        fixture(),
-        &trust(),
-        hex_32(RELEASE_BINDING_SHA256),
-        100,
-    )
-    .expect("frozen threshold-signed release");
-    let release = verified.signed_candidate();
+    let generic = verify_signed_update_metadata_v2(&metadata, &trust(), 100)
+        .expect("frozen threshold-signed metadata");
+    let release = generic.qualified_release_candidate().unwrap();
     let tuple = release.native_enrollment_tuple();
-
     assert_eq!(tuple.candidate_digest(), [0xdd; 32]);
     assert_eq!(tuple.inner_tuple_digest(), hex_32(TUPLE_SHA256));
     assert_eq!(tuple.desktop_image_digest(), [0xcc; 32]);
@@ -104,6 +119,64 @@ fn frozen_signed_release_matches_independent_known_answers() {
         tuple.writer_code_identity().unwrap().identifier(),
         "com.runne.writer"
     );
+
+    let verified = verify_exact_signed_installed_release_v2(
+        fixture(),
+        &trust(),
+        hex_32(RELEASE_BINDING_SHA256),
+        100,
+    )
+    .expect("frozen threshold-signed release");
+    assert_only_exact_digest([0xcc; 32], |candidate| {
+        verified.matches_desktop_digest(candidate)
+    });
+    assert_only_exact_digest([0xee; 32], |candidate| {
+        verified.matches_writer_digest(candidate)
+    });
+    assert_only_exact_digest([0xff; 32], |candidate| {
+        verified.matches_daemon_digest(candidate)
+    });
+    assert_only_exact_digest([0xbb; 32], |candidate| {
+        verified.matches_contract_digest(candidate)
+    });
+    assert_only_exact_digest(hex_32(RELEASE_BINDING_SHA256), |candidate| {
+        verified.matches_release_binding(candidate)
+    });
+
+    assert_only_exact_identity(
+        "com.runne.desktop",
+        "RUNNE12345",
+        &"3".repeat(40),
+        |identifier, team_identifier, cdhash| {
+            verified.matches_desktop_code_identity(identifier, team_identifier, cdhash)
+        },
+    );
+    assert_only_exact_identity(
+        "com.runne.writer",
+        "RUNNE12345",
+        &"1".repeat(40),
+        |identifier, team_identifier, cdhash| {
+            verified.matches_writer_code_identity(identifier, team_identifier, cdhash)
+        },
+    );
+    assert_only_exact_identity(
+        "com.runne.daemon",
+        "RUNNE12345",
+        &"2".repeat(40),
+        |identifier, team_identifier, cdhash| {
+            verified.matches_daemon_code_identity(identifier, team_identifier, cdhash)
+        },
+    );
+    assert!(!verified.matches_writer_code_identity(
+        "com.runne.desktop",
+        "RUNNE12345",
+        &"3".repeat(40),
+    ));
+
+    let matcher = verified.release_binding_matcher();
+    assert_only_exact_digest(hex_32(RELEASE_BINDING_SHA256), |candidate| {
+        matcher.matches(candidate)
+    });
 }
 
 #[test]

@@ -1,3 +1,5 @@
+use runne_domain::DigestEqualityMatcherV1;
+
 use super::{PendingCredentialIssueTicketV1, SignedCredentialWriterSessionAttestationV1};
 
 impl SignedCredentialWriterSessionAttestationV1 {
@@ -41,7 +43,10 @@ impl SignedCredentialWriterSessionAttestationV1 {
     /// Compares the provisional signed-release binding without admitting trust or time.
     #[doc(hidden)]
     #[must_use]
-    pub fn matches_provisional_release_binding(&self, release_binding: &[u8; 32]) -> bool {
-        self.claims.runtime.release_tuple.as_bytes() == *release_binding
+    pub fn matches_provisional_release_binding(
+        &self,
+        release_binding: &DigestEqualityMatcherV1,
+    ) -> bool {
+        release_binding.matches(&self.claims.runtime.release_tuple.as_bytes())
     }
 }

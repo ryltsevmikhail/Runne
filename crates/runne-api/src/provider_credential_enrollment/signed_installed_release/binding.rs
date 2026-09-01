@@ -6,6 +6,8 @@ use super::tuple::NativeEnrollmentTupleV2;
 use super::tuple_identity::MacOsCodeIdentityExpectationV1;
 use super::verification::SignedInstalledReleaseVerificationErrorV2;
 
+mod matchers;
+
 const MANIFEST_DOMAIN: &[u8] = b"GOCODE_SIGNED_INSTALLED_RELEASE_MANIFEST_V1\0";
 const RELEASE_DOMAIN: &[u8] = b"GOCODE_SIGNED_INSTALLED_RELEASE_BINDING_V1\0";
 
@@ -41,9 +43,15 @@ pub struct VerifiedSignedUpdateMetadataV2 {
     qualified_release_candidate: Option<SignedInstalledReleaseCandidateV2>,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Eq, PartialEq)]
 pub struct VerifiedSignedInstalledReleaseV2 {
     signed_candidate: SignedInstalledReleaseCandidateV2,
+}
+
+impl core::fmt::Debug for VerifiedSignedInstalledReleaseV2 {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.write_str("VerifiedSignedInstalledReleaseV2(<opaque>)")
+    }
 }
 
 impl VerifiedSignedUpdateMetadataV2 {
@@ -115,12 +123,6 @@ impl SignedInstalledReleaseCandidateV2 {
     }
     pub const fn expires_at_unix_seconds(&self) -> u64 {
         self.expires_at_unix_seconds
-    }
-}
-
-impl VerifiedSignedInstalledReleaseV2 {
-    pub const fn signed_candidate(&self) -> &SignedInstalledReleaseCandidateV2 {
-        &self.signed_candidate
     }
 }
 

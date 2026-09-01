@@ -17,9 +17,7 @@ fn exact_and_candidate_outputs_have_locked_nonserializable_derives() {
         "#[derive(Clone, Debug, Eq, PartialEq)]\npub struct SignedInstalledReleaseCandidateV2"
     ));
     assert!(
-        binding.contains(
-            "#[derive(Debug, Eq, PartialEq)]\npub struct VerifiedSignedInstalledReleaseV2"
-        )
+        binding.contains("#[derive(Eq, PartialEq)]\npub struct VerifiedSignedInstalledReleaseV2")
     );
     for forbidden in [
         "impl Clone for VerifiedSignedInstalledReleaseV2",
@@ -27,10 +25,62 @@ fn exact_and_candidate_outputs_have_locked_nonserializable_derives() {
         "Deserialize for VerifiedSigned",
         "Default for VerifiedSigned",
         "From<SignedInstalledReleaseCandidateV2>",
+        "#[derive(Debug, Eq, PartialEq)]\npub struct VerifiedSignedInstalledReleaseV2",
     ] {
         assert!(
             !binding.contains(forbidden),
             "unexpected exact-output surface: {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn exact_output_exposes_only_hidden_boolean_matches_and_one_opaque_projection() {
+    let matchers =
+        read("src/provider_credential_enrollment/signed_installed_release/binding/matchers.rs");
+    let production = matchers.split("#[cfg(test)]").next().unwrap();
+
+    for name in [
+        "matches_desktop_digest",
+        "matches_writer_digest",
+        "matches_daemon_digest",
+        "matches_contract_digest",
+        "matches_release_binding",
+        "matches_desktop_code_identity",
+        "matches_writer_code_identity",
+        "matches_daemon_code_identity",
+    ] {
+        assert_eq!(
+            production.matches(&format!("pub fn {name}(")).count(),
+            1,
+            "missing exact matcher {name}"
+        );
+    }
+    assert_eq!(
+        production
+            .matches("pub fn release_binding_matcher(")
+            .count(),
+        1
+    );
+    assert_eq!(production.matches("pub fn ").count(), 9);
+    assert_eq!(production.matches("#[doc(hidden)]").count(), 9);
+    for forbidden in [
+        "pub fn signed_candidate",
+        "pub fn candidate",
+        "pub fn metadata",
+        "pub fn release_binding_digest",
+        "pub fn digest",
+        "pub fn bytes",
+        "pub fn raw",
+        "pub fn from_parts",
+        "pub fn admit",
+        "pub fn mint",
+        "pub fn into_authority",
+        "pub trait",
+    ] {
+        assert!(
+            !production.contains(forbidden),
+            "exact output exposes forbidden surface: {forbidden}"
         );
     }
 }

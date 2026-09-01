@@ -13,6 +13,26 @@ fn production_source(path: &Path) -> String {
         .join("\n")
 }
 
+fn rust_sources(directory: &Path, output: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(directory).expect("source directory") {
+        let path = entry.expect("source entry").path();
+        if path.is_dir() {
+            let is_test_tree = path
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().contains("test"));
+            if !is_test_tree {
+                rust_sources(&path, output);
+            }
+        } else if path.extension().is_some_and(|extension| extension == "rs")
+            && path
+                .file_stem()
+                .is_none_or(|stem| !stem.to_string_lossy().contains("test"))
+        {
+            output.push(path);
+        }
+    }
+}
+
 #[test]
 fn pending_ticket_has_one_opaque_reader_and_no_escape_surface() {
     let path =
@@ -90,6 +110,8 @@ fn attestation_exposes_only_the_four_boolean_matchers() {
     ] {
         assert_eq!(matchers.matches(name).count(), 1, "missing matcher {name}");
     }
+    assert_eq!(matchers.matches("-> bool").count(), 4);
+    assert!(matchers.contains("release_binding: &DigestEqualityMatcherV1"));
     for forbidden in [
         "pub fn binding_digest",
         "pub fn ticket_claims",
@@ -117,5 +139,29 @@ fn attestation_exposes_only_the_four_boolean_matchers() {
             1,
             "unexpected selective export in {facade}"
         );
+    }
+}
+
+#[test]
+fn macos_consumer_never_recovers_release_binding_from_attestation_wire_bytes() {
+    let provider = crate_root();
+    let workspace = provider.parent().and_then(Path::parent).unwrap();
+    let mut sources = Vec::new();
+    rust_sources(
+        &workspace.join("crates/runne-macos-process-identity/src"),
+        &mut sources,
+    );
+    for path in sources {
+        let source = production_source(&path);
+        for forbidden in [
+            "CredentialWriterSessionAttestationCodec::encode",
+            "265..297",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{} bypasses opaque release binding via {forbidden}",
+                path.display(),
+            );
+        }
     }
 }
