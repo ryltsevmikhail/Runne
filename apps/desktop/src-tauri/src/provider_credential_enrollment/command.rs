@@ -191,7 +191,7 @@ mod tests {
     #[test]
     fn unsupported_action_gate_precedes_prompt_transition_and_writer() {
         let source = include_str!("dispatch.rs");
-        let gate = source.find("!request.supported_d1_1a()").unwrap();
+        let gate = source.find("run_after_pair_gate(request").unwrap();
         for later in [
             "prepare_installed_native_enrollment",
             "prompt.prompt",
@@ -203,5 +203,24 @@ mod tests {
                 "gate must precede {later}"
             );
         }
+    }
+
+    #[test]
+    fn unsupported_action_dependency_gate_invokes_no_native_work() {
+        let prompt = std::cell::Cell::new(0);
+        let spawn = std::cell::Cell::new(0);
+        let request = CredentialIntentIpc {
+            provider: ProviderCredentialProviderV2::OpenAi,
+            action: ProviderCredentialEnrollmentActionV2::Revoke,
+            expected_revision: 7,
+            renderer_generation: 4,
+            verification_kind: None,
+        };
+        let result = super::super::dispatch::run_after_pair_gate(request, || {
+            prompt.set(prompt.get() + 1);
+            spawn.set(spawn.get() + 1);
+        });
+        assert!(result.is_err());
+        assert_eq!((prompt.get(), spawn.get()), (0, 0));
     }
 }

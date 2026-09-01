@@ -41,12 +41,6 @@ pub use session_attestation::{
     PendingCredentialIssueTicketV1, SignedCredentialWriterSessionAttestationV1,
 };
 
-#[cfg(feature = "platform-desktop-internal")]
-#[doc(hidden)]
-pub mod platform_desktop_internal {
-    pub use super::secret::platform_desktop_internal::AuthenticatedCredentialSecretRelaySealer;
-}
-
 /// Deliberately narrow daemon-only publication adapter.
 #[doc(hidden)]
 pub mod daemon_credential_publication {
@@ -132,6 +126,15 @@ pub enum CredentialBrokerFrame {
         attempt: CredentialTicketAttempt,
         /// Safe denial category.
         disposition: CredentialDisposition,
+    },
+    /// Daemon releases the exact claimed attempt only after durable relay ACK.
+    NativeEffectRelease {
+        /// Durable operation identity.
+        operation_id: CredentialOperationId,
+        /// Exact claimed ticket attempt.
+        attempt: CredentialTicketAttempt,
+        /// Immutable claim-binding digest.
+        binding: CredentialBindingDigest,
     },
     /// Writer reports only a possible native effect with its bound transcript.
     NativeEffectObserved {

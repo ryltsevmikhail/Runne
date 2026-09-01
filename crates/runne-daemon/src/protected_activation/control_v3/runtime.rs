@@ -108,21 +108,23 @@ impl V3EnrollmentRuntime {
         let pending = session
             .claim_writer(measurements, continuation, broker_channel)
             .map_err(super::map_enrollment_error)?;
-        if let Some(relay) = pending.relay().map(<[u8]>::to_vec) {
+        let released = if let Some(relay) = pending.relay().map(<[u8]>::to_vec) {
             let frame = session
                 .encode_relay(&relay)
                 .map_err(super::map_enrollment_error)?;
             protected.write_control_frame(&frame)?;
             let acknowledgement = protected.read_control_frame()?;
             session
-                .accept_relay_ack(&acknowledgement, &relay)
-                .map_err(super::map_enrollment_error)?;
-        }
+                .accept_relay_ack(&acknowledgement, &relay, pending, broker_channel)
+                .map_err(super::map_enrollment_error)?
+        } else {
+            return Err(runne_api::LaunchAuthorityError::InvalidContract);
+        };
         let now = super::unix_now_millis()? / 1_000;
         let now =
             i64::try_from(now).map_err(|_| runne_api::LaunchAuthorityError::InvalidContract)?;
         let terminal = session
-            .finish_writer(pending, broker_channel, now)
+            .finish_writer(released, broker_channel, now)
             .map_err(super::map_enrollment_error)?;
         let frame = session
             .encode_terminal_snapshot(terminal)

@@ -258,12 +258,6 @@ pub use credential::{
     WriterProcessHandleIdentity, WriterProcessStartIdentity, allows_structural_transition,
 };
 
-/// Feature-gated hook consumed only by the authenticated desktop rendezvous adapter.
-#[cfg(feature = "platform-desktop-internal")]
-#[doc(hidden)]
-pub mod platform_desktop_internal {
-    pub use crate::credential::platform_desktop_internal::AuthenticatedCredentialSecretRelaySealer;
-}
 #[cfg(feature = "test-support")]
 #[doc(hidden)]
 pub use credential::{SealedPairFixture, sealed_pair_for_test};

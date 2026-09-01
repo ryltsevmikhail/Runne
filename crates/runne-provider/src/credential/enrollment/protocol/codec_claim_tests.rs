@@ -7,7 +7,7 @@ use crate::{
 };
 
 #[test]
-fn v4_claim_round_trips_in_its_fixed_width_form() {
+fn v5_claim_round_trips_in_its_fixed_width_form() {
     let (operation_id, attempt, command) = command();
     let binding = CredentialBindingDigest::from_measured([8; 32]).unwrap();
     let (offer, _) = CredentialSecretClaimOffer::prepare(&command, binding).unwrap();
@@ -20,14 +20,14 @@ fn v4_claim_round_trips_in_its_fixed_width_form() {
     };
 
     let bytes = CredentialBrokerFrameCodec::encode(frame).unwrap();
-    assert_eq!(bytes[0], 4);
+    assert_eq!(bytes[0], 5);
     assert_eq!(bytes.len(), 213);
     let decoded = CredentialBrokerFrameCodec::decode(&bytes).unwrap();
     assert_eq!(CredentialBrokerFrameCodec::encode(decoded).unwrap(), bytes);
 }
 
 #[test]
-fn v4_claim_rejects_noncanonical_absent_offer_slot() {
+fn v5_claim_rejects_noncanonical_absent_offer_slot() {
     let (operation_id, attempt, _) = command();
     let binding = CredentialBindingDigest::from_measured([9; 32]).unwrap();
     let mut bytes = CredentialBrokerFrameCodec::encode(CredentialBrokerFrame::Claim {
@@ -44,7 +44,7 @@ fn v4_claim_rejects_noncanonical_absent_offer_slot() {
 }
 
 #[test]
-fn v4_claim_rejects_offer_with_mismatched_outer_transcript() {
+fn v5_claim_rejects_offer_with_mismatched_outer_transcript() {
     let (operation_id, attempt, command) = command();
     let binding = CredentialBindingDigest::from_measured([10; 32]).unwrap();
     let (offer, _) = CredentialSecretClaimOffer::prepare(&command, binding).unwrap();
@@ -61,9 +61,9 @@ fn v4_claim_rejects_offer_with_mismatched_outer_transcript() {
 }
 
 #[test]
-fn v3_claim_is_rejected_without_a_dual_decoder() {
+fn v4_claim_is_rejected_without_a_dual_decoder() {
     let (_, _, _) = command();
-    let bytes = [3_u8, 2];
+    let bytes = [4_u8, 2];
     assert!(CredentialBrokerFrameCodec::decode(&bytes).is_err());
 }
 

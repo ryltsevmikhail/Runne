@@ -77,6 +77,20 @@ fn broker_effect_exchange_requires_the_claim_binding_before_possible_effect() {
             &mut channel,
         )
         .unwrap();
+    fixture
+        .broker
+        .release_claimed_effect_to_channel(&claim, &mut channel)
+        .unwrap();
+    assert!(matches!(
+        CredentialBrokerFrameCodec::decode(channel.frames.last().unwrap()).unwrap(),
+        CredentialBrokerFrame::NativeEffectRelease {
+            operation_id: released_operation,
+            attempt: released_attempt,
+            binding: released_binding,
+        } if released_operation == operation_id
+            && released_attempt == attempt
+            && released_binding == binding
+    ));
     let observed = fixture
         .broker
         .observe_effect_from_channel(claim, &fixture.store, &mut channel)

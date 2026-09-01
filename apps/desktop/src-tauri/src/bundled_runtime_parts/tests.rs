@@ -148,18 +148,19 @@
     #[test]
     fn enrollment_lease_owns_the_appcore_generation_fence() {
         let source = include_str!("../bundled_runtime.rs");
+        let enrollment = include_str!("enrollment.rs");
         let lease = source
             .split("pub struct NativeCredentialEnrollmentLease")
             .nth(1)
             .expect("lease definition");
         assert!(lease.contains("core: Arc<AppCore>"));
-        let transition = source
+        let transition = enrollment
             .find("transition_and_install")
             .expect("atomic transition/install path");
-        let restart = source[transition..]
+        let restart = enrollment[transition..]
             .find("begin_bundled_runtime_restart")
             .expect("old AppCore client fenced");
-        let install = source[transition..]
+        let install = enrollment[transition..]
             .find("install_bundled_runtime_client")
             .expect("rotated client installed");
         assert!(restart < install);
@@ -167,7 +168,7 @@
 
     #[test]
     fn every_post_fence_transition_failure_enters_cleanup() {
-        let source = include_str!("../bundled_runtime.rs");
+        let source = include_str!("enrollment.rs");
         let transition = source
             .split("pub(crate) async fn transition_and_install")
             .nth(1)
@@ -176,7 +177,26 @@
             .split("async fn install_transitioned_profile")
             .next()
             .expect("outer transition body");
-        assert!(body.contains("let transition = self"));
+        assert!(body.contains(".install_transitioned_profile"));
         assert!(body.contains("Err(_) => self.fail_transition().await"));
         assert_eq!(body.matches("begin_bundled_runtime_restart").count(), 1);
+    }
+
+    #[tokio::test]
+    async fn post_fence_fault_matrix_stops_and_degrades_without_nested_runtime() {
+        for fault in ["registry-exhausted", "updater-revalidation", "rotated-session"] {
+            let stopped = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let degraded = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let stop = Arc::clone(&stopped);
+            let degrade = Arc::clone(&degraded);
+            let result = super::cleanup_after_post_fence_failure(
+                Err::<(), _>(fault),
+                async move { stop.fetch_add(1, std::sync::atomic::Ordering::SeqCst); },
+                async move { degrade.fetch_add(1, std::sync::atomic::Ordering::SeqCst); },
+            )
+            .await;
+            assert_eq!(result, Err(fault));
+            assert_eq!(stopped.load(std::sync::atomic::Ordering::SeqCst), 1);
+            assert_eq!(degraded.load(std::sync::atomic::Ordering::SeqCst), 1);
+        }
     }

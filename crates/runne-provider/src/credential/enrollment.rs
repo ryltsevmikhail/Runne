@@ -88,11 +88,5 @@ pub use verification::{
     CredentialVerificationContext, CredentialVerificationLease, CredentialVerificationObservation,
 };
 
-#[cfg(feature = "platform-desktop-internal")]
-#[doc(hidden)]
-pub mod platform_desktop_internal {
-    pub use super::protocol::platform_desktop_internal::AuthenticatedCredentialSecretRelaySealer;
-}
-
 #[cfg(test)]
 mod tests;

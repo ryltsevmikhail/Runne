@@ -87,15 +87,14 @@ impl PreparedDaemonWriterEndpointHandoff {
             UnixStream,
             [u8; 32],
             [u8; 32],
-            runne_provider::platform_desktop_internal::AuthenticatedCredentialSecretRelaySealer,
+            super::macos_secret_sealer::AuthenticatedPairSecretSealer,
         ),
         BrokerHandoffError,
     > {
-        let sealer = runne_provider::platform_desktop_internal::AuthenticatedCredentialSecretRelaySealer::from_authenticated_rendezvous(
+        let sealer = super::macos_secret_sealer::AuthenticatedPairSecretSealer::from_handoff(
             self.publication_public_key,
             self.channel_binding,
-        )
-        .map_err(|_| BrokerHandoffError::Rejected)?;
+        )?;
         Ok((
             self.transport,
             self.channel_binding,

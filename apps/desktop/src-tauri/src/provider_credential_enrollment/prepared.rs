@@ -4,7 +4,7 @@
 )]
 use super::intent::{CredentialIntentError, NativeCredentialIntent};
 use super::{CredentialIntentIpc, CredentialIntentRegistry};
-use crate::bundled_runtime::NativeCredentialEnrollmentLease;
+use crate::bundled_runtime::{NativeCredentialEnrollmentCleanup, NativeCredentialEnrollmentLease};
 use crate::updater_status::enrollment::NativeInstalledEnrollmentLease;
 use runne_api::{
     ProviderCredentialEnrollmentActionV2, ProviderCredentialProviderV2,
@@ -16,6 +16,10 @@ use runne_platform_desktop::{
 use sha2::{Digest as _, Sha256};
 use std::fmt;
 use std::time::Instant;
+mod reap_guard;
+#[cfg(test)]
+#[path = "prepared/reap_guard_tests.rs"]
+mod reap_guard_tests;
 mod runner;
 /// Opaque native-only exchange retained for the later daemon control slice.
 ///
@@ -46,45 +50,44 @@ pub(super) struct NativeEnrollmentConfirmation {
     pub(super) now: Instant,
 }
 impl PreparedCredentialEnrollmentExchange {
-    pub(crate) fn after_prompt(
+    pub(crate) async fn after_prompt(
+        registry: &CredentialIntentRegistry,
+        disposition: SecureCredentialPromptDisposition,
+        confirmation: NativeEnrollmentConfirmation,
+    ) -> Result<Self, PreparedCredentialEnrollmentError> {
+        let cleanup = confirmation.runtime_lease.cleanup_handle();
+        let result = Self::try_after_prompt(registry, disposition, confirmation);
+        if result.is_err() {
+            cleanup.abort().await;
+        }
+        result
+    }
+
+    fn try_after_prompt(
         registry: &CredentialIntentRegistry,
         disposition: SecureCredentialPromptDisposition,
         confirmation: NativeEnrollmentConfirmation,
     ) -> Result<Self, PreparedCredentialEnrollmentError> {
         if confirmation.window.is_empty() || !confirmation.request.valid() {
-            confirmation.runtime_lease.abort_enrollment();
             return Err(PreparedCredentialEnrollmentError);
         }
         let (material, disposition_tag) =
-            match accepted_disposition(confirmation.request.action, disposition) {
-                Ok(value) => value,
-                Err(error) => {
-                    confirmation.runtime_lease.abort_enrollment();
-                    return Err(error);
-                }
-            };
+            accepted_disposition(confirmation.request.action, disposition)?;
         if confirmation
             .updater_lease
             .revalidate_confirmed(&confirmation.installed)
             .is_err()
         {
-            confirmation.runtime_lease.abort_enrollment();
             return Err(PreparedCredentialEnrollmentError);
         }
         let intent_session = confirmation.intent_session;
-        let intent = match issue_pending_intent(
+        let intent = issue_pending_intent(
             registry,
             &confirmation.window,
             confirmation.request,
             intent_session,
             confirmation.now,
-        ) {
-            Ok(intent) => intent,
-            Err(error) => {
-                confirmation.runtime_lease.abort_enrollment();
-                return Err(error);
-            }
-        };
+        )?;
         let expires = intent.expires_at();
         let renderer_binding = renderer_binding_digest(
             &confirmation.window,
@@ -111,12 +114,16 @@ impl PreparedCredentialEnrollmentExchange {
             cleanup_armed: true,
         })
     }
+
+    pub(super) fn cleanup_handle(&self) -> NativeCredentialEnrollmentCleanup {
+        self.runtime_lease.cleanup_handle()
+    }
 }
 
 impl Drop for PreparedCredentialEnrollmentExchange {
     fn drop(&mut self) {
         if self.cleanup_armed {
-            self.runtime_lease.abort_enrollment();
+            self.runtime_lease.abort_enrollment_detached();
         }
     }
 }
@@ -145,7 +152,7 @@ impl fmt::Debug for PreparedCredentialEnrollmentExchange {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct PreparedCredentialEnrollmentError;
 
 impl From<CredentialIntentError> for PreparedCredentialEnrollmentError {

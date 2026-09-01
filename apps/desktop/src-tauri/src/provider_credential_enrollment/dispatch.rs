@@ -47,7 +47,7 @@ pub async fn dispatch_credential_intent(
     })
 }
 
-enum DispatchFailure {
+pub(super) enum DispatchFailure {
     Cancelled,
     Closed(DispatchError),
 }
@@ -55,6 +55,34 @@ enum DispatchFailure {
 #[cfg(target_os = "macos")]
 #[allow(clippy::significant_drop_tightening)]
 async fn dispatch_inner(
+    app: &AppHandle,
+    window: WebviewWindow,
+    lifecycle: &RuntimeLifecycleManager,
+    updater: &UpdateStatusStore,
+    intents: &CredentialIntentRegistry,
+    request: CredentialIntentIpc,
+) -> Result<CredentialIntentProjection, DispatchFailure> {
+    let work = run_after_pair_gate(request, || {
+        dispatch_pair_inner(app, window, lifecycle, updater, intents, request)
+    })?;
+    Box::pin(work).await
+}
+
+pub(super) fn run_after_pair_gate<T>(
+    request: CredentialIntentIpc,
+    work: impl FnOnce() -> T,
+) -> Result<T, DispatchFailure> {
+    request
+        .supported_d1_1a()
+        .then(work)
+        .ok_or(DispatchFailure::Closed(
+            "provider_credential_action_unsupported",
+        ))
+}
+
+#[cfg(target_os = "macos")]
+#[allow(clippy::significant_drop_tightening)]
+async fn dispatch_pair_inner(
     _app: &AppHandle,
     window: WebviewWindow,
     lifecycle: &RuntimeLifecycleManager,
@@ -63,12 +91,6 @@ async fn dispatch_inner(
     request: CredentialIntentIpc,
 ) -> Result<CredentialIntentProjection, DispatchFailure> {
     use runne_platform_desktop::SecureCredentialPromptPort as _;
-
-    if !request.supported_d1_1a() {
-        return Err(DispatchFailure::Closed(
-            "provider_credential_action_unsupported",
-        ));
-    }
 
     // Prompt-time leases: runtime operation fence and retained updater fence.
     let mut updater_lease = updater
@@ -125,7 +147,7 @@ async fn dispatch_inner(
         .await
         .map_err(|_| DispatchFailure::Closed("provider_credential_handoff_failed"))?;
     let Ok(intent_session) = runtime_lease.rotated_intent_session_binding() else {
-        runtime_lease.abort_enrollment();
+        runtime_lease.abort_enrollment().await;
         return Err(DispatchFailure::Closed(
             "provider_credential_handoff_failed",
         ));
@@ -144,14 +166,17 @@ async fn dispatch_inner(
     };
     let exchange =
         PreparedCredentialEnrollmentExchange::after_prompt(intents, disposition, confirmation)
+            .await
             .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))?;
+    let cleanup = exchange.cleanup_handle();
     let intents = intents.clone();
-    tauri::async_runtime::spawn_blocking(move || exchange.run(&intents))
-        .await
-        .map_err(|_: tauri::Error| {
-            DispatchFailure::Closed("provider_credential_exchange_rejected")
-        })?
-        .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))?;
+    let result = tauri::async_runtime::spawn_blocking(move || exchange.run(&intents)).await;
+    if !matches!(result, Ok(Ok(()))) {
+        cleanup.abort().await;
+        return Err(DispatchFailure::Closed(
+            "provider_credential_exchange_rejected",
+        ));
+    }
     Ok(CredentialIntentProjection::Completed)
 }
 

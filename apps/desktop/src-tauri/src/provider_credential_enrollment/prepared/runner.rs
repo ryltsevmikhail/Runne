@@ -1,6 +1,21 @@
+use super::reap_guard::RetainedWriterCleanup;
 use super::*;
 use runne_api::{BeginProviderCredentialEnrollment, ProviderCredentialEnrollmentActionV2};
 use runne_platform_desktop::NativeProtectedCredentialEnrollmentBegin;
+use std::sync::Arc;
+
+pub(super) fn begin_then_handoff<B, H, E: Default>(
+    begin_operation: impl FnOnce() -> Result<B, E>,
+    prepared: impl FnOnce(&B) -> bool,
+    handoff: impl FnOnce(&B) -> Result<H, E>,
+) -> Result<(B, H), E> {
+    let snapshot = begin_operation()?;
+    if !prepared(&snapshot) {
+        return Err(E::default());
+    }
+    let retained = handoff(&snapshot)?;
+    Ok((snapshot, retained))
+}
 
 impl PreparedCredentialEnrollmentExchange {
     /// Synchronously retains the protected transcript, writer ownership, and
@@ -10,9 +25,6 @@ impl PreparedCredentialEnrollmentExchange {
         registry: &CredentialIntentRegistry,
     ) -> Result<(), PreparedCredentialEnrollmentError> {
         let result = self.run_retained(registry);
-        if result.is_err() {
-            self.runtime_lease.abort_enrollment();
-        }
         self.cleanup_armed = false;
         result
     }
@@ -55,19 +67,30 @@ impl PreparedCredentialEnrollmentExchange {
             NativeProtectedCredentialEnrollmentBegin::new(command, self.native_confirmation)
                 .map_err(|_| PreparedCredentialEnrollmentError)?;
         let supervisor = self.runtime_lease.supervisor_handle();
-        let mut enrollment = supervisor
-            .lock()
-            .map_err(|_| PreparedCredentialEnrollmentError)?
-            .begin_protected_credential_enrollment(begin)
-            .map_err(|_| PreparedCredentialEnrollmentError)?;
-        if enrollment.snapshot().broker_rendezvous_id().is_none() {
-            return Err(PreparedCredentialEnrollmentError);
-        }
-        let mut handoff = supervisor
-            .lock()
-            .map_err(|_| PreparedCredentialEnrollmentError)?
-            .run_credential_writer_handoff(&self.installed, self.request.writer_handoff_mode())
-            .map_err(|_| PreparedCredentialEnrollmentError)?;
+        let cleanup_supervisor = Arc::clone(&supervisor);
+        let (mut enrollment, retained_handoff) = begin_then_handoff(
+            || {
+                supervisor
+                    .lock()
+                    .map_err(|_| PreparedCredentialEnrollmentError)?
+                    .begin_protected_credential_enrollment(begin)
+                    .map_err(|_| PreparedCredentialEnrollmentError)
+            },
+            |enrollment| enrollment.snapshot().broker_rendezvous_id().is_some(),
+            |_| {
+                supervisor
+                    .lock()
+                    .map_err(|_| PreparedCredentialEnrollmentError)?
+                    .run_credential_writer_handoff(
+                        &self.installed,
+                        self.request.writer_handoff_mode(),
+                    )
+                    .map_err(|_| PreparedCredentialEnrollmentError)
+            },
+        )?;
+        let mut handoff = RetainedWriterCleanup::new(retained_handoff, move || {
+            let _ = cleanup_supervisor.lock().map(|mut value| value.stop());
+        });
         let exchange = (|| {
             supervisor
                 .lock()
@@ -84,6 +107,8 @@ impl PreparedCredentialEnrollmentExchange {
                 .into_pipe_bytes()
                 .into_zeroizing();
             handoff
+                .handoff_mut()
+                .ok_or(PreparedCredentialEnrollmentError)?
                 .take_pair_secret_relay()
                 .ok_or(PreparedCredentialEnrollmentError)?
                 .seal_and_write(&relay, secret)
@@ -97,14 +122,12 @@ impl PreparedCredentialEnrollmentExchange {
                 .then_some(())
                 .ok_or(PreparedCredentialEnrollmentError)
         })();
-        if exchange.is_err()
-            && let Ok(mut supervisor) = supervisor.lock()
-        {
-            let _ = supervisor.stop();
+        let reaped = if exchange.is_err() {
+            handoff.abort()
+        } else {
+            handoff.finish()
         }
-        let reaped = handoff
-            .reap_exact_writer()
-            .map_err(|_| PreparedCredentialEnrollmentError);
+        .map_err(|_| PreparedCredentialEnrollmentError);
         exchange.and(reaped)
     }
 }

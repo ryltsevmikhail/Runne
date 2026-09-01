@@ -7,8 +7,8 @@ use std::{
 
 use runne_provider::{
     BrokerChannelBinding, ClaimedWriterAuthorization, CredentialBindingDigest,
-    CredentialBrokerCommand, CredentialOperationAction, PendingCredentialSecretOpening,
-    SealedCredentialEnvelope,
+    CredentialBrokerCommand, CredentialBrokerFrame, CredentialOperationAction,
+    PendingCredentialSecretOpening, SealedCredentialEnvelope,
 };
 use runne_secure_store::BrokeredProviderCredentialWriter;
 
@@ -48,7 +48,7 @@ impl ClaimedWriterControl {
         reader: &mut impl Read,
     ) -> Result<AuthorizedPairWriterControl, CliError> {
         let super::claim::ClaimedPairParts {
-            control,
+            mut control,
             writer,
             authorization,
             command,
@@ -61,6 +61,19 @@ impl ClaimedWriterControl {
             return Err(CliError::CredentialOperation);
         }
         let envelope = read_sealed_pair_envelope(reader)?;
+        let release = control.read_frame()?;
+        if !matches!(
+            release,
+            CredentialBrokerFrame::NativeEffectRelease {
+                operation_id,
+                attempt,
+                binding: released_binding,
+            } if operation_id == command.operation_id()
+                && attempt == command.ticket_attempt()
+                && released_binding == binding
+        ) {
+            return Err(CliError::CredentialOperation);
+        }
         Ok(AuthorizedPairWriterControl {
             control,
             writer,

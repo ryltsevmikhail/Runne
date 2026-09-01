@@ -13,11 +13,14 @@ const CHILD_ENV: &str = "RUNNE_TEST_BROKER_CANARY_CHILD";
 
 #[test]
 fn provider_credential_broker_real_pair_path_redacts_live_canaries() {
-    if std::env::var_os(CHILD_ENV).is_some() {
-        run_live_canary_child();
+    if let Some(mode) = std::env::var_os(CHILD_ENV) {
+        run_live_canary_child(mode == "released");
         return;
     }
-    let child = run_canary_child_process();
+    let blocked = run_canary_child_process("withheld");
+    assert!(!blocked.status.success());
+    assert!(!String::from_utf8_lossy(&blocked.stderr).contains("controlled writer panic"));
+    let child = run_canary_child_process("released");
     assert!(!child.status.success());
     let child_stdout = String::from_utf8(child.stdout).expect("child stdout");
     let child_stderr = String::from_utf8(child.stderr).expect("child stderr");
@@ -45,18 +48,18 @@ fn provider_credential_broker_real_pair_path_redacts_live_canaries() {
     }
 }
 
-fn run_canary_child_process() -> std::process::Output {
+fn run_canary_child_process(mode: &str) -> std::process::Output {
     std::process::Command::new(std::env::current_exe().expect("test executable"))
         .arg("--exact")
         .arg("leakage_tests::provider_credential_broker_real_pair_path_redacts_live_canaries")
         .arg("--nocapture")
-        .env(CHILD_ENV, "1")
+        .env(CHILD_ENV, mode)
         .output()
         .expect("isolated canary child")
 }
 
-fn run_live_canary_child() {
-    let fixture = panicking_pair_claimed_with_ticket(*TICKET_CANARY);
+fn run_live_canary_child(released: bool) {
+    let fixture = panicking_pair_claimed_with_ticket(*TICKET_CANARY, released);
     let secret_reached = Arc::new(AtomicBool::new(false));
     let mut secret = TrackingReader {
         input: Cursor::new(encoded_pair_envelope(&live_canary_payload())),

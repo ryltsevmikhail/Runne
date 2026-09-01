@@ -20,7 +20,7 @@ pub(super) struct MacOsPairSecretWriter(File);
 /// The renderer and Tauri orchestration never receive rendezvous key material,
 /// a raw ticket, a verifier, or a reusable pipe writer.
 pub struct MacOsAuthenticatedPairSecretRelay {
-    sealer: runne_provider::platform_desktop_internal::AuthenticatedCredentialSecretRelaySealer,
+    sealer: super::macos_secret_sealer::AuthenticatedPairSecretSealer,
     writer: MacOsPairSecretWriter,
 }
 
@@ -47,21 +47,16 @@ impl PreparedMacOsPairSecretPipe {
 
 impl MacOsPairSecretWriter {
     /// Writes and closes exactly one typed sealed envelope.
-    fn write_sealed(
-        mut self,
-        envelope: &runne_provider::SealedCredentialEnvelope,
-    ) -> Result<(), BrokerHandoffError> {
-        let bytes = runne_provider::CredentialSecretEnvelopeCodec::encode(envelope)
-            .map_err(|_| BrokerHandoffError::Rejected)?;
+    fn write_encoded(mut self, envelope: &[u8]) -> Result<(), BrokerHandoffError> {
         self.0
-            .write_all(&bytes)
+            .write_all(envelope)
             .map_err(|_| BrokerHandoffError::Unavailable)
     }
 }
 
 impl MacOsAuthenticatedPairSecretRelay {
     pub(super) const fn from_authenticated_parts(
-        sealer: runne_provider::platform_desktop_internal::AuthenticatedCredentialSecretRelaySealer,
+        sealer: super::macos_secret_sealer::AuthenticatedPairSecretSealer,
         writer: MacOsPairSecretWriter,
     ) -> Self {
         Self { sealer, writer }
@@ -78,11 +73,8 @@ impl MacOsAuthenticatedPairSecretRelay {
         frame: &[u8],
         credential: zeroize::Zeroizing<Vec<u8>>,
     ) -> Result<(), BrokerHandoffError> {
-        let envelope = self
-            .sealer
-            .seal(frame, credential)
-            .map_err(|_| BrokerHandoffError::Rejected)?;
-        self.writer.write_sealed(&envelope)
+        let envelope = self.sealer.seal(frame, credential)?;
+        self.writer.write_encoded(&envelope)
     }
 }
 

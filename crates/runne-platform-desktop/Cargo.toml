@@ -15,7 +15,7 @@ test-support = ["runne-api/test-support", "runne-runtime-client/test-support"]
 ed25519-dalek.workspace = true
 runne-api = { path = "../runne-api" }
 runne-platform-ports = { path = "../runne-platform-ports" }
-runne-provider = { path = "../runne-provider", features = ["platform-desktop-internal"] }
+runne-provider = { path = "../runne-provider" }
 runne-runtime-client = { path = "../runne-runtime-client" }
 hex.workspace = true
 rand = "0.8"
@@ -26,6 +26,7 @@ sha2.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 zeroize = "=1.9.0"
+ring.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

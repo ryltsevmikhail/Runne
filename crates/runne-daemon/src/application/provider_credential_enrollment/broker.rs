@@ -12,6 +12,7 @@ use zeroize::Zeroizing;
 
 use super::effect_authority::map_store;
 
+mod effect_release;
 pub(crate) mod issue;
 pub(super) mod pending;
 #[cfg(all(unix, feature = "desktop-protected"))]
@@ -64,6 +65,7 @@ pub(super) trait CredentialBrokerChannel {
 #[must_use = "the writer effect diagnostic must be consumed or reconciled after a claim"]
 pub(super) struct ClaimedBrokerEffect {
     operation_id: CredentialOperationId,
+    attempt: runne_provider::CredentialTicketAttempt,
     binding: CredentialBindingDigest,
     publication: Option<CredentialSecretPublication>,
     offer: Option<[u8; runne_provider::CredentialSecretOfferCodec::BYTES]>,
@@ -83,13 +85,7 @@ impl AcceptedBrokerClaim {
 }
 
 impl ClaimedBrokerEffect {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "publication handoff follows in the next sealed-relay slice"
-        )
-    )]
+    #[cfg(test)]
     pub(super) fn take_secret_publication(
         &mut self,
     ) -> Result<Option<CredentialSecretPublication>, ProviderCredentialEnrollmentHostError> {
@@ -215,6 +211,7 @@ impl ProviderCredentialBroker {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
         let operation_id = receipt.operation().operation_id();
+        let attempt = receipt.ticket_attempt();
         let claim = channel.receive()?;
         let accepted = self.claim_ticket(
             receipt,
@@ -240,6 +237,7 @@ impl ProviderCredentialBroker {
             .transpose()?;
         Ok(ClaimedBrokerEffect {
             operation_id,
+            attempt,
             binding,
             publication,
             offer,

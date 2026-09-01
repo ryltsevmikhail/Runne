@@ -25,6 +25,7 @@ pub struct PanickingPairClaimFixture {
 
 pub fn panicking_pair_claimed_with_ticket(
     ticket_bytes: [u8; 32],
+    released: bool,
 ) -> PanickingPairClaimFixture {
     let command = command(CredentialOperationAction::Pair);
     let binding = CredentialBindingDigest::from_measured([13; 32]).expect("binding");
@@ -57,6 +58,17 @@ pub fn panicking_pair_claimed_with_ticket(
         },
     )
     .expect("ack");
+    if released {
+        CredentialBrokerFrameCodec::write_to(
+            &mut input,
+            CredentialBrokerFrame::NativeEffectRelease {
+                operation_id: command.operation_id(),
+                attempt: command.ticket_attempt(),
+                binding,
+            },
+        )
+        .expect("release");
+    }
     let (_, measurements) = CredentialEnrollmentAuthorityPair::new().split();
     let channel = measurements.broker_channel_binding([11; 32]).expect("channel");
     let written = Arc::new(Mutex::new(Vec::new()));

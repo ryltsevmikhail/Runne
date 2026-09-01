@@ -6,7 +6,6 @@ rust-version.workspace = true
 
 [features]
 test-support = []
-platform-desktop-internal = []
 
 [dependencies]
 runne-domain = { path = "../runne-domain" }

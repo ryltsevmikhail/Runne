@@ -11,10 +11,12 @@ use crate::credential::enrollment::{
 pub struct CredentialBrokerFrameCodec;
 
 mod stream;
+mod validation;
+use validation::valid_frame;
 
 impl CredentialBrokerFrameCodec {
     /// The only supported broker codec version.
-    pub const VERSION: u8 = 4;
+    pub const VERSION: u8 = 5;
     /// Upper bound including version, kind, and all payload fields.
     pub const MAX_FRAME_BYTES: usize = 4 * 1024;
 
@@ -96,6 +98,16 @@ impl CredentialBrokerFrameCodec {
                 id(&mut bytes, operation_id);
                 digest(&mut bytes, binding);
             }
+            CredentialBrokerFrame::NativeEffectRelease {
+                operation_id,
+                attempt,
+                binding,
+            } => {
+                bytes.push(6);
+                id(&mut bytes, operation_id);
+                encode_attempt(&mut bytes, attempt);
+                digest(&mut bytes, binding);
+            }
         }
         if bytes.len() > Self::MAX_FRAME_BYTES {
             return Err(CredentialEnrollmentError::InvalidFrame);
@@ -141,6 +153,11 @@ impl CredentialBrokerFrameCodec {
             },
             5 => CredentialBrokerFrame::NativeEffectObserved {
                 operation_id: read_id(bytes, &mut cursor)?,
+                binding: read_digest(bytes, &mut cursor)?,
+            },
+            6 => CredentialBrokerFrame::NativeEffectRelease {
+                operation_id: read_id(bytes, &mut cursor)?,
+                attempt: read_attempt(bytes, &mut cursor)?,
                 binding: read_digest(bytes, &mut cursor)?,
             },
             _ => return Err(CredentialEnrollmentError::InvalidFrame),
@@ -273,26 +290,4 @@ fn read_command(
         return Err(CredentialEnrollmentError::InvalidFrame);
     }
     CredentialBrokerCommandCodec::decode(take(bytes, cursor, length)?)
-}
-fn valid_frame(frame: &CredentialBrokerFrame) -> bool {
-    match frame {
-        CredentialBrokerFrame::IssueTicket {
-            operation_id,
-            attempt,
-            command,
-            ..
-        } => command.operation_id() == *operation_id && command.ticket_attempt() == *attempt,
-        CredentialBrokerFrame::Claim {
-            operation_id,
-            attempt,
-            binding,
-            secret_offer: Some(offer),
-            ..
-        } => {
-            offer.operation_id == *operation_id
-                && offer.attempt == *attempt
-                && offer.claim_binding == *binding
-        }
-        _ => true,
-    }
 }

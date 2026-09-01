@@ -1,16 +1,21 @@
-use zeroize::Zeroizing;
-
-use crate::credential::enrollment::{CredentialBindingDigest, CredentialEnrollmentError};
-
-use super::{
-    CredentialSecretOfferCodec, CredentialSecretPublicationCodec, SealedCredentialEnvelope,
-    publication::CredentialSecretPublicationVerifier,
+use super::{CredentialSecretOfferCodec, CredentialSecretPublicationCodec};
+#[cfg(test)]
+use {
+    super::{SealedCredentialEnvelope, publication::CredentialSecretPublicationVerifier},
+    crate::credential::enrollment::{CredentialBindingDigest, CredentialEnrollmentError},
+    zeroize::Zeroizing,
 };
 
 const MAGIC: &[u8; 8] = b"GCSREL01";
 const HEADER_BYTES: usize = MAGIC.len() + 1;
 
 /// Exact non-secret daemon-to-host relay frame.
+///
+/// Raw rendezvous facts never construct a provider seal authority.
+/// ```compile_fail
+/// let _ = runne_provider::platform_desktop_internal::AuthenticatedCredentialSecretRelaySealer
+///     ::from_authenticated_rendezvous([1; 32], [2; 32]);
+/// ```
 pub struct CredentialSecretRelayFrameCodec;
 
 impl CredentialSecretRelayFrameCodec {
@@ -38,11 +43,13 @@ impl CredentialSecretRelayFrameCodec {
 ///
 /// Construction exposes no low-level publication verifier and sealing consumes
 /// the value, so one protected relay cannot authorize a second fd3 write.
+#[cfg(test)]
 pub struct AuthenticatedCredentialSecretRelaySealer {
     daemon_public_key: [u8; 32],
     channel: CredentialBindingDigest,
 }
 
+#[cfg(test)]
 impl AuthenticatedCredentialSecretRelaySealer {
     /// Binds the internal facade to facts authenticated by the native rendezvous owner.
     #[doc(hidden)]
@@ -83,6 +90,7 @@ impl AuthenticatedCredentialSecretRelaySealer {
     }
 }
 
+#[cfg(test)]
 impl core::fmt::Debug for AuthenticatedCredentialSecretRelaySealer {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter.write_str("AuthenticatedCredentialSecretRelaySealer(<one-shot>)")

@@ -4,12 +4,13 @@ use std::{
 };
 
 use runne_provider::{
-    CredentialOperationAction, CredentialSecretInputPresence, CredentialWriterAuthorityPair,
+    CredentialBrokerFrame, CredentialBrokerFrameCodec, CredentialOperationAction,
+    CredentialSecretInputPresence, CredentialWriterAuthorityPair,
 };
 use runne_secure_store::BrokeredProviderCredentialWriter;
 
 use super::{
-    EffectCall, FakeWriter, claim_writer_authorization_with_parts, command, endpoint,
+    ClaimFixture, EffectCall, FakeWriter, claim_writer_authorization_with_parts, command, endpoint,
 };
 use super::super::pair::AuthorizedPairWriterControl;
 
@@ -27,12 +28,60 @@ pub fn pair_authorized_with_diagnostic_failure() -> PairFixture {
     pair_authorized_with_control(true, true)
 }
 
+pub fn pair_claimed_with_release(release: Option<CredentialBrokerFrame>) -> ClaimFixture {
+    let command = command(CredentialOperationAction::Pair);
+    let (mut control, channel, ticket, written) = endpoint(&command, false);
+    if let Some(release) = release {
+        CredentialBrokerFrameCodec::write_to(control.input.get_mut(), release).expect("release");
+    }
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let writer: Arc<dyn BrokeredProviderCredentialWriter> = Arc::new(FakeWriter {
+        calls: calls.clone(),
+        create_succeeds: false,
+    });
+    let (issuer, _) = CredentialWriterAuthorityPair::new().split();
+    let claimed = claim_writer_authorization_with_parts(
+        control,
+        channel,
+        ticket,
+        &issuer,
+        writer,
+        CredentialSecretInputPresence::Present,
+    )
+    .expect("pair claim");
+    ClaimFixture {
+        claimed,
+        calls,
+        written,
+    }
+}
+
+pub fn pair_claimed() -> ClaimFixture {
+    let command = command(CredentialOperationAction::Pair);
+    pair_claimed_with_release(Some(CredentialBrokerFrame::NativeEffectRelease {
+        operation_id: command.operation_id(),
+        attempt: command.ticket_attempt(),
+        binding: runne_provider::CredentialBindingDigest::from_measured([13; 32])
+            .expect("binding"),
+    }))
+}
+
 fn pair_authorized_with_control(
     create_succeeds: bool,
     fail_after_claim: bool,
 ) -> PairFixture {
     let command = command(CredentialOperationAction::Pair);
-    let (control, channel, ticket, written) = endpoint(&command, fail_after_claim);
+    let (mut control, channel, ticket, written) = endpoint(&command, fail_after_claim);
+    CredentialBrokerFrameCodec::write_to(
+        control.input.get_mut(),
+        CredentialBrokerFrame::NativeEffectRelease {
+            operation_id: command.operation_id(),
+            attempt: command.ticket_attempt(),
+            binding: runne_provider::CredentialBindingDigest::from_measured([13; 32])
+                .expect("binding"),
+        },
+    )
+    .expect("release");
     let calls = Arc::new(Mutex::new(Vec::new()));
     let writer: Arc<dyn BrokeredProviderCredentialWriter> = Arc::new(FakeWriter {
         calls: calls.clone(),

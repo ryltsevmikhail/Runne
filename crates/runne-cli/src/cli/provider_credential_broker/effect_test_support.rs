@@ -22,7 +22,10 @@ use super::claim::{ClaimedWriterControl, claim_writer_authorization_with_parts};
 
 #[path = "effect_test_support/pair.rs"]
 mod pair;
-pub use pair::{pair_authorized, pair_authorized_with_diagnostic_failure};
+pub use pair::{
+    pair_authorized, pair_authorized_with_diagnostic_failure, pair_claimed,
+    pair_claimed_with_release,
+};
 #[path = "effect_test_support/canary.rs"]
 mod canary;
 pub use canary::panicking_pair_claimed_with_ticket;
@@ -84,10 +87,6 @@ fn claimed_from_parts(
         calls,
         written,
     }
-}
-
-pub fn pair_claimed() -> ClaimFixture {
-    claimed(CredentialOperationAction::Pair)
 }
 
 pub fn assert_frames(written: &Arc<Mutex<Vec<u8>>>, native_observed: bool) {

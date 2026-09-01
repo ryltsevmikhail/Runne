@@ -91,7 +91,7 @@ fn credential_enrollment_codec_rejects_a_truncated_control_stream_frame() {
 
 #[test]
 fn credential_enrollment_codec_rejects_unknown_version_kind_and_oversized_frames() {
-    assert_eq!(CredentialBrokerFrameCodec::VERSION, 4);
+    assert_eq!(CredentialBrokerFrameCodec::VERSION, 5);
     for frame in [
         vec![1, 1],
         vec![2, 1],
@@ -178,6 +178,11 @@ fn credential_enrollment_codec_carries_claim_results_without_serializing_claims(
             operation_id,
             attempt,
             disposition: CredentialDisposition::AccessDenied,
+        },
+        CredentialBrokerFrame::NativeEffectRelease {
+            operation_id,
+            attempt,
+            binding,
         },
         CredentialBrokerFrame::NativeEffectObserved {
             operation_id,

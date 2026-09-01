@@ -63,6 +63,7 @@ fn exact_frame_length(prefix: [u8; 2]) -> Result<usize, CredentialEnrollmentErro
         3 => Ok(2 + 16 + 8),
         4 => Ok(2 + 16 + 8 + 1),
         5 => Ok(2 + 16 + 32),
+        6 => Ok(2 + 16 + 8 + 32),
         _ => Err(CredentialEnrollmentError::InvalidFrame),
     }
 }

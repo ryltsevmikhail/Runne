@@ -107,3 +107,35 @@ fn only_completed_terminal_is_reported_as_success() {
         assert!(!super::runner::terminal_is_success(state));
     }
 }
+
+#[test]
+fn begin_must_produce_prepared_before_handoff_dependency_runs() {
+    let events = std::cell::RefCell::new(Vec::new());
+    let result = super::runner::begin_then_handoff(
+        || {
+            events.borrow_mut().push("begin");
+            Ok::<_, ()>("prepared")
+        },
+        |snapshot| *snapshot == "prepared",
+        |_| {
+            events.borrow_mut().push("handoff");
+            Ok::<_, ()>(())
+        },
+    );
+    assert_eq!(result, Ok(("prepared", ())));
+    assert_eq!(*events.borrow(), ["begin", "handoff"]);
+
+    events.borrow_mut().clear();
+    assert!(
+        super::runner::begin_then_handoff(
+            || Ok::<_, ()>("not-prepared"),
+            |snapshot| *snapshot == "prepared",
+            |_| {
+                events.borrow_mut().push("handoff");
+                Ok::<_, ()>(())
+            },
+        )
+        .is_err()
+    );
+    assert!(events.borrow().is_empty());
+}

@@ -16,6 +16,10 @@ pub(crate) struct PendingProtectedBrokerClaim {
     relay: Option<[u8; runne_provider::CredentialSecretRelayFrameCodec::BYTES]>,
 }
 
+pub(crate) struct ReleasedProtectedBrokerClaim {
+    claimed: broker::ClaimedBrokerEffect,
+}
+
 impl PendingProtectedBrokerClaim {
     pub(crate) const fn relay(&self) -> Option<&[u8]> {
         match &self.relay {
@@ -96,7 +100,9 @@ impl DaemonProtectedCredentialEnrollmentSession {
         &mut self,
         frame: &[u8],
         relay: &[u8],
-    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        pending: PendingProtectedBrokerClaim,
+        channel: &mut broker::MacOsCredentialBrokerChannel,
+    ) -> Result<ReleasedProtectedBrokerClaim, ProviderCredentialEnrollmentHostError> {
         self.lifecycle
             .decode_desktop_relay_ack(frame, self.desktop_sequence, relay)
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
@@ -104,19 +110,24 @@ impl DaemonProtectedCredentialEnrollmentSession {
             .desktop_sequence
             .checked_add(1)
             .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
-        Ok(())
+        let coordinator =
+            broker::ProviderCredentialBroker::new(Arc::new(self.control.measurements.clone()));
+        coordinator.release_claimed_effect_to_channel(&pending.claimed, channel)?;
+        Ok(ReleasedProtectedBrokerClaim {
+            claimed: pending.claimed,
+        })
     }
 
     pub(crate) fn finish_writer(
         &mut self,
-        pending: PendingProtectedBrokerClaim,
+        released: ReleasedProtectedBrokerClaim,
         channel: &mut broker::MacOsCredentialBrokerChannel,
         now_high_water: i64,
     ) -> Result<ProviderCredentialOperationSnapshotV2, ProviderCredentialEnrollmentHostError> {
         let coordinator =
             broker::ProviderCredentialBroker::new(Arc::new(self.control.measurements.clone()));
         coordinator.observe_effect_from_channel(
-            pending.claimed,
+            released.claimed,
             self.control.store.as_ref(),
             channel,
         )?;

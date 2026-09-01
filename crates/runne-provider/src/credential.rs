@@ -17,12 +17,6 @@ pub use authority::{
 };
 pub use enrollment::*;
 
-#[cfg(feature = "platform-desktop-internal")]
-#[doc(hidden)]
-pub mod platform_desktop_internal {
-    pub use super::enrollment::platform_desktop_internal::AuthenticatedCredentialSecretRelaySealer;
-}
-
 const CREDENTIAL_REF_DOMAIN: &[u8] = b"GOCODE_CREDENTIAL_VERSION_REF_V1\0";
 
 /// Durable non-secret lifecycle state for one native credential version.

@@ -79,15 +79,36 @@ fn provider_root_does_not_export_raw_authenticated_relay_sealer() {
         !ordinary_exports.contains("AuthenticatedCredentialSecretRelaySealer"),
         "raw key/channel relay construction must not be part of the provider root API"
     );
+    assert!(!provider_root.contains("pub mod platform_desktop_internal"));
+    let provider_manifest = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../runne-provider/Cargo.toml"
+    ));
+    assert!(!provider_manifest.contains("platform-desktop-internal"));
+    let platform_manifest = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"));
+    assert!(!platform_manifest.contains("features = [\"platform-desktop-internal\"]"));
 }
 
 #[test]
-fn raw_relay_hook_has_exactly_one_authenticated_platform_call_site() {
+fn private_relay_sealer_has_exactly_one_authenticated_handoff_call_site() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let needle = concat!(
+    let removed_raw_hook = concat!(
         "AuthenticatedCredentialSecretRelaySealer",
         "::from_authenticated_rendezvous("
     );
+    let mut raw_matches = Vec::new();
+    for relative in ["crates", "apps"] {
+        collect_production_source_matches(
+            &workspace.join(relative),
+            removed_raw_hook,
+            &mut raw_matches,
+        );
+    }
+    assert!(
+        raw_matches.is_empty(),
+        "raw provider seam survived: {raw_matches:?}"
+    );
+    let needle = "AuthenticatedPairSecretSealer::from_handoff(";
     let mut matches = Vec::new();
     for relative in ["crates", "apps"] {
         collect_production_source_matches(&workspace.join(relative), needle, &mut matches);
@@ -136,7 +157,11 @@ fn is_production_rust_source(path: &Path) -> bool {
     path.extension().is_some_and(|extension| extension == "rs")
         && path.file_stem().is_some_and(|stem| {
             let stem = stem.to_string_lossy();
-            stem != "tests" && !stem.starts_with("test_") && !stem.ends_with("_test")
+            stem != "tests"
+                && !stem.starts_with("test_")
+                && !stem.starts_with("tests_")
+                && !stem.ends_with("_test")
+                && !stem.ends_with("_tests")
         })
 }
 

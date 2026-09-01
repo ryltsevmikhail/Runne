@@ -18,10 +18,15 @@ use runne_secure_store::{
 use super::CliError;
 
 pub trait BrokerControl {
+    fn read_frame(&mut self) -> Result<CredentialBrokerFrame, CliError>;
     fn write_frame(&mut self, frame: CredentialBrokerFrame) -> Result<(), CliError>;
 }
 
 impl<T: Read + Write> BrokerControl for T {
+    fn read_frame(&mut self) -> Result<CredentialBrokerFrame, CliError> {
+        CredentialBrokerFrameCodec::read_from(self).map_err(|_| CliError::CredentialOperation)
+    }
+
     fn write_frame(&mut self, frame: CredentialBrokerFrame) -> Result<(), CliError> {
         CredentialBrokerFrameCodec::write_to(self, frame).map_err(|_| CliError::CredentialOperation)
     }

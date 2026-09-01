@@ -15,6 +15,8 @@ mod macos_kill_exchange;
 #[cfg(target_os = "macos")]
 mod macos_secret_pipe;
 #[cfg(target_os = "macos")]
+mod macos_secret_sealer;
+#[cfg(target_os = "macos")]
 mod macos_writer_admission;
 #[cfg(target_os = "macos")]
 mod macos_writer_transfer;
