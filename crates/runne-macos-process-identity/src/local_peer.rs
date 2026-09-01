@@ -22,6 +22,15 @@ pub enum MacOsLocalPeerProcessIdentityError {
 }
 
 impl MacOsLocalPeerProcessIdentity {
+    pub(super) fn copy_guest_code(
+        &self,
+    ) -> Result<
+        security_framework::os::macos::code_signing::SecCode,
+        crate::MacOsPackagedWriterObservationError,
+    > {
+        crate::packaged_writer_observation::security_code::guest_from_audit_token(&self.token)
+    }
+
     /// # Errors
     ///
     /// Returns a closed error when kernel peer evidence is incomplete or mismatched.

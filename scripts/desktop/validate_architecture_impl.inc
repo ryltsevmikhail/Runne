@@ -6,6 +6,7 @@ parts = Path(__file__).with_name("validate_architecture_impl_parts")
 for name in (
     "checks.inc",
     "native_process_identity.inc",
+    "macos_process_identity_crate_dependencies.inc",
     "credential_publication.inc",
     "entrypoint.inc",
 ):

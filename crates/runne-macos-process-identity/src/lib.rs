@@ -6,9 +6,14 @@
 mod continuous_clock;
 mod ffi;
 mod local_peer;
+mod packaged_writer_observation;
 mod peer_kill;
 mod peer_kill_wire;
 mod writer_endpoint_handoff;
+
+#[cfg(test)]
+#[path = "packaged_writer_observation_tests.rs"]
+mod packaged_writer_observation_tests;
 
 #[cfg(test)]
 #[path = "writer_endpoint_handoff_tests.rs"]
@@ -16,6 +21,9 @@ mod writer_endpoint_handoff_tests;
 
 pub use continuous_clock::{MacOsContinuousClock, MacOsContinuousClockError};
 pub use local_peer::{MacOsLocalPeerProcessIdentity, MacOsLocalPeerProcessIdentityError};
+pub use packaged_writer_observation::{
+    MacOsPackagedWriterObservationError, MacOsPendingPackagedWriterObservationV1,
+};
 pub use peer_kill::{MacOsPeerKillCapability, MacOsPeerKillError};
 pub use peer_kill_wire::MACOS_PEER_KILL_READY_WIRE_BYTES;
 pub use writer_endpoint_handoff::MacOsUntrustedWriterEndpointHandoffV1;

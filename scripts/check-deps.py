@@ -6,7 +6,6 @@ import re
 import subprocess
 import sys
 
-
 POLICIES = {
     "runne-api": {
         "base64", "ed25519-dalek", "hex", "hmac", "jsonschema", "runne-domain",
@@ -16,6 +15,9 @@ POLICIES = {
     "runne-plugin-protocol": set(),
     "runne-observability": {"runne-application"},
     "runne-platform": {"runne-application", "runne-platform-ports", "libc", "thiserror", "uuid"},
+    "runne-macos-process-identity": {
+        "core-foundation", "libc", "nix", "runne-api", "security-framework", "security-framework-sys", "sha2",
+    },
     "runne-native-enrollment-authority": {
         "runne-api", "runne-macos-process-identity", "runne-provider",
     },
@@ -35,6 +37,7 @@ POLICIES = {
         "runne-promotion-contracts",
     },
 }
+exec((pathlib.Path(__file__).with_name("check_deps_macos_process_identity.inc")).read_text(encoding="utf-8"))
 
 EXACT_VERSION_POLICIES = {
     "runne-project-owner-authority": POLICIES["runne-project-owner-authority"],
@@ -119,6 +122,7 @@ def main() -> int:
                 )
 
     errors.extend(project_owner_store_declaration_errors(metadata["packages"]))
+    errors.extend(macos_process_identity_dependency_errors(metadata["packages"]))
     errors.extend(project_owner_store_consumer_errors(metadata["packages"]))
     errors.extend(native_enrollment_authority_consumer_errors(metadata["packages"]))
     errors.extend(release_authority_boundary_errors(metadata["packages"]))

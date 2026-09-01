@@ -62,6 +62,7 @@ def main() -> int:
     violations += find_protected_admission_surface_violations(root)
     violations += find_credential_publication_signer_violations(root)
     violations += find_macos_process_identity_dependency_violations(metadata["packages"])
+    violations += find_macos_process_identity_crate_dependency_violations(metadata["packages"])
     violations += find_native_writer_bootstrap_dependency_violations(metadata["packages"])
     if violations:
         for violation in violations:

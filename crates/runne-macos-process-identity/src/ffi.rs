@@ -95,10 +95,29 @@ pub fn observe_executable_vnode(
     pid: NonZeroU32,
     expected_path: &Path,
 ) -> Result<ExecutableVnodeIdentity, MacOsProcessIdentityError> {
+    let expected = expected_path.as_os_str().as_bytes();
+    observe_matching_executable_vnode(pid, |path, _identity| path == expected)
+}
+
+#[allow(
+    clippy::redundant_pub_crate,
+    reason = "private package module and crate-root tests share this scanner"
+)]
+pub(crate) fn observe_executable_vnode_matching_file(
+    pid: NonZeroU32,
+    expected: &std::fs::File,
+) -> Result<ExecutableVnodeIdentity, MacOsProcessIdentityError> {
+    let metadata = expected.metadata().map_err(|_| MacOsProcessIdentityError)?;
+    observe_matching_executable_vnode(pid, |_path, identity| identity.matches_file(&metadata))
+}
+
+fn observe_matching_executable_vnode(
+    pid: NonZeroU32,
+    matches: impl Fn(&[u8], &ExecutableVnodeIdentity) -> bool,
+) -> Result<ExecutableVnodeIdentity, MacOsProcessIdentityError> {
     let pid = i32::try_from(pid.get()).map_err(|_| MacOsProcessIdentityError)?;
     let size = i32::try_from(std::mem::size_of::<ProcRegionWithPathInfo>())
         .map_err(|_| MacOsProcessIdentityError)?;
-    let expected = expected_path.as_os_str().as_bytes();
     let mut address = 0_u64;
     for _ in 0..MAX_REGIONS {
         let mut info = MaybeUninit::<ProcRegionWithPathInfo>::zeroed();
@@ -124,13 +143,16 @@ pub fn observe_executable_vnode(
             .filter(|next| *next > address)
             .ok_or(MacOsProcessIdentityError)?;
         let path = vnode_path_bytes(&info.vnode)?;
-        if info.region.protection & VM_PROT_EXECUTE != 0 && path == expected {
+        if info.region.protection & VM_PROT_EXECUTE != 0 {
             let stat = info.vnode.vip_vi.vi_stat;
-            return Ok(ExecutableVnodeIdentity {
+            let identity = ExecutableVnodeIdentity {
                 device: stat.vst_dev,
                 inode: stat.vst_ino,
                 links: stat.vst_nlink,
-            });
+            };
+            if matches(path, &identity) {
+                return Ok(identity);
+            }
         }
         address = next;
     }

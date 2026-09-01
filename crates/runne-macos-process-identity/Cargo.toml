@@ -9,9 +9,12 @@ rust-version.workspace = true
 test-support = []
 
 [target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "=0.10.1"
 libc = "0.2"
 nix = { version = "=0.31.3", default-features = false, features = ["fs", "poll", "socket"] }
 runne-api = { path = "../runne-api" }
+security-framework = { version = "=3.7.0", features = ["OSX_10_15"] }
+security-framework-sys = "=2.17.0"
 sha2.workspace = true
 
 [dev-dependencies]

@@ -98,6 +98,10 @@ pub struct MacOsUntrustedWriterEndpointHandoffV1 {
 }
 
 impl MacOsUntrustedWriterEndpointHandoffV1 {
+    pub(super) const fn observation_control(&self) -> &OwnedFd {
+        &self.control
+    }
+
     /// Receives one fixed untrusted handoff from this process's stdin.
     ///
     /// # Errors
