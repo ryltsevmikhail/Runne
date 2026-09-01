@@ -97,6 +97,53 @@
 //! require_serialize::<runne_provider::daemon_credential_publication::CredentialWriterSessionAttestationSigner>();
 //! ```
 //! ```compile_fail
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<runne_provider::CredentialWriterSessionTicketClaimsV1>();
+//! ```
+//! ```compile_fail
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<runne_provider::CredentialWriterSessionRuntimeClaimsV1>();
+//! ```
+//! ```compile_fail
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<runne_provider::CredentialWriterSessionProcessClaimsV1>();
+//! ```
+//! ```compile_fail
+//! fn require_serialize<T: serde::Serialize>() {}
+//! require_serialize::<runne_provider::CredentialWriterSessionTicketClaimsV1>();
+//! ```
+//! ```compile_fail
+//! fn require_serialize<T: serde::Serialize>() {}
+//! require_serialize::<runne_provider::CredentialWriterSessionRuntimeClaimsV1>();
+//! ```
+//! ```compile_fail
+//! fn require_serialize<T: serde::Serialize>() {}
+//! require_serialize::<runne_provider::CredentialWriterSessionProcessClaimsV1>();
+//! ```
+//! ```compile_fail
+//! fn require_clone<T: Clone>() {}
+//! fn post_attestation_signer_is_not_clone(
+//!     _: runne_provider::daemon_credential_publication::CredentialSecretPublicationSigner,
+//! ) {
+//!     require_clone::<runne_provider::daemon_credential_publication::CredentialSecretPublicationSigner>();
+//! }
+//! ```
+//! ```compile_fail
+//! fn require_serialize<T: serde::Serialize>() {}
+//! fn post_attestation_signer_is_not_serializable(
+//!     _: runne_provider::daemon_credential_publication::CredentialSecretPublicationSigner,
+//! ) {
+//!     require_serialize::<runne_provider::daemon_credential_publication::CredentialSecretPublicationSigner>();
+//! }
+//! ```
+//! ```compile_fail
+//! fn post_attestation_signer_cannot_escape_private_key(
+//!     signer: runne_provider::daemon_credential_publication::CredentialSecretPublicationSigner,
+//! ) {
+//!     let _ = signer.into_private_key();
+//! }
+//! ```
+//! ```compile_fail
 //! use runne_provider::SignedCredentialWriterSessionAttestationV1;
 //! let _ = SignedCredentialWriterSessionAttestationV1 {};
 //! ```

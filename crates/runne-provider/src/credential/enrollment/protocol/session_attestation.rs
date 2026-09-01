@@ -24,6 +24,7 @@ pub use issue_ticket::CredentialIssueTicketBindingV1;
 const BINDING_DOMAIN: &[u8] = b"GOCODE_VERIFIED_WRITER_SESSION_V1\0";
 
 /// Exact ticket and durable-operation facts signed for one writer session.
+#[derive(Eq, PartialEq)]
 pub struct CredentialWriterSessionTicketClaimsV1 {
     operation: CredentialOperationId,
     attempt: CredentialTicketAttempt,
@@ -68,6 +69,7 @@ impl CredentialWriterSessionTicketClaimsV1 {
 }
 
 /// Protected-runtime facts signed for one writer session.
+#[derive(Eq, PartialEq)]
 pub struct CredentialWriterSessionRuntimeClaimsV1 {
     protected_session: CredentialBindingDigest,
     tauri_peer: CredentialBindingDigest,
@@ -102,6 +104,7 @@ impl CredentialWriterSessionRuntimeClaimsV1 {
 }
 
 /// Exact handoff and live-process facts signed for one writer session.
+#[derive(Eq, PartialEq)]
 pub struct CredentialWriterSessionProcessClaimsV1 {
     handoff: CredentialBindingDigest,
     writer_start: CredentialBindingDigest,
