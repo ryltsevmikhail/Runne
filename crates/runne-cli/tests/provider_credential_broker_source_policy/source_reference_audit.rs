@@ -2,6 +2,8 @@ use std::path::{Component, Path};
 
 use syn::{Attribute, Expr, Lit, LitStr, Macro, Meta};
 
+const SOURCE_REFERENCE_MACROS: &[&str] = &["include", "include_str", "include_bytes"];
+
 pub fn path_attribute_violation(attribute: &Attribute) -> Option<String> {
     if attribute.path().is_ident("cfg_attr") {
         let Meta::List(list) = &attribute.meta else {
@@ -33,6 +35,64 @@ pub fn include_reference_violation(node: &Macro) -> Option<String> {
         return Some("include reference must contain one literal".to_owned());
     };
     reference_violation("include reference", &path.value(), &["rs", "inc"])
+}
+
+pub fn macro_token_source_reference_violation(tokens: proc_macro2::TokenStream) -> Option<String> {
+    let trees: Vec<_> = tokens.into_iter().collect();
+    for (index, token) in trees.iter().enumerate() {
+        match token {
+            proc_macro2::TokenTree::Ident(identifier)
+                if SOURCE_REFERENCE_MACROS.contains(&identifier.to_string().as_str()) =>
+            {
+                return Some(format!("nested {identifier} macro"));
+            }
+            proc_macro2::TokenTree::Punct(mark)
+                if mark.as_char() == '#'
+                    && trees.get(index + 1).is_some_and(is_path_attribute_group) =>
+            {
+                return Some("macro-emitted path attribute".to_owned());
+            }
+            proc_macro2::TokenTree::Group(group) => {
+                if let Some(violation) = macro_token_source_reference_violation(group.stream()) {
+                    return Some(violation);
+                }
+            }
+            proc_macro2::TokenTree::Ident(_)
+            | proc_macro2::TokenTree::Punct(_)
+            | proc_macro2::TokenTree::Literal(_) => {}
+        }
+    }
+    None
+}
+
+fn is_path_attribute_group(token: &proc_macro2::TokenTree) -> bool {
+    let proc_macro2::TokenTree::Group(group) = token else {
+        return false;
+    };
+    if group.delimiter() != proc_macro2::Delimiter::Bracket {
+        return false;
+    }
+    let tokens: Vec<_> = group.stream().into_iter().collect();
+    let Some(proc_macro2::TokenTree::Ident(attribute)) = tokens.first() else {
+        return false;
+    };
+    if attribute == "path" {
+        return tokens.get(1).is_some_and(
+            |next| matches!(next, proc_macro2::TokenTree::Punct(mark) if mark.as_char() == '='),
+        );
+    }
+    attribute == "cfg_attr"
+        && tokens.iter().any(|token| {
+            matches!(token, proc_macro2::TokenTree::Group(arguments) if contains_path_assignment(arguments.stream()))
+        })
+}
+
+fn contains_path_assignment(tokens: proc_macro2::TokenStream) -> bool {
+    let trees: Vec<_> = tokens.into_iter().collect();
+    trees.windows(2).any(|pair| {
+        matches!(&pair[0], proc_macro2::TokenTree::Ident(identifier) if identifier == "path")
+            && matches!(&pair[1], proc_macro2::TokenTree::Punct(mark) if mark.as_char() == '=')
+    })
 }
 
 fn reference_violation(kind: &str, value: &str, extensions: &[&str]) -> Option<String> {

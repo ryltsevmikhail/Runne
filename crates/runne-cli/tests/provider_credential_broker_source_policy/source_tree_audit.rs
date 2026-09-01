@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 use syn::visit::{self, Visit};
 use syn::{Attribute, Expr, ExprCall, ExprPath, File, Ident, Macro, UseTree};
 
-use super::source_reference_audit::{include_reference_violation, path_attribute_violation};
+use super::source_reference_audit::{
+    include_reference_violation, macro_token_source_reference_violation, path_attribute_violation,
+};
 
 const PROVIDER_CREDENTIAL: &str = "cli/provider_credential.rs";
 const BROKER: &str = "cli/provider_credential_broker.rs";
@@ -238,6 +240,9 @@ impl<'ast> Visit<'ast> for SourceVisitor<'_> {
 
     fn visit_macro(&mut self, node: &'ast Macro) {
         if let Some(violation) = include_reference_violation(node) {
+            self.reject(&violation);
+        }
+        if let Some(violation) = macro_token_source_reference_violation(node.tokens.clone()) {
             self.reject(&violation);
         }
         for identifier in macro_identifiers(node.tokens.clone()) {

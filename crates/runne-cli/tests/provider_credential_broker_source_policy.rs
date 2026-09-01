@@ -2,6 +2,8 @@
 mod branch_audit;
 #[path = "provider_credential_broker_source_policy/source_reference_audit.rs"]
 mod source_reference_audit;
+#[path = "provider_credential_broker_source_policy/source_substitution_mutations.rs"]
+mod source_substitution_mutations;
 #[path = "provider_credential_broker_source_policy/source_tree_audit.rs"]
 mod source_tree_audit;
 
