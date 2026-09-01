@@ -42,7 +42,10 @@ fn run_provider_credential_broker(mut arguments: VecDeque<OsString>) -> Result<S
     expect_end(&arguments)?;
     #[cfg(target_os = "macos")]
     {
-        let _handoff = runne_native_enrollment_authority::UntrustedProviderCredentialWriterEndpointHandoffV1::receive_from_stdin()
+        let handoff = runne_native_enrollment_authority::UntrustedProviderCredentialWriterEndpointHandoffV1::receive_from_stdin()
+            .map_err(|_| CliError::CredentialOperation)?;
+        let _pinned = handoff
+            .observe_current_pinned_writer_session()
             .map_err(|_| CliError::CredentialOperation)?;
         Err(CliError::UnsupportedCredentialBackend)
     }

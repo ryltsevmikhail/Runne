@@ -12,6 +12,7 @@ use std::os::unix::net::UnixStream;
 const BROKER_MODE: &str = "__provider-credential-broker-v1";
 #[cfg(target_os = "macos")]
 const RESPONSE_BYTES: usize = 160;
+#[cfg(not(target_os = "macos"))]
 const UNSUPPORTED: &str = "provider credential backend is unsupported\n";
 #[cfg(target_os = "macos")]
 const OPERATION_FAILED: &str = "provider credential operation failed\n";
@@ -84,9 +85,9 @@ fn broker_mode_rejects_multiple_descriptors() {
 
 #[test]
 #[cfg(target_os = "macos")]
-fn prepared_broker_endpoint_reaches_only_unsupported_backend() {
+fn prepared_broker_endpoint_fails_closed_during_pinned_observation() {
     let output = broker_output_one(&prepared_response());
-    assert_closed(&output, UNSUPPORTED);
+    assert_closed(&output, OPERATION_FAILED);
 }
 
 #[test]
@@ -98,7 +99,8 @@ fn broker_source_has_one_authority_receive_and_no_local_receiver() {
             .count(),
         1
     );
-    assert!(broker.contains("let _handoff ="));
+    assert!(broker.contains("let handoff ="));
+    assert!(broker.contains("let _pinned = handoff"));
     assert!(broker.contains("#[cfg(target_os = \"macos\")]"));
     assert!(broker.contains("#[cfg(not(target_os = \"macos\"))]"));
 
@@ -108,9 +110,12 @@ fn broker_source_has_one_authority_receive_and_no_local_receiver() {
     let receive = broker
         .find("UntrustedProviderCredentialWriterEndpointHandoffV1::receive_from_stdin()")
         .expect("authority receive");
+    let pinned = broker
+        .find(".observe_current_pinned_writer_session()")
+        .expect("pinned authority transition");
     assert!(
-        end < receive,
-        "stdin must not be read before argv validation"
+        end < receive && receive < pinned,
+        "argv, receive, and pinned observation order drifted"
     );
 
     let sources = broker_sources();

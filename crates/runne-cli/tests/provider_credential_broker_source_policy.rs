@@ -6,6 +6,8 @@ mod source_reference_audit;
 mod source_substitution_mutations;
 #[path = "provider_credential_broker_source_policy/source_tree_audit.rs"]
 mod source_tree_audit;
+#[path = "provider_credential_broker_source_policy/source_tree_helpers.rs"]
+mod source_tree_helpers;
 
 use branch_audit::broker_branch_violations;
 use source_tree_audit::source_tree_violations;
@@ -42,14 +44,22 @@ fn broker_branch_policy_rejects_platform_and_ingress_mutations() {
         ),
         (
             "discarded handoff",
-            replace_once(BROKER_SOURCE, "let _handoff =", "let _ ="),
+            replace_once(BROKER_SOURCE, "let handoff =", "let _ ="),
         ),
         (
             "wrong ingress error",
-            replace_once(
+            replace_first(
                 BROKER_SOURCE,
                 "CliError::CredentialOperation",
                 "CliError::UnsupportedCredentialBackend",
+            ),
+        ),
+        (
+            "wrong pinned observation error",
+            replace_once(
+                BROKER_SOURCE,
+                ".observe_current_pinned_writer_session()\n            .map_err(|_| CliError::CredentialOperation)?;",
+                ".observe_current_pinned_writer_session()\n            .map_err(|_| CliError::UnsupportedCredentialBackend)?;",
             ),
         ),
         (
@@ -68,8 +78,8 @@ fn broker_branch_policy_rejects_platform_and_ingress_mutations() {
             "cfg-hidden handoff",
             replace_once(
                 BROKER_SOURCE,
-                "let _handoff =",
-                "#[cfg(any())]\n        let _handoff =",
+                "let handoff =",
+                "#[cfg(any())]\n        let handoff =",
             ),
         ),
         (
@@ -250,6 +260,10 @@ fn recursive_source_policy_rejects_stdin_aliases_and_moved_authority_receive() {
         (
             "forbidden receive_from_stdin call path",
             "fn bypass() { let _ = Authority::receive_from_stdin(); }",
+        ),
+        (
+            "forbidden observe_current_pinned_writer_session call path",
+            "fn bypass(handoff: Handoff) { let _ = handoff.observe_current_pinned_writer_session(); }",
         ),
         (
             "forbidden stdin macro token",

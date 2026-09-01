@@ -134,9 +134,10 @@ fn is_target_macos(meta: &Meta) -> bool {
 }
 
 fn is_exact_macos_block(block: &Block) -> bool {
-    block.stmts.len() == 2
+    block.stmts.len() == 3
         && is_handoff_local(&block.stmts[0])
-        && is_error(&block.stmts[1], "UnsupportedCredentialBackend")
+        && is_pinned_local(&block.stmts[1])
+        && is_error(&block.stmts[2], "UnsupportedCredentialBackend")
 }
 
 fn is_handoff_local(statement: &Stmt) -> bool {
@@ -148,7 +149,7 @@ fn is_handoff_local(statement: &Stmt) -> bool {
     };
     if !local.attrs.is_empty()
         || !binding.attrs.is_empty()
-        || binding.ident != "_handoff"
+        || binding.ident != "handoff"
         || binding.by_ref.is_some()
         || binding.mutability.is_some()
         || binding.subpat.is_some()
@@ -199,6 +200,54 @@ fn is_handoff_local(statement: &Stmt) -> bool {
             error_mapper.body.as_ref(),
             &["CliError", "CredentialOperation"],
         )
+}
+
+fn is_pinned_local(statement: &Stmt) -> bool {
+    let Stmt::Local(local) = statement else {
+        return false;
+    };
+    let Pat::Ident(binding) = &local.pat else {
+        return false;
+    };
+    if !local.attrs.is_empty()
+        || !binding.attrs.is_empty()
+        || binding.ident != "_pinned"
+        || binding.by_ref.is_some()
+        || binding.mutability.is_some()
+        || binding.subpat.is_some()
+    {
+        return false;
+    }
+    let Some(initializer) = &local.init else {
+        return false;
+    };
+    if initializer.diverge.is_some() {
+        return false;
+    }
+    let Expr::Try(tried) = initializer.expr.as_ref() else {
+        return false;
+    };
+    let Expr::MethodCall(map_error_call) = tried.expr.as_ref() else {
+        return false;
+    };
+    let Expr::MethodCall(observe) = map_error_call.receiver.as_ref() else {
+        return false;
+    };
+    tried.attrs.is_empty()
+        && map_error_call.attrs.is_empty()
+        && map_error_call.method == "map_err"
+        && map_error_call.turbofish.is_none()
+        && map_error_call.args.len() == 1
+        && observe.attrs.is_empty()
+        && observe.method == "observe_current_pinned_writer_session"
+        && observe.turbofish.is_none()
+        && observe.args.is_empty()
+        && is_path(observe.receiver.as_ref(), &["handoff"])
+        && matches!(map_error_call.args.first(), Some(Expr::Closure(error_mapper))
+            if error_mapper.attrs.is_empty()
+                && error_mapper.inputs.len() == 1
+                && matches!(error_mapper.inputs.first(), Some(Pat::Wild(_)))
+                && is_path(error_mapper.body.as_ref(), &["CliError", "CredentialOperation"]))
 }
 
 fn is_exact_non_macos_block(block: &Block) -> bool {

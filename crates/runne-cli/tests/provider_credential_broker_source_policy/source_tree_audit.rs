@@ -1,11 +1,12 @@
 use std::path::{Path, PathBuf};
 
 use syn::visit::{self, Visit};
-use syn::{Attribute, Expr, ExprCall, ExprPath, File, Ident, Macro, UseTree};
+use syn::{Attribute, Expr, ExprCall, ExprMethodCall, ExprPath, File, Ident, Macro, UseTree};
 
 use super::source_reference_audit::{
     include_reference_violation, macro_token_source_reference_violation, path_attribute_violation,
 };
+use super::source_tree_helpers::{macro_identifiers, path_is, pinned_observe_is_reviewed};
 
 const PROVIDER_CREDENTIAL: &str = "cli/provider_credential.rs";
 const BROKER: &str = "cli/provider_credential_broker.rs";
@@ -42,6 +43,12 @@ pub fn source_tree_violations(root: &Path) -> Vec<String> {
         violations.push(format!(
             "expected exactly one authority receive_from_stdin path, found {}",
             counts.authority_receive
+        ));
+    }
+    if counts.pinned_observe != 1 {
+        violations.push(format!(
+            "expected exactly one pinned writer observation, found {}",
+            counts.pinned_observe
         ));
     }
     violations
@@ -132,6 +139,7 @@ fn audit_included_tokens(relative: &str, source: &str, violations: &mut Vec<Stri
         if RAW_RECEIVER_IDENTIFIERS.contains(&identifier.as_str())
             || identifier == "stdin"
             || identifier == "receive_from_stdin"
+            || identifier == "observe_current_pinned_writer_session"
             || identifier == "include"
             || identifier == "path"
         {
@@ -144,6 +152,7 @@ fn audit_included_tokens(relative: &str, source: &str, violations: &mut Vec<Stri
 struct SurfaceCounts {
     stdin: usize,
     authority_receive: usize,
+    pinned_observe: usize,
 }
 
 struct SourceVisitor<'a> {
@@ -171,6 +180,7 @@ impl<'ast> Visit<'ast> for SourceVisitor<'_> {
         if RAW_RECEIVER_IDENTIFIERS
             .iter()
             .any(|forbidden| identifier == forbidden)
+            || identifier == "observe_current_pinned_writer_session"
         {
             self.reject(&identifier.to_string());
         }
@@ -183,6 +193,9 @@ impl<'ast> Visit<'ast> for SourceVisitor<'_> {
         }
         if last.is_some_and(|identifier| identifier == "receive_from_stdin") {
             self.reject("receive_from_stdin identifier outside a reviewed call");
+        }
+        if last.is_some_and(|identifier| identifier == "observe_current_pinned_writer_session") {
+            self.reject("observe_current_pinned_writer_session identifier outside a reviewed call");
         }
         visit::visit_expr_path(self, expression);
     }
@@ -223,6 +236,20 @@ impl<'ast> Visit<'ast> for SourceVisitor<'_> {
         visit::visit_expr_call(self, call);
     }
 
+    fn visit_expr_method_call(&mut self, call: &'ast ExprMethodCall) {
+        if call.method != "observe_current_pinned_writer_session" {
+            visit::visit_expr_method_call(self, call);
+            return;
+        }
+        if pinned_observe_is_reviewed(self.relative, call, BROKER) {
+            self.counts.pinned_observe += 1;
+            self.visit_expr(&call.receiver);
+            return;
+        }
+        self.reject("observe_current_pinned_writer_session call path");
+        visit::visit_expr_method_call(self, call);
+    }
+
     fn visit_use_tree(&mut self, tree: &'ast UseTree) {
         let imported = match tree {
             UseTree::Name(name) => Some(&name.ident),
@@ -234,6 +261,10 @@ impl<'ast> Visit<'ast> for SourceVisitor<'_> {
         }
         if imported.is_some_and(|identifier| identifier == "receive_from_stdin") {
             self.reject("receive_from_stdin import or alias");
+        }
+        if imported.is_some_and(|identifier| identifier == "observe_current_pinned_writer_session")
+        {
+            self.reject("observe_current_pinned_writer_session import or alias");
         }
         visit::visit_use_tree(self, tree);
     }
@@ -252,6 +283,7 @@ impl<'ast> Visit<'ast> for SourceVisitor<'_> {
             if RAW_RECEIVER_IDENTIFIERS.contains(&identifier.as_str())
                 || identifier == "stdin"
                 || identifier == "receive_from_stdin"
+                || identifier == "observe_current_pinned_writer_session"
             {
                 self.reject(&format!("{identifier} macro token"));
             }
@@ -264,30 +296,4 @@ fn visit_call_arguments(visitor: &mut SourceVisitor<'_>, call: &ExprCall) {
     for argument in &call.args {
         visitor.visit_expr(argument);
     }
-}
-
-fn path_is(path: &syn::Path, expected: &[&str]) -> bool {
-    path.leading_colon.is_none()
-        && path.segments.len() == expected.len()
-        && path
-            .segments
-            .iter()
-            .zip(expected)
-            .all(|(segment, expected)| segment.ident == *expected && segment.arguments.is_empty())
-}
-
-fn macro_identifiers(tokens: proc_macro2::TokenStream) -> Vec<String> {
-    let mut identifiers = Vec::new();
-    for token in tokens {
-        match token {
-            proc_macro2::TokenTree::Ident(identifier) => {
-                identifiers.push(identifier.to_string());
-            }
-            proc_macro2::TokenTree::Group(group) => {
-                identifiers.extend(macro_identifiers(group.stream()));
-            }
-            proc_macro2::TokenTree::Punct(_) | proc_macro2::TokenTree::Literal(_) => {}
-        }
-    }
-    identifiers
 }
