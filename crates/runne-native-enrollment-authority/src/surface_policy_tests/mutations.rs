@@ -2,6 +2,108 @@
 
 use super::authority_surface_violations;
 
+const EXACT_HANDOFF: &str = r"
+pub struct UntrustedProviderCredentialWriterEndpointHandoffV1 {
+    inner: runne_macos_process_identity::MacOsUntrustedWriterEndpointHandoffV1,
+}
+impl UntrustedProviderCredentialWriterEndpointHandoffV1 {
+    pub fn receive_from_stdin() -> std::io::Result<Self> { todo!() }
+}
+";
+
+#[test]
+fn authority_surface_accepts_only_the_exact_handoff_shape() {
+    assert!(
+        authority_surface_violations(EXACT_HANDOFF).is_empty(),
+        "the exact wrapper shape must remain representable"
+    );
+}
+
+#[test]
+fn authority_surface_rejects_handoff_shape_mutations() {
+    let cases = [
+        (
+            "wrong field type",
+            EXACT_HANDOFF.replace("MacOsUntrustedWriterEndpointHandoffV1", "OwnedFd"),
+        ),
+        (
+            "second field",
+            EXACT_HANDOFF.replace("inner:", "other: (), inner:"),
+        ),
+        (
+            "public field",
+            EXACT_HANDOFF.replace("    inner:", "    pub inner:"),
+        ),
+        (
+            "cfg-hidden field",
+            EXACT_HANDOFF.replace("    inner:", "    #[cfg(any())]\n    inner:"),
+        ),
+        (
+            "cfg-hidden struct",
+            EXACT_HANDOFF.replacen("pub struct", "#[cfg(any())] pub struct", 1),
+        ),
+        (
+            "cfg-hidden impl",
+            EXACT_HANDOFF.replacen("impl ", "#[cfg(any())] impl ", 1),
+        ),
+        (
+            "receiver argument",
+            EXACT_HANDOFF.replace("receive_from_stdin()", "receive_from_stdin(fd: i32)"),
+        ),
+        (
+            "receiver self",
+            EXACT_HANDOFF.replace("receive_from_stdin()", "receive_from_stdin(self)"),
+        ),
+        (
+            "generic receiver",
+            EXACT_HANDOFF.replace("receive_from_stdin()", "receive_from_stdin<T>()"),
+        ),
+        (
+            "short result path",
+            EXACT_HANDOFF.replace("std::io::Result<Self>", "std::io::Result<()>"),
+        ),
+        (
+            "getter",
+            format!(
+                "{EXACT_HANDOFF} impl UntrustedProviderCredentialWriterEndpointHandoffV1 {{ pub fn as_raw_fd(&self) -> i32 {{ 0 }} }}"
+            ),
+        ),
+        (
+            "trait impl",
+            format!(
+                "{EXACT_HANDOFF} impl AsRef<()> for UntrustedProviderCredentialWriterEndpointHandoffV1 {{ fn as_ref(&self) -> &() {{ &() }} }}"
+            ),
+        ),
+        (
+            "conversion to authenticated session",
+            format!(
+                "{EXACT_HANDOFF} impl From<UntrustedProviderCredentialWriterEndpointHandoffV1> for AuthenticatedProviderCredentialWriterSession {{ fn from(_: UntrustedProviderCredentialWriterEndpointHandoffV1) -> Self {{ todo!() }} }}"
+            ),
+        ),
+        (
+            "alternate re-export",
+            "pub use elsewhere::UntrustedProviderCredentialWriterEndpointHandoffV1;".into(),
+        ),
+        (
+            "signature cfg substitution",
+            EXACT_HANDOFF.replace(
+                "    pub fn receive_from_stdin",
+                "    #[cfg(any())]\n    pub fn receive_from_stdin",
+            ),
+        ),
+    ];
+
+    let accepted: Vec<_> = cases
+        .into_iter()
+        .filter_map(|(case, source)| {
+            authority_surface_violations(&source)
+                .is_empty()
+                .then_some(case)
+        })
+        .collect();
+    assert!(accepted.is_empty(), "policy accepted {accepted:?}");
+}
+
 #[test]
 fn authority_surface_rejects_alternate_public_mint_shapes() {
     let cases = [
@@ -80,6 +182,10 @@ fn authority_surface_rejects_alternate_public_mint_shapes() {
         (
             "borrowed split",
             "impl AuthenticatedProviderCredentialWriterSession { pub fn split(&self) {} }",
+        ),
+        (
+            "cfg-hidden exact split",
+            "#[cfg(any())] impl AuthenticatedProviderCredentialWriterSession { pub fn split(self) -> (AuthenticatedWriterClaimContext, AuthenticatedWriterEffectAdmission) { todo!() } }",
         ),
     ];
 

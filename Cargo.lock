@@ -3853,6 +3853,7 @@ dependencies = [
  "hex",
  "libc",
  "runne-daemon",
+ "runne-native-enrollment-authority",
  "runne-project-owner-authority",
  "runne-provider",
  "runne-release-authority",
@@ -4146,6 +4147,7 @@ dependencies = [
 name = "runne-native-enrollment-authority"
 version = "0.0.3"
 dependencies = [
+ "runne-macos-process-identity",
  "runne-provider",
  "serde",
  "syn 2.0.119",

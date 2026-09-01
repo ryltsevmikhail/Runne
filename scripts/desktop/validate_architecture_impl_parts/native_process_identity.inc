@@ -3,6 +3,8 @@
 MACOS_PROCESS_IDENTITY_PACKAGE = "runne-macos-process-identity"
 MACOS_PROCESS_IDENTITY_TARGET = 'cfg(target_os = "macos")'
 NATIVE_ENROLLMENT_AUTHORITY_PACKAGE = "runne-native-enrollment-authority"
+CLI_PACKAGE = "runne-cli"
+RUSTIX_PACKAGE = "rustix"
 MACOS_PROCESS_IDENTITY_CONSUMERS = {
     "runne-platform-desktop",
     NATIVE_ENROLLMENT_AUTHORITY_PACKAGE,
@@ -12,7 +14,6 @@ ALLOWED_RUST_DEPENDENCIES["runne-platform-desktop"].add(
     MACOS_PROCESS_IDENTITY_PACKAGE
 )
 ALLOWED_RUST_DEPENDENCIES[NATIVE_ENROLLMENT_AUTHORITY_PACKAGE] = {
-    "runne-api",
     MACOS_PROCESS_IDENTITY_PACKAGE,
     "runne-provider",
 }
@@ -41,3 +42,97 @@ def find_macos_process_identity_dependency_violations(
                     f"only through {MACOS_PROCESS_IDENTITY_TARGET}"
                 )
     return violations
+
+
+def find_native_writer_bootstrap_dependency_violations(
+    packages: list[dict],
+) -> list[str]:
+    """Require the exact authority and CLI edges for native writer ingress."""
+    by_name = {package.get("name"): package for package in packages}
+    violations = []
+    authority = by_name.get(NATIVE_ENROLLMENT_AUTHORITY_PACKAGE, {})
+    authority_runne = [
+        dependency
+        for dependency in authority.get("dependencies", [])
+        if dependency.get("name", "").startswith("runne-")
+    ]
+    expected_authority = {
+        "runne-provider": (None, None, "*", ()),
+        MACOS_PROCESS_IDENTITY_PACKAGE: (
+            None,
+            MACOS_PROCESS_IDENTITY_TARGET,
+            "*",
+            (),
+        ),
+    }
+    violations += _exact_dependencies(
+        NATIVE_ENROLLMENT_AUTHORITY_PACKAGE,
+        authority_runne,
+        expected_authority,
+    )
+
+    cli = by_name.get(CLI_PACKAGE, {})
+    relevant_cli = [
+        dependency
+        for dependency in cli.get("dependencies", [])
+        if dependency.get("name")
+        in {
+            NATIVE_ENROLLMENT_AUTHORITY_PACKAGE,
+            MACOS_PROCESS_IDENTITY_PACKAGE,
+            RUSTIX_PACKAGE,
+        }
+    ]
+    expected_cli = {
+        NATIVE_ENROLLMENT_AUTHORITY_PACKAGE: (
+            None,
+            MACOS_PROCESS_IDENTITY_TARGET,
+            "*",
+            (),
+        ),
+        RUSTIX_PACKAGE: (
+            "dev",
+            MACOS_PROCESS_IDENTITY_TARGET,
+            "=1.1.4",
+            ("net",),
+        ),
+    }
+    violations += _exact_dependencies(CLI_PACKAGE, relevant_cli, expected_cli)
+    return violations
+
+
+def _exact_dependencies(
+    package: str,
+    actual: list[dict],
+    expected: dict[str, tuple],
+) -> list[str]:
+    violations = []
+    for name, shape in expected.items():
+        matches = [dependency for dependency in actual if dependency.get("name") == name]
+        if len(matches) != 1 or not _dependency_has_shape(matches[0], *shape):
+            violations.append(f"{package} must have one exact dependency edge to {name}")
+    unexpected = sorted(
+        dependency.get("name", "<unnamed>")
+        for dependency in actual
+        if dependency.get("name") not in expected
+    )
+    for name in unexpected:
+        violations.append(f"{package} has forbidden native writer dependency {name}")
+    return violations
+
+
+def _dependency_has_shape(
+    dependency: dict,
+    kind: str | None,
+    target: str | None,
+    requirement: str,
+    features: tuple[str, ...],
+) -> bool:
+    return (
+        dependency.get("kind") == kind
+        and dependency.get("target") == target
+        and dependency.get("req") == requirement
+        and tuple(sorted(dependency.get("features", []))) == tuple(sorted(features))
+        and dependency.get("rename") is None
+        and dependency.get("optional") is False
+        and dependency.get("uses_default_features") is True
+    )

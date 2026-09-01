@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use syn::punctuated::Punctuated;
-use syn::{Attribute, Expr, Item, ItemMod, Lit, Meta, Token};
+use syn::{Attribute, Expr, Item, ItemMod, Lit, Meta, PathArguments, Token};
 
 pub(super) fn item_authored_derive(item: &Item) -> bool {
     let attributes = match item {
@@ -24,6 +24,25 @@ pub(super) fn module_has_forbidden_path(item: &ItemMod) -> bool {
             && normalized_ident(&item.ident) == "tests"
             && item.attrs.iter().any(is_exact_test_cfg)
             && item.attrs.iter().any(is_exact_test_path))
+}
+
+pub(super) fn has_exact_macos_cfg(attributes: &[Attribute]) -> bool {
+    let relevant: Vec<_> = attributes
+        .iter()
+        .filter(|attribute| {
+            matches!(
+                meta_name(&attribute.meta).as_deref(),
+                Some("cfg" | "cfg_attr" | "path")
+            )
+        })
+        .collect();
+    relevant.len() == 1 && is_exact_macos_cfg(relevant[0])
+}
+
+pub(super) fn has_cfg_or_path_substitution(attributes: &[Attribute]) -> bool {
+    attributes
+        .iter()
+        .any(|attribute| meta_has_cfg_or_path_substitution(&attribute.meta))
 }
 
 fn attribute_authored_derive(attribute: &Attribute) -> bool {
@@ -60,6 +79,20 @@ fn meta_path_count(meta: &Meta) -> usize {
     nested.iter().skip(1).map(meta_path_count).sum()
 }
 
+fn meta_has_cfg_or_path_substitution(meta: &Meta) -> bool {
+    match meta_name(meta).as_deref() {
+        Some("cfg" | "path") => true,
+        Some("cfg_attr") => {
+            let Meta::List(list) = meta else { return true };
+            list.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
+                .map_or(true, |nested| {
+                    nested.iter().skip(1).any(meta_has_cfg_or_path_substitution)
+                })
+        }
+        _ => false,
+    }
+}
+
 fn is_exact_test_cfg(attribute: &Attribute) -> bool {
     let Meta::List(list) = &attribute.meta else {
         return false;
@@ -68,6 +101,27 @@ fn is_exact_test_cfg(attribute: &Attribute) -> bool {
         && list.parse_args::<Meta>().is_ok_and(|meta| {
             matches!(meta, Meta::Path(_)) && meta_name(&meta).as_deref() == Some("test")
         })
+}
+
+fn is_exact_macos_cfg(attribute: &Attribute) -> bool {
+    let Meta::List(list) = &attribute.meta else {
+        return false;
+    };
+    if meta_name(&attribute.meta).as_deref() != Some("cfg") {
+        return false;
+    }
+    let Ok(Meta::NameValue(value)) = list.parse_args::<Meta>() else {
+        return false;
+    };
+    let Expr::Lit(expression) = &value.value else {
+        return false;
+    };
+    value.path.leading_colon.is_none()
+        && value.path.segments.len() == 1
+        && normalized_ident(&value.path.segments[0].ident) == "target_os"
+        && matches!(value.path.segments[0].arguments, PathArguments::None)
+        && expression.attrs.is_empty()
+        && matches!(&expression.lit, Lit::Str(value) if value.value() == "macos")
 }
 
 fn is_exact_test_path(attribute: &Attribute) -> bool {

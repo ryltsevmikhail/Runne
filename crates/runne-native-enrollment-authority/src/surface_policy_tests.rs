@@ -2,25 +2,32 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
-
-use syn::{Fields, FnArg, ImplItem, Item, ReturnType, Type, UseTree, Visibility};
+use syn::{Fields, ImplItem, Item, Type, Visibility};
 
 #[path = "surface_policy_tests/attribute_audit.rs"]
 mod attribute_audit;
+#[path = "surface_policy_tests/method_audit.rs"]
+mod method_audit;
+#[path = "surface_policy_tests/mint_call_audit.rs"]
+mod mint_call_audit;
 #[path = "surface_policy_tests/mutations.rs"]
 mod mutations;
 #[path = "surface_policy_tests/source_discovery.rs"]
 mod source_discovery;
+#[path = "surface_policy_tests/use_audit.rs"]
+mod use_audit;
 use source_discovery::production_sources;
 
 const SESSION: &str = "AuthenticatedProviderCredentialWriterSession";
 const CLAIM: &str = "AuthenticatedWriterClaimContext";
 const EFFECT: &str = "AuthenticatedWriterEffectAdmission";
-const OPAQUE_TYPES: [&str; 3] = [SESSION, CLAIM, EFFECT];
+const HANDOFF: &str = "UntrustedProviderCredentialWriterEndpointHandoffV1";
+const HANDOFF_MODULE: &str = "untrusted_writer_endpoint_handoff";
+const OPAQUE_TYPES: [&str; 4] = [SESSION, CLAIM, EFFECT, HANDOFF];
+const PUBLIC_METHODS: [&str; 2] = ["split", "receive_from_stdin"];
 
 #[test]
-fn current_crate_exposes_only_the_consuming_session_split() {
+fn current_crate_exposes_only_the_exact_opaque_authority_surface() {
     let mut audit = Audit::default();
     for path in production_sources() {
         let source = fs::read_to_string(&path).unwrap();
@@ -36,7 +43,14 @@ fn current_crate_exposes_only_the_consuming_session_split() {
         if audit.reexports.get(name) != Some(&1) {
             audit
                 .violations
-                .push(format!("expected one exact session re-export for {name}"));
+                .push(format!("expected one exact opaque re-export for {name}"));
+        }
+    }
+    for name in PUBLIC_METHODS {
+        if audit.methods.get(name) != Some(&1) {
+            audit
+                .violations
+                .push(format!("expected one exact public {name} method"));
         }
     }
     assert!(audit.violations.is_empty(), "{:#?}", audit.violations);
@@ -46,6 +60,7 @@ fn current_crate_exposes_only_the_consuming_session_split() {
 struct Audit {
     declarations: BTreeMap<&'static str, usize>,
     reexports: BTreeMap<&'static str, usize>,
+    methods: BTreeMap<&'static str, usize>,
     violations: Vec<String>,
 }
 
@@ -68,7 +83,14 @@ fn audit_items(items: &[Item], source: &str, audit: &mut Audit) {
             Item::Impl(item) => audit_impl(item, source, audit),
             Item::Use(item) => {
                 if is_public(&item.vis) {
-                    audit_public_use(&item.tree, source, audit);
+                    match use_audit::exact_public_reexports(&item.tree, &item.attrs, source) {
+                        Ok(names) => {
+                            for name in names {
+                                *audit.reexports.entry(name).or_default() += 1;
+                            }
+                        }
+                        Err(violation) => audit.violations.push(violation),
+                    }
                 }
             }
             Item::Mod(item) => {
@@ -76,6 +98,18 @@ fn audit_items(items: &[Item], source: &str, audit: &mut Audit) {
                     audit.violations.push(format!(
                         "{source}: module path can substitute production source"
                     ));
+                }
+                let module = normalized_ident(&item.ident);
+                if module == HANDOFF_MODULE && !attribute_audit::has_exact_macos_cfg(&item.attrs) {
+                    audit
+                        .violations
+                        .push(format!("{source}: handoff module must use exact macOS cfg"));
+                }
+                if module == "session" && attribute_audit::has_cfg_or_path_substitution(&item.attrs)
+                {
+                    audit
+                        .violations
+                        .push(format!("{source}: session module cannot be substituted"));
                 }
                 reject_public(&item.vis, "module", source, audit);
                 if let Some((_, nested)) = &item.content {
@@ -122,6 +156,11 @@ fn audit_struct(item: &syn::ItemStruct, source: &str, audit: &mut Audit) {
         _ => {}
     }
     let Some(name) = name else { return };
+    if attribute_audit::has_cfg_or_path_substitution(&item.attrs) {
+        audit.violations.push(format!(
+            "{source}: opaque struct {name} cannot be cfg-substituted"
+        ));
+    }
     if matches!(item.fields, Fields::Unit) || item.fields.is_empty() {
         audit
             .violations
@@ -134,6 +173,11 @@ fn audit_struct(item: &syn::ItemStruct, source: &str, audit: &mut Audit) {
                 .push(format!("{source}: {name} has a non-private field"));
         }
     }
+    if name == HANDOFF && !is_exact_handoff_wrapper(item) {
+        audit.violations.push(format!(
+            "{source}: {HANDOFF} must retain exactly one private low-level handoff"
+        ));
+    }
 }
 
 fn audit_impl(item: &syn::ItemImpl, source: &str, audit: &mut Audit) {
@@ -142,10 +186,19 @@ fn audit_impl(item: &syn::ItemImpl, source: &str, audit: &mut Audit) {
             .violations
             .push(format!("{source}: trait impl is outside the exact surface"));
     }
+    if type_opaque_name(&item.self_ty).is_some()
+        && attribute_audit::has_cfg_or_path_substitution(&item.attrs)
+    {
+        audit
+            .violations
+            .push(format!("{source}: opaque impl cannot be cfg-substituted"));
+    }
     for member in &item.items {
         match member {
             ImplItem::Fn(method) if is_public(&method.vis) => {
-                if !is_exact_consuming_split(item, method) {
+                if let Some(name) = method_audit::exact_public_method(item, method) {
+                    *audit.methods.entry(name).or_default() += 1;
+                } else {
                     audit
                         .violations
                         .push(format!("{source}: unexpected public method"));
@@ -168,101 +221,51 @@ fn audit_impl(item: &syn::ItemImpl, source: &str, audit: &mut Audit) {
     }
 }
 
-fn is_exact_consuming_split(item: &syn::ItemImpl, method: &syn::ImplItemFn) -> bool {
-    type_opaque_name(&item.self_ty) == Some(SESSION)
-        && item.trait_.is_none()
-        && method.defaultness.is_none()
-        && method.sig.ident == "split"
-        && method.sig.constness.is_none()
-        && method.sig.asyncness.is_none()
-        && method.sig.unsafety.is_none()
-        && method.sig.abi.is_none()
-        && method.sig.variadic.is_none()
-        && method.sig.generics.params.is_empty()
-        && method.sig.generics.where_clause.is_none()
-        && method.sig.inputs.len() == 1
-        && matches!(method.sig.inputs.first(), Some(FnArg::Receiver(receiver))
-            if receiver.reference.is_none()
-                && receiver.mutability.is_none()
-                && receiver.colon_token.is_none())
-        && returns_exact_split_pair(&method.sig.output)
-}
-
-fn returns_exact_split_pair(output: &ReturnType) -> bool {
-    let ReturnType::Type(_, value) = output else {
+fn is_exact_handoff_wrapper(item: &syn::ItemStruct) -> bool {
+    if !item.generics.params.is_empty() || item.generics.where_clause.is_some() {
         return false;
-    };
-    let Type::Tuple(tuple) = value.as_ref() else {
-        return false;
-    };
-    tuple.elems.len() == 2
-        && type_opaque_name(&tuple.elems[0]) == Some(CLAIM)
-        && type_opaque_name(&tuple.elems[1]) == Some(EFFECT)
-}
-
-fn audit_public_use(tree: &UseTree, source: &str, audit: &mut Audit) {
-    let mut bindings = Vec::new();
-    collect_use_bindings(tree, &mut Vec::new(), &mut bindings);
-    for binding in bindings {
-        let name = opaque_name(&binding.exposed);
-        let exact = name.is_some_and(|name| {
-            Path::new(source).file_name().and_then(|file| file.to_str()) == Some("lib.rs")
-                && !binding.renamed
-                && binding.origin == ["session", name]
-                && binding.exposed == name
-        });
-        if exact {
-            *audit.reexports.entry(name.unwrap()).or_default() += 1;
-        } else {
-            audit.violations.push(format!(
-                "{source}: public re-export must originate exactly in session"
-            ));
-        }
     }
+    let Fields::Named(fields) = &item.fields else {
+        return false;
+    };
+    let Some(field) = fields.named.first() else {
+        return false;
+    };
+    fields.named.len() == 1
+        && matches!(field.vis, Visibility::Inherited)
+        && !attribute_audit::has_cfg_or_path_substitution(&field.attrs)
+        && type_path_is_exact(
+            &field.ty,
+            &[
+                "runne_macos_process_identity",
+                "MacOsUntrustedWriterEndpointHandoffV1",
+            ],
+        )
 }
 
-struct UseBinding {
-    origin: Vec<String>,
-    exposed: String,
-    renamed: bool,
+fn type_path_is_exact(value: &Type, expected: &[&str]) -> bool {
+    let Type::Path(path) = value else {
+        return false;
+    };
+    path.qself.is_none()
+        && path.path.leading_colon.is_none()
+        && path.path.segments.len() == expected.len()
+        && path
+            .path
+            .segments
+            .iter()
+            .zip(expected)
+            .all(|(segment, expected)| {
+                normalized_ident(&segment.ident) == *expected
+                    && matches!(segment.arguments, syn::PathArguments::None)
+            })
 }
 
-fn collect_use_bindings(tree: &UseTree, prefix: &mut Vec<String>, output: &mut Vec<UseBinding>) {
-    match tree {
-        UseTree::Name(name) => {
-            let ident = normalized_ident(&name.ident);
-            let mut origin = prefix.clone();
-            origin.push(ident.clone());
-            output.push(UseBinding {
-                origin,
-                exposed: ident,
-                renamed: false,
-            });
-        }
-        UseTree::Rename(name) => {
-            let mut origin = prefix.clone();
-            origin.push(normalized_ident(&name.ident));
-            output.push(UseBinding {
-                origin,
-                exposed: normalized_ident(&name.rename),
-                renamed: true,
-            });
-        }
-        UseTree::Path(path) => {
-            prefix.push(normalized_ident(&path.ident));
-            collect_use_bindings(&path.tree, prefix, output);
-            prefix.pop();
-        }
-        UseTree::Group(group) => {
-            for item in &group.items {
-                collect_use_bindings(item, prefix, output);
-            }
-        }
-        UseTree::Glob(_) => output.push(UseBinding {
-            origin: prefix.clone(),
-            exposed: "*".to_owned(),
-            renamed: false,
-        }),
+fn opaque_module(name: &str) -> &'static str {
+    if name == HANDOFF {
+        HANDOFF_MODULE
+    } else {
+        "session"
     }
 }
 

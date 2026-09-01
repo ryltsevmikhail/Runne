@@ -1,6 +1,3 @@
-#[cfg(unix)]
-#[path = "provider_credential_broker/bootstrap.rs"]
-mod bootstrap;
 #[cfg_attr(
     not(test),
     expect(
@@ -17,9 +14,6 @@ mod pair;
 #[path = "provider_credential_broker/secret.rs"]
 mod secret;
 
-#[cfg(all(test, unix))]
-#[path = "provider_credential_broker/bootstrap_tests.rs"]
-mod bootstrap_tests;
 #[cfg(test)]
 #[path = "provider_credential_broker/claim_tests.rs"]
 mod claim_tests;
@@ -46,7 +40,14 @@ use runne_provider::PROVIDER_CREDENTIAL_BROKER_MODE_V1;
 fn run_provider_credential_broker(mut arguments: VecDeque<OsString>) -> Result<String, CliError> {
     expect_token(&mut arguments, PROVIDER_CREDENTIAL_BROKER_MODE_V1)?;
     expect_end(&arguments)?;
-    #[cfg(unix)]
-    let _endpoint = bootstrap::receive_prepared_daemon_endpoint_from_stdin()?;
-    Err(CliError::UnsupportedCredentialBackend)
+    #[cfg(target_os = "macos")]
+    {
+        let _handoff = runne_native_enrollment_authority::UntrustedProviderCredentialWriterEndpointHandoffV1::receive_from_stdin()
+            .map_err(|_| CliError::CredentialOperation)?;
+        Err(CliError::UnsupportedCredentialBackend)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(CliError::UnsupportedCredentialBackend)
+    }
 }

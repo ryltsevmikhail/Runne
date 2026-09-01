@@ -8,9 +8,12 @@ rust-version.workspace = true
 [dependencies]
 runne-provider = { path = "../runne-provider" }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+runne-macos-process-identity = { path = "../runne-macos-process-identity" }
+
 [dev-dependencies]
 serde.workspace = true
-syn = { version = "2", features = ["full"] }
+syn = { version = "2", features = ["full", "visit"] }
 
 [lints]
 workspace = true
