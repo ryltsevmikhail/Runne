@@ -12,10 +12,10 @@ function escaped(value) {
 
 async function verify(route, notFound = false) {
   const html = await readFile(join(dist, route.output), "utf8");
-  const canonical = new URL(route.path, "https://letsgocode.dev").toString();
+  const canonical = new URL(route.path, "https://runne.run").toString();
   const expected = [
     `<html lang="en">`,
-    `<title>${route.title} · GOCODE</title>`,
+    `<title>${route.title} · Runne</title>`,
     `name="description" content="${escaped(route.description)}"`,
     `rel="canonical" href="${canonical}"`,
     `property="og:url" content="${canonical}"`,

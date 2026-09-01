@@ -1,10 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://letsgocode.dev/</loc></url>
-  <url><loc>https://letsgocode.dev/product</loc></url>
-  <url><loc>https://letsgocode.dev/architecture</loc></url>
-  <url><loc>https://letsgocode.dev/security</loc></url>
-  <url><loc>https://letsgocode.dev/roadmap</loc></url>
-  <url><loc>https://letsgocode.dev/status</loc></url>
-  <url><loc>https://letsgocode.dev/privacy</loc></url>
+  <url><loc>https://runne.run/</loc></url>
 </urlset>

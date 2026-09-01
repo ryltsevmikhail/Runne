@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://letsgocode.dev/sitemap.xml
+Sitemap: https://runne.run/sitemap.xml
