@@ -14,11 +14,8 @@ pub(super) struct PackageFixture {
 
 impl PackageFixture {
     pub(super) fn new() -> Self {
-        let temporary = std::env::temp_dir();
-        let temporary = temporary.strip_prefix("/var").map_or_else(
-            |_| temporary.clone(),
-            |suffix| Path::new("/private/var").join(suffix),
-        );
+        let temporary =
+            fs::canonicalize(std::env::temp_dir()).expect("canonical test temporary directory");
         let container = temporary.join(format!(
             "runne-b2b2ii-package-{}-{}",
             std::process::id(),

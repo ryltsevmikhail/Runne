@@ -127,7 +127,9 @@ struct TestPackage {
 
 impl TestPackage {
     fn new() -> Self {
-        let root = std::env::temp_dir().join(format!(
+        let temporary =
+            fs::canonicalize(std::env::temp_dir()).expect("canonical test temporary directory");
+        let root = temporary.join(format!(
             "runne-b2b2ii-{}-{}",
             std::process::id(),
             NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
