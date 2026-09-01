@@ -8,7 +8,7 @@ use super::post_fence::spawn_pre_fence_enrollment_owner;
 use super::{LivePostFenceAdmission, run_post_fence_branches};
 use crate::bundled_runtime::test_only_live_enrollment_runtime;
 use crate::provider_credential_enrollment::prepared::reap_guard::{
-    ExactWriterCleanup, RetainedWriterCleanup,
+    ExactWriterCleanup, ExactWriterRecovery, RetainedWriterCleanup,
 };
 use crate::provider_credential_enrollment::{CredentialIntentIpc, CredentialIntentRegistry};
 use crate::updater_status::enrollment::{
@@ -63,6 +63,7 @@ async fn pre_fence_owner_survives_command_cancellation_at_every_lifecycle_stage(
                 tokio::task::yield_now().await;
                 degrade.fetch_add(1, Ordering::SeqCst);
             },
+            || (),
         );
         let command = tokio::spawn(result);
         loop {
@@ -76,7 +77,7 @@ async fn pre_fence_owner_survives_command_cancellation_at_every_lifecycle_stage(
                 break;
             }
         }
-        tokio::time::timeout(Duration::from_secs(1), completion)
+        tokio::time::timeout(Duration::from_secs(1), completion.wait())
             .await
             .expect("owner completion timeout")
             .expect("owner completion");
@@ -104,10 +105,13 @@ async fn blocking_worker_panic_is_outer_cleanup_once() {
     let (result, completion) = spawn_pre_fence_enrollment_owner(
         || async move {
             tauri::async_runtime::spawn_blocking(move || {
-                let _writer = RetainedWriterCleanup::new(ChildCleanup {
-                    child: worker_child,
-                    reaped: worker_reaped,
-                });
+                let _writer = RetainedWriterCleanup::new(
+                    ChildCleanup {
+                        child: worker_child,
+                        reaped: worker_reaped,
+                    },
+                    ExactWriterRecovery::new(),
+                );
                 panic!("injected transcript panic");
             })
             .await
@@ -117,9 +121,10 @@ async fn blocking_worker_panic_is_outer_cleanup_once() {
             stop.fetch_add(1, Ordering::SeqCst);
             degrade.fetch_add(1, Ordering::SeqCst);
         },
+        || (),
     );
     assert_eq!(result.await.expect("owner result"), Err(()));
-    completion.await.expect("owner completion");
+    completion.wait().await.expect("owner completion");
     assert_eq!(stopped.load(Ordering::SeqCst), 1);
     assert_eq!(degraded.load(Ordering::SeqCst), 1);
     assert_eq!(reaped.load(Ordering::SeqCst), 1);
@@ -134,18 +139,18 @@ struct ChildCleanup {
 impl ExactWriterCleanup for ChildCleanup {
     type Error = ();
 
-    fn finish_exact(self) -> Result<(), Self::Error> {
+    fn finish_exact(&mut self) -> Result<(), Self::Error> {
         self.reap()
     }
 
-    fn abort_exact(self) -> Result<(), Self::Error> {
+    fn abort_exact(&mut self) -> Result<(), Self::Error> {
         self.child.lock().map_err(|_| ())?.kill().map_err(|_| ())?;
         self.reap()
     }
 }
 
 impl ChildCleanup {
-    fn reap(self) -> Result<(), ()> {
+    fn reap(&self) -> Result<(), ()> {
         let deadline = Instant::now() + Duration::from_secs(1);
         loop {
             if self
@@ -219,9 +224,10 @@ async fn exact_live_post_fence_branches_fail_closed_before_writer() {
                 result.map(|_| ())
             },
             move || async move { cleanup.abort().await },
+            || super::DispatchFailure::Closed("provider_credential_exchange_rejected"),
         );
         assert!(result.await.expect("owner result").is_err());
-        completion.await.expect("owner completion");
+        completion.wait().await.expect("owner completion");
         assert_eq!(writer_calls.load(Ordering::SeqCst), 0);
         assert!(runtime.cleanup_completed());
         drop(runtime);

@@ -25,8 +25,7 @@ impl ProtectedBundledRuntimeSupervisor {
             .process
             .as_mut()
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        process.abort_protected_credential_enrollment();
-        Ok(())
+        process.abort_protected_credential_enrollment()
     }
 
     /// Returns an opaque binding to the actual rotated V3 session.
@@ -103,11 +102,13 @@ impl ProtectedBundledRuntimeSupervisor {
 }
 
 impl ProtectedBundledRuntimeProcess {
-    fn abort_protected_credential_enrollment(&mut self) {
+    fn abort_protected_credential_enrollment(
+        &mut self,
+    ) -> Result<(), ProtectedBundledRuntimeError> {
         // A Shutdown while enrollment is nonterminal is rejected by the daemon
         // only after its V3 loop terminates the exact retained writer. EOF is
         // therefore the acknowledgement for this fail-closed cleanup purpose.
-        let _ = self.request_graceful_stop();
+        self.request_graceful_stop()
     }
 
     fn credential_enrollment_intent_binding(

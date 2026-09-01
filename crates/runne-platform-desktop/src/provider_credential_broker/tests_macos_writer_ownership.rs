@@ -111,6 +111,6 @@ fn desktop_relinquishes_before_daemon_can_kill_the_exact_writer() {
         .complete_desktop_relinquishment(daemon_control, &authority)
         .unwrap();
     kill.terminate_exact_peer().unwrap();
-    let reap_owner = desktop_thread.join().unwrap();
+    let mut reap_owner = desktop_thread.join().unwrap();
     reap_owner.reap_exact_writer().unwrap();
 }

@@ -34,6 +34,7 @@ async fn cancelled_command_cannot_cancel_the_cleanup_supervisor() {
                 tokio::task::yield_now().await;
                 degrade.fetch_add(1, Ordering::SeqCst);
             },
+            || (),
         );
         let command = tokio::spawn(result);
         if cancel_at == 0 {
@@ -49,7 +50,7 @@ async fn cancelled_command_cannot_cancel_the_cleanup_supervisor() {
             command.abort();
         }
         second_tx.send(()).unwrap();
-        tokio::time::timeout(Duration::from_secs(1), completion)
+        tokio::time::timeout(Duration::from_secs(1), completion.wait())
             .await
             .expect("supervisor timeout")
             .expect("supervisor completion");

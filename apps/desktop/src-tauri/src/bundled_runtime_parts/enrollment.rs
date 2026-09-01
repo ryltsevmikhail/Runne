@@ -103,7 +103,10 @@ impl NativeCredentialEnrollmentCleanup {
     async fn stop_and_degrade(self) {
         let supervisor = Arc::clone(&self.supervisor);
         let _ = tauri::async_runtime::spawn_blocking(move || {
-            let _ = supervisor.lock().map(|mut value| value.stop());
+            let mut value = supervisor
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let _ = value.stop();
         })
         .await;
         let _ = self
@@ -134,17 +137,25 @@ impl TestOnlyLiveEnrollmentRuntime {
     }
 
     pub(crate) fn cleanup_completed(&self) -> bool {
-        let stopped = self.supervisor.lock().is_ok_and(|value| {
+        let stopped = self
+            .supervisor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let stopped = {
             matches!(
-                value.state(),
+                stopped.state(),
                 runne_platform_desktop::BundledRuntimeLifecycleState::Stopped
                     | runne_platform_desktop::BundledRuntimeLifecycleState::FailedStart
             )
-        });
+        };
         let degraded = self.core.bootstrap().is_ok_and(|value| {
             value.runtime_failure == Some(RuntimeFailureCode::ProtectedActivationUnavailable)
         });
         stopped && degraded
+    }
+
+    pub(crate) fn supervisor_handle(&self) -> Arc<Mutex<ProtectedBundledRuntimeSupervisor>> {
+        Arc::clone(&self.supervisor)
     }
 }
 

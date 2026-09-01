@@ -21,6 +21,7 @@ pub(super) mod reap_guard;
 #[path = "prepared/reap_guard_tests.rs"]
 mod reap_guard_tests;
 mod runner;
+pub(super) use runner::ProtectedWriterRecovery;
 /// Opaque native-only exchange retained for the later daemon control slice.
 ///
 /// This value is deliberately neither serializable nor cloneable and exposes no

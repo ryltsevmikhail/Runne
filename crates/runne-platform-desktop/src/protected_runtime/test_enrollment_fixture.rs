@@ -4,6 +4,11 @@ pub struct TestOnlyReadyV3EnrollmentSupervisor(ProtectedBundledRuntimeSupervisor
 
 impl TestOnlyReadyV3EnrollmentSupervisor {
     #[must_use]
+    pub fn owned_process_id(&self) -> Option<u32> {
+        self.0.process.as_ref().map(|process| process.child.id())
+    }
+
+    #[must_use]
     pub fn into_supervisor(self) -> ProtectedBundledRuntimeSupervisor {
         self.0
     }

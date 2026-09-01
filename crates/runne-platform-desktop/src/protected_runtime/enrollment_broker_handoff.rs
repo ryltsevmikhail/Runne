@@ -26,7 +26,7 @@ pub enum CredentialWriterHandoffMode {
 /// Desktop-held state after the daemon acknowledged the kill exchange.
 #[cfg(target_os = "macos")]
 pub struct CredentialWriterHandoff {
-    owner: crate::provider_credential_broker::MacOsWriterReapOnlyOwner,
+    owner: Option<crate::provider_credential_broker::MacOsWriterReapOnlyOwner>,
     pair_relay: Option<crate::provider_credential_broker::MacOsAuthenticatedPairSecretRelay>,
 }
 
@@ -44,10 +44,15 @@ impl CredentialWriterHandoff {
     /// # Errors
     ///
     /// Returns a closed failure when the retained writer cannot be reaped.
-    pub fn reap_exact_writer(self) -> Result<(), ProtectedBundledRuntimeError> {
-        self.owner
+    pub fn reap_exact_writer(&mut self) -> Result<(), ProtectedBundledRuntimeError> {
+        let Some(owner) = self.owner.as_mut() else {
+            return Ok(());
+        };
+        owner
             .reap_exact_writer()
-            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)
+            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        self.owner = None;
+        Ok(())
     }
 }
 
@@ -193,7 +198,7 @@ impl ProtectedBundledRuntimeProcess {
         )
         .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
         Ok(CredentialWriterHandoff {
-            owner: outcome.into_reap_only_owner(),
+            owner: Some(outcome.into_reap_only_owner()),
             pair_relay,
         })
     }

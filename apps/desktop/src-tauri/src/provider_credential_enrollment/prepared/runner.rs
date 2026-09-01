@@ -1,29 +1,71 @@
-use super::reap_guard::{ExactWriterCleanup, RetainedWriterCleanup};
+use super::reap_guard::{ExactWriterCleanup, ExactWriterRecovery, RetainedWriterCleanup};
 use super::*;
 use runne_api::{BeginProviderCredentialEnrollment, ProviderCredentialEnrollmentActionV2};
 use runne_platform_desktop::NativeProtectedCredentialEnrollmentBegin;
 use std::sync::Arc;
 
-struct ProtectedWriterCleanup {
-    handoff: runne_platform_desktop::CredentialWriterHandoff,
+pub(in crate::provider_credential_enrollment) trait RecoverableWriterHandoff {
+    type Error;
+
+    fn reap_exact_writer(&mut self) -> Result<(), Self::Error>;
+}
+
+impl RecoverableWriterHandoff for runne_platform_desktop::CredentialWriterHandoff {
+    type Error = runne_platform_desktop::ProtectedBundledRuntimeError;
+
+    fn reap_exact_writer(&mut self) -> Result<(), Self::Error> {
+        self.reap_exact_writer()
+    }
+}
+
+pub(in crate::provider_credential_enrollment) struct ProtectedWriterCleanup<
+    H = runne_platform_desktop::CredentialWriterHandoff,
+> {
+    handoff: H,
     supervisor: Arc<std::sync::Mutex<runne_platform_desktop::ProtectedBundledRuntimeSupervisor>>,
 }
 
-impl ExactWriterCleanup for ProtectedWriterCleanup {
+impl<H> ProtectedWriterCleanup<H> {
+    pub(in crate::provider_credential_enrollment) const fn new(
+        handoff: H,
+        supervisor: Arc<
+            std::sync::Mutex<runne_platform_desktop::ProtectedBundledRuntimeSupervisor>,
+        >,
+    ) -> Self {
+        Self {
+            handoff,
+            supervisor,
+        }
+    }
+}
+
+impl<H> ExactWriterCleanup for ProtectedWriterCleanup<H>
+where
+    H: RecoverableWriterHandoff<Error = runne_platform_desktop::ProtectedBundledRuntimeError>,
+{
     type Error = runne_platform_desktop::ProtectedBundledRuntimeError;
 
-    fn finish_exact(self) -> Result<(), Self::Error> {
+    fn finish_exact(&mut self) -> Result<(), Self::Error> {
         self.handoff.reap_exact_writer()
     }
 
-    fn abort_exact(self) -> Result<(), Self::Error> {
-        self.supervisor
+    fn abort_exact(&mut self) -> Result<(), Self::Error> {
+        let abort = self
+            .supervisor
             .lock()
-            .map_err(|_| runne_platform_desktop::ProtectedBundledRuntimeError::OwnershipMismatch)?
-            .abort_protected_credential_enrollment()?;
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .abort_protected_credential_enrollment();
+        let reap = self.handoff.reap_exact_writer();
+        abort.and(reap)
+    }
+
+    fn retry_exact(&mut self) -> Result<(), Self::Error> {
         self.handoff.reap_exact_writer()
     }
 }
+
+pub(in crate::provider_credential_enrollment) type ProtectedWriterRecovery =
+    ExactWriterRecovery<ProtectedWriterCleanup>;
 
 pub(super) fn begin_then_handoff<B, H, E: Default>(
     begin_operation: impl FnOnce() -> Result<B, E>,
@@ -44,13 +86,15 @@ impl PreparedCredentialEnrollmentExchange {
     pub(in crate::provider_credential_enrollment) fn run(
         mut self,
         registry: &CredentialIntentRegistry,
+        recovery: ProtectedWriterRecovery,
     ) -> Result<(), PreparedCredentialEnrollmentError> {
-        self.run_retained(registry)
+        self.run_retained(registry, recovery)
     }
 
     fn run_retained(
         &mut self,
         registry: &CredentialIntentRegistry,
+        recovery: ProtectedWriterRecovery,
     ) -> Result<(), PreparedCredentialEnrollmentError> {
         self.updater_lease
             .revalidate_confirmed(&self.installed)
@@ -106,10 +150,10 @@ impl PreparedCredentialEnrollmentExchange {
                     .map_err(|_| PreparedCredentialEnrollmentError)
             },
         )?;
-        let mut handoff = RetainedWriterCleanup::new(ProtectedWriterCleanup {
-            handoff: retained_handoff,
-            supervisor: Arc::clone(&supervisor),
-        });
+        let mut handoff = RetainedWriterCleanup::new(
+            ProtectedWriterCleanup::new(retained_handoff, Arc::clone(&supervisor)),
+            recovery,
+        );
         let exchange = (|| {
             supervisor
                 .lock()
@@ -160,3 +204,7 @@ pub(super) const fn terminal_is_success(
         runne_api::ProviderCredentialOperationStateV2::Completed
     )
 }
+
+#[cfg(test)]
+#[path = "runner_round4_tests.rs"]
+mod round4_tests;
