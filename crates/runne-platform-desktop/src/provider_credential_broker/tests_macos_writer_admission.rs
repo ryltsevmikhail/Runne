@@ -1,4 +1,19 @@
 #[cfg(target_os = "macos")]
+const APPLE_SIGNED_STDIN_BLOCKING_FIXTURE: &str = "/usr/bin/grep";
+
+#[cfg(target_os = "macos")]
+fn ad_hoc_sign_copied_fixture(path: &std::path::Path) {
+    // macOS kills copied platform binaries asynchronously. This test-only
+    // signature keeps the vnode alive; production rejects ad-hoc identities.
+    let output = std::process::Command::new("/usr/bin/codesign")
+        .args(["--force", "--sign", "-", "--"])
+        .arg(path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+}
+
+#[cfg(target_os = "macos")]
 #[test]
 fn live_writer_admission_requires_exact_sec_code_path_and_handoff_binding() {
     use super::RetainedWriterProcess as _;
@@ -116,18 +131,25 @@ fn post_spawn_path_replacement_cannot_substitute_the_executed_vnode() {
     let directory = tempfile::tempdir().unwrap();
     let writer = directory.path().join("writer");
     let retained_path = directory.path().join("retained-writer");
-    std::fs::copy("/usr/bin/yes", &writer).unwrap();
+    std::fs::copy(APPLE_SIGNED_STDIN_BLOCKING_FIXTURE, &writer).unwrap();
+    ad_hoc_sign_copied_fixture(&writer);
     let launch = super::macos_writer_admission::test_apple_launch(&writer, [21; 32]).unwrap();
     let image = super::macos_writer_admission::prepare_retained_writer_image(&launch).unwrap();
 
     std::fs::rename(&writer, &retained_path).unwrap();
-    std::fs::copy("/usr/bin/yes", &writer).unwrap();
+    std::fs::copy(APPLE_SIGNED_STDIN_BLOCKING_FIXTURE, &writer).unwrap();
+    ad_hoc_sign_copied_fixture(&writer);
     let (transport, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
     let mut process =
         super::unix_daemon_macos::spawn_macos_prepared_writer(launch.launch(), &image, transport)
             .unwrap();
-    std::fs::remove_file(&writer).unwrap();
     std::fs::rename(&retained_path, &writer).unwrap();
+    let live_executable = runne_macos_process_identity::MacOsProcessExecutableIdentity::observe(
+        std::num::NonZeroU32::new(process.pid().cast_unsigned()).unwrap(),
+        image.path(),
+    )
+    .unwrap();
+    assert!(!live_executable.matches_file(&std::fs::metadata(&writer).unwrap()));
 
     assert!(
         super::macos_writer_admission::verify_live_writer(
