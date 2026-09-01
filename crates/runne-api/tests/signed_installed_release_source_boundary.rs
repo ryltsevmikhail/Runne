@@ -133,3 +133,90 @@ fn only_exact_verifier_constructs_exact_installed_release() {
     assert!(source.contains("pub(super) fn exact("));
     assert!(!source.contains("From<SignedInstalledReleaseCandidateV2>"));
 }
+
+#[test]
+fn pending_release_frame_has_one_opaque_bounded_ingress() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let frame = read(
+        &crate_root.join("src/provider_credential_enrollment/signed_installed_release/frame.rs"),
+    );
+    let release_facade =
+        read(&crate_root.join("src/provider_credential_enrollment/signed_installed_release.rs"));
+    let enrollment_facade = read(&crate_root.join("src/provider_credential_enrollment.rs"));
+
+    assert!(release_facade.contains("mod frame;"));
+    assert!(release_facade.contains("pub use frame::PendingSignedInstalledReleaseMetadataV2;"));
+    assert!(enrollment_facade.contains("PendingSignedInstalledReleaseMetadataV2"));
+    assert_eq!(
+        frame
+            .matches("pub struct PendingSignedInstalledReleaseMetadataV2")
+            .count(),
+        1
+    );
+    assert_eq!(
+        frame.matches("pub fn read_from<R: std::io::Read>(").count(),
+        1
+    );
+    assert_eq!(frame.matches("pub fn ").count(), 1);
+    assert_eq!(
+        frame
+            .matches("Ok(PendingSignedInstalledReleaseMetadataV2 {")
+            .count(),
+        1
+    );
+    assert!(frame.contains("const MAGIC: &[u8; 8] = b\"GCRMDV2\\0\";"));
+    assert!(frame.contains("const MAX_PAYLOAD_BYTES: usize = 524_288;"));
+    let bound_check = frame
+        .find("if payload_length > MAX_PAYLOAD_BYTES")
+        .expect("payload bound check");
+    let allocation = frame
+        .find("vec![0_u8; payload_length]")
+        .expect("exact payload allocation");
+    assert!(
+        bound_check < allocation,
+        "payload allocated before bound check"
+    );
+    for forbidden in [
+        "#[derive(",
+        "pub type PendingSignedInstalledReleaseMetadataV2",
+        "pub canonical_metadata",
+        "Clone for PendingSignedInstalledReleaseMetadataV2",
+        "Copy for PendingSignedInstalledReleaseMetadataV2",
+        "Debug for PendingSignedInstalledReleaseMetadataV2",
+        "Default for PendingSignedInstalledReleaseMetadataV2",
+        "Serialize for PendingSignedInstalledReleaseMetadataV2",
+        "Deserialize<",
+        "pub fn new",
+        "pub fn from_parts",
+        "impl From<",
+        "impl Into<",
+        "pub fn payload",
+        "pub fn bytes",
+        "pub fn raw",
+        "pub fn frame",
+        "pub fn digest",
+        "pub fn path",
+        "pub fn pid",
+        "pub fn audit_token",
+        "pub fn candidate",
+        "pub fn metadata",
+        "pub fn verify",
+        "pub fn authenticate",
+        "pub fn admit",
+        "pub fn mint",
+        "pub fn into_authority",
+        "pub fn trust",
+        "pub fn now",
+        "pub trait",
+        "Serialize",
+        "Deserialize",
+        "AsFd",
+        "AsRawFd",
+        "IntoRawFd",
+    ] {
+        assert!(
+            !frame.contains(forbidden),
+            "pending release frame exposes forbidden surface: {forbidden}"
+        );
+    }
+}

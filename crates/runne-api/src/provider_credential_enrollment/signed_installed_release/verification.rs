@@ -103,6 +103,16 @@ pub fn verify_exact_signed_installed_release_v2(
     expected_release_binding: [u8; 32],
     now_unix_seconds: u64,
 ) -> Result<VerifiedSignedInstalledReleaseV2, SignedInstalledReleaseVerificationErrorV2> {
+    let metadata = decode_canonical_metadata(canonical_metadata)?;
+    exact(
+        verify_signed_update_metadata_v2(&metadata, trust, now_unix_seconds)?,
+        expected_release_binding,
+    )
+}
+
+pub(super) fn decode_canonical_metadata(
+    canonical_metadata: &[u8],
+) -> Result<UpdateMetadataV2, SignedInstalledReleaseVerificationErrorV2> {
     if canonical_metadata.len() > MAX_METADATA_BYTES {
         return Err(SignedInstalledReleaseVerificationErrorV2::MetadataTooLarge);
     }
@@ -116,10 +126,7 @@ pub fn verify_exact_signed_installed_release_v2(
     if canonical != canonical_metadata {
         return Err(SignedInstalledReleaseVerificationErrorV2::NonCanonicalMetadata);
     }
-    exact(
-        verify_signed_update_metadata_v2(&metadata, trust, now_unix_seconds)?,
-        expected_release_binding,
-    )
+    Ok(metadata)
 }
 
 fn validate_trust(

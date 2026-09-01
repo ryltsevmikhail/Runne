@@ -21,13 +21,13 @@ pub use host::{
 
 pub use signed_installed_release::{
     MacOsCodeIdentityExpectationV1, NativeEnrollmentQualificationRowV1, NativeEnrollmentTupleError,
-    NativeEnrollmentTupleV2, SignedInstalledReleaseCandidateV2,
-    SignedInstalledReleaseVerificationErrorV2, UpdateMetadataSigningError, UpdateMetadataV2,
-    UpdateRootRoleV2, UpdateSignatureV2, UpdateSnapshotRoleV2, UpdateTargetV2, UpdateTargetsRoleV2,
-    UpdateTimestampRoleV2, UpdateTrustRootV2, VerifiedSignedInstalledReleaseV2,
-    VerifiedSignedNativeEnrollmentTupleV2, VerifiedSignedUpdateMetadataV2,
-    update_metadata_signing_bytes, verify_exact_signed_installed_release_v2,
-    verify_signed_update_metadata_v2,
+    NativeEnrollmentTupleV2, PendingSignedInstalledReleaseMetadataV2,
+    SignedInstalledReleaseCandidateV2, SignedInstalledReleaseVerificationErrorV2,
+    UpdateMetadataSigningError, UpdateMetadataV2, UpdateRootRoleV2, UpdateSignatureV2,
+    UpdateSnapshotRoleV2, UpdateTargetV2, UpdateTargetsRoleV2, UpdateTimestampRoleV2,
+    UpdateTrustRootV2, VerifiedSignedInstalledReleaseV2, VerifiedSignedNativeEnrollmentTupleV2,
+    VerifiedSignedUpdateMetadataV2, update_metadata_signing_bytes,
+    verify_exact_signed_installed_release_v2, verify_signed_update_metadata_v2,
 };
 
 pub use types::{

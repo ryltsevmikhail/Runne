@@ -1,4 +1,5 @@
 mod binding;
+mod frame;
 mod model;
 mod qualification;
 mod tuple;
@@ -9,6 +10,7 @@ pub use binding::{
     SignedInstalledReleaseCandidateV2, VerifiedSignedInstalledReleaseV2,
     VerifiedSignedNativeEnrollmentTupleV2, VerifiedSignedUpdateMetadataV2,
 };
+pub use frame::PendingSignedInstalledReleaseMetadataV2;
 pub use model::{
     UpdateMetadataSigningError, UpdateMetadataV2, UpdateRootRoleV2, UpdateSignatureV2,
     UpdateSnapshotRoleV2, UpdateTargetV2, UpdateTargetsRoleV2, UpdateTimestampRoleV2,
