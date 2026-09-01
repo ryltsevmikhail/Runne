@@ -77,7 +77,7 @@ pub fn spawn_macos_verified_pair_writer_from_prepared_daemon_handoff(
     BrokerHandoffError,
 > {
     let (transport, channel_binding, publication_public_key, sealer) =
-        prepared.into_pair_spawn_parts()?;
+        prepared.into_pair_spawn_parts();
     let image = macos_writer_admission::prepare_retained_writer_image(&launch)?;
     let pipe = super::macos_secret_pipe::PreparedMacOsPairSecretPipe::prepare()?;
     let (process, writer) = super::unix_daemon_macos::spawn_macos_prepared_writer(

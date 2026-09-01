@@ -118,7 +118,18 @@ fn private_relay_sealer_has_exactly_one_authenticated_handoff_call_site() {
         1,
         "unexpected raw relay hook sites: {matches:?}"
     );
-    assert!(matches[0].ends_with("provider_credential_broker/daemon_rendezvous.rs"));
+    assert!(
+        matches[0].ends_with("provider_credential_broker/daemon_rendezvous/pair_secret_handoff.rs")
+    );
+}
+
+#[test]
+fn private_relay_sealer_has_no_raw_key_channel_constructor() {
+    let source = include_str!("macos_secret_sealer.rs");
+    assert!(!source.contains(
+        "fn from_handoff(\n        daemon_public_key: [u8; 32],\n        channel: [u8; 32],"
+    ));
+    assert!(source.contains("handoff: AuthenticatedPairSecretHandoff"));
 }
 
 fn collect_production_source_matches(

@@ -15,6 +15,11 @@ use sha2::{Digest as _, Sha256};
 
 use super::unix_descriptor::{receive_descriptor, send_descriptor};
 
+#[cfg(target_os = "macos")]
+mod pair_secret_handoff;
+#[cfg(target_os = "macos")]
+pub(super) use pair_secret_handoff::AuthenticatedPairSecretHandoff;
+
 const CHALLENGE_BYTES: usize = 96;
 const RESPONSE_BYTES: usize = CHALLENGE_BYTES + 32;
 const FRAME_BYTES: usize = RESPONSE_BYTES + 32;
@@ -77,30 +82,6 @@ impl PreparedDaemonWriterEndpointHandoff {
             self.channel_binding,
             self.publication_public_key,
         )
-    }
-
-    #[cfg(target_os = "macos")]
-    pub(super) fn into_pair_spawn_parts(
-        self,
-    ) -> Result<
-        (
-            UnixStream,
-            [u8; 32],
-            [u8; 32],
-            super::macos_secret_sealer::AuthenticatedPairSecretSealer,
-        ),
-        BrokerHandoffError,
-    > {
-        let sealer = super::macos_secret_sealer::AuthenticatedPairSecretSealer::from_handoff(
-            self.publication_public_key,
-            self.channel_binding,
-        )?;
-        Ok((
-            self.transport,
-            self.channel_binding,
-            self.publication_public_key,
-            sealer,
-        ))
     }
 }
 

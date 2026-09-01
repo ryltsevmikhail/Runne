@@ -2,7 +2,7 @@ use super::{
     AppCoreError, Arc, BUNDLED_CLIENT_CONNECT_TIMEOUT, BundledRuntimeActivationLease,
     ConfirmedInstalledNativeEnrollment, Mutex, NativeCredentialEnrollmentCleanup,
     NativeCredentialEnrollmentLease, PreparedInstalledNativeEnrollment,
-    ProtectedBundledRuntimeSupervisor, RuntimeFailureCode, cleanup_after_post_fence_failure,
+    ProtectedBundledRuntimeSupervisor, RuntimeFailureCode,
 };
 
 impl NativeCredentialEnrollmentLease {
@@ -53,14 +53,6 @@ impl NativeCredentialEnrollmentLease {
             .map_err(|_| AppCoreError::RuntimeUnavailable)?
             .current_credential_enrollment_intent_binding()
             .map_err(|_| AppCoreError::RuntimeUnavailable)
-    }
-
-    pub(crate) async fn abort_enrollment(&self) {
-        self.cleanup_handle().abort().await;
-    }
-
-    pub(crate) fn abort_enrollment_detached(&self) {
-        self.cleanup_handle().abort_detached();
     }
 
     async fn install_transitioned_profile(
@@ -115,29 +107,24 @@ impl NativeCredentialEnrollmentLease {
 
 impl NativeCredentialEnrollmentCleanup {
     pub(crate) async fn abort(&self) {
-        let supervisor = Arc::clone(&self.supervisor);
-        let stop = async move {
-            let _ = tauri::async_runtime::spawn_blocking(move || {
-                let _ = supervisor.lock().map(|mut value| value.stop());
-            })
-            .await;
-        };
-        let core = Arc::clone(&self.core);
-        let degrade = async move {
-            let _ = core
-                .mark_bundled_runtime_degraded(RuntimeFailureCode::ProtectedActivationUnavailable)
-                .await;
-        };
-        let _ = cleanup_after_post_fence_failure(Err::<(), _>(()), stop, degrade).await;
+        let cleanup = self.clone();
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        tauri::async_runtime::spawn(async move {
+            cleanup.stop_and_degrade().await;
+            let _ = sender.send(());
+        });
+        let _ = receiver.await;
     }
 
-    fn abort_detached(&self) {
-        let _ = self.supervisor.lock().map(|mut value| value.stop());
-        let core = Arc::clone(&self.core);
-        tauri::async_runtime::spawn(async move {
-            let _ = core
-                .mark_bundled_runtime_degraded(RuntimeFailureCode::ProtectedActivationUnavailable)
-                .await;
-        });
+    async fn stop_and_degrade(self) {
+        let supervisor = Arc::clone(&self.supervisor);
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            let _ = supervisor.lock().map(|mut value| value.stop());
+        })
+        .await;
+        let _ = self
+            .core
+            .mark_bundled_runtime_degraded(RuntimeFailureCode::ProtectedActivationUnavailable)
+            .await;
     }
 }

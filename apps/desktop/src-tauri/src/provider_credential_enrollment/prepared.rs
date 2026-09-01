@@ -37,7 +37,6 @@ pub(super) struct PreparedCredentialEnrollmentExchange {
     material: Option<SecureCredentialMaterial>,
     _renderer_binding: [u8; 32],
     native_confirmation: [u8; 32],
-    cleanup_armed: bool,
 }
 /// Trusted native inputs retained outside the renderer boundary.
 pub(super) struct NativeEnrollmentConfirmation {
@@ -50,20 +49,7 @@ pub(super) struct NativeEnrollmentConfirmation {
     pub(super) now: Instant,
 }
 impl PreparedCredentialEnrollmentExchange {
-    pub(crate) async fn after_prompt(
-        registry: &CredentialIntentRegistry,
-        disposition: SecureCredentialPromptDisposition,
-        confirmation: NativeEnrollmentConfirmation,
-    ) -> Result<Self, PreparedCredentialEnrollmentError> {
-        let cleanup = confirmation.runtime_lease.cleanup_handle();
-        let result = Self::try_after_prompt(registry, disposition, confirmation);
-        if result.is_err() {
-            cleanup.abort().await;
-        }
-        result
-    }
-
-    fn try_after_prompt(
+    pub(super) fn from_post_fence_admission(
         registry: &CredentialIntentRegistry,
         disposition: SecureCredentialPromptDisposition,
         confirmation: NativeEnrollmentConfirmation,
@@ -73,13 +59,6 @@ impl PreparedCredentialEnrollmentExchange {
         }
         let (material, disposition_tag) =
             accepted_disposition(confirmation.request.action, disposition)?;
-        if confirmation
-            .updater_lease
-            .revalidate_confirmed(&confirmation.installed)
-            .is_err()
-        {
-            return Err(PreparedCredentialEnrollmentError);
-        }
         let intent_session = confirmation.intent_session;
         let intent = issue_pending_intent(
             registry,
@@ -111,20 +90,11 @@ impl PreparedCredentialEnrollmentExchange {
             material,
             _renderer_binding: renderer_binding,
             native_confirmation,
-            cleanup_armed: true,
         })
     }
 
     pub(super) fn cleanup_handle(&self) -> NativeCredentialEnrollmentCleanup {
         self.runtime_lease.cleanup_handle()
-    }
-}
-
-impl Drop for PreparedCredentialEnrollmentExchange {
-    fn drop(&mut self) {
-        if self.cleanup_armed {
-            self.runtime_lease.abort_enrollment_detached();
-        }
     }
 }
 

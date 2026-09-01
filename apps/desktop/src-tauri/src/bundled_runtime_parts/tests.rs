@@ -181,22 +181,3 @@
         assert!(body.contains("Err(_) => self.fail_transition().await"));
         assert_eq!(body.matches("begin_bundled_runtime_restart").count(), 1);
     }
-
-    #[tokio::test]
-    async fn post_fence_fault_matrix_stops_and_degrades_without_nested_runtime() {
-        for fault in ["registry-exhausted", "updater-revalidation", "rotated-session"] {
-            let stopped = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-            let degraded = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-            let stop = Arc::clone(&stopped);
-            let degrade = Arc::clone(&degraded);
-            let result = super::cleanup_after_post_fence_failure(
-                Err::<(), _>(fault),
-                async move { stop.fetch_add(1, std::sync::atomic::Ordering::SeqCst); },
-                async move { degrade.fetch_add(1, std::sync::atomic::Ordering::SeqCst); },
-            )
-            .await;
-            assert_eq!(result, Err(fault));
-            assert_eq!(stopped.load(std::sync::atomic::Ordering::SeqCst), 1);
-            assert_eq!(degraded.load(std::sync::atomic::Ordering::SeqCst), 1);
-        }
-    }

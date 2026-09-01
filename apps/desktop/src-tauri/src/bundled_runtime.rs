@@ -155,18 +155,6 @@ pub type CredentialEnrollmentFuture = Pin<
     >,
 >;
 
-async fn cleanup_after_post_fence_failure<T, E>(
-    result: Result<T, E>,
-    stop: impl Future<Output = ()>,
-    degrade: impl Future<Output = ()>,
-) -> Result<T, E> {
-    if result.is_err() {
-        stop.await;
-        degrade.await;
-    }
-    result
-}
-
 #[path = "bundled_runtime_parts/enrollment.rs"]
 mod enrollment;
 

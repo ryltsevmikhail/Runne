@@ -24,9 +24,7 @@ impl PreparedCredentialEnrollmentExchange {
         mut self,
         registry: &CredentialIntentRegistry,
     ) -> Result<(), PreparedCredentialEnrollmentError> {
-        let result = self.run_retained(registry);
-        self.cleanup_armed = false;
-        result
+        self.run_retained(registry)
     }
 
     fn run_retained(

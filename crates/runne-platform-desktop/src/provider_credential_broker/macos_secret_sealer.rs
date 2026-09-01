@@ -10,6 +10,8 @@ use zeroize::Zeroizing;
 
 use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
 
+use super::daemon_rendezvous::AuthenticatedPairSecretHandoff;
+
 const RELAY_MAGIC: &[u8; 8] = b"GCSREL01";
 const RELAY_HEADER: usize = 9;
 const OFFER_BYTES: usize = runne_provider::CredentialSecretOfferCodec::BYTES;
@@ -20,22 +22,12 @@ const KEY_LABEL: &[u8] = b"GOCODE_CREDENTIAL_SECRET_KEY_V1\0";
 const NONCE_LABEL: &[u8] = b"GOCODE_CREDENTIAL_SECRET_NONCE_V1\0";
 
 pub(super) struct AuthenticatedPairSecretSealer {
-    daemon_public_key: [u8; 32],
-    channel: [u8; 32],
+    handoff: AuthenticatedPairSecretHandoff,
 }
 
 impl AuthenticatedPairSecretSealer {
-    pub(super) fn from_handoff(
-        daemon_public_key: [u8; 32],
-        channel: [u8; 32],
-    ) -> Result<Self, BrokerHandoffError> {
-        if daemon_public_key == [0; 32] || channel == [0; 32] {
-            return Err(BrokerHandoffError::Rejected);
-        }
-        Ok(Self {
-            daemon_public_key,
-            channel,
-        })
+    pub(super) const fn from_handoff(handoff: AuthenticatedPairSecretHandoff) -> Self {
+        Self { handoff }
     }
 
     pub(super) fn seal(
@@ -48,6 +40,7 @@ impl AuthenticatedPairSecretSealer {
     }
 
     fn verify(self, frame: &[u8]) -> Result<OfferTranscript, BrokerHandoffError> {
+        let (daemon_public_key, channel) = self.handoff.into_relay_facts();
         if frame.len() != RELAY_HEADER + OFFER_BYTES + PUBLICATION_BYTES
             || frame[..8] != *RELAY_MAGIC
             || frame[8] != 1
@@ -62,13 +55,13 @@ impl AuthenticatedPairSecretSealer {
             .map_err(|_| BrokerHandoffError::Rejected)?;
         let transcript = OfferTranscript::parse(offer)?;
         if publication[1..121] != offer[2..122]
-            || publication[121..153] != self.channel
-            || publication[153..185] != self.daemon_public_key
+            || publication[121..153] != channel
+            || publication[153..185] != daemon_public_key
         {
             return Err(BrokerHandoffError::Rejected);
         }
         let message = publication_message(publication);
-        let key = VerifyingKey::from_bytes(&self.daemon_public_key)
+        let key = VerifyingKey::from_bytes(&daemon_public_key)
             .map_err(|_| BrokerHandoffError::Rejected)?;
         let signature =
             Signature::from_slice(&publication[193..]).map_err(|_| BrokerHandoffError::Rejected)?;

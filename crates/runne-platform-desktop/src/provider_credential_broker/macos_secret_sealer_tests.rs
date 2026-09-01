@@ -17,8 +17,7 @@ fn authenticated_platform_sealer_produces_a_writer_openable_envelope() {
     let binding = binding();
     let (offer, opening) = CredentialSecretClaimOffer::prepare(&command, binding).unwrap();
     let (frame, daemon, channel) = relay(&offer);
-    let envelope = AuthenticatedPairSecretSealer::from_handoff(daemon, channel)
-        .unwrap()
+    let envelope = prepared_sealer(daemon, channel)
         .seal(&frame, Zeroizing::new(b"credential".to_vec()))
         .unwrap();
     let envelope = CredentialSecretEnvelopeCodec::decode(&envelope).unwrap();
@@ -61,8 +60,7 @@ fn platform_sealer_rejects_wrong_authenticated_facts_and_tamper() {
     let (frame, daemon, channel) = relay(&offer);
     for (key, binding) in [([9; 32], channel), (daemon, [10; 32])] {
         assert!(
-            AuthenticatedPairSecretSealer::from_handoff(key, binding)
-                .unwrap()
+            prepared_sealer(key, binding)
                 .seal(&frame, Zeroizing::new(b"credential".to_vec()))
                 .is_err()
         );
@@ -71,12 +69,31 @@ fn platform_sealer_rejects_wrong_authenticated_facts_and_tamper() {
         let mut tampered = frame;
         tampered[offset] ^= 1;
         assert!(
-            AuthenticatedPairSecretSealer::from_handoff(daemon, channel)
-                .unwrap()
+            prepared_sealer(daemon, channel)
                 .seal(&tampered, Zeroizing::new(b"credential".to_vec()))
                 .is_err()
         );
     }
+}
+
+fn prepared_sealer(
+    daemon_public_key: [u8; 32],
+    channel: [u8; 32],
+) -> AuthenticatedPairSecretSealer {
+    let (receiver, _sender) = std::os::unix::net::UnixStream::pair().unwrap();
+    let keys = runne_api::LaunchSecret::from_bytes([44; 32])
+        .unwrap()
+        .derive_keys();
+    let authenticator =
+        runne_api::CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
+    let prepared = super::super::prepare_daemon_owned_writer_endpoint_handoff(
+        receiver,
+        &authenticator,
+        channel,
+        daemon_public_key,
+    )
+    .unwrap();
+    prepared.into_pair_spawn_parts().3
 }
 
 fn relay(offer: &CredentialSecretClaimOffer) -> ([u8; 388], [u8; 32], [u8; 32]) {

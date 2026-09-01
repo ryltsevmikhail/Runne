@@ -15,10 +15,15 @@ use runne_platform_desktop::SecureCredentialPromptDisposition;
 use tauri::{AppHandle, WebviewWindow};
 
 use super::CredentialIntentIpc;
+#[path = "dispatch/post_fence.rs"]
+mod post_fence;
 #[cfg(target_os = "macos")]
 use super::host_prompt::MacOsHostCredentialPrompt;
 #[cfg(target_os = "macos")]
 use super::prepared::{NativeEnrollmentConfirmation, PreparedCredentialEnrollmentExchange};
+use post_fence::{
+    PostFenceEnrollmentDependencies, run_post_fence_branches, spawn_cleanup_supervised_transcript,
+};
 
 const NATIVE_PROMPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -78,6 +83,58 @@ pub(super) fn run_after_pair_gate<T>(
         .ok_or(DispatchFailure::Closed(
             "provider_credential_action_unsupported",
         ))
+}
+
+#[cfg(target_os = "macos")]
+struct LivePostFenceAdmission<'a> {
+    intents: &'a CredentialIntentRegistry,
+    disposition: SecureCredentialPromptDisposition,
+    window: String,
+    request: CredentialIntentIpc,
+    installed: runne_platform_desktop::ConfirmedInstalledNativeEnrollment,
+    runtime: crate::bundled_runtime::NativeCredentialEnrollmentLease,
+    updater: crate::updater_status::enrollment::NativeInstalledEnrollmentLease,
+    intent_session: Option<[u8; 32]>,
+}
+
+#[cfg(target_os = "macos")]
+impl PostFenceEnrollmentDependencies for LivePostFenceAdmission<'_> {
+    type Output = PreparedCredentialEnrollmentExchange;
+    type Error = DispatchFailure;
+
+    fn require_rotated_session(&mut self) -> Result<(), Self::Error> {
+        self.intent_session = Some(
+            self.runtime
+                .rotated_intent_session_binding()
+                .map_err(|_| DispatchFailure::Closed("provider_credential_handoff_failed"))?,
+        );
+        Ok(())
+    }
+
+    fn revalidate_updater(&mut self) -> Result<(), Self::Error> {
+        self.updater
+            .revalidate_confirmed(&self.installed)
+            .map_err(|()| DispatchFailure::Closed("provider_credential_unavailable"))
+    }
+
+    fn admit_registry(self) -> Result<Self::Output, Self::Error> {
+        PreparedCredentialEnrollmentExchange::from_post_fence_admission(
+            self.intents,
+            self.disposition,
+            NativeEnrollmentConfirmation {
+                window: self.window,
+                request: self.request,
+                installed: self.installed,
+                runtime_lease: self.runtime,
+                updater_lease: self.updater,
+                intent_session: self.intent_session.ok_or(DispatchFailure::Closed(
+                    "provider_credential_handoff_failed",
+                ))?,
+                now: std::time::Instant::now(),
+            },
+        )
+        .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -146,33 +203,28 @@ async fn dispatch_pair_inner(
         .transition_and_install(confirmed)
         .await
         .map_err(|_| DispatchFailure::Closed("provider_credential_handoff_failed"))?;
-    let Ok(intent_session) = runtime_lease.rotated_intent_session_binding() else {
-        runtime_lease.abort_enrollment().await;
-        return Err(DispatchFailure::Closed(
-            "provider_credential_handoff_failed",
-        ));
-    };
-
-    // Retain the native-only exchange; the intent capability expires bound to
-    // this exact window, generation, and session if the daemon never sees it.
-    let confirmation = NativeEnrollmentConfirmation {
-        window: window_label,
-        request,
-        installed: confirmed,
-        runtime_lease,
-        updater_lease,
-        intent_session,
-        now: std::time::Instant::now(),
-    };
-    let exchange =
-        PreparedCredentialEnrollmentExchange::after_prompt(intents, disposition, confirmation)
-            .await
-            .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))?;
+    let cleanup = runtime_lease.cleanup_handle();
+    let exchange = run_post_fence_branches(
+        LivePostFenceAdmission {
+            intents,
+            disposition,
+            window: window_label,
+            request,
+            installed: confirmed,
+            runtime: runtime_lease,
+            updater: updater_lease,
+            intent_session: None,
+        },
+        move || async move { cleanup.abort().await },
+    )
+    .await?;
     let cleanup = exchange.cleanup_handle();
     let intents = intents.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || exchange.run(&intents)).await;
-    if !matches!(result, Ok(Ok(()))) {
-        cleanup.abort().await;
+    let (result, _supervisor_completion) = spawn_cleanup_supervised_transcript(
+        move || exchange.run(&intents).map_err(|_| ()),
+        move || async move { cleanup.abort().await },
+    );
+    if !matches!(result.await, Ok(Ok(()))) {
         return Err(DispatchFailure::Closed(
             "provider_credential_exchange_rejected",
         ));
@@ -192,3 +244,7 @@ async fn dispatch_inner(
 ) -> Result<CredentialIntentProjection, DispatchFailure> {
     Err(DispatchFailure::Closed("provider_credential_unsupported"))
 }
+
+#[cfg(test)]
+#[path = "dispatch/round2_tests.rs"]
+mod round2_tests;
