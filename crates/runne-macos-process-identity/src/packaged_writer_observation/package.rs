@@ -8,19 +8,14 @@ use nix::sys::stat::Mode;
 use super::super::MacOsPackagedWriterObservationError;
 use super::artifact::{ArtifactSnapshot, RetainedArtifact};
 use open::{directory_flags, file_flags, open_absolute_directory, open_absolute_file};
+use roles::{CONTRACT, DAEMON, DESKTOP, WRITER, fixed_application_from_writer};
 
 mod open;
+mod roles;
 
-const DESKTOP: &[&str] = &["Contents", "MacOS", "runne-desktop"];
-const WRITER: &[&str] = &["Contents", "MacOS", "runne"];
-const DAEMON: &[&str] = &["Contents", "MacOS", "runned"];
-const CONTRACT: &[&str] = &[
-    "Contents",
-    "Resources",
-    "contracts",
-    "gocode-ui-client-2",
-    "bundle.json",
-];
+pub(super) use roles::PackageRole;
+#[cfg(test)]
+pub(crate) use roles::test_only_is_fixed_writer_locator;
 
 pub(crate) struct PackagedWriterArtifacts {
     application_path: PathBuf,
@@ -43,12 +38,6 @@ struct DirectorySnapshot {
     changed_nanoseconds: i64,
     modified_seconds: i64,
     modified_nanoseconds: i64,
-}
-
-#[derive(Clone, Copy)]
-pub(super) enum PackageRole {
-    Writer,
-    Daemon,
 }
 
 impl PackagedWriterArtifacts {
@@ -162,34 +151,6 @@ impl PackagedWriterArtifacts {
         }
         Ok(())
     }
-}
-
-fn fixed_application_from_writer(
-    writer: &Path,
-) -> Result<PathBuf, MacOsPackagedWriterObservationError> {
-    let macos = writer
-        .parent()
-        .ok_or(MacOsPackagedWriterObservationError::Rejected)?;
-    let contents = macos
-        .parent()
-        .ok_or(MacOsPackagedWriterObservationError::Rejected)?;
-    let application = contents
-        .parent()
-        .ok_or(MacOsPackagedWriterObservationError::Rejected)?;
-    (writer.is_absolute()
-        && writer.file_name().is_some_and(|name| name == "runne")
-        && macos.file_name().is_some_and(|name| name == "MacOS")
-        && contents.file_name().is_some_and(|name| name == "Contents")
-        && application
-            .file_name()
-            .is_some_and(|name| name == "Runne.app"))
-    .then(|| application.to_path_buf())
-    .ok_or(MacOsPackagedWriterObservationError::Rejected)
-}
-
-#[cfg(test)]
-pub(crate) fn test_only_is_fixed_writer_locator(writer: &Path) -> bool {
-    fixed_application_from_writer(writer).is_ok()
 }
 
 fn capture_role(
