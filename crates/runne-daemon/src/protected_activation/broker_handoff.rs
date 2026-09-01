@@ -6,8 +6,9 @@
 //! exchange whose daemon acknowledgement is the final frame. Every mismatch
 //! terminates the loop; the daemon never retries a consumed purpose.
 
-use std::os::unix::net::UnixStream;
 use std::sync::Arc;
+
+mod dispatch;
 
 use runne_api::{
     CredentialBrokerTransferAuthenticator, LaunchAuthorityError, ProtectedActivationKeys,
@@ -15,18 +16,18 @@ use runne_api::{
     ProviderCredentialBrokerHandoffFrame, ProviderCredentialBrokerTransferAuthority,
     is_broker_handoff_frame,
 };
-use runne_platform_desktop::provider_credential_broker::{
-    ReceivedWriterProcessMeasurements, receive_daemon_control_transport_half,
-    receive_daemon_owned_writer_measurements, send_daemon_owned_writer_endpoint,
-};
+use runne_platform_desktop::provider_credential_broker::ReceivedWriterProcessMeasurements;
+use sha2::{Digest as _, Sha256};
 
 #[cfg(target_os = "macos")]
-use runne_platform_desktop::provider_credential_broker::{
-    MacOsPeerKillCapability, capture_macos_daemon_peer_kill_capability,
-};
+use runne_platform_desktop::provider_credential_broker::MacOsPeerKillCapability;
 
 use super::{
     ProtectedActivationChannel, enrollment_control_transition::DaemonEnrollmentRendezvous,
+};
+use crate::application::provider_credential_enrollment::broker::{
+    AwaitingVerifiedWriter, PendingBrokerEndpointHandoff,
+    VerifiedMacOsWriterWithDaemonKillCapability, VerifiedWriterAwaitingDaemonKillCapability,
 };
 
 pub(crate) type HandoffTicketClock =
@@ -37,7 +38,12 @@ pub(crate) struct BrokerHandoffDispatch {
     authenticator: CredentialBrokerTransferAuthenticator,
     authority: Option<ProviderCredentialBrokerTransferAuthority>,
     context: ProviderCredentialBrokerHandoffContext,
-    rendezvous: DaemonEnrollmentRendezvous,
+    rendezvous: Option<DaemonEnrollmentRendezvous>,
+    bound_endpoint: Option<PendingBrokerEndpointHandoff>,
+    bound_writer: Option<AwaitingVerifiedWriter>,
+    verified_writer: Option<VerifiedWriterAwaitingDaemonKillCapability>,
+    expected_operation: Option<runne_provider::CredentialOperationId>,
+    launch_attempt: Option<[u8; 32]>,
     binding: [u8; 32],
     publication_public_key: [u8; 32],
     release_tuple: [u8; 32],
@@ -46,6 +52,8 @@ pub(crate) struct BrokerHandoffDispatch {
     measurements: Option<ReceivedWriterProcessMeasurements>,
     #[cfg(target_os = "macos")]
     kill: Option<MacOsPeerKillCapability>,
+    #[cfg(target_os = "macos")]
+    bound_kill: Option<VerifiedMacOsWriterWithDaemonKillCapability>,
 }
 
 impl BrokerHandoffDispatch {
@@ -53,10 +61,42 @@ impl BrokerHandoffDispatch {
     pub(crate) fn new(
         keys: &ProtectedActivationKeys,
         owned_launch: &ProtectedCredentialEnrollmentOwnedLaunchV3,
-        rendezvous: DaemonEnrollmentRendezvous,
+        mut rendezvous: DaemonEnrollmentRendezvous,
     ) -> Result<Self, LaunchAuthorityError> {
-        let binding = rendezvous.broker_authority().channel_binding();
-        let publication_public_key = rendezvous.broker_authority().publication_public_key();
+        let binding = rendezvous.channel_binding()?;
+        let publication_public_key = rendezvous.publication_public_key()?;
+        rendezvous.prepare_dispatch()?;
+        let mut dispatch = Self::from_facts(keys, owned_launch, binding, publication_public_key)?;
+        #[cfg(test)]
+        {
+            dispatch.expected_operation = Some(
+                runne_provider::CredentialOperationId::from_bytes([0xA5; 16])
+                    .map_err(|_| LaunchAuthorityError::InvalidContract)?,
+            );
+        }
+        dispatch.rendezvous = Some(rendezvous);
+        Ok(dispatch)
+    }
+
+    pub(crate) fn from_bound_enrollment(
+        keys: &ProtectedActivationKeys,
+        owned_launch: &ProtectedCredentialEnrollmentOwnedLaunchV3,
+        endpoint: PendingBrokerEndpointHandoff,
+    ) -> Result<Self, LaunchAuthorityError> {
+        let (binding, publication_public_key) = endpoint.rendezvous_facts();
+        let operation_id = endpoint.operation_id();
+        let mut dispatch = Self::from_facts(keys, owned_launch, binding, publication_public_key)?;
+        dispatch.bound_endpoint = Some(endpoint);
+        dispatch.expected_operation = Some(operation_id);
+        Ok(dispatch)
+    }
+
+    fn from_facts(
+        keys: &ProtectedActivationKeys,
+        owned_launch: &ProtectedCredentialEnrollmentOwnedLaunchV3,
+        binding: [u8; 32],
+        publication_public_key: [u8; 32],
+    ) -> Result<Self, LaunchAuthorityError> {
         let context = ProviderCredentialBrokerHandoffContext::new(
             *owned_launch.stable().authority_id(),
             *owned_launch.session_id(),
@@ -86,7 +126,14 @@ impl BrokerHandoffDispatch {
             measurements: None,
             #[cfg(target_os = "macos")]
             kill: None,
-            rendezvous,
+            #[cfg(target_os = "macos")]
+            bound_kill: None,
+            rendezvous: None,
+            bound_endpoint: None,
+            bound_writer: None,
+            verified_writer: None,
+            expected_operation: None,
+            launch_attempt: None,
         })
     }
 
@@ -117,6 +164,16 @@ impl BrokerHandoffDispatch {
             [0; 16],
             now,
         )?;
+        if purpose == ProviderCredentialBrokerHandoffFrame::PURPOSE_ENDPOINT {
+            let operation = self
+                .expected_operation
+                .ok_or(LaunchAuthorityError::InvalidContract)?;
+            let mut launch = Sha256::new();
+            launch.update(b"gocode/provider-credential-enrollment/writer-launch-attempt/v1\0");
+            launch.update(frame);
+            launch.update(operation.as_bytes());
+            self.launch_attempt = Some(launch.finalize().into());
+        }
         channel.write_control_frame(&offer.ready(&self.authenticator).encode_frame())?;
         self.offer = Some(offer);
         self.run_purpose(purpose, channel)?;
@@ -124,116 +181,37 @@ impl BrokerHandoffDispatch {
         Ok(true)
     }
 
-    /// Exact writer kill authority retained after the desktop relinquished.
+    /// Terminates only the exact writer authority retained after desktop ACK.
     #[cfg(target_os = "macos")]
-    pub(crate) fn take_kill(&mut self) -> Option<MacOsPeerKillCapability> {
-        self.kill.take()
-    }
-
-    fn run_purpose(
-        &mut self,
-        purpose: u8,
-        channel: &mut ProtectedActivationChannel,
-    ) -> Result<(), LaunchAuthorityError> {
-        match purpose {
-            ProviderCredentialBrokerHandoffFrame::PURPOSE_ENDPOINT => {
-                let half = self.receive_half(channel)?;
-                let writer = self
-                    .rendezvous
-                    .take_writer_endpoint()
-                    .ok_or(LaunchAuthorityError::InvalidContract)?;
-                send_daemon_owned_writer_endpoint(
-                    half,
-                    writer,
-                    self.author()?,
-                    self.binding,
-                    self.publication_public_key,
-                )
-                .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
-            }
-            ProviderCredentialBrokerHandoffFrame::PURPOSE_EVIDENCE => {
-                let half = self.receive_half(channel)?;
-                let authority = self
-                    .authority
-                    .take()
-                    .ok_or(LaunchAuthorityError::InvalidContract)?;
-                let (measurements, authority) = receive_daemon_owned_writer_measurements(
-                    half,
-                    authority,
-                    self.release_tuple,
-                    self.binding,
-                    self.publication_public_key,
-                )
-                .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
-                if !measurements.matches_daemon_owned_release(
-                    self.release_tuple,
-                    self.binding,
-                    self.publication_public_key,
-                ) {
-                    return Err(LaunchAuthorityError::OwnershipMismatch);
-                }
-                self.authority = Some(authority);
-                self.measurements = Some(measurements);
-            }
-            ProviderCredentialBrokerHandoffFrame::PURPOSE_KILL => self.run_kill_purpose(channel)?,
-            _ => return Err(LaunchAuthorityError::InvalidContract),
+    pub(crate) fn terminate_retained_writer(&mut self) {
+        if let Some(writer) = self.bound_kill.take() {
+            let _ = writer.terminate_exact_writer();
         }
-        Ok(())
+        if let Some(kill) = self.kill.take() {
+            let _ = kill.terminate_exact_peer();
+        }
     }
 
     #[cfg(target_os = "macos")]
-    fn run_kill_purpose(
-        &mut self,
-        channel: &mut ProtectedActivationChannel,
-    ) -> Result<(), LaunchAuthorityError> {
-        let half = self.receive_half(channel)?;
-        let measurements = self
-            .measurements
-            .take()
-            .ok_or(LaunchAuthorityError::InvalidContract)?;
-        let pending = capture_macos_daemon_peer_kill_capability(
-            self.rendezvous.broker_authority().endpoint(),
-            measurements,
-            self.author()?,
-        )
-        .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
-        let capability = pending
-            .complete_desktop_relinquishment(half, self.author()?)
-            .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
-        let acknowledgement = self
-            .offer
-            .take()
-            .ok_or(LaunchAuthorityError::InvalidContract)?
-            .acknowledgement(&self.authenticator);
-        channel.write_control_frame(&acknowledgement.encode_frame())?;
-        self.kill = Some(capability);
-        Ok(())
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    fn run_kill_purpose(
-        &mut self,
-        _channel: &mut ProtectedActivationChannel,
-    ) -> Result<(), LaunchAuthorityError> {
-        Err(LaunchAuthorityError::UnsupportedPlatformBackend)
-    }
-
-    fn author(&self) -> Result<&ProviderCredentialBrokerTransferAuthority, LaunchAuthorityError> {
-        self.authority
-            .as_ref()
-            .ok_or(LaunchAuthorityError::InvalidContract)
-    }
-
-    /// Receives exactly one offered daemon-owned half over the channel clone.
-    fn receive_half(
+    pub(crate) fn verified_writer_facts(
         &self,
-        channel: &mut ProtectedActivationChannel,
-    ) -> Result<UnixStream, LaunchAuthorityError> {
-        let mut stream = channel
-            .unix_stream()
-            .try_clone()
-            .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)?;
-        receive_daemon_control_transport_half(&mut stream, self.author()?, self.binding)
-            .map_err(|_| LaunchAuthorityError::OwnershipMismatch)
+    ) -> Option<&runne_platform_desktop::provider_credential_broker::VerifiedWriterMeasurementFacts>
+    {
+        self.bound_kill
+            .as_ref()
+            .map(VerifiedMacOsWriterWithDaemonKillCapability::verified_measurement_facts)
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn verified_writer_launch_attempt(&self) -> Option<[u8; 32]> {
+        self.bound_kill.as_ref()?;
+        self.launch_attempt
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn take_verified_writer(
+        &mut self,
+    ) -> Option<VerifiedMacOsWriterWithDaemonKillCapability> {
+        self.bound_kill.take()
     }
 }

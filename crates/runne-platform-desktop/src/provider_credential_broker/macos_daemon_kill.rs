@@ -7,7 +7,9 @@ use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
 
 pub use runne_macos_process_identity::MacOsPeerKillReadyProof;
 
-use super::{ReceivedWriterProcessMeasurements, macos_kill_exchange};
+use super::{
+    ReceivedWriterProcessMeasurements, VerifiedWriterMeasurementFacts, macos_kill_exchange,
+};
 
 /// Opaque exact peer kill capability captured from a daemon-owned Unix stream.
 ///
@@ -16,11 +18,13 @@ use super::{ReceivedWriterProcessMeasurements, macos_kill_exchange};
 /// at capture time.
 pub struct MacOsPeerKillPending {
     inner: runne_macos_process_identity::MacOsPeerKillPending,
+    measurements: VerifiedWriterMeasurementFacts,
 }
 
 /// Kill-enabled peer capability minted only after authenticated relinquishment.
 pub struct MacOsPeerKillCapability {
     inner: runne_macos_process_identity::MacOsPeerKillCapability,
+    measurements: VerifiedWriterMeasurementFacts,
 }
 
 /// Captures a kill capability for the exact writer peer on one daemon stream.
@@ -52,9 +56,16 @@ impl MacOsPeerKillPending {
         let ready = self.issue_ready(authority)?.to_exact_wire();
         macos_kill_exchange::write_one_shot(&mut transport, &ready)?;
         let relinquished = macos_kill_exchange::read_one_shot::<256>(&mut transport)?;
-        self.inner
+        let Self {
+            inner,
+            measurements,
+        } = self;
+        inner
             .enable_after_relinquished_wire(authority, &relinquished)
-            .map(|inner| MacOsPeerKillCapability { inner })
+            .map(|inner| MacOsPeerKillCapability {
+                inner,
+                measurements,
+            })
             .map_err(map_native)
     }
 
@@ -77,14 +88,27 @@ impl MacOsPeerKillPending {
         authority: &ProviderCredentialBrokerTransferAuthority,
         proof: &ProviderCredentialBrokerKillRelinquishedProof,
     ) -> Result<MacOsPeerKillCapability, BrokerHandoffError> {
-        self.inner
+        let Self {
+            inner,
+            measurements,
+        } = self;
+        inner
             .enable_after_relinquished(authority, proof)
-            .map(|inner| MacOsPeerKillCapability { inner })
+            .map(|inner| MacOsPeerKillCapability {
+                inner,
+                measurements,
+            })
             .map_err(map_native)
     }
 }
 
 impl MacOsPeerKillCapability {
+    /// Returns facts only after kernel peer capture and authenticated relinquishment.
+    #[must_use]
+    pub const fn verified_measurement_facts(&self) -> &VerifiedWriterMeasurementFacts {
+        &self.measurements
+    }
+
     /// Sends SIGKILL only to the captured, still-identical Unix peer.
     ///
     /// # Errors
@@ -114,6 +138,7 @@ fn capture(
     authority: &ProviderCredentialBrokerTransferAuthority,
     missing_symbol: bool,
 ) -> Result<MacOsPeerKillPending, BrokerHandoffError> {
+    let measurement_facts = measurements.verified_facts();
     #[cfg(test)]
     let capability = runne_macos_process_identity::test_only_capture_local_peer_kill_capability(
         transport,
@@ -131,7 +156,10 @@ fn capture(
         )
     };
     capability
-        .map(|inner| MacOsPeerKillPending { inner })
+        .map(|inner| MacOsPeerKillPending {
+            inner,
+            measurements: measurement_facts,
+        })
         .map_err(map_native)
 }
 

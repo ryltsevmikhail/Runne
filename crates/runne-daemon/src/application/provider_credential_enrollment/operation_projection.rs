@@ -1,11 +1,3 @@
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the protected V2 host composes operation projections after Task 8 admission wiring"
-    )
-)]
-
 use runne_api::{
     ProviderCredentialEnrollmentHostError, ProviderCredentialOperationKindV2,
     ProviderCredentialOperationSnapshotV2, ProviderCredentialOperationStateV2,

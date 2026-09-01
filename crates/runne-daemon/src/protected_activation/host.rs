@@ -194,6 +194,7 @@ fn enrollment_transition_composition(
         facts.capabilities,
         profile_directory.to_path_buf(),
         super::control_v3::macos_continuous_ticket_clock(),
+        Some(facts.credential_enrollment_control),
     );
     Ok(Some((composition, facts.installation)))
 }

@@ -19,6 +19,10 @@ impl std::fmt::Debug for VerifiedProtectedCredentialEnrollmentRequest {
 
 impl VerifiedProtectedCredentialEnrollmentRequest {
     #[must_use]
+    pub const fn protected_launch_authority_id(&self) -> [u8; 16] {
+        self.binding.protected_launch_authority_id
+    }
+    #[must_use]
     pub const fn request_digest(&self) -> [u8; 32] {
         self.request_digest
     }
@@ -29,6 +33,34 @@ impl VerifiedProtectedCredentialEnrollmentRequest {
     #[must_use]
     pub const fn protected_session_id(&self) -> [u8; 16] {
         self.binding.protected_session_id
+    }
+    #[must_use]
+    pub const fn daemon_instance_id(&self) -> [u8; 16] {
+        self.binding.daemon_instance_id
+    }
+    #[must_use]
+    pub const fn daemon_launch_generation(&self) -> u64 {
+        self.binding.daemon_launch_generation
+    }
+    #[must_use]
+    pub const fn desktop_supervisor_generation(&self) -> u64 {
+        self.binding.desktop_supervisor_generation
+    }
+    #[must_use]
+    pub const fn release_tuple_digest(&self) -> [u8; 32] {
+        self.binding.release_tuple_digest
+    }
+    #[must_use]
+    pub const fn tauri_peer_process_evidence_digest(&self) -> [u8; 32] {
+        self.binding.tauri_peer_process_evidence_digest
+    }
+    #[must_use]
+    pub const fn native_confirmation_digest(&self) -> [u8; 32] {
+        self.binding.native_confirmation_digest
+    }
+    #[must_use]
+    pub const fn broker_process_evidence_digest(&self) -> [u8; 32] {
+        self.binding.broker_process_evidence_digest
     }
     #[must_use]
     pub const fn action_provider_revision_binding(&self) -> [u8; 32] {
@@ -45,6 +77,10 @@ impl VerifiedProtectedCredentialEnrollmentRequest {
     #[must_use]
     pub const fn sequence(&self) -> u64 {
         self.sequence
+    }
+    #[must_use]
+    pub const fn expires_at_unix_millis(&self) -> u64 {
+        self.binding.expires_at_unix_millis
     }
     #[must_use]
     pub(crate) const fn request_proof_binding(&self) -> [u8; 32] {

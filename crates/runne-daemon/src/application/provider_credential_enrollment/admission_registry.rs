@@ -12,12 +12,12 @@ use runne_api::{
 
 const MAX_PENDING_ADMISSIONS: usize = 64;
 
-/// Daemon-owned one-use bridge from protected control to a V2 HTTP request.
+/// Daemon-owned one-use bridge from protected control to an exact command.
 ///
 /// The registry retains only a native-intent digest and non-Serde values. A
 /// matching HTTP handoff removes the entry before returning authority material.
 #[allow(dead_code)]
-pub(crate) struct PendingCredentialHttpAdmissions {
+pub(crate) struct PendingCredentialAdmissions {
     issuer: ProviderCredentialRequestAuthorityIssuer,
     state: Mutex<PendingCredentialHttpAdmissionState>,
 }
@@ -38,7 +38,7 @@ struct PendingCredentialHttpAdmission {
 }
 
 #[allow(dead_code)]
-impl PendingCredentialHttpAdmissions {
+impl PendingCredentialAdmissions {
     #[must_use]
     pub(super) fn new(issuer: ProviderCredentialRequestAuthorityIssuer) -> Self {
         Self {

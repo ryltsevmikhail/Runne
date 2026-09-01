@@ -222,6 +222,29 @@ fn fixture_composition_admits_only_a_current_signed_qualified_release() {
 }
 
 #[test]
+fn qualified_admission_retains_distinct_measurement_sources() {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let fixture = fixture(now + 60);
+    let admission = verified_admission(
+        &fixture.profile,
+        &fixture.paths,
+        &fixture.trust,
+        &fixture.policy,
+    )
+    .unwrap();
+    let candidate = admission.candidate_source_sha256.unwrap();
+    let manifest = admission.target_manifest_sha256.unwrap();
+    let qualification = admission
+        .qualification
+        .retained_qualification_binding_digest()
+        .unwrap();
+    let sources = [candidate, manifest, qualification, admission.release_tuple_sha256];
+    for (index, source) in sources.iter().enumerate() {
+        assert!(sources[index + 1..].iter().all(|other| other != source));
+    }
+}
+
+#[test]
 fn fixture_composition_closes_for_noncommitted_corrupt_binding_rollback_or_expiry() {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
     let first = fixture(now + 60); first.journal.clear().unwrap(); assert!(verify(&first).is_none());

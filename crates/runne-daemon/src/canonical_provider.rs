@@ -43,6 +43,7 @@ use crate::error::DaemonError;
 
 mod activation_provenance;
 mod composition;
+mod composition_enrollment;
 mod composition_telemetry;
 mod credential_reader;
 #[cfg(test)]

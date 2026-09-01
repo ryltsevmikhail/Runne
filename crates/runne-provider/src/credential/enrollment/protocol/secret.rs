@@ -3,6 +3,7 @@ mod codec;
 mod crypto;
 mod publication;
 mod relay;
+mod relay_frame;
 
 #[cfg(test)]
 mod tests;
@@ -16,6 +17,13 @@ pub use publication::CredentialSecretPublicationSigner as DaemonCredentialSecret
 #[cfg(feature = "test-support")]
 pub(crate) use publication::verify_for_test as verify_publication_for_test;
 pub use publication::{CredentialSecretPublication, CredentialSecretPublicationCodec};
+pub use relay_frame::CredentialSecretRelayFrameCodec;
+
+#[cfg(feature = "platform-desktop-internal")]
+#[doc(hidden)]
+pub mod platform_desktop_internal {
+    pub use super::relay_frame::AuthenticatedCredentialSecretRelaySealer;
+}
 
 /// Test-only sealed Pair relay with no signer or verifier escape hatch.
 #[cfg(feature = "test-support")]

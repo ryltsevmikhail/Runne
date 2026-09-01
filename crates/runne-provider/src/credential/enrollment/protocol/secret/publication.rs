@@ -118,9 +118,16 @@ impl CredentialSecretPublicationVerifier {
     /// Binds verification to the authenticated daemon key and live rendezvous channel.
     #[must_use]
     pub(crate) fn new(daemon_public_key: [u8; 32], channel: &BrokerChannelBinding) -> Self {
+        Self::from_authenticated_digest(daemon_public_key, channel.digest())
+    }
+
+    pub(super) const fn from_authenticated_digest(
+        daemon_public_key: [u8; 32],
+        channel: CredentialBindingDigest,
+    ) -> Self {
         Self {
             daemon_public_key,
-            channel: channel.digest(),
+            channel,
         }
     }
 

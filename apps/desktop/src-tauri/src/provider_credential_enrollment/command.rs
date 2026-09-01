@@ -20,6 +20,24 @@ pub struct CredentialIntentIpc {
 }
 
 impl CredentialIntentIpc {
+    pub(crate) const fn supported_d1_1a(self) -> bool {
+        matches!(self.action, ProviderCredentialEnrollmentActionV2::Pair)
+    }
+
+    pub(crate) const fn writer_handoff_mode(
+        self,
+    ) -> runne_platform_desktop::CredentialWriterHandoffMode {
+        match self.action {
+            ProviderCredentialEnrollmentActionV2::Pair => {
+                runne_platform_desktop::CredentialWriterHandoffMode::Pair
+            }
+            ProviderCredentialEnrollmentActionV2::Revoke
+            | ProviderCredentialEnrollmentActionV2::MigrateLegacy => {
+                runne_platform_desktop::CredentialWriterHandoffMode::ControlOnly
+            }
+        }
+    }
+
     pub(crate) fn valid(self) -> bool {
         self.expected_revision != 0
             && self.renderer_generation != 0
@@ -119,6 +137,71 @@ mod tests {
             assert_eq!(prompt.provider(), CredentialPromptProvider::DeepSeek);
             assert_eq!(prompt.action(), expected);
             assert_eq!(prompt.expected_revision(), 7);
+        }
+    }
+
+    #[test]
+    fn only_pair_selects_the_native_secret_relay_handoff() {
+        use runne_platform_desktop::CredentialWriterHandoffMode;
+
+        for (action, expected) in [
+            (
+                ProviderCredentialEnrollmentActionV2::Pair,
+                CredentialWriterHandoffMode::Pair,
+            ),
+            (
+                ProviderCredentialEnrollmentActionV2::Revoke,
+                CredentialWriterHandoffMode::ControlOnly,
+            ),
+            (
+                ProviderCredentialEnrollmentActionV2::MigrateLegacy,
+                CredentialWriterHandoffMode::ControlOnly,
+            ),
+        ] {
+            let request = CredentialIntentIpc {
+                provider: ProviderCredentialProviderV2::OpenAi,
+                action,
+                expected_revision: 7,
+                renderer_generation: 4,
+                verification_kind: None,
+            };
+            assert_eq!(request.writer_handoff_mode(), expected);
+        }
+    }
+
+    #[test]
+    fn d1_1a_rejects_revoke_and_migration_before_native_work() {
+        for action in [
+            ProviderCredentialEnrollmentActionV2::Revoke,
+            ProviderCredentialEnrollmentActionV2::MigrateLegacy,
+        ] {
+            assert!(
+                !CredentialIntentIpc {
+                    provider: ProviderCredentialProviderV2::OpenAi,
+                    action,
+                    expected_revision: 7,
+                    renderer_generation: 4,
+                    verification_kind: None,
+                }
+                .supported_d1_1a()
+            );
+        }
+    }
+
+    #[test]
+    fn unsupported_action_gate_precedes_prompt_transition_and_writer() {
+        let source = include_str!("dispatch.rs");
+        let gate = source.find("!request.supported_d1_1a()").unwrap();
+        for later in [
+            "prepare_installed_native_enrollment",
+            "prompt.prompt",
+            "transition_and_install",
+            "exchange.run",
+        ] {
+            assert!(
+                gate < source.find(later).unwrap(),
+                "gate must precede {later}"
+            );
         }
     }
 }

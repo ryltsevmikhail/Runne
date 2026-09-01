@@ -14,13 +14,6 @@ use super::CredentialIntentIpc;
 const MAX_INTENTS: usize = 64;
 const MAX_TTL: Duration = Duration::from_secs(30);
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the trusted prompt consumes every binding before daemon handoff"
-    )
-)]
 struct IntentEntry {
     window: String,
     generation: u64,
@@ -30,13 +23,6 @@ struct IntentEntry {
 }
 
 /// Host-only one-use native intent; its ID has no Serde representation.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "only the trusted prompt can mint a capability before daemon handoff"
-    )
-)]
 pub struct NativeCredentialIntent {
     id: String,
     expires: Instant,
@@ -55,22 +41,8 @@ impl fmt::Debug for NativeCredentialIntent {
 }
 
 /// Host-only consumed intent accepted only by the protected daemon handoff.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "only the protected daemon handoff receives a consumed native intent"
-    )
-)]
 pub struct ConsumedCredentialIntent(String);
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "only the protected daemon handoff reads the internal opaque identifier"
-    )
-)]
 impl ConsumedCredentialIntent {
     pub fn daemon_id(&self) -> &str {
         &self.0
@@ -134,13 +106,6 @@ impl CredentialIntentRegistry {
         Ok(NativeCredentialIntent { id, expires })
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the protected daemon handoff consumes this after native confirmation"
-        )
-    )]
     pub fn consume(
         &self,
         intent: NativeCredentialIntent,
@@ -267,5 +232,19 @@ mod tests {
                 .consume(intent, "main", 4, request, [9; 32], now)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn v2_intent_binding_cannot_substitute_for_rotated_v3_session() {
+        let registry = CredentialIntentRegistry::new(Duration::from_secs(1)).unwrap();
+        let now = Instant::now();
+        let request = request();
+        let intent = registry.issue("main", 4, request, [3; 32], now).unwrap();
+        assert!(
+            registry
+                .consume(intent, "main", 4, request, [2; 32], now)
+                .is_err()
+        );
+        assert_eq!(registry.pending_len(), 1);
     }
 }

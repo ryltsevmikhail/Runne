@@ -19,6 +19,8 @@ pub struct NativeEnrollmentTupleAdmission {
     pub(super) writer_sha256: [u8; 32],
     pub(super) daemon_sha256: [u8; 32],
     pub(super) release_tuple_sha256: [u8; 32],
+    pub(super) candidate_source_sha256: Option<[u8; 32]>,
+    pub(super) target_manifest_sha256: Option<[u8; 32]>,
     pub(super) qualification: NativeEnrollmentQualification,
     pub(super) macos_desktop_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
     pub(super) macos_writer_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
@@ -72,6 +74,10 @@ impl VerifiedUpdateV2 {
                 || tuple.inner_tuple_digest(),
                 runne_api::SignedInstalledReleaseCandidateV2::release_binding_digest,
             ),
+            candidate_source_sha256: candidate
+                .map(|value| value.native_enrollment_tuple().candidate_digest()),
+            target_manifest_sha256: candidate
+                .map(runne_api::SignedInstalledReleaseCandidateV2::target_manifest_digest),
             qualification,
             macos_desktop_code_identity: desktop,
             macos_writer_code_identity: writer,

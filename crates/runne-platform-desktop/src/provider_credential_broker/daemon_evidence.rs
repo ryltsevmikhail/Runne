@@ -17,6 +17,9 @@ use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
 
 use super::WriterProcessEvidence;
 
+mod facts;
+pub use facts::VerifiedWriterMeasurementFacts;
+
 const CHALLENGE_BYTES: usize = 128;
 const RECORD_BYTES: usize = CHALLENGE_BYTES + 128;
 const FRAME_BYTES: usize = RECORD_BYTES + 32;
@@ -31,6 +34,7 @@ pub struct ReceivedWriterProcessMeasurements {
     release_tuple: [u8; 32],
     channel: [u8; 32],
     publication_public_key: [u8; 32],
+    writer_kill_public_key: [u8; 32],
     witness: ProviderCredentialBrokerWriterEvidenceWitness,
 }
 
@@ -222,6 +226,9 @@ pub fn receive_daemon_owned_writer_measurements(
         release_tuple: expected_release_tuple,
         channel: expected_channel,
         publication_public_key: expected_publication_public_key,
+        writer_kill_public_key: frame[224..256]
+            .try_into()
+            .map_err(|_| BrokerHandoffError::Rejected)?,
         witness,
     };
     if !measurements.matches_daemon_owned_release(

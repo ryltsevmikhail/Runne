@@ -143,10 +143,10 @@ fn prepared_daemon_endpoint_tampering_is_rejected_before_writer_handoff() {
     )
     .unwrap();
 
-    assert_eq!(
+    assert!(matches!(
         sender_thread.join().unwrap(),
         Err(BrokerHandoffError::Rejected)
-    );
+    ));
     drop(prepared);
 }
 
@@ -173,9 +173,9 @@ fn prepared_daemon_endpoint_rejects_substituted_publication_key_before_response(
     )
     .unwrap();
 
-    assert_eq!(
+    assert!(matches!(
         sender_thread.join().unwrap(),
         Err(BrokerHandoffError::Rejected)
-    );
+    ));
     drop(prepared);
 }

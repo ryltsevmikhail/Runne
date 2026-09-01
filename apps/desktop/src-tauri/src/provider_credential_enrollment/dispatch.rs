@@ -37,12 +37,14 @@ pub async fn dispatch_credential_intent(
     intents: &CredentialIntentRegistry,
     request: CredentialIntentIpc,
 ) -> Result<CredentialIntentProjection, DispatchError> {
-    dispatch_inner(app, window, lifecycle, updater, intents, request)
-        .await
-        .or_else(|error| match error {
-            DispatchFailure::Cancelled => Ok(CredentialIntentProjection::Cancelled),
-            DispatchFailure::Closed(code) => Err(code),
-        })
+    Box::pin(dispatch_inner(
+        app, window, lifecycle, updater, intents, request,
+    ))
+    .await
+    .or_else(|error| match error {
+        DispatchFailure::Cancelled => Ok(CredentialIntentProjection::Cancelled),
+        DispatchFailure::Closed(code) => Err(code),
+    })
 }
 
 enum DispatchFailure {
@@ -61,6 +63,12 @@ async fn dispatch_inner(
     request: CredentialIntentIpc,
 ) -> Result<CredentialIntentProjection, DispatchFailure> {
     use runne_platform_desktop::SecureCredentialPromptPort as _;
+
+    if !request.supported_d1_1a() {
+        return Err(DispatchFailure::Closed(
+            "provider_credential_action_unsupported",
+        ));
+    }
 
     // Prompt-time leases: runtime operation fence and retained updater fence.
     let mut updater_lease = updater
@@ -110,21 +118,18 @@ async fn dispatch_inner(
         .revalidate_confirmed(&confirmed)
         .map_err(|()| DispatchFailure::Closed("provider_credential_unavailable"))?;
 
-    // Transition the exact daemon to V3 and hand off the verified writer.
-    let supervisor = runtime_lease.supervisor_handle();
-    let confirmed = tauri::async_runtime::spawn_blocking(move || {
-        {
-            let mut supervisor = supervisor
-                .lock()
-                .map_err(|_| DispatchFailure::Closed("provider_credential_handoff_failed"))?;
-            supervisor
-                .begin_credential_enrollment_handoff(&confirmed)
-                .map_err(|_| DispatchFailure::Closed("provider_credential_handoff_failed"))?;
-        }
-        Ok::<_, DispatchFailure>(confirmed)
-    })
-    .await
-    .map_err(|_: tauri::Error| DispatchFailure::Closed("provider_credential_handoff_failed"))??;
+    // Fence the V2 AppCore generation, transition to V3, and install the
+    // rotated authenticated client before durable Begin or writer spawn.
+    let confirmed = runtime_lease
+        .transition_and_install(confirmed)
+        .await
+        .map_err(|_| DispatchFailure::Closed("provider_credential_handoff_failed"))?;
+    let Ok(intent_session) = runtime_lease.rotated_intent_session_binding() else {
+        runtime_lease.abort_enrollment();
+        return Err(DispatchFailure::Closed(
+            "provider_credential_handoff_failed",
+        ));
+    };
 
     // Retain the native-only exchange; the intent capability expires bound to
     // this exact window, generation, and session if the daemon never sees it.
@@ -134,12 +139,20 @@ async fn dispatch_inner(
         installed: confirmed,
         runtime_lease,
         updater_lease,
+        intent_session,
         now: std::time::Instant::now(),
     };
-    let _exchange =
+    let exchange =
         PreparedCredentialEnrollmentExchange::after_prompt(intents, disposition, confirmation)
             .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))?;
-    Ok(CredentialIntentProjection::Pending)
+    let intents = intents.clone();
+    tauri::async_runtime::spawn_blocking(move || exchange.run(&intents))
+        .await
+        .map_err(|_: tauri::Error| {
+            DispatchFailure::Closed("provider_credential_exchange_rejected")
+        })?
+        .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))?;
+    Ok(CredentialIntentProjection::Completed)
 }
 
 #[cfg(not(target_os = "macos"))]

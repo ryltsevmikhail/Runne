@@ -106,7 +106,7 @@ def find_native_writer_bootstrap_dependency_violations(
             "dev",
             MACOS_PROCESS_IDENTITY_TARGET,
             "=1.1.4",
-            ("net",),
+            ("net", "pipe"),
             "registry",
             None,
         ),

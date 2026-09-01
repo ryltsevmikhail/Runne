@@ -14,14 +14,31 @@
 ))]
 use runne_api::{ProviderCredentialBrokerHandoffContext, ProviderCredentialBrokerHandoffFrame};
 
+/// Closed native writer launch profile. Only Pair may receive a secret relay.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CredentialWriterHandoffMode {
+    /// Installs fd3 and retains one authenticated secret relay.
+    Pair,
+    /// Installs no fd3 and exposes no secret relay.
+    ControlOnly,
+}
+
 /// Desktop-held state after the daemon acknowledged the kill exchange.
 #[cfg(target_os = "macos")]
 pub struct CredentialWriterHandoff {
     owner: crate::provider_credential_broker::MacOsWriterReapOnlyOwner,
+    pair_relay: Option<crate::provider_credential_broker::MacOsAuthenticatedPairSecretRelay>,
 }
 
 #[cfg(target_os = "macos")]
 impl CredentialWriterHandoff {
+    /// Takes the one-shot secret relay only when this handoff was created for Pair.
+    pub const fn take_pair_secret_relay(
+        &mut self,
+    ) -> Option<crate::provider_credential_broker::MacOsAuthenticatedPairSecretRelay> {
+        self.pair_relay.take()
+    }
+
     /// Reaps the exact writer after the daemon owns its kill authority.
     ///
     /// # Errors
@@ -60,6 +77,7 @@ impl ProtectedBundledRuntimeProcess {
     pub fn run_credential_writer_handoff(
         &mut self,
         writer_launch: crate::VerifiedMacOsWriterLaunch,
+        mode: CredentialWriterHandoffMode,
     ) -> Result<CredentialWriterHandoff, ProtectedBundledRuntimeError> {
         if self.graceful_requested {
             return Err(ProtectedBundledRuntimeError::InvalidState);
@@ -69,7 +87,7 @@ impl ProtectedBundledRuntimeProcess {
         };
         let authenticator =
             CredentialBrokerTransferAuthenticator::from_protected_activation(&self.keys);
-        let handoff = self.drive_writer_handoff(writer_launch, facts, &authenticator);
+        let handoff = self.drive_writer_handoff(writer_launch, mode, facts, &authenticator);
         if handoff.is_err() {
             self.poison_root_transport();
         }
@@ -79,6 +97,7 @@ impl ProtectedBundledRuntimeProcess {
     fn drive_writer_handoff(
         &mut self,
         writer_launch: crate::VerifiedMacOsWriterLaunch,
+        mode: CredentialWriterHandoffMode,
         facts: EnrollmentBrokerFacts,
         authenticator: &CredentialBrokerTransferAuthenticator,
     ) -> Result<CredentialWriterHandoff, ProtectedBundledRuntimeError> {
@@ -111,12 +130,24 @@ impl ProtectedBundledRuntimeProcess {
                 facts.publication_public_key(),
             )
             .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        let writer =
-            crate::provider_credential_broker::spawn_macos_verified_writer_from_prepared_daemon_handoff(
-                writer_launch,
-                prepared,
-            )
-            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let (writer, pair_relay) = match mode {
+            CredentialWriterHandoffMode::Pair => {
+                let (writer, relay) = crate::provider_credential_broker::spawn_macos_verified_pair_writer_from_prepared_daemon_handoff(
+                    writer_launch,
+                    prepared,
+                )
+                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+                (writer, Some(relay))
+            }
+            CredentialWriterHandoffMode::ControlOnly => (
+                crate::provider_credential_broker::spawn_macos_verified_writer_from_prepared_daemon_handoff(
+                    writer_launch,
+                    prepared,
+                )
+                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?,
+                None,
+            ),
+        };
 
         // Purpose 2: offer the evidence transport and answer its challenge.
         self.offer_broker_transport(
@@ -163,6 +194,7 @@ impl ProtectedBundledRuntimeProcess {
         .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
         Ok(CredentialWriterHandoff {
             owner: outcome.into_reap_only_owner(),
+            pair_relay,
         })
     }
 

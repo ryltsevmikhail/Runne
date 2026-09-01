@@ -171,6 +171,9 @@
 //! }
 //! ```
 //! ```compile_fail
+//! use runne_provider::AuthenticatedCredentialSecretRelaySealer;
+//! ```
+//! ```compile_fail
 //! use runne_provider::{
 //!     AuthorizedCredentialSecretOpening, CredentialDecryptedMaterial,
 //!     CredentialSecretPublicationVerifier, OpenedCredentialSecretEffect,
@@ -232,10 +235,10 @@ pub use credential::{
     CredentialReadinessObservation, CredentialReadinessRevision, CredentialRecoveryWork,
     CredentialReleaseMigrationBinding, CredentialSafeSnapshot, CredentialSecretClaimOffer,
     CredentialSecretEnvelopeCodec, CredentialSecretInputPresence, CredentialSecretOfferCodec,
-    CredentialSecretPublication, CredentialSecretPublicationCodec, CredentialTerminalDisposition,
-    CredentialTicketAttempt, CredentialTransitionEvidence, CredentialVerificationCapability,
-    CredentialVerificationContext, CredentialVerificationKind, CredentialVerificationLease,
-    CredentialVerificationObservation, CredentialVerificationResult,
+    CredentialSecretPublication, CredentialSecretPublicationCodec, CredentialSecretRelayFrameCodec,
+    CredentialTerminalDisposition, CredentialTicketAttempt, CredentialTransitionEvidence,
+    CredentialVerificationCapability, CredentialVerificationContext, CredentialVerificationKind,
+    CredentialVerificationLease, CredentialVerificationObservation, CredentialVerificationResult,
     CredentialVerificationSnapshot, CredentialVerifierRevision, CredentialVersionRef,
     CredentialVersionState, CredentialWriterAuthorityPair, CredentialWriterClaimIssuer,
     CredentialWriterCommandKindV1, CredentialWriterCommandScopeV1, CredentialWriterEffectAuthority,
@@ -254,6 +257,13 @@ pub use credential::{
     WriterExecutableIdentity, WriterIdentityMigrationPhase, WriterLaunchId,
     WriterProcessHandleIdentity, WriterProcessStartIdentity, allows_structural_transition,
 };
+
+/// Feature-gated hook consumed only by the authenticated desktop rendezvous adapter.
+#[cfg(feature = "platform-desktop-internal")]
+#[doc(hidden)]
+pub mod platform_desktop_internal {
+    pub use crate::credential::platform_desktop_internal::AuthenticatedCredentialSecretRelaySealer;
+}
 #[cfg(feature = "test-support")]
 #[doc(hidden)]
 pub use credential::{SealedPairFixture, sealed_pair_for_test};

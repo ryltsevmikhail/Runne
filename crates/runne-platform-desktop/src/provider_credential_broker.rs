@@ -13,6 +13,8 @@ mod macos_daemon_kill;
 #[cfg(target_os = "macos")]
 mod macos_kill_exchange;
 #[cfg(target_os = "macos")]
+mod macos_secret_pipe;
+#[cfg(target_os = "macos")]
 mod macos_writer_admission;
 #[cfg(target_os = "macos")]
 mod macos_writer_transfer;
@@ -34,13 +36,14 @@ use runne_platform_ports::provider_credential_broker::{
 pub use daemon_evidence::send_test_daemon_owned_writer_evidence;
 #[cfg(unix)]
 pub use daemon_evidence::{
-    ReceivedWriterProcessMeasurements, receive_daemon_owned_writer_measurements,
+    ReceivedWriterProcessMeasurements, VerifiedWriterMeasurementFacts,
+    receive_daemon_owned_writer_measurements,
 };
 #[cfg(unix)]
 pub use daemon_rendezvous::{
     PreparedDaemonWriterEndpointHandoff, UnixReceivedDaemonWriterEndpoint,
-    prepare_daemon_owned_writer_endpoint_handoff, receive_daemon_owned_writer_endpoint,
-    send_daemon_owned_writer_endpoint,
+    VerifiedDaemonWriterEndpointHandoffFacts, prepare_daemon_owned_writer_endpoint_handoff,
+    receive_daemon_owned_writer_endpoint, send_daemon_owned_writer_endpoint,
 };
 #[cfg(unix)]
 pub use daemon_transport_offer::{
@@ -57,6 +60,8 @@ pub use macos_daemon_kill::{
     capture_macos_daemon_peer_kill_capability,
 };
 #[cfg(target_os = "macos")]
+pub use macos_secret_pipe::MacOsAuthenticatedPairSecretRelay;
+#[cfg(target_os = "macos")]
 pub use macos_writer_admission::VerifiedMacOsWriterProcess;
 #[cfg(target_os = "macos")]
 pub use macos_writer_transfer::{
@@ -65,9 +70,14 @@ pub use macos_writer_transfer::{
 #[cfg(unix)]
 pub use unix::UnixRetainedWriterProcess;
 #[cfg(target_os = "macos")]
-pub use unix_daemon::spawn_macos_verified_writer_from_prepared_daemon_handoff;
+pub use unix::observe_current_process_start;
 #[cfg(all(unix, not(target_os = "macos")))]
 pub use unix_daemon::spawn_unix_writer_from_prepared_daemon_handoff;
+#[cfg(target_os = "macos")]
+pub use unix_daemon::{
+    spawn_macos_verified_pair_writer_from_prepared_daemon_handoff,
+    spawn_macos_verified_writer_from_prepared_daemon_handoff,
+};
 
 #[cfg(all(test, target_os = "macos"))]
 #[path = "provider_credential_broker/tests_macos_daemon_kill.rs"]
@@ -276,25 +286,5 @@ impl<P: RetainedWriterProcess> ProviderCredentialBrokerPort for PlatformCredenti
 }
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
-#[path = "provider_credential_broker/tests_daemon_evidence.rs"]
-mod tests_daemon_evidence;
-#[cfg(test)]
-#[path = "provider_credential_broker/tests_daemon_rendezvous.rs"]
-mod tests_daemon_rendezvous;
-#[cfg(test)]
-#[path = "provider_credential_broker/tests_macos_descriptor_gate.rs"]
-mod tests_macos_descriptor_gate;
-#[cfg(test)]
-#[path = "provider_credential_broker/tests_macos_writer_admission.rs"]
-mod tests_macos_writer_admission;
-#[cfg(test)]
-#[path = "provider_credential_broker/tests_prepared_daemon_rendezvous.rs"]
-mod tests_prepared_daemon_rendezvous;
-#[cfg(test)]
-#[path = "provider_credential_broker/tests_protocol_tags.rs"]
-mod tests_protocol_tags;
-#[cfg(test)]
-#[path = "provider_credential_broker/tests_unix_descriptor.rs"]
-mod tests_unix_descriptor;
+#[path = "provider_credential_broker/tests_index.rs"]
+mod tests_index;

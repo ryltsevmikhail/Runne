@@ -168,7 +168,7 @@ pub(crate) fn run_control_loop_v2(
                 &session_clock,
                 installation,
             )?;
-            let (v3_keys, v3_owned_launch, rendezvous) = outcome.into_parts();
+            let (v3_keys, v3_owned_launch, rendezvous, installed_facts) = outcome.into_parts();
             // The rendezvous feeds the authenticated writer handoff mounted in
             // the V3 control loop. Every failure above and below the rotation
             // already terminated this loop; the daemon never retries the
@@ -180,7 +180,11 @@ pub(crate) fn run_control_loop_v2(
                 local_session_service,
                 session_clock,
                 composition.ticket_clock(),
-                rendezvous,
+                super::control_v3::V3EnrollmentDispatch::new(
+                    composition.enrollment_control.clone(),
+                    rendezvous,
+                    installed_facts,
+                ),
             );
         }
         #[cfg(all(any(unix, windows), feature = "desktop-protected"))]

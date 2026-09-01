@@ -17,6 +17,8 @@ mod eligibility;
 mod kat;
 #[path = "tests/publication.rs"]
 mod publication;
+#[path = "tests/relay.rs"]
+mod relay;
 mod signer;
 
 #[test]

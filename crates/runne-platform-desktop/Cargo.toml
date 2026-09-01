@@ -15,6 +15,7 @@ test-support = ["runne-api/test-support", "runne-runtime-client/test-support"]
 ed25519-dalek.workspace = true
 runne-api = { path = "../runne-api" }
 runne-platform-ports = { path = "../runne-platform-ports" }
+runne-provider = { path = "../runne-provider", features = ["platform-desktop-internal"] }
 runne-runtime-client = { path = "../runne-runtime-client" }
 hex.workspace = true
 rand = "0.8"

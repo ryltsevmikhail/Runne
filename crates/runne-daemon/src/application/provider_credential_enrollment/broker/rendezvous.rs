@@ -33,15 +33,6 @@ pub(crate) struct DaemonOwnedUnixBrokerRendezvous {
 pub(crate) struct DaemonBrokerAuthority {
     endpoint: UnixStream,
     channel_binding: [u8; 32],
-    #[cfg_attr(
-        all(
-            not(test),
-            feature = "desktop-protected",
-            target_os = "macos",
-            target_arch = "aarch64"
-        ),
-        expect(dead_code, reason = "the kill-capability ACK unlocks this signer")
-    )]
     signer: Option<CredentialWriterSessionAttestationSigner>,
     publication_public_key: [u8; 32],
 }
@@ -50,6 +41,13 @@ impl DaemonBrokerAuthority {
     #[cfg(target_os = "macos")]
     pub(crate) const fn endpoint(&self) -> &UnixStream {
         &self.endpoint
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(in crate::application::provider_credential_enrollment::broker) fn endpoint_mut(
+        &mut self,
+    ) -> &mut UnixStream {
+        &mut self.endpoint
     }
 
     #[must_use]
@@ -61,6 +59,23 @@ impl DaemonBrokerAuthority {
     #[must_use]
     pub(crate) const fn publication_public_key(&self) -> [u8; 32] {
         self.publication_public_key
+    }
+
+    pub(in crate::application::provider_credential_enrollment::broker) fn sign_writer_session(
+        &mut self,
+        claims: runne_provider::CredentialWriterSessionAttestationClaimsV1,
+    ) -> Result<
+        (
+            runne_provider::SignedCredentialWriterSessionAttestationV1,
+            runne_provider::daemon_credential_publication::CredentialSecretPublicationSigner,
+        ),
+        ProviderCredentialEnrollmentHostError,
+    > {
+        self.signer
+            .take()
+            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?
+            .sign(claims)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
     }
 
     #[cfg(test)]
@@ -181,7 +196,10 @@ impl DaemonOwnedUnixBrokerRendezvous {
         &mut self,
         transport: UnixStream,
         authority: &ProviderCredentialBrokerTransferAuthority,
-    ) -> Result<[u8; 32], ProviderCredentialEnrollmentHostError> {
+    ) -> Result<
+        runne_platform_desktop::provider_credential_broker::VerifiedDaemonWriterEndpointHandoffFacts,
+        ProviderCredentialEnrollmentHostError,
+    >{
         let binding = self.channel_binding;
         let publication_public_key = self.publication_public_key;
         let writer = self.take_writer_endpoint()?;
@@ -192,8 +210,7 @@ impl DaemonOwnedUnixBrokerRendezvous {
             binding,
             publication_public_key,
         )
-        .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
-        Ok(binding)
+        .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
     }
 }
 

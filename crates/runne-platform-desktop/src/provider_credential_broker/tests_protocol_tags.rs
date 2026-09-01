@@ -24,8 +24,8 @@ fn daemon_endpoint_rejects_a_challenge_replayed_without_the_publication_key() {
     peer.write_all(&challenge).unwrap();
     peer.shutdown(Shutdown::Write).unwrap();
 
-    assert_eq!(
+    assert!(matches!(
         send_daemon_owned_writer_endpoint(sender, endpoint, &authority, [5; 32], [7; 32]),
         Err(BrokerHandoffError::Rejected)
-    );
+    ));
 }

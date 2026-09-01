@@ -4233,6 +4233,7 @@ dependencies = [
  "runne-api",
  "runne-macos-process-identity",
  "runne-platform-ports",
+ "runne-provider",
  "runne-runtime-client",
  "runne-windows-native-handle",
  "rustix",

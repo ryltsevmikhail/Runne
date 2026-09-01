@@ -144,3 +144,39 @@
         assert!(runtime.block_on(fence.enter()).is_none());
         assert!(!fence.begin_shutdown());
     }
+
+    #[test]
+    fn enrollment_lease_owns_the_appcore_generation_fence() {
+        let source = include_str!("../bundled_runtime.rs");
+        let lease = source
+            .split("pub struct NativeCredentialEnrollmentLease")
+            .nth(1)
+            .expect("lease definition");
+        assert!(lease.contains("core: Arc<AppCore>"));
+        let transition = source
+            .find("transition_and_install")
+            .expect("atomic transition/install path");
+        let restart = source[transition..]
+            .find("begin_bundled_runtime_restart")
+            .expect("old AppCore client fenced");
+        let install = source[transition..]
+            .find("install_bundled_runtime_client")
+            .expect("rotated client installed");
+        assert!(restart < install);
+    }
+
+    #[test]
+    fn every_post_fence_transition_failure_enters_cleanup() {
+        let source = include_str!("../bundled_runtime.rs");
+        let transition = source
+            .split("pub(crate) async fn transition_and_install")
+            .nth(1)
+            .expect("transition method");
+        let body = transition
+            .split("async fn install_transitioned_profile")
+            .next()
+            .expect("outer transition body");
+        assert!(body.contains("let transition = self"));
+        assert!(body.contains("Err(_) => self.fail_transition().await"));
+        assert_eq!(body.matches("begin_bundled_runtime_restart").count(), 1);
+    }

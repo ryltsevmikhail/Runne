@@ -65,6 +65,24 @@ pub struct ProviderCredentialCommandContext {
     pub actor: ApiActor,
 }
 
+impl ProviderCredentialCommandContext {
+    /// Builds a context from canonical public wire identities without exposing
+    /// the domain crate across the desktop platform boundary.
+    pub fn from_canonical_ids(
+        command_id: &str,
+        idempotency_key: &str,
+        principal: ApiPrincipalId,
+        actor: ApiActor,
+    ) -> Option<Self> {
+        Some(Self {
+            command_id: CommandId::parse(command_id).ok()?,
+            idempotency_key: IdempotencyKey::new(idempotency_key).ok()?,
+            principal,
+            actor,
+        })
+    }
+}
+
 /// Pair/replace command. Material is zeroized after the command is dropped.
 pub struct ProviderCredentialPairCommand {
     provider: ProviderCredentialProviderV1,

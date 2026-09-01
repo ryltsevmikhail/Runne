@@ -33,8 +33,8 @@ pub(crate) struct BrokerFixture {
 pub(crate) fn broker_fixture() -> BrokerFixture {
     let (owned, keys, sessions) = owned_and_sessions();
     let rendezvous = DaemonEnrollmentRendezvous::for_test();
-    let binding = rendezvous.broker_authority().channel_binding();
-    let publication_public_key = rendezvous.broker_authority().publication_public_key();
+    let binding = rendezvous.channel_binding().unwrap();
+    let publication_public_key = rendezvous.publication_public_key().unwrap();
     let desktop = CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
     let context = ProviderCredentialBrokerHandoffContext::new(
         *owned.stable().authority_id(),

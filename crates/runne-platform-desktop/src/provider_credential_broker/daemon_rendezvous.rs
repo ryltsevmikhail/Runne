@@ -11,6 +11,7 @@ use std::os::unix::net::UnixStream;
 use rand::{RngCore, rngs::OsRng};
 use runne_api::{CredentialBrokerTransferAuthenticator, ProviderCredentialBrokerTransferAuthority};
 use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
+use sha2::{Digest as _, Sha256};
 
 use super::unix_descriptor::{receive_descriptor, send_descriptor};
 
@@ -20,6 +21,26 @@ const FRAME_BYTES: usize = RESPONSE_BYTES + 32;
 const TRANSFER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 const CHALLENGE_TAG: &[u8] = b"gocode/provider-credential-broker/daemon-endpoint/v1/challenge\0";
 const RESPONSE_TAG: &[u8] = b"gocode/provider-credential-broker/daemon-endpoint/v1/response\0";
+const HANDOFF_DOMAIN: &[u8] = b"GOCODE_WRITER_ENDPOINT_HANDOFF_V1\0";
+
+/// Exact descriptor-transfer transcript constructed by the authenticated daemon sender.
+pub struct VerifiedDaemonWriterEndpointHandoffFacts {
+    digest: [u8; 32],
+}
+
+impl VerifiedDaemonWriterEndpointHandoffFacts {
+    #[must_use]
+    pub const fn digest(&self) -> [u8; 32] {
+        self.digest
+    }
+
+    #[cfg(feature = "test-support")]
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn test_only(digest: [u8; 32]) -> Self {
+        Self { digest }
+    }
+}
 
 /// Writer endpoint authenticated as originating from the protected daemon.
 ///
@@ -57,6 +78,31 @@ impl PreparedDaemonWriterEndpointHandoff {
             self.publication_public_key,
         )
     }
+
+    #[cfg(target_os = "macos")]
+    pub(super) fn into_pair_spawn_parts(
+        self,
+    ) -> Result<
+        (
+            UnixStream,
+            [u8; 32],
+            [u8; 32],
+            runne_provider::platform_desktop_internal::AuthenticatedCredentialSecretRelaySealer,
+        ),
+        BrokerHandoffError,
+    > {
+        let sealer = runne_provider::platform_desktop_internal::AuthenticatedCredentialSecretRelaySealer::from_authenticated_rendezvous(
+            self.publication_public_key,
+            self.channel_binding,
+        )
+        .map_err(|_| BrokerHandoffError::Rejected)?;
+        Ok((
+            self.transport,
+            self.channel_binding,
+            self.publication_public_key,
+            sealer,
+        ))
+    }
 }
 
 impl UnixReceivedDaemonWriterEndpoint {
@@ -88,7 +134,7 @@ pub fn send_daemon_owned_writer_endpoint(
     authority: &ProviderCredentialBrokerTransferAuthority,
     expected_binding: [u8; 32],
     publication_public_key: [u8; 32],
-) -> Result<(), BrokerHandoffError> {
+) -> Result<VerifiedDaemonWriterEndpointHandoffFacts, BrokerHandoffError> {
     if expected_binding == [0; 32] || publication_public_key == [0; 32] {
         return Err(BrokerHandoffError::Rejected);
     }
@@ -123,7 +169,14 @@ pub fn send_daemon_owned_writer_endpoint(
             .map_err(|_| BrokerHandoffError::Rejected)
     });
     drop(endpoint);
-    result
+    result.map(|()| {
+        let mut digest = Sha256::new();
+        digest.update(HANDOFF_DOMAIN);
+        digest.update(frame);
+        VerifiedDaemonWriterEndpointHandoffFacts {
+            digest: digest.finalize().into(),
+        }
+    })
 }
 
 /// Receives exactly one daemon-created writer endpoint for the expected binding.

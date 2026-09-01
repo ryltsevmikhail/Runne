@@ -8,7 +8,7 @@ use runne_api::{
 };
 use runne_domain::id::{CommandId, IdempotencyKey};
 
-use super::admission_registry::PendingCredentialHttpAdmissions;
+use super::admission_registry::PendingCredentialAdmissions;
 use super::control_exchange::{
     DaemonAuthenticatedCredentialHttpAdmissionExchange, DaemonCredentialHttpAdmissionExpectation,
     RegisteredCredentialHttpAdmissionExchange,
@@ -215,7 +215,7 @@ fn fixture_with_bindings(
     let (issuer, _) = ProviderCredentialRequestAuthorityPair::new().split();
     (
         DaemonAuthenticatedCredentialHttpAdmissionExchange::new(
-            PendingCredentialHttpAdmissions::new(issuer),
+            PendingCredentialAdmissions::new(issuer),
             expected,
         ),
         request,

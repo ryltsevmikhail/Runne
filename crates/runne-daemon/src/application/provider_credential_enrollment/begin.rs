@@ -1,11 +1,3 @@
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the protected V2 host composes authenticated begin after Task 8 admission wiring"
-    )
-)]
-
 use runne_api::{
     BeginProviderCredentialEnrollment, ProviderCredentialBaseRequestAuthority,
     ProviderCredentialCommandContext, ProviderCredentialEnrollmentHostError,
@@ -26,6 +18,8 @@ pub(crate) struct ProviderCredentialEnrollmentBegin<'a, S: ?Sized, R: ?Sized> {
     store: &'a S,
     reader: &'a R,
     rendezvous: PendingBrokerRendezvousRegistry,
+    #[cfg(test)]
+    before_gate_barrier: Option<std::sync::Arc<std::sync::Barrier>>,
 }
 
 impl<'a, S: ?Sized, R: ?Sized> ProviderCredentialEnrollmentBegin<'a, S, R> {
@@ -43,7 +37,18 @@ impl<'a, S: ?Sized, R: ?Sized> ProviderCredentialEnrollmentBegin<'a, S, R> {
             store,
             reader,
             rendezvous,
+            #[cfg(test)]
+            before_gate_barrier: None,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_before_gate_barrier(
+        mut self,
+        barrier: std::sync::Arc<std::sync::Barrier>,
+    ) -> Self {
+        self.before_gate_barrier = Some(barrier);
+        self
     }
 }
 
@@ -69,11 +74,20 @@ where
         let proof_digest =
             runne_provider::CredentialBindingDigest::from_measured(*proof.proof_digest())
                 .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        #[cfg(test)]
+        if let Some(barrier) = &self.before_gate_barrier {
+            barrier.wait();
+        }
+        #[cfg(unix)]
+        let gate = self.rendezvous.begin_gate(now_high_water)?;
+        #[cfg(not(unix))]
+        return Err(ProviderCredentialEnrollmentHostError::Unsupported);
         if let Some(operation) = self
             .store
             .find_by_begin_proof(proof_digest)
             .map_err(map_store)?
         {
+            drop(gate);
             return self.replay(
                 authority,
                 proof_digest,
@@ -83,6 +97,8 @@ where
                 now_high_water,
             );
         }
+        #[cfg(unix)]
+        let rendezvous = gate.preflight(authority, proof)?;
         let lifecycle = self
             .store
             .begin_admission_snapshot(&provider(command.provider())?)
@@ -92,12 +108,13 @@ where
             .admit_begin(authority, proof, command, context, lifecycle, self.store)?
         {
             super::coordinator::ProviderCredentialBeginAdmission::FreshWinner(effect) => {
-                let operation = effect.consume();
-                self.rendezvous
-                    .register(&operation, authority, proof, now_high_water)?;
-                operation
+                rendezvous.commit_fresh(effect)
             }
             super::coordinator::ProviderCredentialBeginAdmission::ExactReplay(operation) => {
+                // A different store connection committed after the gated lookup. Its
+                // operation owns no endpoint in this process, so destroy our unused
+                // reservation and return only the exact durable projection.
+                drop(rendezvous);
                 operation
             }
         };

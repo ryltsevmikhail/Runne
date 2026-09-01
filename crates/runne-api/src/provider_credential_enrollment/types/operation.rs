@@ -129,7 +129,11 @@ impl TryFrom<OperationSnapshotWire> for ProviderCredentialOperationSnapshotV2 {
 
     fn try_from(value: OperationSnapshotWire) -> Result<Self, Self::Error> {
         let broker_valid = match value.broker_rendezvous_id.as_deref() {
-            Some(id) => value.operation_kind.requires_broker() && valid_public_id(id),
+            Some(id) => {
+                value.operation_kind.requires_broker()
+                    && value.state == ProviderCredentialOperationStateV2::Prepared
+                    && valid_public_id(id)
+            }
             None => true,
         };
         if value.lifecycle_revision == 0 || value.readiness_revision == 0 || !broker_valid {

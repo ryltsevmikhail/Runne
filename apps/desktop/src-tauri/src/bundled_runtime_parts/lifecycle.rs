@@ -76,6 +76,7 @@ impl NativeRootAdmissionLifecycle for BundledRuntimeController {
     }
 
     fn acquire_credential_enrollment_lease(&self) -> crate::bundled_runtime::CredentialEnrollmentFuture {
+        let core = Arc::clone(&self.core);
         let supervisor = Arc::clone(&self.supervisor);
         let fence = Arc::clone(&self.operation_fence);
         Box::pin(async move {
@@ -84,6 +85,7 @@ impl NativeRootAdmissionLifecycle for BundledRuntimeController {
                 .await
                 .ok_or(AppCoreError::RuntimeUnavailable)?;
             Ok(crate::bundled_runtime::NativeCredentialEnrollmentLease {
+                core,
                 supervisor,
                 operation_permit,
             })

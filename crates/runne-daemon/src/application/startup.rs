@@ -87,6 +87,9 @@ pub struct DaemonApplication {
     #[cfg(feature = "desktop-protected")]
     pub(super) root_control: Option<Arc<crate::protected_activation::ProtectedRootControl>>,
     pub(super) runtime_capabilities: &'static [&'static str],
+    pub(super) credential_enrollment_control: Option<
+        Arc<super::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl>,
+    >,
 }
 
 impl DaemonApplication {

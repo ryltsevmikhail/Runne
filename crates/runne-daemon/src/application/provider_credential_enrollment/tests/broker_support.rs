@@ -198,6 +198,16 @@ impl CredentialBrokerChannel for RecordingChannel {
         self.binding
     }
 
+    fn send_issue(
+        &mut self,
+        _receipt: &runne_provider::IssuedCredentialTicketAttempt,
+        frame: runne_provider::CredentialBrokerFrame,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        let encoded = runne_provider::CredentialBrokerFrameCodec::encode(frame)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        self.send(Zeroizing::new(encoded))
+    }
+
     fn send(
         &mut self,
         frame: Zeroizing<Vec<u8>>,

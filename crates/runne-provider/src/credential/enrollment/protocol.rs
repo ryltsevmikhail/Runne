@@ -27,8 +27,8 @@ pub use command::{CredentialBrokerCommand, CredentialBrokerTarget};
 pub use command_codec::CredentialBrokerCommandCodec;
 pub use secret::{
     CredentialSecretClaimOffer, CredentialSecretEnvelopeCodec, CredentialSecretOfferCodec,
-    CredentialSecretPublication, CredentialSecretPublicationCodec, PendingCredentialSecretOpening,
-    SealedCredentialEnvelope,
+    CredentialSecretPublication, CredentialSecretPublicationCodec, CredentialSecretRelayFrameCodec,
+    PendingCredentialSecretOpening, SealedCredentialEnvelope,
 };
 #[cfg(feature = "test-support")]
 #[doc(hidden)]
@@ -40,6 +40,12 @@ pub use session_attestation::{
     CredentialWriterSessionRuntimeClaimsV1, CredentialWriterSessionTicketClaimsV1,
     PendingCredentialIssueTicketV1, SignedCredentialWriterSessionAttestationV1,
 };
+
+#[cfg(feature = "platform-desktop-internal")]
+#[doc(hidden)]
+pub mod platform_desktop_internal {
+    pub use super::secret::platform_desktop_internal::AuthenticatedCredentialSecretRelaySealer;
+}
 
 /// Deliberately narrow daemon-only publication adapter.
 #[doc(hidden)]

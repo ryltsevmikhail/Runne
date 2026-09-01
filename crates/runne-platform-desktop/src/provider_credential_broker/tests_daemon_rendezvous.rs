@@ -92,7 +92,7 @@ fn daemon_owned_endpoint_rejects_zero_publication_key_before_transfer() {
     let keys = LaunchSecret::from_bytes([9; 32]).unwrap().derive_keys();
     let authenticator = CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
 
-    assert_eq!(
+    assert!(matches!(
         send_daemon_owned_writer_endpoint(
             sender,
             writer,
@@ -101,7 +101,7 @@ fn daemon_owned_endpoint_rejects_zero_publication_key_before_transfer() {
             [0; 32],
         ),
         Err(BrokerHandoffError::Rejected)
-    );
+    ));
 }
 
 #[cfg(target_os = "linux")]
@@ -166,10 +166,10 @@ fn daemon_owned_endpoint_sender_requires_eof_after_the_challenge() {
     receiver.write_all(b"x").unwrap();
     receiver.shutdown(Shutdown::Write).unwrap();
 
-    assert_eq!(
+    assert!(matches!(
         sender_thread.join().unwrap(),
         Err(BrokerHandoffError::Rejected)
-    );
+    ));
 }
 
 fn challenge_proof(

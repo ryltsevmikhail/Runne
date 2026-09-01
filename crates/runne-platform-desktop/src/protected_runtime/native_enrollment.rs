@@ -28,12 +28,11 @@ impl ProtectedBundledRuntimeSupervisor {
 }
 
 impl ProtectedBundledRuntimeSupervisor {
-    /// Transitions the exact owned daemon to V3 and hands off one verified
-    /// writer, in that order, for one confirmed installed enrollment.
+    /// Transitions the exact owned daemon to V3 and queues its rotated profile.
     ///
-    /// The writer launch is minted before the transition mutates daemon state;
-    /// a handoff failure poisons the whole transport and leaves the daemon
-    /// holding the sole kill path.
+    /// No writer launch or handoff is possible through this entry point. The
+    /// caller must install the queued profile, complete protected Request and
+    /// Begin, and only then invoke [`Self::run_credential_writer_handoff`].
     ///
     /// # Errors
     ///
@@ -44,10 +43,10 @@ impl ProtectedBundledRuntimeSupervisor {
         target_arch = "aarch64",
         feature = "protected-channel-integration"
     ))]
-    pub fn begin_credential_enrollment_handoff(
+    pub fn begin_credential_enrollment_transition(
         &mut self,
         confirmed: &crate::ConfirmedInstalledNativeEnrollment,
-    ) -> Result<CredentialWriterHandoff, ProtectedBundledRuntimeError> {
+    ) -> Result<(), ProtectedBundledRuntimeError> {
         if self.state != BundledRuntimeLifecycleState::Ready || self.pending_profile.is_some() {
             return Err(ProtectedBundledRuntimeError::InvalidState);
         }
@@ -55,7 +54,6 @@ impl ProtectedBundledRuntimeSupervisor {
             .process
             .as_mut()
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        let writer_launch = confirmed.verified_macos_writer_launch()?;
         let facts = confirmed
             .enrollment_transition_facts()
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
@@ -68,10 +66,39 @@ impl ProtectedBundledRuntimeSupervisor {
             confirmed.current_desktop_peer_binding_digest(supervisor_generation)?,
             facts.supervisor_generation,
         );
-        let _transitioned = process
+        let profile = process
             .begin_credential_enrollment_transition(&claims)
             .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        process.run_credential_writer_handoff(writer_launch)
+        self.backoff.record_disconnected();
+        self.pending_profile = Some(profile);
+        self.state = BundledRuntimeLifecycleState::Handshaking;
+        Ok(())
+    }
+
+    /// Launches and transfers the verified writer only after protected Begin.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed failure unless the transitioned V3 client has already
+    /// been installed and the supervisor is back in authenticated Ready.
+    #[cfg(all(
+        target_os = "macos",
+        target_arch = "aarch64",
+        feature = "protected-channel-integration"
+    ))]
+    pub fn run_credential_writer_handoff(
+        &mut self,
+        confirmed: &crate::ConfirmedInstalledNativeEnrollment,
+        mode: CredentialWriterHandoffMode,
+    ) -> Result<CredentialWriterHandoff, ProtectedBundledRuntimeError> {
+        if self.state != BundledRuntimeLifecycleState::Ready || self.pending_profile.is_some() {
+            return Err(ProtectedBundledRuntimeError::InvalidState);
+        }
+        let writer_launch = confirmed.verified_macos_writer_launch()?;
+        self.process
+            .as_mut()
+            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?
+            .run_credential_writer_handoff(writer_launch, mode)
     }
 }
 

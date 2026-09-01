@@ -25,9 +25,14 @@ fn live_writer_admission_requires_exact_sec_code_path_and_handoff_binding() {
     .unwrap();
     let (transport, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
     let image = super::macos_writer_admission::prepare_retained_writer_image(&launch).unwrap();
-    let mut process =
-        super::unix_daemon_macos::spawn_macos_prepared_writer(launch.launch(), &image, transport)
-            .unwrap();
+    let (mut process, secret) = super::unix_daemon_macos::spawn_macos_prepared_writer(
+        launch.launch(),
+        &image,
+        transport,
+        None,
+    )
+    .unwrap();
+    assert!(secret.is_none());
 
     let evidence = super::macos_writer_admission::verify_live_writer(
         &process, &launch, &image, [8; 32], [9; 32], [10; 32],
@@ -140,9 +145,14 @@ fn post_spawn_path_replacement_cannot_substitute_the_executed_vnode() {
     std::fs::copy(APPLE_SIGNED_STDIN_BLOCKING_FIXTURE, &writer).unwrap();
     ad_hoc_sign_copied_fixture(&writer);
     let (transport, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
-    let mut process =
-        super::unix_daemon_macos::spawn_macos_prepared_writer(launch.launch(), &image, transport)
-            .unwrap();
+    let (mut process, secret) = super::unix_daemon_macos::spawn_macos_prepared_writer(
+        launch.launch(),
+        &image,
+        transport,
+        None,
+    )
+    .unwrap();
+    assert!(secret.is_none());
     std::fs::rename(&retained_path, &writer).unwrap();
     let live_executable = runne_macos_process_identity::MacOsProcessExecutableIdentity::observe(
         std::num::NonZeroU32::new(process.pid().cast_unsigned()).unwrap(),

@@ -31,6 +31,41 @@ fn enrollment_frames_round_trip_only_for_the_exact_current_binding() {
 }
 
 #[test]
+fn authenticated_request_view_exposes_only_non_secret_policy_claims() {
+    let authenticator = authenticator(2);
+    let (_, frame) = request_frame(&authenticator);
+    let request = authenticator
+        .decode_authenticated_request(&frame, 0, 150)
+        .unwrap();
+    assert_eq!(request.protected_launch_authority_id(), uuid(1));
+    assert_eq!(request.protected_session_id(), uuid(2));
+    assert_eq!(request.daemon_instance_id(), uuid(3));
+    assert_eq!(request.daemon_launch_generation(), 3);
+    assert_eq!(request.desktop_supervisor_generation(), 2);
+    assert_eq!(request.release_tuple_digest(), [4; 32]);
+    assert_eq!(request.tauri_peer_process_evidence_digest(), [5; 32]);
+    assert_eq!(request.native_confirmation_digest(), [6; 32]);
+    assert_eq!(request.broker_process_evidence_digest(), [7; 32]);
+    assert_eq!(request.expires_at_unix_millis(), 200);
+}
+
+#[test]
+fn broker_evidence_binding_commits_exact_release_channel_and_publication_key() {
+    let expected = protected_credential_broker_evidence_binding([1; 32], [2; 32], [3; 32]);
+    assert_eq!(
+        expected,
+        protected_credential_broker_evidence_binding([1; 32], [2; 32], [3; 32])
+    );
+    for substituted in [
+        protected_credential_broker_evidence_binding([9; 32], [2; 32], [3; 32]),
+        protected_credential_broker_evidence_binding([1; 32], [9; 32], [3; 32]),
+        protected_credential_broker_evidence_binding([1; 32], [2; 32], [9; 32]),
+    ] {
+        assert_ne!(expected, substituted);
+    }
+}
+
+#[test]
 fn enrollment_frames_have_the_exact_fixed_width_contract() {
     let authenticator = authenticator(7);
     let (binding, request_frame) = request_frame(&authenticator);
@@ -139,4 +174,22 @@ fn enrollment_admission_is_a_redacted_non_authority_candidate() {
         format!("{verified:?}"),
         "VerifiedProtectedCredentialEnrollmentAdmission(<candidate>)"
     );
+}
+
+#[test]
+fn desktop_can_authenticate_daemon_admission_without_minting_authority() {
+    let authenticator = authenticator(41);
+    let (_, request_frame) = request_frame(&authenticator);
+    let request = authenticator
+        .decode_authenticated_request(&request_frame, 0, 150)
+        .unwrap();
+    let admission = authenticator
+        .issue_admission(&request, admission_binding(), 2)
+        .unwrap();
+    let frame = ProtectedCredentialEnrollmentControlFrame::Admission(admission).encode_frame();
+    let verified = authenticator
+        .decode_authenticated_admission(&frame, &request, 1, 150)
+        .unwrap();
+    assert_eq!(verified.request_digest(), request.request_digest());
+    assert_eq!(verified.sequence(), 2);
 }

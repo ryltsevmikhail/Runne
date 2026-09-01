@@ -18,10 +18,13 @@ mod updater_journal;
 mod updater_metadata;
 mod updater_trust;
 
-#[cfg(target_os = "macos")]
-pub use protected_runtime::CredentialWriterHandoff;
 #[cfg(feature = "test-support")]
 pub use protected_runtime::FirstActivationFaultPoint;
+#[cfg(target_os = "macos")]
+pub use protected_runtime::{
+    CredentialWriterHandoff, CredentialWriterHandoffMode, NativeProtectedCredentialEnrollmentBegin,
+    PreparedProtectedCredentialEnrollment,
+};
 pub use protected_runtime::{
     DevelopmentBundledRuntimeLauncher, ProtectedBundledRuntimeError,
     ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeProcess,
@@ -76,8 +79,9 @@ pub use updater_metadata::{
     PreparedInstalledNativeEnrollment, UpdateMetadataSigningError, UpdateMetadataV2,
     UpdateRootRoleV2, UpdateSignatureV2, UpdateSnapshotRoleV2, UpdateTargetV2,
     UpdateTargetV2Binding, UpdateTargetsRoleV2, UpdateTimestampRoleV2, UpdateTrustRootV2,
-    UpdateV2VerificationError, VerifiedDaemonNativeEnrollmentPrepare, VerifiedMacOsWriterLaunch,
-    VerifiedUpdateV2, update_metadata_signing_bytes, verify_update_v2,
+    UpdateV2VerificationError, VerifiedDaemonNativeEnrollmentPrepare,
+    VerifiedInstalledEnrollmentMeasurementFacts, VerifiedMacOsWriterLaunch, VerifiedUpdateV2,
+    update_metadata_signing_bytes, verify_update_v2,
 };
 pub use updater_trust::{UpdateTrustError, UpdateTrustJournal, UpdateTrustState};
 

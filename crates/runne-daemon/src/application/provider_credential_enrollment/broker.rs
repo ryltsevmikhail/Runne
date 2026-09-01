@@ -19,21 +19,30 @@ mod pending_writer;
 #[cfg(unix)]
 pub(crate) mod rendezvous;
 #[cfg(all(unix, feature = "desktop-protected"))]
-mod unix;
+pub(super) mod unix;
+#[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+pub(crate) use unix::MacOsCredentialBrokerChannel;
 #[cfg(test)]
 pub(crate) mod writer_session_test_support;
 
+#[cfg(all(unix, feature = "desktop-protected"))]
+pub(crate) use pending::{AwaitingVerifiedWriter, PendingBrokerEndpointHandoff};
+#[cfg(all(unix, target_os = "macos", feature = "desktop-protected"))]
+pub(crate) use pending_writer::VerifiedMacOsWriterWithDaemonKillCapability;
+#[cfg(all(unix, feature = "desktop-protected"))]
+pub(crate) use pending_writer::VerifiedWriterAwaitingDaemonKillCapability;
+
 /// Authenticated inherited control channel; Task 11 owns its platform adapters.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Task 11 authenticated inherited-channel adapter instantiates this broker boundary"
-    )
-)]
 pub(super) trait CredentialBrokerChannel {
     /// Exact measured binding for the authenticated, daemon-owned control channel.
     fn binding_digest(&self) -> CredentialBindingDigest;
+
+    /// Sends the first ticket only after binding its session attestation.
+    fn send_issue(
+        &mut self,
+        receipt: &IssuedCredentialTicketAttempt,
+        frame: CredentialBrokerFrame,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError>;
 
     /// Sends exactly one canonical broker frame to the authenticated writer endpoint.
     fn send(
@@ -56,21 +65,8 @@ pub(super) trait CredentialBrokerChannel {
 pub(super) struct ClaimedBrokerEffect {
     operation_id: CredentialOperationId,
     binding: CredentialBindingDigest,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "publication handoff follows in the next sealed-relay slice"
-        )
-    )]
     publication: Option<CredentialSecretPublication>,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "publication handoff follows in the next sealed-relay slice"
-        )
-    )]
+    offer: Option<[u8; runne_provider::CredentialSecretOfferCodec::BYTES]>,
     publication_taken: bool,
 }
 
@@ -103,27 +99,36 @@ impl ClaimedBrokerEffect {
         self.publication_taken = true;
         Ok(self.publication.take())
     }
+
+    pub(super) fn take_secret_relay(
+        &mut self,
+    ) -> Result<
+        Option<[u8; runne_provider::CredentialSecretRelayFrameCodec::BYTES]>,
+        ProviderCredentialEnrollmentHostError,
+    > {
+        if self.publication_taken {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        self.publication_taken = true;
+        match (self.offer.take(), self.publication.take()) {
+            (Some(offer), Some(publication)) => {
+                let offer = runne_provider::CredentialSecretOfferCodec::decode(&offer)
+                    .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?;
+                Ok(Some(
+                    runne_provider::CredentialSecretRelayFrameCodec::encode(&offer, &publication),
+                ))
+            }
+            (None, None) => Ok(None),
+            _ => Err(ProviderCredentialEnrollmentHostError::InvariantViolation),
+        }
+    }
 }
 
 /// Daemon coordinator for digest-first credential-ticket issuance.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Task 11 authenticated inherited-channel adapter constructs the broker after handoff"
-    )
-)]
 pub(super) struct ProviderCredentialBroker {
     measurements: Arc<CredentialEnrollmentMeasurementAuthority>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Task 11 authenticated inherited-channel adapter invokes issue and claim after handoff"
-    )
-)]
 impl ProviderCredentialBroker {
     /// Retains the measurement authority paired with the durable lifecycle store.
     pub(super) const fn new(measurements: Arc<CredentialEnrollmentMeasurementAuthority>) -> Self {
@@ -225,6 +230,10 @@ impl ProviderCredentialBroker {
             .process_release_binding_digest()
             .ok_or(ProviderCredentialEnrollmentHostError::InvariantViolation)?;
         channel.send(Zeroizing::new(accepted.acknowledgement))?;
+        let offer = accepted
+            .pending_publication
+            .as_ref()
+            .map(runne_provider::CredentialSecretOfferCodec::encode);
         let publication = accepted
             .pending_publication
             .map(|offer| channel.sign_publication(offer))
@@ -233,6 +242,7 @@ impl ProviderCredentialBroker {
             operation_id,
             binding,
             publication,
+            offer,
             publication_taken: false,
         })
     }

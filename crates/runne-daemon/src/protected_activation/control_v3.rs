@@ -1,5 +1,12 @@
 use super::*;
 
+#[cfg(unix)]
+mod runtime;
+#[cfg(unix)]
+use runtime::V3EnrollmentRuntime;
+#[cfg(unix)]
+pub(super) use runtime::{V3EnrollmentDispatch, enrollment_transcript_allows_rotation};
+
 type TicketClock = Arc<dyn Fn() -> Result<u64, LaunchAuthorityError> + Send + Sync>;
 
 /// Builds the production ticket clock without making an unverified V3 launch
@@ -49,7 +56,7 @@ pub(crate) fn run_control_loop_v3(
         session_clock,
         ticket_clock,
         #[cfg(unix)]
-        rendezvous,
+        V3EnrollmentDispatch::new(None, rendezvous, None),
     )
 }
 
@@ -74,11 +81,58 @@ pub(crate) fn run_control_loop_v3_entered(
     local_session_service: Arc<Mutex<LocalSessionService>>,
     session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
     ticket_clock: TicketClock,
-    #[cfg(unix)] rendezvous: super::enrollment_control_transition::DaemonEnrollmentRendezvous,
+    #[cfg(unix)] enrollment: V3EnrollmentDispatch,
 ) -> Result<(), LaunchAuthorityError> {
     #[cfg(unix)]
-    let mut broker =
-        super::broker_handoff::BrokerHandoffDispatch::new(&keys, &owned_launch, rendezvous)?;
+    let mut runtime = if let Some(control) = enrollment.control {
+        let installed_facts = enrollment
+            .installed_facts
+            .ok_or(LaunchAuthorityError::OwnershipMismatch)?;
+        let owned_rendezvous = enrollment.rendezvous.into_owned()?;
+        let mut enrollment = control
+            .start_protected_session(&keys, &owned_launch, owned_rendezvous, installed_facts)
+            .map_err(map_enrollment_error)?;
+        let request = channel.read_control_frame()?;
+        let now = unix_now_millis()?;
+        let admission = enrollment
+            .accept_request(&request, now)
+            .map_err(map_enrollment_error)?;
+        channel.write_control_frame(&admission)?;
+        let begin = channel.read_control_frame()?;
+        let snapshot = enrollment
+            .begin(&begin, unix_now_millis()?)
+            .map_err(map_enrollment_error)?;
+        channel.write_control_frame(&snapshot)?;
+        let handoff = enrollment
+            .take_bound_broker_handoff()
+            .map_err(map_enrollment_error)?;
+        let broker = super::broker_handoff::BrokerHandoffDispatch::from_bound_enrollment(
+            &keys,
+            &owned_launch,
+            handoff,
+        )?;
+        V3EnrollmentRuntime {
+            broker,
+            session: Some(enrollment),
+            terminal: false,
+            claim_measurements: None,
+            #[cfg(target_os = "macos")]
+            channel: None,
+        }
+    } else {
+        V3EnrollmentRuntime {
+            broker: super::broker_handoff::BrokerHandoffDispatch::new(
+                &keys,
+                &owned_launch,
+                enrollment.rendezvous,
+            )?,
+            session: None,
+            terminal: true,
+            claim_measurements: None,
+            #[cfg(target_os = "macos")]
+            channel: None,
+        }
+    };
     let transcript = serve_v3_transcript(
         &mut channel,
         &keys,
@@ -87,16 +141,36 @@ pub(crate) fn run_control_loop_v3_entered(
         &session_clock,
         &ticket_clock,
         #[cfg(unix)]
-        &mut broker,
+        &mut runtime,
     );
     #[cfg(all(unix, target_os = "macos"))]
-    if transcript.is_err()
-        && let Some(kill) = broker.take_kill()
-    {
+    if transcript.is_err() {
         // Fail-closed recovery: the exact writer never outlives a failed loop.
-        let _ = kill.terminate_exact_peer();
+        runtime.terminate_retained_writer();
     }
     transcript
+}
+
+fn map_enrollment_error(
+    error: runne_api::ProviderCredentialEnrollmentHostError,
+) -> LaunchAuthorityError {
+    match error {
+        runne_api::ProviderCredentialEnrollmentHostError::Unsupported => {
+            LaunchAuthorityError::UnsupportedPlatformBackend
+        }
+        runne_api::ProviderCredentialEnrollmentHostError::Unavailable => {
+            LaunchAuthorityError::ProtectedChannelUnavailable
+        }
+        _ => LaunchAuthorityError::OwnershipMismatch,
+    }
+}
+
+fn unix_now_millis() -> Result<u64, LaunchAuthorityError> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|value| u64::try_from(value.as_millis()).ok())
+        .ok_or(LaunchAuthorityError::StaleLaunchAuthority)
 }
 
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
@@ -108,16 +182,39 @@ fn serve_v3_transcript(
     local_session_service: &Arc<Mutex<LocalSessionService>>,
     session_clock: &Arc<dyn Fn() -> Duration + Send + Sync>,
     ticket_clock: &TicketClock,
-    #[cfg(unix)] broker: &mut super::broker_handoff::BrokerHandoffDispatch,
+    #[cfg(unix)] runtime: &mut V3EnrollmentRuntime,
 ) -> Result<(), LaunchAuthorityError> {
     let mut last_renew_sequence = 0_u64;
     loop {
         let frame = channel.read_control_frame()?;
         #[cfg(unix)]
-        if broker.dispatch(channel, &frame, ticket_clock)? {
+        if runtime.broker.dispatch(channel, &frame, ticket_clock)? {
+            #[cfg(target_os = "macos")]
+            if runtime.claim_measurements.is_none()
+                && let (Some(session), Some(writer)) = (
+                    runtime.session.as_ref(),
+                    runtime.broker.verified_writer_facts(),
+                )
+            {
+                let launch_attempt = runtime
+                    .broker
+                    .verified_writer_launch_attempt()
+                    .ok_or(LaunchAuthorityError::InvalidContract)?;
+                runtime.claim_measurements = Some(
+                    session
+                        .prepare_claim_measurements(writer, launch_attempt)
+                        .map_err(map_enrollment_error)?,
+                );
+            }
+            #[cfg(target_os = "macos")]
+            runtime.drive_claimed_writer(channel)?;
             continue;
         }
         if let Ok(renewal) = ProtectedCredentialEnrollmentRenewRequestV3::decode_frame(&frame) {
+            #[cfg(unix)]
+            if !enrollment_transcript_allows_rotation(runtime.session.is_some(), runtime.terminal) {
+                return Err(LaunchAuthorityError::OwnershipMismatch);
+            }
             renewal.verify_exact(owned_launch, last_renew_sequence, keys)?;
             let current = local_session_service
                 .lock()
@@ -180,6 +277,10 @@ fn serve_v3_transcript(
         }
         let shutdown = ProtectedCredentialEnrollmentShutdownV3::decode_frame(&frame)
             .map_err(|_| LaunchAuthorityError::InvalidContract)?;
+        #[cfg(unix)]
+        if !runtime.accepts_shutdown() {
+            return Err(LaunchAuthorityError::OwnershipMismatch);
+        }
         shutdown.verify_exact(owned_launch, keys)?;
         let mut acknowledgement =
             ProtectedCredentialEnrollmentShutdownAckV3::new(owned_launch.clone(), true);

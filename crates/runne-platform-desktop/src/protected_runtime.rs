@@ -15,6 +15,18 @@ include!("protected_runtime/provider_readiness_tests.rs");
 include!("protected_runtime/supervisor.rs");
 include!("protected_runtime/helpers.rs");
 include!("protected_runtime/native_enrollment.rs");
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+mod enrollment_lifecycle_facts;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+mod enrollment_lifecycle_types;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub use enrollment_lifecycle_types::{
+    NativeProtectedCredentialEnrollmentBegin, PreparedProtectedCredentialEnrollment,
+};
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+include!("protected_runtime/enrollment_lifecycle.rs");
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
+include!("protected_runtime/enrollment_lifecycle_tests.rs");
 include!("protected_runtime/tests.rs");
 #[cfg(test)]
 include!("protected_runtime/native_enrollment_tests.rs");

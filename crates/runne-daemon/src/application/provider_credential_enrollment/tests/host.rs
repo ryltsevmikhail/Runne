@@ -80,11 +80,17 @@ async fn composed_host_begins_then_resumes_the_same_safe_operation() {
         )
         .unwrap();
     let reader = NoReadback;
+    let handles =
+        super::super::operation_handle::ProviderCredentialOperationHandleIssuer::new([9; 32]);
+    let rendezvous =
+        super::super::broker::pending::PendingBrokerRendezvousRegistry::new(handles.duplicate());
+    rendezvous.reserve_new_for_test(&authority, &proof);
     let host = super::super::host::DaemonProviderCredentialEnrollmentHost::new(
         verifier,
         measurements,
         legacy_import_authority,
-        super::super::operation_handle::ProviderCredentialOperationHandleIssuer::new([9; 32]),
+        handles,
+        rendezvous,
         &store,
         &reader,
         RejectVerification,

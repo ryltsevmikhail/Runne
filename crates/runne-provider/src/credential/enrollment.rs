@@ -62,7 +62,7 @@ pub use protocol::{
     CredentialBrokerFrameCodec, CredentialBrokerTarget, CredentialIssueTicketBindingV1,
     CredentialSecretClaimOffer, CredentialSecretEnvelopeCodec, CredentialSecretInputPresence,
     CredentialSecretOfferCodec, CredentialSecretPublication, CredentialSecretPublicationCodec,
-    CredentialWriterCommandKindV1, CredentialWriterCommandScopeV1,
+    CredentialSecretRelayFrameCodec, CredentialWriterCommandKindV1, CredentialWriterCommandScopeV1,
     CredentialWriterSessionAttestationClaimsV1, CredentialWriterSessionAttestationCodec,
     CredentialWriterSessionProcessClaimsV1, CredentialWriterSessionRuntimeClaimsV1,
     CredentialWriterSessionTicketClaimsV1, PROVIDER_CREDENTIAL_BROKER_MODE_V1,
@@ -87,6 +87,12 @@ pub use verification::{
     BeginCredentialVerification, CompleteCredentialVerification, CredentialVerificationCapability,
     CredentialVerificationContext, CredentialVerificationLease, CredentialVerificationObservation,
 };
+
+#[cfg(feature = "platform-desktop-internal")]
+#[doc(hidden)]
+pub mod platform_desktop_internal {
+    pub use super::protocol::platform_desktop_internal::AuthenticatedCredentialSecretRelaySealer;
+}
 
 #[cfg(test)]
 mod tests;

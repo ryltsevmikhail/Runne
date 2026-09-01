@@ -106,7 +106,7 @@ fn same_process_control_transition_admits_exact_v3_and_rotates_to_reserved_gener
         match client_transcript(client, &prepare, &keys, &owned, &provider) {
             Ok(owned_launch) => {
                 let outcome = daemon_thread.join().unwrap().unwrap();
-                let (_v3_keys, v3_owned_launch, _rendezvous) = outcome.into_parts();
+                let (_v3_keys, v3_owned_launch, _rendezvous, _installed) = outcome.into_parts();
                 assert_eq!(
                     owned_launch.launch_generation(),
                     v3_owned_launch.launch_generation()

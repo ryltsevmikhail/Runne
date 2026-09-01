@@ -1,24 +1,15 @@
 use runne_api::ProviderCredentialEnrollmentHostError;
 use runne_provider::{
     AttachCredentialProcess, ClaimCredentialOperation, CredentialBindingDigest,
-    CredentialBrokerCommand, CredentialBrokerFrame, CredentialBrokerFrameCodec,
-    CredentialEnrollmentError, CredentialMeasurementSnapshot, CredentialOperationSnapshot,
-    IssueCredentialTicketDigest, IssuedCredentialTicketAttempt, ProviderCredentialEnrollmentStore,
-    RawCredentialTicket,
+    CredentialBrokerCommand, CredentialBrokerFrame, CredentialEnrollmentError,
+    CredentialMeasurementSnapshot, CredentialOperationSnapshot, IssueCredentialTicketDigest,
+    IssuedCredentialTicketAttempt, ProviderCredentialEnrollmentStore, RawCredentialTicket,
 };
-use zeroize::Zeroizing;
 
 use super::{CredentialBrokerChannel, ProviderCredentialBroker};
 use crate::application::provider_credential_enrollment::effect_authority::map_store;
 
 /// Complete, authority-issued measurement context required before ticket issuance.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Task 11 authenticated handoff creates this same-authority issue context"
-    )
-)]
 pub(crate) struct ClaimIssueContext {
     measurements: CredentialMeasurementSnapshot,
     channel_binding: [u8; 32],
@@ -26,13 +17,6 @@ pub(crate) struct ClaimIssueContext {
     desktop_supervisor_generation: u64,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Task 11 authenticated handoff supplies the private issue context"
-    )
-)]
 impl ClaimIssueContext {
     /// Rejects zero generation values before a ticket attempt can be persisted.
     fn new(
@@ -56,13 +40,6 @@ impl ClaimIssueContext {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Task 11 authenticated handoff invokes the ticket issue seam"
-    )
-)]
 impl ProviderCredentialBroker {
     /// Admits one same-authority measurement context before ticket persistence.
     pub(crate) fn claim_issue_context(
@@ -189,29 +166,19 @@ impl ProviderCredentialBroker {
         let command =
             CredentialBrokerCommand::from_operation(receipt.operation(), receipt.ticket_attempt())
                 .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?;
-        let frame = Zeroizing::new(
-            CredentialBrokerFrameCodec::encode(CredentialBrokerFrame::IssueTicket {
-                operation_id: receipt.operation().operation_id(),
-                attempt: receipt.ticket_attempt(),
-                ticket,
-                channel_binding: context.channel_binding,
-                binding,
-                command,
-            })
-            .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?,
-        );
-        channel.send(frame)?;
+        let frame = CredentialBrokerFrame::IssueTicket {
+            operation_id: receipt.operation().operation_id(),
+            attempt: receipt.ticket_attempt(),
+            ticket,
+            channel_binding: context.channel_binding,
+            binding,
+            command,
+        };
+        channel.send_issue(&receipt, frame)?;
         Ok(receipt)
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Task 11 authenticated handoff reaches entropy mapping through issue_ticket"
-    )
-)]
 fn map_ticket_generation(
     error: CredentialEnrollmentError,
 ) -> ProviderCredentialEnrollmentHostError {

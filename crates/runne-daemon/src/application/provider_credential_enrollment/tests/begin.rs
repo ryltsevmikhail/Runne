@@ -65,6 +65,56 @@ fn begin_recovers_then_returns_the_exact_idempotent_prepared_projection() {
         super::super::operation_handle::ProviderCredentialOperationHandleIssuer::new([9; 32]);
     let rendezvous =
         super::super::broker::pending::PendingBrokerRendezvousRegistry::new(handles.duplicate());
+    let absent = super::super::begin::ProviderCredentialEnrollmentBegin::new(
+        ProviderCredentialAdmission::new(verifier.clone(), measurements.clone()),
+        handles.duplicate(),
+        &store,
+        &reader,
+        super::super::broker::pending::PendingBrokerRendezvousRegistry::new(handles.duplicate()),
+    );
+    assert!(matches!(
+        absent.admit(&authority, &proof, &context, &command, 100),
+        Err(ProviderCredentialEnrollmentHostError::AccessDenied)
+    ));
+    let proof_digest =
+        runne_provider::CredentialBindingDigest::from_measured(*proof.proof_digest()).unwrap();
+    assert!(store.find_by_begin_proof(proof_digest).unwrap().is_none());
+    let transition_rendezvous =
+        super::super::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous::create().unwrap();
+    let transition_facts = (
+        transition_rendezvous.channel_binding(),
+        transition_rendezvous.publication_public_key(),
+    );
+    rendezvous
+        .reserve_transition_rendezvous(transition_rendezvous, &authority, &proof)
+        .unwrap();
+    let foreign_session = issuer
+        .issue_base([1; 32], [2; 32], [7; 32], 1, [4; 32], 1, [5; 32])
+        .unwrap();
+    let foreign_session_proof = issuer
+        .issue_intent_proof(
+            [6; 32],
+            [7; 32],
+            *binding.action_provider_revision_digest(),
+            *binding.command_identity_digest(),
+            4_000_000_000,
+        )
+        .unwrap();
+    let foreign_release = issuer
+        .issue_base([1; 32], [8; 32], [3; 32], 1, [4; 32], 1, [5; 32])
+        .unwrap();
+    for (candidate, candidate_proof) in [
+        (&foreign_session, &foreign_session_proof),
+        (&foreign_release, &proof),
+    ] {
+        assert!(matches!(
+            rendezvous
+                .begin_gate(100)
+                .unwrap()
+                .preflight(candidate, candidate_proof),
+            Err(ProviderCredentialEnrollmentHostError::AccessDenied)
+        ));
+    }
     let begin = super::super::begin::ProviderCredentialEnrollmentBegin::new(
         ProviderCredentialAdmission::new(verifier, measurements),
         handles.duplicate(),
@@ -72,6 +122,13 @@ fn begin_recovers_then_returns_the_exact_idempotent_prepared_projection() {
         &reader,
         rendezvous.clone(),
     );
+
+    assert!(
+        begin
+            .admit(&foreign_session, &proof, &context, &command, 100)
+            .is_err()
+    );
+    assert!(store.find_by_begin_proof(proof_digest).unwrap().is_none());
 
     let first = begin
         .admit(&authority, &proof, &context, &command, 100)
@@ -97,7 +154,7 @@ fn begin_recovers_then_returns_the_exact_idempotent_prepared_projection() {
         .load_operation(handles.resolve(first.operation_handle()).unwrap())
         .unwrap();
     assert!(rendezvous.has_live(operation.operation_id(), 100));
-    let _handoff = rendezvous
+    let handoff = rendezvous
         .begin_endpoint_handoff(
             first.broker_rendezvous_id().unwrap(),
             &operation,
@@ -106,6 +163,7 @@ fn begin_recovers_then_returns_the_exact_idempotent_prepared_projection() {
             100,
         )
         .unwrap();
+    assert_eq!(handoff.rendezvous_facts(), transition_facts);
     assert!(!rendezvous.has_live(operation.operation_id(), 100));
     let consumed_replay = begin
         .admit(&authority, &proof, &context, &command, 100)
@@ -125,6 +183,17 @@ fn begin_recovers_then_returns_the_exact_idempotent_prepared_projection() {
 
     let duplicate =
         super::super::broker::pending::PendingBrokerRendezvousRegistry::new(handles.duplicate());
+    duplicate.reserve_new_for_test(&authority, &proof);
+    assert!(matches!(
+        duplicate.begin_endpoint_handoff(
+            first.broker_rendezvous_id().unwrap(),
+            &operation,
+            &authority,
+            &proof,
+            100,
+        ),
+        Err(ProviderCredentialEnrollmentHostError::AccessDenied)
+    ));
     duplicate
         .register(&operation, &authority, &proof, 100)
         .unwrap();
@@ -132,12 +201,6 @@ fn begin_recovers_then_returns_the_exact_idempotent_prepared_projection() {
         duplicate.register(&operation, &authority, &proof, 100),
         Err(ProviderCredentialEnrollmentHostError::AccessDenied)
     ));
-    let foreign_session = issuer
-        .issue_base([1; 32], [2; 32], [7; 32], 1, [4; 32], 1, [5; 32])
-        .unwrap();
-    let foreign_release = issuer
-        .issue_base([1; 32], [8; 32], [3; 32], 1, [4; 32], 1, [5; 32])
-        .unwrap();
     let rendezvous_id = first.broker_rendezvous_id().unwrap();
     for (candidate, now) in [
         (&foreign_session, 100),
@@ -147,6 +210,7 @@ fn begin_recovers_then_returns_the_exact_idempotent_prepared_projection() {
         let registry = super::super::broker::pending::PendingBrokerRendezvousRegistry::new(
             handles.duplicate(),
         );
+        registry.reserve_new_for_test(&authority, &proof);
         registry
             .register(&operation, &authority, &proof, 100)
             .unwrap();
@@ -172,6 +236,7 @@ fn begin_recovers_then_returns_the_exact_idempotent_prepared_projection() {
     .unwrap();
     let registry =
         super::super::broker::pending::PendingBrokerRendezvousRegistry::new(handles.duplicate());
+    registry.reserve_new_for_test(&authority, &proof);
     registry
         .register(&operation, &authority, &proof, 100)
         .unwrap();

@@ -30,3 +30,19 @@ fn installed_enrollment_evidence_has_no_copyable_or_serializable_surface() {
         assert!(!source.contains(forbidden), "forbidden evidence surface: {forbidden}");
     }
 }
+
+#[test]
+fn enrollment_transition_queues_v3_profile_before_any_writer_handoff_surface() {
+    let source = include_str!("native_enrollment.rs");
+    assert!(!source.contains("begin_credential_enrollment_handoff"));
+    let transition = source
+        .find("begin_credential_enrollment_transition")
+        .expect("split transition entry point");
+    let queued = source[transition..]
+        .find("self.pending_profile = Some(profile)")
+        .expect("transitioned profile retained by supervisor");
+    let handoff = source
+        .find("pub fn run_credential_writer_handoff")
+        .expect("separate post-Begin handoff entry point");
+    assert!(transition + queued < handoff);
+}

@@ -41,6 +41,7 @@ fn authenticated_writer_becomes_daemon_killable_only_after_kernel_peer_capture()
         binding,
         authority,
         transfer_authority: sealed,
+        handoff: runne_platform_desktop::provider_credential_broker::VerifiedDaemonWriterEndpointHandoffFacts::test_only([33; 32]),
     };
     let (mut transfer_sender, transfer_writer) = UnixStream::pair().unwrap();
     let mut writer = Command::new(std::env::current_exe().unwrap())

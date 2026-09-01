@@ -46,6 +46,7 @@ impl VerifiedV2EnrollmentEvidence {
 pub(crate) struct PreparedDaemonEnrollmentTransitionV3 {
     request: DaemonLaunchRequest,
     keys: ProtectedActivationKeys,
+    installed_facts: Option<runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts>,
 }
 
 impl PreparedDaemonEnrollmentTransitionV3 {
@@ -58,6 +59,12 @@ impl PreparedDaemonEnrollmentTransitionV3 {
             DaemonLaunchRequest::V3(request) => Some(request),
             _ => None,
         }
+    }
+
+    pub(crate) fn take_installed_facts(
+        &mut self,
+    ) -> Option<runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts> {
+        self.installed_facts.take()
     }
 }
 
@@ -115,16 +122,19 @@ pub(crate) fn admit_v2_to_v3_transition(
         context.now_unix_millis,
         *installation.installation_identity_digest(),
     );
-    transition_with(
+    let installed = std::cell::RefCell::new(None);
+    let mut prepared = transition_with(
         &input,
         request,
         |stream, claims| {
-            native
-                .revalidate_current_peer_for_claims(stream, claims)
-                .is_some()
+            *installed.borrow_mut() =
+                native.revalidate_and_measure_current_peer_for_claims(stream, claims);
+            installed.borrow().is_some()
         },
         channel,
-    )
+    )?;
+    prepared.installed_facts = installed.into_inner();
+    Ok(prepared)
 }
 
 pub(super) fn transition_with<F>(
@@ -185,7 +195,11 @@ where
         DaemonLaunchProtocolExpectation::enrollment(authority),
     )?;
     let keys = request.derive_keys_and_forget();
-    Ok(PreparedDaemonEnrollmentTransitionV3 { request, keys })
+    Ok(PreparedDaemonEnrollmentTransitionV3 {
+        request,
+        keys,
+        installed_facts: None,
+    })
 }
 
 fn v3_matches_original(

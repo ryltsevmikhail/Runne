@@ -112,14 +112,14 @@ async fn request_provider_credential_intent(
     // Trusted native chain only: leases, native prompt, exact daemon
     // confirmation, V3 transition with writer handoff. The renderer receives
     // just the closed projection; every failure is fail-closed and actionable.
-    crate::provider_credential_enrollment::dispatch_credential_intent(
+    Box::pin(crate::provider_credential_enrollment::dispatch_credential_intent(
         &app,
         window,
         lifecycle.inner(),
         updater.inner(),
         intents.inner(),
         request,
-    )
+    ))
     .await
     .map_err(|code| IpcError { code })
 }

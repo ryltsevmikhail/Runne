@@ -34,13 +34,36 @@ impl ProtectedCredentialEnrollmentAuthenticator {
         previous_sequence: u64,
         now_unix_millis: u64,
     ) -> Result<VerifiedProtectedCredentialEnrollmentRequest, LaunchAuthorityError> {
+        let request = self.decode_authenticated_request(
+            bytes,
+            previous_sequence,
+            now_unix_millis,
+        )?;
+        if &request.binding != expected {
+            return Err(LaunchAuthorityError::OwnershipMismatch);
+        }
+        Ok(request)
+    }
+
+    /// Authenticates a live request before daemon-owned policy validation.
+    ///
+    /// This value is not an authority; request/admission issuance remains the
+    /// only path to a base authority and one-use intent proof.
+    pub fn decode_authenticated_request(
+        &self,
+        bytes: &[u8],
+        previous_sequence: u64,
+        now_unix_millis: u64,
+    ) -> Result<VerifiedProtectedCredentialEnrollmentRequest, LaunchAuthorityError> {
         let (unsigned, proof) = open(bytes, REQUEST_PHASE, REQUEST_BYTES)?;
         if now_unix_millis == 0 || !self.verifies(REQUEST_PHASE, unsigned, &proof) {
             return Err(LaunchAuthorityError::ReadinessProofMismatch);
         }
         let (binding, sequence) = decode_request(unsigned)?;
-        if &binding != expected
-            || sequence != next_sequence(previous_sequence)
+        let expected_sequence = previous_sequence
+            .checked_add(1)
+            .ok_or(LaunchAuthorityError::RenewalReplay)?;
+        if sequence != expected_sequence
             || now_unix_millis < binding.issued_at_unix_millis
             || now_unix_millis > binding.expires_at_unix_millis
         {
@@ -83,6 +106,28 @@ impl ProtectedCredentialEnrollmentAuthenticator {
         previous_sequence: u64,
         now_unix_millis: u64,
     ) -> Result<VerifiedProtectedCredentialEnrollmentAdmission, LaunchAuthorityError> {
+        let admission = self.decode_authenticated_admission(
+            bytes,
+            request,
+            previous_sequence,
+            now_unix_millis,
+        )?;
+        if &admission.binding != expected {
+            return Err(LaunchAuthorityError::OwnershipMismatch);
+        }
+        Ok(admission)
+    }
+
+    /// Authenticates the daemon's admission response without turning it into
+    /// request authority. Callers must still compare every launch-known fact;
+    /// only the daemon-side one-use registry may consume this candidate.
+    pub fn decode_authenticated_admission(
+        &self,
+        bytes: &[u8],
+        request: &VerifiedProtectedCredentialEnrollmentRequest,
+        previous_sequence: u64,
+        now_unix_millis: u64,
+    ) -> Result<VerifiedProtectedCredentialEnrollmentAdmission, LaunchAuthorityError> {
         if !self.owns_request(request) {
             return Err(LaunchAuthorityError::OwnershipMismatch);
         }
@@ -92,7 +137,6 @@ impl ProtectedCredentialEnrollmentAuthenticator {
         }
         let (request_digest, binding, sequence) = decode_admission(unsigned)?;
         if request_digest != request.request_digest
-            || &binding != expected
             || sequence != next_sequence(previous_sequence)
             || !admission_matches_request(request, &binding)
             || !request_is_live_at(request, now_unix_millis)

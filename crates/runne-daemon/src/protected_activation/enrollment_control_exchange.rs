@@ -69,16 +69,10 @@ where
     ) {
         return Err(LaunchAuthorityError::OwnershipMismatch);
     }
-    let mut rendezvous = DaemonOwnedUnixBrokerRendezvous::create()
+    let rendezvous = DaemonOwnedUnixBrokerRendezvous::create()
         .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)?;
     let binding_digest = rendezvous.channel_binding();
     let publication_key = rendezvous.publication_public_key();
-    let authority = rendezvous
-        .take_daemon_authority()
-        .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
-    let writer_endpoint = rendezvous
-        .take_writer_endpoint()
-        .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
     // The exact successor is reserved durably before any prelude is issued.
     let reserved = lock_service(sessions)?.reserve_protected_enrollment_generation();
     let reserved = map_session_error(reserved)?;
@@ -123,13 +117,14 @@ where
         now,
         composition.installation_identity_digest,
     );
-    let prepared = admit_transition(&input, request, channel)?;
+    let mut prepared = admit_transition(&input, request, channel)?;
     let next_binding = rotate_to_reserved(sessions, session_clock, reserved)?;
     let ready = build_ready(&prepared, owned, &next_binding, composition, channel)?;
     Ok(EnrollmentTransitionOutcome::new(
         prepared.keys().clone(),
         ready.owned_launch(),
-        DaemonEnrollmentRendezvous::new(authority, writer_endpoint),
+        DaemonEnrollmentRendezvous::new(rendezvous),
+        prepared.take_installed_facts(),
     ))
 }
 

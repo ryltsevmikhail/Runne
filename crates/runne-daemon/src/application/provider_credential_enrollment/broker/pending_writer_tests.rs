@@ -104,6 +104,7 @@ fn awaiting(
             binding,
             authority,
             transfer_authority,
+            handoff: runne_platform_desktop::provider_credential_broker::VerifiedDaemonWriterEndpointHandoffFacts::test_only([27; 32]),
         },
         publication_key,
     )
@@ -133,6 +134,8 @@ fn send_evidence(
 #[cfg(target_os = "macos")]
 #[path = "pending_writer_macos_tests.rs"]
 mod macos_tests;
+#[path = "pending_writer_rejection_tests.rs"]
+mod rejection_tests;
 
 #[test]
 fn awaiting_writer_consumes_exact_session_and_release_evidence() {
@@ -193,108 +196,31 @@ fn awaiting_writer_rejects_unrelated_session_authenticator() {
 }
 
 #[test]
-fn awaiting_writer_rejects_expiry_and_full_binding_changes() {
-    for changed in [
-        "expired",
-        "session",
-        "release",
-        "peer",
-        "daemon",
-        "database",
-        "supervisor",
-    ] {
-        let fixture = binding_fixture(4_000_000_000);
-        let (sealed, sender_authenticator) = transfer_authority(&fixture.issuer, [18; 32], [4; 32]);
-        let channel = [19; 32];
-        let (awaiting, publication_key) = awaiting(&fixture, channel, sealed);
-        let release_tuple = fixture.release_tuple;
-        let candidate = match changed {
-            "session" => fixture.issuer.issue_base(
-                [3; 32],
-                fixture.release_tuple,
-                [20; 32],
-                1,
-                [6; 32],
-                1,
-                [5; 32],
-            ),
-            "release" => fixture
-                .issuer
-                .issue_base([3; 32], [21; 32], [4; 32], 1, [6; 32], 1, [5; 32]),
-            "peer" => fixture.issuer.issue_base(
-                [3; 32],
-                fixture.release_tuple,
-                [4; 32],
-                1,
-                [6; 32],
-                1,
-                [22; 32],
-            ),
-            "daemon" => fixture.issuer.issue_base(
-                [3; 32],
-                fixture.release_tuple,
-                [4; 32],
-                1,
-                [23; 32],
-                1,
-                [5; 32],
-            ),
-            "database" => fixture.issuer.issue_base(
-                [3; 32],
-                fixture.release_tuple,
-                [4; 32],
-                1,
-                [6; 32],
-                2,
-                [5; 32],
-            ),
-            "supervisor" => fixture.issuer.issue_base(
-                [3; 32],
-                fixture.release_tuple,
-                [4; 32],
-                2,
-                [6; 32],
-                1,
-                [5; 32],
-            ),
-            _ => fixture.issuer.issue_base(
-                [3; 32],
-                fixture.release_tuple,
-                [4; 32],
-                1,
-                [6; 32],
-                1,
-                [5; 32],
-            ),
-        }
-        .unwrap();
-        let now = if changed == "expired" {
-            4_000_000_000
-        } else {
-            100
-        };
-        let (sender, receiver) = std::os::unix::net::UnixStream::pair().unwrap();
-        let sender_thread = std::thread::spawn(move || {
-            send_evidence(
-                sender,
-                &sender_authenticator,
-                release_tuple,
-                channel,
-                publication_key,
-            )
-        });
+fn bound_writer_for_operation_a_cannot_be_attached_to_operation_b() {
+    let fixture = binding_fixture(4_000_000_000);
+    let (sealed, _) = transfer_authority(&fixture.issuer, [24; 32], [4; 32]);
+    let (awaiting, _) = awaiting(&fixture, [25; 32], sealed);
+    let operation_b = CredentialOperationSnapshot::new(
+        CredentialOperationId::from_bytes([26; 16]).unwrap(),
+        fixture.operation.provider().clone(),
+        fixture.operation.action(),
+        fixture.operation.state(),
+        fixture.operation.allocated_credential_version().cloned(),
+        fixture.operation.target_credential_version().cloned(),
+        fixture.operation.metadata().clone(),
+    )
+    .unwrap();
+    let (_, transport) = std::os::unix::net::UnixStream::pair().unwrap();
 
-        assert!(
-            awaiting
-                .receive_writer_evidence(
-                    receiver,
-                    &fixture.operation,
-                    &candidate,
-                    &fixture.proof,
-                    now,
-                )
-                .is_err()
-        );
-        assert!(sender_thread.join().unwrap().is_err());
-    }
+    assert!(
+        awaiting
+            .receive_writer_evidence(
+                transport,
+                &operation_b,
+                &fixture.authority,
+                &fixture.proof,
+                100,
+            )
+            .is_err()
+    );
 }

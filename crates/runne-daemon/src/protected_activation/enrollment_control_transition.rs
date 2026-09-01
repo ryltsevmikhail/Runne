@@ -17,7 +17,9 @@ use runne_api::{
 use runne_application::local_session::LocalSessionService;
 
 use super::ProtectedActivationChannel;
-use crate::application::provider_credential_enrollment::broker::rendezvous::DaemonBrokerAuthority;
+use crate::application::provider_credential_enrollment::broker::rendezvous::{
+    DaemonBrokerAuthority, DaemonOwnedUnixBrokerRendezvous,
+};
 
 pub(crate) type EnrollmentTicketClock =
     Arc<dyn Fn() -> Result<u64, LaunchAuthorityError> + Send + Sync>;
@@ -33,6 +35,9 @@ pub(crate) struct EnrollmentControlComposition {
     pub(super) capabilities: Vec<String>,
     pub(super) profile_directory: PathBuf,
     pub(super) ticket_clock: EnrollmentTicketClock,
+    pub(super) enrollment_control: Option<Arc<
+        crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl,
+    >>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -48,6 +53,9 @@ impl EnrollmentControlComposition {
         capabilities: Vec<String>,
         profile_directory: PathBuf,
         ticket_clock: EnrollmentTicketClock,
+        enrollment_control: Option<Arc<
+            crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl,
+        >>,
     ) -> Self {
         Self {
             original_request,
@@ -59,6 +67,7 @@ impl EnrollmentControlComposition {
             capabilities,
             profile_directory,
             ticket_clock,
+            enrollment_control,
         }
     }
 
@@ -70,21 +79,77 @@ impl EnrollmentControlComposition {
 /// Daemon-retained halves of one enrollment rendezvous, consumed exactly once
 /// by the authenticated writer handoff mounted in the V3 control loop.
 pub(crate) struct DaemonEnrollmentRendezvous {
-    authority: DaemonBrokerAuthority,
+    owned: Option<DaemonOwnedUnixBrokerRendezvous>,
+    authority: Option<DaemonBrokerAuthority>,
     writer_endpoint: Option<UnixStream>,
 }
 
 impl DaemonEnrollmentRendezvous {
-    pub(super) fn new(authority: DaemonBrokerAuthority, writer_endpoint: UnixStream) -> Self {
+    pub(super) fn new(owned: DaemonOwnedUnixBrokerRendezvous) -> Self {
         Self {
-            authority,
-            writer_endpoint: Some(writer_endpoint),
+            owned: Some(owned),
+            authority: None,
+            writer_endpoint: None,
         }
+    }
+
+    pub(crate) fn into_owned(
+        mut self,
+    ) -> Result<DaemonOwnedUnixBrokerRendezvous, LaunchAuthorityError> {
+        self.owned
+            .take()
+            .ok_or(LaunchAuthorityError::OwnershipMismatch)
+    }
+
+    pub(crate) fn prepare_dispatch(&mut self) -> Result<(), LaunchAuthorityError> {
+        let mut owned = self
+            .owned
+            .take()
+            .ok_or(LaunchAuthorityError::OwnershipMismatch)?;
+        self.authority = Some(
+            owned
+                .take_daemon_authority()
+                .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?,
+        );
+        self.writer_endpoint = Some(
+            owned
+                .take_writer_endpoint()
+                .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?,
+        );
+        Ok(())
+    }
+
+    /// Returns the inert channel binding before or after dispatch preparation.
+    pub(crate) fn channel_binding(&self) -> Result<[u8; 32], LaunchAuthorityError> {
+        self.owned
+            .as_ref()
+            .map(DaemonOwnedUnixBrokerRendezvous::channel_binding)
+            .or_else(|| {
+                self.authority
+                    .as_ref()
+                    .map(DaemonBrokerAuthority::channel_binding)
+            })
+            .ok_or(LaunchAuthorityError::OwnershipMismatch)
+    }
+
+    /// Returns the inert publication key before or after dispatch preparation.
+    pub(crate) fn publication_public_key(&self) -> Result<[u8; 32], LaunchAuthorityError> {
+        self.owned
+            .as_ref()
+            .map(DaemonOwnedUnixBrokerRendezvous::publication_public_key)
+            .or_else(|| {
+                self.authority
+                    .as_ref()
+                    .map(DaemonBrokerAuthority::publication_public_key)
+            })
+            .ok_or(LaunchAuthorityError::OwnershipMismatch)
     }
 
     /// Daemon half of the rendezvous, used for the exact writer peer capture.
     pub(crate) fn broker_authority(&self) -> &DaemonBrokerAuthority {
-        &self.authority
+        self.authority
+            .as_ref()
+            .expect("dispatch preparation installs daemon authority")
     }
 
     /// Moves the writer endpoint into the authenticated descriptor transfer once.
@@ -95,12 +160,7 @@ impl DaemonEnrollmentRendezvous {
     /// Creates a fresh production rendezvous for loop-level fixtures.
     #[cfg(test)]
     pub(crate) fn for_test() -> Self {
-        let mut rendezvous =
-            crate::application::provider_credential_enrollment::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous::create()
-                .unwrap();
-        let authority = rendezvous.take_daemon_authority().unwrap();
-        let writer_endpoint = rendezvous.take_writer_endpoint().unwrap();
-        Self::new(authority, writer_endpoint)
+        Self::new(DaemonOwnedUnixBrokerRendezvous::create().unwrap())
     }
 }
 
@@ -109,6 +169,7 @@ pub(crate) struct EnrollmentTransitionOutcome {
     keys: ProtectedActivationKeys,
     owned_launch: ProtectedCredentialEnrollmentOwnedLaunchV3,
     rendezvous: DaemonEnrollmentRendezvous,
+    installed_facts: Option<runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts>,
 }
 
 impl EnrollmentTransitionOutcome {
@@ -116,11 +177,15 @@ impl EnrollmentTransitionOutcome {
         keys: ProtectedActivationKeys,
         owned_launch: ProtectedCredentialEnrollmentOwnedLaunchV3,
         rendezvous: DaemonEnrollmentRendezvous,
+        installed_facts: Option<
+            runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts,
+        >,
     ) -> Self {
         Self {
             keys,
             owned_launch,
             rendezvous,
+            installed_facts,
         }
     }
 
@@ -130,8 +195,14 @@ impl EnrollmentTransitionOutcome {
         ProtectedActivationKeys,
         ProtectedCredentialEnrollmentOwnedLaunchV3,
         DaemonEnrollmentRendezvous,
+        Option<runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts>,
     ) {
-        (self.keys, self.owned_launch, self.rendezvous)
+        (
+            self.keys,
+            self.owned_launch,
+            self.rendezvous,
+            self.installed_facts,
+        )
     }
 }
 

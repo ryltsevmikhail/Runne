@@ -1,4 +1,4 @@
-use super::admission_registry::PendingCredentialHttpAdmissions;
+use super::admission_registry::PendingCredentialAdmissions;
 use runne_api::{
     BeginProviderCredentialEnrollment, ProviderCredentialCommandContext,
     ProviderCredentialEnrollmentHostError, VerifiedProtectedCredentialEnrollmentAdmission,
@@ -83,19 +83,19 @@ impl DaemonCredentialHttpAdmissionExpectation {
 /// Only verified protected frames can enter this daemon-local HTTP bridge.
 #[allow(dead_code)]
 pub(super) struct DaemonAuthenticatedCredentialHttpAdmissionExchange {
-    registry: PendingCredentialHttpAdmissions,
+    registry: PendingCredentialAdmissions,
     expected: DaemonCredentialHttpAdmissionExpectation,
 }
 
 #[allow(dead_code)]
 pub(super) struct RegisteredCredentialHttpAdmissionExchange {
-    registry: PendingCredentialHttpAdmissions,
+    registry: PendingCredentialAdmissions,
 }
 
 #[allow(dead_code)]
 impl DaemonAuthenticatedCredentialHttpAdmissionExchange {
     pub(super) const fn new(
-        registry: PendingCredentialHttpAdmissions,
+        registry: PendingCredentialAdmissions,
         expected: DaemonCredentialHttpAdmissionExpectation,
     ) -> Self {
         Self { registry, expected }

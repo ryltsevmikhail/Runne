@@ -1,82 +1,89 @@
-#![cfg_attr(
-    not(all(target_os = "macos", target_arch = "aarch64")),
-    allow(dead_code)
-)]
+#![cfg(target_os = "macos")]
+
 use runne_api::ProviderCredentialEnrollmentHostError;
-use runne_platform_desktop::provider_credential_broker::WriterProcessEvidence;
 use runne_provider::daemon_credential_publication::CredentialSecretPublicationSigner;
 use runne_provider::{
     CredentialBindingDigest, CredentialBrokerFrame, CredentialBrokerFrameCodec,
     CredentialSecretClaimOffer, CredentialSecretPublication,
+    CredentialWriterSessionAttestationCodec, IssuedCredentialTicketAttempt,
 };
 use zeroize::Zeroizing;
 
-use super::CredentialBrokerChannel;
+use super::{CredentialBrokerChannel, pending_writer::VerifiedMacOsWriterWithDaemonKillCapability};
 
-/// Daemon-owned half of the control socket created by the rendezvous authority.
-///
-/// Construction consumes the opaque daemon authority plus verified process
-/// evidence, so ordinary callers cannot substitute an endpoint or signer.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Task 11 protected control dispatcher constructs this only after its native prompt and handoff are composed"
-    )
-)]
-#[cfg_attr(
-    all(test, not(target_os = "linux")),
-    allow(dead_code, reason = "the descriptor-transfer fixture is Linux-scoped")
-)]
-pub(super) struct UnixCredentialBrokerChannel {
-    control: std::os::unix::net::UnixStream,
-    _evidence: WriterProcessEvidence,
-    binding: CredentialBindingDigest,
-    signer: Option<CredentialSecretPublicationSigner>,
-    publication_public_key: [u8; 32],
+/// One exact writer, its kill authority, release evidence, and one-shot signer.
+pub(crate) struct MacOsCredentialBrokerChannel {
+    writer: VerifiedMacOsWriterWithDaemonKillCapability,
+    installed: runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts,
+    daemon_start: [u8; 32],
+    publication: Option<CredentialSecretPublicationSigner>,
     received_frames: u8,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Task 11 protected control dispatcher consumes this exact one-shot channel"
-    )
-)]
-#[cfg_attr(
-    all(test, not(target_os = "linux")),
-    allow(dead_code, reason = "the descriptor-transfer fixture is Linux-scoped")
-)]
-impl UnixCredentialBrokerChannel {
-    /// Sends one canonical daemon-to-writer frame.
-    pub(super) fn send_frame(
-        &mut self,
-        frame: CredentialBrokerFrame,
-    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
-        CredentialBrokerFrameCodec::write_to(&mut self.control, frame)
-            .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)
+impl MacOsCredentialBrokerChannel {
+    pub(crate) fn observe_daemon_start() -> Result<[u8; 32], runne_api::LaunchAuthorityError> {
+        runne_platform_desktop::provider_credential_broker::observe_current_process_start()
+            .map_err(|_| runne_api::LaunchAuthorityError::InvalidContract)
     }
 
-    /// Receives a bounded writer response in the claim/effect sequence.
-    ///
-    /// The protocol admits a claim followed by one possible-effect diagnostic;
-    /// a third writer frame is always rejected before it is read.
-    pub(super) fn receive_once(
+    pub(crate) const fn from_verified(
+        writer: VerifiedMacOsWriterWithDaemonKillCapability,
+        installed: runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts,
+        daemon_start: [u8; 32],
+    ) -> Self {
+        Self {
+            writer,
+            installed,
+            daemon_start,
+            publication: None,
+            received_frames: 0,
+        }
+    }
+
+    pub(crate) fn terminate_exact_writer(self) {
+        let _ = self.writer.terminate_exact_writer();
+    }
+
+    fn receive_once(
         &mut self,
     ) -> Result<CredentialBrokerFrame, ProviderCredentialEnrollmentHostError> {
         if self.received_frames >= 2 {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
         self.received_frames += 1;
-        CredentialBrokerFrameCodec::read_from(&mut self.control)
+        CredentialBrokerFrameCodec::read_from(self.writer.control())
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
     }
 }
 
-impl CredentialBrokerChannel for UnixCredentialBrokerChannel {
+impl CredentialBrokerChannel for MacOsCredentialBrokerChannel {
     fn binding_digest(&self) -> CredentialBindingDigest {
-        self.binding
+        CredentialBindingDigest::from_measured(self.writer.verified_measurement_facts().channel())
+            .expect("verified channel binding")
+    }
+
+    fn send_issue(
+        &mut self,
+        receipt: &IssuedCredentialTicketAttempt,
+        frame: CredentialBrokerFrame,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        if self.publication.is_some() {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        let daemon_image = self.installed.daemon();
+        let (attestation, publication) =
+            self.writer
+                .sign_writer_session(receipt, &frame, self.daemon_start, daemon_image)?;
+        let attestation = CredentialWriterSessionAttestationCodec::encode(&attestation);
+        std::io::Write::write_all(self.writer.control(), &attestation)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
+        CredentialBrokerFrameCodec::write_to(self.writer.control(), frame)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
+        self.installed
+            .write_signed_release_metadata(self.writer.control())
+            .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
+        self.publication = Some(publication);
+        Ok(())
     }
 
     fn send(
@@ -85,12 +92,12 @@ impl CredentialBrokerChannel for UnixCredentialBrokerChannel {
     ) -> Result<(), ProviderCredentialEnrollmentHostError> {
         let frame = CredentialBrokerFrameCodec::decode(&frame)
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
-        self.send_frame(frame)
+        CredentialBrokerFrameCodec::write_to(self.writer.control(), frame)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)
     }
 
     fn receive(&mut self) -> Result<Zeroizing<Vec<u8>>, ProviderCredentialEnrollmentHostError> {
-        let frame = self.receive_once()?;
-        CredentialBrokerFrameCodec::encode(frame)
+        CredentialBrokerFrameCodec::encode(self.receive_once()?)
             .map(Zeroizing::new)
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
     }
@@ -99,15 +106,10 @@ impl CredentialBrokerChannel for UnixCredentialBrokerChannel {
         &mut self,
         offer: CredentialSecretClaimOffer,
     ) -> Result<CredentialSecretPublication, ProviderCredentialEnrollmentHostError> {
-        let signer = self
-            .signer
+        self.publication
             .take()
-            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
-        if signer.public_key() != self.publication_public_key {
-            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
-        }
-        signer
-            .sign(offer, self.binding)
+            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?
+            .sign(offer, self.binding_digest())
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
     }
 }

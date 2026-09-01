@@ -56,12 +56,12 @@ impl<'a, S: ?Sized, R: ?Sized, V> DaemonProviderCredentialEnrollmentHost<'a, S, 
         measurements: CredentialEnrollmentMeasurementAuthority,
         legacy_import_authority: CredentialEnrollmentStoreAuthority,
         handles: ProviderCredentialOperationHandleIssuer,
+        rendezvous: PendingBrokerRendezvousRegistry,
         store: &'a S,
         reader: &'a R,
         verification: V,
         now_high_water: Arc<dyn Fn() -> i64 + Send + Sync>,
     ) -> Self {
-        let rendezvous = PendingBrokerRendezvousRegistry::new(handles.duplicate());
         Self {
             begin: ProviderCredentialEnrollmentBegin::new(
                 ProviderCredentialAdmission::with_legacy_import_authority(

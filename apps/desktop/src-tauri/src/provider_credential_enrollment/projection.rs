@@ -8,8 +8,8 @@ use serde::Serialize;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CredentialIntentProjection {
-    /// The native consent and daemon dispatch chain accepted the intent.
-    Pending,
+    /// Terminal safe readback completed and the exact writer was reaped.
+    Completed,
     /// The native prompt was dismissed by the user; nothing was dispatched.
     Cancelled,
     /// The trusted chain is unavailable; the renderer must fail closed.

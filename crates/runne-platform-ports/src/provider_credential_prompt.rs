@@ -77,6 +77,12 @@ impl CredentialPipeBytes {
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
+
+    /// Moves the host-owned bytes into the authenticated sealing boundary.
+    #[must_use]
+    pub fn into_zeroizing(self) -> Zeroizing<Vec<u8>> {
+        self.0
+    }
 }
 
 impl fmt::Debug for CredentialPipeBytes {

@@ -67,7 +67,7 @@ fn matching_intent_with_substituted_claim_consumes_the_admission() {
 #[test]
 fn concurrent_duplicate_registration_issues_only_one_pending_authority() {
     let (issuer, _) = ProviderCredentialRequestAuthorityPair::new().split();
-    let registry = std::sync::Arc::new(PendingCredentialHttpAdmissions::new(issuer));
+    let registry = std::sync::Arc::new(PendingCredentialAdmissions::new(issuer));
     let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
     let mut threads = Vec::new();
     for _ in 0..2 {
@@ -113,7 +113,7 @@ fn http_verify_resolver_releases_only_the_exact_command_once() {
 }
 
 fn verified_admission() -> (
-    PendingCredentialHttpAdmissions,
+    PendingCredentialAdmissions,
     VerifiedProtectedCredentialEnrollmentRequest,
     VerifiedProtectedCredentialEnrollmentAdmission,
 ) {
@@ -124,7 +124,7 @@ fn verified_admission() -> (
 fn verified_admission_for(
     bindings: ([u8; 32], [u8; 32]),
 ) -> (
-    PendingCredentialHttpAdmissions,
+    PendingCredentialAdmissions,
     VerifiedProtectedCredentialEnrollmentRequest,
     VerifiedProtectedCredentialEnrollmentAdmission,
 ) {
@@ -136,16 +136,12 @@ fn verified_admission_from_frames(
     request: VerifiedProtectedCredentialEnrollmentRequest,
     admission: VerifiedProtectedCredentialEnrollmentAdmission,
 ) -> (
-    PendingCredentialHttpAdmissions,
+    PendingCredentialAdmissions,
     VerifiedProtectedCredentialEnrollmentRequest,
     VerifiedProtectedCredentialEnrollmentAdmission,
 ) {
     let (issuer, _) = ProviderCredentialRequestAuthorityPair::new().split();
-    (
-        PendingCredentialHttpAdmissions::new(issuer),
-        request,
-        admission,
-    )
+    (PendingCredentialAdmissions::new(issuer), request, admission)
 }
 
 fn verified_frames() -> (

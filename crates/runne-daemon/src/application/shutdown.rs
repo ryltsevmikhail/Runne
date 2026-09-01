@@ -27,6 +27,7 @@ impl DaemonApplication {
             #[cfg(feature = "desktop-protected")]
             root_control,
             runtime_capabilities,
+            credential_enrollment_control,
         } = self;
 
         let http_result = http_host.start().run_until(shutdown).await;
@@ -46,6 +47,7 @@ impl DaemonApplication {
         }
         let _ = protected_activation;
         let _ = runtime_capabilities;
+        drop(credential_enrollment_control);
         drop(provider_activation);
         drop(_secret_broker);
         drop(_bootstrap_reservation_store);

@@ -4,6 +4,7 @@ pub(crate) mod broker;
 mod control_exchange;
 #[cfg(test)]
 mod control_exchange_tests;
+mod control_facade;
 mod coordinator;
 mod effect_authority;
 mod host;
@@ -17,6 +18,9 @@ mod resume;
 mod status;
 mod verified_frames;
 
+pub(crate) use control_facade::{
+    DaemonProtectedCredentialEnrollmentSession, DaemonProviderCredentialEnrollmentControl,
+};
 pub(crate) use coordinator::ProviderCredentialAdmission;
 use effect_authority::ProviderCredentialEffectAuthority;
 pub(crate) use host::ProviderCredentialVerificationHost;

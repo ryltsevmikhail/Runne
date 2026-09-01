@@ -4,17 +4,14 @@ use runne_provider::CredentialOperationId;
 use sha2::Sha256;
 use zeroize::Zeroizing;
 
-#[allow(dead_code)]
 const HANDLE_DOMAIN: &[u8] = b"gocode/provider-credential-operation-handle/v2\0";
 const RENDEZVOUS_DOMAIN: &[u8] = b"gocode/provider-credential-broker-rendezvous/v1\0";
 
 /// Daemon-owned issuer for opaque public operation handles.
-#[allow(dead_code)]
 pub(crate) struct ProviderCredentialOperationHandleIssuer {
     key: Zeroizing<[u8; 32]>,
 }
 
-#[allow(dead_code)]
 impl ProviderCredentialOperationHandleIssuer {
     pub(crate) fn new(key: [u8; 32]) -> Self {
         Self {
@@ -86,5 +83,24 @@ impl ProviderCredentialOperationHandleIssuer {
         bytes[..16].copy_from_slice(&operation);
         bytes[16..].copy_from_slice(&mac.finalize().into_bytes());
         bytes
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use runne_provider::CredentialOperationId;
+
+    use super::ProviderCredentialOperationHandleIssuer;
+
+    #[test]
+    fn handles_are_deterministic_only_within_one_process_local_key() {
+        let operation = CredentialOperationId::from_bytes([7; 16]).unwrap();
+        let issuer = ProviderCredentialOperationHandleIssuer::new([8; 32]);
+        let same = issuer.duplicate();
+        let foreign = ProviderCredentialOperationHandleIssuer::new([9; 32]);
+        let handle = issuer.issue(operation);
+
+        assert_eq!(same.resolve(handle).unwrap(), operation);
+        assert!(foreign.resolve(handle).is_err());
     }
 }

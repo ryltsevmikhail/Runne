@@ -164,6 +164,9 @@ impl DaemonApplication {
                 .collect(),
             provider_readiness: self.provider_readiness,
             installation,
+            credential_enrollment_control: self.credential_enrollment_control.clone().ok_or_else(
+                || DaemonError::Bootstrap("credential enrollment control unavailable".into()),
+            )?,
         })
     }
 }
@@ -181,4 +184,7 @@ pub(crate) struct ProtectedEnrollmentFacts {
     pub(crate) capabilities: Vec<String>,
     pub(crate) provider_readiness: runne_api::ProviderActivationReadinessV1,
     pub(crate) installation: crate::protected_activation::VerifiedNativeEnrollmentInstallation,
+    pub(crate) credential_enrollment_control: Arc<
+        crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl,
+    >,
 }

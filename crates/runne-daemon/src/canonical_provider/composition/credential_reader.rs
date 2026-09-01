@@ -1,5 +1,8 @@
 use std::sync::Arc;
 
+use runne_provider::{
+    CredentialEnrollmentMeasurementAuthority, CredentialEnrollmentStoreAuthority,
+};
 use runne_secure_store::{
     ProviderCredentialId, ProviderCredentialReadback, ProviderCredentialStatus,
 };
@@ -14,6 +17,12 @@ pub(super) struct CredentialBoundary {
     pub(super) readback: Option<Arc<dyn ProviderCredentialReadback>>,
     pub(super) adapter: Arc<dyn CanonicalProviderEffect>,
     pub(super) status: ProviderCredentialStatus,
+    pub(super) enrollment_authorities: Option<CredentialEnrollmentControlAuthorities>,
+}
+
+pub(super) struct CredentialEnrollmentControlAuthorities {
+    pub(super) measurements: CredentialEnrollmentMeasurementAuthority,
+    pub(super) store: CredentialEnrollmentStoreAuthority,
 }
 
 pub(super) fn production(
@@ -31,6 +40,10 @@ pub(super) fn production(
         readback: Some(credentials.readback),
         adapter,
         status: ProviderCredentialStatus::Missing,
+        enrollment_authorities: Some(CredentialEnrollmentControlAuthorities {
+            measurements: credentials.measurements,
+            store: credentials.enrollment_store_authority,
+        }),
     })
 }
 
@@ -59,6 +72,7 @@ pub(super) fn fixture(
         readback: None,
         adapter,
         status: ProviderCredentialStatus::Configured,
+        enrollment_authorities: None,
     })
 }
 
@@ -76,6 +90,7 @@ pub(super) fn fixture(
         readback: None,
         adapter,
         status: ProviderCredentialStatus::Configured,
+        enrollment_authorities: None,
     })
 }
 // fixture-only capability end

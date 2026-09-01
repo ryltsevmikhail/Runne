@@ -140,6 +140,8 @@ mod begin;
 mod begin_admission;
 #[path = "tests/begin_admission_support.rs"]
 pub(crate) mod begin_admission_support;
+#[path = "tests/begin_race.rs"]
+mod begin_race;
 mod broker;
 #[path = "tests/broker_effect_exchange.rs"]
 mod broker_effect_exchange;

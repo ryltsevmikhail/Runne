@@ -16,19 +16,24 @@ use runne_platform_desktop::{
 use sha2::{Digest as _, Sha256};
 use std::fmt;
 use std::time::Instant;
+mod runner;
 /// Opaque native-only exchange retained for the later daemon control slice.
 ///
 /// This value is deliberately neither serializable nor cloneable and exposes no
 /// credential or control-frame surface.
 pub(super) struct PreparedCredentialEnrollmentExchange {
-    _runtime_lease: NativeCredentialEnrollmentLease,
-    _updater_lease: NativeInstalledEnrollmentLease,
-    _installed: ConfirmedInstalledNativeEnrollment,
-    _intent: NativeCredentialIntent,
+    window: String,
+    request: CredentialIntentIpc,
+    runtime_lease: NativeCredentialEnrollmentLease,
+    updater_lease: NativeInstalledEnrollmentLease,
+    installed: ConfirmedInstalledNativeEnrollment,
+    intent: Option<NativeCredentialIntent>,
+    intent_session: [u8; 32],
     _expires: Instant,
-    _material: Option<SecureCredentialMaterial>,
+    material: Option<SecureCredentialMaterial>,
     _renderer_binding: [u8; 32],
-    _native_confirmation: [u8; 32],
+    native_confirmation: [u8; 32],
+    cleanup_armed: bool,
 }
 /// Trusted native inputs retained outside the renderer boundary.
 pub(super) struct NativeEnrollmentConfirmation {
@@ -37,6 +42,7 @@ pub(super) struct NativeEnrollmentConfirmation {
     pub(super) installed: ConfirmedInstalledNativeEnrollment,
     pub(super) runtime_lease: NativeCredentialEnrollmentLease,
     pub(super) updater_lease: NativeInstalledEnrollmentLease,
+    pub(super) intent_session: [u8; 32],
     pub(super) now: Instant,
 }
 impl PreparedCredentialEnrollmentExchange {
@@ -46,22 +52,39 @@ impl PreparedCredentialEnrollmentExchange {
         confirmation: NativeEnrollmentConfirmation,
     ) -> Result<Self, PreparedCredentialEnrollmentError> {
         if confirmation.window.is_empty() || !confirmation.request.valid() {
+            confirmation.runtime_lease.abort_enrollment();
             return Err(PreparedCredentialEnrollmentError);
         }
         let (material, disposition_tag) =
-            accepted_disposition(confirmation.request.action, disposition)?;
-        confirmation
+            match accepted_disposition(confirmation.request.action, disposition) {
+                Ok(value) => value,
+                Err(error) => {
+                    confirmation.runtime_lease.abort_enrollment();
+                    return Err(error);
+                }
+            };
+        if confirmation
             .updater_lease
             .revalidate_confirmed(&confirmation.installed)
-            .map_err(|()| PreparedCredentialEnrollmentError)?;
-        let intent_session = confirmation.installed.intent_session_binding();
-        let intent = issue_pending_intent(
+            .is_err()
+        {
+            confirmation.runtime_lease.abort_enrollment();
+            return Err(PreparedCredentialEnrollmentError);
+        }
+        let intent_session = confirmation.intent_session;
+        let intent = match issue_pending_intent(
             registry,
             &confirmation.window,
             confirmation.request,
             intent_session,
             confirmation.now,
-        )?;
+        ) {
+            Ok(intent) => intent,
+            Err(error) => {
+                confirmation.runtime_lease.abort_enrollment();
+                return Err(error);
+            }
+        };
         let expires = intent.expires_at();
         let renderer_binding = renderer_binding_digest(
             &confirmation.window,
@@ -74,15 +97,27 @@ impl PreparedCredentialEnrollmentExchange {
             disposition_tag,
         );
         Ok(Self {
-            _runtime_lease: confirmation.runtime_lease,
-            _updater_lease: confirmation.updater_lease,
-            _installed: confirmation.installed,
-            _intent: intent,
+            window: confirmation.window,
+            request: confirmation.request,
+            runtime_lease: confirmation.runtime_lease,
+            updater_lease: confirmation.updater_lease,
+            installed: confirmation.installed,
+            intent: Some(intent),
+            intent_session,
             _expires: expires,
-            _material: material,
+            material,
             _renderer_binding: renderer_binding,
-            _native_confirmation: native_confirmation,
+            native_confirmation,
+            cleanup_armed: true,
         })
+    }
+}
+
+impl Drop for PreparedCredentialEnrollmentExchange {
+    fn drop(&mut self) {
+        if self.cleanup_armed {
+            self.runtime_lease.abort_enrollment();
+        }
     }
 }
 
@@ -194,103 +229,5 @@ const fn verification_tag(kind: Option<ProviderCredentialVerificationKindV2>) ->
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn request(action: ProviderCredentialEnrollmentActionV2) -> CredentialIntentIpc {
-        CredentialIntentIpc {
-            provider: ProviderCredentialProviderV2::OpenAi,
-            action,
-            expected_revision: 7,
-            renderer_generation: 3,
-            verification_kind: None,
-        }
-    }
-
-    #[test]
-    fn exchange_rejects_a_secret_action_without_submitted_material() {
-        assert!(
-            accepted_disposition(
-                ProviderCredentialEnrollmentActionV2::Pair,
-                SecureCredentialPromptDisposition::Confirmed,
-            )
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn exchange_rejects_confirmation_action_with_submitted_material() {
-        let material = SecureCredentialMaterial::new(b"secret".to_vec()).unwrap();
-        assert_eq!(
-            accepted_disposition(
-                ProviderCredentialEnrollmentActionV2::Revoke,
-                SecureCredentialPromptDisposition::Submitted(material),
-            )
-            .map(|_| ()),
-            Err(PreparedCredentialEnrollmentError),
-        );
-    }
-
-    #[test]
-    fn native_confirmation_digest_excludes_submitted_secret_material() {
-        let (_, first_tag) = accepted_disposition(
-            ProviderCredentialEnrollmentActionV2::Pair,
-            SecureCredentialPromptDisposition::Submitted(
-                SecureCredentialMaterial::new(b"first-secret".to_vec()).unwrap(),
-            ),
-        )
-        .unwrap();
-        let (_, second_tag) = accepted_disposition(
-            ProviderCredentialEnrollmentActionV2::Pair,
-            SecureCredentialPromptDisposition::Submitted(
-                SecureCredentialMaterial::new(b"second-secret".to_vec()).unwrap(),
-            ),
-        )
-        .unwrap();
-        let first = native_confirmation_digest(
-            request(ProviderCredentialEnrollmentActionV2::Pair),
-            [1; 32],
-            [2; 32],
-            first_tag,
-        );
-        let second = native_confirmation_digest(
-            request(ProviderCredentialEnrollmentActionV2::Pair),
-            [1; 32],
-            [2; 32],
-            second_tag,
-        );
-        assert_eq!(first, second);
-    }
-
-    #[test]
-    fn exchange_retains_a_pending_exact_intent_until_dispatch() {
-        let registry = CredentialIntentRegistry::new(std::time::Duration::from_secs(1)).unwrap();
-        let now = Instant::now();
-        let pending = issue_pending_intent(
-            &registry,
-            "main",
-            request(ProviderCredentialEnrollmentActionV2::Pair),
-            [8; 32],
-            now,
-        )
-        .unwrap();
-        assert!(pending.expires_at() > now);
-        assert_eq!(registry.pending_len(), 1);
-    }
-
-    #[test]
-    fn exchange_has_no_serializable_or_credential_debug_surface() {
-        let source = include_str!("prepared.rs");
-        assert!(!source.contains(concat!("derive", "(Serialize")));
-        assert!(!source.contains(concat!("derive", "(Deserialize")));
-        assert!(!source.contains(concat!(
-            "impl Clone for ",
-            "PreparedCredentialEnrollmentExchange"
-        )));
-        assert!(source.contains("_runtime_lease: NativeCredentialEnrollmentLease"));
-        assert!(source.contains("_updater_lease: NativeInstalledEnrollmentLease"));
-        assert!(source.contains("_intent: NativeCredentialIntent"));
-        assert!(source.contains("_expires: Instant"));
-        assert!(source.contains("<native-only-redacted>"));
-    }
-}
+#[path = "prepared/tests.rs"]
+mod tests;

@@ -10,21 +10,20 @@ use runne_observability::operational::RecoveryObservationRegistry;
 #[cfg(test)]
 use runne_secure_store::ProviderCredentialId;
 mod credential_reader;
+mod enrollment_control;
 #[cfg(all(feature = "test-support", not(test)))]
 mod fixture_credentials;
 mod input;
-
+mod policy;
 pub(crate) use input::DaemonCanonicalProviderComposition;
-pub(super) const PROVIDER_POLICY_V1_TOKEN_BUDGET: u64 = 1_000_000;
-pub(super) const PROVIDER_POLICY_V1_COST_BUDGET_MICROS: u64 = 10_000_000;
-pub(super) const PROVIDER_POLICY_V1_EFFECT_TTL_SECONDS: u64 = 120;
-pub(super) const PROVIDER_POLICY_V1_LEASE_SECONDS: u64 = 600;
-pub(super) const PROVIDER_POLICY_V1_REVISION: u64 = 1;
+pub(super) use policy::*;
 pub struct DaemonCanonicalProviderService {
     pub(super) dispatch_store: Arc<SqliteProviderDispatchStore>,
     pub(super) execution_store: Arc<SqliteProviderExecutionStore>,
     pub(super) credential_store: Arc<SqliteProviderCredentialLifecycleStore>,
     pub(super) credential_readback: Option<Arc<dyn ProviderCredentialReadback>>,
+    pub(super) credential_enrollment_control:
+        Option<Arc<crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl>>,
     pub(super) runtime_store: Arc<runtime_store::DaemonProviderRuntimeStore>,
     pub(super) conversation_store: StoreTransaction,
     pub(super) conversation_service: Arc<dyn ConversationTextCommandService>,
@@ -44,7 +43,6 @@ pub struct DaemonCanonicalProviderService {
     pub(super) launch_capability: ProviderRuntimeLaunchCapability,
     pub(super) recovery_registry: Arc<RecoveryObservationRegistry>,
 }
-
 impl DaemonCanonicalProviderService {
     /// Performs every metadata-only pre-readiness gate and composes production adapters.
     pub(crate) async fn compose(
@@ -150,7 +148,7 @@ impl DaemonCanonicalProviderService {
             terminal_store_decorator,
         );
         #[cfg(test)]
-        let credentials = match effect_source.clone() {
+        let mut credentials = match effect_source.clone() {
             Some(effect) => credential_reader::fixture(
                 credential_connection,
                 runtime_authority_id,
@@ -166,7 +164,7 @@ impl DaemonCanonicalProviderService {
             )?,
         };
         #[cfg(all(feature = "test-support", not(test)))]
-        let credentials = match effect_source.clone() {
+        let mut credentials = match effect_source.clone() {
             Some(effect) => credential_reader::fixture(
                 credential_connection,
                 runtime_authority_id,
@@ -181,11 +179,13 @@ impl DaemonCanonicalProviderService {
             )?,
         };
         #[cfg(not(any(test, feature = "test-support")))]
-        let credentials = credential_reader::production(
+        let mut credentials = credential_reader::production(
             credential_connection,
             credential_id,
             adapter_factory.as_ref(),
         )?;
+        let credential_enrollment_control =
+            enrollment_control::compose(&mut credentials, runtime_authority_id, 1)?;
         let matcher = ProhibitedContentCredentialMatcher::new(prohibited_content.as_ref());
         let redaction = ProviderEventRedactionBoundary::new(
             tail_store.as_ref(),
@@ -257,6 +257,7 @@ impl DaemonCanonicalProviderService {
             execution_store,
             credential_store: credentials.store,
             credential_readback: credentials.readback,
+            credential_enrollment_control,
             runtime_store,
             conversation_store,
             conversation_service,
@@ -295,6 +296,5 @@ impl DaemonCanonicalProviderService {
         Ok(service)
     }
 }
-
 #[cfg(test)]
 mod tests;

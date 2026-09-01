@@ -7,6 +7,9 @@ use std::path::PathBuf;
 #[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
 use super::{NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleAdmission};
 
+mod measurement_facts;
+pub use measurement_facts::VerifiedInstalledEnrollmentMeasurementFacts;
+
 /// Opaque evidence bound to one exact daemon prepare claim.
 ///
 /// The evidence is move-only so one verification cannot authorize two prepares.

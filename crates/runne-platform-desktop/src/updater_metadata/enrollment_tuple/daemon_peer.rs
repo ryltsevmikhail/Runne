@@ -19,6 +19,17 @@ use super::{
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 impl VerifiedDaemonNativeEnrollmentPrepare {
+    /// Revalidates and consumes native ownership into claim-eligible installed facts.
+    #[must_use]
+    pub fn revalidate_and_measure_current_peer_for_claims(
+        self,
+        stream: &UnixStream,
+        claims: &VerifiedProtectedCredentialEnrollmentPrepareV2<'_>,
+    ) -> Option<super::VerifiedInstalledEnrollmentMeasurementFacts> {
+        let verified = self.revalidate_current_peer_for_claims(stream, claims)?;
+        super::VerifiedInstalledEnrollmentMeasurementFacts::from_revalidated(&verified)
+    }
+
     /// Authenticates one exact local desktop peer and its V2 prepare claims.
     #[must_use]
     pub fn verify_current_for_peer(

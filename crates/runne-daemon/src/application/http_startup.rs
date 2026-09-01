@@ -27,6 +27,9 @@ pub(super) async fn start_http_and_runtime(
     root_admission_keys: Option<runne_api::ProtectedActivationKeys>,
     provider_readiness: runne_api::ProviderActivationReadinessV1,
 ) -> Result<DaemonApplication, DaemonError> {
+    let credential_enrollment_control = provider_service
+        .as_ref()
+        .and_then(|service| service.credential_enrollment_control());
     let runtime_capabilities =
         runtime_capabilities(protected_activation, root_admission_keys.is_some());
     let bootstrap_reservation_store = Arc::new(SqliteBootstrapReservationStore::new(
@@ -290,6 +293,7 @@ pub(super) async fn start_http_and_runtime(
         #[cfg(feature = "desktop-protected")]
         root_control,
         runtime_capabilities,
+        credential_enrollment_control,
     })
 }
 #[cfg(test)]
