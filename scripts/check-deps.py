@@ -8,6 +8,10 @@ import sys
 
 
 POLICIES = {
+    "runne-api": {
+        "base64", "ed25519-dalek", "hex", "hmac", "jsonschema", "runne-domain",
+        "runne-plugin-protocol", "serde", "serde_json", "sha2", "subtle", "zeroize",
+    },
     "runne-domain": {"uuid", "sha2", "hex", "chrono", "serde"},
     "runne-plugin-protocol": set(),
     "runne-observability": {"runne-application"},

@@ -2,14 +2,13 @@
     not(all(target_os = "macos", target_arch = "aarch64")),
     allow(dead_code)
 )]
+use runne_api::MacOsCodeIdentityExpectationV1;
 use runne_platform_ports::provider_credential_broker::{
     VerifiedWriterArtifact, VerifiedWriterLaunchSpec,
 };
-use serde::{Deserialize, Serialize};
 
-/// Exact signed identity of one non-ad-hoc macOS native image.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// Private Desktop adapter from a signed expectation to a code requirement.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct MacOsCodeIdentityV1 {
     identifier: String,
     team_identifier: String,
@@ -17,39 +16,12 @@ pub(super) struct MacOsCodeIdentityV1 {
 }
 
 impl MacOsCodeIdentityV1 {
-    pub(super) fn new(
-        identifier: impl Into<String>,
-        team_identifier: impl Into<String>,
-        cdhash: impl Into<String>,
-    ) -> Option<Self> {
-        let identity = Self {
-            identifier: identifier.into(),
-            team_identifier: team_identifier.into(),
-            cdhash: cdhash.into(),
-        };
-        identity.valid().then_some(identity)
-    }
-
-    pub(super) fn valid(&self) -> bool {
-        !self.identifier.is_empty()
-            && self
-                .identifier
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-'))
-            && self.team_identifier.len() == 10
-            && self
-                .team_identifier
-                .bytes()
-                .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
-            && self.cdhash.len() == 40
-            && self
-                .cdhash
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-    }
-
-    pub(super) fn digest_fields(&self) -> [&str; 3] {
-        [&self.identifier, &self.team_identifier, &self.cdhash]
+    pub(super) fn from_expectation(identity: &MacOsCodeIdentityExpectationV1) -> Self {
+        Self {
+            identifier: identity.identifier().to_owned(),
+            team_identifier: identity.team_identifier().to_owned(),
+            cdhash: identity.cdhash().to_owned(),
+        }
     }
 
     pub(super) fn requirement(&self) -> String {
@@ -99,18 +71,13 @@ impl VerifiedMacOsWriterLaunch {
     pub(crate) const fn launch(&self) -> &VerifiedWriterLaunchSpec {
         &self.launch
     }
-
     pub(crate) fn code_requirement(&self) -> String {
         self.code_requirement.clone()
     }
-
-    /// Exact daemon image digest admitted by the same signed release tuple.
     #[must_use]
     pub const fn daemon_image_digest(&self) -> [u8; 32] {
         self.daemon_image_digest
     }
-
-    /// Exact daemon code requirement admitted by the same signed release tuple.
     #[must_use]
     pub fn daemon_code_requirement(&self) -> String {
         self.daemon_code_requirement.clone()

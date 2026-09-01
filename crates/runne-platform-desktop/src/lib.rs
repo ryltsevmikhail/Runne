@@ -70,7 +70,7 @@ pub use updater_journal::{UpdateInstallRecord, UpdateJournal, UpdateJournalError
 #[cfg(all(feature = "dev-loopback-updater", debug_assertions))]
 pub use updater_metadata::verify_update_v2_dev_loopback;
 pub use updater_metadata::{
-    ConfirmedInstalledNativeEnrollment, EnrollmentTransitionFacts,
+    ConfirmedInstalledNativeEnrollment, EnrollmentTransitionFacts, MacOsCodeIdentityExpectationV1,
     MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentQualification,
     NativeEnrollmentQualificationBinding, NativeEnrollmentQualificationRowV1,
     NativeEnrollmentTupleAdmission, NativeEnrollmentTupleError, NativeEnrollmentTupleV2,

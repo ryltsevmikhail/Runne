@@ -1,4 +1,4 @@
-use super::super::{MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentTupleV2, UpdateTargetV2};
+use super::super::{NativeEnrollmentTupleV2, UpdateTargetV2};
 use sha2::{Digest as _, Sha256};
 
 pub(super) fn target() -> UpdateTargetV2 {
@@ -91,24 +91,6 @@ fn enrollment_tuple_rejects_missing_reused_and_swapped_role_artifacts() {
     assert_eq!(
         serde_json::to_value(&tuple).unwrap()["tupleSha256"],
         tuple_v2_digest(&target, &"c".repeat(64), &"e".repeat(64), &"f".repeat(64), &target.bundle_sha256)
-    );
-    assert!(
-        MeasuredNativeEnrollmentArtifactsV1::new(
-            "c".repeat(64),
-            "e".repeat(64),
-            "f".repeat(64),
-            target.bundle_sha256.clone(),
-        )
-        .is_ok_and(|artifacts| tuple.matches_installed(&target, &artifacts))
-    );
-    assert!(
-        MeasuredNativeEnrollmentArtifactsV1::new(
-            "c".repeat(64),
-            "f".repeat(64),
-            "e".repeat(64),
-            target.bundle_sha256.clone(),
-        )
-        .is_ok_and(|artifacts| !tuple.matches_installed(&target, &artifacts))
     );
     assert!(
         NativeEnrollmentTupleV2::new(

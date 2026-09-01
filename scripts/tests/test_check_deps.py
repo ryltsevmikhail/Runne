@@ -14,6 +14,38 @@ SPEC.loader.exec_module(checker)
 
 
 class CheckDepsTests(unittest.TestCase):
+    def test_runne_api_dependencies_are_exact_and_native_free(self) -> None:
+        name = "runne-api"
+        expected = {
+            "base64",
+            "ed25519-dalek",
+            "hex",
+            "hmac",
+            "jsonschema",
+            "runne-domain",
+            "runne-plugin-protocol",
+            "serde",
+            "serde_json",
+            "sha2",
+            "subtle",
+            "zeroize",
+        }
+        self.assertEqual(checker.POLICIES[name], expected)
+        self.assertFalse(
+            expected
+            & {
+                "libc",
+                "nix",
+                "reqwest",
+                "runne-macos-process-identity",
+                "runne-native-enrollment-authority",
+                "runne-platform-desktop",
+                "runne-platform-ports",
+                "rustix",
+                "security-framework",
+            }
+        )
+
     def test_runne_platform_allows_platform_ports(self) -> None:
         self.assertIn("runne-platform-ports", checker.POLICIES["runne-platform"])
 

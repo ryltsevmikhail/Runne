@@ -1,7 +1,8 @@
+use runne_api::SignedInstalledReleaseVerificationErrorV2 as SignedError;
+
 use super::{
-    MAX_ARTIFACT_BYTES, ROOT_THRESHOLD, SCHEMA_VERSION, UpdateMetadataV2, UpdateTargetV2Binding,
-    UpdateTrustRootV2, UpdateV2VerificationError, VerifiedUpdateV2, root_matches, target_matches,
-    verify_quorum, verify_single,
+    MAX_ARTIFACT_BYTES, UpdateMetadataV2, UpdateTargetV2Binding, UpdateTrustRootV2,
+    UpdateV2VerificationError, VerifiedUpdateV2, target_matches,
 };
 
 pub fn verify_update_v2(
@@ -37,83 +38,45 @@ fn verify(
     floor: &str,
     dev_loopback: bool,
 ) -> Result<VerifiedUpdateV2, UpdateV2VerificationError> {
-    validate_structure(metadata, trust)?;
-    verify_quorum(
-        &metadata.root_signatures,
-        &trust.root_keys,
-        &metadata.root,
-        ROOT_THRESHOLD,
-    )
-    .map_err(|()| UpdateV2VerificationError::RootQuorum)?;
-    verify_quorum(
-        &metadata.targets_signatures,
-        &trust.root_keys,
-        &metadata.targets,
-        ROOT_THRESHOLD,
-    )
-    .map_err(|()| UpdateV2VerificationError::TargetsQuorum)?;
-    verify_single(
-        &metadata.snapshot_signature,
-        &trust.snapshot_key,
-        &metadata.snapshot,
-    )
-    .map_err(|()| UpdateV2VerificationError::SnapshotSignature)?;
-    verify_single(
-        &metadata.timestamp_signature,
-        &trust.timestamp_key,
-        &metadata.timestamp,
-    )
-    .map_err(|()| UpdateV2VerificationError::TimestampSignature)?;
-    validate_target(metadata, binding, now, dev_loopback)?;
-    let version = crate::updater::parse_version(&metadata.targets.target.version)
+    let signed = runne_api::verify_signed_update_metadata_v2(metadata, trust, now)
+        .map_err(map_signed_error)?;
+    validate_target(signed.target(), binding, dev_loopback)?;
+    let version = crate::updater::parse_version(&signed.target().version)
         .map_err(|_| UpdateV2VerificationError::InvalidMetadata)?;
     let current = crate::updater::parse_version(current)
         .map_err(|_| UpdateV2VerificationError::InvalidMetadata)?;
     let floor = crate::updater::parse_version(floor)
         .map_err(|_| UpdateV2VerificationError::InvalidMetadata)?;
-    let target_floor = crate::updater::parse_version(&metadata.targets.target.rollback_floor)
+    let target_floor = crate::updater::parse_version(&signed.target().rollback_floor)
         .map_err(|_| UpdateV2VerificationError::InvalidMetadata)?;
     if version < current || version < floor || target_floor < floor {
         return Err(UpdateV2VerificationError::Rollback);
     }
-    Ok(VerifiedUpdateV2 {
-        metadata: metadata.clone(),
-        verified_at_unix_seconds: now,
-    })
+    Ok(VerifiedUpdateV2 { signed })
 }
 
-fn validate_structure(
-    metadata: &UpdateMetadataV2,
-    trust: &UpdateTrustRootV2,
-) -> Result<(), UpdateV2VerificationError> {
-    if metadata.schema_version != SCHEMA_VERSION
-        || metadata.targets.version == 0
-        || metadata.snapshot.version == 0
-        || metadata.timestamp.version == 0
-        || metadata.snapshot.targets_version != metadata.targets.version
-        || metadata.timestamp.snapshot_version != metadata.snapshot.version
-        || !root_matches(&metadata.root, trust)
-    {
-        return Err(UpdateV2VerificationError::InvalidMetadata);
+const fn map_signed_error(error: SignedError) -> UpdateV2VerificationError {
+    match error {
+        SignedError::RootQuorum => UpdateV2VerificationError::RootQuorum,
+        SignedError::TargetsQuorum => UpdateV2VerificationError::TargetsQuorum,
+        SignedError::SnapshotSignature => UpdateV2VerificationError::SnapshotSignature,
+        SignedError::TimestampSignature => UpdateV2VerificationError::TimestampSignature,
+        SignedError::Expired => UpdateV2VerificationError::Expired,
+        SignedError::MetadataTooLarge
+        | SignedError::InvalidEncoding
+        | SignedError::NonCanonicalMetadata
+        | SignedError::InvalidTrustRoot
+        | SignedError::InvalidMetadata
+        | SignedError::Unqualified
+        | SignedError::ReleaseBindingMismatch => UpdateV2VerificationError::InvalidMetadata,
     }
-    Ok(())
 }
 
 fn validate_target(
-    metadata: &UpdateMetadataV2,
+    target: &super::UpdateTargetV2,
     binding: &UpdateTargetV2Binding<'_>,
-    now: u64,
     dev_loopback: bool,
 ) -> Result<(), UpdateV2VerificationError> {
-    let target = &metadata.targets.target;
-    if metadata.targets.expires_at_unix_seconds <= now
-        || metadata.snapshot.expires_at_unix_seconds <= now
-        || metadata.timestamp.expires_at_unix_seconds <= now
-        || target.expires_at_unix_seconds <= now
-        || target.published_at_unix_seconds > now
-    {
-        return Err(UpdateV2VerificationError::Expired);
-    }
     if !target_matches(target, binding) {
         return Err(UpdateV2VerificationError::TargetMismatch);
     }
@@ -123,10 +86,6 @@ fn validate_target(
         || !crate::updater::is_sha256(&target.bundle_sha256)
         || !crate::updater::is_sha256(&target.runtime_digest)
         || !crate::updater_feed::is_update_url(&target.artifact_url, dev_loopback)
-        || target
-            .native_enrollment_tuple
-            .as_ref()
-            .is_some_and(|tuple| !tuple.matches_target(target))
     {
         return Err(UpdateV2VerificationError::InvalidMetadata);
     }

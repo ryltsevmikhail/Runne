@@ -11,6 +11,7 @@ test-support = []
 [dependencies]
 base64.workspace = true
 ed25519-dalek.workspace = true
+hex.workspace = true
 runne-domain = { path = "../runne-domain" }
 runne-plugin-protocol = { path = "../runne-plugin-protocol" }
 hmac = "0.12"

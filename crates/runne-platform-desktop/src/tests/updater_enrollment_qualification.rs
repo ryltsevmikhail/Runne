@@ -9,6 +9,8 @@ use ed25519_dalek::{Signer, SigningKey};
 
 const TUPLE_DIGEST: &str = "cc15dcd7b26158e7931a2f7cbc01e3243523800209c81b309e738f8b41ea6a2e";
 const BINDING_DIGEST: &str = "2f2e790095684939377ae3e6991bef381ef1bd314f0f33b501c3a6164f228897";
+const RELEASE_BINDING_DIGEST: &str =
+    "0a0030f450326a725e260adc9a9a81056b1151b9e2e06bca2fa50752f7280781";
 
 fn macos_tuple(target: &UpdateTargetV2) -> NativeEnrollmentTupleV2 {
     NativeEnrollmentTupleV2::new_macos(
@@ -43,13 +45,18 @@ fn threshold_verified_macos_tuple_with_exact_signed_qualification_is_qualified()
     let target = qualified_target(200);
     let verified = super::updater_enrollment_macos_identity::verify_target(&target).unwrap();
     let qualification = verified.qualify_native_enrollment(&artifacts(&target));
-    let tuple = hex::decode(TUPLE_DIGEST).unwrap().try_into().unwrap();
+    let tuple: [u8; 32] = hex::decode(TUPLE_DIGEST).unwrap().try_into().unwrap();
+    let release: [u8; 32] = hex::decode(RELEASE_BINDING_DIGEST)
+        .unwrap()
+        .try_into()
+        .unwrap();
     let binding = hex::decode(BINDING_DIGEST).unwrap().try_into().unwrap();
 
     assert!(matches!(qualification, NativeEnrollmentQualification::Qualified(_)));
-    assert!(qualification.matches_exact(tuple, binding, 100));
+    assert_ne!(tuple, release);
+    assert!(qualification.matches_exact(release, binding, 100));
     assert!(verified.admit_native_enrollment(&artifacts(&target)).unwrap()
-        .qualification().matches_exact(tuple, binding, 100));
+        .qualification().matches_exact(release, binding, 100));
 }
 
 #[test]

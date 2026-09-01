@@ -118,7 +118,6 @@ fn fixture(expires_at: u64) -> Fixture {
     ).unwrap();
     target.native_enrollment_tuple = Some(tuple.with_qualification(&target, qualification).unwrap());
     let encoded = serde_json::to_value(&target.native_enrollment_tuple).unwrap();
-    let release = hex::decode(encoded["tupleSha256"].as_str().unwrap()).unwrap().try_into().unwrap();
     let qualification = hex::decode(encoded["nativeEnrollmentQualification"]["bindingSha256"].as_str().unwrap()).unwrap().try_into().unwrap();
     let root = UpdateRootRoleV2::from_trust(&trust, 7);
     let targets = UpdateTargetsRoleV2 { version: 8, expires_at_unix_seconds: expires_at, target };
@@ -134,6 +133,11 @@ fn fixture(expires_at: u64) -> Fixture {
         bundle_sha256: &hashes[3], runtime_version: "0.1.0", runtime_digest: &hashes[2], channel: "stable",
     };
     let verified = verify_update_v2(&metadata, &trust, &binding, now, "1.2.0", "1.0.0").unwrap();
+    let release = runne_api::verify_signed_update_metadata_v2(&metadata, &trust, now)
+        .unwrap()
+        .qualified_release_candidate()
+        .unwrap()
+        .release_binding_digest();
     let updates = profile.join("updates");
     let metadata_journal = InstalledUpdateMetadataJournal::new(updates.join("installed-metadata.json"));
     let metadata_binding = metadata_journal.persist(&verified).unwrap();

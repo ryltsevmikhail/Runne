@@ -1,0 +1,135 @@
+use std::path::{Path, PathBuf};
+
+fn repository_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root")
+        .to_owned()
+}
+
+fn read(path: &Path) -> String {
+    std::fs::read_to_string(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+}
+
+fn production_sources(directory: &Path, output: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(directory).expect("module directory") {
+        let path = entry.expect("module entry").path();
+        if path.is_dir() {
+            if path.file_name().is_some_and(|name| name != "tests") {
+                production_sources(&path, output);
+            }
+        } else if path.extension().is_some_and(|value| value == "rs") {
+            output.push(path);
+        }
+    }
+}
+
+#[test]
+fn api_signed_release_owner_has_no_native_or_authority_surface() {
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src/provider_credential_enrollment/signed_installed_release");
+    assert!(directory.is_dir(), "signed release module tree is absent");
+    let facade = directory.with_extension("rs");
+    let mut sources = vec![facade];
+    production_sources(&directory, &mut sources);
+    let forbidden = [
+        "std::path",
+        "Path",
+        "PathBuf",
+        "std::fs",
+        "File",
+        "OwnedFd",
+        "BorrowedFd",
+        "AsFd",
+        "RawFd",
+        "AsRawFd",
+        "OwnedHandle",
+        "BorrowedHandle",
+        "AsHandle",
+        "RawHandle",
+        "AsRawHandle",
+        "std::process",
+        "Command",
+        "Child",
+        "current_exe",
+        "from_parts",
+        "into_authority",
+        "pub fn admit",
+        "pub fn mint",
+        "pub trait",
+        "RawDigest",
+        "AuthenticatedProviderCredentialWriterSession",
+        "reqwest",
+        "runne_platform_desktop",
+        "runne_platform_ports",
+        "runne_macos_process_identity",
+        "runne_native_enrollment_authority",
+    ];
+    for path in sources {
+        let source = read(&path);
+        for token in forbidden {
+            assert!(
+                !source.contains(token),
+                "{} contains forbidden {token}",
+                path.display()
+            );
+        }
+    }
+}
+
+#[test]
+fn desktop_delegates_without_duplicate_release_crypto() {
+    let root = repository_root();
+    let directory = root.join("crates/runne-platform-desktop/src/updater_metadata");
+    assert!(
+        !directory.join("verification.rs").exists(),
+        "old crypto owner remains"
+    );
+    let paths = [
+        directory.with_extension("rs"),
+        directory.join("verify_v2.rs"),
+        directory.join("enrollment_tuple.rs"),
+        directory.join("enrollment_tuple/qualification.rs"),
+    ];
+    let forbidden = [
+        "ed25519_dalek",
+        "VerifyingKey",
+        "verify_quorum",
+        "gocode/native-enrollment-release-tuple/v2\\0",
+        "gocode/native-enrollment-qualification-binding/v1\\0",
+        "GOCODE_SIGNED_INSTALLED_RELEASE_MANIFEST_V1\\0",
+        "GOCODE_SIGNED_INSTALLED_RELEASE_BINDING_V1\\0",
+    ];
+    for path in paths {
+        let source = read(&path);
+        for token in forbidden {
+            assert!(
+                !source.contains(token),
+                "{} duplicates {token}",
+                path.display()
+            );
+        }
+    }
+}
+
+#[test]
+fn only_exact_verifier_constructs_exact_installed_release() {
+    let binding = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src/provider_credential_enrollment/signed_installed_release/binding.rs");
+    let source = read(&binding);
+    assert_eq!(
+        source
+            .matches("pub struct VerifiedSignedInstalledReleaseV2 {")
+            .count(),
+        1
+    );
+    assert_eq!(
+        source
+            .matches("Ok(VerifiedSignedInstalledReleaseV2 {")
+            .count(),
+        1
+    );
+    assert!(source.contains("pub(super) fn exact("));
+    assert!(!source.contains("From<SignedInstalledReleaseCandidateV2>"));
+}

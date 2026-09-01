@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 
 use super::{
     MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentQualification, NativeEnrollmentTupleV2,
-    UpdateTargetV2, VerifiedMacOsWriterLaunch, VerifiedUpdateV2, macos_identity,
+    UpdateTargetV2, VerifiedMacOsWriterLaunch, VerifiedUpdateV2, macos_identity, matches_installed,
 };
 
 /// Non-serializable installed-package admission minted only by `VerifiedUpdateV2`.
@@ -28,98 +28,79 @@ pub struct NativeEnrollmentTupleAdmission {
 impl VerifiedUpdateV2 {
     #[must_use]
     pub const fn target(&self) -> &UpdateTargetV2 {
-        &self.metadata.targets.target
+        self.signed.target()
     }
 
     #[must_use]
     pub(crate) const fn metadata(&self) -> &super::UpdateMetadataV2 {
-        &self.metadata
+        self.signed.metadata()
     }
 
     #[must_use]
     pub const fn native_enrollment_tuple(&self) -> Option<&NativeEnrollmentTupleV2> {
-        self.metadata
-            .targets
-            .target
-            .native_enrollment_tuple
-            .as_ref()
+        self.signed.target().native_enrollment_tuple.as_ref()
     }
 
-    /// Mints admission for exactly one threshold-verified, measured package tuple.
     #[must_use]
     pub fn admit_native_enrollment(
         &self,
         artifacts: &MeasuredNativeEnrollmentArtifactsV1,
     ) -> Option<NativeEnrollmentTupleAdmission> {
-        self.metadata
-            .targets
-            .target
-            .native_enrollment_tuple
-            .as_ref()
-            .and_then(|tuple| tuple.admit(self.target(), artifacts, self.verified_at_unix_seconds))
+        let tuple = self.signed.native_enrollment_tuple()?;
+        let installed_matches = matches_installed(tuple, artifacts);
+        if !installed_matches {
+            return None;
+        }
+        let candidate = self.signed.qualified_release_candidate();
+        let qualification = NativeEnrollmentQualification::from_candidate(candidate, true);
+        let [desktop, writer, daemon] = [
+            tuple
+                .desktop_code_identity()
+                .map(macos_identity::MacOsCodeIdentityV1::from_expectation),
+            tuple
+                .writer_code_identity()
+                .map(macos_identity::MacOsCodeIdentityV1::from_expectation),
+            tuple
+                .daemon_code_identity()
+                .map(macos_identity::MacOsCodeIdentityV1::from_expectation),
+        ];
+        Some(NativeEnrollmentTupleAdmission {
+            desktop_sha256: tuple.desktop_image_digest(),
+            writer_sha256: tuple.writer_image_digest(),
+            daemon_sha256: tuple.daemon_image_digest(),
+            release_tuple_sha256: candidate.map_or_else(
+                || tuple.inner_tuple_digest(),
+                runne_api::SignedInstalledReleaseCandidateV2::release_binding_digest,
+            ),
+            qualification,
+            macos_desktop_code_identity: desktop,
+            macos_writer_code_identity: writer,
+            macos_daemon_code_identity: daemon,
+        })
     }
 
-    /// Qualifies only an exact threshold-signed row and independently measured tuple.
     #[must_use]
     pub fn qualify_native_enrollment(
         &self,
         artifacts: &MeasuredNativeEnrollmentArtifactsV1,
     ) -> NativeEnrollmentQualification {
-        self.metadata
-            .targets
-            .target
-            .native_enrollment_tuple
-            .as_ref()
-            .map_or(NativeEnrollmentQualification::Unqualified, |tuple| {
-                tuple.qualification_for(self.target(), artifacts, self.verified_at_unix_seconds)
-            })
-    }
-}
-
-impl NativeEnrollmentTupleV2 {
-    fn admit(
-        &self,
-        target: &UpdateTargetV2,
-        artifacts: &MeasuredNativeEnrollmentArtifactsV1,
-        verified_at_unix_seconds: u64,
-    ) -> Option<NativeEnrollmentTupleAdmission> {
-        (self.matches_installed(target, artifacts) && self.tuple_sha256 == self.digest_for(target))
-            .then(|| {
-                decode_digest(&self.desktop_sha256)
-                    .zip(decode_digest(&self.writer_sha256))
-                    .zip(decode_digest(&self.daemon_sha256))
-                    .zip(decode_digest(&self.tuple_sha256))
-            })
-            .flatten()
-            .map(
-                |(((desktop_sha256, writer_sha256), daemon_sha256), release_tuple_sha256)| {
-                    NativeEnrollmentTupleAdmission {
-                        desktop_sha256,
-                        writer_sha256,
-                        daemon_sha256,
-                        release_tuple_sha256,
-                        qualification: self.qualification_for(
-                            target,
-                            artifacts,
-                            verified_at_unix_seconds,
-                        ),
-                        macos_desktop_code_identity: self.desktop_code_identity.clone(),
-                        macos_writer_code_identity: self.writer_code_identity.clone(),
-                        macos_daemon_code_identity: self.daemon_code_identity.clone(),
-                    }
-                },
-            )
+        let installed_matches = self
+            .signed
+            .native_enrollment_tuple()
+            .is_some_and(|tuple| matches_installed(tuple, artifacts));
+        NativeEnrollmentQualification::from_candidate(
+            self.signed.qualified_release_candidate(),
+            installed_matches,
+        )
     }
 }
 
 impl NativeEnrollmentTupleAdmission {
-    /// Returns the retained non-authoritative qualification state.
     #[must_use]
     pub const fn qualification(&self) -> &NativeEnrollmentQualification {
         &self.qualification
     }
 
-    /// Re-measures a staged non-macOS writer before yielding its exact artifact.
     pub fn verified_writer(
         &self,
         executable: PathBuf,
@@ -131,7 +112,6 @@ impl NativeEnrollmentTupleAdmission {
         self.verified_writer_artifact(executable)
     }
 
-    /// Re-measures one macOS writer and retains distinct signed role identities.
     pub fn verified_macos_writer(
         &self,
         executable: PathBuf,
@@ -170,10 +150,6 @@ impl NativeEnrollmentTupleAdmission {
             .ok_or(VerifiedWriterArtifactError::Rejected)?;
         VerifiedWriterArtifact::new(executable, self.writer_sha256, self.release_tuple_sha256)
     }
-}
-
-fn decode_digest(value: &str) -> Option<[u8; 32]> {
-    hex::decode(value).ok()?.try_into().ok()
 }
 
 fn measure_regular_file(path: &Path) -> Option<[u8; 32]> {

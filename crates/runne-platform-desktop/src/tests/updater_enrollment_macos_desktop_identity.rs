@@ -52,10 +52,9 @@ fn macos_native_enrollment_tuple_requires_apple_silicon_target() {
 #[test]
 fn signed_legacy_intel_tuple_cannot_reach_native_admission() {
     let apple_silicon = target();
-    let mut legacy = tuple(&apple_silicon);
+    let legacy = tuple(&apple_silicon);
     let mut intel = apple_silicon;
     intel.arch = "x86_64".into();
-    legacy.test_only_rebind_digest(&intel);
     intel.native_enrollment_tuple = Some(
         serde_json::from_value(serde_json::to_value(legacy).unwrap()).unwrap(),
     );
@@ -68,7 +67,7 @@ fn signed_legacy_intel_tuple_cannot_reach_native_admission() {
 
 #[test]
 fn macos_tuple_binds_distinct_exact_desktop_code_identity() {
-    let macos = target();
+    let mut macos = target();
     let tuple = tuple(&macos);
     let artifacts = MeasuredNativeEnrollmentArtifactsV1::new(
         "c".repeat(64),
@@ -77,12 +76,20 @@ fn macos_tuple_binds_distinct_exact_desktop_code_identity() {
         macos.bundle_sha256.clone(),
     )
     .unwrap();
-    assert!(tuple.matches_installed(&macos, &artifacts));
+    macos.native_enrollment_tuple = Some(tuple.clone());
+    assert!(super::updater_enrollment_macos_identity::verify_target(&macos)
+        .unwrap()
+        .admit_native_enrollment(&artifacts)
+        .is_some());
 
     let mut replaced = serde_json::to_value(&tuple).unwrap();
     replaced["desktopCodeIdentity"]["cdhash"] = "4".repeat(40).into();
     let replaced = serde_json::from_value::<NativeEnrollmentTupleV2>(replaced).unwrap();
-    assert!(!replaced.matches_installed(&macos, &artifacts));
+    macos.native_enrollment_tuple = Some(replaced);
+    assert_eq!(
+        super::updater_enrollment_macos_identity::verify_target(&macos),
+        Err(super::super::UpdateV2VerificationError::InvalidMetadata)
+    );
 
     for (identifier, team, cdhash) in [
         ("", "RUNNE12345", "3".repeat(40)),
@@ -114,7 +121,7 @@ fn macos_tuple_binds_distinct_exact_desktop_code_identity() {
 
 #[test]
 fn native_tuple_v2_rejects_legacy_or_substituted_schema_version() {
-    let macos = target();
+    let mut macos = target();
     let tuple = tuple(&macos);
     let mut legacy = serde_json::to_value(&tuple).unwrap();
     legacy.as_object_mut().unwrap().remove("schemaVersion");
@@ -123,12 +130,9 @@ fn native_tuple_v2_rejects_legacy_or_substituted_schema_version() {
     let mut substituted = serde_json::to_value(tuple).unwrap();
     substituted["schemaVersion"] = 1.into();
     let substituted = serde_json::from_value::<NativeEnrollmentTupleV2>(substituted).unwrap();
-    let artifacts = MeasuredNativeEnrollmentArtifactsV1::new(
-        "c".repeat(64),
-        "e".repeat(64),
-        "f".repeat(64),
-        macos.bundle_sha256.clone(),
-    )
-    .unwrap();
-    assert!(!substituted.matches_installed(&macos, &artifacts));
+    macos.native_enrollment_tuple = Some(substituted);
+    assert_eq!(
+        super::updater_enrollment_macos_identity::verify_target(&macos),
+        Err(super::super::UpdateV2VerificationError::InvalidMetadata)
+    );
 }
