@@ -11,7 +11,8 @@ if [[ -n "${RUNNE_CI_INPUT_RECEIPT:-}" ]]; then
     receipt="$RUNNE_CI_INPUT_RECEIPT"
 else
     umask 077
-    state_directory="$(mktemp -d "${TMPDIR:-/tmp}/gocode-ci-local.XXXXXX")"
+    state_root="$(cd "${TMPDIR:-/tmp}" && pwd -P)"
+    state_directory="$(mktemp -d "$state_root/gocode-ci-local.XXXXXX")"
     chmod 700 "$state_directory"
     receipt="$state_directory/local-inputs-receipt.json"
 fi
