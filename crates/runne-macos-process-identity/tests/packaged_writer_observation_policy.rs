@@ -130,6 +130,22 @@ fn final_gate_revalidates_package_socket_audit_start_code_and_vnodes() {
     }
 }
 
+#[test]
+fn low_level_entry_preserves_self_package_process_before_peer_order() {
+    let facade = production_text(&manifest().join("src/packaged_writer_observation.rs"));
+    let old = facade
+        .split("fn capture_preserving_old_order")
+        .nth(1)
+        .unwrap()
+        .split("pub(super) fn capture_with_retained_peer")
+        .next()
+        .unwrap();
+    let self_package = old.find("capture_self_package()?").unwrap();
+    let peer = old.find("MacOsLocalPeerProcessIdentity::capture").unwrap();
+    let complete = old.find("Self::complete").unwrap();
+    assert!(self_package < peer && peer < complete);
+}
+
 fn manifest() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }

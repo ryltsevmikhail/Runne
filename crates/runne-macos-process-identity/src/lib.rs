@@ -9,6 +9,7 @@ mod local_peer;
 mod packaged_writer_observation;
 mod peer_kill;
 mod peer_kill_wire;
+mod writer_bootstrap_transcript;
 mod writer_endpoint_handoff;
 
 #[cfg(test)]
@@ -26,6 +27,9 @@ pub use packaged_writer_observation::{
 };
 pub use peer_kill::{MacOsPeerKillCapability, MacOsPeerKillError};
 pub use peer_kill_wire::MACOS_PEER_KILL_READY_WIRE_BYTES;
+pub use writer_bootstrap_transcript::{
+    MacOsPendingProvisionalReleaseMatchV1, MacOsPendingWriterBootstrapTranscriptV1,
+};
 pub use writer_endpoint_handoff::MacOsUntrustedWriterEndpointHandoffV1;
 
 use std::fmt;

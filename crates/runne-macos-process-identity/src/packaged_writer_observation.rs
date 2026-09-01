@@ -18,6 +18,13 @@ use crate::{
     MacOsUntrustedWriterEndpointHandoffV1,
 };
 
+pub(super) struct CapturedPackagedWriterObservationV1 {
+    _package: PackagedWriterArtifacts,
+    _self_process: PackagedLiveProcessObservation,
+    _peer_process: PackagedLiveProcessObservation,
+    _peer: MacOsLocalPeerProcessIdentity,
+}
+
 /// Opaque native observation that grants no enrollment authority.
 ///
 /// ```compile_fail
@@ -96,10 +103,7 @@ use crate::{
 #[doc(hidden)]
 pub struct MacOsPendingPackagedWriterObservationV1 {
     _handoff: MacOsUntrustedWriterEndpointHandoffV1,
-    _package: PackagedWriterArtifacts,
-    _self_process: PackagedLiveProcessObservation,
-    _peer_process: PackagedLiveProcessObservation,
-    _peer: MacOsLocalPeerProcessIdentity,
+    _observation: CapturedPackagedWriterObservationV1,
 }
 
 /// Closed failure surface for native packaged-writer observation.
@@ -119,25 +123,50 @@ impl MacOsUntrustedWriterEndpointHandoffV1 {
     pub fn observe_pending_packaged_writer(
         self,
     ) -> Result<MacOsPendingPackagedWriterObservationV1, MacOsPackagedWriterObservationError> {
-        let self_code = security_code::NativeCodeObservation::capture_self()?;
-        let package =
-            PackagedWriterArtifacts::capture_from_writer_main(self_code.main_executable())?;
-        let self_process = PackagedLiveProcessObservation::capture_self(&package, self_code)?;
-        let peer = MacOsLocalPeerProcessIdentity::capture(self.observation_control())
+        let observation = CapturedPackagedWriterObservationV1::capture_preserving_old_order(&self)?;
+        Ok(MacOsPendingPackagedWriterObservationV1 {
+            _handoff: self,
+            _observation: observation,
+        })
+    }
+}
+
+impl CapturedPackagedWriterObservationV1 {
+    fn capture_preserving_old_order(
+        handoff: &MacOsUntrustedWriterEndpointHandoffV1,
+    ) -> Result<Self, MacOsPackagedWriterObservationError> {
+        let (package, self_process) = capture_self_package()?;
+        let peer = MacOsLocalPeerProcessIdentity::capture(handoff.observation_control())
             .map_err(map_peer_error)?;
+        Self::complete(handoff, package, self_process, peer)
+    }
+
+    pub(super) fn capture_with_retained_peer(
+        handoff: &MacOsUntrustedWriterEndpointHandoffV1,
+        peer: MacOsLocalPeerProcessIdentity,
+    ) -> Result<Self, MacOsPackagedWriterObservationError> {
+        let (package, self_process) = capture_self_package()?;
+        Self::complete(handoff, package, self_process, peer)
+    }
+
+    fn complete(
+        handoff: &MacOsUntrustedWriterEndpointHandoffV1,
+        package: PackagedWriterArtifacts,
+        self_process: PackagedLiveProcessObservation,
+        peer: MacOsLocalPeerProcessIdentity,
+    ) -> Result<Self, MacOsPackagedWriterObservationError> {
         let peer_process = PackagedLiveProcessObservation::capture_peer(&package, &peer)?;
 
         package.revalidate()?;
-        peer.revalidate_same_peer(self.observation_control())
+        peer.revalidate_same_peer(handoff.observation_control())
             .map_err(map_peer_error)?;
         self_process.revalidate_self(&package)?;
         peer_process.revalidate_peer(&package, &peer)?;
         package.revalidate()?;
-        peer.revalidate_same_peer(self.observation_control())
+        peer.revalidate_same_peer(handoff.observation_control())
             .map_err(map_peer_error)?;
 
-        Ok(MacOsPendingPackagedWriterObservationV1 {
-            _handoff: self,
+        Ok(Self {
             _package: package,
             _self_process: self_process,
             _peer_process: peer_process,
@@ -146,7 +175,19 @@ impl MacOsUntrustedWriterEndpointHandoffV1 {
     }
 }
 
-const fn map_peer_error(
+fn capture_self_package() -> Result<
+    (PackagedWriterArtifacts, PackagedLiveProcessObservation),
+    MacOsPackagedWriterObservationError,
+> {
+    #[cfg(test)]
+    record_heavy_capture();
+    let self_code = security_code::NativeCodeObservation::capture_self()?;
+    let package = PackagedWriterArtifacts::capture_from_writer_main(self_code.main_executable())?;
+    let self_process = PackagedLiveProcessObservation::capture_self(&package, self_code)?;
+    Ok((package, self_process))
+}
+
+pub(super) const fn map_peer_error(
     error: MacOsLocalPeerProcessIdentityError,
 ) -> MacOsPackagedWriterObservationError {
     match error {
@@ -157,4 +198,24 @@ const fn map_peer_error(
             MacOsPackagedWriterObservationError::Unavailable
         }
     }
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static HEAVY_CAPTURE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn record_heavy_capture() {
+    HEAVY_CAPTURE_COUNT.with(|count| count.set(count.get() + 1));
+}
+
+#[cfg(test)]
+pub(crate) fn test_only_reset_heavy_capture_count() {
+    HEAVY_CAPTURE_COUNT.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn test_only_heavy_capture_count() -> usize {
+    HEAVY_CAPTURE_COUNT.with(std::cell::Cell::get)
 }
