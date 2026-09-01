@@ -33,16 +33,24 @@ fn run_entrypoint(arguments: Vec<OsString>) -> ProcessOutcome {
         .first()
         .is_some_and(|argument| argument == runne_provider::PROVIDER_CREDENTIAL_BROKER_MODE_V1)
     {
-        return process_outcome(
-            run_provider_credential_broker(VecDeque::from(arguments)),
-            OutputFormat::Text,
-        );
+        return broker_process_outcome(run_provider_credential_broker(VecDeque::from(arguments)));
     }
     let result = tokio::runtime::Runtime::new()
         .map_or((Err(CliError::Runtime), OutputFormat::Text), |runtime| {
             runtime.block_on(run_after_broker_bootstrap(arguments))
         });
     process_outcome(result.0, result.1)
+}
+
+fn broker_process_outcome(result: Result<(), CliError>) -> ProcessOutcome {
+    match result {
+        Ok(()) => ProcessOutcome {
+            stdout: String::new(),
+            stderr: String::new(),
+            exit_code: 0,
+        },
+        Err(error) => process_outcome(Err(error), OutputFormat::Text),
+    }
 }
 
 async fn run_after_broker_bootstrap(

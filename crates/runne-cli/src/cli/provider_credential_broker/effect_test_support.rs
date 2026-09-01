@@ -5,7 +5,8 @@ use runne_provider::{
     ClaimedWriterAuthorization, CredentialBindingDigest, CredentialBrokerCommand,
     CredentialBrokerFrame, CredentialBrokerFrameCodec, CredentialBrokerTarget,
     CredentialEnrollmentAuthorityPair, CredentialFence, CredentialLifecycleRevision,
-    CredentialOperationAction, CredentialOperationId, CredentialTicketAttempt,
+    CredentialOperationAction, CredentialOperationId, CredentialSecretInputPresence,
+    CredentialTicketAttempt,
     CredentialVersionRef, CredentialWriterAuthorityPair, NativeCredentialDeletionProof, ProviderId,
     RawCredentialTicket, PendingCredentialSecretOpening, SealedCredentialEnvelope,
     WriterIdentityMigrationPhase,
@@ -42,18 +43,19 @@ pub struct ClaimFixture {
 pub fn claimed(action: CredentialOperationAction) -> ClaimFixture {
     let command = command(action);
     let (endpoint, written) = endpoint(&command, false);
-    claimed_from_endpoint(endpoint, written)
+    claimed_from_endpoint(endpoint, written, action)
 }
 
 pub fn claimed_with_diagnostic_failure(action: CredentialOperationAction) -> ClaimFixture {
     let command = command(action);
     let (endpoint, written) = endpoint(&command, true);
-    claimed_from_endpoint(endpoint, written)
+    claimed_from_endpoint(endpoint, written, action)
 }
 
 fn claimed_from_endpoint(
     endpoint: AuthenticatedDaemonControlEndpoint,
     written: Arc<Mutex<Vec<u8>>>,
+    action: CredentialOperationAction,
 ) -> ClaimFixture {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let writer: Arc<dyn BrokeredProviderCredentialWriter> = Arc::new(FakeWriter {
@@ -61,8 +63,14 @@ fn claimed_from_endpoint(
         create_succeeds: false,
     });
     let (issuer, _) = CredentialWriterAuthorityPair::new().split();
+    let secret_input = if action == CredentialOperationAction::Pair {
+        CredentialSecretInputPresence::Present
+    } else {
+        CredentialSecretInputPresence::Absent
+    };
     ClaimFixture {
-        claimed: claim_writer_authorization_for_test(endpoint, &issuer, writer).expect("claim"),
+        claimed: claim_writer_authorization_for_test(endpoint, &issuer, writer, secret_input)
+            .expect("claim"),
         calls,
         written,
     }
@@ -134,7 +142,7 @@ fn endpoint(
     )
 }
 
-fn command(action: CredentialOperationAction) -> CredentialBrokerCommand {
+pub fn command(action: CredentialOperationAction) -> CredentialBrokerCommand {
     let provider = ProviderId::new("openai").expect("provider");
     let operation_id = CredentialOperationId::from_bytes([21; 16]).expect("operation");
     let version = CredentialVersionRef::new(provider.clone(), 1).expect("version");

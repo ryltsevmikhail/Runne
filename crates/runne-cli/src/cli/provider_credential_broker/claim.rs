@@ -8,7 +8,7 @@ use std::{
 use runne_provider::{
     BrokerChannelBinding, ClaimedWriterAuthorization, CredentialBindingDigest,
     CredentialBrokerCommand, CredentialBrokerFrame, CredentialBrokerFrameCodec,
-    PendingCredentialSecretOpening,
+    CredentialSecretInputPresence, PendingCredentialSecretOpening,
 };
 #[cfg(test)]
 use runne_provider::{CredentialOperationAction, CredentialWriterClaimIssuer};
@@ -19,11 +19,13 @@ use runne_secure_store::{
 use super::CliError;
 
 pub trait BrokerControl {
+    #[cfg(test)]
     fn read_frame(&mut self) -> Result<CredentialBrokerFrame, CliError>;
     fn write_frame(&mut self, frame: CredentialBrokerFrame) -> Result<(), CliError>;
 }
 
 impl<T: Read + Write> BrokerControl for T {
+    #[cfg(test)]
     fn read_frame(&mut self) -> Result<CredentialBrokerFrame, CliError> {
         CredentialBrokerFrameCodec::read_from(self).map_err(|_| CliError::CredentialOperation)
     }
@@ -170,21 +172,15 @@ impl AuthorizedWriterControl {
 
 /// Claims one exact issued ticket and returns only a matching post-ack authority.
 #[cfg(target_os = "macos")]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the separate authenticated secret pipe is composed by native orchestration"
-    )
-)]
 pub fn claim_writer_authorization(
     writers: NativeProviderCredentialWriters,
+    secret_input: CredentialSecretInputPresence,
 ) -> Result<ClaimedWriterControl, CliError> {
     let (mut control, channel, ticket, issuer, writer) = writers
         .into_authenticated_parts()
         .map_err(|_| CliError::CredentialOperation)?;
     let (authorization, command, binding, pending_pair_secret_opening) = ticket
-        .claim_on(&mut control, &issuer, &channel)
+        .claim_on(&mut control, &issuer, &channel, secret_input)
         .map_err(|_| CliError::CredentialOperation)?;
     Ok(ClaimedWriterControl {
         control: Box::new(control),
@@ -202,8 +198,9 @@ pub fn claim_writer_authorization_for_test(
     endpoint: AuthenticatedDaemonControlEndpoint,
     issuer: &CredentialWriterClaimIssuer,
     writer: Arc<dyn BrokeredProviderCredentialWriter>,
+    secret_input: CredentialSecretInputPresence,
 ) -> Result<ClaimedWriterControl, CliError> {
-    claim_writer_authorization_with_parts(endpoint, issuer, writer)
+    claim_writer_authorization_with_parts(endpoint, issuer, writer, secret_input)
 }
 
 #[cfg(test)]
@@ -211,6 +208,7 @@ fn claim_writer_authorization_with_parts(
     mut endpoint: AuthenticatedDaemonControlEndpoint,
     issuer: &CredentialWriterClaimIssuer,
     writer: Arc<dyn BrokeredProviderCredentialWriter>,
+    secret_input: CredentialSecretInputPresence,
 ) -> Result<ClaimedWriterControl, CliError> {
     if endpoint.channel.digest().as_bytes() != endpoint.channel_bytes {
         return Err(CliError::CredentialOperation);
@@ -230,6 +228,10 @@ fn claim_writer_authorization_with_parts(
         || attempt != command.ticket_attempt()
         || channel_binding != endpoint.channel_bytes
     {
+        return Err(CliError::CredentialOperation);
+    }
+    let expects_secret = command.action() == CredentialOperationAction::Pair;
+    if (secret_input == CredentialSecretInputPresence::Present) != expects_secret {
         return Err(CliError::CredentialOperation);
     }
 

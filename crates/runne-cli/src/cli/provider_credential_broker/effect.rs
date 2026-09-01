@@ -9,13 +9,6 @@ use runne_secure_store::{
 use super::{CliError, claim::AuthorizedWriterControl, pair::AuthorizedPairWriterControl};
 
 /// Executes a sealed Pair effect only after source decoding and claim acceptance.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "native daemon admission has not yet reached the sealed Pair effect executor"
-    )
-)]
 pub fn execute_pair_effect(authority: AuthorizedPairWriterControl) -> Result<(), CliError> {
     let super::pair::PairEffectParts {
         mut control,
@@ -43,13 +36,6 @@ pub fn execute_pair_effect(authority: AuthorizedPairWriterControl) -> Result<(),
 }
 
 /// Executes a closed non-Pair effect only after native endpoint admission.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "native daemon admission has not yet reached the writer effect executor"
-    )
-)]
 pub fn execute_non_pair_effect(authority: AuthorizedWriterControl) -> Result<(), CliError> {
     let (mut control, writer, authorization, command, binding, channel) =
         authority.into_effect_parts();

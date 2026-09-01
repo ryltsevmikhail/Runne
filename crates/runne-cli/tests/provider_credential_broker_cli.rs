@@ -100,7 +100,9 @@ fn broker_source_has_one_authority_receive_and_no_local_receiver() {
         1
     );
     assert!(broker.contains("let handoff ="));
-    assert!(broker.contains("let _pinned = handoff"));
+    assert!(broker.contains("let secret = channel::InheritedSecretInputSlot::inspect()"));
+    assert!(broker.contains("let pinned = handoff"));
+    assert!(broker.contains("run::run_authenticated_writer(pinned, secret)"));
     assert!(broker.contains("#[cfg(target_os = \"macos\")]"));
     assert!(broker.contains("#[cfg(not(target_os = \"macos\"))]"));
 
@@ -113,9 +115,15 @@ fn broker_source_has_one_authority_receive_and_no_local_receiver() {
     let pinned = broker
         .find(".observe_current_pinned_writer_session()")
         .expect("pinned authority transition");
+    let secret = broker
+        .find("channel::InheritedSecretInputSlot::inspect()")
+        .expect("secret slot detection");
+    let run = broker
+        .find("run::run_authenticated_writer(pinned, secret)")
+        .expect("authenticated runner");
     assert!(
-        end < receive && receive < pinned,
-        "argv, receive, and pinned observation order drifted"
+        end < secret && secret < receive && receive < pinned && pinned < run,
+        "argv, slot detection, receive, pinned observation, and runner order drifted"
     );
 
     let sources = broker_sources();
@@ -156,15 +164,18 @@ fn recursive_coverage_path_matching_uses_native_components() {
 }
 
 #[test]
-fn broker_manifest_has_only_macos_authority_and_dev_rustix_edges() {
+fn broker_manifest_has_only_reviewed_macos_native_dependencies() {
     let manifest = include_str!("../Cargo.toml");
     assert!(!manifest.contains("runne-macos-process-identity"));
     assert!(manifest.contains("[target.'cfg(target_os = \"macos\")'.dependencies]"));
     assert!(manifest.contains(
         "runne-native-enrollment-authority = { path = \"../runne-native-enrollment-authority\" }"
     ));
+    assert!(manifest.contains(
+        "nix = { version = \"=0.31.3\", default-features = false, features = [\"fs\", \"poll\"] }"
+    ));
     assert!(manifest.contains("[target.'cfg(target_os = \"macos\")'.dev-dependencies]"));
-    assert!(manifest.contains("rustix = { version = \"=1.1.4\", features = [\"net\"] }"));
+    assert!(manifest.contains("rustix = { version = \"=1.1.4\", features = [\"net\", \"pipe\"] }"));
     assert!(!manifest.contains("[target.'cfg(unix)'.dependencies]"));
 }
 

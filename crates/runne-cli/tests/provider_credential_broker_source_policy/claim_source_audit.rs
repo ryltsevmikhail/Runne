@@ -48,8 +48,22 @@ fn claim_source_violations(source: &str) -> Vec<String> {
     }
     let function = functions[0];
     let mut violations = Vec::new();
-    if function.sig.inputs.len() != 1 || !is_native_writers(&function.sig.inputs[0]) {
-        violations.push("production claim must accept only NativeProviderCredentialWriters".into());
+    if function.sig.inputs.len() != 2
+        || !is_named_type(
+            &function.sig.inputs[0],
+            "writers",
+            "NativeProviderCredentialWriters",
+        )
+        || !is_named_type(
+            &function.sig.inputs[1],
+            "secret_input",
+            "CredentialSecretInputPresence",
+        )
+    {
+        violations.push(
+            "production claim must accept only authenticated writers and detected secret presence"
+                .into(),
+        );
     }
     let mut calls = Calls::default();
     calls.visit_block(&function.block);
@@ -65,16 +79,23 @@ fn claim_source_violations(source: &str) -> Vec<String> {
     violations
 }
 
-fn is_native_writers(argument: &FnArg) -> bool {
+fn is_named_type(argument: &FnArg, name: &str, expected_type: &str) -> bool {
     let FnArg::Typed(argument) = argument else {
+        return false;
+    };
+    let syn::Pat::Ident(binding) = argument.pat.as_ref() else {
         return false;
     };
     let Type::Path(path) = argument.ty.as_ref() else {
         return false;
     };
-    path.qself.is_none()
+    binding.ident == name
+        && binding.by_ref.is_none()
+        && binding.mutability.is_none()
+        && binding.subpat.is_none()
+        && path.qself.is_none()
         && path.path.segments.len() == 1
-        && path.path.segments[0].ident == "NativeProviderCredentialWriters"
+        && path.path.segments[0].ident == expected_type
 }
 
 #[derive(Default)]

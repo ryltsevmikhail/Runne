@@ -3,7 +3,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use runne_provider::{CredentialOperationAction, CredentialWriterAuthorityPair};
+use runne_provider::{
+    CredentialOperationAction, CredentialSecretInputPresence, CredentialWriterAuthorityPair,
+};
 use runne_secure_store::BrokeredProviderCredentialWriter;
 
 use super::{
@@ -37,8 +39,13 @@ fn pair_authorized_with_control(
         create_succeeds,
     });
     let (issuer, _) = CredentialWriterAuthorityPair::new().split();
-    let claimed =
-        claim_writer_authorization_for_test(endpoint, &issuer, writer).expect("pair claim");
+    let claimed = claim_writer_authorization_for_test(
+        endpoint,
+        &issuer,
+        writer,
+        CredentialSecretInputPresence::Present,
+    )
+    .expect("pair claim");
     let authority = claimed
         .read_pair_secret(&mut Cursor::new(encoded_pair_envelope(&command)))
         .expect("sealed pair source");

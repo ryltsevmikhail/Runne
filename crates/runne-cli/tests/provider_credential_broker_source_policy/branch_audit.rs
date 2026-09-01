@@ -1,5 +1,9 @@
 use syn::{Attribute, Block, Expr, Item, Meta, Pat, Stmt};
 
+#[path = "branch_audit/secret.rs"]
+mod secret;
+use secret::is_secret_local;
+
 pub fn broker_branch_violations(source: &str) -> Vec<String> {
     let file = match syn::parse_file(source) {
         Ok(file) => file,
@@ -39,8 +43,9 @@ pub fn broker_branch_violations(source: &str) -> Vec<String> {
     }
     match cfg_block(&function.block.stmts[2], CfgKind::MacOs) {
         Some(block) if is_exact_macos_block(block) => {}
-        _ => violations
-            .push("macOS branch must receive one named handoff then stay unsupported".to_owned()),
+        _ => violations.push(
+            "macOS branch must detect fd 3, pin the handoff, then run that exact pair".to_owned(),
+        ),
     }
     match cfg_block(&function.block.stmts[3], CfgKind::NotMacOs) {
         Some(block) if is_exact_non_macos_block(block) => {}
@@ -134,10 +139,11 @@ fn is_target_macos(meta: &Meta) -> bool {
 }
 
 fn is_exact_macos_block(block: &Block) -> bool {
-    block.stmts.len() == 3
-        && is_handoff_local(&block.stmts[0])
-        && is_pinned_local(&block.stmts[1])
-        && is_error(&block.stmts[2], "UnsupportedCredentialBackend")
+    block.stmts.len() == 4
+        && is_secret_local(&block.stmts[0])
+        && is_handoff_local(&block.stmts[1])
+        && is_pinned_local(&block.stmts[2])
+        && is_runner_call(&block.stmts[3])
 }
 
 fn is_handoff_local(statement: &Stmt) -> bool {
@@ -211,7 +217,7 @@ fn is_pinned_local(statement: &Stmt) -> bool {
     };
     if !local.attrs.is_empty()
         || !binding.attrs.is_empty()
-        || binding.ident != "_pinned"
+        || binding.ident != "pinned"
         || binding.by_ref.is_some()
         || binding.mutability.is_some()
         || binding.subpat.is_some()
@@ -248,6 +254,17 @@ fn is_pinned_local(statement: &Stmt) -> bool {
                 && error_mapper.inputs.len() == 1
                 && matches!(error_mapper.inputs.first(), Some(Pat::Wild(_)))
                 && is_path(error_mapper.body.as_ref(), &["CliError", "CredentialOperation"]))
+}
+
+fn is_runner_call(statement: &Stmt) -> bool {
+    let Stmt::Expr(Expr::Call(call), None) = statement else {
+        return false;
+    };
+    call.attrs.is_empty()
+        && call.args.len() == 2
+        && is_path(call.func.as_ref(), &["run", "run_authenticated_writer"])
+        && is_path(&call.args[0], &["pinned"])
+        && is_path(&call.args[1], &["secret"])
 }
 
 fn is_exact_non_macos_block(block: &Block) -> bool {

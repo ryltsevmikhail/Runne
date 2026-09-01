@@ -34,10 +34,11 @@ pub use secret::{
 #[doc(hidden)]
 pub use secret::{SealedPairFixture, sealed_pair_for_test};
 pub use session_attestation::{
-    CredentialIssueTicketBindingV1, CredentialWriterSessionAttestationClaimsV1,
-    CredentialWriterSessionAttestationCodec, CredentialWriterSessionProcessClaimsV1,
-    CredentialWriterSessionRuntimeClaimsV1, CredentialWriterSessionTicketClaimsV1,
-    PendingCredentialIssueTicketV1, SignedCredentialWriterSessionAttestationV1,
+    CredentialIssueTicketBindingV1, CredentialSecretInputPresence,
+    CredentialWriterSessionAttestationClaimsV1, CredentialWriterSessionAttestationCodec,
+    CredentialWriterSessionProcessClaimsV1, CredentialWriterSessionRuntimeClaimsV1,
+    CredentialWriterSessionTicketClaimsV1, PendingCredentialIssueTicketV1,
+    SignedCredentialWriterSessionAttestationV1,
 };
 
 /// Deliberately narrow daemon-only publication adapter.

@@ -43,13 +43,6 @@ pub struct PairEffectParts {
 
 impl ClaimedWriterControl {
     /// Reads and decodes one sealed Pair envelope after exact claim acceptance.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "native daemon admission has not yet reached the sealed Pair source reader"
-        )
-    )]
     pub fn read_pair_secret(
         self,
         reader: &mut impl Read,

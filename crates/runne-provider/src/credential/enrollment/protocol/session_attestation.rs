@@ -15,7 +15,9 @@ pub use claims::{
 pub use codec::CredentialWriterSessionAttestationCodec;
 #[cfg(any(test, feature = "test-support"))]
 pub(super) use fixture::attested_publication_signer_for_test;
-pub use issue_ticket::{CredentialIssueTicketBindingV1, PendingCredentialIssueTicketV1};
+pub use issue_ticket::{
+    CredentialIssueTicketBindingV1, CredentialSecretInputPresence, PendingCredentialIssueTicketV1,
+};
 pub use signer::CredentialWriterSessionAttestationSigner;
 
 /// Inert signed session record; decoding it grants no writer authority.

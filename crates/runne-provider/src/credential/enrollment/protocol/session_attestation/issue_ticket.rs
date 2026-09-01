@@ -68,6 +68,19 @@ pub struct PendingCredentialIssueTicketV1 {
     binding: CredentialIssueTicketBindingV1,
 }
 
+/// Whether the fixed inherited sealed-secret slot exists for this writer.
+///
+/// Presence grants no authority and never opens or reads the descriptor. The
+/// retained ticket consumes this fact before writing a claim so Pair cannot run
+/// without a secret slot and every non-Pair action rejects one.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum CredentialSecretInputPresence {
+    /// No inherited sealed-secret slot is present.
+    Absent,
+    /// The inherited sealed-secret slot is present but remains unopened.
+    Present,
+}
+
 impl PendingCredentialIssueTicketV1 {
     /// Reads and retains exactly one bounded `IssueTicket` frame.
     pub fn read_from<R: std::io::Read>(reader: &mut R) -> Result<Self, CredentialEnrollmentError> {
@@ -94,6 +107,7 @@ impl PendingCredentialIssueTicketV1 {
         control: &mut R,
         issuer: &CredentialWriterClaimIssuer,
         channel: &BrokerChannelBinding,
+        secret_input: CredentialSecretInputPresence,
     ) -> Result<
         (
             ClaimedWriterAuthorization,
@@ -123,6 +137,10 @@ impl PendingCredentialIssueTicketV1 {
             return Err(CredentialEnrollmentError::InvalidFrame);
         };
         if channel_binding != channel.digest().as_bytes() {
+            return Err(CredentialEnrollmentError::InvalidEvidence);
+        }
+        let expects_secret = command.action() == CredentialOperationAction::Pair;
+        if (secret_input == CredentialSecretInputPresence::Present) != expects_secret {
             return Err(CredentialEnrollmentError::InvalidEvidence);
         }
         let pending_claim = issuer.issue_pending_claim(&command, binding, channel);

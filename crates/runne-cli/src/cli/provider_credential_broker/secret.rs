@@ -9,13 +9,6 @@ use super::CliError;
 ///
 /// The only decoder is the typed secret relay codec. Partial, invalid, oversized,
 /// or trailing input fails before a native writer effect can begin.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the authenticated inherited-channel runner is composed after the platform handoff"
-    )
-)]
 pub fn read_sealed_pair_envelope(
     reader: &mut impl Read,
 ) -> Result<SealedCredentialEnvelope, CliError> {
