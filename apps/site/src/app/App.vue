@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed, provide } from "vue";
+import { ContentKey, LangKey, contents, langOf, type Lang } from "./content";
 import SiteNav from "./ui/SiteNav.vue";
 import HeroSection from "./ui/HeroSection.vue";
 import FieldNotes from "./ui/FieldNotes.vue";
@@ -8,7 +10,11 @@ import OpenCta from "./ui/OpenCta.vue";
 import SiteFooter from "./ui/SiteFooter.vue";
 import NotFound from "./ui/NotFound.vue";
 
-defineProps<{ notFound?: boolean }>();
+const props = defineProps<{ notFound?: boolean; path?: string }>();
+const lang = computed<Lang>(() => langOf(props.path ?? "/"));
+
+provide(LangKey, lang.value);
+provide(ContentKey, contents[lang.value]);
 </script>
 
 <template>

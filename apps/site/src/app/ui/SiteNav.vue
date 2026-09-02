@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { navLinks } from "../content";
+import { useSite, langPath } from "../useSite";
+const { c } = useSite();
 </script>
 
 <template>
@@ -10,15 +11,18 @@ import { navLinks } from "../content";
       </a>
       <nav aria-label="Primary">
         <ul class="nav-links">
-          <li v-for="link in navLinks" :key="link.href">
+          <li v-for="link in c.navLinks" :key="link.href">
             <a :href="link.href">{{ link.label }}</a>
           </li>
         </ul>
       </nav>
-      <a class="btn btn-cobalt" href="#cta">
-        <span class="btn-arrow" aria-hidden="true">→</span>
-        <span>Read the docs</span>
-      </a>
+      <div class="nav-actions">
+        <a class="lang-switch" :href="langPath(c.langSwitch.to)">{{ c.langSwitch.label }}</a>
+        <a class="btn btn-cobalt" href="#cta">
+          <span class="btn-arrow" aria-hidden="true">→</span>
+          <span>{{ c.docsLabel }}</span>
+        </a>
+      </div>
     </div>
   </header>
 </template>

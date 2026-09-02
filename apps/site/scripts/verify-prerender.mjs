@@ -13,13 +13,14 @@ function escaped(value) {
 async function verify(route, notFound = false) {
   const html = await readFile(join(dist, route.output), "utf8");
   const canonical = new URL(route.path, "https://runne.run").toString();
+  const ogLocale = route.lang === "ru" ? "ru_RU" : "en_US";
   const expected = [
-    `<html lang="en">`,
+    `<html lang="${route.lang}">`,
     `<title>${route.title} · Runne</title>`,
     `name="description" content="${escaped(route.description)}"`,
     `rel="canonical" href="${canonical}"`,
     `property="og:url" content="${canonical}"`,
-    `property="og:locale" content="en_US"`,
+    `property="og:locale" content="${ogLocale}"`,
     `<h1>${route.heading}</h1>`,
     `id="main" tabindex="-1"`,
   ];
