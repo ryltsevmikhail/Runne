@@ -82,7 +82,7 @@ mod persistent_reference_fixture_tests {
     }
 
     #[test]
-    fn owner_mode_and_channel_predicates_fail_closed() {
+    fn owner_mode_predicates_fail_closed() {
         let uid = unsafe { libc::geteuid() };
         assert!(owner_only(uid, u32::from(libc::S_IFREG | 0o500), false));
         assert!(!owner_only(
@@ -92,22 +92,6 @@ mod persistent_reference_fixture_tests {
         ));
         assert!(!owner_only(uid, u32::from(libc::S_IFREG | 0o540), false));
         assert!(!owner_only(uid, u32::from(libc::S_IFLNK | 0o700), true));
-        let identity = (uid, unsafe { libc::getegid() });
-        let parent = std::num::NonZeroU32::new(std::process::id()).unwrap();
-        let unrelated = std::num::NonZeroU32::new(parent.get().wrapping_add(1)).unwrap();
-        assert!(channel_is_bound(true, identity, parent, parent, parent, true));
-        assert!(!channel_is_bound(false, identity, parent, parent, parent, true));
-        assert!(!channel_is_bound(
-            true,
-            (uid.wrapping_add(1), identity.1),
-            parent,
-            parent,
-            parent,
-            true,
-        ));
-        assert!(!channel_is_bound(true, identity, unrelated, parent, parent, true));
-        assert!(!channel_is_bound(true, identity, parent, unrelated, unrelated, true));
-        assert!(!channel_is_bound(true, identity, parent, parent, parent, false));
     }
 
     struct FixtureTree {

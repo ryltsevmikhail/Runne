@@ -13,6 +13,8 @@ persistent-reference-probe = [
     "test-support",
     "desktop-protected",
     "runne-macos-keychain-acl/persistent-reference-probe",
+    "dep:runne-native-enrollment-authority",
+    "runne-native-enrollment-authority/local-native-enrollment-test",
 ]
 
 [dependencies]
@@ -81,6 +83,7 @@ rustix = { version = "=1.1.4", features = ["fs", "process"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 nix = { version = "=0.31.3", default-features = false, features = ["socket"], optional = true }
 runne-macos-keychain-acl = { path = "../runne-macos-keychain-acl" }
+runne-native-enrollment-authority = { path = "../runne-native-enrollment-authority", optional = true }
 
 [dev-dependencies]
 core-foundation = "=0.10.1"

@@ -39,6 +39,19 @@ pub(super) fn has_exact_macos_cfg(attributes: &[Attribute]) -> bool {
     relevant.len() == 1 && is_exact_macos_cfg(relevant[0])
 }
 
+pub(super) fn has_exact_local_native_macos_cfg(attributes: &[Attribute]) -> bool {
+    let relevant: Vec<_> = attributes
+        .iter()
+        .filter(|attribute| {
+            matches!(
+                meta_name(&attribute.meta).as_deref(),
+                Some("cfg" | "cfg_attr" | "path")
+            )
+        })
+        .collect();
+    relevant.len() == 1 && is_exact_local_native_macos_cfg(relevant[0])
+}
+
 pub(super) fn has_cfg_or_path_substitution(attributes: &[Attribute]) -> bool {
     attributes
         .iter()
@@ -122,6 +135,50 @@ fn is_exact_macos_cfg(attribute: &Attribute) -> bool {
         && matches!(value.path.segments[0].arguments, PathArguments::None)
         && expression.attrs.is_empty()
         && matches!(&expression.lit, Lit::Str(value) if value.value() == "macos")
+}
+
+fn is_exact_local_native_macos_cfg(attribute: &Attribute) -> bool {
+    let Meta::List(cfg) = &attribute.meta else {
+        return false;
+    };
+    if meta_name(&attribute.meta).as_deref() != Some("cfg") {
+        return false;
+    }
+    let Ok(Meta::List(all)) = cfg.parse_args::<Meta>() else {
+        return false;
+    };
+    if all.path.leading_colon.is_some()
+        || all.path.segments.len() != 1
+        || normalized_ident(&all.path.segments[0].ident) != "all"
+        || !matches!(all.path.segments[0].arguments, PathArguments::None)
+    {
+        return false;
+    }
+    let Ok(parts) = all.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated) else {
+        return false;
+    };
+    parts.len() == 2
+        && parts
+            .iter()
+            .any(|part| exact_name_value(part, "target_os", "macos"))
+        && parts
+            .iter()
+            .any(|part| exact_name_value(part, "feature", "local-native-enrollment-test"))
+}
+
+fn exact_name_value(meta: &Meta, name: &str, value: &str) -> bool {
+    let Meta::NameValue(item) = meta else {
+        return false;
+    };
+    let Expr::Lit(expression) = &item.value else {
+        return false;
+    };
+    item.path.leading_colon.is_none()
+        && item.path.segments.len() == 1
+        && normalized_ident(&item.path.segments[0].ident) == name
+        && matches!(item.path.segments[0].arguments, PathArguments::None)
+        && expression.attrs.is_empty()
+        && matches!(&expression.lit, Lit::Str(item) if item.value() == value)
 }
 
 fn is_exact_test_path(attribute: &Attribute) -> bool {

@@ -6,6 +6,8 @@ use syn::{Attribute, UseTree};
 
 use super::{HANDOFF, PINNED, attribute_audit, normalized_ident, opaque_module, opaque_name};
 
+const LOCAL_PARENT_CHANNEL: &str = "validate_persistent_reference_parent_channel";
+
 pub(super) fn exact_public_reexports(
     tree: &UseTree,
     attributes: &[Attribute],
@@ -15,6 +17,14 @@ pub(super) fn exact_public_reexports(
     collect_use_bindings(tree, &mut Vec::new(), &mut bindings);
     let mut names = Vec::new();
     for binding in bindings {
+        if binding.exposed == LOCAL_PARENT_CHANNEL
+            && Path::new(source).file_name().and_then(|file| file.to_str()) == Some("lib.rs")
+            && !binding.renamed
+            && binding.origin == ["persistent_reference_parent_channel", LOCAL_PARENT_CHANNEL]
+            && attribute_audit::has_exact_local_native_macos_cfg(attributes)
+        {
+            continue;
+        }
         let Some(name) = opaque_name(&binding.exposed) else {
             return Err(format!(
                 "{source}: public re-export must originate exactly in its opaque module"

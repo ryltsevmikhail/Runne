@@ -3906,6 +3906,7 @@ dependencies = [
  "runne-domain",
  "runne-http",
  "runne-macos-keychain-acl",
+ "runne-native-enrollment-authority",
  "runne-observability",
  "runne-pairing-crypto",
  "runne-platform",
@@ -4126,7 +4127,6 @@ version = "0.0.3"
 dependencies = [
  "core-foundation 0.10.1",
  "libc",
- "runne-macos-process-identity",
  "security-framework",
  "security-framework-sys",
  "sha2",

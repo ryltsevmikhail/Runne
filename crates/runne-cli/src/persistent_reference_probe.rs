@@ -1,6 +1,6 @@
 //! Local-only writer half of the persistent-reference feasibility probe.
 
-use std::{fs, io::Write as _, os::fd::AsFd as _};
+use std::{fs, io::Write as _};
 
 use crate::ProcessOutcome;
 
@@ -57,8 +57,10 @@ fn run() -> Result<(), ProbeError> {
         MODE,
     )
     .map_err(|_| ProbeError::Closed("fixture"))?;
-    runne_macos_keychain_acl::validate_persistent_reference_parent_channel(&fixture)
-        .map_err(|_| ProbeError::Closed("parent-channel"))?;
+    runne_native_enrollment_authority::validate_persistent_reference_parent_channel(
+        fixture.parent_pid(),
+    )
+    .map_err(|_| ProbeError::Closed("parent-channel"))?;
     let (_interaction, keychain) =
         runne_macos_keychain_acl::open_noninteractive_keychain(fixture.keychain())
             .map_err(|_| ProbeError::Closed("keychain-open"))?;
@@ -120,13 +122,18 @@ fn send_record(reference: &zeroize::Zeroizing<Vec<u8>>) -> Result<(), ()> {
         return Err(());
     }
     let length = u16::try_from(reference.len()).map_err(|_| ())?;
-    let duplicate = rustix::io::dup(std::io::stdin().as_fd()).map_err(|_| ())?;
-    let mut channel = fs::File::from(duplicate);
+    let mut channel = duplicate_stdin()?;
     channel.write_all(RECORD_MAGIC).map_err(|_| ())?;
     channel.write_all(&length.to_be_bytes()).map_err(|_| ())?;
     channel
         .write_all(reference)
         .and_then(|()| channel.flush())
+        .map_err(|_| ())
+}
+
+fn duplicate_stdin() -> Result<fs::File, ()> {
+    nix::unistd::dup(std::io::stdin())
+        .map(fs::File::from)
         .map_err(|_| ())
 }
 

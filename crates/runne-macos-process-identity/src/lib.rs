@@ -5,6 +5,7 @@
 
 mod continuous_clock;
 mod ffi;
+mod local_parent_channel;
 mod local_peer;
 mod packaged_writer_observation;
 mod peer_kill;
@@ -29,6 +30,7 @@ mod packaged_writer_observation_tests;
 mod writer_endpoint_handoff_tests;
 
 pub use continuous_clock::{MacOsContinuousClock, MacOsContinuousClockError};
+pub use local_parent_channel::validate_current_parent_channel;
 pub use local_peer::{MacOsLocalPeerProcessIdentity, MacOsLocalPeerProcessIdentityError};
 pub use packaged_writer_observation::{
     MacOsPackagedWriterObservationError, MacOsPendingPackagedWriterObservationV1,

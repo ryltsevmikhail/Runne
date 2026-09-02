@@ -42,8 +42,10 @@ pub fn run() -> Result<(), ProbeError> {
         MODE,
     )
     .map_err(|_| ())?;
-    runne_macos_keychain_acl::validate_persistent_reference_parent_channel(&fixture)
-        .map_err(|_| ())?;
+    runne_native_enrollment_authority::validate_persistent_reference_parent_channel(
+        fixture.parent_pid(),
+    )
+    .map_err(|_| ())?;
     let (_interaction, keychain) =
         runne_macos_keychain_acl::open_noninteractive_keychain(fixture.keychain())
             .map_err(|_| ())?;

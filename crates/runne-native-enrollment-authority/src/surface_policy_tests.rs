@@ -134,6 +134,7 @@ fn audit_items(items: &[Item], source: &str, audit: &mut Audit) {
             Item::ExternCrate(item) => {
                 reject_public(&item.vis, "extern crate", source, audit);
             }
+            Item::Fn(item) if is_exact_local_parent_channel(item, source) => {}
             Item::Fn(item) => reject_public(&item.vis, "free function", source, audit),
             Item::Static(item) => reject_public(&item.vis, "static", source, audit),
             Item::Trait(item) => reject_public(&item.vis, "trait", source, audit),
@@ -252,4 +253,19 @@ fn normalized_ident(value: &syn::Ident) -> String {
 
 const fn is_public(visibility: &Visibility) -> bool {
     matches!(visibility, Visibility::Public(_))
+}
+
+fn is_exact_local_parent_channel(item: &syn::ItemFn, source: &str) -> bool {
+    is_public(&item.vis)
+        && source.ends_with("persistent_reference_parent_channel.rs")
+        && item.sig.ident == "validate_persistent_reference_parent_channel"
+        && item.sig.constness.is_none()
+        && item.sig.asyncness.is_none()
+        && item.sig.unsafety.is_none()
+        && item.sig.abi.is_none()
+        && item.sig.variadic.is_none()
+        && item.sig.generics.params.is_empty()
+        && item.sig.generics.where_clause.is_none()
+        && item.sig.inputs.len() == 1
+        && matches!(item.sig.inputs.first(), Some(syn::FnArg::Typed(_)))
 }

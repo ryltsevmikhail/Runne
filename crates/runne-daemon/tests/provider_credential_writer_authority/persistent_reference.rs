@@ -275,14 +275,16 @@ fn native_fd_probe_requires_coupled_features_and_package_fixture_preflight() {
     let fixture = include_bytes!(
         "../../../runne-macos-keychain-acl/src/implementation_parts/persistent_reference_fixture.inc",
     );
-    for required in [
-        b"MacOsLocalPeerProcessIdentity::capture".as_slice(),
-        b"peer.revalidate_same_peer".as_slice(),
-        b"peer.pid()".as_slice(),
-        b"fixture.parent_pid".as_slice(),
-    ] {
-        assert!(contains(fixture, required));
+    let writer = include_bytes!("../../../runne-cli/src/persistent_reference_probe.rs");
+    let reader = include_bytes!("../../src/persistent_reference_probe.rs");
+    for role in [writer.as_slice(), reader.as_slice()] {
+        assert!(contains(
+            role,
+            b"runne_native_enrollment_authority::validate_persistent_reference_parent_channel",
+        ));
     }
+    assert!(contains(fixture, b"pub const fn parent_pid"));
+    assert!(!contains(fixture, b"MacOsLocalPeerProcessIdentity"));
 }
 
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {

@@ -1,7 +1,7 @@
+use std::num::NonZeroU32;
 use std::os::unix::ffi::OsStringExt as _;
 use std::os::unix::fs::MetadataExt as _;
 use std::path::PathBuf;
-use std::num::NonZeroU32;
 
 const FIXTURE_ROOT: &str = "RUNNE_SLICE_E_FIXTURE_ROOT";
 const LOCAL_ENROLLMENT: &str = "RUNNE_LOCAL_NATIVE_ENROLLMENT_TEST";
@@ -42,6 +42,12 @@ impl PersistentReferenceFixture {
     pub fn reader(&self) -> &Path {
         &self.reader
     }
+
+    /// Returns the direct package parent PID captured during fixture validation.
+    #[must_use]
+    pub const fn parent_pid(&self) -> NonZeroU32 {
+        self.parent_pid
+    }
 }
 
 /// Validates local opt-in, fixture ownership, exact role and package parent.
@@ -77,48 +83,6 @@ pub fn current_persistent_reference_fixture(
         parent_pid,
         role,
     )
-}
-
-/// Rejects a non-socket, non-parent or unauthenticated inherited FD.
-///
-/// # Errors
-///
-/// Returns a closed error unless stdin's kernel-audited peer is the already
-/// validated package desktop parent in the same session and uid/gid domain.
-pub fn validate_persistent_reference_parent_channel(
-    fixture: &PersistentReferenceFixture,
-) -> Result<(), KeychainAclError> {
-    let stdin = std::io::stdin();
-    let fd = stdin.as_raw_fd();
-    let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
-    // SAFETY: stdin is live and `metadata` is valid output storage.
-    if unsafe { libc::fstat(fd, metadata.as_mut_ptr()) } != 0 {
-        return Err(KeychainAclError::AccessDenied);
-    }
-    // SAFETY: fstat initialized metadata after the zero return above.
-    let metadata = unsafe { metadata.assume_init() };
-    let mut peer_identity = (libc::uid_t::MAX, libc::gid_t::MAX);
-    // SAFETY: stdin is a valid descriptor; peer outputs are writable.
-    if unsafe { libc::getpeereid(fd, &raw mut peer_identity.0, &raw mut peer_identity.1) } != 0 {
-        return Err(KeychainAclError::AccessDenied);
-    }
-    let parent_pid = current_parent_pid()?;
-    let peer = runne_macos_process_identity::MacOsLocalPeerProcessIdentity::capture(&stdin)
-        .map_err(|_| KeychainAclError::AccessDenied)?;
-    peer.revalidate_same_peer(&stdin)
-        .map_err(|_| KeychainAclError::AccessDenied)?;
-    if channel_is_bound(
-        metadata.st_mode & libc::S_IFMT == libc::S_IFSOCK,
-        peer_identity,
-        peer.pid(),
-        fixture.parent_pid,
-        parent_pid,
-        same_session(peer.pid(), parent_pid),
-    ) {
-        Ok(())
-    } else {
-        Err(KeychainAclError::AccessDenied)
-    }
 }
 
 fn validate_persistent_reference_fixture(
@@ -199,45 +163,10 @@ fn owner_only(uid: libc::uid_t, mode: u32, directory: bool) -> bool {
             }
 }
 
-fn channel_is_bound(
-    socket: bool,
-    peer_identity: (libc::uid_t, libc::gid_t),
-    peer_pid: NonZeroU32,
-    expected_parent: NonZeroU32,
-    current_parent: NonZeroU32,
-    session_matches: bool,
-) -> bool {
-    socket
-        && peer_identity.0 == unsafe { libc::geteuid() }
-        && peer_identity.1 == unsafe { libc::getegid() }
-        && peer_pid == expected_parent
-        && current_parent == expected_parent
-        && session_matches
-}
-
 fn current_parent_pid() -> Result<NonZeroU32, KeychainAclError> {
     let parent = unsafe { libc::getppid() };
     let parent = u32::try_from(parent).map_err(|_| KeychainAclError::AccessDenied)?;
     NonZeroU32::new(parent).ok_or(KeychainAclError::AccessDenied)
-}
-
-fn same_session(peer: NonZeroU32, parent: NonZeroU32) -> bool {
-    let peer = i32::try_from(peer.get()).ok();
-    let parent = i32::try_from(parent.get()).ok();
-    match (peer, parent) {
-        (Some(peer), Some(parent)) => {
-            // SAFETY: getsid has no additional pointer or ownership preconditions.
-            let current_session = unsafe { libc::getsid(0) };
-            // SAFETY: parent and peer are live kernel PIDs captured above.
-            let parent_session = unsafe { libc::getsid(parent) };
-            // SAFETY: parent and peer are live kernel PIDs captured above.
-            let peer_session = unsafe { libc::getsid(peer) };
-            current_session > 0
-                && current_session == parent_session
-                && parent_session == peer_session
-        }
-        _ => false,
-    }
 }
 
 fn parent_executable(parent_pid: NonZeroU32) -> Result<PathBuf, KeychainAclError> {

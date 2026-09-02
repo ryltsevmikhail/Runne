@@ -2,6 +2,7 @@
 
 use std::mem::MaybeUninit;
 use std::num::NonZeroU32;
+use std::os::fd::{AsFd, AsRawFd as _};
 use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::fs::MetadataExt as _;
 use std::path::Path;
@@ -89,6 +90,40 @@ pub fn observe(pid: NonZeroU32) -> Result<[u8; 32], MacOsProcessIdentityError> {
         return Err(MacOsProcessIdentityError);
     }
     Ok(digest(pid, info.pbi_start_tvsec, info.pbi_start_tvusec))
+}
+
+pub fn current_parent_pid() -> Result<NonZeroU32, MacOsProcessIdentityError> {
+    // SAFETY: getppid has no pointer or ownership preconditions.
+    let parent = unsafe { libc::getppid() };
+    let parent = u32::try_from(parent).map_err(|_| MacOsProcessIdentityError)?;
+    NonZeroU32::new(parent).ok_or(MacOsProcessIdentityError)
+}
+
+pub fn session_id(pid: Option<NonZeroU32>) -> Result<libc::pid_t, MacOsProcessIdentityError> {
+    let pid = pid
+        .map(|pid| i32::try_from(pid.get()).map_err(|_| MacOsProcessIdentityError))
+        .transpose()?;
+    // SAFETY: getsid has no pointer or ownership preconditions.
+    let session = unsafe { libc::getsid(pid.unwrap_or(0)) };
+    (session > 0)
+        .then_some(session)
+        .ok_or(MacOsProcessIdentityError)
+}
+
+pub fn peer_group_id<S: AsFd>(stream: &S) -> Result<libc::gid_t, MacOsProcessIdentityError> {
+    let mut uid = libc::uid_t::MAX;
+    let mut gid = libc::gid_t::MAX;
+    // SAFETY: stream is live and uid/gid are valid writable output storage.
+    let status =
+        unsafe { libc::getpeereid(stream.as_fd().as_raw_fd(), &raw mut uid, &raw mut gid) };
+    (status == 0)
+        .then_some(gid)
+        .ok_or(MacOsProcessIdentityError)
+}
+
+pub fn effective_group_id() -> libc::gid_t {
+    // SAFETY: getegid has no pointer or ownership preconditions.
+    unsafe { libc::getegid() }
 }
 
 pub fn observe_executable_vnode(
