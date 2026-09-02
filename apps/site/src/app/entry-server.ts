@@ -12,7 +12,7 @@ const pageMeta: Record<string, Route> = {
   "/": {
     title: "The agent runtime that survives its own window",
     description:
-      "Runne is an open-source Rust runtime for AI coding agents. Execution state is durable, completion requires verification evidence, and every dangerous action needs a capability grant.",
+      "Runne is a local-first Rust runtime for AI coding agents. Execution state is durable, completion requires verification evidence, and every dangerous action needs a capability grant.",
     notFound: false,
     lang: "en",
     ogLocale: "en_US",
@@ -20,7 +20,7 @@ const pageMeta: Record<string, Route> = {
   "/ru": {
     title: "Среда выполнения агента, которая переживёт собственное окно",
     description:
-      "Runne — открытая среда выполнения на Rust для AI-агентов разработки. Состояние сохраняется, завершение требует подтверждений, а каждое опасное действие — явного разрешения.",
+      "Runne — локальная среда выполнения на Rust для AI-агентов разработки. Состояние сохраняется, завершение требует подтверждений, а каждое опасное действие — явного разрешения.",
     notFound: false,
     lang: "ru",
     ogLocale: "ru_RU",

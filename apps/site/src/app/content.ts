@@ -105,7 +105,7 @@ const en: SiteContent = {
   hero: {
     headline: "The agent runtime that survives its own window.",
     subtitle:
-      "Runne is an open-source Rust runtime for AI coding agents. Execution state is durable, completion requires verification evidence, and every dangerous action needs a capability grant. The chat window is a view. The runtime is the truth.",
+      "Runne is a local-first Rust runtime for AI coding agents. Execution state is durable, completion requires verification evidence, and every dangerous action needs a capability grant. The chat window is a view. The runtime is the truth.",
     trustStrip:
       "Rust · 40 crates · ~3,400 tests · 25 documented subsystems · one local process · no telemetry",
     mascotLabel: "TaskRun · active",
@@ -283,7 +283,7 @@ const en: SiteContent = {
   },
   cta: {
     headline: "Read the contracts. Run the runtime.",
-    body: "Runne is open source, local-first, and designed to be inspected.",
+    body: "Runne is local-first and designed to be inspected.",
     docs: "Read the docs",
     github: "View on GitHub →",
   },
@@ -294,7 +294,7 @@ const en: SiteContent = {
       { heading: "RESOURCES", links: ["Documentation", "Architecture", "GitHub"] },
       { heading: "PROJECT", links: ["Principles", "Security", "Roadmap"] },
     ],
-    copyright: "© 2026 Runne · Open source",
+    copyright: "© 2026 Runne",
     status: "RUNTIME STATUS · OPERATIONAL",
   },
 };
@@ -312,7 +312,7 @@ const ru: SiteContent = {
   hero: {
     headline: "Среда выполнения агента, которая переживёт собственное окно.",
     subtitle:
-      "Runne — открытая среда выполнения на Rust для AI-агентов разработки. Состояние выполнения сохраняется, завершение требует подтверждений, а каждое опасное действие — явного разрешения. Окно чата — лишь представление. Истина находится в runtime.",
+      "Runne — локальная среда выполнения на Rust для AI-агентов разработки. Состояние выполнения сохраняется, завершение требует подтверждений, а каждое опасное действие — явного разрешения. Окно чата — лишь представление. Истина находится в runtime.",
     trustStrip:
       "Rust · 40 крейтов · ~3 400 тестов · 25 документированных подсистем · один локальный процесс · без телеметрии",
     mascotLabel: "TaskRun · активен",
@@ -438,7 +438,7 @@ const ru: SiteContent = {
           kicker: "ОГРАНИЧЕННАЯ РАБОТА",
           speech: "Это лимит. Здесь остановимся.",
           title: "У бюджета есть хранитель.",
-          body: "Лимиты токенов, времени и инструментов соблюдаются, а учёт остаётся прозрачным.",
+          body: "Лимиты токенов, времени и инструментов видимы и соблюдаются.",
         },
       ],
       budget: {
@@ -490,7 +490,7 @@ const ru: SiteContent = {
   },
   cta: {
     headline: "Изучите контракты. Запустите runtime.",
-    body: "Runne открыт, работает локально и создан для прозрачности.",
+    body: "Runne работает локально и создан для прозрачности.",
     docs: "Документация",
     github: "Открыть GitHub →",
   },
@@ -501,7 +501,7 @@ const ru: SiteContent = {
       { heading: "РЕСУРСЫ", links: ["Документация", "Архитектура", "GitHub"] },
       { heading: "ПРОЕКТ", links: ["Принципы", "Безопасность", "План развития"] },
     ],
-    copyright: "© 2026 Runne · Открытый код",
+    copyright: "© 2026 Runne",
     status: "СТАТУС RUNTIME · РАБОТАЕТ",
   },
 };
