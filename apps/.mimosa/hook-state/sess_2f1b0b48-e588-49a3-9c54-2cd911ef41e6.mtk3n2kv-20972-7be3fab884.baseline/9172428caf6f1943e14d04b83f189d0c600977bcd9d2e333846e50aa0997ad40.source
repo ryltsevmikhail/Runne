@@ -1,0 +1,272 @@
+import { flushPromises, mount } from '@vue/test-utils'
+import { describe, expect, it } from 'vitest'
+
+import type { OperationalTelemetrySnapshot } from '@/shared/api/platform/operational-telemetry'
+import type { RuntimeLifecycleStatus } from '@/shared/api/platform/bootstrap'
+import { currentLocale } from '@/shared/i18n'
+
+import DiagnosticsPage from './DiagnosticsPage.vue'
+
+function telemetrySnapshot(
+  lifecycle: RuntimeLifecycleStatus = 'ready',
+  restartOrdinal = 3,
+): OperationalTelemetrySnapshot {
+  return {
+    schemaVersion: 1,
+    observedAtUnixSeconds: 10,
+    runtime: {
+      meta: { observedAtUnixSeconds: 10, freshness: 'unavailable', completeness: 'unavailable' },
+      snapshot: null,
+    },
+    hostLifecycle: {
+      meta: { observedAtUnixSeconds: 10, freshness: 'observed_in_current_cycle', completeness: 'complete' },
+      runtimeMode: 'bundled',
+      current: {
+        lifecycle,
+        failure: null,
+        restartOrdinal,
+        runtimeLaunchGeneration: 4,
+        observedAtUnixSeconds: 10,
+      },
+      events: [],
+      eventStatus: 'complete_since_app_core_start',
+      lastAllocatedSequence: null,
+      producerDroppedEventCount: 0,
+      producerDropCounterSaturated: false,
+      evictedEventCount: 0,
+      evictionCounterSaturated: false,
+    },
+  }
+}
+
+const diagnostics = async () => ({
+  appVersion: '0.1.0',
+  platform: 'macos',
+  databaseSchemaVersion: 3,
+  databaseGeneration: 4,
+  projectCount: 2,
+  runtimeMode: 'external_local' as const,
+  runtime: 'unconfigured' as const,
+  runtimeLifecycle: 'external' as const,
+  runtimeFailure: null,
+})
+
+describe('diagnostics page', () => {
+  it('keeps one visible page title with redaction, boundary, and actions', async () => {
+    const wrapper = mount(DiagnosticsPage, {
+      props: { loadDiagnostics: diagnostics, loadOperationalTelemetry: async () => telemetrySnapshot() },
+    })
+    await flushPromises()
+
+    expect(wrapper.findAll('h1')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('SYSTEM SURFACE')
+    expect(wrapper.find('#diagnostics-snapshot-title').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Paths, content, credentials, and raw internal errors are excluded.')
+    expect(wrapper.text()).toContain('IMPLEMENTED DTO BOUNDARY')
+    expect(wrapper.text()).toContain('Health checks, live event logs, and latency metrics are not available in this DTO.')
+    expect(wrapper.get('[data-testid="diagnostics-runtime-fields"]').text()).toContain('Runtime connection')
+    expect(wrapper.get('[data-testid="diagnostics-runtime-fields"]').text()).toContain('Runtime lifecycle')
+    expect(wrapper.get('button').text()).toContain('Refresh')
+    expect(wrapper.get('[data-testid="export-diagnostics"]').text()).toContain('Export diagnostics')
+  })
+
+  it('localizes Phase 2 diagnostics copy through the owned catalog', async () => {
+    const previousLocale = currentLocale.value
+    currentLocale.value = 'ru'
+    try {
+      const wrapper = mount(DiagnosticsPage, {
+        props: { loadDiagnostics: diagnostics, loadOperationalTelemetry: async () => telemetrySnapshot() },
+      })
+      await flushPromises()
+
+      expect(wrapper.get('[aria-label="Текущий снимок runtime"]').text()).toContain('Обезличенное локальное операционное состояние')
+      expect(wrapper.text()).toContain('ГРАНИЦА РЕАЛИЗОВАННОГО DTO')
+      expect(wrapper.text()).toContain('НАБЛЮДАЕМАЯ ТЕЛЕМЕТРИЯ')
+      expect(wrapper.text()).toContain('Нет')
+    }
+    finally {
+      currentLocale.value = previousLocale
+    }
+  })
+
+  it('renders only the bounded redacted snapshot', async () => {
+    const wrapper = mount(DiagnosticsPage, {
+      props: {
+        loadDiagnostics: async () => ({
+          appVersion: '0.1.0',
+          platform: 'macos',
+          databaseSchemaVersion: 3,
+          databaseGeneration: 4,
+          projectCount: 2,
+          runtimeMode: 'external_local',
+          runtime: 'unconfigured',
+          runtimeLifecycle: 'external',
+          runtimeFailure: null,
+        }),
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Database generation')
+    expect(wrapper.text()).toContain('4')
+    expect(wrapper.text()).toContain('External runtime')
+    expect(wrapper.text()).not.toContain('/Users/')
+    expect(wrapper.text()).not.toContain('prompt')
+  })
+
+  it('shows a stable failure state without raw error details', async () => {
+    const wrapper = mount(DiagnosticsPage, {
+      props: {
+        loadDiagnostics: async () => {
+          throw new Error('/Users/private/token=secret')
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('Diagnostics unavailable')
+    expect(wrapper.text()).not.toContain('/Users/private')
+    expect(wrapper.text()).not.toContain('secret')
+  })
+
+  it('renders runtime and host lifecycle from a validated snapshot', async () => {
+    const wrapper = mount(DiagnosticsPage, {
+      props: { loadDiagnostics: diagnostics, loadOperationalTelemetry: async () => telemetrySnapshot() },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Runtime telemetry unavailable')
+    expect(wrapper.text()).toContain('Host lifecycle')
+    expect(wrapper.text()).toContain('ready')
+    expect(wrapper.text()).toContain('3')
+    expect(wrapper.text()).toContain('4')
+  })
+
+  it('shows unavailable when the initial telemetry request fails', async () => {
+    const wrapper = mount(DiagnosticsPage, {
+      props: { loadDiagnostics: diagnostics, loadOperationalTelemetry: async () => { throw new Error('token=secret') } },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('Operational telemetry unavailable')
+    expect(wrapper.text()).not.toContain('secret')
+  })
+
+  it('keeps confirmed telemetry visible and marks it stale after refresh fails', async () => {
+    let attempt = 0
+    const wrapper = mount(DiagnosticsPage, {
+      props: {
+        loadDiagnostics: diagnostics,
+        loadOperationalTelemetry: async () => {
+          attempt += 1
+          if (attempt === 1) return telemetrySnapshot('ready', 7)
+          throw new Error('unavailable')
+        },
+      },
+    })
+    await flushPromises()
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('7')
+    expect(wrapper.get('[role="status"]').text()).toContain('Telemetry may be stale')
+  })
+
+  it('replaces stale telemetry only after a later valid refresh', async () => {
+    let attempt = 0
+    const wrapper = mount(DiagnosticsPage, {
+      props: {
+        loadDiagnostics: diagnostics,
+        loadOperationalTelemetry: async () => {
+          attempt += 1
+          if (attempt === 1) return telemetrySnapshot('ready', 7)
+          if (attempt === 2) throw new Error('unavailable')
+          return telemetrySnapshot('restarting', 8)
+        },
+      },
+    })
+    await flushPromises()
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('restarting')
+    expect(wrapper.text()).toContain('8')
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+  })
+
+  it('previews and exports only the bounded redacted report', async () => {
+    let exported = 0
+    const wrapper = mount(DiagnosticsPage, {
+      props: {
+        loadDiagnostics: diagnostics,
+        loadOperationalTelemetry: async () => telemetrySnapshot(),
+        loadExportPreview: async () => ({
+          schemaVersion: 1,
+          redactionVersion: 1,
+          categories: ['application', 'runtime'],
+          estimatedBytes: 512,
+        }),
+        exportReport: async () => {
+          exported += 1
+          return { status: 'saved' as const }
+        },
+      },
+    })
+    await flushPromises()
+    await wrapper.get('[data-testid="export-diagnostics"]').trigger('click')
+    await flushPromises()
+
+    expect(exported).toBe(1)
+    expect(wrapper.get('[role="status"]').text()).toContain('saved')
+  })
+
+  it('exports a bounded report while diagnostics is unavailable without leaking the load error', async () => {
+    let exported = 0
+    const wrapper = mount(DiagnosticsPage, {
+      props: {
+        loadDiagnostics: async () => { throw new Error('/Users/private/token=secret') },
+        loadExportPreview: async () => ({
+          schemaVersion: 1,
+          redactionVersion: 1,
+          categories: ['application', 'runtime'],
+          estimatedBytes: 512,
+        }),
+        exportReport: async () => {
+          exported += 1
+          return { status: 'saved' as const }
+        },
+      },
+    })
+    await flushPromises()
+    await wrapper.get('[data-testid="export-diagnostics"]').trigger('click')
+    await flushPromises()
+
+    expect(exported).toBe(1)
+    expect(wrapper.get('[role="status"]').text()).toContain('saved')
+    expect(wrapper.text()).not.toContain('/Users/private')
+    expect(wrapper.text()).not.toContain('secret')
+  })
+
+  it('fails closed when the export preview is too large', async () => {
+    const wrapper = mount(DiagnosticsPage, {
+      props: {
+        loadDiagnostics: diagnostics,
+        loadOperationalTelemetry: async () => telemetrySnapshot(),
+        loadExportPreview: async () => ({
+          schemaVersion: 1,
+          redactionVersion: 1,
+          categories: ['application', 'runtime'],
+          estimatedBytes: 131_073,
+        }),
+        exportReport: async () => ({ status: 'saved' as const }),
+      },
+    })
+    await flushPromises()
+    await wrapper.get('[data-testid="export-diagnostics"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('Diagnostics export unavailable')
+  })
+})
