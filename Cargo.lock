@@ -4129,6 +4129,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "sha2",
+ "tempfile",
  "zeroize",
 ]
 

@@ -13,6 +13,7 @@ local-native-enrollment-test = [
     "runne-secure-store/local-native-enrollment-test",
 ]
 persistent-reference-probe = [
+    "local-native-enrollment-test",
     "runne-macos-keychain-acl/persistent-reference-probe",
 ]
 

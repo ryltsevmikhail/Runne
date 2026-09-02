@@ -1,21 +1,32 @@
 //! Local-only writer half of the persistent-reference feasibility probe.
 
-use std::{fs, io::Write as _, os::fd::AsFd as _, path::PathBuf};
+use std::{fs, io::Write as _, os::fd::AsFd as _};
 
 use crate::ProcessOutcome;
 
-pub(super) const MODE: &str = "__slice-e-persistent-reference-probe-v1";
+pub const MODE: &str = "__slice-e-persistent-reference-probe-v1";
 const RECORD_MAGIC: &[u8; 8] = b"GCPREFD1";
 const MAX_REFERENCE_BYTES: usize = 1024;
 const SERVICE: &str = "dev.runne.provider-credential.v1.version.1.1111111111111111111111111111111111111111111111111111111111111111";
 const ACCOUNT: &str = "openai";
 const MARKER: &[u8] = b"persistent-reference-probe-material-v1";
 
-pub(super) fn selected(arguments: &[std::ffi::OsString]) -> bool {
-    arguments.len() == 1 && arguments[0] == MODE
+#[must_use]
+pub fn selected(arguments: &[std::ffi::OsString]) -> bool {
+    arguments.len() == 1
+        && arguments[0] == MODE
+        && local_opt_in(
+            std::env::var_os("RUNNE_LOCAL_NATIVE_ENROLLMENT_TEST").as_deref(),
+            std::env::var_os("RUNNE_SLICE_E_INNER_CASE").as_deref(),
+        )
 }
 
-pub(super) fn outcome() -> ProcessOutcome {
+fn local_opt_in(enrollment: Option<&std::ffi::OsStr>, selector: Option<&std::ffi::OsStr>) -> bool {
+    enrollment == Some(std::ffi::OsStr::new("1")) && selector == Some(std::ffi::OsStr::new(MODE))
+}
+
+#[must_use]
+pub fn outcome() -> ProcessOutcome {
     match run() {
         Ok(()) => ProcessOutcome {
             stdout: String::new(),
@@ -41,13 +52,19 @@ enum ProbeError {
 }
 
 fn run() -> Result<(), ProbeError> {
-    let (keychain_path, writer, reader) =
-        owned_context().map_err(|_| ProbeError::Closed("context"))?;
+    let fixture = runne_macos_keychain_acl::current_persistent_reference_fixture(
+        runne_macos_keychain_acl::PersistentReferenceProbeRole::Writer,
+        MODE,
+    )
+    .map_err(|_| ProbeError::Closed("fixture"))?;
+    runne_macos_keychain_acl::validate_persistent_reference_parent_channel()
+        .map_err(|_| ProbeError::Closed("parent-channel"))?;
     let (_interaction, keychain) =
-        runne_macos_keychain_acl::open_noninteractive_keychain(&keychain_path)
+        runne_macos_keychain_acl::open_noninteractive_keychain(fixture.keychain())
             .map_err(|_| ProbeError::Closed("keychain-open"))?;
-    let access = runne_macos_keychain_acl::ExactKeychainAccess::new(&writer, &reader)
-        .map_err(|_| ProbeError::Closed("access"))?;
+    let access =
+        runne_macos_keychain_acl::ExactKeychainAccess::new(fixture.writer(), fixture.reader())
+            .map_err(|_| ProbeError::Closed("access"))?;
     let metadata = metadata();
     let item = runne_macos_keychain_acl::create_empty_generic_password(
         &keychain, SERVICE, ACCOUNT, &metadata, &access,
@@ -68,44 +85,24 @@ fn run() -> Result<(), ProbeError> {
             .map_err(|_| ProbeError::Closed("persistent-reference-create"))
     })();
     match reference {
-        Ok(reference) => match send_record(reference) {
+        Ok(reference) => match send_record(&reference) {
             Ok(()) => Ok(()),
             Err(()) => {
-                let _ = runne_macos_keychain_acl::delete_item(&item);
-                Err(ProbeError::Closed("record-send"))
+                if runne_macos_keychain_acl::delete_item(&item).is_err() {
+                    Err(ProbeError::Closed("item-cleanup"))
+                } else {
+                    Err(ProbeError::Closed("record-send"))
+                }
             }
         },
         Err(error) => {
-            let _ = runne_macos_keychain_acl::delete_item(&item);
-            Err(error)
+            if runne_macos_keychain_acl::delete_item(&item).is_err() {
+                Err(ProbeError::Closed("item-cleanup"))
+            } else {
+                Err(error)
+            }
         }
     }
-}
-
-fn owned_context() -> Result<(PathBuf, PathBuf, PathBuf), ()> {
-    let current = fs::canonicalize(std::env::current_exe().map_err(|_| ())?).map_err(|_| ())?;
-    let macos = current.parent().ok_or(())?;
-    if current.file_name().is_none_or(|name| name != "runne") {
-        return Err(());
-    }
-    let contents = macos.parent().ok_or(())?;
-    let application = contents.parent().ok_or(())?;
-    let root = application.parent().ok_or(())?.to_owned();
-    if application
-        .file_name()
-        .is_none_or(|name| name != "Runne.app")
-    {
-        return Err(());
-    }
-    let keychain = root.join("home/Library/Keychains/runne-ci.keychain-db");
-    if std::env::var_os("RUNNE_CI_MACOS_KEYCHAIN").as_deref() != Some(keychain.as_os_str()) {
-        return Err(());
-    }
-    let reader = macos.join("runned");
-    if !keychain.is_file() || !reader.is_file() {
-        return Err(());
-    }
-    Ok((keychain, current, reader))
 }
 
 fn metadata() -> [u8; 55] {
@@ -118,7 +115,7 @@ fn metadata() -> [u8; 55] {
     bytes
 }
 
-fn send_record(reference: zeroize::Zeroizing<Vec<u8>>) -> Result<(), ()> {
+fn send_record(reference: &zeroize::Zeroizing<Vec<u8>>) -> Result<(), ()> {
     if reference.is_empty() || reference.len() > MAX_REFERENCE_BYTES {
         return Err(());
     }
@@ -128,7 +125,7 @@ fn send_record(reference: zeroize::Zeroizing<Vec<u8>>) -> Result<(), ()> {
     channel.write_all(RECORD_MAGIC).map_err(|_| ())?;
     channel.write_all(&length.to_be_bytes()).map_err(|_| ())?;
     channel
-        .write_all(&reference)
+        .write_all(reference)
         .and_then(|()| channel.flush())
         .map_err(|_| ())
 }
@@ -138,9 +135,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mode_has_no_reference_input_surface() {
-        assert!(selected(&[MODE.into()]));
+    fn mode_requires_explicit_local_opt_in() {
+        assert!(!selected(&[MODE.into()]));
         assert!(!selected(&[MODE.into(), "reference".into()]));
+        assert!(!local_opt_in(None, None));
+        assert!(!local_opt_in(Some("1".as_ref()), Some("wrong".as_ref())));
+        assert!(local_opt_in(Some("1".as_ref()), Some(MODE.as_ref())));
         assert_eq!(RECORD_MAGIC.len(), 8);
         assert!(MAX_REFERENCE_BYTES <= 1024);
     }

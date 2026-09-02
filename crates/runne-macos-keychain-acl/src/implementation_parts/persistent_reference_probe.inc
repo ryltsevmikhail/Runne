@@ -63,11 +63,12 @@ pub fn create_persistent_reference(
         return Err(KeychainAclError::OperationFailed);
     }
     // SAFETY: the Security.framework create call returned a retained CFData.
-    let reference = unsafe { CFData::wrap_under_create_rule(reference) }.bytes().to_vec();
-    if reference.is_empty() || reference.len() > 1024 {
+    let native = unsafe { CFData::wrap_under_create_rule(reference) };
+    let native = native.bytes();
+    if native.is_empty() || native.len() > 1024 {
         return Err(KeychainAclError::InvalidItemIdentity);
     }
-    Ok(PersistentKeychainReference(zeroize::Zeroizing::new(reference)))
+    Ok(PersistentKeychainReference(zeroizing_copy(native)?))
 }
 
 /// Resolves exactly one opaque reference without any Keychain search operation.
@@ -142,7 +143,7 @@ pub fn verify_persistent_reference_item(
 /// unexpected item class, or cannot free the returned buffer.
 pub fn copy_persistent_reference_password(
     item: &SecKeychainItem,
-) -> Result<Vec<u8>, KeychainAclError> {
+) -> Result<zeroize::Zeroizing<Vec<u8>>, KeychainAclError> {
     let mut class = 0_u32;
     let mut length = 0_u32;
     let mut data = ptr::null_mut();
@@ -158,7 +159,8 @@ pub fn copy_persistent_reference_password(
     };
     let result = if copy == errSecSuccess && !data.is_null() && length != 0 {
         // SAFETY: Security.framework allocated exactly `length` password bytes.
-        Ok(unsafe { std::slice::from_raw_parts(data.cast::<u8>(), length as usize) }.to_vec())
+        let bytes = unsafe { std::slice::from_raw_parts(data.cast::<u8>(), length as usize) };
+        zeroizing_copy(bytes)
     } else {
         Err(KeychainAclError::AccessDenied)
     };
@@ -173,6 +175,21 @@ pub fn copy_persistent_reference_password(
         return Err(KeychainAclError::AccessDenied);
     }
     result
+}
+
+fn zeroizing_copy(bytes: &[u8]) -> Result<zeroize::Zeroizing<Vec<u8>>, KeychainAclError> {
+    let mut copy = zeroize::Zeroizing::new(Vec::new());
+    copy.try_reserve(bytes.len())
+        .map_err(|_| KeychainAclError::OperationFailed)?;
+    copy.extend_from_slice(bytes);
+    Ok(copy)
+}
+
+#[cfg(test)]
+#[test]
+fn opaque_copy_allocates_only_after_its_zeroizing_owner_exists() {
+    let copied = zeroizing_copy(&[7, 8, 9]).expect("bounded test copy");
+    assert_eq!(copied.as_slice(), &[7, 8, 9]);
 }
 
 fn copy_reference_metadata(

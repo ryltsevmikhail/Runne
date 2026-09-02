@@ -215,7 +215,7 @@ include!("cli/error.rs");
 )]
 mod authority;
 #[cfg(all(target_os = "macos", feature = "persistent-reference-probe"))]
-mod persistent_reference_probe;
+pub mod persistent_reference_probe;
 mod release;
 
 #[cfg(test)]

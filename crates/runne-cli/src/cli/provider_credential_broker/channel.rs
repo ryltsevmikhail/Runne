@@ -13,6 +13,7 @@ use runne_provider::CredentialSecretInputPresence;
 use super::CliError;
 
 const SECRET_INPUT_DESCRIPTOR: RawFd = 3;
+#[cfg(not(feature = "local-native-enrollment-test"))]
 const PRODUCTION_SECRET_INPUT_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(feature = "local-native-enrollment-test")]
 const LOCAL_SECRET_INPUT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -84,7 +85,7 @@ impl InheritedSecretInputSlot {
 const fn secret_input_timeout() -> Duration {
     #[cfg(feature = "local-native-enrollment-test")]
     {
-        return LOCAL_SECRET_INPUT_TIMEOUT;
+        LOCAL_SECRET_INPUT_TIMEOUT
     }
     #[cfg(not(feature = "local-native-enrollment-test"))]
     PRODUCTION_SECRET_INPUT_TIMEOUT

@@ -1,5 +1,5 @@
 use std::fs;
-use std::os::unix::fs::PermissionsExt as _;
+use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -42,6 +42,8 @@ impl DisposableKeychain {
         fixture.validate_target(false)?;
         fixture.security(&["create-keychain", "-p", KEYCHAIN_PASSWORD], true)?;
         fixture.created = true;
+        fs::set_permissions(&fixture.path, fs::Permissions::from_mode(0o600))
+            .map_err(|_| "keychain-file-permissions")?;
         fixture.validate_target(true)?;
         fixture.security(&["set-keychain-settings", "-lut", "21600"], false)?;
         fixture.security(&["unlock-keychain", "-p", KEYCHAIN_PASSWORD], false)?;
@@ -149,7 +151,12 @@ impl DisposableKeychain {
         if must_exist {
             let metadata = fs::symlink_metadata(&self.path).map_err(|_| "keychain-missing")?;
             let path = fs::canonicalize(&self.path).map_err(|_| "keychain-canonical")?;
-            if metadata.file_type().is_symlink() || !metadata.is_file() || !path.starts_with(root) {
+            if metadata.file_type().is_symlink()
+                || !metadata.is_file()
+                || metadata.uid() != unsafe { libc::geteuid() }
+                || metadata.mode().trailing_zeros() < 6
+                || !path.starts_with(root)
+            {
                 return Err("unsafe-keychain-target");
             }
         } else if self.path.exists() {

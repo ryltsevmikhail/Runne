@@ -139,4 +139,4 @@ fn run_protected(
 }
 
 #[cfg(all(target_os = "macos", feature = "persistent-reference-probe"))]
-mod persistent_reference_probe;
+pub mod persistent_reference_probe;

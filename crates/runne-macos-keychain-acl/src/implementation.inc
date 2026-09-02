@@ -12,6 +12,10 @@ include!("implementation_parts/code_identity_partition.inc");
 include!("implementation_parts/code_partition.inc");
 include!("implementation_parts/security_profile_seal.inc");
 #[cfg(feature = "persistent-reference-probe")]
+include!("implementation_parts/persistent_reference_fixture.inc");
+#[cfg(feature = "persistent-reference-probe")]
 include!("implementation_parts/persistent_reference_probe.inc");
+#[cfg(all(test, feature = "persistent-reference-probe"))]
+include!("implementation_parts/persistent_reference_fixture_tests.inc");
 #[cfg(test)]
 include!("implementation_parts/tests.inc");

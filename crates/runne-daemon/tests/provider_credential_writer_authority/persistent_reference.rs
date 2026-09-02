@@ -1,5 +1,4 @@
 use std::{
-    env,
     io::{Read as _, Write as _},
     net::Shutdown,
     os::{fd::OwnedFd, unix::net::UnixStream},
@@ -33,10 +32,7 @@ fn collect_writer_record(
         .stdin(Stdio::from(OwnedFd::from(child)))
         .output()
         .map_err(|_| "persistent-reference-writer-launch")?;
-    let mut record = Vec::with_capacity(RECORD_MAGIC.len() + 2 + MAX_REFERENCE_BYTES);
-    parent
-        .read_to_end(&mut record)
-        .map_err(|_| "persistent-reference-writer-read")?;
+    let record = read_writer_record(&mut parent)?;
     if !output.status.success() {
         return match output.stderr.as_slice() {
             b"persistent-reference-probe-populate-status:-25243\n" => {
@@ -51,6 +47,12 @@ fn collect_writer_record(
             b"persistent-reference-probe-closed-stage:item-create\n" => {
                 Err("persistent-reference-writer-item-create")
             }
+            b"persistent-reference-probe-closed-stage:fixture\n" => {
+                Err("persistent-reference-writer-fixture")
+            }
+            b"persistent-reference-probe-closed-stage:parent-channel\n" => {
+                Err("persistent-reference-writer-parent-channel")
+            }
             b"persistent-reference-probe-closed-stage:item-finalize\n" => {
                 Err("persistent-reference-writer-item-finalize")
             }
@@ -60,11 +62,31 @@ fn collect_writer_record(
             b"persistent-reference-probe-closed-stage:persistent-reference-create\n" => {
                 Err("persistent-reference-writer-persistent-reference-create")
             }
+            b"persistent-reference-probe-closed-stage:item-cleanup\n" => {
+                Err("persistent-reference-writer-item-cleanup")
+            }
             _ => Err("persistent-reference-writer-status"),
         };
     }
     validate_record(&record)?;
-    Ok(Zeroizing::new(record))
+    Ok(record)
+}
+
+fn read_writer_record(reader: &mut impl std::io::Read) -> Result<Zeroizing<Vec<u8>>, &'static str> {
+    let mut record = Zeroizing::new(Vec::new());
+    record
+        .try_reserve(RECORD_MAGIC.len() + 2 + MAX_REFERENCE_BYTES + 1)
+        .map_err(|_| "persistent-reference-writer-buffer")?;
+    let limit = u64::try_from(RECORD_MAGIC.len() + 2 + MAX_REFERENCE_BYTES + 1)
+        .map_err(|_| "persistent-reference-writer-bound")?;
+    reader
+        .take(limit)
+        .read_to_end(&mut record)
+        .map_err(|_| "persistent-reference-writer-read")?;
+    if record.len() == usize::try_from(limit).map_err(|_| "persistent-reference-writer-bound")? {
+        return Err("persistent-reference-record-overlong");
+    }
+    Ok(record)
 }
 
 fn run_reader(context: &super::support::InnerContext, record: &[u8]) -> Result<(), &'static str> {
@@ -88,7 +110,7 @@ fn run_reader(context: &super::support::InnerContext, record: &[u8]) -> Result<(
 }
 
 fn role_command(path: &std::path::Path, context: &super::support::InnerContext) -> Command {
-    let home = env::var_os("HOME").unwrap_or_default();
+    let home = context.root().join("home");
     let keychain = context
         .root()
         .join("home/Library/Keychains/runne-ci.keychain-db");
@@ -97,7 +119,10 @@ fn role_command(path: &std::path::Path, context: &super::support::InnerContext) 
         .arg(MODE)
         .env_clear()
         .env("HOME", home)
-        .env("RUNNE_CI_MACOS_KEYCHAIN", keychain);
+        .env("RUNNE_CI_MACOS_KEYCHAIN", keychain)
+        .env("RUNNE_LOCAL_NATIVE_ENROLLMENT_TEST", "1")
+        .env("RUNNE_SLICE_E_INNER_CASE", MODE)
+        .env("RUNNE_SLICE_E_FIXTURE_ROOT", context.root());
     command
 }
 
@@ -110,6 +135,31 @@ fn validate_record(record: &[u8]) -> Result<(), &'static str> {
         return Err("persistent-reference-record-shape");
     }
     Ok(())
+}
+
+#[test]
+fn parent_record_buffer_rejects_malformed_truncated_trailing_and_overlong_input() {
+    let mut malformed = std::io::Cursor::new(b"not-a-record".to_vec());
+    assert_eq!(
+        read_writer_record(&mut malformed).and_then(|record| validate_record(&record)),
+        Err("persistent-reference-record-header")
+    );
+    let mut truncated = std::io::Cursor::new([RECORD_MAGIC.as_slice(), &[0, 2], &[3]].concat());
+    assert_eq!(
+        read_writer_record(&mut truncated).and_then(|record| validate_record(&record)),
+        Err("persistent-reference-record-shape")
+    );
+    let mut trailing = std::io::Cursor::new([RECORD_MAGIC.as_slice(), &[0, 1], &[3, 4]].concat());
+    assert_eq!(
+        read_writer_record(&mut trailing).and_then(|record| validate_record(&record)),
+        Err("persistent-reference-record-shape")
+    );
+    let mut overlong =
+        std::io::Cursor::new(vec![0_u8; RECORD_MAGIC.len() + 3 + MAX_REFERENCE_BYTES]);
+    assert_eq!(
+        read_writer_record(&mut overlong),
+        Err("persistent-reference-record-overlong")
+    );
 }
 
 #[test]
@@ -137,6 +187,31 @@ fn native_fd_probe_has_no_public_or_durable_reference_sink() {
         b"SecKeychainItemSetAccess".as_slice(),
     ] {
         assert!(!contains(reader, forbidden));
+    }
+}
+
+#[test]
+fn native_fd_probe_requires_coupled_features_and_package_fixture_preflight() {
+    let writer_manifest = include_bytes!("../../../runne-cli/Cargo.toml");
+    let reader_manifest = include_bytes!("../../Cargo.toml");
+    assert!(contains(
+        writer_manifest,
+        b"persistent-reference-probe = [\n    \"local-native-enrollment-test\"",
+    ));
+    assert!(contains(
+        reader_manifest,
+        b"persistent-reference-probe = [\n    \"test-support\",\n    \"desktop-protected\"",
+    ));
+    let writer = include_bytes!("../../../runne-cli/src/persistent_reference_probe.rs");
+    let reader = include_bytes!("../../src/persistent_reference_probe.rs");
+    for source in [writer.as_slice(), reader.as_slice()] {
+        assert!(contains(source, b"current_persistent_reference_fixture"));
+        assert!(contains(
+            source,
+            b"validate_persistent_reference_parent_channel",
+        ));
+        assert!(contains(source, b"RUNNE_LOCAL_NATIVE_ENROLLMENT_TEST"));
+        assert!(contains(source, b"RUNNE_SLICE_E_INNER_CASE"));
     }
 }
 
