@@ -24,6 +24,8 @@ include!("protected_activation/enrollment_transition_v2_prepare.rs");
 include!("protected_activation/enrollment_transition_v2_view.rs");
 include!("protected_activation/enrollment_transition_v2_prelude.rs");
 include!("protected_activation/credential_broker_transfer_authenticator.rs");
+mod credential_service;
+pub use credential_service::*;
 #[cfg(test)]
 #[path = "protected_activation/enrollment_launch_prelude_tests.rs"]
 mod enrollment_launch_prelude_tests;
