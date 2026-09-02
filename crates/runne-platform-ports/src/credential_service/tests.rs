@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll, Wake, Waker};
 
 use super::*;
-use crate::process::MonotonicDeadline;
 
 struct Desktop;
 impl CredentialServiceDesktopPort for Desktop {
@@ -65,10 +64,7 @@ impl CredentialServiceWriterPort for Writer {
 }
 
 fn context(cancellation: CredentialServiceCancellation) -> CredentialServiceCallContext {
-    CredentialServiceCallContext::new(
-        MonotonicDeadline::checked_after(10, 5).unwrap(),
-        cancellation,
-    )
+    CredentialServiceCallContext::new(std::time::Instant::now(), cancellation)
 }
 
 fn desktop_request() -> CredentialServiceDesktopRequest {
@@ -179,9 +175,9 @@ fn cancellation_is_shared_without_raw_platform_state() {
 #[test]
 fn call_context_retains_exact_deadline_and_cancellation() {
     let cancellation = CredentialServiceCancellation::new();
-    let context = context(cancellation.clone());
-    assert_eq!(context.deadline().started_at(), 10);
-    assert_eq!(context.deadline().expires_at(), 15);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+    let context = CredentialServiceCallContext::new(deadline, cancellation.clone());
+    assert_eq!(context.deadline(), deadline);
     assert!(!context.cancellation().is_cancelled());
     cancellation.cancel();
     assert!(context.cancellation().is_cancelled());
@@ -198,6 +194,7 @@ fn failures_are_closed_and_do_not_carry_native_details() {
         CredentialServicePortError::Interrupted,
         CredentialServicePortError::Invalidated,
         CredentialServicePortError::InvalidReply,
+        CredentialServicePortError::OutcomeUnknown,
     ] {
         assert_eq!(error.to_string(), "credential service call failed");
         assert!(!format!("{error:?}").contains('/'));

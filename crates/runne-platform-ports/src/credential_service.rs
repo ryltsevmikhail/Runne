@@ -7,8 +7,8 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll, Waker};
+use std::time::Instant;
 
-use crate::process::MonotonicDeadline;
 use zeroize::Zeroizing;
 
 mod desktop;
@@ -200,16 +200,13 @@ impl fmt::Debug for CredentialServiceCancellation {
 
 /// Exact deadline and live cancellation signal for one transport call.
 pub struct CredentialServiceCallContext {
-    deadline: MonotonicDeadline,
+    deadline: Instant,
     cancellation: CredentialServiceCancellation,
 }
 
 impl CredentialServiceCallContext {
     #[must_use]
-    pub const fn new(
-        deadline: MonotonicDeadline,
-        cancellation: CredentialServiceCancellation,
-    ) -> Self {
+    pub const fn new(deadline: Instant, cancellation: CredentialServiceCancellation) -> Self {
         Self {
             deadline,
             cancellation,
@@ -217,7 +214,7 @@ impl CredentialServiceCallContext {
     }
 
     #[must_use]
-    pub const fn deadline(&self) -> MonotonicDeadline {
+    pub const fn deadline(&self) -> Instant {
         self.deadline
     }
 
@@ -230,14 +227,24 @@ impl CredentialServiceCallContext {
 /// Closed transport failures; native error details remain adapter-local.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CredentialServicePortError {
+    /// The request was rejected before native dispatch.
     Rejected,
+    /// This platform has no native implementation.
     Unsupported,
+    /// The endpoint was unavailable before dispatch.
     Unavailable,
+    /// The deadline was reached before dispatch.
     TimedOut,
+    /// Cancellation was observed before dispatch.
     Cancelled,
+    /// Interruption was observed before dispatch.
     Interrupted,
+    /// Invalidation was observed before dispatch.
     Invalidated,
+    /// A reply was received but violated the bounded protocol.
     InvalidReply,
+    /// Native dispatch occurred, so the effect requires reconciliation.
+    OutcomeUnknown,
 }
 
 impl fmt::Display for CredentialServicePortError {
