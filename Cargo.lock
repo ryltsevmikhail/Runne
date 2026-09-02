@@ -3904,6 +3904,7 @@ dependencies = [
  "runne-daemon-openai-effect",
  "runne-domain",
  "runne-http",
+ "runne-macos-keychain-acl",
  "runne-observability",
  "runne-pairing-crypto",
  "runne-platform",

@@ -143,9 +143,6 @@ pub fn create_empty_generic_password(
     // SAFETY: attribute buffers and all Security.framework objects remain live
     // for the call. Data is deliberately NULL/zero-length, and `item` is a
     // valid writable out-pointer consumed under the create rule below.
-    #[cfg(feature = "local-native-enrollment-test")]
-    let initial_access = &exact.acl_source_access;
-    #[cfg(not(feature = "local-native-enrollment-test"))]
     let initial_access = &exact.creation_access;
     let create_status = unsafe {
         SecKeychainItemCreateFromContent(
@@ -170,13 +167,13 @@ pub fn create_empty_generic_password(
     })
 }
 
-/// A just-created item whose final writer/reader ACL has not been committed.
+/// A just-created empty item whose initial ACL still requires fresh readback.
 pub struct CreatedGenericPasswordItem {
     item: SecKeychainItem,
 }
 
 impl CreatedGenericPasswordItem {
-    /// Commits and verifies the exact final ACL before password population.
+    /// Verifies the exact final ACL before password population.
     ///
     /// A failed commit deletes the incomplete item before returning.
     ///

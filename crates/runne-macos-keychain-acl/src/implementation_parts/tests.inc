@@ -215,6 +215,18 @@ mod tests {
     }
 
     #[test]
+    fn noncaller_owned_access_has_the_complete_exact_profile() {
+        let current = std::env::current_exe().unwrap();
+        let exact = ExactKeychainAccess::new(&current, &current).unwrap();
+
+        assert_eq!(
+            verify_access_profile(&exact.creation_access, exact.digest),
+            Ok(())
+        );
+        assert!(verify_noncaller_owner(&exact.creation_access).unwrap());
+    }
+
+    #[test]
     fn cf_acl_list_owner_clone_loses_matching_authorizations() {
         let current = std::env::current_exe().unwrap();
         let application = trusted_application(&current).unwrap();

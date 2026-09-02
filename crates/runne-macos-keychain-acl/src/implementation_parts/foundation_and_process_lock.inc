@@ -44,6 +44,7 @@ unsafe extern "C" {
         application: *mut CFTypeRef,
     ) -> OSStatus;
     fn SecTrustedApplicationCopyData(application: CFTypeRef, data: *mut CFDataRef) -> OSStatus;
+    #[cfg(test)]
     fn SecAccessCreate(
         descriptor: CFStringRef,
         trusted_list: CFArrayRef,
@@ -84,7 +85,8 @@ unsafe extern "C" {
         description: *mut CFStringRef,
         prompt_selector: *mut u16,
     ) -> OSStatus;
-    #[cfg(any(test, feature = "local-native-enrollment-test"))]
+    fn SecACLCopyAuthorizations(acl: CFTypeRef) -> CFArrayRef;
+    #[cfg(test)]
     fn SecACLSetContents(
         acl: CFTypeRef,
         application_list: CFArrayRef,
@@ -100,15 +102,6 @@ unsafe extern "C" {
     ) -> OSStatus;
     fn SecACLUpdateAuthorizations(acl: CFTypeRef, authorizations: CFArrayRef) -> OSStatus;
     fn SecKeychainItemCopyAccess(item: SecKeychainItemRef, access: *mut SecAccessRef) -> OSStatus;
-    #[cfg(feature = "local-native-enrollment-test")]
-    fn SecKeychainItemSetAccessWithPassword(
-        item: SecKeychainItemRef,
-        access: SecAccessRef,
-        password_length: u32,
-        password: *const std::ffi::c_void,
-    ) -> OSStatus;
-    #[cfg(feature = "local-native-enrollment-test")]
-    fn SecKeychainItemSetAccess(item: SecKeychainItemRef, access: SecAccessRef) -> OSStatus;
     fn SecKeychainItemCreateFromContent(
         item_class: u32,
         attributes: *mut SecKeychainAttributeList,

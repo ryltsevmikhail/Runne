@@ -48,20 +48,14 @@ fn assert_reader_source_boundary() -> Result<(), &'static str> {
     let acl_root = repository.join("crates/runne-macos-keychain-acl/src");
     let implementation =
         fs::read(acl_root.join("implementation.inc")).map_err(|_| "acl-implementation-source")?;
-    if !contains(
-        &implementation,
-        b"#[cfg(feature = \"local-native-enrollment-test\")]",
-    ) || !contains(&implementation, b"local_test_keychain.inc")
-    {
-        return Err("local-finalizer-not-gated");
+    if contains(&implementation, b"local_test_keychain.inc") {
+        return Err("local-finalizer-present");
     }
     let declaration =
         fs::read(acl_root.join("implementation_parts/foundation_and_process_lock.inc"))
             .map_err(|_| "acl-declaration-source")?;
-    let symbol = find(&declaration, PASSWORD_CAPABLE_SYMBOL).ok_or("acl-symbol-missing")?;
-    let prefix = &declaration[..symbol];
-    if !prefix.ends_with(b"#[cfg(feature = \"local-native-enrollment-test\")]\n    fn ") {
-        return Err("acl-symbol-not-gated");
+    if contains(&declaration, PASSWORD_CAPABLE_SYMBOL) {
+        return Err("acl-password-symbol-present");
     }
     Ok(())
 }
@@ -92,7 +86,11 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 fn unrelated_probe_uses_passwordless_access_replacement() {
     let source = include_bytes!("native_access.rs");
     assert!(contains(source, b"SecKeychainItemSetAccess("));
-    assert!(contains(source, b"SecAccessCreateFromOwnerAndACL("));
+    assert!(contains(source, b"SecAccessCreateWithOwnerAndACL("));
+    assert!(contains(source, b"SecACLCreateWithSimpleContents("));
+    assert!(contains(source, b"SecACLUpdateAuthorizations("));
+    assert!(!contains(source, b"SecAccessCreateFromOwnerAndACL("));
+    assert!(!contains(source, b"SecAccessGetOwnerAndACL("));
     assert!(!contains(source, PASSWORD_CAPABLE_SYMBOL));
 }
 
@@ -109,4 +107,16 @@ fn password_population_follows_access_finalization() {
         "../../../runne-macos-keychain-acl/src/implementation_parts/item_creation.inc"
     );
     assert!(!contains(creation, b"fn item_mut"));
+}
+
+#[test]
+fn writer_graph_has_no_password_acl_mutation_seam() {
+    let declaration = include_bytes!(
+        "../../../runne-macos-keychain-acl/src/implementation_parts/foundation_and_process_lock.inc"
+    );
+    let implementation = include_bytes!(
+        "../../../runne-macos-keychain-acl/src/implementation_parts/access_item_finalization.inc"
+    );
+    assert!(!contains(declaration, PASSWORD_CAPABLE_SYMBOL));
+    assert!(!contains(implementation, PASSWORD_CAPABLE_SYMBOL));
 }

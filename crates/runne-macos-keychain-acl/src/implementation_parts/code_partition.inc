@@ -38,65 +38,6 @@ fn copy_partition_ids(access: &SecAccess) -> Result<Vec<String>, KeychainAclErro
     Ok(ids)
 }
 
-#[cfg(feature = "local-native-enrollment-test")]
-fn replace_creator_partition(
-    access: &SecAccess,
-    creator_id: &str,
-    expected_ids: &[String],
-) -> Result<(), KeychainAclError> {
-    let list = unsafe {
-        SecAccessCopyMatchingACLList(
-            access.as_concrete_TypeRef(),
-            kSecACLAuthorizationPartitionID.cast(),
-        )
-    };
-    if list.is_null() {
-        return Err(KeychainAclError::AccessDenied);
-    }
-    let list = unsafe { CFArray::<CFType>::wrap_under_create_rule(list) };
-    if !(1..=2).contains(&list.len()) {
-        return Err(KeychainAclError::AccessDenied);
-    }
-    let expected_non_partition_entries = list.len() - 1;
-    let mut partition_index = None;
-    let mut non_partition_entries = 0;
-    for (index, acl) in list.iter().enumerate() {
-        match copy_partition_description(&acl) {
-            Ok((description, prompt_selector)) => {
-                if partition_index.is_some()
-                    || !prompt_selector_is_unconditional(prompt_selector)
-                    || parse_partition_ids(&description)? != [creator_id]
-                {
-                    return Err(KeychainAclError::AccessDenied);
-                }
-                partition_index = Some(index);
-            }
-            Err(KeychainAclError::AccessDenied | KeychainAclError::OperationFailed) => {
-                non_partition_entries += 1;
-            }
-            Err(error) => return Err(error),
-        }
-    }
-    if non_partition_entries != expected_non_partition_entries {
-        return Err(KeychainAclError::AccessDenied);
-    }
-    let partition_index =
-        isize::try_from(partition_index.ok_or(KeychainAclError::AccessDenied)?)
-            .map_err(|_| KeychainAclError::AccessDenied)?;
-    let acl = list
-        .get(partition_index)
-        .ok_or(KeychainAclError::AccessDenied)?;
-    let description = CFString::new(&encode_partition_description(expected_ids)?);
-    status(unsafe {
-        SecACLSetContents(
-            acl.as_CFTypeRef(),
-            ptr::null(),
-            description.as_concrete_TypeRef(),
-            0,
-        )
-    })
-}
-
 fn copy_partition_description(acl: &CFType) -> Result<(String, u16), KeychainAclError> {
     let mut applications = ptr::null();
     let mut description = ptr::null();
@@ -152,7 +93,6 @@ fn parse_partition_ids(description: &str) -> Result<Vec<String>, KeychainAclErro
     Ok(ids)
 }
 
-#[cfg(feature = "local-native-enrollment-test")]
 fn encode_partition_description(ids: &[String]) -> Result<String, KeychainAclError> {
     if ids.is_empty() || ids.iter().any(|id| !valid_partition_id(id)) {
         return Err(KeychainAclError::AccessDenied);
@@ -172,7 +112,6 @@ const PARTITION_PLIST_PREFIX: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 <plist version=\"1.0\">\n<dict>\n\t<key>Partitions</key>\n\t<array>\n";
 const PARTITION_PLIST_SUFFIX: &str = "\t</array>\n</dict>\n</plist>\n";
 
-#[cfg(feature = "local-native-enrollment-test")]
 fn valid_partition_id(id: &str) -> bool {
     id.strip_prefix("cdhash:").is_some_and(|hash| {
         hash.len() == 40 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
@@ -193,7 +132,6 @@ fn decode_hex(value: &str) -> Result<Vec<u8>, KeychainAclError> {
         .collect()
 }
 
-#[cfg(feature = "local-native-enrollment-test")]
 fn encode_hex(bytes: &[u8]) -> String {
     let mut encoded = String::with_capacity(bytes.len() * 2);
     for byte in bytes {

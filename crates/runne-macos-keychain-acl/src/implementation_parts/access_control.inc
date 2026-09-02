@@ -50,9 +50,8 @@ fn copy_acl_contents(acl: &CFType) -> Result<(CFArray<CFType>, u16), KeychainAcl
 
 /// Exact trusted-application decrypt access plus its canonical set digest.
 pub struct ExactKeychainAccess {
-    #[cfg(any(test, not(feature = "local-native-enrollment-test")))]
     creation_access: SecAccess,
-    #[cfg(any(test, feature = "local-native-enrollment-test"))]
+    #[cfg(test)]
     acl_source_access: SecAccess,
     digest: [u8; 32],
     trusted_digest: [u8; 32],
@@ -74,21 +73,25 @@ impl ExactKeychainAccess {
         let trusted_digest = trusted_application_set_digest(&[&writer, &reader])?;
         let partition_ids = exact_code_partition_ids(writer_path, reader_path)?;
         let digest = access_profile_digest(trusted_digest, writer_digest, &partition_ids)?;
+        #[cfg(test)]
         let acl_source_access = create_exact_application_access(&writer, &reader)?;
+        #[cfg(test)]
         if verify_decrypt_access(&acl_source_access)? != trusted_digest
             || verify_read_access(&acl_source_access)? != trusted_digest
             || !verify_writer_only_access(&acl_source_access, writer_digest)?
         {
             return Err(KeychainAclError::AccessDenied);
         }
-        let creation_access = access_with_noncaller_owner(&acl_source_access)?;
-        if !verify_noncaller_owner(&creation_access)? {
+        let creation_access =
+            create_exact_noncaller_access(&writer, &reader, &partition_ids)?;
+        if verify_access_profile(&creation_access, digest).is_err()
+            || !verify_noncaller_owner(&creation_access)?
+        {
             return Err(KeychainAclError::AccessDenied);
         }
         Ok(Self {
-            #[cfg(any(test, not(feature = "local-native-enrollment-test")))]
             creation_access,
-            #[cfg(any(test, feature = "local-native-enrollment-test"))]
+            #[cfg(test)]
             acl_source_access,
             digest,
             trusted_digest,
@@ -104,6 +107,7 @@ impl ExactKeychainAccess {
     }
 }
 
+#[cfg(test)]
 fn create_exact_application_access(
     writer: &CFType,
     reader: &CFType,
@@ -245,14 +249,6 @@ fn clone_acl_data_with_owner_using_cf_list(
     drop(error_owner);
     cloned_owner.disarm();
     Ok(unsafe { SecAccess::wrap_under_create_rule(cloned) })
-}
-
-fn access_with_noncaller_owner(access: &SecAccess) -> Result<SecAccess, KeychainAclError> {
-    if unsafe { libc::geteuid() } == 0 {
-        return Err(KeychainAclError::AccessDenied);
-    }
-    let owner_template = create_noncaller_owner_template()?;
-    clone_acl_data_with_owner(access, &owner_template)
 }
 
 fn access_for_acl_inspection(access: &SecAccess) -> Result<SecAccess, KeychainAclError> {

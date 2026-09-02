@@ -1,9 +1,9 @@
 fn verify_decrypt_access(access: &SecAccess) -> Result<[u8; 32], KeychainAclError> {
-    application_acl_digest(access, unsafe { kSecACLAuthorizationDecrypt })
+    application_acl_digest_with_owner(access, unsafe { kSecACLAuthorizationDecrypt })
 }
 
 fn verify_read_access(access: &SecAccess) -> Result<[u8; 32], KeychainAclError> {
-    application_acl_digest(access, unsafe { kSecACLAuthorizationKeychainItemRead })
+    application_acl_digest_with_owner(access, unsafe { kSecACLAuthorizationKeychainItemRead })
 }
 
 fn verify_writer_only_access(
@@ -61,7 +61,9 @@ fn authorization_has_no_application_acl(
         return Ok(!require_owner);
     }
     let list = unsafe { CFArray::<CFType>::wrap_under_create_rule(list) };
-    let mut owner_entries = 0;
+    let mut simple_owner_entries = 0;
+    let mut empty_complex_entries = 0;
+    let mut matching_complex_entries = 0;
     for acl in list.iter() {
         match copy_acl_contents(&acl) {
             Ok((applications, prompt_selector)) => {
@@ -70,15 +72,55 @@ fn authorization_has_no_application_acl(
                 {
                     return Ok(false);
                 }
-                owner_entries += 1;
+                simple_owner_entries += 1;
             }
             Err(KeychainAclError::AccessDenied | KeychainAclError::OperationFailed) => {
-                owner_entries += 1;
+                match complex_acl_authorizations(&acl, authorization)? {
+                    ComplexAclAuthorizations::Empty => empty_complex_entries += 1,
+                    ComplexAclAuthorizations::Matching => matching_complex_entries += 1,
+                    ComplexAclAuthorizations::Other => return Ok(false),
+                }
             }
             Err(error) => return Err(error),
         }
     }
-    Ok(owner_entries <= 1 && (!require_owner || owner_entries == 1))
+    if require_owner {
+        return Ok((simple_owner_entries == 1
+            && empty_complex_entries == 0
+            && matching_complex_entries == 0)
+            || (simple_owner_entries == 0
+                && empty_complex_entries == 1
+                && matching_complex_entries == 1));
+    }
+    Ok(simple_owner_entries + empty_complex_entries + matching_complex_entries <= 1)
+}
+
+enum ComplexAclAuthorizations {
+    Empty,
+    Matching,
+    Other,
+}
+
+fn complex_acl_authorizations(
+    acl: &CFType,
+    expected: CFStringRef,
+) -> Result<ComplexAclAuthorizations, KeychainAclError> {
+    let authorizations = unsafe { SecACLCopyAuthorizations(acl.as_CFTypeRef()) };
+    if authorizations.is_null() {
+        return Err(KeychainAclError::AccessDenied);
+    }
+    let authorizations = unsafe { CFArray::<CFType>::wrap_under_create_rule(authorizations) };
+    if authorizations.is_empty() {
+        return Ok(ComplexAclAuthorizations::Empty);
+    }
+    let expected = unsafe { CFString::wrap_under_get_rule(expected) }.as_CFType();
+    Ok(if authorizations.len() == 1
+        && authorizations.get(0).is_some_and(|value| *value == expected)
+    {
+        ComplexAclAuthorizations::Matching
+    } else {
+        ComplexAclAuthorizations::Other
+    })
 }
 
 fn application_acl_digest_with_owner(
@@ -116,36 +158,6 @@ fn application_acl_digest_with_owner(
     if owner_entries > 1 {
         return Err(KeychainAclError::AccessDenied);
     }
-    digest_set(digests)
-}
-
-fn application_acl_digest(
-    access: &SecAccess,
-    authorization: CFStringRef,
-) -> Result<[u8; 32], KeychainAclError> {
-    let list = unsafe {
-        SecAccessCopyMatchingACLList(access.as_concrete_TypeRef(), authorization.cast())
-    };
-    if list.is_null() {
-        return Err(KeychainAclError::AccessDenied);
-    }
-    let list = unsafe { CFArray::<CFType>::wrap_under_create_rule(list) };
-    let digests = list
-        .iter()
-        .map(|acl| -> Result<Vec<[u8; 32]>, KeychainAclError> {
-            let (applications, prompt_selector) = copy_acl_contents(&acl)?;
-            if !prompt_selector_is_unconditional(prompt_selector) {
-                return Err(KeychainAclError::AccessDenied);
-            }
-            applications
-                .iter()
-                .map(|application| trusted_application_digest(application.as_CFTypeRef()))
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .flatten()
-        .collect();
     digest_set(digests)
 }
 

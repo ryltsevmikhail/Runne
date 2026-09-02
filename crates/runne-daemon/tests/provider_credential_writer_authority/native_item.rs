@@ -69,6 +69,13 @@ pub(super) fn assert_unrelated_denied(
     let mut query = base_search(&keychain);
     query.service(&service);
     let item = await_exact_item(&keychain, &service)?;
+    let expected = runne_macos_keychain_acl::ExactKeychainAccess::new(
+        &root.join("Runne.app/Contents/MacOS/runne"),
+        &root.join("Runne.app/Contents/MacOS/runned"),
+    )
+    .map_err(|_| "unrelated-expected-access")?;
+    runne_macos_keychain_acl::verify_item_access(&item, expected.digest())
+        .map_err(|_| "unrelated-original-access")?;
     let attacker_access = super::native_access::complex_attacker_access(&item)?;
     await_finalized_read_denial(&keychain, &service)?;
 
@@ -78,6 +85,8 @@ pub(super) fn assert_unrelated_denied(
     require_denial(query.delete(), "unrelated-delete")?;
     let set_access_evidence =
         super::native_access::assert_replacement_denied(&item, &attacker_access)?;
+    runne_macos_keychain_acl::verify_item_access(&item, expected.digest())
+        .map_err(|_| "unrelated-access-changed")?;
     Ok(set_access_evidence)
 }
 
