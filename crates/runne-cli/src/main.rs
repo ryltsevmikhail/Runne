@@ -29,6 +29,10 @@ fn main() {
 }
 
 fn run_entrypoint(arguments: Vec<OsString>) -> ProcessOutcome {
+    #[cfg(all(target_os = "macos", feature = "persistent-reference-probe"))]
+    if persistent_reference_probe::selected(&arguments) {
+        return persistent_reference_probe::outcome();
+    }
     if arguments
         .first()
         .is_some_and(|argument| argument == runne_provider::PROVIDER_CREDENTIAL_BROKER_MODE_V1)
@@ -210,6 +214,8 @@ include!("cli/error.rs");
     )
 )]
 mod authority;
+#[cfg(all(target_os = "macos", feature = "persistent-reference-probe"))]
+mod persistent_reference_probe;
 mod release;
 
 #[cfg(test)]

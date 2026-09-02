@@ -16,6 +16,8 @@ mod native_acl;
 mod native_item;
 #[path = "provider_credential_writer_authority/package.rs"]
 mod package;
+#[path = "provider_credential_writer_authority/persistent_reference.rs"]
+mod persistent_reference;
 #[path = "provider_credential_writer_authority/positive.rs"]
 mod positive;
 #[path = "provider_credential_writer_authority/process_faults.rs"]
@@ -28,6 +30,11 @@ mod support;
 #[test]
 fn real_pair_transcript_persists_across_runned_restart() {
     positive::run();
+}
+
+#[test]
+fn persistent_reference_locates_exact_item_without_expanding_authority() {
+    persistent_reference::run();
 }
 
 #[test]

@@ -12,6 +12,9 @@ local-native-enrollment-test = [
     "runne-native-enrollment-authority/local-native-enrollment-test",
     "runne-secure-store/local-native-enrollment-test",
 ]
+persistent-reference-probe = [
+    "runne-macos-keychain-acl/persistent-reference-probe",
+]
 
 [dependencies]
 base64.workspace = true
@@ -34,6 +37,8 @@ zeroize.workspace = true
 [target.'cfg(target_os = "macos")'.dependencies]
 nix = { version = "=0.31.3", default-features = false, features = ["fs", "poll"] }
 runne-native-enrollment-authority = { path = "../runne-native-enrollment-authority" }
+runne-macos-keychain-acl = { path = "../runne-macos-keychain-acl" }
+rustix = { version = "=1.1.4", features = ["fs"] }
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 rustix = { version = "=1.1.4", features = ["net", "pipe"] }

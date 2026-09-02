@@ -14,6 +14,8 @@ use core_foundation::data::{CFData, CFDataRef};
 use core_foundation::string::{CFString, CFStringRef};
 use security_framework::os::macos::access::SecAccess;
 use security_framework::os::macos::keychain::SecKeychain;
+#[cfg(feature = "persistent-reference-probe")]
+use security_framework::os::macos::keychain::KeychainUserInteractionLock;
 use security_framework::os::macos::keychain_item::SecKeychainItem;
 use security_framework_sys::base::{
     SecAccessRef, SecKeychainAttribute, SecKeychainAttributeList, SecKeychainItemRef,
@@ -105,6 +107,21 @@ unsafe extern "C" {
         attributes: *mut SecKeychainAttributeList,
         length: *mut u32,
         data: *mut *mut std::ffi::c_void,
+    ) -> OSStatus;
+    #[cfg(feature = "persistent-reference-probe")]
+    fn SecKeychainItemCreatePersistentReference(
+        item: SecKeychainItemRef,
+        reference: *mut CFDataRef,
+    ) -> OSStatus;
+    #[cfg(feature = "persistent-reference-probe")]
+    fn SecKeychainItemCopyFromPersistentReference(
+        reference: CFDataRef,
+        item: *mut SecKeychainItemRef,
+    ) -> OSStatus;
+    #[cfg(feature = "persistent-reference-probe")]
+    fn SecKeychainItemCopyKeychain(
+        item: SecKeychainItemRef,
+        keychain: *mut security_framework_sys::base::SecKeychainRef,
     ) -> OSStatus;
     fn SecKeychainItemModifyAttributesAndData(
         item: SecKeychainItemRef,

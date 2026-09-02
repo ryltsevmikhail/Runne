@@ -9,6 +9,9 @@ publish = false
 default = []
 test-support = ["runne-platform-desktop?/test-support", "runne-secure-store/test-support", "runne-provider/test-support", "dep:reqwest"]
 desktop-protected = ["dep:runne-platform-desktop", "runne-platform-desktop/protected-channel-integration", "dep:nix"]
+persistent-reference-probe = [
+    "runne-macos-keychain-acl/persistent-reference-probe",
+]
 
 [dependencies]
 runne-api = { path = "../runne-api" }
@@ -75,6 +78,7 @@ rustix = { version = "=1.1.4", features = ["fs", "process"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 nix = { version = "=0.31.3", default-features = false, features = ["socket"], optional = true }
+runne-macos-keychain-acl = { path = "../runne-macos-keychain-acl" }
 
 [dev-dependencies]
 core-foundation = "=0.10.1"

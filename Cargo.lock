@@ -3856,6 +3856,7 @@ dependencies = [
  "nix 0.31.3",
  "proc-macro2",
  "runne-daemon",
+ "runne-macos-keychain-acl",
  "runne-native-enrollment-authority",
  "runne-project-owner-authority",
  "runne-provider",
@@ -4128,6 +4129,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "sha2",
+ "zeroize",
 ]
 
 [[package]]

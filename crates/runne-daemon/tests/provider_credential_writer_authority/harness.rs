@@ -34,7 +34,11 @@ where
 
 fn run_outer(selector: &'static str, scenario: &str) {
     let keychain = super::keychain::DisposableKeychain::create().expect("disposable Keychain");
-    let package = super::package::LocalPackage::create(keychain.root()).expect("local package");
+    let package = super::package::LocalPackage::create(
+        keychain.root(),
+        selector == "persistent_reference_locates_exact_item_without_expanding_authority",
+    )
+    .expect("local package");
     assert!(package.application().starts_with(keychain.root()));
     let secret = super::audit::secret_canary(keychain.root());
     let patterns = super::audit::sensitive_patterns(&secret);

@@ -9,7 +9,10 @@ pub(super) struct LocalPackage {
 }
 
 impl LocalPackage {
-    pub(super) fn create(root: &Path) -> Result<Self, &'static str> {
+    pub(super) fn create(
+        root: &Path,
+        persistent_reference_probe: bool,
+    ) -> Result<Self, &'static str> {
         let repository = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .and_then(Path::parent)
@@ -40,8 +43,16 @@ impl LocalPackage {
             &desktop,
         )
         .map_err(|_| "desktop-copy")?;
-        fs::copy(build_runne(repository)?, &writer).map_err(|_| "writer-copy")?;
-        fs::copy(build_runned(repository)?, &daemon).map_err(|_| "daemon-copy")?;
+        fs::copy(
+            build_runne(repository, persistent_reference_probe)?,
+            &writer,
+        )
+        .map_err(|_| "writer-copy")?;
+        fs::copy(
+            build_runned(repository, persistent_reference_probe)?,
+            &daemon,
+        )
+        .map_err(|_| "daemon-copy")?;
         fs::copy(
             repository.join("contracts/gocode-ui-client-2/bundle.json"),
             &contract,
@@ -89,8 +100,16 @@ impl LocalPackage {
     }
 }
 
-fn build_runne(repository: &Path) -> Result<PathBuf, &'static str> {
+fn build_runne(
+    repository: &Path,
+    persistent_reference_probe: bool,
+) -> Result<PathBuf, &'static str> {
     let target = repository.join("target/slice-e-real-process-build");
+    let features = if persistent_reference_probe {
+        "local-native-enrollment-test,persistent-reference-probe"
+    } else {
+        "local-native-enrollment-test"
+    };
     let output = Command::new("cargo")
         .args([
             "build",
@@ -101,7 +120,7 @@ fn build_runne(repository: &Path) -> Result<PathBuf, &'static str> {
             "--bin",
             "runne",
             "--features",
-            "local-native-enrollment-test",
+            features,
         ])
         .current_dir(repository)
         .env("CARGO_TARGET_DIR", &target)
@@ -119,8 +138,16 @@ fn build_runne(repository: &Path) -> Result<PathBuf, &'static str> {
         .ok_or("runne-build-artifact")
 }
 
-fn build_runned(repository: &Path) -> Result<PathBuf, &'static str> {
+fn build_runned(
+    repository: &Path,
+    persistent_reference_probe: bool,
+) -> Result<PathBuf, &'static str> {
     let target = repository.join("target/slice-e-real-process-build");
+    let features = if persistent_reference_probe {
+        "test-support,desktop-protected,persistent-reference-probe"
+    } else {
+        "test-support,desktop-protected"
+    };
     let output = Command::new("cargo")
         .args([
             "build",
@@ -131,7 +158,7 @@ fn build_runned(repository: &Path) -> Result<PathBuf, &'static str> {
             "--bin",
             "runned",
             "--features",
-            "test-support,desktop-protected",
+            features,
         ])
         .current_dir(repository)
         .env("CARGO_TARGET_DIR", &target)

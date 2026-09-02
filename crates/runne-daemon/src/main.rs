@@ -56,6 +56,10 @@ fn parse_invocation(arguments: &[OsString]) -> Invocation {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
+    #[cfg(all(target_os = "macos", feature = "persistent-reference-probe"))]
+    if persistent_reference_probe::selected(&arguments) {
+        return persistent_reference_probe::run().map_err(|_| "persistent-reference-probe".into());
+    }
     match parse_invocation(&arguments) {
         Invocation::Run => {}
         Invocation::Help => {
@@ -133,3 +137,6 @@ fn run_protected(
 ) -> Result<(), runne_daemon::error::DaemonError> {
     run_verified_protected_channel(channel)
 }
+
+#[cfg(all(target_os = "macos", feature = "persistent-reference-probe"))]
+mod persistent_reference_probe;
