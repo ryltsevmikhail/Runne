@@ -1,0 +1,41 @@
+[package]
+name = "runne-macos-xpc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+runne-platform-ports = { path = "../runne-platform-ports" }
+zeroize.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "=0.6.2"
+objc2 = "=0.6.4"
+objc2-foundation = { version = "=0.3.2", default-features = false, features = [
+  "NSData",
+  "NSError",
+  "NSObject",
+  "NSString",
+  "NSXPCConnection",
+  "block2",
+  "std",
+] }
+objc2-service-management = { version = "=0.3.2", default-features = false, features = [
+  "SMAppService",
+  "objc2",
+  "objc2-foundation",
+  "std",
+] }
+tokio.workspace = true
+
+[build-dependencies]
+cc = "=1.4.0"
+
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"
+nursery = "deny"
