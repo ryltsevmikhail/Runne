@@ -1,5 +1,7 @@
 //! Domain-neutral native capability traits.
 
+/// Role-specific credential-service client contracts.
+pub mod credential_service;
 pub mod desktop;
 /// Domain-neutral, fail-closed process platform contracts.
 pub mod process;
