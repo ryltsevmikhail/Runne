@@ -120,3 +120,25 @@ fn writer_graph_has_no_password_acl_mutation_seam() {
     assert!(!contains(declaration, PASSWORD_CAPABLE_SYMBOL));
     assert!(!contains(implementation, PASSWORD_CAPABLE_SYMBOL));
 }
+
+#[test]
+fn writer_graph_has_no_legacy_acl_clone_or_detached_inspection() {
+    let foundation = include_bytes!(
+        "../../../runne-macos-keychain-acl/src/implementation_parts/foundation_and_process_lock.inc"
+    );
+    let access = include_bytes!(
+        "../../../runne-macos-keychain-acl/src/implementation_parts/access_control.inc"
+    );
+    let finalization = include_bytes!(
+        "../../../runne-macos-keychain-acl/src/implementation_parts/access_item_finalization.inc"
+    );
+    for source in [
+        foundation.as_slice(),
+        access.as_slice(),
+        finalization.as_slice(),
+    ] {
+        assert!(!contains(source, b"SecAccessGetOwnerAndACL"));
+        assert!(!contains(source, b"SecAccessCreateFromOwnerAndACL"));
+        assert!(!contains(source, b"access_for_acl_inspection"));
+    }
+}

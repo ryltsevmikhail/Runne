@@ -27,6 +27,7 @@ const ERR_SEC_ITEM_NOT_FOUND: OSStatus = -25_300;
 const ERR_SEC_INTERACTION_NOT_ALLOWED: OSStatus = -25_308;
 const ERR_SEC_NO_ACCESS_FOR_ITEM: OSStatus = -25_243;
 const ERR_SEC_INVALID_OWNER_EDIT: OSStatus = -25_244;
+const ERR_SEC_ACL_NOT_SIMPLE: OSStatus = -25_240;
 const GENERIC_PASSWORD_ITEM_CLASS: u32 = u32::from_be_bytes(*b"genp");
 const ACCOUNT_ITEM_ATTRIBUTE: u32 = u32::from_be_bytes(*b"acct");
 const SERVICE_ITEM_ATTRIBUTE: u32 = u32::from_be_bytes(*b"svce");
@@ -57,7 +58,6 @@ unsafe extern "C" {
         owner_type: *mut u32,
         acl_list: *mut CFArrayRef,
     ) -> OSStatus;
-    #[cfg(test)]
     fn SecAccessCopyACLList(access: SecAccessRef, acl_list: *mut CFArrayRef) -> OSStatus;
     fn SecAccessCreateWithOwnerAndACL(
         user_id: libc::uid_t,
@@ -66,18 +66,6 @@ unsafe extern "C" {
         acl_list: CFArrayRef,
         error: *mut CFTypeRef,
     ) -> SecAccessRef;
-    fn SecAccessGetOwnerAndACL(
-        access: SecAccessRef,
-        owner: *mut *mut std::ffi::c_void,
-        acl_count: *mut u32,
-        acls: *mut *mut std::ffi::c_void,
-    ) -> OSStatus;
-    fn SecAccessCreateFromOwnerAndACL(
-        owner: *const std::ffi::c_void,
-        acl_count: u32,
-        acls: *const std::ffi::c_void,
-        access: *mut SecAccessRef,
-    ) -> OSStatus;
     fn SecAccessCopyMatchingACLList(access: SecAccessRef, authorization: CFTypeRef) -> CFArrayRef;
     fn SecACLCopyContents(
         acl: CFTypeRef,

@@ -62,65 +62,36 @@ fn authorization_has_no_application_acl(
     }
     let list = unsafe { CFArray::<CFType>::wrap_under_create_rule(list) };
     let mut simple_owner_entries = 0;
-    let mut empty_complex_entries = 0;
-    let mut matching_complex_entries = 0;
+    let mut default_owner_entries = 0;
+    let mut change_acl_owner_entries = 0;
     for acl in list.iter() {
-        match copy_acl_contents(&acl) {
-            Ok((applications, prompt_selector)) => {
-                if !applications.is_empty()
-                    || !prompt_selector_is_unconditional(prompt_selector)
+        match copy_acl_record(&acl)? {
+            AclRecord::Simple(contents) => {
+                if contents
+                    .applications
+                    .as_ref()
+                    .is_none_or(|applications| !applications.is_empty())
+                    || !prompt_selector_is_unconditional(contents.prompt_selector)
                 {
                     return Ok(false);
                 }
                 simple_owner_entries += 1;
             }
-            Err(KeychainAclError::AccessDenied | KeychainAclError::OperationFailed) => {
-                match complex_acl_authorizations(&acl, authorization)? {
-                    ComplexAclAuthorizations::Empty => empty_complex_entries += 1,
-                    ComplexAclAuthorizations::Matching => matching_complex_entries += 1,
-                    ComplexAclAuthorizations::Other => return Ok(false),
-                }
-            }
-            Err(error) => return Err(error),
+            AclRecord::RootOwner(RootOwnerAcl::Default) => default_owner_entries += 1,
+            AclRecord::RootOwner(RootOwnerAcl::ChangeAcl) => change_acl_owner_entries += 1,
         }
     }
     if require_owner {
         return Ok((simple_owner_entries == 1
-            && empty_complex_entries == 0
-            && matching_complex_entries == 0)
+            && default_owner_entries == 0
+            && change_acl_owner_entries == 0)
             || (simple_owner_entries == 0
-                && empty_complex_entries == 1
-                && matching_complex_entries == 1));
+                && default_owner_entries == 1
+                && change_acl_owner_entries == 1));
     }
-    Ok(simple_owner_entries + empty_complex_entries + matching_complex_entries <= 1)
-}
-
-enum ComplexAclAuthorizations {
-    Empty,
-    Matching,
-    Other,
-}
-
-fn complex_acl_authorizations(
-    acl: &CFType,
-    expected: CFStringRef,
-) -> Result<ComplexAclAuthorizations, KeychainAclError> {
-    let authorizations = unsafe { SecACLCopyAuthorizations(acl.as_CFTypeRef()) };
-    if authorizations.is_null() {
-        return Err(KeychainAclError::AccessDenied);
-    }
-    let authorizations = unsafe { CFArray::<CFType>::wrap_under_create_rule(authorizations) };
-    if authorizations.is_empty() {
-        return Ok(ComplexAclAuthorizations::Empty);
-    }
-    let expected = unsafe { CFString::wrap_under_get_rule(expected) }.as_CFType();
-    Ok(if authorizations.len() == 1
-        && authorizations.get(0).is_some_and(|value| *value == expected)
-    {
-        ComplexAclAuthorizations::Matching
-    } else {
-        ComplexAclAuthorizations::Other
-    })
+    Ok(change_acl_owner_entries == 0
+        && ((simple_owner_entries == 0 && default_owner_entries <= 1)
+            || (simple_owner_entries == 1 && default_owner_entries == 0)))
 }
 
 fn application_acl_digest_with_owner(
@@ -137,9 +108,14 @@ fn application_acl_digest_with_owner(
     let mut owner_entries = 0;
     let mut digests = Vec::new();
     for acl in list.iter() {
-        match copy_acl_contents(&acl) {
-            Ok((applications, prompt_selector)) => {
-                if applications.is_empty() || !prompt_selector_is_unconditional(prompt_selector) {
+        match copy_acl_record(&acl)? {
+            AclRecord::Simple(contents) => {
+                let applications = contents
+                    .applications
+                    .ok_or(KeychainAclError::AccessDenied)?;
+                if applications.is_empty()
+                    || !prompt_selector_is_unconditional(contents.prompt_selector)
+                {
                     return Err(KeychainAclError::AccessDenied);
                 }
                 digests.extend(
@@ -149,10 +125,10 @@ fn application_acl_digest_with_owner(
                         .collect::<Result<Vec<_>, _>>()?,
                 );
             }
-            Err(KeychainAclError::AccessDenied | KeychainAclError::OperationFailed) => {
-                owner_entries += 1;
+            AclRecord::RootOwner(RootOwnerAcl::Default) => owner_entries += 1,
+            AclRecord::RootOwner(RootOwnerAcl::ChangeAcl) => {
+                return Err(KeychainAclError::AccessDenied);
             }
-            Err(error) => return Err(error),
         }
     }
     if owner_entries > 1 {

@@ -19,8 +19,7 @@ pub fn verify_item_access(
     access_owner.disarm();
     // SAFETY: `SecKeychainItemCopyAccess` returned a non-null retained reference.
     let access = unsafe { SecAccess::wrap_under_create_rule(access) };
-    let inspection = access_for_acl_inspection(&access)?;
-    verify_access_profile(&inspection, expected_digest)?;
+    verify_access_profile(&access, expected_digest)?;
     if !verify_noncaller_owner(&access)? {
         return Err(KeychainAclError::AccessDenied);
     }
@@ -70,6 +69,7 @@ fn verify_access_profile(
     access: &SecAccess,
     expected_digest: [u8; 32],
 ) -> Result<(), KeychainAclError> {
+    verify_root_owner_acl_shape(access)?;
     let trusted_digest = verify_decrypt_access(access)?;
     if verify_read_access(access)? != trusted_digest {
         return Err(KeychainAclError::AccessDenied);

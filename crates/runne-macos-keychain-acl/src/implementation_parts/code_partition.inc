@@ -9,57 +9,39 @@ fn copy_partition_ids(access: &SecAccess) -> Result<Vec<String>, KeychainAclErro
         return Err(KeychainAclError::AccessDenied);
     }
     let list = unsafe { CFArray::<CFType>::wrap_under_create_rule(list) };
-    if !(1..=2).contains(&list.len()) {
-        return Err(KeychainAclError::AccessDenied);
-    }
-    let expected_non_partition_entries = list.len() - 1;
     let mut partition = None;
-    let mut non_partition_entries = 0;
+    let mut default_owner_entries = 0;
     for acl in list.iter() {
-        match copy_partition_description(&acl) {
-            Ok((description, prompt_selector)) => {
-                if partition.is_some() || !prompt_selector_is_unconditional(prompt_selector) {
+        match copy_acl_record(&acl)? {
+            AclRecord::Simple(contents) => {
+                if contents.applications.is_some()
+                    || !prompt_selector_is_unconditional(contents.prompt_selector)
+                {
                     return Err(KeychainAclError::AccessDenied);
                 }
-                partition = Some(parse_partition_ids(&description)?);
+                let description = contents
+                    .description
+                    .ok_or(KeychainAclError::AccessDenied)?;
+                if partition
+                    .replace(parse_partition_ids(&description.to_string())?)
+                    .is_some()
+                {
+                    return Err(KeychainAclError::AccessDenied);
+                }
             }
-            Err(KeychainAclError::AccessDenied | KeychainAclError::OperationFailed) => {
-                non_partition_entries += 1;
+            AclRecord::RootOwner(RootOwnerAcl::Default) => default_owner_entries += 1,
+            AclRecord::RootOwner(RootOwnerAcl::ChangeAcl) => {
+                return Err(KeychainAclError::AccessDenied);
             }
-            Err(error) => return Err(error),
         }
     }
-    if non_partition_entries != expected_non_partition_entries {
+    if default_owner_entries > 1 {
         return Err(KeychainAclError::AccessDenied);
     }
     let mut ids = partition.ok_or(KeychainAclError::AccessDenied)?;
     ids.sort_unstable();
     ids.dedup();
     Ok(ids)
-}
-
-fn copy_partition_description(acl: &CFType) -> Result<(String, u16), KeychainAclError> {
-    let mut applications = ptr::null();
-    let mut description = ptr::null();
-    let mut prompt_selector = 0;
-    let copy_status = unsafe {
-        SecACLCopyContents(
-            acl.as_CFTypeRef(),
-            &raw mut applications,
-            &raw mut description,
-            &raw mut prompt_selector,
-        )
-    };
-    let applications_owner = RetainedCfOutput::new(applications);
-    let description_owner = RetainedCfOutput::new(description);
-    status(copy_status)?;
-    if !applications.is_null() || description.is_null() {
-        return Err(KeychainAclError::AccessDenied);
-    }
-    drop(applications_owner);
-    description_owner.disarm();
-    let description = unsafe { CFString::wrap_under_create_rule(description) };
-    Ok((description.to_string(), prompt_selector))
 }
 
 fn parse_partition_ids(description: &str) -> Result<Vec<String>, KeychainAclError> {
