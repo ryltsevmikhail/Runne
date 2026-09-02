@@ -38,6 +38,11 @@ fn persistent_reference_locates_exact_item_without_expanding_authority() {
 }
 
 #[test]
+fn persistent_reference_rejects_unrelated_same_uid_peer() {
+    persistent_reference::unrelated_peer_run();
+}
+
+#[test]
 fn wrong_replaced_and_stale_writer_attempts_have_zero_native_effect() {
     process_faults::run();
 }

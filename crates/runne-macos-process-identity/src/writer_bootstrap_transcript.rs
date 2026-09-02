@@ -105,7 +105,17 @@ fn observe(
 }
 
 impl PrefixBudget {
+    #[cfg(feature = "test-support")]
     fn duration(&self) -> Duration {
+        match self {
+            Self::Production => production_or_local_prefix_budget(),
+            #[cfg(test)]
+            Self::Test(duration) => *duration,
+        }
+    }
+
+    #[cfg(not(feature = "test-support"))]
+    const fn duration(&self) -> Duration {
         match self {
             Self::Production => production_or_local_prefix_budget(),
             #[cfg(test)]
@@ -114,11 +124,16 @@ impl PrefixBudget {
     }
 }
 
+#[cfg(feature = "test-support")]
 fn production_or_local_prefix_budget() -> Duration {
-    #[cfg(feature = "test-support")]
     if runne_api::test_support::validated_local_native_enrollment_case_name().is_some() {
         return Duration::from_mins(2);
     }
+    PRODUCTION_PREFIX_BUDGET
+}
+
+#[cfg(not(feature = "test-support"))]
+const fn production_or_local_prefix_budget() -> Duration {
     PRODUCTION_PREFIX_BUDGET
 }
 

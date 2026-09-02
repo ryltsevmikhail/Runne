@@ -11,6 +11,7 @@ mod persistent_reference_fixture_tests {
         let root = fs::canonicalize(temporary.path()).unwrap();
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
         let fixture = fixture_tree(&root);
+        let parent_pid = std::num::NonZeroU32::new(std::process::id()).unwrap();
         assert!(checked(&root, None, true, false).is_ok());
         assert!(checked(&fixture.home, Some(&root), true, false).is_ok());
         assert!(checked(&fixture.keychain, Some(&root), false, false).is_ok());
@@ -22,6 +23,7 @@ mod persistent_reference_fixture_tests {
             &fixture.keychain,
             &fixture.writer,
             &fixture.desktop,
+            parent_pid,
             PersistentReferenceProbeRole::Writer,
         )
         .is_ok());
@@ -31,6 +33,7 @@ mod persistent_reference_fixture_tests {
             &fixture.keychain,
             &fixture.reader,
             &fixture.desktop,
+            parent_pid,
             PersistentReferenceProbeRole::Reader,
         )
         .is_ok());
@@ -40,6 +43,7 @@ mod persistent_reference_fixture_tests {
             &fixture.keychain,
             &fixture.reader,
             &fixture.desktop,
+            parent_pid,
             PersistentReferenceProbeRole::Writer,
         )
         .is_err());
@@ -49,6 +53,7 @@ mod persistent_reference_fixture_tests {
             &fixture.keychain,
             &fixture.writer,
             &fixture.desktop,
+            parent_pid,
             PersistentReferenceProbeRole::Writer,
         )
         .is_err());
@@ -60,6 +65,7 @@ mod persistent_reference_fixture_tests {
             &fixture.keychain,
             &fixture.writer,
             &fixture.desktop,
+            parent_pid,
             PersistentReferenceProbeRole::Writer,
         )
         .is_err());
@@ -69,6 +75,7 @@ mod persistent_reference_fixture_tests {
             &fixture.keychain,
             &fixture.writer,
             &fixture.reader,
+            parent_pid,
             PersistentReferenceProbeRole::Writer,
         )
         .is_err());
@@ -86,10 +93,21 @@ mod persistent_reference_fixture_tests {
         assert!(!owner_only(uid, u32::from(libc::S_IFREG | 0o540), false));
         assert!(!owner_only(uid, u32::from(libc::S_IFLNK | 0o700), true));
         let identity = (uid, unsafe { libc::getegid() });
-        assert!(channel_is_bound(true, identity, true));
-        assert!(!channel_is_bound(false, identity, true));
-        assert!(!channel_is_bound(true, (uid.wrapping_add(1), identity.1), true));
-        assert!(!channel_is_bound(true, identity, false));
+        let parent = std::num::NonZeroU32::new(std::process::id()).unwrap();
+        let unrelated = std::num::NonZeroU32::new(parent.get().wrapping_add(1)).unwrap();
+        assert!(channel_is_bound(true, identity, parent, parent, parent, true));
+        assert!(!channel_is_bound(false, identity, parent, parent, parent, true));
+        assert!(!channel_is_bound(
+            true,
+            (uid.wrapping_add(1), identity.1),
+            parent,
+            parent,
+            parent,
+            true,
+        ));
+        assert!(!channel_is_bound(true, identity, unrelated, parent, parent, true));
+        assert!(!channel_is_bound(true, identity, parent, unrelated, unrelated, true));
+        assert!(!channel_is_bound(true, identity, parent, parent, parent, false));
     }
 
     struct FixtureTree {

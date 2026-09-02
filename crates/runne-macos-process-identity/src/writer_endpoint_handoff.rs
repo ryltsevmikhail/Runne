@@ -179,11 +179,16 @@ impl MacOsUntrustedWriterEndpointHandoffV1 {
     }
 }
 
+#[cfg(feature = "test-support")]
 fn ingress_deadline() -> Duration {
-    #[cfg(feature = "test-support")]
     if runne_api::test_support::validated_local_native_enrollment_case_name().is_some() {
         return Duration::from_secs(10);
     }
+    PRODUCTION_DEADLINE
+}
+
+#[cfg(not(feature = "test-support"))]
+const fn ingress_deadline() -> Duration {
     PRODUCTION_DEADLINE
 }
 

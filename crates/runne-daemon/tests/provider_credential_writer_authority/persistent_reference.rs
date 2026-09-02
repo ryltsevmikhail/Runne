@@ -1,4 +1,7 @@
+use std::os::unix::net::UnixListener;
+use std::time::Duration;
 use std::{
+    fs,
     io::{Read as _, Write as _},
     net::Shutdown,
     os::{fd::OwnedFd, unix::net::UnixStream},
@@ -10,6 +13,7 @@ use zeroize::Zeroizing;
 const MODE: &str = "__slice-e-persistent-reference-probe-v1";
 const RECORD_MAGIC: &[u8; 8] = b"GCPREFD1";
 const MAX_REFERENCE_BYTES: usize = 1024;
+const UNRELATED_PEER_SOCKET: &str = "RUNNE_SLICE_E_UNRELATED_PEER_SOCKET";
 
 pub(super) fn run() {
     super::harness::dispatch(
@@ -18,10 +22,65 @@ pub(super) fn run() {
     );
 }
 
+pub(super) fn unrelated_peer_run() {
+    super::harness::dispatch(
+        "persistent_reference_rejects_unrelated_same_uid_peer",
+        unrelated_peer_inner,
+    );
+}
+
 fn inner(context: &super::support::InnerContext) -> Result<(), &'static str> {
     let record = collect_writer_record(context)?;
     run_reader(context, &record)?;
     run_reader(context, &record)
+}
+
+fn unrelated_peer_inner(context: &super::support::InnerContext) -> Result<(), &'static str> {
+    let socket = context.root().join("unrelated-peer.sock");
+    let listener = UnixListener::bind(&socket).map_err(|_| "unrelated-peer-listener")?;
+    let mut unrelated = Command::new(std::env::current_exe().map_err(|_| "unrelated-peer-self")?)
+        .args(["--exact", "persistent_reference::unrelated_peer_holder"])
+        .env_clear()
+        .env(UNRELATED_PEER_SOCKET, &socket)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| "unrelated-peer-launch")?;
+    let output = listener
+        .accept()
+        .map_err(|_| "unrelated-peer-accept")
+        .and_then(|(parent, _)| {
+            role_command(&context.writer(), context)
+                .stdin(Stdio::from(OwnedFd::from(parent)))
+                .output()
+                .map_err(|_| "unrelated-peer-writer-launch")
+        });
+    let cleanup = unrelated
+        .kill()
+        .and_then(|()| unrelated.wait())
+        .map_err(|_| "unrelated-peer-cleanup");
+    drop(listener);
+    let socket_cleanup = fs::remove_file(socket).map_err(|_| "unrelated-peer-socket-cleanup");
+    let output = output?;
+    cleanup?;
+    socket_cleanup?;
+    match output.stderr.as_slice() {
+        b"persistent-reference-probe-closed-stage:parent-channel\n" => Ok(()),
+        b"persistent-reference-probe-closed-stage:item-finalize\n" => {
+            Err("unrelated-peer-accepted-item-finalize")
+        }
+        b"persistent-reference-probe-closed-stage:fixture\n" => Err("unrelated-peer-fixture"),
+        _ => Err("unrelated-peer-not-rejected"),
+    }
+}
+
+#[test]
+fn unrelated_peer_holder() {
+    let Ok(socket) = std::env::var(UNRELATED_PEER_SOCKET) else {
+        return;
+    };
+    let _peer = UnixStream::connect(socket).unwrap();
+    std::thread::sleep(Duration::from_secs(10));
 }
 
 fn collect_writer_record(
@@ -212,6 +271,17 @@ fn native_fd_probe_requires_coupled_features_and_package_fixture_preflight() {
         ));
         assert!(contains(source, b"RUNNE_LOCAL_NATIVE_ENROLLMENT_TEST"));
         assert!(contains(source, b"RUNNE_SLICE_E_INNER_CASE"));
+    }
+    let fixture = include_bytes!(
+        "../../../runne-macos-keychain-acl/src/implementation_parts/persistent_reference_fixture.inc",
+    );
+    for required in [
+        b"MacOsLocalPeerProcessIdentity::capture".as_slice(),
+        b"peer.revalidate_same_peer".as_slice(),
+        b"peer.pid()".as_slice(),
+        b"fixture.parent_pid".as_slice(),
+    ] {
+        assert!(contains(fixture, required));
     }
 }
 

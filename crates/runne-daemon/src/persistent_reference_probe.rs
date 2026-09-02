@@ -2,11 +2,12 @@
 
 use std::{fs, os::fd::AsFd as _};
 
-use zeroize::Zeroizing;
+use zeroize::{Zeroize as _, Zeroizing};
 
 pub const MODE: &str = "__slice-e-persistent-reference-probe-v1";
 const RECORD_MAGIC: &[u8; 8] = b"GCPREFD1";
 const MAX_REFERENCE_BYTES: usize = 1024;
+const RECORD_HEADER_BYTES: usize = RECORD_MAGIC.len() + 2;
 const SERVICE: &str = "dev.runne.provider-credential.v1.version.1.1111111111111111111111111111111111111111111111111111111111111111";
 const ACCOUNT: &str = "openai";
 const MARKER: &[u8] = b"persistent-reference-probe-material-v1";
@@ -41,13 +42,14 @@ pub fn run() -> Result<(), ProbeError> {
         MODE,
     )
     .map_err(|_| ())?;
-    runne_macos_keychain_acl::validate_persistent_reference_parent_channel().map_err(|_| ())?;
+    runne_macos_keychain_acl::validate_persistent_reference_parent_channel(&fixture)
+        .map_err(|_| ())?;
     let (_interaction, keychain) =
         runne_macos_keychain_acl::open_noninteractive_keychain(fixture.keychain())
             .map_err(|_| ())?;
     let reference = receive_record()?;
-    let item =
-        runne_macos_keychain_acl::resolve_persistent_reference(&reference).map_err(|_| ())?;
+    let item = runne_macos_keychain_acl::resolve_persistent_reference(reference.as_slice())
+        .map_err(|_| ())?;
     let access =
         runne_macos_keychain_acl::ExactKeychainAccess::new(fixture.writer(), fixture.reader())
             .map_err(|_| ())?;
@@ -67,29 +69,74 @@ pub fn run() -> Result<(), ProbeError> {
         .ok_or(ProbeError)
 }
 
-fn receive_record() -> Result<Zeroizing<Vec<u8>>, ()> {
+fn receive_record() -> Result<ReceivedReference, ()> {
     let duplicate = rustix::io::dup(std::io::stdin().as_fd()).map_err(|_| ())?;
     let mut channel = fs::File::from(duplicate);
     receive_record_from(&mut channel)
 }
 
-fn receive_record_from(channel: &mut impl std::io::Read) -> Result<Zeroizing<Vec<u8>>, ()> {
-    let mut magic = [0_u8; 8];
-    let mut length = [0_u8; 2];
-    channel.read_exact(&mut magic).map_err(|_| ())?;
-    channel.read_exact(&mut length).map_err(|_| ())?;
-    let length = usize::from(u16::from_be_bytes(length));
-    if magic != *RECORD_MAGIC || length == 0 || length > MAX_REFERENCE_BYTES {
+fn receive_record_from(channel: &mut impl std::io::Read) -> Result<ReceivedReference, ()> {
+    let mut reference = ReceivedReference {
+        bytes: Zeroizing::new(Vec::new()),
+    };
+    reference
+        .bytes
+        .try_reserve(RECORD_HEADER_BYTES + MAX_REFERENCE_BYTES + 1)
+        .map_err(|_| ())?;
+    reference.bytes.resize(RECORD_HEADER_BYTES, 0);
+    channel.read_exact(&mut reference.bytes).map_err(|_| ())?;
+    let length = usize::from(u16::from_be_bytes([reference.bytes[8], reference.bytes[9]]));
+    if reference.bytes[..RECORD_MAGIC.len()] != *RECORD_MAGIC
+        || length == 0
+        || length > MAX_REFERENCE_BYTES
+    {
         return Err(());
     }
-    let mut reference = Zeroizing::new(Vec::new());
-    reference.try_reserve(length).map_err(|_| ())?;
-    reference.resize(length, 0);
-    channel.read_exact(&mut reference).map_err(|_| ())?;
-    let mut extra = [0_u8; 1];
-    (channel.read(&mut extra).map_err(|_| ())? == 0)
-        .then_some(reference)
-        .ok_or(())
+    let end = RECORD_HEADER_BYTES + length;
+    reference.bytes.resize(end + 1, 0);
+    channel
+        .read_exact(&mut reference.bytes[RECORD_HEADER_BYTES..end])
+        .map_err(|_| ())?;
+    if channel.read(&mut reference.bytes[end..]).map_err(|_| ())? != 0 {
+        return Err(());
+    }
+    reference.bytes.truncate(end);
+    Ok(reference)
+}
+
+struct ReceivedReference {
+    bytes: Zeroizing<Vec<u8>>,
+}
+
+impl ReceivedReference {
+    fn as_slice(&self) -> &[u8] {
+        &self.bytes[RECORD_HEADER_BYTES..]
+    }
+}
+
+impl Drop for ReceivedReference {
+    fn drop(&mut self) {
+        self.bytes.as_mut_slice().zeroize();
+        #[cfg(test)]
+        FRAME_ZEROIZATION_OBSERVED.store(
+            self.bytes.iter().all(|byte| *byte == 0),
+            std::sync::atomic::Ordering::Release,
+        );
+    }
+}
+
+#[cfg(test)]
+static FRAME_ZEROIZATION_OBSERVED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(test)]
+fn reset_framing_zeroization_observer() {
+    FRAME_ZEROIZATION_OBSERVED.store(false, std::sync::atomic::Ordering::Release);
+}
+
+#[cfg(test)]
+fn framing_zeroization_observed() -> bool {
+    FRAME_ZEROIZATION_OBSERVED.load(std::sync::atomic::Ordering::Acquire)
 }
 
 fn metadata() -> [u8; 55] {
@@ -130,5 +177,23 @@ mod tests {
         assert!(receive_record_from(&mut malformed).is_err());
         let mut valid = Cursor::new([RECORD_MAGIC.as_slice(), &[0, 1], &[7]].concat());
         assert_eq!(receive_record_from(&mut valid).unwrap().as_slice(), &[7]);
+    }
+
+    #[test]
+    fn framing_bytes_are_zeroized_after_malformed_trailing_and_successful_records() {
+        reset_framing_zeroization_observer();
+        let mut malformed = Cursor::new([b"wrongref".as_slice(), &[0, 1], &[7]].concat());
+        assert!(receive_record_from(&mut malformed).is_err());
+        assert!(framing_zeroization_observed());
+        reset_framing_zeroization_observer();
+        let mut trailing = Cursor::new([RECORD_MAGIC.as_slice(), &[0, 1], &[7, 8]].concat());
+        assert!(receive_record_from(&mut trailing).is_err());
+        assert!(framing_zeroization_observed());
+        reset_framing_zeroization_observer();
+        let mut valid = Cursor::new([RECORD_MAGIC.as_slice(), &[0, 1], &[7]].concat());
+        let reference = receive_record_from(&mut valid).unwrap();
+        assert!(!framing_zeroization_observed());
+        drop(reference);
+        assert!(framing_zeroization_observed());
     }
 }

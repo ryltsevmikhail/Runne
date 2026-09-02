@@ -57,7 +57,7 @@ fn run() -> Result<(), ProbeError> {
         MODE,
     )
     .map_err(|_| ProbeError::Closed("fixture"))?;
-    runne_macos_keychain_acl::validate_persistent_reference_parent_channel()
+    runne_macos_keychain_acl::validate_persistent_reference_parent_channel(&fixture)
         .map_err(|_| ProbeError::Closed("parent-channel"))?;
     let (_interaction, keychain) =
         runne_macos_keychain_acl::open_noninteractive_keychain(fixture.keychain())

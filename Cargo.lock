@@ -4126,6 +4126,7 @@ version = "0.0.3"
 dependencies = [
  "core-foundation 0.10.1",
  "libc",
+ "runne-macos-process-identity",
  "security-framework",
  "security-framework-sys",
  "sha2",
