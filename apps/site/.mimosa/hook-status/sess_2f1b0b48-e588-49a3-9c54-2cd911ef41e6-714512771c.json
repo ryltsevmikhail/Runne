@@ -1,14 +1,14 @@
 {
   "schemaVersion": "mimosa-hook-status/v1",
-  "recordedAt": "2026-09-02T12:37:45.826Z",
+  "recordedAt": "2026-09-02T12:47:11.953Z",
   "sessionId": "sess_2f1b0b48-e588-49a3-9c54-2cd911ef41e6",
   "event": "PostToolUse",
   "toolName": "Edit",
-  "file": "src/app/styles/responsive.css",
+  "file": "src/app/ui/FieldNotes.vue",
   "outcome": "clear",
   "coverage": "complete",
   "findingCount": 0,
-  "durationMs": 3,
+  "durationMs": 2,
   "hostState": "hook_complete",
   "reportHint": ".mimosa/reports/"
 }

@@ -156,7 +156,7 @@ const en: SiteContent = {
         speech: "Got it. First, I make it durable.",
         title: "A task arrives.",
         body: "Runne turns the prompt into a TaskRun with an identity, a timeline, and a budget.",
-        image: "/mascots/panel-01.png",
+        image: "/mascots/panel-01.jpg",
       },
       {
         n: "02",
@@ -164,7 +164,7 @@ const en: SiteContent = {
         speech: "Window gone? I’m still here.",
         title: "The window disappears.",
         body: "The UI can close. The provider can stall. The authoritative run keeps its place.",
-        image: "/mascots/panel-02.png",
+        image: "/mascots/panel-02.jpg",
       },
       {
         n: "03",
@@ -172,7 +172,7 @@ const en: SiteContent = {
         speech: "Found the last safe step.",
         title: "Nothing is lost.",
         body: "Runne replays the journal and resumes from confirmed state—not from a hopeful guess.",
-        image: "/mascots/panel-03.png",
+        image: "/mascots/panel-03.jpg",
       },
       {
         n: "04",
@@ -180,7 +180,7 @@ const en: SiteContent = {
         speech: "Show me the grant first.",
         title: "Tools ask permission.",
         body: "Files, shells, networks, and secrets stay behind explicit capability grants.",
-        image: "/mascots/panel-04.png",
+        image: "/mascots/panel-04.jpg",
       },
       {
         n: "05",
@@ -188,7 +188,7 @@ const en: SiteContent = {
         speech: "Nice claim. Where’s the proof?",
         title: "“Done” is challenged.",
         body: "Tests, checks, and artifacts become verification evidence attached to the run.",
-        image: "/mascots/panel-05.png",
+        image: "/mascots/panel-05.jpg",
       },
       {
         n: "06",
@@ -196,7 +196,7 @@ const en: SiteContent = {
         speech: "Verified. Recorded. Done.",
         title: "Now it can ship.",
         body: "You get a completed task with chronology, evidence, and an audit trail clients can trust.",
-        image: "/mascots/panel-06.png",
+        image: "/mascots/panel-06.jpg",
       },
     ],
     closing: {
@@ -363,7 +363,7 @@ const ru: SiteContent = {
         speech: "Принято. Сначала всё сохраним.",
         title: "Задача поступила.",
         body: "Runne превращает запрос в TaskRun с идентификатором, хронологией и бюджетом.",
-        image: "/mascots/panel-01.png",
+        image: "/mascots/panel-01.jpg",
       },
       {
         n: "02",
@@ -371,7 +371,7 @@ const ru: SiteContent = {
         speech: "Окно исчезло? Я всё ещё здесь.",
         title: "Окно исчезает.",
         body: "Интерфейс может закрыться, провайдер — зависнуть. Авторитетный запуск сохранит своё состояние.",
-        image: "/mascots/panel-02.png",
+        image: "/mascots/panel-02.jpg",
       },
       {
         n: "03",
@@ -379,7 +379,7 @@ const ru: SiteContent = {
         speech: "Нашёл последний безопасный шаг.",
         title: "Ничего не потеряно.",
         body: "Runne воспроизводит журнал и продолжает с подтверждённого состояния, а не с догадки.",
-        image: "/mascots/panel-03.png",
+        image: "/mascots/panel-03.jpg",
       },
       {
         n: "04",
@@ -387,7 +387,7 @@ const ru: SiteContent = {
         speech: "Сначала покажи разрешение.",
         title: "Инструменты запрашивают доступ.",
         body: "Файлы, терминал, сеть и секреты доступны только по явным capability-разрешениям.",
-        image: "/mascots/panel-04.png",
+        image: "/mascots/panel-04.jpg",
       },
       {
         n: "05",
@@ -395,7 +395,7 @@ const ru: SiteContent = {
         speech: "Хорошо звучит. А где доказательства?",
         title: "Слово «готово» проверяется.",
         body: "Тесты, проверки и артефакты становятся доказательствами, приложенными к запуску.",
-        image: "/mascots/panel-05.png",
+        image: "/mascots/panel-05.jpg",
       },
       {
         n: "06",
@@ -403,7 +403,7 @@ const ru: SiteContent = {
         speech: "Проверено. Записано. Готово.",
         title: "Теперь можно выпускать.",
         body: "Вы получаете завершённую задачу с хронологией, доказательствами и надёжным аудитом.",
-        image: "/mascots/panel-06.png",
+        image: "/mascots/panel-06.jpg",
       },
     ],
     closing: {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useSite } from "../useSite";
 const { c, lang } = useSite();
-const stage = (n: string) => `/mascots/mob-${lang}-${n}.png`;
+const stage = (n: string) => `/mascots/mob-${lang}-${n}.jpg`;
 </script>
 
 <template>
@@ -67,7 +67,7 @@ const stage = (n: string) => `/mascots/mob-${lang}-${n}.png`;
           <div class="panel-art">
             <img class="panel-stage-mobile" :src="stage(c.comic.chapter2.panels[0].n)" alt="" aria-hidden="true">
             <span class="runtime-tag">{{ c.comic.chapter2.panels[0].runtimeLabel }}</span>
-            <img class="mascot-desktop" src="/mascots/hero-run.png" width="360" height="300" :alt="c.comic.chapter2.panels[0].title">
+            <img class="mascot-desktop" src="/mascots/hero-run.jpg" width="360" height="300" :alt="c.comic.chapter2.panels[0].title">
             <p class="speech">{{ c.comic.chapter2.panels[0].speech }}</p>
           </div>
           <div class="panel-caption">
@@ -92,7 +92,7 @@ const stage = (n: string) => `/mascots/mob-${lang}-${n}.png`;
               <p class="budget-limit">{{ c.comic.chapter2.budget.limit }}</p>
             </div>
             <img class="panel-stage-mobile" :src="stage(c.comic.chapter2.panels[1].n)" alt="" aria-hidden="true">
-            <img class="mascot-desktop" src="/mascots/budget-guard.png" width="360" height="300" :alt="c.comic.chapter2.panels[1].title">
+            <img class="mascot-desktop" src="/mascots/budget-guard.jpg" width="360" height="300" :alt="c.comic.chapter2.panels[1].title">
             <p class="speech">{{ c.comic.chapter2.panels[1].speech }}</p>
           </div>
           <div class="panel-caption">
