@@ -18,6 +18,8 @@ use zeroize::Zeroizing;
 
 const FIXTURE_ROOT: &str = "RUNNE_SLICE_E_FIXTURE_ROOT";
 
+type ConcurrentProbe = fn(&InnerContext) -> Result<&'static str, &'static str>;
+
 pub(super) struct InnerContext {
     root: PathBuf,
     profile: PathBuf,
@@ -50,11 +52,18 @@ impl InnerContext {
     }
 
     pub(super) fn run_positive_transcript(&self) -> Result<(), &'static str> {
+        self.run_positive_transcript_with_probe(None)
+    }
+
+    pub(super) fn run_positive_transcript_with_probe(
+        &self,
+        probe: Option<ConcurrentProbe>,
+    ) -> Result<(), &'static str> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .map_err(|_| "tokio-runtime")?;
-        runtime.block_on(self.positive_async())
+        runtime.block_on(self.positive_async(probe))
     }
 
     pub(super) fn root(&self) -> &Path {
@@ -87,7 +96,7 @@ impl InnerContext {
         ))
     }
 
-    async fn positive_async(&self) -> Result<(), &'static str> {
+    async fn positive_async(&self, probe: Option<ConcurrentProbe>) -> Result<(), &'static str> {
         let prepared = runne_platform_desktop::prepare_local_native_enrollment(&self.profile)
             .ok_or("local-admission")?;
         let mut supervisor = self.supervisor()?;
@@ -148,9 +157,22 @@ impl InnerContext {
             .ok_or("pair-relay")?
             .seal_and_write(&relay, secret)
             .map_err(|_| "sealed-fd3")?;
-        supervisor
-            .finish_protected_credential_enrollment(&mut enrollment, &relay)
-            .map_err(|_| "terminal-readback")?;
+        let (finish, probe_evidence) = if let Some(probe) = probe {
+            let (finish, observed) = std::thread::scope(|scope| {
+                let observer = scope.spawn(|| probe(self));
+                let finish =
+                    supervisor.finish_protected_credential_enrollment(&mut enrollment, &relay);
+                (finish, observer.join())
+            });
+            let evidence = observed.map_err(|_| "native-probe-panic")??;
+            (finish, Some(evidence))
+        } else {
+            (
+                supervisor.finish_protected_credential_enrollment(&mut enrollment, &relay),
+                None,
+            )
+        };
+        finish.map_err(|_| probe_evidence.unwrap_or("terminal-readback"))?;
         if !enrollment.terminal()
             || enrollment.snapshot().state() != ProviderCredentialOperationStateV2::Completed
         {

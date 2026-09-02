@@ -176,13 +176,7 @@ pub struct CreatedGenericPasswordItem {
 }
 
 impl CreatedGenericPasswordItem {
-    /// Returns the native item only for immediate password population.
-    #[must_use]
-    pub const fn item_mut(&mut self) -> &mut SecKeychainItem {
-        &mut self.item
-    }
-
-    /// Commits and verifies the exact final ACL before exposing the item.
+    /// Commits and verifies the exact final ACL before password population.
     ///
     /// A failed commit deletes the incomplete item before returning.
     ///
@@ -203,7 +197,7 @@ impl CreatedGenericPasswordItem {
         Ok(self.item)
     }
 
-    /// Deletes an incomplete item after password population fails.
+    /// Deletes an incomplete empty item.
     ///
     /// # Errors
     ///

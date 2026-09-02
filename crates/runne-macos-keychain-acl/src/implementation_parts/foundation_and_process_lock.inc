@@ -56,6 +56,8 @@ unsafe extern "C" {
         owner_type: *mut u32,
         acl_list: *mut CFArrayRef,
     ) -> OSStatus;
+    #[cfg(test)]
+    fn SecAccessCopyACLList(access: SecAccessRef, acl_list: *mut CFArrayRef) -> OSStatus;
     fn SecAccessCreateWithOwnerAndACL(
         user_id: libc::uid_t,
         group_id: libc::gid_t,
@@ -145,6 +147,7 @@ unsafe extern "C" {
     static kSecACLAuthorizationKeychainItemRead: CFStringRef;
     static kSecACLAuthorizationPartitionID: CFStringRef;
     static kSecACLAuthorizationChangeACL: CFStringRef;
+    static kSecACLAuthorizationChangeOwner: CFStringRef;
 }
 
 /// Closed failure returned by the ACL wrapper.

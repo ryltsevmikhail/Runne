@@ -214,9 +214,9 @@
                 &metadata,
                 &broad_access,
             )
+            .and_then(|item| item.finalize(&broad_access))
             .map_err(map_acl_error)?;
-            item.item_mut()
-                .set_password(&sentinel_encoded)
+            item.set_password(&sentinel_encoded)
                 .map_err(map_keychain_error)
         })
         .unwrap();

@@ -14,8 +14,11 @@ pub(super) fn run() {
 fn inner(context: &super::support::InnerContext) -> Result<(), &'static str> {
     assert_reader_source_boundary()?;
     assert_reader_binary_boundary(context.daemon())?;
-    context.run_positive_transcript()?;
-    super::native_item::assert_unrelated_denied(context.root())
+    context.run_positive_transcript_with_probe(Some(unrelated_probe))
+}
+
+fn unrelated_probe(context: &super::support::InnerContext) -> Result<&'static str, &'static str> {
+    super::native_item::assert_unrelated_denied(context.root(), context.runtime_root())
 }
 
 fn assert_reader_source_boundary() -> Result<(), &'static str> {
@@ -83,4 +86,27 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
                 .position(|part| part == needle)
         })
         .flatten()
+}
+
+#[test]
+fn unrelated_probe_uses_passwordless_access_replacement() {
+    let source = include_bytes!("native_access.rs");
+    assert!(contains(source, b"SecKeychainItemSetAccess("));
+    assert!(contains(source, b"SecAccessCreateFromOwnerAndACL("));
+    assert!(!contains(source, PASSWORD_CAPABLE_SYMBOL));
+}
+
+#[test]
+fn password_population_follows_access_finalization() {
+    let population = include_bytes!(
+        "../../../runne-secure-store/src/macos/implementation_parts/keyring_and_codec.inc"
+    );
+    let finalized = find(population, b".finalize(exact_access)").unwrap();
+    let populated = find(population, b".set_password(encoded)").unwrap();
+    assert!(finalized < populated);
+
+    let creation = include_bytes!(
+        "../../../runne-macos-keychain-acl/src/implementation_parts/item_creation.inc"
+    );
+    assert!(!contains(creation, b"fn item_mut"));
 }

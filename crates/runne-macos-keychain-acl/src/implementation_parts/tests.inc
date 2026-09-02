@@ -214,4 +214,45 @@ mod tests {
         assert!(verify_noncaller_owner(&exact.creation_access).unwrap());
     }
 
+    #[test]
+    fn cf_acl_list_owner_clone_loses_matching_authorizations() {
+        let current = std::env::current_exe().unwrap();
+        let application = trusted_application(&current).unwrap();
+        let source = create_exact_application_access(&application, &application).unwrap();
+        let cloned = clone_acl_data_with_owner_using_cf_list(&source, 0, 0).unwrap();
+        assert!(verify_noncaller_owner(&cloned).unwrap());
+
+        let mut all_acls = ptr::null();
+        assert_eq!(
+            unsafe { SecAccessCopyACLList(cloned.as_concrete_TypeRef(), &raw mut all_acls) },
+            errSecSuccess,
+        );
+        assert!(!all_acls.is_null());
+        let all_acls = unsafe { CFArray::<CFType>::wrap_under_create_rule(all_acls) };
+        assert!(!all_acls.is_empty());
+        assert!(unsafe {
+            SecAccessCopyMatchingACLList(
+                cloned.as_concrete_TypeRef(),
+                kSecACLAuthorizationDecrypt.cast(),
+            )
+        }
+        .is_null());
+    }
+
+    #[test]
+    fn change_owner_application_acl_is_rejected() {
+        let current = std::env::current_exe().unwrap();
+        let application = trusted_application(&current).unwrap();
+        let access = create_exact_application_access(&application, &application).unwrap();
+        let applications = CFArray::from_CFTypes(&[application]);
+        create_application_acl(
+            &access,
+            &applications,
+            unsafe { kSecACLAuthorizationChangeOwner },
+        )
+        .unwrap();
+
+        assert!(!change_acl_is_owner_only(&access).unwrap());
+    }
+
 }

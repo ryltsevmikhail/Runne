@@ -35,6 +35,13 @@ fn change_acl_is_owner_only(access: &SecAccess) -> Result<bool, KeychainAclError
     if !authorization_has_no_application_acl(access, unsafe { kSecACLAuthorizationAny }, false)? {
         return Ok(false);
     }
+    if !authorization_has_no_application_acl(
+        access,
+        unsafe { kSecACLAuthorizationChangeOwner },
+        false,
+    )? {
+        return Ok(false);
+    }
     authorization_has_no_application_acl(
         access,
         unsafe { kSecACLAuthorizationChangeACL },

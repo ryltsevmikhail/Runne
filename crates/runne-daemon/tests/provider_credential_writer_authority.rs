@@ -8,6 +8,8 @@ mod harness;
 mod keychain;
 #[path = "provider_credential_writer_authority/leakage.rs"]
 mod leakage;
+#[path = "provider_credential_writer_authority/native_access.rs"]
+mod native_access;
 #[path = "provider_credential_writer_authority/native_acl.rs"]
 mod native_acl;
 #[path = "provider_credential_writer_authority/native_item.rs"]

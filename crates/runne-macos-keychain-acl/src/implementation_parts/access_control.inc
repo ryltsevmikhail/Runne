@@ -208,6 +208,45 @@ fn clone_acl_data_with_owner(
     Ok(unsafe { SecAccess::wrap_under_create_rule(cloned) })
 }
 
+#[cfg(test)]
+fn clone_acl_data_with_owner_using_cf_list(
+    access: &SecAccess,
+    user_id: libc::uid_t,
+    group_id: libc::gid_t,
+) -> Result<SecAccess, KeychainAclError> {
+    let mut acl_list = ptr::null();
+    status(unsafe {
+        SecAccessCopyACLList(access.as_concrete_TypeRef(), &raw mut acl_list)
+    })?;
+    let acl_list_owner = RetainedCfOutput::new(acl_list);
+    if acl_list.is_null() {
+        return Err(KeychainAclError::AccessDenied);
+    }
+    acl_list_owner.disarm();
+    let acl_list = unsafe { CFArray::<CFType>::wrap_under_create_rule(acl_list) };
+    if acl_list.is_empty() {
+        return Err(KeychainAclError::AccessDenied);
+    }
+    let mut error = ptr::null();
+    let cloned = unsafe {
+        SecAccessCreateWithOwnerAndACL(
+            user_id,
+            group_id,
+            1,
+            acl_list.as_concrete_TypeRef(),
+            &raw mut error,
+        )
+    };
+    let error_owner = RetainedCfOutput::new(error);
+    let cloned_owner = RetainedCfOutput::new(cloned);
+    if cloned.is_null() || !error.is_null() {
+        return Err(KeychainAclError::AccessDenied);
+    }
+    drop(error_owner);
+    cloned_owner.disarm();
+    Ok(unsafe { SecAccess::wrap_under_create_rule(cloned) })
+}
+
 fn access_with_noncaller_owner(access: &SecAccess) -> Result<SecAccess, KeychainAclError> {
     if unsafe { libc::geteuid() } == 0 {
         return Err(KeychainAclError::AccessDenied);

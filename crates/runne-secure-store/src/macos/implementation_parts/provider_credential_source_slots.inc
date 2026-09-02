@@ -63,6 +63,7 @@ impl ProviderCredentialSourceSlotBackend for MacOsProviderCredentialSourceSlots<
             metadata,
             self.exact_access,
         )
+        .and_then(|item| item.finalize(self.exact_access))
         .map(|_| ())
         .map_err(map_acl_error)
     }
