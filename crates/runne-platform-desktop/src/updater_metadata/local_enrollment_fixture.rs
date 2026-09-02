@@ -81,6 +81,7 @@ fn signed_metadata(
         expires_at_unix_seconds: expires,
         rollback_floor: FLOOR.into(),
         native_enrollment_tuple: None,
+        native_enrollment_tuple_v3: None,
     };
     let tuple = NativeEnrollmentTupleV2::new_macos(
         target.release_candidate_sha256.clone(),

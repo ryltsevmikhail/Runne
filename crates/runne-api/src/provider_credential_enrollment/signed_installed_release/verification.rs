@@ -85,13 +85,7 @@ pub fn verify_signed_update_metadata_v2(
         &metadata.timestamp,
     )
     .map_err(|()| SignedInstalledReleaseVerificationErrorV2::TimestampSignature)?;
-    if metadata
-        .targets
-        .target
-        .native_enrollment_tuple
-        .as_ref()
-        .is_some_and(|tuple| !tuple.valid_signed(&metadata.targets.target))
-    {
+    if !metadata.targets.target.native_enrollment_tuples_valid() {
         return Err(SignedInstalledReleaseVerificationErrorV2::InvalidMetadata);
     }
     build_verified(metadata, now_unix_seconds)

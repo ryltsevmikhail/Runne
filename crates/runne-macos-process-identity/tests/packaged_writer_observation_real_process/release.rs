@@ -128,6 +128,7 @@ fn target(contract_digest: [u8; 32]) -> UpdateTargetV2 {
         expires_at_unix_seconds: 300,
         rollback_floor: "1.0.0".into(),
         native_enrollment_tuple: None,
+        native_enrollment_tuple_v3: None,
     }
 }
 

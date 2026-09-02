@@ -9,7 +9,8 @@ use sha2::{Digest, Sha256};
 
 use super::{
     MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentQualification, NativeEnrollmentTupleV2,
-    UpdateTargetV2, VerifiedMacOsWriterLaunch, VerifiedUpdateV2, macos_identity, matches_installed,
+    UpdateTargetV2, VerifiedMacOsWriterLaunch, VerifiedSignedNativeEnrollmentTupleV3,
+    VerifiedUpdateV2, macos_identity, matches_installed,
 };
 
 /// Non-serializable installed-package admission minted only by `VerifiedUpdateV2`.
@@ -41,6 +42,13 @@ impl VerifiedUpdateV2 {
     #[must_use]
     pub const fn native_enrollment_tuple(&self) -> Option<&NativeEnrollmentTupleV2> {
         self.signed.target().native_enrollment_tuple.as_ref()
+    }
+
+    #[must_use]
+    pub const fn native_enrollment_tuple_v3(
+        &self,
+    ) -> Option<&VerifiedSignedNativeEnrollmentTupleV3> {
+        self.signed.native_enrollment_tuple_v3()
     }
 
     #[must_use]

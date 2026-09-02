@@ -106,7 +106,7 @@ fn fixture(expires_at: u64) -> Fixture {
         artifact_sha256: digest(b"installer"), artifact_size: 1, artifact_url: "https://updates.example.test/runne.dmg".into(),
         release_candidate_sha256: digest(b"candidate"), min_os: "macos-13".into(), profile_id: "profile".into(), bundle_sha256: hashes[3].clone(),
         runtime_version: "0.1.0".into(), runtime_digest: hashes[2].clone(), channel: "stable".into(),
-        published_at_unix_seconds: now.saturating_sub(5), expires_at_unix_seconds: expires_at, rollback_floor: "1.0.0".into(), native_enrollment_tuple: None,
+        published_at_unix_seconds: now.saturating_sub(5), expires_at_unix_seconds: expires_at, rollback_floor: "1.0.0".into(), native_enrollment_tuple: None, native_enrollment_tuple_v3: None,
     };
     let tuple = NativeEnrollmentTupleV2::new_macos(
         target.release_candidate_sha256.clone(), hashes[0].clone(), hashes[1].clone(), hashes[2].clone(), hashes[3].clone(),

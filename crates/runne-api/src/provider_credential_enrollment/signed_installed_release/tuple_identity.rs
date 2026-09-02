@@ -10,7 +10,7 @@ pub struct MacOsCodeIdentityExpectationV1 {
 }
 
 impl MacOsCodeIdentityExpectationV1 {
-    pub(super) fn new(
+    pub fn new(
         identifier: impl Into<String>,
         team_identifier: impl Into<String>,
         cdhash: impl Into<String>,

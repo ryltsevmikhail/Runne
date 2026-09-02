@@ -5,11 +5,13 @@ mod model;
 mod qualification;
 mod tuple;
 mod tuple_identity;
+mod tuple_v3;
 mod verification;
 
 pub use binding::{
     SignedInstalledReleaseCandidateV2, VerifiedSignedInstalledReleaseV2,
-    VerifiedSignedNativeEnrollmentTupleV2, VerifiedSignedUpdateMetadataV2,
+    VerifiedSignedNativeEnrollmentTupleV2, VerifiedSignedNativeEnrollmentTupleV3,
+    VerifiedSignedUpdateMetadataV2,
 };
 pub use compiled_trust::CompiledUpdateTrustRootV2;
 pub use frame::PendingSignedInstalledReleaseMetadataV2;
@@ -21,6 +23,11 @@ pub use model::{
 pub use qualification::NativeEnrollmentQualificationRowV1;
 pub use tuple::{NativeEnrollmentTupleError, NativeEnrollmentTupleV2};
 pub use tuple_identity::MacOsCodeIdentityExpectationV1;
+pub use tuple_v3::{
+    NativeEnrollmentTupleV3, NativeEnrollmentTupleV3CodeIdentities,
+    NativeEnrollmentTupleV3Deployment, NativeEnrollmentTupleV3Digests,
+    NativeEnrollmentTupleV3ProtocolCompatibility, NativeEnrollmentTupleV3ProtocolVersions,
+};
 pub use verification::{
     SignedInstalledReleaseVerificationErrorV2, verify_exact_signed_installed_release_v2,
     verify_signed_update_metadata_v2,
@@ -28,6 +35,8 @@ pub use verification::{
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tuple_v3_tests;
 
 /// The exact result is intentionally move-only and non-serializable.
 ///

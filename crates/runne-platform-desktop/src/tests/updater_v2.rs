@@ -49,6 +49,7 @@ fn v2_update_requires_two_root_and_two_targets_signatures() {
         expires_at_unix_seconds: 500,
         rollback_floor: "1.0.0".into(),
         native_enrollment_tuple: None,
+        native_enrollment_tuple_v3: None,
     };
     target.native_enrollment_tuple = Some(
         NativeEnrollmentTupleV2::new(

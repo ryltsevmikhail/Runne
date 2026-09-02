@@ -116,6 +116,7 @@ fn target(draft: &UpdateMetadataDraft, size: u64, digest: String) -> UpdateTarge
         expires_at_unix_seconds: draft.expires_at_unix_seconds,
         rollback_floor: draft.rollback_floor.clone(),
         native_enrollment_tuple: None,
+        native_enrollment_tuple_v3: None,
     }
 }
 

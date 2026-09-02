@@ -96,12 +96,17 @@ pub use updater_metadata::{
     MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentQualification,
     NativeEnrollmentQualificationBinding, NativeEnrollmentQualificationRowV1,
     NativeEnrollmentTupleAdmission, NativeEnrollmentTupleError, NativeEnrollmentTupleV2,
-    PreparedInstalledNativeEnrollment, UpdateMetadataSigningError, UpdateMetadataV2,
-    UpdateRootRoleV2, UpdateSignatureV2, UpdateSnapshotRoleV2, UpdateTargetV2,
-    UpdateTargetV2Binding, UpdateTargetsRoleV2, UpdateTimestampRoleV2, UpdateTrustRootV2,
-    UpdateV2VerificationError, VerifiedDaemonNativeEnrollmentPrepare,
-    VerifiedInstalledEnrollmentMeasurementFacts, VerifiedMacOsWriterLaunch, VerifiedUpdateV2,
-    update_metadata_signing_bytes, verify_update_v2,
+    NativeEnrollmentTupleV3, NativeEnrollmentTupleV3CodeIdentities,
+    NativeEnrollmentTupleV3Deployment, NativeEnrollmentTupleV3Digests,
+    NativeEnrollmentTupleV3EffectState, NativeEnrollmentTupleV3ProtocolCompatibility,
+    NativeEnrollmentTupleV3ProtocolVersions, NativeEnrollmentTupleV3UpdateDisposition,
+    NativeEnrollmentTupleV3UpdateError, PreparedInstalledNativeEnrollment,
+    UpdateMetadataSigningError, UpdateMetadataV2, UpdateRootRoleV2, UpdateSignatureV2,
+    UpdateSnapshotRoleV2, UpdateTargetV2, UpdateTargetV2Binding, UpdateTargetsRoleV2,
+    UpdateTimestampRoleV2, UpdateTrustRootV2, UpdateV2VerificationError,
+    VerifiedDaemonNativeEnrollmentPrepare, VerifiedInstalledEnrollmentMeasurementFacts,
+    VerifiedMacOsWriterLaunch, VerifiedSignedNativeEnrollmentTupleV3, VerifiedUpdateV2,
+    evaluate_native_enrollment_tuple_v3_update, update_metadata_signing_bytes, verify_update_v2,
 };
 pub use updater_trust::{UpdateTrustError, UpdateTrustJournal, UpdateTrustState};
 

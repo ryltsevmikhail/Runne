@@ -7,6 +7,9 @@ use super::tuple_identity::MacOsCodeIdentityExpectationV1;
 use super::verification::SignedInstalledReleaseVerificationErrorV2;
 
 mod matchers;
+#[path = "binding/v3.rs"]
+mod v3;
+pub use v3::VerifiedSignedNativeEnrollmentTupleV3;
 
 const MANIFEST_DOMAIN: &[u8] = b"GOCODE_SIGNED_INSTALLED_RELEASE_MANIFEST_V1\0";
 const RELEASE_DOMAIN: &[u8] = b"GOCODE_SIGNED_INSTALLED_RELEASE_BINDING_V1\0";
@@ -40,6 +43,7 @@ pub struct VerifiedSignedUpdateMetadataV2 {
     metadata: UpdateMetadataV2,
     verified_at_unix_seconds: u64,
     native_enrollment_tuple: Option<VerifiedSignedNativeEnrollmentTupleV2>,
+    native_enrollment_tuple_v3: Option<VerifiedSignedNativeEnrollmentTupleV3>,
     qualified_release_candidate: Option<SignedInstalledReleaseCandidateV2>,
 }
 
@@ -66,6 +70,11 @@ impl VerifiedSignedUpdateMetadataV2 {
     }
     pub const fn native_enrollment_tuple(&self) -> Option<&VerifiedSignedNativeEnrollmentTupleV2> {
         self.native_enrollment_tuple.as_ref()
+    }
+    pub const fn native_enrollment_tuple_v3(
+        &self,
+    ) -> Option<&VerifiedSignedNativeEnrollmentTupleV3> {
+        self.native_enrollment_tuple_v3.as_ref()
     }
     pub const fn qualified_release_candidate(&self) -> Option<&SignedInstalledReleaseCandidateV2> {
         self.qualified_release_candidate.as_ref()
@@ -132,6 +141,13 @@ pub(super) fn build_verified(
 ) -> Result<VerifiedSignedUpdateMetadataV2, SignedInstalledReleaseVerificationErrorV2> {
     let tuple = metadata.targets.target.native_enrollment_tuple.as_ref();
     let verified_tuple = tuple.map(verified_tuple).transpose()?;
+    let verified_tuple_v3 = metadata
+        .targets
+        .target
+        .native_enrollment_tuple_v3
+        .as_ref()
+        .map(v3::verified_tuple_v3)
+        .transpose()?;
     let qualified_release_candidate = match (tuple, verified_tuple.as_ref()) {
         (Some(raw), Some(verified)) => candidate(metadata, raw, verified, now)?,
         _ => None,
@@ -140,6 +156,7 @@ pub(super) fn build_verified(
         metadata: metadata.clone(),
         verified_at_unix_seconds: now,
         native_enrollment_tuple: verified_tuple,
+        native_enrollment_tuple_v3: verified_tuple_v3,
         qualified_release_candidate,
     })
 }

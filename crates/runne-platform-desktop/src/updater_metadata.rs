@@ -8,11 +8,61 @@ const MAX_ARTIFACT_BYTES: u64 = 512 * 1024 * 1024;
 
 pub use runne_api::{
     MacOsCodeIdentityExpectationV1, NativeEnrollmentQualificationRowV1, NativeEnrollmentTupleError,
-    NativeEnrollmentTupleV2, UpdateMetadataSigningError, UpdateMetadataV2, UpdateRootRoleV2,
-    UpdateSignatureV2, UpdateSnapshotRoleV2, UpdateTargetV2, UpdateTargetsRoleV2,
-    UpdateTimestampRoleV2, UpdateTrustRootV2, VerifiedSignedNativeEnrollmentTupleV2,
-    update_metadata_signing_bytes,
+    NativeEnrollmentTupleV2, NativeEnrollmentTupleV3, NativeEnrollmentTupleV3CodeIdentities,
+    NativeEnrollmentTupleV3Deployment, NativeEnrollmentTupleV3Digests,
+    NativeEnrollmentTupleV3ProtocolCompatibility, NativeEnrollmentTupleV3ProtocolVersions,
+    UpdateMetadataSigningError, UpdateMetadataV2, UpdateRootRoleV2, UpdateSignatureV2,
+    UpdateSnapshotRoleV2, UpdateTargetV2, UpdateTargetsRoleV2, UpdateTimestampRoleV2,
+    UpdateTrustRootV2, VerifiedSignedNativeEnrollmentTupleV2,
+    VerifiedSignedNativeEnrollmentTupleV3, update_metadata_signing_bytes,
 };
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NativeEnrollmentTupleV3EffectState {
+    Reconciled,
+    Armed,
+    Uncertain,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NativeEnrollmentTupleV3UpdateDisposition {
+    Ready,
+    ReconciliationRequired,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
+pub enum NativeEnrollmentTupleV3UpdateError {
+    #[error("credential-service application-ID group change is unsupported")]
+    UnsupportedApplicationIdGroupChange,
+    #[error("credential-service XPC protocol versions do not overlap")]
+    UnsupportedProtocolTransition,
+}
+
+pub fn evaluate_native_enrollment_tuple_v3_update(
+    current: &VerifiedSignedNativeEnrollmentTupleV3,
+    next: &VerifiedSignedNativeEnrollmentTupleV3,
+    effects: NativeEnrollmentTupleV3EffectState,
+) -> Result<NativeEnrollmentTupleV3UpdateDisposition, NativeEnrollmentTupleV3UpdateError> {
+    if current.service_application_id_group() != next.service_application_id_group() {
+        return Err(NativeEnrollmentTupleV3UpdateError::UnsupportedApplicationIdGroupChange);
+    }
+    let compatible = current.protocol_compatibility_bundles().any(|bundle| {
+        next.protocol_compatibility_bundles()
+            .any(|next| next == bundle)
+    });
+    if !compatible {
+        return Err(NativeEnrollmentTupleV3UpdateError::UnsupportedProtocolTransition);
+    }
+    Ok(match effects {
+        NativeEnrollmentTupleV3EffectState::Reconciled => {
+            NativeEnrollmentTupleV3UpdateDisposition::Ready
+        }
+        NativeEnrollmentTupleV3EffectState::Armed
+        | NativeEnrollmentTupleV3EffectState::Uncertain => {
+            NativeEnrollmentTupleV3UpdateDisposition::ReconciliationRequired
+        }
+    })
+}
 
 #[path = "updater_metadata/enrollment_tuple/macos_identity.rs"]
 mod macos_identity;

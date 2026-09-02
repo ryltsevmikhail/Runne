@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::tuple::NativeEnrollmentTupleV2;
+use super::tuple_v3::NativeEnrollmentTupleV3;
 
 pub(super) const SCHEMA_VERSION: u32 = 2;
 pub(super) const MAX_ROLE_BYTES: usize = 512 * 1024;
@@ -44,6 +45,22 @@ pub struct UpdateTargetV2 {
     pub rollback_floor: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_enrollment_tuple: Option<NativeEnrollmentTupleV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_enrollment_tuple_v3: Option<NativeEnrollmentTupleV3>,
+}
+
+impl UpdateTargetV2 {
+    pub(super) fn native_enrollment_tuples_valid(&self) -> bool {
+        match (
+            self.native_enrollment_tuple.as_ref(),
+            self.native_enrollment_tuple_v3.as_ref(),
+        ) {
+            (None, None) => true,
+            (Some(tuple), None) => tuple.valid_signed(self),
+            (None, Some(tuple)) => tuple.valid_signed(self),
+            (Some(_), Some(_)) => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
