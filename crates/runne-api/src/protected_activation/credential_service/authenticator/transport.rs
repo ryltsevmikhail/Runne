@@ -34,10 +34,12 @@ impl CredentialServiceSessionAuthenticator {
     /// MACs one complete canonical provider request frame with no parallel metadata.
     pub fn authenticate_runtime_request(
         &self,
+        installation_owner: [u8; 32],
         canonical_provider_frame: &[u8],
     ) -> Result<CredentialServiceRuntimeEnvelope, CredentialServiceRegistrationError> {
         crate::protected_activation::credential_service::transport::authenticate_runtime_payload(
             self,
+            installation_owner,
             false,
             canonical_provider_frame,
         )
@@ -46,20 +48,36 @@ impl CredentialServiceSessionAuthenticator {
     /// Verifies a request MAC before any provider field is decoded.
     pub fn verify_runtime_request(
         &self,
+        installation_owner: [u8; 32],
         bytes: &[u8],
     ) -> Result<VerifiedCredentialServiceRuntimePayload, CredentialServiceRegistrationError> {
         crate::protected_activation::credential_service::transport::verify_runtime_payload(
-            self, bytes, false,
+            self,
+            installation_owner,
+            bytes,
+            false,
         )
+    }
+
+    /// Extracts only the non-authorizing owner routing hint from strict framing.
+    ///
+    /// Callers must use the returned value solely to select a candidate authenticator,
+    /// then call `verify_runtime_request` before decoding or authorizing any field.
+    pub fn runtime_routing_owner(
+        bytes: &[u8],
+    ) -> Result<[u8; 32], CredentialServiceRegistrationError> {
+        crate::protected_activation::credential_service::transport::runtime_routing_owner(bytes)
     }
 
     /// MACs one complete context-bound canonical provider reply frame.
     pub fn authenticate_runtime_reply(
         &self,
+        installation_owner: [u8; 32],
         canonical_provider_frame: &[u8],
     ) -> Result<CredentialServiceRuntimeEnvelope, CredentialServiceRegistrationError> {
         crate::protected_activation::credential_service::transport::authenticate_runtime_payload(
             self,
+            installation_owner,
             true,
             canonical_provider_frame,
         )
@@ -68,10 +86,14 @@ impl CredentialServiceSessionAuthenticator {
     /// Verifies a reply MAC before any provider field is decoded.
     pub fn verify_runtime_reply(
         &self,
+        installation_owner: [u8; 32],
         bytes: &[u8],
     ) -> Result<VerifiedCredentialServiceRuntimePayload, CredentialServiceRegistrationError> {
         crate::protected_activation::credential_service::transport::verify_runtime_payload(
-            self, bytes, true,
+            self,
+            installation_owner,
+            bytes,
+            true,
         )
     }
 

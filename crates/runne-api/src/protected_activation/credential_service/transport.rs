@@ -8,6 +8,7 @@ use super::{
 mod install;
 mod runtime;
 pub(super) use install::{accept_registration_install, registration_install};
+pub(super) use runtime::runtime_routing_owner;
 pub(super) use runtime::{authenticate_runtime_payload, verify_runtime_payload};
 
 /// Move-only, zeroizing authenticated runtime request frame.

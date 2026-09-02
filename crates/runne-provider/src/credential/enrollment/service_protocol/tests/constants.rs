@@ -1,14 +1,39 @@
-use super::super::CredentialServiceProtocolCodec;
+use super::super::{CredentialMutationGrant, CredentialServiceProtocolCodec};
 
 #[test]
-fn protocol_pins_the_rncred01_v1_frame_contract() {
+fn protocol_pins_the_rncred01_v2_frame_contract() {
     assert_eq!(CredentialServiceProtocolCodec::MAGIC, *b"RNCRED01");
-    assert_eq!(CredentialServiceProtocolCodec::VERSION, 1);
+    assert_eq!(CredentialServiceProtocolCodec::VERSION, 2);
     assert_eq!(CredentialServiceProtocolCodec::MAX_FRAME_BYTES, 16 * 1024);
     assert_eq!(
         CredentialServiceProtocolCodec::MAX_CREDENTIAL_MATERIAL_BYTES,
         4096
     );
+}
+
+#[test]
+fn legacy_ownerless_v1_runtime_frame_cannot_cross_parse_as_v2() {
+    let mut legacy = super::support::encoded_arm(1, 1, 1, 1, 1, 1, 1, 1, 10, 20, 8);
+    legacy.drain(32..64);
+    legacy[8..10].copy_from_slice(&1_u16.to_be_bytes());
+    let length = u32::try_from(legacy.len() - 14).unwrap();
+    legacy[10..14].copy_from_slice(&length.to_be_bytes());
+    assert!(CredentialServiceProtocolCodec::decode_runtime_request(&legacy).is_err());
+}
+
+#[test]
+fn grant_digest_constant_time_match_distinguishes_equal_and_different_values() {
+    let expected = CredentialMutationGrant::from_wire([1; 32])
+        .unwrap()
+        .digest();
+    let equal = CredentialMutationGrant::from_wire([1; 32])
+        .unwrap()
+        .digest();
+    let different = CredentialMutationGrant::from_wire([2; 32])
+        .unwrap()
+        .digest();
+    assert!(expected.ct_matches(equal));
+    assert!(!expected.ct_matches(different));
 }
 
 #[test]

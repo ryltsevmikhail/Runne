@@ -13,6 +13,7 @@ pub(super) fn read_binding(
     value: &CredentialRuntimeReadBinding,
 ) -> Result<(), CredentialEnrollmentError> {
     epoch(out, value.epoch());
+    out.extend_from_slice(&value.installation_owner());
     out.extend_from_slice(&value.session());
     out.extend_from_slice(&value.runtime_generation().to_be_bytes());
     digest(out, value.release_binding());
@@ -32,6 +33,7 @@ pub(super) fn take_read_binding(
     at: &mut usize,
 ) -> Result<CredentialRuntimeReadBinding, CredentialEnrollmentError> {
     let epoch = take_epoch(bytes, at)?;
+    let installation_owner = take(bytes, at)?;
     let session = take(bytes, at)?;
     let generation = number(bytes, at)?;
     let release = take_digest(bytes, at)?;
@@ -53,6 +55,7 @@ pub(super) fn take_read_binding(
         .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
     CredentialRuntimeReadBinding::from_wire(
         epoch,
+        installation_owner,
         session,
         generation,
         release,

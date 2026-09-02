@@ -3875,6 +3875,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "runne-credential-service-core"
+version = "0.1.0"
+dependencies = [
+ "rand 0.8.7",
+ "runne-api",
+ "runne-provider",
+ "subtle",
+]
+
+[[package]]
 name = "runne-daemon"
 version = "0.1.0"
 dependencies = [
@@ -4326,6 +4336,7 @@ dependencies = [
  "serde_jcs",
  "serde_json",
  "sha2",
+ "subtle",
  "thiserror 2.0.18",
  "zeroize",
 ]

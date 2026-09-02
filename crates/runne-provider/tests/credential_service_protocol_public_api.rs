@@ -72,6 +72,7 @@ fn runtime_read_authority_and_material_consumer_are_externally_usable() {
     let binding = reads
         .issue_binding(
             CredentialServiceEpoch::from_bytes([1; 16]).unwrap(),
+            [5; 32],
             [2; 16],
             3,
             CredentialBindingDigest::from_measured([4; 32]).unwrap(),

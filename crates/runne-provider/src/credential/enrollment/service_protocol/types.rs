@@ -1,5 +1,6 @@
 use rand::RngCore;
 use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq as _;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::credential::enrollment::{CredentialBindingDigest, CredentialEnrollmentError};
@@ -105,7 +106,12 @@ impl CredentialServiceDeadline {
 }
 
 /// Digest-only identity of a move-only mutation grant.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+///
+/// ```compile_fail
+/// fn requires_partial_eq<T: PartialEq>() {}
+/// requires_partial_eq::<runne_provider::CredentialMutationGrantDigest>();
+/// ```
+#[derive(Clone, Copy, Debug)]
 pub struct CredentialMutationGrantDigest(CredentialBindingDigest);
 
 impl CredentialMutationGrantDigest {
@@ -116,6 +122,12 @@ impl CredentialMutationGrantDigest {
     /// Returns the measured digest used in the runtime arm transcript.
     pub const fn binding_digest(self) -> CredentialBindingDigest {
         self.0
+    }
+
+    pub(super) fn ct_matches(self, observed: Self) -> bool {
+        let expected = self.0.as_bytes();
+        let observed = observed.0.as_bytes();
+        bool::from(expected.ct_eq(&observed))
     }
 }
 

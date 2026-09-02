@@ -29,6 +29,7 @@ pub(super) fn encoded_read(
     let binding = reads
         .issue_binding(
             CredentialServiceEpoch::from_bytes([epoch; 16]).unwrap(),
+            [5; 32],
             [session; 16],
             generation,
             digest(release),
@@ -70,6 +71,7 @@ pub(super) fn read_requests(
     let binding = reads
         .issue_binding(
             CredentialServiceEpoch::from_bytes([1; 16]).unwrap(),
+            [5; 32],
             [2; 16],
             3,
             digest(4),

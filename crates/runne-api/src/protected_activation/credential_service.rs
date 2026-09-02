@@ -18,7 +18,7 @@ pub use transport::{
 
 pub const CREDENTIAL_SERVICE_MAX_FRAME_BYTES: usize = 16 * 1024;
 pub const CREDENTIAL_SERVICE_RUNTIME_PROVIDER_FRAME_MAX_BYTES: usize =
-    CREDENTIAL_SERVICE_MAX_FRAME_BYTES - 14 - 32;
+    CREDENTIAL_SERVICE_MAX_FRAME_BYTES - 14 - 32 - 32;
 
 #[cfg(test)]
 mod tests;

@@ -56,6 +56,7 @@ def main() -> int:
         if package["name"] in ALLOWED_RUST_DEPENDENCIES
     }
     violations = find_rust_dependency_violations(dependencies)
+    violations += find_credential_service_core_dependency_violations(metadata["packages"])
     violations += find_renderer_conversation_violations(root)
     violations += find_provider_terminal_persistence_violations(root)
     violations += find_provider_terminal_test_feature_violations(metadata["packages"])

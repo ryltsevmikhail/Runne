@@ -94,11 +94,13 @@ fn ack_is_deterministic_and_authenticates_the_full_binding() {
 }
 
 #[test]
-fn golden_wire_vectors_pin_derivation_xpc_role_and_message_domains() {
+fn registration_v1_golden_vectors_pin_derivation_xpc_role_and_message_domains() {
     let authenticator = auth(7);
     let request = authenticator.authenticate_registration(binding()).unwrap();
+    let request = request.into_bytes();
+    assert_eq!(&request[8..10], &1_u16.to_be_bytes());
     assert_eq!(
-        hex::encode(request.into_bytes()),
+        hex::encode(request),
         "524e4352454430310001000000c00202020202020202020202020202020201010101010170018001010101010101000000000000000b000000000000000c000000000000000d000000000000000e0303030303030303030303030303030303030303030303030303030303030303040404040404040404040404040404040404040404040404040404040404040405050505050505050505050505050505000000000000000200000000000000640f2cd3f419033e8dd6406cec4e7c168195004617f57c129651ee5012fdffac6a"
     );
 
@@ -114,8 +116,10 @@ fn golden_wire_vectors_pin_derivation_xpc_role_and_message_domains() {
             99,
         )
         .unwrap();
+    let ack = ack.into_bytes();
+    assert_eq!(&ack[8..10], &1_u16.to_be_bytes());
     assert_eq!(
-        hex::encode(ack.into_bytes()),
+        hex::encode(ack),
         "524e43524544303100010000005002020202020202020202020202020202010101010101700180010101010101010000000000000002000000000000000e87bbc574bf3126f5eda9ef12b493f651fe00127f593485cd136d49f2cfad2a42"
     );
 }

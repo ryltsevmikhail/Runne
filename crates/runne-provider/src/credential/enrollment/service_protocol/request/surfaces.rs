@@ -19,6 +19,7 @@ use crate::{CredentialVersionRef, ProviderId};
 pub struct CredentialRuntimeReadBinding {
     authority_seal: Option<Arc<EnrollmentAuthoritySeal>>,
     epoch: CredentialServiceEpoch,
+    installation_owner: [u8; 32],
     session: [u8; 16],
     runtime_generation: u64,
     release_binding: CredentialBindingDigest,
@@ -37,6 +38,7 @@ impl CredentialRuntimeReadBinding {
     pub(crate) fn issue(
         authority_seal: Arc<EnrollmentAuthoritySeal>,
         epoch: CredentialServiceEpoch,
+        installation_owner: [u8; 32],
         session: [u8; 16],
         runtime_generation: u64,
         release_binding: CredentialBindingDigest,
@@ -51,6 +53,7 @@ impl CredentialRuntimeReadBinding {
         Self::build(
             Some(authority_seal),
             epoch,
+            installation_owner,
             session,
             runtime_generation,
             release_binding,
@@ -67,6 +70,7 @@ impl CredentialRuntimeReadBinding {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn from_wire(
         epoch: CredentialServiceEpoch,
+        installation_owner: [u8; 32],
         session: [u8; 16],
         runtime_generation: u64,
         release_binding: CredentialBindingDigest,
@@ -81,6 +85,7 @@ impl CredentialRuntimeReadBinding {
         Self::build(
             None,
             epoch,
+            installation_owner,
             session,
             runtime_generation,
             release_binding,
@@ -98,6 +103,7 @@ impl CredentialRuntimeReadBinding {
     fn build(
         authority_seal: Option<Arc<EnrollmentAuthoritySeal>>,
         epoch: CredentialServiceEpoch,
+        installation_owner: [u8; 32],
         session: [u8; 16],
         runtime_generation: u64,
         release_binding: CredentialBindingDigest,
@@ -109,12 +115,17 @@ impl CredentialRuntimeReadBinding {
         correlation: CredentialServiceCorrelation,
         deadline: CredentialServiceDeadline,
     ) -> Result<Self, CredentialEnrollmentError> {
-        if session == [0; 16] || runtime_generation == 0 || version.provider() != &provider {
+        if installation_owner == [0; 32]
+            || session == [0; 16]
+            || runtime_generation == 0
+            || version.provider() != &provider
+        {
             return Err(CredentialEnrollmentError::InvalidInput);
         }
         Ok(Self {
             authority_seal,
             epoch,
+            installation_owner,
             session,
             runtime_generation,
             release_binding,
@@ -135,6 +146,10 @@ impl CredentialRuntimeReadBinding {
     /// Returns the epoch.
     pub const fn epoch(&self) -> CredentialServiceEpoch {
         self.epoch
+    }
+    /// Returns the installation owner routed by the authenticated envelope.
+    pub const fn installation_owner(&self) -> [u8; 32] {
+        self.installation_owner
     }
     /// Returns protected session identity.
     pub const fn session(&self) -> [u8; 16] {

@@ -1,0 +1,17 @@
+[package]
+name = "runne-credential-service-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rand.workspace = true
+runne-api = { path = "../runne-api" }
+runne-provider = { path = "../runne-provider" }
+subtle.workspace = true
+
+[dev-dependencies]
+runne-provider = { path = "../runne-provider", features = ["test-support"] }
+
+[lints]
+workspace = true

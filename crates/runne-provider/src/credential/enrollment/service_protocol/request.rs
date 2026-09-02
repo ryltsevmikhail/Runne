@@ -49,10 +49,11 @@ pub struct CredentialWriterServiceBindingHandoff(pub(super) CredentialRuntimeMut
 /// Service-ingress mutation admission decoded without minting runtime issue authority.
 pub struct CredentialRuntimeMutationAdmission(pub(super) CredentialRuntimeMutationBinding);
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub(crate) struct CredentialRuntimeMutationBinding {
     pub(super) command: CredentialBrokerCommand,
     pub(super) epoch: CredentialServiceEpoch,
+    pub(super) installation_owner: [u8; 32],
     pub(super) session: [u8; 16],
     pub(super) runtime_generation: u64,
     pub(super) release_binding: CredentialBindingDigest,
@@ -61,6 +62,23 @@ pub(crate) struct CredentialRuntimeMutationBinding {
     pub(super) deadline: CredentialServiceDeadline,
     pub(super) grant_digest: CredentialMutationGrantDigest,
 }
+
+impl PartialEq for CredentialRuntimeMutationBinding {
+    fn eq(&self, other: &Self) -> bool {
+        self.command == other.command
+            && self.epoch == other.epoch
+            && self.installation_owner == other.installation_owner
+            && self.session == other.session
+            && self.runtime_generation == other.runtime_generation
+            && self.release_binding == other.release_binding
+            && self.sequence == other.sequence
+            && self.correlation == other.correlation
+            && self.deadline == other.deadline
+            && self.grant_digest.ct_matches(other.grant_digest)
+    }
+}
+
+impl Eq for CredentialRuntimeMutationBinding {}
 
 macro_rules! mutation_accessors {
     ($name:ident) => {
@@ -72,6 +90,10 @@ macro_rules! mutation_accessors {
             /// Returns the service epoch.
             pub const fn epoch(&self) -> CredentialServiceEpoch {
                 self.0.epoch
+            }
+            /// Returns the installation owner routed by the authenticated envelope.
+            pub const fn installation_owner(&self) -> [u8; 32] {
+                self.0.installation_owner
             }
             /// Returns the protected session identity.
             pub const fn session(&self) -> [u8; 16] {
@@ -114,6 +136,7 @@ impl CredentialRuntimeMutationPlan {
         _authority: &CredentialRuntimeArmAuthority,
         command: CredentialBrokerCommand,
         epoch: CredentialServiceEpoch,
+        installation_owner: [u8; 32],
         session: [u8; 16],
         runtime_generation: u64,
         release_binding: CredentialBindingDigest,
@@ -125,6 +148,7 @@ impl CredentialRuntimeMutationPlan {
         Ok(Self(CredentialRuntimeMutationBinding::new(
             command,
             epoch,
+            installation_owner,
             session,
             runtime_generation,
             release_binding,
@@ -154,6 +178,7 @@ impl CredentialRuntimeMutationBinding {
     pub(super) fn new(
         command: CredentialBrokerCommand,
         epoch: CredentialServiceEpoch,
+        installation_owner: [u8; 32],
         session: [u8; 16],
         runtime_generation: u64,
         release_binding: CredentialBindingDigest,
@@ -162,12 +187,13 @@ impl CredentialRuntimeMutationBinding {
         deadline: CredentialServiceDeadline,
         grant_digest: CredentialMutationGrantDigest,
     ) -> Result<Self, CredentialEnrollmentError> {
-        if session == [0; 16] || runtime_generation == 0 {
+        if installation_owner == [0; 32] || session == [0; 16] || runtime_generation == 0 {
             return Err(CredentialEnrollmentError::InvalidInput);
         }
         Ok(Self {
             command,
             epoch,
+            installation_owner,
             session,
             runtime_generation,
             release_binding,

@@ -34,6 +34,18 @@ fn mutation_frame_binds_action_epoch_session_generation_provider_and_version_onc
 }
 
 #[test]
+fn decoded_runtime_binding_retains_installation_owner() {
+    let encoded =
+        CredentialServiceProtocolCodec::encode_request(arm_request_with_correlation(6)).unwrap();
+    let CredentialServiceIngressRequest::RuntimeMutationArm(decoded) =
+        CredentialServiceProtocolCodec::decode_runtime_request(encoded.test_bytes()).unwrap()
+    else {
+        panic!("expected mutation arm");
+    };
+    assert_eq!(decoded.installation_owner(), [5; 32]);
+}
+
+#[test]
 fn mutation_frame_binds_remaining_operation_and_lifecycle_fields() {
     let baseline = encoded_arm(1, 1, 1, 1, 1, 1, 1, 1, 10, 20, 8);
     for changed in [
@@ -178,7 +190,7 @@ fn framing_rejects_magic_version_endianness_exact_eof_and_canonical_duplicate() 
     let mut bad_magic = request.clone();
     bad_magic[0] ^= 1;
     let mut bad_version = request.clone();
-    bad_version[9] = 2;
+    bad_version[9] = 1;
     let mut little_endian = request.clone();
     little_endian[10..14].reverse();
     let mut duplicate = request.clone();
@@ -197,7 +209,7 @@ fn framing_rejects_magic_version_endianness_exact_eof_and_canonical_duplicate() 
 fn general_framing_validator_accepts_exact_sixteen_kibibyte_boundary() {
     let mut frame = vec![0_u8; 16 * 1024];
     frame[..8].copy_from_slice(b"RNCRED01");
-    frame[8..10].copy_from_slice(&1_u16.to_be_bytes());
+    frame[8..10].copy_from_slice(&2_u16.to_be_bytes());
     frame[10..14].copy_from_slice(&((16 * 1024 - 14) as u32).to_be_bytes());
     assert!(super::codec::payload(&frame, frame.len()).is_ok());
 }

@@ -53,7 +53,7 @@ fn encode(
     binding: CredentialWriterServiceBindingHandoff,
     grant: CredentialMutationGrant,
 ) -> Result<CredentialWriterBrokerHandoffFrame, CredentialEnrollmentError> {
-    if grant.digest() != binding.0.grant_digest {
+    if !binding.0.grant_digest.ct_matches(grant.digest()) {
         return Err(CredentialEnrollmentError::InvalidEvidence);
     }
     let mut bytes = Zeroizing::new(Vec::new());
@@ -92,7 +92,7 @@ fn decode_authenticated(
     }
     let binding = take_mutation_binding(bytes, &mut at)?;
     let grant = CredentialMutationGrant::from_wire(take(bytes, &mut at)?)?;
-    if at != bytes.len() || grant.digest() != binding.grant_digest {
+    if at != bytes.len() || !binding.grant_digest.ct_matches(grant.digest()) {
         return Err(CredentialEnrollmentError::InvalidFrame);
     }
     let opening = effects.authorize_secret_opening(

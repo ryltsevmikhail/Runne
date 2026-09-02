@@ -18,7 +18,7 @@ impl CredentialWriterConsumeRequest {
         grant: CredentialMutationGrant,
         material: CredentialMaterial,
     ) -> Result<Self, CredentialEnrollmentError> {
-        if grant.digest() != binding.grant_digest {
+        if !binding.grant_digest.ct_matches(grant.digest()) {
             return Err(CredentialEnrollmentError::InvalidEvidence);
         }
         Ok(Self {
@@ -43,12 +43,17 @@ impl CredentialWriterIngressRequest {
         &self.0.binding
     }
 
+    /// Returns the installation owner carried by the exact writer binding.
+    pub const fn installation_owner(&self) -> [u8; 32] {
+        self.0.binding.installation_owner
+    }
+
     pub(crate) fn from_wire(
         binding: CredentialRuntimeMutationBinding,
         grant: CredentialMutationGrant,
         material: CredentialMaterial,
     ) -> Result<Self, CredentialEnrollmentError> {
-        if grant.digest() != binding.grant_digest {
+        if !binding.grant_digest.ct_matches(grant.digest()) {
             return Err(CredentialEnrollmentError::InvalidFrame);
         }
         Ok(Self(CredentialWriterConsumeRequest {

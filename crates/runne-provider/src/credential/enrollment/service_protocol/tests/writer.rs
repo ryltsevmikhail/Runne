@@ -13,6 +13,7 @@ use crate::credential::enrollment::{
 fn broker_handoff_authenticates_real_claim_before_service_writer_decode() {
     let grant = CredentialMutationGrant::from_wire([91; 32]).unwrap();
     let (command, arm, writer_handoff) = writer_plan_with_grant(grant.digest());
+    assert_eq!(arm.installation_owner(), [5; 32]);
     let arm_context = CredentialServiceRequest::RuntimeMutationArm(arm).context();
     let (_, measurements) = CredentialEnrollmentAuthorityPair::new().split();
     let channel = measurements.broker_channel_binding([7; 32]).unwrap();
@@ -103,4 +104,11 @@ fn broker_handoff_authenticates_real_claim_before_service_writer_decode() {
         CredentialServiceProtocolCodec::decode_writer_request(request.test_bytes()),
         Ok(CredentialServiceIngressRequest::WriterConsume(_))
     ));
+    assert_eq!(&request.test_bytes()[8..10], &2_u16.to_be_bytes());
+    let mut legacy = request.test_bytes().to_vec();
+    legacy.drain(32..64);
+    legacy[8..10].copy_from_slice(&1_u16.to_be_bytes());
+    let length = u32::try_from(legacy.len() - 14).unwrap();
+    legacy[10..14].copy_from_slice(&length.to_be_bytes());
+    assert!(CredentialServiceProtocolCodec::decode_writer_request(&legacy).is_err());
 }

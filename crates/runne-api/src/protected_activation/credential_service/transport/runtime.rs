@@ -6,20 +6,24 @@ use super::super::{CredentialServiceRegistrationError, CredentialServiceSessionA
 use super::{CredentialServiceRuntimeEnvelope, VerifiedCredentialServiceRuntimePayload};
 
 const MAGIC: &[u8; 8] = b"RNCRED01";
-const VERSION: u16 = 1;
+const VERSION: u16 = 2;
 const HEADER: usize = 14;
 const MAC_BYTES: usize = 32;
+const OWNER_BYTES: usize = 32;
 const MAX: usize = 16 * 1024;
-const REQUEST_DOMAIN: &[u8] = b"gocode/macos-credential-service/runtime-request/v2\0";
-const REPLY_DOMAIN: &[u8] = b"gocode/macos-credential-service/runtime-reply/v2\0";
+const REQUEST_DOMAIN: &[u8] = b"gocode/macos-credential-service/runtime-request/v3\0";
+const REPLY_DOMAIN: &[u8] = b"gocode/macos-credential-service/runtime-reply/v3\0";
 
 pub(crate) fn authenticate_runtime_payload(
     auth: &CredentialServiceSessionAuthenticator,
+    installation_owner: [u8; OWNER_BYTES],
     reply: bool,
     canonical_provider_frame: &[u8],
 ) -> Result<CredentialServiceRuntimeEnvelope, CredentialServiceRegistrationError> {
     let payload_len = canonical_provider_frame
         .len()
+        .checked_add(OWNER_BYTES)
+        .ok_or(CredentialServiceRegistrationError::InvalidFrame)?
         .checked_add(MAC_BYTES)
         .ok_or(CredentialServiceRegistrationError::InvalidFrame)?;
     if canonical_provider_frame.is_empty()
@@ -30,20 +34,22 @@ pub(crate) fn authenticate_runtime_payload(
     }
     let mut out = Zeroizing::new(Vec::with_capacity(HEADER + payload_len));
     header(&mut out, payload_len);
+    out.extend_from_slice(&installation_owner);
     out.extend_from_slice(canonical_provider_frame);
     let domain = if reply { REPLY_DOMAIN } else { REQUEST_DOMAIN };
-    let mac = auth.runtime_mac(domain, canonical_provider_frame);
+    let mac = auth.runtime_mac(domain, &out[HEADER..]);
     out.extend_from_slice(&mac);
     Ok(CredentialServiceRuntimeEnvelope(out))
 }
 
 pub(crate) fn verify_runtime_payload(
     auth: &CredentialServiceSessionAuthenticator,
+    expected_owner: [u8; OWNER_BYTES],
     bytes: &[u8],
     reply: bool,
 ) -> Result<VerifiedCredentialServiceRuntimePayload, CredentialServiceRegistrationError> {
     let payload = payload(bytes)?;
-    if payload.len() <= MAC_BYTES {
+    if payload.len() <= OWNER_BYTES + MAC_BYTES {
         return Err(CredentialServiceRegistrationError::InvalidFrame);
     }
     let frame_end = payload.len() - MAC_BYTES;
@@ -52,9 +58,24 @@ pub(crate) fn verify_runtime_payload(
     if !bool::from(expected.ct_eq(&payload[frame_end..])) {
         return Err(CredentialServiceRegistrationError::AuthenticationFailed);
     }
+    if !bool::from(expected_owner.ct_eq(&payload[..OWNER_BYTES])) {
+        return Err(CredentialServiceRegistrationError::AuthenticationFailed);
+    }
     Ok(VerifiedCredentialServiceRuntimePayload(Zeroizing::new(
-        payload[..frame_end].to_vec(),
+        payload[OWNER_BYTES..frame_end].to_vec(),
     )))
+}
+
+pub(crate) fn runtime_routing_owner(
+    bytes: &[u8],
+) -> Result<[u8; OWNER_BYTES], CredentialServiceRegistrationError> {
+    let payload = payload(bytes)?;
+    if payload.len() <= OWNER_BYTES + MAC_BYTES {
+        return Err(CredentialServiceRegistrationError::InvalidFrame);
+    }
+    payload[..OWNER_BYTES]
+        .try_into()
+        .map_err(|_| CredentialServiceRegistrationError::InvalidFrame)
 }
 
 fn header(out: &mut Vec<u8>, payload_len: usize) {

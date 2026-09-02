@@ -68,6 +68,7 @@ impl CredentialRuntimeReadAuthority {
     pub fn issue_binding(
         &self,
         epoch: crate::credential::enrollment::CredentialServiceEpoch,
+        installation_owner: [u8; 32],
         session: [u8; 16],
         runtime_generation: u64,
         release_binding: CredentialBindingDigest,
@@ -85,6 +86,7 @@ impl CredentialRuntimeReadAuthority {
         crate::credential::enrollment::CredentialRuntimeReadBinding::issue(
             self.seal.clone(),
             epoch,
+            installation_owner,
             session,
             runtime_generation,
             release_binding,

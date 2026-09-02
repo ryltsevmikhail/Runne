@@ -31,11 +31,11 @@ impl CredentialServiceProtocolCodec {
     /// Fixed protocol magic.
     pub const MAGIC: [u8; 8] = MAGIC;
     /// Fixed protocol version, encoded as big-endian `u16`.
-    pub const VERSION: u16 = 1;
+    pub const VERSION: u16 = 2;
     /// Maximum complete frame size including the header.
     pub const MAX_FRAME_BYTES: usize = 16 * 1024;
     /// Largest provider frame that fits inside the runtime MAC envelope.
-    pub const MAX_RUNTIME_PROVIDER_FRAME_BYTES: usize = Self::MAX_FRAME_BYTES - 14 - 32;
+    pub const MAX_RUNTIME_PROVIDER_FRAME_BYTES: usize = Self::MAX_FRAME_BYTES - 14 - 32 - 32;
     /// Maximum credential material length.
     pub const MAX_CREDENTIAL_MATERIAL_BYTES: usize = CredentialMaterial::MAX_BYTES;
     /// Encodes one canonical request with its code-owned endpoint role.
