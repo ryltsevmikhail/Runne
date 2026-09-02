@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useSite } from "../useSite";
 const { c, lang } = useSite();
-const stage = (n: string) => `/mascots/mob-${lang}-${n}.jpg`;
+const art = (n: string, kind: "desk" | "mob") => `/mascots/${kind}-${lang}-${n}.jpg`;
 </script>
 
 <template>
@@ -19,17 +19,13 @@ const stage = (n: string) => `/mascots/mob-${lang}-${n}.jpg`;
       <div class="panel-grid">
         <article v-for="panel in c.comic.panels" :key="panel.n" class="panel-card">
           <div class="panel-art">
-            <img class="panel-stage-mobile" :src="stage(panel.n)" alt="" aria-hidden="true" loading="lazy" decoding="async">
-            <img class="mascot-desktop" :src="panel.image" width="360" height="300" :alt="panel.title" loading="lazy" decoding="async">
-            <p class="speech">{{ panel.speech }}</p>
+            <img class="art-desktop" :src="art(panel.n, 'desk')" alt="" loading="lazy" decoding="async">
+            <img class="art-mobile" :src="art(panel.n, 'mob')" alt="" loading="lazy" decoding="async">
           </div>
           <div class="panel-caption">
-            <div class="caption-top">
-              <span class="num-chip">{{ panel.n }}</span>
-              <span class="kicker">{{ panel.kicker }}</span>
-            </div>
+            <p class="caption-line">{{ panel.n }} · {{ panel.kicker }}</p>
             <h3>{{ panel.title }}</h3>
-            <p>{{ panel.body }}</p>
+            <p class="cap-body">{{ panel.body }}</p>
           </div>
         </article>
       </div>
@@ -63,45 +59,15 @@ const stage = (n: string) => `/mascots/mob-${lang}-${n}.jpg`;
       </header>
 
       <div class="chapter2-grid">
-        <article class="panel-card">
+        <article v-for="panel in c.comic.chapter2.panels" :key="panel.n" class="panel-card">
           <div class="panel-art">
-            <img class="panel-stage-mobile" :src="stage(c.comic.chapter2.panels[0].n)" alt="" aria-hidden="true" loading="lazy" decoding="async">
-            <span class="runtime-tag">{{ c.comic.chapter2.panels[0].runtimeLabel }}</span>
-            <img class="mascot-desktop" src="/mascots/hero-run.jpg" width="360" height="300" :alt="c.comic.chapter2.panels[0].title" loading="lazy" decoding="async">
-            <p class="speech">{{ c.comic.chapter2.panels[0].speech }}</p>
+            <img class="art-desktop" :src="art(panel.n, 'desk')" alt="" loading="lazy" decoding="async">
+            <img class="art-mobile" :src="art(panel.n, 'mob')" alt="" loading="lazy" decoding="async">
           </div>
           <div class="panel-caption">
-            <div class="caption-top">
-              <span class="num-chip">{{ c.comic.chapter2.panels[0].n }}</span>
-              <span class="kicker">{{ c.comic.chapter2.panels[0].kicker }}</span>
-            </div>
-            <h3>{{ c.comic.chapter2.panels[0].title }}</h3>
-            <p>{{ c.comic.chapter2.panels[0].body }}</p>
-          </div>
-        </article>
-
-        <article class="panel-card">
-          <div class="panel-art">
-            <div class="budget-monitor">
-              <p class="budget-head">{{ c.comic.chapter2.budget.header }}</p>
-              <div v-for="row in c.comic.chapter2.budget.rows" :key="row.label" class="budget-row">
-                <span>{{ row.label }}</span>
-                <i class="budget-bar"><b :style="{ width: row.pct + '%' }" /></i>
-                <em>{{ row.value }}</em>
-              </div>
-              <p class="budget-limit">{{ c.comic.chapter2.budget.limit }}</p>
-            </div>
-            <img class="panel-stage-mobile" :src="stage(c.comic.chapter2.panels[1].n)" alt="" aria-hidden="true" loading="lazy" decoding="async">
-            <img class="mascot-desktop" src="/mascots/budget-guard.jpg" width="360" height="300" :alt="c.comic.chapter2.panels[1].title" loading="lazy" decoding="async">
-            <p class="speech">{{ c.comic.chapter2.panels[1].speech }}</p>
-          </div>
-          <div class="panel-caption">
-            <div class="caption-top">
-              <span class="num-chip">{{ c.comic.chapter2.panels[1].n }}</span>
-              <span class="kicker">{{ c.comic.chapter2.panels[1].kicker }}</span>
-            </div>
-            <h3>{{ c.comic.chapter2.panels[1].title }}</h3>
-            <p>{{ c.comic.chapter2.panels[1].body }}</p>
+            <p class="caption-line">{{ panel.n }} · {{ panel.kicker }}</p>
+            <h3>{{ panel.title }}</h3>
+            <p class="cap-body">{{ panel.body }}</p>
           </div>
         </article>
       </div>
