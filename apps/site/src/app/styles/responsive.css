@@ -32,6 +32,11 @@
   .contract-notes {
     text-align: left;
   }
+
+  .footer-main {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 
 @media (max-width: 860px) {
@@ -72,11 +77,6 @@
   .cta-row {
     flex-direction: column;
     align-items: flex-start;
-  }
-
-  .footer-main {
-    flex-direction: column;
-    gap: 36px;
   }
 
   .footer-cols {

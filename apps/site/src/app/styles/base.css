@@ -982,7 +982,8 @@ a:focus-visible,
 .footer-main {
   display: flex;
   justify-content: space-between;
-  gap: 60px;
+  flex-wrap: wrap;
+  gap: 36px;
   padding-bottom: 40px;
 }
 
@@ -998,7 +999,7 @@ a:focus-visible,
 
 .footer-cols {
   display: flex;
-  gap: 72px;
+  gap: clamp(40px, 6vw, 84px);
 }
 
 .footer-cols .col-label {
