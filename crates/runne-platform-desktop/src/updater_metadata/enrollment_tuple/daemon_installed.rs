@@ -216,9 +216,14 @@ fn verified_admission_at(
         &trust_state.rollback_floor,
     )
     .ok()?;
-    (verified.target().version == record.version
+    let admission = (verified.target().version == record.version
         && verified.target().artifact_sha256 == record.artifact_sha256)
-    .then(|| verified.admit_native_enrollment(&artifacts))?
+        .then(|| verified.admit_native_enrollment(&artifacts))??;
+    #[cfg(all(feature = "test-support", target_os = "macos"))]
+    if runne_api::test_support::local_native_enrollment_enabled() {
+        return admission.with_local_code_identities(paths);
+    }
+    Some(admission)
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -241,11 +246,28 @@ impl DaemonIdentityVerifier for CurrentDaemonIdentity {
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(super) fn compiled_policy() -> Option<DaemonEnrollmentPolicy<'static>> {
-    Some(DaemonEnrollmentPolicy {
+    let compiled = || Some(DaemonEnrollmentPolicy {
         profile_id: option_env!("RUNNE_UPDATE_PROFILE_ID").filter(|value| !value.is_empty())?,
         runtime_version: option_env!("RUNNE_UPDATE_RUNTIME_VERSION").filter(|value| !value.is_empty())?,
         channel: option_env!("RUNNE_UPDATE_CHANNEL").filter(|value| !value.is_empty())?,
-    })
+    });
+    compiled().or_else(local_test_policy)
+}
+
+#[cfg(all(feature = "test-support", target_os = "macos", target_arch = "aarch64"))]
+fn local_test_policy() -> Option<DaemonEnrollmentPolicy<'static>> {
+    runne_api::test_support::local_native_enrollment_enabled().then_some(
+        DaemonEnrollmentPolicy {
+            profile_id: "slice-e-local",
+            runtime_version: "0.1.0",
+            channel: "local",
+        },
+    )
+}
+
+#[cfg(not(all(feature = "test-support", target_os = "macos", target_arch = "aarch64")))]
+const fn local_test_policy() -> Option<DaemonEnrollmentPolicy<'static>> {
+    None
 }
 
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]

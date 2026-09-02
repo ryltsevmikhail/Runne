@@ -39,8 +39,8 @@ pub(super) fn complete(
     ).map_err(map_sql)?;
     super::compatibility_mirror::activate(transaction, version)?;
     let changed = transaction.execute(
-        "UPDATE provider_credential_authority_heads SET lifecycle_revision=lifecycle_revision+1, credential_fence=credential_fence+1, readiness_revision=readiness_revision+1, active_credential_version=?1, active_ref_digest=?2, legacy_import_consumed=1, legacy_source_binding_digest=?3, legacy_consumed_lifecycle_revision=lifecycle_revision+1, legacy_cleanup_operation_id=?4, observed_at_high_water=MAX(observed_at_high_water, ?5) WHERE provider_id=?6 AND lifecycle_revision=?7 AND credential_fence=?8 AND hard_fence_disposition IS NULL AND legacy_import_consumed=0",
-        params![version.version(), version.ref_digest().to_vec(), input.readback().observation_digest().as_bytes().as_slice(), cleanup.operation_id.as_slice(), now, operation.provider().as_str(), input.expected_lifecycle_revision().get(), input.expected_prior_fence().get()],
+        "UPDATE provider_credential_authority_heads SET lifecycle_revision=lifecycle_revision+1, credential_fence=credential_fence+1, readiness_revision=readiness_revision+1, active_credential_version=?1, active_ref_digest=?2, legacy_import_consumed=1, legacy_source_binding_digest=?3, legacy_consumed_lifecycle_revision=lifecycle_revision+1, legacy_cleanup_operation_id=?4 WHERE provider_id=?5 AND lifecycle_revision=?6 AND credential_fence=?7 AND hard_fence_disposition IS NULL AND legacy_import_consumed=0",
+        params![version.version(), version.ref_digest().to_vec(), input.readback().observation_digest().as_bytes().as_slice(), cleanup.operation_id.as_slice(), operation.provider().as_str(), input.expected_lifecycle_revision().get(), input.expected_prior_fence().get()],
     ).map_err(map_sql)?;
     if changed != 1 {
         return Err(CredentialLifecycleError::Conflict);

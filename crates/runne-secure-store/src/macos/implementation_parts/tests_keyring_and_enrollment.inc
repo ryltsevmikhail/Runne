@@ -215,7 +215,8 @@
                 &broad_access,
             )
             .map_err(map_acl_error)?;
-            item.set_password(&sentinel_encoded)
+            item.item_mut()
+                .set_password(&sentinel_encoded)
                 .map_err(map_keychain_error)
         })
         .unwrap();

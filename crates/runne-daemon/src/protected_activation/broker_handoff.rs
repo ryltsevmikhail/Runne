@@ -81,11 +81,15 @@ impl BrokerHandoffDispatch {
     pub(crate) fn from_bound_enrollment(
         keys: &ProtectedActivationKeys,
         owned_launch: &ProtectedCredentialEnrollmentOwnedLaunchV3,
-        endpoint: PendingBrokerEndpointHandoff,
+        mut endpoint: PendingBrokerEndpointHandoff,
     ) -> Result<Self, LaunchAuthorityError> {
         let (binding, publication_public_key) = endpoint.rendezvous_facts();
         let operation_id = endpoint.operation_id();
+        let authority = endpoint
+            .take_broker_transfer()
+            .ok_or(LaunchAuthorityError::InvalidContract)?;
         let mut dispatch = Self::from_facts(keys, owned_launch, binding, publication_public_key)?;
+        dispatch.authority = Some(authority);
         dispatch.bound_endpoint = Some(endpoint);
         dispatch.expected_operation = Some(operation_id);
         Ok(dispatch)

@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+local-native-enrollment-test = []
+
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "=0.10.1"
 libc = "0.2"

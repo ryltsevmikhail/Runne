@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use runne_api::{
-    BeginProviderCredentialEnrollment, ProviderCredentialBaseRequestAuthority,
-    ProviderCredentialBeginIntentBinding, ProviderCredentialCommandContext,
+    BeginProviderCredentialEnrollment, ProtectedActivationKeys,
+    ProviderCredentialBaseRequestAuthority, ProviderCredentialBeginIntentBinding,
+    ProviderCredentialBrokerTransferAuthority, ProviderCredentialCommandContext,
     ProviderCredentialEnrollmentHostError, ProviderCredentialIntentConsumptionProof,
     ProviderCredentialRequestAuthorityIssuer, ProviderCredentialVerifyIntentBinding,
     VerifiedProtectedCredentialEnrollmentAdmission, VerifiedProtectedCredentialEnrollmentRequest,
@@ -19,6 +20,7 @@ const MAX_PENDING_ADMISSIONS: usize = 64;
 #[allow(dead_code)]
 pub(crate) struct PendingCredentialAdmissions {
     issuer: ProviderCredentialRequestAuthorityIssuer,
+    broker_keys: Option<ProtectedActivationKeys>,
     state: Mutex<PendingCredentialHttpAdmissionState>,
 }
 
@@ -34,6 +36,7 @@ struct PendingCredentialHttpAdmission {
     expires_at_unix_millis: u64,
     authority: ProviderCredentialBaseRequestAuthority,
     proof: ProviderCredentialIntentConsumptionProof,
+    broker_transfer: Option<ProviderCredentialBrokerTransferAuthority>,
     context: ProviderCredentialCommandContext,
 }
 
@@ -43,11 +46,22 @@ impl PendingCredentialAdmissions {
     pub(super) fn new(issuer: ProviderCredentialRequestAuthorityIssuer) -> Self {
         Self {
             issuer,
+            broker_keys: None,
             state: Mutex::new(PendingCredentialHttpAdmissionState {
                 entries: HashMap::new(),
                 consumed: HashMap::new(),
             }),
         }
+    }
+
+    #[must_use]
+    pub(super) fn new_with_broker_transfer(
+        issuer: ProviderCredentialRequestAuthorityIssuer,
+        keys: &ProtectedActivationKeys,
+    ) -> Self {
+        let mut admissions = Self::new(issuer);
+        admissions.broker_keys = Some(keys.clone());
+        admissions
     }
 
     /// Registers one fully verified protected-control admission.
@@ -82,9 +96,20 @@ impl PendingCredentialAdmissions {
         if state.entries.len() >= MAX_PENDING_ADMISSIONS {
             return Err(ProviderCredentialEnrollmentHostError::Unavailable);
         }
-        let (authority, proof) = self
-            .issuer
-            .issue_from_verified_enrollment(request, admission)?;
+        let (authority, proof, broker_transfer) = if let Some(keys) = &self.broker_keys {
+            let admission = keys
+                .bind_credential_broker_transfer(admission)
+                .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
+            let (authority, proof, transfer) = self
+                .issuer
+                .issue_from_verified_enrollment_with_broker_transfer(request, admission)?;
+            (authority, proof, Some(transfer))
+        } else {
+            let (authority, proof) = self
+                .issuer
+                .issue_from_verified_enrollment(request, admission)?;
+            (authority, proof, None)
+        };
         state.entries.insert(
             native_intent_digest,
             PendingCredentialHttpAdmission {
@@ -94,6 +119,7 @@ impl PendingCredentialAdmissions {
                 expires_at_unix_millis,
                 authority,
                 proof,
+                broker_transfer,
                 context,
             },
         );
@@ -115,6 +141,41 @@ impl PendingCredentialAdmissions {
         ),
         ProviderCredentialEnrollmentHostError,
     > {
+        let entry = self.take_begin_entry(command, protected_session_id, now_unix_millis)?;
+        Ok((entry.authority, entry.proof, entry.context))
+    }
+
+    pub(super) fn resolve_begin_with_broker_transfer(
+        &self,
+        command: &BeginProviderCredentialEnrollment,
+        protected_session_id: [u8; 16],
+        now_unix_millis: u64,
+    ) -> Result<
+        (
+            ProviderCredentialBaseRequestAuthority,
+            ProviderCredentialIntentConsumptionProof,
+            ProviderCredentialCommandContext,
+            ProviderCredentialBrokerTransferAuthority,
+        ),
+        ProviderCredentialEnrollmentHostError,
+    > {
+        let entry = self.take_begin_entry(command, protected_session_id, now_unix_millis)?;
+        Ok((
+            entry.authority,
+            entry.proof,
+            entry.context,
+            entry
+                .broker_transfer
+                .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?,
+        ))
+    }
+
+    fn take_begin_entry(
+        &self,
+        command: &BeginProviderCredentialEnrollment,
+        protected_session_id: [u8; 16],
+        now_unix_millis: u64,
+    ) -> Result<PendingCredentialHttpAdmission, ProviderCredentialEnrollmentHostError> {
         let entry = self.take_entry(command.native_intent_id(), now_unix_millis)?;
         let binding = ProviderCredentialBeginIntentBinding::new(command, &entry.context);
         if entry.protected_session_id != protected_session_id
@@ -123,7 +184,7 @@ impl PendingCredentialAdmissions {
         {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
-        Ok((entry.authority, entry.proof, entry.context))
+        Ok(entry)
     }
 
     /// Resolves a parsed HTTP verify command against the consumed control claim.

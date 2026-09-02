@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+local-native-enrollment-test = ["runne-macos-process-identity/test-support"]
+
 [dependencies]
 runne-provider = { path = "../runne-provider" }
 

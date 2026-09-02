@@ -13,6 +13,8 @@ pub(super) struct MacOsCodeIdentityV1 {
     identifier: String,
     team_identifier: String,
     cdhash: String,
+    #[cfg(feature = "test-support")]
+    local_requirement: Option<String>,
 }
 
 impl MacOsCodeIdentityV1 {
@@ -21,14 +23,49 @@ impl MacOsCodeIdentityV1 {
             identifier: identity.identifier().to_owned(),
             team_identifier: identity.team_identifier().to_owned(),
             cdhash: identity.cdhash().to_owned(),
+            #[cfg(feature = "test-support")]
+            local_requirement: None,
         }
     }
 
     pub(super) fn requirement(&self) -> String {
+        #[cfg(feature = "test-support")]
+        if let Some(requirement) = &self.local_requirement {
+            return requirement.clone();
+        }
         format!(
             "identifier \"{}\" and anchor apple generic and certificate leaf[subject.OU] = \"{}\" and cdhash H\"{}\"",
             self.identifier, self.team_identifier, self.cdhash
         )
+    }
+
+    #[cfg(feature = "test-support")]
+    pub(super) fn local(path: &std::path::Path) -> Option<Self> {
+        if !runne_api::test_support::local_native_enrollment_enabled() {
+            return None;
+        }
+        let output = std::process::Command::new("/usr/bin/codesign")
+            .args(["-d", "-r", "-", "--"])
+            .arg(path)
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let requirement = std::str::from_utf8(&output.stdout)
+            .ok()?
+            .lines()
+            .find_map(|line| {
+                line.strip_prefix("designated => ")
+                    .or_else(|| line.strip_prefix("# designated => "))
+            })?
+            .to_owned();
+        Some(Self {
+            identifier: "local".into(),
+            team_identifier: "LOCAL00000".into(),
+            cdhash: "0".repeat(40),
+            local_requirement: Some(requirement),
+        })
     }
 }
 

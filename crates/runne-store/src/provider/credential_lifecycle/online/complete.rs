@@ -82,7 +82,7 @@ pub(super) fn complete(
                 .allocated_credential_version()
                 .ok_or(CredentialLifecycleError::CorruptState)?;
             super::compatibility_mirror::activate(&transaction, version)?;
-            transaction.execute("UPDATE provider_credential_authority_heads SET lifecycle_revision=lifecycle_revision+1, credential_fence=credential_fence+1, readiness_revision=readiness_revision+1, active_credential_version=?1, active_ref_digest=?2, observed_at_high_water=MAX(observed_at_high_water, ?3) WHERE provider_id=?4", params![version.version(), version.ref_digest().to_vec(), (store.now)(), operation.provider().as_str()]).map_err(map_sql)?;
+            transaction.execute("UPDATE provider_credential_authority_heads SET lifecycle_revision=lifecycle_revision+1, credential_fence=credential_fence+1, readiness_revision=readiness_revision+1, active_credential_version=?1, active_ref_digest=?2 WHERE provider_id=?3", params![version.version(), version.ref_digest().to_vec(), operation.provider().as_str()]).map_err(map_sql)?;
         }
         CredentialOperationAction::Revoke => {
             let target = operation
@@ -101,7 +101,7 @@ pub(super) fn complete(
                 .target_credential_version()
                 .ok_or(CredentialLifecycleError::CorruptState)?;
             super::compatibility_mirror::delete(&transaction, target)?;
-            let changed = transaction.execute("UPDATE provider_credential_authority_heads SET lifecycle_revision=lifecycle_revision+1, credential_fence=credential_fence+1, readiness_revision=readiness_revision+1, observed_at_high_water=MAX(observed_at_high_water, ?1) WHERE provider_id=?2 AND lifecycle_revision=?3 AND credential_fence=?4 AND hard_fence_disposition IS NULL", params![(store.now)(), operation.provider().as_str(), input.expected_lifecycle_revision().get(), input.expected_prior_fence().get()]).map_err(map_sql)?;
+            let changed = transaction.execute("UPDATE provider_credential_authority_heads SET lifecycle_revision=lifecycle_revision+1, credential_fence=credential_fence+1, readiness_revision=readiness_revision+1 WHERE provider_id=?1 AND lifecycle_revision=?2 AND credential_fence=?3 AND hard_fence_disposition IS NULL", params![operation.provider().as_str(), input.expected_lifecycle_revision().get(), input.expected_prior_fence().get()]).map_err(map_sql)?;
             if changed != 1 {
                 return Err(CredentialLifecycleError::Conflict);
             }

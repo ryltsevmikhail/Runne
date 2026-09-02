@@ -102,7 +102,7 @@ pub fn create_empty_generic_password(
     account: &str,
     metadata: &[u8],
     exact: &ExactKeychainAccess,
-) -> Result<SecKeychainItem, KeychainAclError> {
+) -> Result<CreatedGenericPasswordItem, KeychainAclError> {
     if service.is_empty()
         || account.is_empty()
         || service.as_bytes().contains(&0)
@@ -143,6 +143,10 @@ pub fn create_empty_generic_password(
     // SAFETY: attribute buffers and all Security.framework objects remain live
     // for the call. Data is deliberately NULL/zero-length, and `item` is a
     // valid writable out-pointer consumed under the create rule below.
+    #[cfg(feature = "local-native-enrollment-test")]
+    let initial_access = &exact.acl_source_access;
+    #[cfg(not(feature = "local-native-enrollment-test"))]
+    let initial_access = &exact.creation_access;
     let create_status = unsafe {
         SecKeychainItemCreateFromContent(
             GENERIC_PASSWORD_ITEM_CLASS,
@@ -150,7 +154,7 @@ pub fn create_empty_generic_password(
             0,
             ptr::null(),
             keychain.as_concrete_TypeRef().cast(),
-            exact.access.as_concrete_TypeRef(),
+            initial_access.as_concrete_TypeRef(),
             &raw mut item,
         )
     };
@@ -161,7 +165,52 @@ pub fn create_empty_generic_password(
     }
     item_owner.disarm();
     // SAFETY: the create function returned a non-null retained item reference.
-    Ok(unsafe { SecKeychainItem::wrap_under_create_rule(item) })
+    Ok(CreatedGenericPasswordItem {
+        item: unsafe { SecKeychainItem::wrap_under_create_rule(item) },
+    })
+}
+
+/// A just-created item whose final writer/reader ACL has not been committed.
+pub struct CreatedGenericPasswordItem {
+    item: SecKeychainItem,
+}
+
+impl CreatedGenericPasswordItem {
+    /// Returns the native item only for immediate password population.
+    #[must_use]
+    pub const fn item_mut(&mut self) -> &mut SecKeychainItem {
+        &mut self.item
+    }
+
+    /// Commits and verifies the exact final ACL before exposing the item.
+    ///
+    /// A failed commit deletes the incomplete item before returning.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error if exact ACL finalization or cleanup fails.
+    pub fn finalize(
+        self,
+        exact: &ExactKeychainAccess,
+    ) -> Result<SecKeychainItem, KeychainAclError> {
+        if let Err(error) = finalize_created_item_access(&self.item, exact) {
+            return if delete_item(&self.item).is_ok() {
+                Err(error)
+            } else {
+                Err(KeychainAclError::OperationFailed)
+            };
+        }
+        Ok(self.item)
+    }
+
+    /// Deletes an incomplete item after password population fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error if native deletion fails.
+    pub fn delete(self) -> Result<(), KeychainAclError> {
+        delete_item(&self.item)
+    }
 }
 
 /// Non-secret generic attribute and item reference for one exact password item.

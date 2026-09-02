@@ -74,6 +74,10 @@ impl ClaimedWriterControl {
         ) {
             return Err(CliError::CredentialOperation);
         }
+        #[cfg(feature = "local-native-enrollment-test")]
+        if runne_secure_store::test_support::local_writer_death_after_release_enabled() {
+            return Err(CliError::CredentialOperation);
+        }
         Ok(AuthorizedPairWriterControl {
             control,
             writer,

@@ -71,7 +71,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
             lifecycle: ProtectedCredentialEnrollmentLifecycleCodec::from_protected_activation(keys),
             facts,
             broker_evidence,
-            admissions: PendingCredentialAdmissions::new(issuer),
+            admissions: PendingCredentialAdmissions::new_with_broker_transfer(issuer, keys),
             verifier,
             rendezvous: Some(rendezvous),
             pending: None,
@@ -148,16 +148,21 @@ impl DaemonProtectedCredentialEnrollmentSession {
         let context = command_context(&command)?;
         self.admissions
             .register(pending.request, pending.admission, context, now_unix_millis)?;
-        let (authority, proof, context) =
-            self.admissions
-                .resolve_begin(&command, self.facts.session, now_unix_millis)?;
+        let (authority, proof, context, broker_transfer) = self
+            .admissions
+            .resolve_begin_with_broker_transfer(&command, self.facts.session, now_unix_millis)?;
         let rendezvous = self
             .rendezvous
             .take()
             .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
         self.control
             .rendezvous
-            .reserve_transition_rendezvous(rendezvous, &authority, &proof)?;
+            .reserve_transition_rendezvous_with_transfer(
+                rendezvous,
+                &authority,
+                &proof,
+                broker_transfer,
+            )?;
         let now_high_water = i64::try_from(now_unix_millis / 1_000)
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
         let snapshot = self.control.begin_admitted(

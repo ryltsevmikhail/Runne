@@ -6,6 +6,7 @@ use binding::{ReservedAuthorityBinding, validate_authority};
 #[cfg(unix)]
 pub(super) struct ReservedTransitionRendezvous {
     authority_witness: ProviderCredentialBrokerHandoffWitness,
+    broker_transfer: Option<ProviderCredentialBrokerTransferAuthority>,
     binding: ReservedAuthorityBinding,
     rendezvous: DaemonOwnedUnixBrokerRendezvous,
 }
@@ -36,12 +37,36 @@ pub(crate) struct PendingBrokerAdmissionGate<'a> {
 
 impl PendingBrokerRendezvousRegistry {
     /// Reserves the transition-created rendezvous for the exact admitted authority.
-    #[cfg(unix)]
+    #[cfg(all(test, unix))]
     pub(crate) fn reserve_transition_rendezvous(
         &self,
         rendezvous: DaemonOwnedUnixBrokerRendezvous,
         authority: &ProviderCredentialBaseRequestAuthority,
         proof: &ProviderCredentialIntentConsumptionProof,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        self.reserve_transition_rendezvous_inner(rendezvous, authority, proof, None)
+    }
+
+    pub(crate) fn reserve_transition_rendezvous_with_transfer(
+        &self,
+        rendezvous: DaemonOwnedUnixBrokerRendezvous,
+        authority: &ProviderCredentialBaseRequestAuthority,
+        proof: &ProviderCredentialIntentConsumptionProof,
+        transfer: ProviderCredentialBrokerTransferAuthority,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        let witness = authority.credential_broker_handoff_witness();
+        if !transfer.matches_handoff(&witness, authority.protected_session_id()) {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        self.reserve_transition_rendezvous_inner(rendezvous, authority, proof, Some(transfer))
+    }
+
+    fn reserve_transition_rendezvous_inner(
+        &self,
+        rendezvous: DaemonOwnedUnixBrokerRendezvous,
+        authority: &ProviderCredentialBaseRequestAuthority,
+        proof: &ProviderCredentialIntentConsumptionProof,
+        broker_transfer: Option<ProviderCredentialBrokerTransferAuthority>,
     ) -> Result<(), ProviderCredentialEnrollmentHostError> {
         let mut reserved = self
             .reserved
@@ -52,6 +77,7 @@ impl PendingBrokerRendezvousRegistry {
         }
         *reserved = Some(ReservedTransitionRendezvous {
             authority_witness: authority.credential_broker_handoff_witness(),
+            broker_transfer,
             binding: ReservedAuthorityBinding::new(authority, proof),
             rendezvous,
         });
@@ -180,6 +206,7 @@ impl PendingBrokerRendezvousLease<'_> {
             PendingEntry {
                 binding,
                 authority_witness: reserved.authority_witness,
+                broker_transfer: reserved.broker_transfer,
                 rendezvous: reserved.rendezvous,
             },
         );

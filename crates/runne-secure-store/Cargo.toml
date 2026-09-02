@@ -19,7 +19,11 @@ zeroize.workspace = true
 default = []
 project-owner-key-store = ["dep:ed25519-dalek"]
 provider-credential-broker-writer = ["dep:runne-native-enrollment-authority"]
-test-support = []
+test-support = ["runne-api/test-support"]
+local-native-enrollment-test = [
+    "test-support",
+    "runne-macos-keychain-acl/local-native-enrollment-test",
+]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 runne-macos-keychain-acl = { path = "../runne-macos-keychain-acl" }

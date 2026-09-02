@@ -53,3 +53,19 @@ fn dropping_success_closes_the_retained_descriptor() {
     drop(handoff);
     assert_peer_closed(peer);
 }
+
+#[test]
+fn exact_queued_record_survives_both_transfer_half_closes() {
+    let (sender, receiver) = UnixStream::pair().expect("transport pair");
+    let (offered, _) = UnixStream::pair().expect("offered endpoint");
+    receiver
+        .shutdown(std::net::Shutdown::Write)
+        .expect("finish challenge direction");
+    send_with_descriptors(&sender, &valid_frame(), &[offered.as_fd()]);
+    sender
+        .shutdown(std::net::Shutdown::Write)
+        .expect("finish response direction");
+
+    crate::writer_endpoint_handoff::receive_for_test(&receiver, RECEIVE_BUDGET)
+        .expect("queued exact handoff");
+}

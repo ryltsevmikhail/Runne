@@ -18,13 +18,18 @@ fn create_populated_provider_item(
     if failpoint == Some(CredentialPopulationFailpoint::EmptyItemWritten) {
         return Err(SecureStoreError::CredentialEnrollmentIncomplete);
     }
-    if let Err(error) = item.set_password(encoded).map_err(map_keychain_error) {
-        return if runne_macos_keychain_acl::delete_item(&item).is_ok() {
+    if let Err(error) = item
+        .item_mut()
+        .set_password(encoded)
+        .map_err(map_keychain_error)
+    {
+        return if item.delete().is_ok() {
             Err(error)
         } else {
             Err(SecureStoreError::CredentialEnrollmentIncomplete)
         };
     }
+    let item = item.finalize(exact_access).map_err(map_acl_error)?;
     if let Err(error) = verify_item_acl(&item, exact_access.digest()) {
         return if runne_macos_keychain_acl::delete_item(&item).is_ok() {
             Err(error)

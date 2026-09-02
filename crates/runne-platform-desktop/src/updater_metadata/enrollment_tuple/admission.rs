@@ -107,6 +107,28 @@ impl NativeEnrollmentTupleAdmission {
         &self.qualification
     }
 
+    #[cfg(all(feature = "test-support", target_os = "macos"))]
+    pub(super) fn with_local_code_identities(
+        mut self,
+        paths: &super::NativeEnrollmentArtifactPathsV1,
+    ) -> Option<Self> {
+        if !runne_api::test_support::local_native_enrollment_enabled() {
+            return None;
+        }
+        let desktop = super::macos_identity::MacOsCodeIdentityV1::local(&paths.desktop)?;
+        let writer_path = paths.writer_executable_path();
+        let writer = super::macos_identity::MacOsCodeIdentityV1::local(&writer_path)?;
+        let daemon_path = paths.desktop.parent()?.join("runned");
+        let daemon = super::macos_identity::MacOsCodeIdentityV1::local(&daemon_path)?;
+        if desktop == writer || desktop == daemon || writer == daemon {
+            return None;
+        }
+        self.macos_desktop_code_identity = Some(desktop);
+        self.macos_writer_code_identity = Some(writer);
+        self.macos_daemon_code_identity = Some(daemon);
+        Some(self)
+    }
+
     pub fn verified_writer(
         &self,
         executable: PathBuf,

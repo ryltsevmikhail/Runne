@@ -243,6 +243,7 @@ impl Fixture {
             input.last_sequence,
             input.keys,
             input.now,
+            input.now,
             [6; 32],
         );
         transition_with(&input, request, native, channel).is_ok()

@@ -8,6 +8,7 @@ use runne_provider::{
 use super::online_test_support::{
     admit_claim, complete_pair, digest, operation, provider, revoke, store,
 };
+use super::online_claim_test_support::open_test_store;
 
 #[test]
 fn credential_online_pair_completion_persists_readiness_atomically() {
@@ -44,6 +45,16 @@ fn credential_online_pair_completion_persists_readiness_atomically() {
             operation(90).as_bytes().to_vec(),
         )
     );
+}
+
+#[test]
+fn pair_completion_accepts_observation_captured_before_store_clock_advances() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut store = open_test_store(&directory.path().join("online.sqlite"), 100);
+    prepare_pair(&store);
+    store.now = std::sync::Arc::new(|| 101);
+
+    ProviderCredentialEnrollmentStore::complete(&store, completion()).unwrap();
 }
 
 #[test]

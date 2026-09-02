@@ -66,7 +66,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
             operation,
             continuation,
             &context,
-            60,
+            claim_ticket_ttl_seconds(),
             self.control.store.as_ref(),
             channel,
         )?;
@@ -131,6 +131,12 @@ impl DaemonProtectedCredentialEnrollmentSession {
             self.control.store.as_ref(),
             channel,
         )?;
+        #[cfg(feature = "test-support")]
+        if runne_api::test_support::local_native_enrollment_case()
+            == Some(runne_api::test_support::LocalNativeEnrollmentCase::DeathReadback)
+        {
+            std::process::exit(86);
+        }
         CredentialEnrollmentRecoveryGateway::new(
             self.control.store.as_ref(),
             self.control.readback.as_ref(),
@@ -170,4 +176,16 @@ impl DaemonProtectedCredentialEnrollmentSession {
             .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)
             .and_then(|(_, snapshot)| self.control.handles.resolve(snapshot.operation_handle()))
     }
+}
+
+const fn production_claim_ticket_ttl_seconds() -> i64 {
+    60
+}
+
+fn claim_ticket_ttl_seconds() -> i64 {
+    #[cfg(feature = "test-support")]
+    if runne_api::test_support::validated_local_native_enrollment_case_name().is_some() {
+        return 180;
+    }
+    production_claim_ticket_ttl_seconds()
 }

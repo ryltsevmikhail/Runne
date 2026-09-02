@@ -176,18 +176,27 @@ where
         input: ExactVersionReadback,
     ) -> Result<CredentialReadbackObservation, SecureStoreError> {
         match self.native.version_status(&input.reference, &self.access)? {
-            ProviderCredentialStatus::Configured => match input.command.action() {
-                CredentialOperationAction::Pair => {
-                    version_observation(&input.command, &input.reference, true)
+            ProviderCredentialStatus::Configured => {
+                #[cfg(feature = "test-support")]
+                if runne_api::test_support::local_native_enrollment_enabled() {
+                    crate::test_support::prove_current_reader_can_load_exact(
+                        &input.reference,
+                        &self.access,
+                    )?;
                 }
-                CredentialOperationAction::MigrateLegacy => legacy_import_observation(
-                    &input.command,
-                    &input.reference,
-                    self.native
-                        .version_source_revision(&input.reference, &self.access)?,
-                ),
-                _ => Err(BrokerError::AccessDenied.into()),
-            },
+                match input.command.action() {
+                    CredentialOperationAction::Pair => {
+                        version_observation(&input.command, &input.reference, true)
+                    }
+                    CredentialOperationAction::MigrateLegacy => legacy_import_observation(
+                        &input.command,
+                        &input.reference,
+                        self.native
+                            .version_source_revision(&input.reference, &self.access)?,
+                    ),
+                    _ => Err(BrokerError::AccessDenied.into()),
+                }
+            }
             ProviderCredentialStatus::Missing => Err(BrokerError::Missing.into()),
             ProviderCredentialStatus::Unsupported => Err(BrokerError::Unsupported.into()),
         }

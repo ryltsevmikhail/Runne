@@ -93,11 +93,10 @@ impl DevelopmentBundledRuntimeLauncher {
         }
         let profile = expected_profile()?;
         let state_store = ActivationStateStore::open(&runtime_root)?;
-        let (launch_executable_path, executable) = state_store
-            .stage_trusted_executable(&executable_path, spec.trusted_source_identity())?;
-        if spec.provider_activation().is_some() {
-            state_store.stage_provider_writer(&executable_path)?;
-        }
+        let (launch_executable_path, executable) = select_launch_artifact(
+            &state_store, &executable_path, spec.trusted_source_identity(),
+            spec.provider_activation().is_some(),
+        )?;
         let stable = state_store.load_stable()?;
         let pending = state_store.load_pending()?;
 
@@ -171,12 +170,13 @@ impl DevelopmentBundledRuntimeLauncher {
         let (mut parent_channel, child_channel) = UnixStream::pair()
             .map_err(|_| ProtectedBundledRuntimeError::ProtectedChannelUnavailable)?;
         parent_channel
-            .set_read_timeout(Some(LAUNCH_TIMEOUT))
-            .and_then(|()| parent_channel.set_write_timeout(Some(LAUNCH_TIMEOUT)))
+            .set_read_timeout(Some(launch_timeout()))
+            .and_then(|()| parent_channel.set_write_timeout(Some(launch_timeout())))
             .map_err(|_| ProtectedBundledRuntimeError::ProtectedChannelUnavailable)?;
         let child_stdin = Stdio::from(OwnedFd::from(child_channel));
         let mut command = Command::new(&launch_executable_path);
         command.env_clear().stdin(child_stdin);
+        preserve_local_process_environment(&mut command)?;
         if controls.capture_output {
             command.stdout(Stdio::piped()).stderr(Stdio::piped());
         } else {

@@ -62,6 +62,16 @@ use crate::{
 const MAX_FRAME_PAYLOAD_BYTES: usize = 65_536;
 const MAX_STATE_BYTES: u64 = 64 * 1024;
 const LAUNCH_TIMEOUT: Duration = Duration::from_secs(30);
+#[cfg(feature = "test-support")]
+const LOCAL_PROCESS_TIMEOUT: Duration = Duration::from_mins(2);
+
+fn launch_timeout() -> Duration {
+    #[cfg(feature = "test-support")]
+    if runne_api::test_support::local_native_enrollment_enabled() {
+        return LOCAL_PROCESS_TIMEOUT;
+    }
+    LAUNCH_TIMEOUT
+}
 const LOCAL_PRINCIPAL: &str = "local-owner";
 const STATE_SCHEMA_VERSION: u32 = 1;
 const ACTIVATION_STATE_DIRECTORY: &str = ".desktop-protected-activation";

@@ -50,8 +50,14 @@ fn copy_acl_contents(acl: &CFType) -> Result<(CFArray<CFType>, u16), KeychainAcl
 
 /// Exact trusted-application decrypt access plus its canonical set digest.
 pub struct ExactKeychainAccess {
-    access: SecAccess,
+    #[cfg(any(test, not(feature = "local-native-enrollment-test")))]
+    creation_access: SecAccess,
+    #[cfg(any(test, feature = "local-native-enrollment-test"))]
+    acl_source_access: SecAccess,
     digest: [u8; 32],
+    trusted_digest: [u8; 32],
+    writer_digest: [u8; 32],
+    partition_ids: Vec<String>,
 }
 
 impl ExactKeychainAccess {
@@ -61,32 +67,33 @@ impl ExactKeychainAccess {
     ///
     /// Returns a closed error when either trusted application or the access
     /// object cannot be created.
-    pub fn new(writer: &Path, reader: &Path) -> Result<Self, KeychainAclError> {
-        let writer = trusted_application(writer)?;
-        let reader = trusted_application(reader)?;
-        let digest = trusted_application_set_digest(&[&writer, &reader])?;
-        let trusted_list = CFArray::from_CFTypes(&[writer, reader]);
-        let descriptor = CFString::new(ACL_DESCRIPTOR);
-        let mut access = ptr::null_mut();
-        // SAFETY: every Core Foundation input is alive for the call and
-        // `access` is a valid writable out-pointer consumed under create rule.
-        let access_status = unsafe {
-            SecAccessCreate(
-                descriptor.as_concrete_TypeRef(),
-                trusted_list.as_concrete_TypeRef(),
-                &raw mut access,
-            )
-        };
-        let access_owner = RetainedCfOutput::new(access);
-        status(access_status)?;
-        if access.is_null() {
+    pub fn new(writer_path: &Path, reader_path: &Path) -> Result<Self, KeychainAclError> {
+        let writer = trusted_application(writer_path)?;
+        let reader = trusted_application(reader_path)?;
+        let writer_digest = trusted_application_set_digest(&[&writer])?;
+        let trusted_digest = trusted_application_set_digest(&[&writer, &reader])?;
+        let partition_ids = exact_code_partition_ids(writer_path, reader_path)?;
+        let digest = access_profile_digest(trusted_digest, writer_digest, &partition_ids)?;
+        let acl_source_access = create_exact_application_access(&writer, &reader)?;
+        if verify_decrypt_access(&acl_source_access)? != trusted_digest
+            || verify_read_access(&acl_source_access)? != trusted_digest
+            || !verify_writer_only_access(&acl_source_access, writer_digest)?
+        {
             return Err(KeychainAclError::AccessDenied);
         }
-        access_owner.disarm();
+        let creation_access = access_with_noncaller_owner(&acl_source_access)?;
+        if !verify_noncaller_owner(&creation_access)? {
+            return Err(KeychainAclError::AccessDenied);
+        }
         Ok(Self {
-            // SAFETY: `SecAccessCreate` returned a non-null retained reference.
-            access: unsafe { SecAccess::wrap_under_create_rule(access) },
+            #[cfg(any(test, not(feature = "local-native-enrollment-test")))]
+            creation_access,
+            #[cfg(any(test, feature = "local-native-enrollment-test"))]
+            acl_source_access,
             digest,
+            trusted_digest,
+            writer_digest,
+            partition_ids,
         })
     }
 
@@ -97,138 +104,119 @@ impl ExactKeychainAccess {
     }
 }
 
-/// Verifies that every decrypt ACL has exactly the enrolled application set.
-///
-/// # Errors
-///
-/// Returns [`KeychainAclError::AccessDenied`] for an absent, empty or broader ACL.
-pub fn verify_item_access(
-    item: &SecKeychainItem,
-    expected_digest: [u8; 32],
-) -> Result<(), KeychainAclError> {
+fn create_exact_application_access(
+    writer: &CFType,
+    reader: &CFType,
+) -> Result<SecAccess, KeychainAclError> {
+    let trusted_list = CFArray::from_CFTypes(&[writer.clone(), reader.clone()]);
+    let descriptor = CFString::new(ACL_DESCRIPTOR);
     let mut access = ptr::null_mut();
-    // SAFETY: `item` is live and `access` is a valid writable out-pointer.
-    let access_status =
-        unsafe { SecKeychainItemCopyAccess(item.as_concrete_TypeRef(), &raw mut access) };
-    let access_owner = RetainedCfOutput::new(access);
-    status(access_status)?;
+    status(unsafe {
+        SecAccessCreate(
+            descriptor.as_concrete_TypeRef(),
+            trusted_list.as_concrete_TypeRef(),
+            &raw mut access,
+        )
+    })?;
     if access.is_null() {
         return Err(KeychainAclError::AccessDenied);
     }
-    access_owner.disarm();
-    // SAFETY: `SecKeychainItemCopyAccess` returned a non-null retained reference.
     let access = unsafe { SecAccess::wrap_under_create_rule(access) };
-    verify_access(&access, expected_digest)
+    create_application_acl(
+        &access,
+        &trusted_list,
+        unsafe { kSecACLAuthorizationKeychainItemRead },
+    )?;
+    let writer_applications = CFArray::from_CFTypes(std::slice::from_ref(writer));
+    for authorization in unsafe {
+        [
+            kSecACLAuthorizationEncrypt,
+            kSecACLAuthorizationDelete,
+            kSecACLAuthorizationKeychainItemModify,
+            kSecACLAuthorizationKeychainItemDelete,
+        ]
+    } {
+        create_application_acl(&access, &writer_applications, authorization)?;
+    }
+    Ok(access)
 }
 
-fn verify_access(access: &SecAccess, expected_digest: [u8; 32]) -> Result<(), KeychainAclError> {
-    // SAFETY: the access reference and static authorization tag are valid.
-    let acl_list = unsafe {
-        SecAccessCopyMatchingACLList(
+fn create_noncaller_owner_template() -> Result<SecAccess, KeychainAclError> {
+    let mut error = ptr::null();
+    let access = unsafe { SecAccessCreateWithOwnerAndACL(0, 0, 1, ptr::null(), &raw mut error) };
+    let error_owner = RetainedCfOutput::new(error);
+    if access.is_null() || !error.is_null() {
+        return Err(KeychainAclError::AccessDenied);
+    }
+    drop(error_owner);
+    Ok(unsafe { SecAccess::wrap_under_create_rule(access) })
+}
+
+fn create_current_owner_template() -> Result<SecAccess, KeychainAclError> {
+    let mut error = ptr::null();
+    let access = unsafe {
+        SecAccessCreateWithOwnerAndACL(
+            libc::geteuid(),
+            libc::getegid(),
+            1,
+            ptr::null(),
+            &raw mut error,
+        )
+    };
+    let error_owner = RetainedCfOutput::new(error);
+    if access.is_null() || !error.is_null() {
+        return Err(KeychainAclError::AccessDenied);
+    }
+    drop(error_owner);
+    Ok(unsafe { SecAccess::wrap_under_create_rule(access) })
+}
+
+fn clone_acl_data_with_owner(
+    access: &SecAccess,
+    owner_template: &SecAccess,
+) -> Result<SecAccess, KeychainAclError> {
+    let mut owner = ptr::null_mut();
+    let mut unused_owner_acl_count = 0;
+    let mut unused_owner_acls = ptr::null_mut();
+    status(unsafe {
+        SecAccessGetOwnerAndACL(
+            owner_template.as_concrete_TypeRef(),
+            &raw mut owner,
+            &raw mut unused_owner_acl_count,
+            &raw mut unused_owner_acls,
+        )
+    })?;
+    let mut unused_source_owner = ptr::null_mut();
+    let mut acl_count = 0;
+    let mut acls = ptr::null_mut();
+    status(unsafe {
+        SecAccessGetOwnerAndACL(
             access.as_concrete_TypeRef(),
-            kSecACLAuthorizationDecrypt.cast(),
+            &raw mut unused_source_owner,
+            &raw mut acl_count,
+            &raw mut acls,
         )
-    };
-    if acl_list.is_null() {
+    })?;
+    if owner.is_null() || acl_count == 0 || acls.is_null() {
         return Err(KeychainAclError::AccessDenied);
     }
-    // SAFETY: the Copy function returned a non-null retained CFArray.
-    let acl_list = unsafe { CFArray::<CFType>::wrap_under_create_rule(acl_list) };
-    if acl_list.is_empty() {
+    let mut cloned = ptr::null_mut();
+    status(unsafe { SecAccessCreateFromOwnerAndACL(owner, acl_count, acls, &raw mut cloned) })?;
+    if cloned.is_null() {
         return Err(KeychainAclError::AccessDenied);
     }
-    for acl in acl_list.iter() {
-        let (applications, prompt_selector) = copy_acl_contents(&acl)?;
-        if !prompt_selector_is_unconditional(prompt_selector) {
-            return Err(KeychainAclError::AccessDenied);
-        }
-        let digests = applications
-            .iter()
-            .map(|application| trusted_application_digest(application.as_CFTypeRef()))
-            .collect::<Result<Vec<_>, _>>()?;
-        if digest_set(digests)? != expected_digest {
-            return Err(KeychainAclError::AccessDenied);
-        }
-    }
-    Ok(())
+    Ok(unsafe { SecAccess::wrap_under_create_rule(cloned) })
 }
 
-/// Deletes one exact keychain item and propagates the OS result.
-///
-/// # Errors
-///
-/// Returns a closed failure when the item cannot be deleted.
-pub fn delete_item(item: &SecKeychainItem) -> Result<(), KeychainAclError> {
-    // SAFETY: `item` is a live Security.framework object for the duration of the call.
-    status(unsafe { SecKeychainItemDelete(item.as_concrete_TypeRef()) })
+fn access_with_noncaller_owner(access: &SecAccess) -> Result<SecAccess, KeychainAclError> {
+    if unsafe { libc::geteuid() } == 0 {
+        return Err(KeychainAclError::AccessDenied);
+    }
+    let owner_template = create_noncaller_owner_template()?;
+    clone_acl_data_with_owner(access, &owner_template)
 }
 
-/// Atomically changes only the service identity of an existing item.
-///
-/// The password bytes and ACL are left unchanged. This is used to restore a
-/// verified migration backup without ever materializing another plaintext
-/// copy in this unsafe boundary.
-///
-/// # Errors
-///
-/// Returns a closed failure when the service identity is invalid or Keychain
-/// cannot commit the attribute update.
-pub fn rename_item_service(item: &SecKeychainItem, service: &str) -> Result<(), KeychainAclError> {
-    if service.is_empty() || service.as_bytes().contains(&0) {
-        return Err(KeychainAclError::InvalidItemIdentity);
-    }
-    let mut attribute = SecKeychainAttribute {
-        tag: SERVICE_ITEM_ATTRIBUTE,
-        length: u32::try_from(service.len()).map_err(|_| KeychainAclError::InvalidItemIdentity)?,
-        data: service.as_ptr().cast_mut().cast(),
-    };
-    let attributes = SecKeychainAttributeList {
-        count: 1,
-        attr: &raw mut attribute,
-    };
-    // SAFETY: the service buffer and attribute list remain live for the call.
-    // NULL data means the existing password is not modified.
-    status(unsafe {
-        SecKeychainItemModifyAttributesAndData(
-            item.as_concrete_TypeRef(),
-            &raw const attributes,
-            0,
-            ptr::null(),
-        )
-    })
-}
-
-/// Atomically replaces only the non-secret generic metadata attribute.
-///
-/// Password bytes and ACL are left unchanged.
-///
-/// # Errors
-///
-/// Returns a closed failure for empty metadata or a native update failure.
-pub fn set_generic_password_metadata(
-    item: &SecKeychainItem,
-    metadata: &[u8],
-) -> Result<(), KeychainAclError> {
-    if metadata.is_empty() {
-        return Err(KeychainAclError::InvalidItemIdentity);
-    }
-    let mut attribute = SecKeychainAttribute {
-        tag: GENERIC_ITEM_ATTRIBUTE,
-        length: u32::try_from(metadata.len()).map_err(|_| KeychainAclError::InvalidItemIdentity)?,
-        data: metadata.as_ptr().cast_mut().cast(),
-    };
-    let attributes = SecKeychainAttributeList {
-        count: 1,
-        attr: &raw mut attribute,
-    };
-    // SAFETY: metadata and its attribute list remain live for the call. NULL
-    // password data preserves the existing password bytes.
-    status(unsafe {
-        SecKeychainItemModifyAttributesAndData(
-            item.as_concrete_TypeRef(),
-            &raw const attributes,
-            0,
-            ptr::null(),
-        )
-    })
+fn access_for_acl_inspection(access: &SecAccess) -> Result<SecAccess, KeychainAclError> {
+    let owner_template = create_current_owner_template()?;
+    clone_acl_data_with_owner(access, &owner_template)
 }

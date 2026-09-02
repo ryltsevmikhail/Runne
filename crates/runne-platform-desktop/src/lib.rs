@@ -86,6 +86,9 @@ pub use updater_feed::{UpdateFeedClient, UpdateFeedError};
 pub use updater_install::{NativeUpdateInstallError, install_staged_update};
 pub use updater_installed_metadata::InstalledUpdateMetadataError;
 pub use updater_journal::{UpdateInstallRecord, UpdateJournal, UpdateJournalError};
+#[cfg(all(feature = "test-support", target_os = "macos", target_arch = "aarch64"))]
+#[doc(hidden)]
+pub use updater_metadata::prepare_local_native_enrollment;
 #[cfg(all(feature = "dev-loopback-updater", debug_assertions))]
 pub use updater_metadata::verify_update_v2_dev_loopback;
 pub use updater_metadata::{

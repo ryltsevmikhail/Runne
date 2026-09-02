@@ -12,6 +12,8 @@ use runne_api::ProviderCredentialEnrollmentHostError;
 use runne_provider::daemon_credential_publication::CredentialWriterSessionAttestationSigner;
 
 const RENDEZVOUS_TIMEOUT: Duration = Duration::from_secs(30);
+#[cfg(feature = "test-support")]
+const LOCAL_RENDEZVOUS_TIMEOUT: Duration = Duration::from_mins(2);
 
 /// Daemon-created halves of one pending writer-control rendezvous.
 ///
@@ -215,9 +217,17 @@ impl DaemonOwnedUnixBrokerRendezvous {
 }
 
 fn configure(stream: &UnixStream) -> Result<(), ProviderCredentialEnrollmentHostError> {
+    #[cfg(feature = "test-support")]
+    let timeout = if runne_api::test_support::local_native_enrollment_enabled() {
+        LOCAL_RENDEZVOUS_TIMEOUT
+    } else {
+        RENDEZVOUS_TIMEOUT
+    };
+    #[cfg(not(feature = "test-support"))]
+    let timeout = RENDEZVOUS_TIMEOUT;
     stream
-        .set_read_timeout(Some(RENDEZVOUS_TIMEOUT))
-        .and_then(|()| stream.set_write_timeout(Some(RENDEZVOUS_TIMEOUT)))
+        .set_read_timeout(Some(timeout))
+        .and_then(|()| stream.set_write_timeout(Some(timeout)))
         .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)
 }
 

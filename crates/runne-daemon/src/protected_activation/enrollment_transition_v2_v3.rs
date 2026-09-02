@@ -76,6 +76,7 @@ pub(crate) struct V2TransitionInput<'a> {
     last_sequence: u64,
     keys: &'a ProtectedActivationKeys,
     now_unix_millis: u64,
+    request_validation_now_millis: u64,
     installation: [u8; 32],
 }
 
@@ -89,6 +90,7 @@ impl<'a> V2TransitionInput<'a> {
         last_sequence: u64,
         keys: &'a ProtectedActivationKeys,
         now_unix_millis: u64,
+        request_validation_now_millis: u64,
         installation: [u8; 32],
     ) -> Self {
         Self {
@@ -99,6 +101,7 @@ impl<'a> V2TransitionInput<'a> {
             last_sequence,
             keys,
             now_unix_millis,
+            request_validation_now_millis,
             installation,
         }
     }
@@ -120,6 +123,7 @@ pub(crate) fn admit_v2_to_v3_transition(
         context.last_sequence,
         context.keys,
         context.now_unix_millis,
+        context.request_validation_now_millis,
         *installation.installation_identity_digest(),
     );
     let installed = std::cell::RefCell::new(None);
@@ -186,7 +190,7 @@ where
         ));
     let mut request = DaemonLaunchRequest::V3(request);
     request.validate_for_protocol(
-        context.now_unix_millis,
+        context.request_validation_now_millis,
         &LaunchAuthorityValidationV1 {
             principal_id: context.original_request.principal_id(),
             profile: context.original_request.profile(),

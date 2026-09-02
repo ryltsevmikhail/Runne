@@ -107,6 +107,7 @@ where
     let frame = channel.read_control_frame()?;
     let request = ProtectedCredentialEnrollmentLaunchRequestV3::decode_frame(&frame)
         .map_err(|_| LaunchAuthorityError::InvalidContract)?;
+    let request_validation_now = (composition.ticket_clock)()?;
     let input = V2TransitionInput::new(
         prepare,
         &signed_prelude,
@@ -115,10 +116,16 @@ where
         0,
         keys,
         now,
+        request_validation_now,
         composition.installation_identity_digest,
     );
     let mut prepared = admit_transition(&input, request, channel)?;
-    let next_binding = rotate_to_reserved(sessions, session_clock, reserved)?;
+    let next_binding = rotate_to_reserved(
+        sessions,
+        session_clock,
+        reserved,
+        prepared.keys().bootstrap_key(),
+    )?;
     let ready = build_ready(&prepared, owned, &next_binding, composition, channel)?;
     Ok(EnrollmentTransitionOutcome::new(
         prepared.keys().clone(),
@@ -156,6 +163,7 @@ fn rotate_to_reserved(
     sessions: &Arc<Mutex<LocalSessionService>>,
     session_clock: &Arc<dyn Fn() -> Duration + Send + Sync>,
     reserved: u64,
+    bootstrap_secret: Zeroizing<[u8; 32]>,
 ) -> Result<RuntimeSessionBinding, LaunchAuthorityError> {
     let current = lock_service(sessions)?.current_binding().clone();
     let mut next_session_id = *uuid::Uuid::now_v7().as_bytes();
@@ -174,7 +182,6 @@ fn rotate_to_reserved(
         *current.certificate_sha256(),
     )
     .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?;
-    let bootstrap_secret = Zeroizing::new(super::random_control_secret());
     let issued_at = session_clock();
     let expires_at = issued_at
         .checked_add(PROTECTED_BOOTSTRAP_TTL)

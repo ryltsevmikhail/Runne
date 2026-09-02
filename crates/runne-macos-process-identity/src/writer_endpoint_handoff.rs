@@ -122,12 +122,12 @@ impl MacOsUntrustedWriterEndpointHandoffV1 {
     ///
     /// # Errors
     ///
-    /// Fails closed unless stdin is a connected macOS Unix stream carrying one
-    /// exact, bounded record and exactly one close-on-exec descriptor.
+    /// Fails closed unless stdin is a macOS Unix stream carrying one exact,
+    /// bounded record and exactly one close-on-exec descriptor.
     #[doc(hidden)]
     pub fn receive_from_stdin() -> std::io::Result<Self> {
         let stdin = std::io::stdin();
-        Self::receive(&stdin, PRODUCTION_DEADLINE)
+        Self::receive(&stdin, ingress_deadline())
     }
 
     fn receive(transport: &impl std::os::fd::AsFd, budget: Duration) -> std::io::Result<Self> {
@@ -177,6 +177,14 @@ impl MacOsUntrustedWriterEndpointHandoffV1 {
         fcntl(&self.control, FcntlArg::F_GETFD)
             .is_ok_and(|flags| FdFlag::from_bits_retain(flags).contains(FdFlag::FD_CLOEXEC))
     }
+}
+
+fn ingress_deadline() -> Duration {
+    #[cfg(feature = "test-support")]
+    if runne_api::test_support::validated_local_native_enrollment_case_name().is_some() {
+        return Duration::from_secs(10);
+    }
+    PRODUCTION_DEADLINE
 }
 
 #[cfg(test)]

@@ -6,7 +6,7 @@ use runne_provider::{
 };
 use runne_secure_store::{
     NativeProviderCredentialReaders, ProviderCredentialAccessPolicy,
-    ProviderCredentialDispatchMaterializer, ProviderCredentialReadback,
+    ProviderCredentialDispatchMaterializer, ProviderCredentialId, ProviderCredentialReadback,
 };
 use runne_store::provider::SqliteProviderCredentialLifecycleStore;
 use runne_store::schema::ManagedConnection;
@@ -23,10 +23,11 @@ pub(super) struct ComposedCredentialReaders {
 
 pub(super) fn compose(
     connection: ManagedConnection,
+    _credential_id: ProviderCredentialId,
     access: ProviderCredentialAccessPolicy,
 ) -> Result<ComposedCredentialReaders, DaemonError> {
     let (lifecycle_authority, readback, dispatch, _) =
-        NativeProviderCredentialReaders::new(access).into_parts();
+        NativeProviderCredentialReaders::new(access.clone()).into_parts();
     let (enrollment_store_authority, measurements) =
         CredentialEnrollmentAuthorityPair::new().split();
     let store = SqliteProviderCredentialLifecycleStore::open_with_connection_and_authorities(
@@ -35,6 +36,8 @@ pub(super) fn compose(
         enrollment_store_authority.clone(),
     )
     .map_err(|_| DaemonError::Bootstrap("provider credential lifecycle unavailable".into()))?;
+    #[cfg(feature = "test-support")]
+    prove_existing_local_material(&store, _credential_id, &access)?;
     Ok(ComposedCredentialReaders {
         store: Arc::new(store),
         readback,
@@ -42,6 +45,35 @@ pub(super) fn compose(
         measurements,
         enrollment_store_authority,
     })
+}
+
+#[cfg(feature = "test-support")]
+fn prove_existing_local_material(
+    store: &SqliteProviderCredentialLifecycleStore,
+    credential_id: ProviderCredentialId,
+    access: &ProviderCredentialAccessPolicy,
+) -> Result<(), DaemonError> {
+    use runne_provider::{ProviderCredentialEnrollmentStore as _, ProviderId};
+
+    if !runne_api::test_support::local_native_enrollment_enabled() {
+        return Ok(());
+    }
+    let provider = ProviderId::new(credential_id.account())
+        .map_err(|_| DaemonError::Bootstrap("credential reader probe unavailable".into()))?;
+    let lifecycle = match store.lifecycle_snapshot(&provider) {
+        Ok(value) => value,
+        Err(runne_provider::CredentialLifecycleError::NotFound) => return Ok(()),
+        Err(_) => {
+            return Err(DaemonError::Bootstrap(
+                "credential reader probe unavailable".into(),
+            ));
+        }
+    };
+    if let Some(reference) = lifecycle.active_version() {
+        runne_secure_store::test_support::prove_current_reader_can_load_exact(reference, access)
+            .map_err(|_| DaemonError::Bootstrap("credential reader probe unavailable".into()))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

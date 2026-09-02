@@ -49,6 +49,32 @@ unsafe extern "C" {
         trusted_list: CFArrayRef,
         access: *mut SecAccessRef,
     ) -> OSStatus;
+    fn SecAccessCopyOwnerAndACL(
+        access: SecAccessRef,
+        user_id: *mut libc::uid_t,
+        group_id: *mut libc::gid_t,
+        owner_type: *mut u32,
+        acl_list: *mut CFArrayRef,
+    ) -> OSStatus;
+    fn SecAccessCreateWithOwnerAndACL(
+        user_id: libc::uid_t,
+        group_id: libc::gid_t,
+        owner_type: u32,
+        acl_list: CFArrayRef,
+        error: *mut CFTypeRef,
+    ) -> SecAccessRef;
+    fn SecAccessGetOwnerAndACL(
+        access: SecAccessRef,
+        owner: *mut *mut std::ffi::c_void,
+        acl_count: *mut u32,
+        acls: *mut *mut std::ffi::c_void,
+    ) -> OSStatus;
+    fn SecAccessCreateFromOwnerAndACL(
+        owner: *const std::ffi::c_void,
+        acl_count: u32,
+        acls: *const std::ffi::c_void,
+        access: *mut SecAccessRef,
+    ) -> OSStatus;
     fn SecAccessCopyMatchingACLList(access: SecAccessRef, authorization: CFTypeRef) -> CFArrayRef;
     fn SecACLCopyContents(
         acl: CFTypeRef,
@@ -56,14 +82,31 @@ unsafe extern "C" {
         description: *mut CFStringRef,
         prompt_selector: *mut u16,
     ) -> OSStatus;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "local-native-enrollment-test"))]
     fn SecACLSetContents(
         acl: CFTypeRef,
         application_list: CFArrayRef,
         description: CFStringRef,
         prompt_selector: u16,
     ) -> OSStatus;
+    fn SecACLCreateWithSimpleContents(
+        access: SecAccessRef,
+        application_list: CFArrayRef,
+        description: CFStringRef,
+        prompt_selector: u16,
+        acl: *mut CFTypeRef,
+    ) -> OSStatus;
+    fn SecACLUpdateAuthorizations(acl: CFTypeRef, authorizations: CFArrayRef) -> OSStatus;
     fn SecKeychainItemCopyAccess(item: SecKeychainItemRef, access: *mut SecAccessRef) -> OSStatus;
+    #[cfg(feature = "local-native-enrollment-test")]
+    fn SecKeychainItemSetAccessWithPassword(
+        item: SecKeychainItemRef,
+        access: SecAccessRef,
+        password_length: u32,
+        password: *const std::ffi::c_void,
+    ) -> OSStatus;
+    #[cfg(feature = "local-native-enrollment-test")]
+    fn SecKeychainItemSetAccess(item: SecKeychainItemRef, access: SecAccessRef) -> OSStatus;
     fn SecKeychainItemCreateFromContent(
         item_class: u32,
         attributes: *mut SecKeychainAttributeList,
@@ -94,6 +137,14 @@ unsafe extern "C" {
     ) -> OSStatus;
     fn SecKeychainSearchCopyNext(search: CFTypeRef, item: *mut SecKeychainItemRef) -> OSStatus;
     static kSecACLAuthorizationDecrypt: CFStringRef;
+    static kSecACLAuthorizationAny: CFStringRef;
+    static kSecACLAuthorizationEncrypt: CFStringRef;
+    static kSecACLAuthorizationDelete: CFStringRef;
+    static kSecACLAuthorizationKeychainItemModify: CFStringRef;
+    static kSecACLAuthorizationKeychainItemDelete: CFStringRef;
+    static kSecACLAuthorizationKeychainItemRead: CFStringRef;
+    static kSecACLAuthorizationPartitionID: CFStringRef;
+    static kSecACLAuthorizationChangeACL: CFStringRef;
 }
 
 /// Closed failure returned by the ACL wrapper.

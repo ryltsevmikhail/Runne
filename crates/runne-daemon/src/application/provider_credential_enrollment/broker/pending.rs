@@ -49,6 +49,7 @@ const MAX_PENDING: usize = 64;
 struct PendingEntry {
     binding: PendingBrokerRendezvousBinding,
     authority_witness: ProviderCredentialBrokerHandoffWitness,
+    broker_transfer: Option<ProviderCredentialBrokerTransferAuthority>,
     #[cfg(unix)]
     rendezvous: DaemonOwnedUnixBrokerRendezvous,
 }
@@ -58,6 +59,7 @@ struct PendingEntry {
 pub(crate) struct PendingBrokerEndpointHandoff {
     binding: PendingBrokerRendezvousBinding,
     authority_witness: ProviderCredentialBrokerHandoffWitness,
+    broker_transfer: Option<ProviderCredentialBrokerTransferAuthority>,
     rendezvous: DaemonOwnedUnixBrokerRendezvous,
 }
 
@@ -148,6 +150,7 @@ impl PendingBrokerRendezvousRegistry {
         Ok(PendingBrokerEndpointHandoff {
             binding: entry.binding,
             authority_witness: entry.authority_witness,
+            broker_transfer: entry.broker_transfer,
             rendezvous: entry.rendezvous,
         })
     }
@@ -182,6 +185,12 @@ impl PendingBrokerEndpointHandoff {
 
 #[cfg(all(unix, feature = "desktop-protected"))]
 impl PendingBrokerEndpointHandoff {
+    pub(crate) fn take_broker_transfer(
+        &mut self,
+    ) -> Option<ProviderCredentialBrokerTransferAuthority> {
+        self.broker_transfer.take()
+    }
+
     /// Sends the endpoint and keeps only opaque authority pending later native admission.
     pub(crate) fn send_endpoint(
         mut self,

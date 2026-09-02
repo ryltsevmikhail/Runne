@@ -126,6 +126,16 @@ impl PackagedWriterArtifacts {
             .ok_or(MacOsPackagedWriterObservationError::Rejected)
     }
 
+    #[cfg(feature = "test-support")]
+    pub(crate) fn local_writer_main_executable(&self) -> PathBuf {
+        self.application_path.join("Contents/MacOS/runne")
+    }
+
+    #[cfg(feature = "test-support")]
+    pub(crate) fn local_daemon_main_executable(&self) -> PathBuf {
+        self.application_path.join("Contents/MacOS/runned")
+    }
+
     #[cfg(test)]
     pub(crate) fn test_only_require_writer_main_locator(
         &self,

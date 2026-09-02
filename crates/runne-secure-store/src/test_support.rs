@@ -8,6 +8,16 @@ use crate::{
     StoredSecurityAnchor,
 };
 
+mod provider_credential;
+pub use provider_credential::prove_current_reader_can_load_exact;
+
+/// Returns true only for the exact disposable real-writer released-edge case.
+#[must_use]
+pub fn local_writer_death_after_release_enabled() -> bool {
+    runne_api::test_support::local_native_enrollment_case()
+        == Some(runne_api::test_support::LocalNativeEnrollmentCase::DeathReleased)
+}
+
 struct TestLock<'a> {
     profile: [u8; 32],
     _guard: std::sync::MutexGuard<'a, ()>,

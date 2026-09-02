@@ -109,6 +109,10 @@ pub fn match_retained_code_identities(
     writer: &PackagedLiveProcessObservation,
     daemon: &PackagedLiveProcessObservation,
 ) -> Result<(), MacOsPackagedWriterObservationError> {
+    #[cfg(feature = "test-support")]
+    if runne_api::test_support::local_native_enrollment_enabled() {
+        return match_local_code_identities(package, writer, daemon);
+    }
     let desktop_path = package.desktop_main_executable()?;
     let desktop_url = core_foundation::url::CFURL::from_path(&desktop_path, false)
         .ok_or(MacOsPackagedWriterObservationError::Rejected)?;
@@ -117,6 +121,87 @@ pub fn match_retained_code_identities(
     match_static_code(release, SignedCodeRole::Desktop, &desktop)?;
     match_dynamic_code(release, SignedCodeRole::Writer, writer.native_code().code())?;
     match_dynamic_code(release, SignedCodeRole::Daemon, daemon.native_code().code())
+}
+
+#[cfg(feature = "test-support")]
+fn match_local_code_identities(
+    package: &PackagedWriterArtifacts,
+    writer: &PackagedLiveProcessObservation,
+    daemon: &PackagedLiveProcessObservation,
+) -> Result<(), MacOsPackagedWriterObservationError> {
+    let desktop_path = package.desktop_main_executable()?;
+    let writer_path = package.local_writer_main_executable();
+    let daemon_path = package.local_daemon_main_executable();
+    let requirements = [
+        local_requirement(&desktop_path)?,
+        local_requirement(&writer_path)?,
+        local_requirement(&daemon_path)?,
+    ];
+    if requirements[0] == requirements[1]
+        || requirements[0] == requirements[2]
+        || requirements[1] == requirements[2]
+    {
+        return Err(MacOsPackagedWriterObservationError::Rejected);
+    }
+    let desktop_url = core_foundation::url::CFURL::from_path(&desktop_path, false)
+        .ok_or(MacOsPackagedWriterObservationError::Rejected)?;
+    let desktop = SecStaticCode::from_path(&desktop_url, Flags::NONE)
+        .map_err(|_| MacOsPackagedWriterObservationError::Rejected)?;
+    check_local_static(&desktop, &requirements[0])?;
+    check_local_dynamic(writer.native_code().code(), &requirements[1])?;
+    check_local_dynamic(daemon.native_code().code(), &requirements[2])
+}
+
+#[cfg(feature = "test-support")]
+fn local_requirement(
+    path: &std::path::Path,
+) -> Result<String, MacOsPackagedWriterObservationError> {
+    let output = std::process::Command::new("/usr/bin/codesign")
+        .args(["-d", "-r", "-", "--"])
+        .arg(path)
+        .output()
+        .map_err(|_| MacOsPackagedWriterObservationError::Unavailable)?;
+    if !output.status.success() {
+        return Err(MacOsPackagedWriterObservationError::Rejected);
+    }
+    std::str::from_utf8(&output.stdout)
+        .ok()
+        .and_then(|text| {
+            text.lines().find_map(|line| {
+                line.strip_prefix("designated => ")
+                    .or_else(|| line.strip_prefix("# designated => "))
+            })
+        })
+        .map(str::to_owned)
+        .ok_or(MacOsPackagedWriterObservationError::Rejected)
+}
+
+#[cfg(feature = "test-support")]
+fn check_local_static(
+    code: &SecStaticCode,
+    requirement: &str,
+) -> Result<(), MacOsPackagedWriterObservationError> {
+    let requirement = SecRequirement::from_str(requirement)
+        .map_err(|_| MacOsPackagedWriterObservationError::Rejected)?;
+    code.check_validity(
+        Flags::STRICT_VALIDATE | Flags::NO_NETWORK_ACCESS,
+        &requirement,
+    )
+    .map_err(|_| MacOsPackagedWriterObservationError::Rejected)
+}
+
+#[cfg(feature = "test-support")]
+fn check_local_dynamic(
+    code: &SecCode,
+    requirement: &str,
+) -> Result<(), MacOsPackagedWriterObservationError> {
+    let requirement = SecRequirement::from_str(requirement)
+        .map_err(|_| MacOsPackagedWriterObservationError::Rejected)?;
+    code.check_validity(
+        Flags::STRICT_VALIDATE | Flags::NO_NETWORK_ACCESS,
+        &requirement,
+    )
+    .map_err(|_| MacOsPackagedWriterObservationError::Rejected)
 }
 
 fn match_static_code(

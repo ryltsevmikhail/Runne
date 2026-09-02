@@ -27,6 +27,12 @@ pub use enrollment_qualification::{
 mod enrollment_admission;
 pub use enrollment_admission::NativeEnrollmentTupleAdmission;
 
+#[cfg(all(feature = "test-support", target_os = "macos", target_arch = "aarch64"))]
+#[path = "updater_metadata/local_enrollment_fixture.rs"]
+mod local_enrollment_fixture;
+#[cfg(all(feature = "test-support", target_os = "macos", target_arch = "aarch64"))]
+pub use local_enrollment_fixture::prepare_local_native_enrollment;
+
 include!("updater_metadata/enrollment_tuple.rs");
 
 #[derive(Clone, Debug, Eq, PartialEq)]

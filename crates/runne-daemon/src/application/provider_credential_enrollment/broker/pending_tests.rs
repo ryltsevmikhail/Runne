@@ -46,6 +46,7 @@ fn matching_foreign_transfer_key_is_rejected_before_endpoint_handoff() {
     let handoff = PendingBrokerEndpointHandoff {
         binding,
         authority_witness: authority_a.credential_broker_handoff_witness(),
+        broker_transfer: None,
         rendezvous: DaemonOwnedUnixBrokerRendezvous::create().unwrap(),
     };
     let (issuer_b, _) = ProviderCredentialRequestAuthorityPair::new().split();

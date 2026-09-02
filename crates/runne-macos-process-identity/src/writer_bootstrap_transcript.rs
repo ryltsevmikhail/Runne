@@ -105,13 +105,21 @@ fn observe(
 }
 
 impl PrefixBudget {
-    const fn duration(&self) -> Duration {
+    fn duration(&self) -> Duration {
         match self {
-            Self::Production => PRODUCTION_PREFIX_BUDGET,
+            Self::Production => production_or_local_prefix_budget(),
             #[cfg(test)]
             Self::Test(duration) => *duration,
         }
     }
+}
+
+fn production_or_local_prefix_budget() -> Duration {
+    #[cfg(feature = "test-support")]
+    if runne_api::test_support::validated_local_native_enrollment_case_name().is_some() {
+        return Duration::from_mins(2);
+    }
+    PRODUCTION_PREFIX_BUDGET
 }
 
 fn read_prefix<R: std::io::Read>(

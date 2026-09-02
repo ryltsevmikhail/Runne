@@ -9,7 +9,11 @@ rust-version.workspace = true
 default = []
 dev-loopback-updater = []
 protected-channel-integration = []
-test-support = ["runne-api/test-support", "runne-runtime-client/test-support"]
+test-support = [
+    "runne-api/test-support",
+    "runne-macos-process-identity/test-support",
+    "runne-runtime-client/test-support",
+]
 
 [dependencies]
 ed25519-dalek.workspace = true

@@ -9,6 +9,100 @@ use runne_domain::id::{
 use runne_domain::message::MessageText;
 use runne_domain::timestamp::Timestamp;
 
+/// Exact opt-in for the local, unqualified native-enrollment process fixture.
+#[must_use]
+pub fn local_native_enrollment_enabled() -> bool {
+    validated_local_native_enrollment_case_name().is_some()
+}
+
+fn local_native_enrollment_opted_in() -> bool {
+    std::env::var_os("RUNNE_LOCAL_NATIVE_ENROLLMENT_TEST").as_deref()
+        == Some(std::ffi::OsStr::new("1"))
+}
+
+/// Closed fault/audit cases admitted only inside the package-shaped local fixture.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LocalNativeEnrollmentCase {
+    ReleaseWrong,
+    ReleaseReplayed,
+    ReleaseMissing,
+    DeathReleased,
+    DeathReadback,
+    Leakage,
+}
+
+impl LocalNativeEnrollmentCase {
+    /// Returns the exact opaque fixture selector propagated to real children.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ReleaseWrong => "release-wrong",
+            Self::ReleaseReplayed => "release-replayed",
+            Self::ReleaseMissing => "release-missing",
+            Self::DeathReleased => "death-released",
+            Self::DeathReadback => "death-readback",
+            Self::Leakage => "leakage",
+        }
+    }
+}
+
+/// Resolves a closed local process case only after validating the owned package root.
+#[must_use]
+pub fn local_native_enrollment_case() -> Option<LocalNativeEnrollmentCase> {
+    let name = validated_local_native_enrollment_case_name()?;
+    match name.as_str() {
+        "release-wrong" => Some(LocalNativeEnrollmentCase::ReleaseWrong),
+        "release-replayed" => Some(LocalNativeEnrollmentCase::ReleaseReplayed),
+        "release-missing" => Some(LocalNativeEnrollmentCase::ReleaseMissing),
+        "death-released" => Some(LocalNativeEnrollmentCase::DeathReleased),
+        "death-readback" => Some(LocalNativeEnrollmentCase::DeathReadback),
+        "leakage" => Some(LocalNativeEnrollmentCase::Leakage),
+        _ => None,
+    }
+}
+
+/// Returns the validated fixture root and exact known scenario for child launch.
+#[must_use]
+pub fn validated_local_native_enrollment_case_name() -> Option<String> {
+    if !local_native_enrollment_opted_in() {
+        return None;
+    }
+    let root = std::fs::canonicalize(std::env::var_os("RUNNE_SLICE_E_FIXTURE_ROOT")?).ok()?;
+    let home = std::fs::canonicalize(std::env::var_os("HOME")?).ok()?;
+    let keychain = std::fs::canonicalize(std::env::var_os("RUNNE_CI_MACOS_KEYCHAIN")?).ok()?;
+    let executable = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
+    let macos = root.join("Runne.app/Contents/MacOS");
+    if !root.is_absolute()
+        || home != root.join("home")
+        || keychain != home.join("Library/Keychains/runne-ci.keychain-db")
+        || executable.parent() != Some(macos.as_path())
+        || !matches!(
+            executable.file_name()?.to_str()?,
+            "runne-desktop" | "runne" | "runned"
+        )
+    {
+        return None;
+    }
+    let scenario = std::env::var("RUNNE_SLICE_E_SCENARIO").ok()?;
+    matches!(
+        scenario.as_str(),
+        "release-wrong"
+            | "release-replayed"
+            | "release-missing"
+            | "death-released"
+            | "death-readback"
+            | "leakage"
+            | "death-prepared"
+            | "death-claimed"
+            | "joined"
+            | "wrong"
+            | "replaced"
+            | "stale"
+            | "acl"
+    )
+    .then_some(scenario)
+}
+
 /// Creates a complete Conversation promotion fixture for native host tests.
 #[must_use]
 pub fn conversation_promotion_bytes(conversation_id: [u8; 16], workspace_id: [u8; 16]) -> Vec<u8> {

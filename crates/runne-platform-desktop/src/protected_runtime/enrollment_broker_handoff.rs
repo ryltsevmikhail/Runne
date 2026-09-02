@@ -165,6 +165,9 @@ impl ProtectedBundledRuntimeProcess {
                 None,
             ),
         };
+        // Writer ingress requires the transfer socket to retain a connected
+        // peer until its inherited endpoint record has been consumed.
+        drop(endpoint_daemon_half);
 
         // Purpose 2: offer the evidence transport and answer its challenge.
         self.offer_broker_transport(

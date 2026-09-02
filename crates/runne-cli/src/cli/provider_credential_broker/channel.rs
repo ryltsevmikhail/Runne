@@ -13,7 +13,9 @@ use runne_provider::CredentialSecretInputPresence;
 use super::CliError;
 
 const SECRET_INPUT_DESCRIPTOR: RawFd = 3;
-const SECRET_INPUT_TIMEOUT: Duration = Duration::from_secs(5);
+const PRODUCTION_SECRET_INPUT_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(feature = "local-native-enrollment-test")]
+const LOCAL_SECRET_INPUT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Detected descriptor responsibility that remains unopened until after claim.
 pub struct InheritedSecretInputSlot {
@@ -37,7 +39,7 @@ impl InheritedSecretInputSlot {
     /// Adopts fd 3 only after claim, validates a read-only pipe and closes the
     /// original inherited slot immediately after duplication.
     pub fn adopt(self) -> Result<InheritedSecretInput, CliError> {
-        self.adopt_with_timeout(SECRET_INPUT_TIMEOUT)
+        self.adopt_with_timeout(secret_input_timeout())
     }
 
     fn adopt_with_timeout(
@@ -77,6 +79,15 @@ impl InheritedSecretInputSlot {
             Err(_) => Err(CliError::CredentialOperation),
         }
     }
+}
+
+const fn secret_input_timeout() -> Duration {
+    #[cfg(feature = "local-native-enrollment-test")]
+    {
+        return LOCAL_SECRET_INPUT_TIMEOUT;
+    }
+    #[cfg(not(feature = "local-native-enrollment-test"))]
+    PRODUCTION_SECRET_INPUT_TIMEOUT
 }
 
 /// Read-only adopted pipe with one fixed whole-envelope deadline.

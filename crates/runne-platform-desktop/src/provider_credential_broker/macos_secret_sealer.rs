@@ -54,7 +54,9 @@ impl AuthenticatedPairSecretSealer {
         runne_provider::CredentialSecretPublicationCodec::decode(publication)
             .map_err(|_| BrokerHandoffError::Rejected)?;
         let transcript = OfferTranscript::parse(offer)?;
-        if publication[1..121] != offer[2..122]
+        if publication[1..57] != offer[2..58]
+            || publication[57..89] != offer[90..122]
+            || publication[89..121] != offer[58..90]
             || publication[121..153] != channel
             || publication[153..185] != daemon_public_key
         {

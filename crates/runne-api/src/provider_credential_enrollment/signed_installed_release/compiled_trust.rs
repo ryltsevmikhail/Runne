@@ -21,7 +21,7 @@ impl CompiledUpdateTrustRootV2 {
             timestamp_hex: option_env!("RUNNE_UPDATE_TIMESTAMP_HEX"),
             snapshot_hex: option_env!("RUNNE_UPDATE_SNAPSHOT_HEX"),
         };
-        Self::from_values(&values)
+        Self::from_values(&values).or_else(Self::local_test_trust)
     }
 
     /// Transfers the verified opaque trust root to an existing updater composition root.
@@ -43,6 +43,35 @@ impl CompiledUpdateTrustRootV2 {
                 (values.snapshot_id, key(values.snapshot_hex)?),
             ),
         })
+    }
+
+    #[cfg(feature = "test-support")]
+    fn local_test_trust() -> Option<Self> {
+        use ed25519_dalek::SigningKey;
+
+        crate::test_support::local_native_enrollment_enabled().then(|| {
+            let keys = [11_u8, 12, 13, 14, 15].map(|byte| {
+                SigningKey::from_bytes(&[byte; 32])
+                    .verifying_key()
+                    .to_bytes()
+            });
+            Self {
+                trust: UpdateTrustRootV2::from_keys(
+                    [
+                        ("root-a", keys[0]),
+                        ("root-b", keys[1]),
+                        ("root-c", keys[2]),
+                    ],
+                    ("timestamp", keys[3]),
+                    ("snapshot", keys[4]),
+                ),
+            }
+        })
+    }
+
+    #[cfg(not(feature = "test-support"))]
+    const fn local_test_trust() -> Option<Self> {
+        None
     }
 }
 

@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use nix::errno::Errno;
 use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
-use nix::sys::socket::{SockType, UnixAddr, getpeername, getsockname, getsockopt, sockopt};
+use nix::sys::socket::{SockType, UnixAddr, getsockname, getsockopt, sockopt};
 
 use super::raw_recvmsg_macos::{self, RawSegment};
 
@@ -18,7 +18,7 @@ pub(super) struct ReceivedHandoff {
 pub(super) fn receive(transport: &impl AsFd, budget: Duration) -> io::Result<ReceivedHandoff> {
     let started = Instant::now();
     let deadline = started.checked_add(budget).ok_or_else(timed_out)?;
-    require_connected_unix_stream(transport)?;
+    require_unix_stream(transport)?;
 
     let mut frame = [0; FRAME_BYTES];
     let mut descriptors = Vec::new();
@@ -101,13 +101,12 @@ fn remaining_timeout(deadline: Instant) -> io::Result<PollTimeout> {
     PollTimeout::try_from(millis).map_err(io::Error::other)
 }
 
-fn require_connected_unix_stream(transport: &impl AsFd) -> io::Result<()> {
+fn require_unix_stream(transport: &impl AsFd) -> io::Result<()> {
     if getsockopt(transport, sockopt::SockType).map_err(io::Error::from)? != SockType::Stream {
         return Err(invalid_record());
     }
     let raw = transport.as_fd().as_raw_fd();
     getsockname::<UnixAddr>(raw).map_err(|_| invalid_record())?;
-    getpeername::<UnixAddr>(raw).map_err(|_| invalid_record())?;
     Ok(())
 }
 

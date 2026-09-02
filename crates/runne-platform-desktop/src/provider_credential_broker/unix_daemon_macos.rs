@@ -68,7 +68,11 @@ pub(super) fn spawn_macos_prepared_writer(
         ))
         .map_err(|_| BrokerHandoffError::Unavailable)?;
     let arguments = [executable.as_c_str(), mode.as_c_str()];
-    let environment: [&std::ffi::CStr; 0] = [];
+    let environment_storage = local_writer_environment()?;
+    let environment: Vec<&std::ffi::CStr> = environment_storage
+        .iter()
+        .map(std::ffi::CString::as_c_str)
+        .collect();
     let spawned = posix_spawn(
         executable.as_c_str(),
         &actions,
@@ -80,6 +84,42 @@ pub(super) fn spawn_macos_prepared_writer(
     drop(transport);
     let pid = spawned?;
     UnixRetainedWriterProcess::from_pid(pid).map(|process| (process, secret_writer))
+}
+
+fn local_writer_environment() -> Result<Vec<CString>, BrokerHandoffError> {
+    #[cfg(feature = "test-support")]
+    if runne_api::test_support::local_native_enrollment_enabled() {
+        let home = std::env::var_os("HOME").ok_or(BrokerHandoffError::Rejected)?;
+        let home_path = std::path::PathBuf::from(&home);
+        let keychain =
+            std::env::var_os("RUNNE_CI_MACOS_KEYCHAIN").ok_or(BrokerHandoffError::Rejected)?;
+        let fixture_root =
+            std::env::var_os("RUNNE_SLICE_E_FIXTURE_ROOT").ok_or(BrokerHandoffError::Rejected)?;
+        let scenario = runne_api::test_support::validated_local_native_enrollment_case_name()
+            .ok_or(BrokerHandoffError::Rejected)?;
+        let keychain_path = std::path::PathBuf::from(&keychain);
+        if !home_path.is_absolute()
+            || keychain_path != home_path.join("Library/Keychains/runne-ci.keychain-db")
+            || !keychain_path.is_file()
+        {
+            return Err(BrokerHandoffError::Rejected);
+        }
+        let pair = |name: &[u8], value: &std::ffi::OsStr| {
+            let mut bytes = name.to_vec();
+            bytes.extend_from_slice(value.as_bytes());
+            CString::new(bytes).map_err(|_| BrokerHandoffError::Rejected)
+        };
+        return Ok(vec![
+            pair(b"HOME=", &home)?,
+            pair(b"RUNNE_CI_MACOS_KEYCHAIN=", &keychain)?,
+            pair(b"RUNNE_SLICE_E_FIXTURE_ROOT=", &fixture_root)?,
+            CString::new(format!("RUNNE_SLICE_E_SCENARIO={scenario}"))
+                .map_err(|_| BrokerHandoffError::Rejected)?,
+            CString::new("RUNNE_LOCAL_NATIVE_ENROLLMENT_TEST=1")
+                .map_err(|_| BrokerHandoffError::Rejected)?,
+        ]);
+    }
+    Ok(Vec::new())
 }
 
 fn duplicate_above_reserved(

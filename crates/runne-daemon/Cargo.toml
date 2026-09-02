@@ -7,7 +7,7 @@ publish = false
 
 [features]
 default = []
-test-support = ["runne-platform-desktop?/test-support", "dep:reqwest"]
+test-support = ["runne-platform-desktop?/test-support", "runne-secure-store/test-support", "runne-provider/test-support", "dep:reqwest"]
 desktop-protected = ["dep:runne-platform-desktop", "runne-platform-desktop/protected-channel-integration", "dep:nix"]
 
 [dependencies]
@@ -77,6 +77,7 @@ rustix = { version = "=1.1.4", features = ["fs", "process"] }
 nix = { version = "=0.31.3", default-features = false, features = ["socket"], optional = true }
 
 [dev-dependencies]
+core-foundation = "=0.10.1"
 ed25519-dalek.workspace = true
 runne-provider = { path = "../runne-provider", features = ["test-support"] }
 runne-pairing-crypto = { path = "../runne-pairing-crypto" }
@@ -84,8 +85,10 @@ aho-corasick = { workspace = true }
 runne-app-core = { path = "../runne-app-core", features = ["test-support"] }
 runne-platform-desktop = { path = "../runne-platform-desktop", features = ["test-support"] }
 runne-runtime-client = { path = "../runne-runtime-client", features = ["test-support"] }
+runne-secure-store = { path = "../runne-secure-store", default-features = false, features = ["test-support"] }
 runne-sqlite-handle-identity = { path = "../runne-sqlite-handle-identity" }
 tempfile = "3"
+security-framework = { version = "=3.7.0", features = ["OSX_10_15"] }
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }
 
 [[bin]]

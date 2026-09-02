@@ -32,6 +32,7 @@ pub(super) fn production(
 ) -> Result<CredentialBoundary, DaemonError> {
     let credentials = super::super::credential_reader::compose(
         connection,
+        credential_id,
         credential_access_policy(credential_id)?,
     )?;
     let adapter = adapter_factory(Arc::clone(&credentials.dispatch))?;

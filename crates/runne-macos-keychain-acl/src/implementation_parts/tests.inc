@@ -173,15 +173,15 @@ mod tests {
     fn repeated_native_prompt_acl_rejection_releases_copied_applications() {
         let current = std::env::current_exe().unwrap();
         let exact = ExactKeychainAccess::new(&current, &current).unwrap();
-        set_access_prompt_selector(&exact.access, 1);
-        let acl_list = decrypt_acl_list(&exact.access);
+        set_access_prompt_selector(&exact.acl_source_access, 1);
+        let acl_list = decrypt_acl_list(&exact.acl_source_access);
         let applications = copy_acl_applications(&acl_list.get(0).unwrap());
         let before = applications.retain_count();
         LIVE_COPIED_APPLICATION_LISTS.store(0, Ordering::Relaxed);
 
         for _ in 0..256 {
             assert_eq!(
-                verify_access(&exact.access, exact.digest()),
+                verify_decrypt_access(&exact.acl_source_access),
                 Err(KeychainAclError::AccessDenied)
             );
         }
@@ -189,4 +189,29 @@ mod tests {
         assert_eq!(applications.retain_count(), before);
         assert_eq!(LIVE_COPIED_APPLICATION_LISTS.load(Ordering::Relaxed), 0);
     }
+
+    #[test]
+    fn noncaller_owned_access_supports_exact_detached_acl_readback() {
+        let current = std::env::current_exe().unwrap();
+        let exact = ExactKeychainAccess::new(&current, &current).unwrap();
+        assert_eq!(
+            verify_decrypt_access(&exact.creation_access).unwrap(),
+            verify_decrypt_access(&exact.acl_source_access).unwrap()
+        );
+        assert_eq!(
+            writer_access_digest(&exact.creation_access),
+            Ok(exact.writer_digest)
+        );
+        assert!(change_acl_is_owner_only(&exact.creation_access).unwrap());
+        let inspection = access_for_acl_inspection(&exact.creation_access).unwrap();
+        assert!(!verify_noncaller_owner(&inspection).unwrap());
+        assert_eq!(
+            verify_decrypt_access(&inspection).unwrap(),
+            verify_decrypt_access(&exact.acl_source_access).unwrap()
+        );
+        assert_eq!(writer_access_digest(&inspection), Ok(exact.writer_digest));
+        assert!(change_acl_is_owner_only(&inspection).unwrap());
+        assert!(verify_noncaller_owner(&exact.creation_access).unwrap());
+    }
+
 }

@@ -1,0 +1,86 @@
+use std::fs;
+use std::path::Path;
+
+const PASSWORD_CAPABLE_SYMBOL: &[u8] = b"SecKeychainItemSetAccessWithPassword";
+const DISPOSABLE_PASSWORD: &[u8] = b"slice-e-disposable";
+
+pub(super) fn run() {
+    super::harness::dispatch(
+        "reader_and_unrelated_processes_cannot_mutate_or_read_native_item",
+        inner,
+    );
+}
+
+fn inner(context: &super::support::InnerContext) -> Result<(), &'static str> {
+    assert_reader_source_boundary()?;
+    assert_reader_binary_boundary(context.daemon())?;
+    context.run_positive_transcript()?;
+    super::native_item::assert_unrelated_denied(context.root())
+}
+
+fn assert_reader_source_boundary() -> Result<(), &'static str> {
+    let repository = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .ok_or("repository-root")?;
+    for relative in [
+        "crates/runne-daemon/src/canonical_provider/credential_reader.rs",
+        "crates/runne-daemon/src/canonical_provider/composition/credential_reader.rs",
+    ] {
+        let source = fs::read(repository.join(relative)).map_err(|_| "reader-source")?;
+        for forbidden in [
+            b"NativeProviderCredentialWriters".as_slice(),
+            b"BrokeredProviderCredentialWriter".as_slice(),
+            b"create_version".as_slice(),
+            b"delete_version".as_slice(),
+            b"set_password".as_slice(),
+            b"SetAccessWithPassword".as_slice(),
+        ] {
+            if contains(&source, forbidden) {
+                return Err("reader-writer-api");
+            }
+        }
+    }
+
+    let acl_root = repository.join("crates/runne-macos-keychain-acl/src");
+    let implementation =
+        fs::read(acl_root.join("implementation.inc")).map_err(|_| "acl-implementation-source")?;
+    if !contains(
+        &implementation,
+        b"#[cfg(feature = \"local-native-enrollment-test\")]",
+    ) || !contains(&implementation, b"local_test_keychain.inc")
+    {
+        return Err("local-finalizer-not-gated");
+    }
+    let declaration =
+        fs::read(acl_root.join("implementation_parts/foundation_and_process_lock.inc"))
+            .map_err(|_| "acl-declaration-source")?;
+    let symbol = find(&declaration, PASSWORD_CAPABLE_SYMBOL).ok_or("acl-symbol-missing")?;
+    let prefix = &declaration[..symbol];
+    if !prefix.ends_with(b"#[cfg(feature = \"local-native-enrollment-test\")]\n    fn ") {
+        return Err("acl-symbol-not-gated");
+    }
+    Ok(())
+}
+
+fn assert_reader_binary_boundary(path: &Path) -> Result<(), &'static str> {
+    let binary = fs::read(path).map_err(|_| "runned-binary")?;
+    if contains(&binary, PASSWORD_CAPABLE_SYMBOL) || contains(&binary, DISPOSABLE_PASSWORD) {
+        return Err("runned-password-capability");
+    }
+    Ok(())
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    find(haystack, needle).is_some()
+}
+
+fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    (!needle.is_empty())
+        .then(|| {
+            haystack
+                .windows(needle.len())
+                .position(|part| part == needle)
+        })
+        .flatten()
+}

@@ -79,7 +79,7 @@ impl ProviderCredentialBroker {
         channel: &mut C,
     ) -> Result<IssuedCredentialTicketAttempt, ProviderCredentialEnrollmentHostError> {
         self.issue_ticket_with_raw(
-            RawCredentialTicket::generate(),
+            generate_ticket(),
             operation,
             continuation,
             context,
@@ -177,6 +177,19 @@ impl ProviderCredentialBroker {
         channel.send_issue(&receipt, frame)?;
         Ok(receipt)
     }
+}
+
+fn generate_ticket() -> Result<RawCredentialTicket, CredentialEnrollmentError> {
+    #[cfg(feature = "test-support")]
+    if runne_api::test_support::local_native_enrollment_case()
+        == Some(runne_api::test_support::LocalNativeEnrollmentCase::Leakage)
+    {
+        return RawCredentialTicket::generate_with_test_entropy(|bytes| {
+            bytes.fill(0xa7);
+            Ok(())
+        });
+    }
+    RawCredentialTicket::generate()
 }
 
 fn map_ticket_generation(
