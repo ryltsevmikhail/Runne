@@ -96,4 +96,29 @@
   :root {
     --wrap: calc(100% - 32px);
   }
+
+  .brand img {
+    width: 112px;
+    height: auto;
+  }
+
+  .nav-actions {
+    gap: 8px;
+  }
+
+  .lang-switch {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+
+  .site-nav .btn {
+    height: 32px;
+    padding: 0 10px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .site-nav .btn-arrow {
+    display: none;
+  }
 }
