@@ -45,6 +45,12 @@
     gap: 18px;
   }
 
+  .budget-monitor {
+    position: static;
+    width: auto;
+    margin: 0 16px 14px;
+  }
+
   .nav-links {
     display: none;
   }
