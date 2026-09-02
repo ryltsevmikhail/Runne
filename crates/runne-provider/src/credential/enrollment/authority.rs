@@ -15,10 +15,16 @@ use super::{
 pub(crate) mod claim;
 mod legacy_import;
 mod migration_metadata;
+mod pair;
+mod service_protocol;
 mod ticket;
 mod validation;
 pub mod writer;
 pub use legacy_import::CredentialLegacyImportAuthorization;
+pub use service_protocol::{
+    CredentialDispatchEffectReceiptAuthority, CredentialRuntimeArmAuthority,
+    CredentialRuntimeReadAuthority,
+};
 #[derive(Debug)]
 pub(crate) struct EnrollmentAuthoritySeal;
 
@@ -26,33 +32,6 @@ pub(crate) struct EnrollmentAuthoritySeal;
 pub struct CredentialEnrollmentAuthorityPair {
     store: CredentialEnrollmentStoreAuthority,
     measurements: CredentialEnrollmentMeasurementAuthority,
-}
-
-impl CredentialEnrollmentAuthorityPair {
-    /// Creates one isolated authority pair.
-    pub fn new() -> Self {
-        let seal = Arc::new(EnrollmentAuthoritySeal);
-        Self {
-            store: CredentialEnrollmentStoreAuthority { seal: seal.clone() },
-            measurements: CredentialEnrollmentMeasurementAuthority { seal },
-        }
-    }
-
-    /// Separates the store issuer from the independent measurement issuer.
-    pub fn split(
-        self,
-    ) -> (
-        CredentialEnrollmentStoreAuthority,
-        CredentialEnrollmentMeasurementAuthority,
-    ) {
-        (self.store, self.measurements)
-    }
-}
-
-impl Default for CredentialEnrollmentAuthorityPair {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 /// Store-side authority that exclusively issues enrollment transition commands.

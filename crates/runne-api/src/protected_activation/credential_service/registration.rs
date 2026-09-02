@@ -72,6 +72,38 @@ impl CredentialServiceRegistrationBinding {
     pub const fn installed_generation(&self) -> u64 {
         self.installed_generation
     }
+    #[must_use]
+    pub const fn daemon_authority_generation(&self) -> u64 {
+        self.daemon_authority_generation
+    }
+    #[must_use]
+    pub const fn runtime_generation(&self) -> u64 {
+        self.runtime_generation
+    }
+    #[must_use]
+    pub const fn supervisor_generation(&self) -> u64 {
+        self.supervisor_generation
+    }
+    #[must_use]
+    pub const fn installation_owner(&self) -> &[u8; 32] {
+        &self.installation_owner
+    }
+    #[must_use]
+    pub const fn release_binding(&self) -> &[u8; 32] {
+        &self.release_binding
+    }
+    #[must_use]
+    pub const fn challenge_nonce(&self) -> &[u8; 16] {
+        &self.challenge_nonce
+    }
+    #[must_use]
+    pub const fn join_attempt(&self) -> u64 {
+        self.join_attempt
+    }
+    #[must_use]
+    pub const fn expires_at_unix_millis(&self) -> u64 {
+        self.expires_at_unix_millis
+    }
 }
 
 pub struct CredentialServiceRegistrationRequest {

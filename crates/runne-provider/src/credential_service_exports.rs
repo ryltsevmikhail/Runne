@@ -1,0 +1,17 @@
+pub use credential::{
+    CredentialDispatchEffectReceipt, CredentialDispatchEffectReceiptAuthority,
+    CredentialMaterial, CredentialMetadataReadbackAdmission, CredentialMetadataReadbackRequest,
+    CredentialMutationGrant, CredentialMutationGrantDigest, CredentialPointOfUseReadAdmission,
+    CredentialPointOfUseReadRequest, CredentialRuntimeArmAuthority,
+    CredentialRuntimeMutationAdmission, CredentialRuntimeMutationArmRequest,
+    CredentialRuntimeMutationPlan, CredentialRuntimeReadAuthority, CredentialRuntimeReadBinding,
+    CredentialServiceCorrelation,
+    CredentialServiceDeadline, CredentialServiceDisposition, CredentialServiceEndpointRole,
+    CredentialServiceEpoch, CredentialServiceIngressRequest, CredentialServiceProtocolCodec,
+    CredentialServiceReconciliationRequired, CredentialServiceReply, CredentialServiceReplyFrame,
+    CredentialServiceRequest, CredentialServiceRequestContext, CredentialServiceRequestFrame,
+    CredentialServiceRequestKind, CredentialServiceRequestSequence,
+    CredentialWriterBrokerHandoffFrame, CredentialWriterConsumeRequest,
+    CredentialWriterIngressRequest,
+    CredentialWriterServiceBindingHandoff,
+};

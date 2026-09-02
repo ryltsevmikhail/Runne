@@ -4320,6 +4320,7 @@ dependencies = [
  "futures",
  "rand 0.8.7",
  "ring",
+ "runne-api",
  "runne-domain",
  "serde",
  "serde_jcs",

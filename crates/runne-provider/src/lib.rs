@@ -202,6 +202,8 @@ mod recovery;
 mod stream;
 mod text_profile;
 
+include!("credential_service_exports.rs");
+
 pub use coordination::{
     PreparedProviderRecord, ProviderDispatchClaim, ProviderDispatchRepository,
     ProviderPreEffectRejection, ProviderRepositoryClaimOutcome, ProviderRepositoryError,

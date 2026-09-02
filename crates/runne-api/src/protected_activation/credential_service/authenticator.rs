@@ -1,7 +1,7 @@
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use super::super::ProtectedActivationKeys;
 use super::{
@@ -15,6 +15,8 @@ const REGISTRATION_DOMAIN: &[u8] = b"gocode/macos-credential-service/registratio
 const ACK_DOMAIN: &[u8] = b"gocode/macos-credential-service/registration-ack/v1\0";
 const XPC_DOMAIN: &[u8] = b"gocode/macos-credential-service/xpc/v1\0";
 const DESKTOP_REGISTRATION_ROLE: u8 = 1;
+
+mod transport;
 
 /// Move-only registration secret. Its bytes remain available only to the authenticator.
 ///
@@ -34,7 +36,7 @@ const DESKTOP_REGISTRATION_ROLE: u8 = 1;
 /// fn needs_serde<T: serde::Deserialize<'static>>() {}
 /// needs_serde::<runne_api::CredentialServiceRegistrationSecret>();
 /// ```
-pub struct CredentialServiceRegistrationSecret(Zeroizing<[u8; 32]>);
+pub struct CredentialServiceRegistrationSecret(pub(super) Zeroizing<[u8; 32]>);
 
 /// Authenticates the immutable Desktop-to-service registration transcript.
 ///
@@ -62,10 +64,10 @@ impl CredentialServiceSessionAuthenticator {
     #[must_use]
     pub fn from_protected_activation(keys: &ProtectedActivationKeys) -> Self {
         Self {
-            secret: CredentialServiceRegistrationSecret(Zeroizing::new(derive(
+            secret: CredentialServiceRegistrationSecret(derive(
                 keys.readiness_key(),
                 DERIVATION_DOMAIN,
-            ))),
+            )),
         }
     }
 
@@ -76,7 +78,7 @@ impl CredentialServiceSessionAuthenticator {
         let payload = super::codec::encode_binding(&binding);
         Ok(CredentialServiceRegistrationRequest {
             binding,
-            mac: self.mac(REGISTRATION_DOMAIN, &payload),
+            mac: self.desktop_mac(REGISTRATION_DOMAIN, &payload),
         })
     }
 
@@ -93,7 +95,7 @@ impl CredentialServiceSessionAuthenticator {
         &self,
         request: &CredentialServiceRegistrationRequest,
     ) -> Result<(), CredentialServiceRegistrationError> {
-        let expected = self.mac(
+        let expected = self.desktop_mac(
             REGISTRATION_DOMAIN,
             &super::codec::encode_binding(&request.binding),
         );
@@ -149,7 +151,7 @@ impl CredentialServiceSessionAuthenticator {
             protected_session_id: binding.protected_session_id,
             join_attempt: binding.join_attempt,
             installed_generation: binding.installed_generation,
-            mac: self.mac(ACK_DOMAIN, &payload),
+            mac: self.desktop_mac(ACK_DOMAIN, &payload),
         })
     }
 
@@ -171,7 +173,7 @@ impl CredentialServiceSessionAuthenticator {
             return Err(CredentialServiceRegistrationError::Expired);
         }
         let payload = super::codec::encode_binding(expected);
-        if bool::from(self.mac(ACK_DOMAIN, &payload).ct_eq(&ack.mac)) {
+        if bool::from(self.desktop_mac(ACK_DOMAIN, &payload).ct_eq(&ack.mac)) {
             Ok(ack)
         } else {
             Err(CredentialServiceRegistrationError::AuthenticationFailed)
@@ -191,20 +193,36 @@ impl CredentialServiceSessionAuthenticator {
         self.registration_ack(verified, 0)
     }
 
-    fn mac(&self, domain: &[u8], payload: &[u8]) -> [u8; 32] {
-        mac(&self.secret.0, domain, payload)
+    fn desktop_mac(&self, domain: &[u8], payload: &[u8]) -> [u8; 32] {
+        mac_with_role(&self.secret.0, DESKTOP_REGISTRATION_ROLE, domain, payload)
+    }
+
+    pub(crate) fn runtime_mac(&self, domain: &[u8], payload: &[u8]) -> [u8; 32] {
+        mac_without_role_prefix(&self.secret.0, domain, payload)
     }
 }
 
-fn derive(key: &[u8; 32], domain: &[u8]) -> [u8; 32] {
+fn derive(key: &[u8; 32], domain: &[u8]) -> Zeroizing<[u8; 32]> {
     let mut value = Hmac::<Sha256>::new_from_slice(key).expect("HMAC accepts any key length");
     value.update(domain);
-    value.finalize().into_bytes().into()
+    let mut tag = value.finalize().into_bytes();
+    let mut derived = Zeroizing::new([0_u8; 32]);
+    derived.copy_from_slice(&tag);
+    tag.zeroize();
+    derived
 }
-fn mac(key: &[u8; 32], domain: &[u8], payload: &[u8]) -> [u8; 32] {
+fn mac_with_role(key: &[u8; 32], role: u8, domain: &[u8], payload: &[u8]) -> [u8; 32] {
     let mut value = Hmac::<Sha256>::new_from_slice(key).expect("HMAC accepts any key length");
     value.update(XPC_DOMAIN);
-    value.update(&[DESKTOP_REGISTRATION_ROLE]);
+    value.update(&[role]);
+    value.update(domain);
+    value.update(payload);
+    value.finalize().into_bytes().into()
+}
+
+fn mac_without_role_prefix(key: &[u8; 32], domain: &[u8], payload: &[u8]) -> [u8; 32] {
+    let mut value = Hmac::<Sha256>::new_from_slice(key).expect("HMAC accepts any key length");
+    value.update(XPC_DOMAIN);
     value.update(domain);
     value.update(payload);
     value.finalize().into_bytes().into()

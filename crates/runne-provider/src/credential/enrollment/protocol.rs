@@ -25,6 +25,8 @@ mod tests;
 pub use codec::CredentialBrokerFrameCodec;
 pub use command::{CredentialBrokerCommand, CredentialBrokerTarget};
 pub use command_codec::CredentialBrokerCommandCodec;
+#[cfg(all(test, not(feature = "test-support")))]
+pub(crate) use secret::sealed_pair_for_test;
 pub use secret::{
     CredentialSecretClaimOffer, CredentialSecretEnvelopeCodec, CredentialSecretOfferCodec,
     CredentialSecretPublication, CredentialSecretPublicationCodec, CredentialSecretRelayFrameCodec,

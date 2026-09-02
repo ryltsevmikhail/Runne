@@ -20,7 +20,7 @@ pub use publication::{CredentialSecretPublication, CredentialSecretPublicationCo
 pub use relay_frame::CredentialSecretRelayFrameCodec;
 
 /// Test-only sealed Pair relay with no signer or verifier escape hatch.
-#[cfg(feature = "test-support")]
+#[cfg(any(test, feature = "test-support"))]
 #[doc(hidden)]
 pub struct SealedPairFixture {
     /// One move-only opening capability bound to the fixture tuple.
@@ -30,7 +30,7 @@ pub struct SealedPairFixture {
 }
 
 /// Builds one fully verified relay for a known test command and channel.
-#[cfg(feature = "test-support")]
+#[cfg(any(test, feature = "test-support"))]
 #[doc(hidden)]
 pub fn sealed_pair_for_test(
     command: &super::CredentialBrokerCommand,

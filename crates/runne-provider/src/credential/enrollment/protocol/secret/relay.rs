@@ -13,6 +13,12 @@ impl CredentialDecryptedMaterial {
     pub(crate) fn consume<E>(self, callback: impl FnOnce(&[u8]) -> Result<(), E>) -> Result<(), E> {
         callback(&self.material)
     }
+
+    pub(crate) fn into_service_material(
+        self,
+    ) -> Result<crate::CredentialMaterial, crate::CredentialEnrollmentError> {
+        crate::CredentialMaterial::from_zeroizing(self.material)
+    }
 }
 
 impl core::fmt::Debug for CredentialDecryptedMaterial {

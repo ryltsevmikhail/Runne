@@ -8,6 +8,7 @@ mod operation_metadata;
 mod projection;
 mod protocol;
 mod qualified_release;
+mod service_protocol;
 mod snapshot;
 mod state;
 mod store;
@@ -19,8 +20,10 @@ pub use authority::writer::{
 };
 #[allow(unused_imports)]
 pub use authority::{
-    CredentialEnrollmentAuthorityPair, CredentialEnrollmentMeasurementAuthority,
-    CredentialEnrollmentStoreAuthority, CredentialLegacyImportAuthorization,
+    CredentialDispatchEffectReceiptAuthority, CredentialEnrollmentAuthorityPair,
+    CredentialEnrollmentMeasurementAuthority, CredentialEnrollmentStoreAuthority,
+    CredentialLegacyImportAuthorization, CredentialRuntimeArmAuthority,
+    CredentialRuntimeReadAuthority,
 };
 pub use binding::{
     BrokerChannelBinding, CandidateSourceIdentity, ContinuationBindingDigest, ContractBundleDigest,
@@ -73,6 +76,20 @@ pub use protocol::{
 #[doc(hidden)]
 pub use protocol::{SealedPairFixture, sealed_pair_for_test};
 pub use qualified_release::CredentialQualifiedReleaseTuple;
+pub use service_protocol::{
+    CredentialDispatchEffectReceipt, CredentialMaterial, CredentialMetadataReadbackAdmission,
+    CredentialMetadataReadbackRequest, CredentialMutationGrant, CredentialMutationGrantDigest,
+    CredentialPointOfUseReadAdmission, CredentialPointOfUseReadRequest,
+    CredentialRuntimeMutationAdmission, CredentialRuntimeMutationArmRequest,
+    CredentialRuntimeMutationPlan, CredentialRuntimeReadBinding, CredentialServiceCorrelation,
+    CredentialServiceDeadline, CredentialServiceDisposition, CredentialServiceEndpointRole,
+    CredentialServiceEpoch, CredentialServiceIngressRequest, CredentialServiceProtocolCodec,
+    CredentialServiceReconciliationRequired, CredentialServiceReply, CredentialServiceReplyFrame,
+    CredentialServiceRequest, CredentialServiceRequestContext, CredentialServiceRequestFrame,
+    CredentialServiceRequestKind, CredentialServiceRequestSequence,
+    CredentialWriterBrokerHandoffFrame, CredentialWriterConsumeRequest,
+    CredentialWriterIngressRequest, CredentialWriterServiceBindingHandoff,
+};
 pub use snapshot::{
     CredentialLifecycleSnapshot, CredentialOperationSnapshot, CredentialRecoveryWork,
     HardFenceProvider,
