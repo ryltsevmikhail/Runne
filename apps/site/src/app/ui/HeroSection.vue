@@ -24,7 +24,7 @@ const { c } = useSite();
         </div>
         <figure class="hero-mascot">
           <span class="state-chip">{{ c.hero.mascotLabel }}</span>
-          <img src="/mascots/hero-run.png" width="430" height="430" :alt="c.hero.mascotAlt">
+          <img src="/mascots/hero-run.jpg" width="430" height="430" :alt="c.hero.mascotAlt">
         </figure>
       </div>
 
