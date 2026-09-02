@@ -70,7 +70,9 @@ pub fn test_only_ready_v3_enrollment_supervisor() -> TestOnlyReadyV3EnrollmentSu
     drop(peer);
     let process = ProtectedBundledRuntimeProcess {
         child, channel, keys, activation, runtime_profile: None, renewal_sequence: 0,
-        root_control_sequence: 0, graceful_requested: false, enrollment_broker_facts: None,
+        #[cfg(feature = "protected-channel-integration")]
+        root_control_sequence: 0,
+        graceful_requested: false, enrollment_broker_facts: None,
         captured_stdout: None, captured_stderr: None,
     };
     let root = std::env::temp_dir().join(format!("runne-v3-test-{}", uuid::Uuid::now_v7()));
