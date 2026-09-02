@@ -42,6 +42,23 @@ fn install_verifies_mac_before_policy_and_returns_key_only_after_acceptance() {
 }
 
 #[test]
+fn registration_and_runtime_frames_transfer_allocations_without_copying() {
+    let desktop = auth(7);
+    let install = desktop.registration_install(binding()).unwrap();
+    let install_allocation = install.test_bytes().as_ptr();
+    assert_eq!(install.into_transport_bytes().as_ptr(), install_allocation);
+
+    let envelope = desktop
+        .authenticate_runtime_request([9; 32], b"canonical-provider-frame")
+        .unwrap();
+    let envelope_allocation = envelope.test_bytes().as_ptr();
+    assert_eq!(
+        envelope.into_transport_bytes().as_ptr(),
+        envelope_allocation
+    );
+}
+
+#[test]
 fn install_rejects_tamper_and_strict_frame_before_policy() {
     let desktop = auth(7);
     let install = desktop.registration_install(binding()).unwrap();

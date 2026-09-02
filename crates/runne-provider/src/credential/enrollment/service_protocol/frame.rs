@@ -44,6 +44,12 @@ macro_rules! frame_api {
                 send(&self.0)
             }
 
+            /// Moves the canonical allocation into the native transport frame.
+            #[must_use]
+            pub fn into_transport_bytes(self) -> Zeroizing<Vec<u8>> {
+                self.0
+            }
+
             #[cfg(test)]
             pub(crate) fn test_bytes(&self) -> &[u8] {
                 &self.0

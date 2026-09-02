@@ -46,6 +46,15 @@ fn decoded_runtime_binding_retains_installation_owner() {
 }
 
 #[test]
+fn canonical_frame_transfers_its_zeroizing_allocation_without_copying() {
+    let frame =
+        CredentialServiceProtocolCodec::encode_request(arm_request_with_correlation(6)).unwrap();
+    let allocation = frame.test_bytes().as_ptr();
+    let transport_bytes = frame.into_transport_bytes();
+    assert_eq!(transport_bytes.as_ptr(), allocation);
+}
+
+#[test]
 fn mutation_frame_binds_remaining_operation_and_lifecycle_fields() {
     let baseline = encoded_arm(1, 1, 1, 1, 1, 1, 1, 1, 10, 20, 8);
     for changed in [
