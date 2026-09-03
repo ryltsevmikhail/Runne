@@ -14,6 +14,7 @@ from pathlib import Path
 
 from scripts.ci_local_receipt_common import LocalInputReceiptError
 from scripts.ci_local_receipt_packages import frontend_targets
+from scripts.ci_local_receipt_paths import _private_tmpdir
 from scripts.rc0_candidate.verify_rust_inventory import _valid_toolchain
 
 
@@ -257,18 +258,6 @@ def _run(command: tuple[object, ...], environment: dict[str, str]) -> str:
         return output
     except (OSError, subprocess.SubprocessError) as error:
         raise LocalInputReceiptError("trusted executable version is unavailable") from error
-
-
-def _private_tmpdir(path: Path) -> Path:
-    try:
-        absolute, canonical = path.absolute(), path.resolve(strict=True)
-        metadata = os.stat(canonical, follow_symlinks=False)
-    except OSError as error:
-        raise LocalInputReceiptError("TMPDIR is unavailable") from error
-    if (absolute != canonical or not stat.S_ISDIR(metadata.st_mode)
-            or metadata.st_uid != os.geteuid() or stat.S_IMODE(metadata.st_mode) != 0o700):
-        raise LocalInputReceiptError("TMPDIR is not owner-private mode 0700")
-    return canonical
 
 
 def _node_major(version: str) -> int:

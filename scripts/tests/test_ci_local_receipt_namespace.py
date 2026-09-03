@@ -1,6 +1,7 @@
 import importlib
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,7 +18,8 @@ class LocalInputReceiptNamespaceTests(unittest.TestCase):
         with namespace_module.execution_namespace(runtime) as namespace:
             environment = namespace.environment
             components = environment["PATH"].split(os.pathsep)
-            self.assertEqual(components[-1], "/usr/bin")
+            expected_system_tail = "/bin" if sys.platform == "darwin" else "/usr/bin"
+            self.assertEqual(components[-1], expected_system_tail)
             self.assertNotIn(os.fspath(runtime.account_home / ".cargo/bin"), components)
             self.assertNotIn(os.fspath(runtime.base_commands["node"].parent), components)
             self.assertEqual(environment["XDG_RUNTIME_DIR"], environment["TMPDIR"])

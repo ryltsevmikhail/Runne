@@ -8,6 +8,8 @@ import secrets
 import stat
 from pathlib import Path
 
+from scripts.ci_local_path_alias import is_standard_macos_var_alias
+
 
 SCHEMA = "gocode.local-input-receipt/1"
 COMPLETE = "LOCAL_INPUTS_COMPLETE"
@@ -83,7 +85,10 @@ def private_parent(path: Path) -> tuple[int, str]:
         parent = path.parent.resolve(strict=True)
     except OSError as error:
         raise LocalInputReceiptError("receipt parent is unavailable") from error
-    if path.name in {"", ".", ".."} or parent != path.parent:
+    if path.name in {"", ".", ".."} or (
+        parent != path.parent
+        and not is_standard_macos_var_alias(path.parent, parent)
+    ):
         raise LocalInputReceiptError("receipt path is unsafe")
     flags = os.O_RDONLY | os.O_DIRECTORY
     if hasattr(os, "O_NOFOLLOW"):
