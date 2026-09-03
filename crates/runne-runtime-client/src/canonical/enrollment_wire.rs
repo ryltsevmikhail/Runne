@@ -194,7 +194,9 @@ mod provider_credential_enrollment_tests {
     }
 
     fn operation_json(kind: &str, broker: bool) -> Value {
-        json!({"operationId": "01".repeat(48), "brokerRendezvousId": broker.then_some("rendezvous"), "providerId": "openai", "operationKind": kind, "state": "completed", "lifecycleRevision": 7, "readinessRevision": 7, "cleanupPending": false, "lastDisposition": "completed"})
+        let state = if broker { "prepared" } else { "completed" };
+        let last_disposition = (!broker).then_some("completed");
+        json!({"operationId": "01".repeat(48), "brokerRendezvousId": broker.then_some("rendezvous"), "providerId": "openai", "operationKind": kind, "state": state, "lifecycleRevision": 7, "readinessRevision": 7, "cleanupPending": false, "lastDisposition": last_disposition})
     }
 
     fn status_json() -> Value {
