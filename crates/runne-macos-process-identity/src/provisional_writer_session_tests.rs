@@ -56,6 +56,7 @@ fn final_native_races_are_rejected() {
         let package = TestPackage::new(SigningMode::AdHoc);
         let output = Command::new(package.view().daemon())
             .args(["--exact", TEST_NAME, "--nocapture"])
+            .env("RUNNE_LOCAL_NATIVE_ENROLLMENT_TEST", "1")
             .env(ROLE_ENV, "daemon")
             .env(RACE_ENV, race)
             .env(WRITER_ENV, package.view().writer())

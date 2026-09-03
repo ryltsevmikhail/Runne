@@ -7,6 +7,27 @@ use crate::packaged_writer_observation::security_code::{
 use std::io::{Read as _, Write as _};
 use std::os::unix::process::CommandExt as _;
 
+struct ShortSocketPath(std::path::PathBuf);
+
+impl ShortSocketPath {
+    fn unique() -> Self {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        Self(std::path::PathBuf::from(format!(
+            "/tmp/runne-exec-{}-{nonce}",
+            std::process::id()
+        )))
+    }
+}
+
+impl Drop for ShortSocketPath {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 #[test]
 fn self_code_has_a_valid_requirement_free_native_main_executable() {
     let code = NativeCodeObservation::capture_self().unwrap();
@@ -34,15 +55,15 @@ fn an_empty_audit_token_cannot_resolve_a_guest_code() {
 
 #[test]
 fn peer_exec_drift_is_rejected_while_the_original_control_socket_remains_open() {
-    let path = std::env::temp_dir().join(format!("runne-b2b2ii-peer-exec-{}", std::process::id()));
-    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    let path = ShortSocketPath::unique();
+    let listener = std::os::unix::net::UnixListener::bind(&path.0).unwrap();
     let mut child = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
             "packaged_writer_observation_tests::security_code::peer_exec_helper",
             "--nocapture",
         ])
-        .env("RUNNE_B2B2II_PEER_EXEC_SOCKET", &path)
+        .env("RUNNE_B2B2II_PEER_EXEC_SOCKET", &path.0)
         .spawn()
         .unwrap();
     let (mut stream, _) = listener.accept().unwrap();
@@ -64,7 +85,6 @@ fn peer_exec_drift_is_rejected_while_the_original_control_socket_remains_open() 
     assert!(rejected_during_exec, "live peer exec was not rejected");
     child.kill().unwrap();
     child.wait().unwrap();
-    std::fs::remove_file(path).unwrap();
 }
 
 #[test]
