@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use block2::DynBlock;
+use block2::{DynBlock, RcBlock};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, ProtocolObject};
 use objc2::{AnyThread, DefinedClass, define_class, extern_protocol, msg_send};
@@ -9,9 +9,12 @@ use objc2_foundation::{
     NSXPCListenerDelegate,
 };
 
-use super::{CredentialServiceRequestHandler, invoke_handler};
+use super::{ConnectionActivity, CredentialServiceRequestHandler, invoke_handler};
 use crate::frame::{NativeReplyFrame, native as frame};
-use crate::{CredentialServiceEndpointConfiguration, CredentialServiceEndpointRole};
+use crate::{
+    CredentialServiceEndpointConfiguration, CredentialServiceEndpointRole,
+    CredentialServiceXpcError,
+};
 
 extern_protocol!(
     /// Exact one-frame credential-service Objective-C protocol.
@@ -51,8 +54,21 @@ define_class!(
                 )
                 .and_then(NativeReplyFrame::new)
             });
-            let data = result.map_or_else(|_| NSData::data(), |reply| frame::reply_data(&reply));
-            reply.call((std::ptr::from_ref(&*data).cast_mut(),));
+            match result {
+                Ok(response) => {
+                    let data = frame::reply_data(&response);
+                    reply.call((std::ptr::from_ref(&*data).cast_mut(),));
+                }
+                Err(CredentialServiceXpcError::Invalidated) => {
+                    if let Some(connection) = NSXPCConnection::currentConnection() {
+                        connection.invalidate();
+                    }
+                }
+                Err(_) => {
+                    let data = NSData::data();
+                    reply.call((std::ptr::from_ref(&*data).cast_mut(),));
+                }
+            }
         }
     }
 );
@@ -72,6 +88,7 @@ impl ExportedObject {
 struct ListenerDelegateIvars {
     object: Retained<ExportedObject>,
     interface: Retained<NSXPCInterface>,
+    activity: ConnectionActivity,
 }
 
 define_class!(
@@ -89,6 +106,10 @@ define_class!(
             _listener: &NSXPCListener,
             connection: &NSXPCConnection,
         ) -> bool {
+            let Some(guard) = self.ivars().activity.try_open() else {
+                return false.into();
+            };
+            connection.setInvalidationHandler(Some(&RcBlock::new(move || guard.close())));
             connection.setExportedInterface(Some(&self.ivars().interface));
             // SAFETY: the retained object implements the interface's exact protocol.
             unsafe { connection.setExportedObject(Some(&self.ivars().object)) };
@@ -99,10 +120,11 @@ define_class!(
 );
 
 impl ListenerDelegate {
-    fn new(object: Retained<ExportedObject>) -> Retained<Self> {
+    fn new(object: Retained<ExportedObject>, activity: ConnectionActivity) -> Retained<Self> {
         let this = Self::alloc().set_ivars(ListenerDelegateIvars {
             object,
             interface: frame::interface(),
+            activity,
         });
         // SAFETY: NSObject's init signature and the initialized ivars are valid.
         unsafe { msg_send![super(this), init] }
@@ -112,6 +134,7 @@ impl ListenerDelegate {
 pub(super) struct NativeListener {
     listener: Retained<NSXPCListener>,
     _delegate: Retained<ListenerDelegate>,
+    activity: ConnectionActivity,
 }
 
 impl NativeListener {
@@ -122,7 +145,8 @@ impl NativeListener {
         let endpoint = NSString::from_str(configuration.endpoint_name());
         let requirement = NSString::from_str(configuration.client_requirement().as_str());
         let object = ExportedObject::new(configuration.role(), handler);
-        let delegate = ListenerDelegate::new(object);
+        let activity = ConnectionActivity::new();
+        let delegate = ListenerDelegate::new(object, activity.clone());
         let listener = NSXPCListener::initWithMachServiceName(NSXPCListener::alloc(), &endpoint);
         listener.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
         listener.setConnectionCodeSigningRequirement(&requirement);
@@ -130,7 +154,20 @@ impl NativeListener {
         Self {
             listener,
             _delegate: delegate,
+            activity,
         }
+    }
+
+    pub(super) fn active_connections(&self) -> usize {
+        self.activity.active()
+    }
+
+    pub(super) fn close_admission(&self) {
+        self.activity.close_admission();
+    }
+
+    pub(super) fn reopen_admission(&self) {
+        self.activity.reopen_admission();
     }
 
     pub(super) fn invalidate(&self) {

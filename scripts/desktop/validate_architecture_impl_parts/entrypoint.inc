@@ -66,6 +66,8 @@ def main() -> int:
     violations += find_macos_process_identity_crate_dependency_violations(metadata["packages"])
     violations += find_macos_xpc_dependency_violations(metadata["packages"], root)
     violations += find_macos_xpc_source_violations(root)
+    violations += find_credential_service_dependency_violations(metadata["packages"], root)
+    violations += find_credential_keychain_boundary_violations(root)
     violations += find_native_writer_bootstrap_dependency_violations(metadata["packages"])
     if violations:
         for violation in violations:

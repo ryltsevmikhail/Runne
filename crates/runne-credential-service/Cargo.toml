@@ -1,0 +1,26 @@
+[package]
+name = "runne-credential-service"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+hex.workspace = true
+runne-credential-service-core = { path = "../runne-credential-service-core" }
+runne-macos-xpc = { path = "../runne-macos-xpc" }
+runne-provider = { path = "../runne-provider" }
+zeroize.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "=0.10.1"
+core-foundation-sys = "=0.8.7"
+security-framework-sys = { version = "=2.17.0", features = ["OSX_10_15"] }
+
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"
+nursery = "deny"

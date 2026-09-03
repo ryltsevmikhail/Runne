@@ -10,6 +10,7 @@ for name in (
     "macos_process_identity_crate_dependencies.inc",
     "macos_xpc_source_scan.inc",
     "macos_xpc_adapter.inc",
+    "credential_keychain_boundary.inc",
     "credential_publication.inc",
     "entrypoint.inc",
 ):
