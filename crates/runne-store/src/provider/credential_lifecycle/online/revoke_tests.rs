@@ -12,6 +12,30 @@ use super::online_test_support::{
 };
 
 #[test]
+fn credential_online_revoke_fence_survives_reopen_before_native_deletion() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("revoke-restart.sqlite");
+    let store = super::online_claim_test_support::open_test_store(&path, 100);
+    complete_pair(&store, 10, "paired-before-restart");
+    let before = ProviderCredentialEnrollmentStore::lifecycle_snapshot(&store, &provider())
+        .unwrap();
+    ProviderCredentialEnrollmentStore::begin(&store, revoke(20, "revoke-restart", 2, 2))
+        .unwrap();
+    drop(store);
+
+    let reopened = super::online_claim_test_support::open_test_store(&path, 101);
+    let after = ProviderCredentialEnrollmentStore::lifecycle_snapshot(&reopened, &provider())
+        .unwrap();
+    assert!(before.active_version().is_some());
+    assert!(after.active_version().is_none());
+    assert!(after.fence() > before.fence());
+    let pending = ProviderCredentialEnrollmentStore::load_operation(&reopened, operation(20))
+        .unwrap();
+    assert_eq!(pending.state(), runne_provider::CredentialOperationState::Prepared);
+    assert_eq!(pending.target_credential_version(), before.active_version());
+}
+
+#[test]
 fn credential_online_revoke_completes_after_committed_fence_readback_and_missing_readiness() {
     let store = store();
     complete_pair(&store, 10, "paired");
