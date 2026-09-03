@@ -99,7 +99,6 @@ class CheckDepsTests(unittest.TestCase):
         )
         for package in (
             "runne-api",
-            "runne-daemon",
             "runne-platform-desktop",
             "runne-platform-ports",
             "runne-provider",
@@ -115,6 +114,26 @@ class CheckDepsTests(unittest.TestCase):
                         [{"name": package, "dependencies": [dependency]}]
                     ),
                 )
+
+    def test_native_enrollment_authority_allows_only_exact_daemon_probe_edge(self) -> None:
+        package = {
+            "name": "runne-daemon",
+            "features": {
+                checker.NATIVE_PROBE_FEATURE: sorted(checker.NATIVE_PROBE_FEATURE_EDGES)
+            },
+            "dependencies": [{
+                "name": checker.NATIVE_ENROLLMENT_AUTHORITY,
+                "kind": None,
+                "target": checker.NATIVE_MACOS_TARGET,
+                "optional": True,
+                "rename": None,
+                "source": None,
+            }],
+        }
+        self.assertFalse(checker.native_enrollment_authority_consumer_errors([package]))
+        for field, value in (("optional", False), ("target", None), ("rename", "authority")):
+            mutated = {**package, "dependencies": [{**package["dependencies"][0], field: value}]}
+            self.assertTrue(checker.native_enrollment_authority_consumer_errors([mutated]))
 
     def test_native_enrollment_authority_ignores_dev_only_consumers(self) -> None:
         packages = [

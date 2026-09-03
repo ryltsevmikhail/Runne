@@ -38,6 +38,7 @@ POLICIES = {
     },
 }
 exec((pathlib.Path(__file__).with_name("check_deps_macos_process_identity.inc")).read_text(encoding="utf-8"))
+exec((pathlib.Path(__file__).with_name("check_deps_native_enrollment.inc")).read_text(encoding="utf-8"))
 
 EXACT_VERSION_POLICIES = {
     "runne-project-owner-authority": POLICIES["runne-project-owner-authority"],
@@ -254,26 +255,6 @@ def release_authority_boundary_errors(packages: list[dict]) -> list[str]:
     if any("runne_secure_store" in path.read_text(encoding="utf-8") for path in sources.rglob("*.rs")):
         errors.append("FAIL: runne-release-authority must not import runne-secure-store APIs")
     return errors
-
-
-def native_enrollment_authority_consumer_errors(packages: list[dict]) -> list[str]:
-    """Keep the opaque writer admission on the two writer-side edges."""
-    consumers = sorted(
-        package["name"]
-        for package in packages
-        if package["name"] not in NATIVE_ENROLLMENT_AUTHORITY_CONSUMERS
-        and any(
-            dependency["name"] == NATIVE_ENROLLMENT_AUTHORITY
-            and dependency.get("kind") != "dev"
-            for dependency in package.get("dependencies", [])
-        )
-    )
-    if not consumers:
-        return []
-    return [
-        "FAIL: runne-native-enrollment-authority has forbidden "
-        f"production consumers: {consumers}"
-    ]
 
 
 def internal_authority_edge_errors(packages: list[dict]) -> list[str]:
