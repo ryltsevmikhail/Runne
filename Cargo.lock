@@ -4404,6 +4404,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "runne-provider-conformance"
+version = "0.0.3"
+dependencies = [
+ "futures",
+ "runne-provider",
+ "runne-provider-deepseek",
+ "runne-provider-http",
+ "runne-provider-openai",
+ "serde_json",
+ "thiserror 2.0.18",
+ "zeroize",
+]
+
+[[package]]
 name = "runne-provider-deepseek"
 version = "0.1.0"
 dependencies = [
