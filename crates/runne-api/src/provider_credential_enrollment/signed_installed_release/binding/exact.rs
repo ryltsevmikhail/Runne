@@ -2,7 +2,7 @@ use runne_domain::DigestEqualityMatcherV1;
 
 use super::*;
 
-pub(crate) fn exact(
+pub(in super::super) fn exact(
     verified: VerifiedSignedUpdateMetadataV2,
     expected: [u8; 32],
 ) -> Result<VerifiedSignedInstalledReleaseV2, SignedInstalledReleaseVerificationErrorV2> {
@@ -12,7 +12,7 @@ pub(crate) fn exact(
     exact_with_matcher(verified, &DigestEqualityMatcherV1::from_expected(expected))
 }
 
-pub(crate) fn exact_with_matcher(
+pub(in super::super) fn exact_with_matcher(
     verified: VerifiedSignedUpdateMetadataV2,
     expected: &DigestEqualityMatcherV1,
 ) -> Result<VerifiedSignedInstalledReleaseV2, SignedInstalledReleaseVerificationErrorV2> {

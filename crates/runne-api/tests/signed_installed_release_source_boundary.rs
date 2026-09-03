@@ -115,9 +115,11 @@ fn desktop_delegates_without_duplicate_release_crypto() {
 
 #[test]
 fn only_exact_verifier_constructs_exact_installed_release() {
-    let binding = Path::new(env!("CARGO_MANIFEST_DIR"))
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src/provider_credential_enrollment/signed_installed_release/binding.rs");
-    let source = read(&binding);
+    let source = read(&directory);
+    let exact = read(&directory.with_extension("").join("exact.rs"));
+    assert!(source.contains("mod exact;"));
     assert_eq!(
         source
             .matches("pub struct VerifiedSignedInstalledReleaseV2 {")
@@ -125,30 +127,32 @@ fn only_exact_verifier_constructs_exact_installed_release() {
         1
     );
     assert_eq!(
-        source
+        exact
             .matches("Ok(VerifiedSignedInstalledReleaseV2 {")
             .count(),
         1
     );
-    assert!(source.contains("pub(super) fn exact("));
+    assert!(exact.contains("pub(in super::super) fn exact("));
     assert_eq!(
-        source.matches("pub(super) fn exact_with_matcher(").count(),
+        exact
+            .matches("pub(in super::super) fn exact_with_matcher(")
+            .count(),
         1
     );
-    let raw_exact = source
-        .split("pub(super) fn exact(")
+    let raw_exact = exact
+        .split("pub(in super::super) fn exact(")
         .nth(1)
         .unwrap()
-        .split("pub(super) fn exact_with_matcher(")
+        .split("pub(in super::super) fn exact_with_matcher(")
         .next()
         .unwrap();
     assert_eq!(raw_exact.matches("exact_with_matcher(").count(), 1);
-    let opaque_exact = source
-        .split("pub(super) fn exact_with_matcher(")
+    let opaque_exact = exact
+        .split("pub(in super::super) fn exact_with_matcher(")
         .nth(1)
         .unwrap();
-    assert!(opaque_exact.contains("candidate.release_binding_digest == [0; 32]"));
-    assert!(!source.contains("From<SignedInstalledReleaseCandidateV2>"));
+    assert!(opaque_exact.contains("release_binding == [0; 32]"));
+    assert!(!exact.contains("From<SignedInstalledReleaseCandidateV2>"));
 }
 
 #[test]

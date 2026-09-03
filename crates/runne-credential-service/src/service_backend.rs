@@ -13,6 +13,8 @@ pub enum ServiceBackend {
 }
 
 impl ServiceBackend {
+    // `MemoryBackend::default` is not const when the test-support variant exists.
+    #[allow(clippy::missing_const_for_fn)]
     pub fn new(local_fixture: bool) -> Result<Self, CredentialServiceXpcError> {
         #[cfg(feature = "test-support")]
         if local_fixture {
@@ -24,6 +26,8 @@ impl ServiceBackend {
         Ok(Self::Keychain)
     }
 
+    // The test-support memory variant mutates its item set through this same API.
+    #[allow(clippy::needless_pass_by_ref_mut)]
     pub fn mutate(&mut self, effect: CredentialMutationEffect<'_>) -> CredentialBackendResult<()> {
         match self {
             Self::Keychain => KeychainBackend::mutate(effect),

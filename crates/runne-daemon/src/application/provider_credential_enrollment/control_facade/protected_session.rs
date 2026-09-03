@@ -16,9 +16,9 @@ use runne_api::{
 };
 use runne_domain::id::{CommandId, IdempotencyKey};
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "desktop-protected"))]
 mod claim_measurements;
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "desktop-protected"))]
 mod claim_runtime;
 mod facts;
 pub(crate) use facts::ProtectedEnrollmentSessionFacts;
@@ -42,6 +42,7 @@ pub(crate) struct DaemonProtectedCredentialEnrollmentSession {
     pending: Option<VerifiedAdmission>,
     begun: Option<(BeginProviderCredentialEnrollment, ProviderCredentialOperationSnapshotV2)>,
     handoff: Option<crate::application::provider_credential_enrollment::broker::pending::PendingBrokerEndpointHandoff>,
+    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
     installed_facts: Option<runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts>,
     desktop_sequence: u64,
     daemon_sequence: u64,
@@ -53,7 +54,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
         keys: &ProtectedActivationKeys,
         facts: ProtectedEnrollmentSessionFacts,
         rendezvous: DaemonOwnedUnixBrokerRendezvous,
-        installed_facts: Option<
+        #[cfg(all(target_os = "macos", feature = "desktop-protected"))] installed_facts: Option<
             runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts,
         >,
     ) -> Result<Self, ProviderCredentialEnrollmentHostError> {
@@ -77,6 +78,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
             pending: None,
             begun: None,
             handoff: None,
+            #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
             installed_facts,
             desktop_sequence: 0,
             daemon_sequence: 0,

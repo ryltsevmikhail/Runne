@@ -21,7 +21,8 @@ mod channel_tests;
 #[cfg(test)]
 #[path = "provider_credential_broker/effect_tests.rs"]
 mod effect_tests;
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(test)]
+#[cfg(target_os = "macos")]
 #[path = "provider_credential_broker/effect_service_migration_tests.rs"]
 mod effect_service_migration_tests;
 #[cfg(test)]

@@ -18,9 +18,9 @@ mod resume;
 mod status;
 mod verified_frames;
 
-pub(crate) use control_facade::{
-    DaemonProtectedCredentialEnrollmentSession, DaemonProviderCredentialEnrollmentControl,
-};
+#[cfg(any(test, feature = "desktop-protected"))]
+pub(crate) use control_facade::DaemonProtectedCredentialEnrollmentSession;
+pub(crate) use control_facade::DaemonProviderCredentialEnrollmentControl;
 pub(crate) use coordinator::ProviderCredentialAdmission;
 use effect_authority::ProviderCredentialEffectAuthority;
 pub(crate) use host::ProviderCredentialVerificationHost;

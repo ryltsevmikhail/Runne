@@ -19,7 +19,9 @@ use super::{
     operation_handle::ProviderCredentialOperationHandleIssuer,
 };
 
+#[cfg(any(test, feature = "desktop-protected"))]
 mod protected_session;
+#[cfg(any(test, feature = "desktop-protected"))]
 pub(crate) use protected_session::{
     DaemonProtectedCredentialEnrollmentSession, ProtectedEnrollmentSessionFacts,
 };
@@ -112,6 +114,7 @@ impl DaemonProviderCredentialEnrollmentControl {
         .admit(authority, proof, context, command, now_high_water)
     }
 
+    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
     pub(crate) fn start_protected_session(
         self: &Arc<Self>,
         keys: &runne_api::ProtectedActivationKeys,
@@ -147,6 +150,7 @@ impl DaemonProviderCredentialEnrollmentControl {
             keys,
             facts,
             rendezvous,
+            #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
             None,
         )
     }
