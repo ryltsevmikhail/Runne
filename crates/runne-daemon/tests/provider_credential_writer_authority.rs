@@ -76,6 +76,11 @@ fn release_faults_and_process_death_remain_truthful_and_reaped() {
 }
 
 #[test]
+fn writer_death_readback_recovers_without_replaying_effect() {
+    release_faults::run_readback();
+}
+
+#[test]
 fn real_process_sinks_and_receipts_contain_no_sensitive_material() {
     leakage::run();
 }
