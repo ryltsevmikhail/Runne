@@ -1,4 +1,4 @@
-use runne_api::SignedInstalledReleaseCandidateV2;
+use runne_api::{SignedInstalledReleaseCandidateV2, SignedInstalledReleaseCandidateV3};
 
 /// Qualification state produced only from verified metadata and measured bytes.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -18,6 +18,21 @@ pub struct NativeEnrollmentQualificationBinding {
 impl NativeEnrollmentQualification {
     pub(super) fn from_candidate(
         candidate: Option<&SignedInstalledReleaseCandidateV2>,
+        installed_matches: bool,
+    ) -> Self {
+        candidate
+            .filter(|_| installed_matches)
+            .map_or(Self::Unqualified, |candidate| {
+                Self::Qualified(NativeEnrollmentQualificationBinding {
+                    release_tuple_sha256: candidate.release_binding_digest(),
+                    qualification_binding_sha256: candidate.qualification_binding_digest(),
+                    expires_at_unix_seconds: candidate.expires_at_unix_seconds(),
+                })
+            })
+    }
+
+    pub(super) fn from_candidate_v3(
+        candidate: Option<&SignedInstalledReleaseCandidateV3>,
         installed_matches: bool,
     ) -> Self {
         candidate

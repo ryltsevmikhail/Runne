@@ -19,6 +19,7 @@ pub struct NativeEnrollmentTupleAdmission {
     pub(super) desktop_sha256: [u8; 32],
     pub(super) writer_sha256: [u8; 32],
     pub(super) daemon_sha256: [u8; 32],
+    pub(super) credential_service_sha256: Option<[u8; 32]>,
     pub(super) release_tuple_sha256: [u8; 32],
     pub(super) candidate_source_sha256: Option<[u8; 32]>,
     pub(super) target_manifest_sha256: Option<[u8; 32]>,
@@ -26,6 +27,7 @@ pub struct NativeEnrollmentTupleAdmission {
     pub(super) macos_desktop_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
     pub(super) macos_writer_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
     pub(super) macos_daemon_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
+    pub(super) macos_credential_service_code_identity: Option<macos_identity::MacOsCodeIdentityV1>,
 }
 
 impl VerifiedUpdateV2 {
@@ -78,6 +80,7 @@ impl VerifiedUpdateV2 {
             desktop_sha256: tuple.desktop_image_digest(),
             writer_sha256: tuple.writer_image_digest(),
             daemon_sha256: tuple.daemon_image_digest(),
+            credential_service_sha256: None,
             release_tuple_sha256: candidate.map_or_else(
                 || tuple.inner_tuple_digest(),
                 runne_api::SignedInstalledReleaseCandidateV2::release_binding_digest,
@@ -90,6 +93,49 @@ impl VerifiedUpdateV2 {
             macos_desktop_code_identity: desktop,
             macos_writer_code_identity: writer,
             macos_daemon_code_identity: daemon,
+            macos_credential_service_code_identity: None,
+        })
+    }
+
+    #[must_use]
+    pub fn admit_native_enrollment_v3(
+        &self,
+        measured: &runne_api::NativeEnrollmentTupleV3,
+    ) -> Option<NativeEnrollmentTupleAdmission> {
+        let tuple = self.signed.native_enrollment_tuple_v3()?;
+        let installed_matches = tuple.matches_measured_tuple(measured);
+        if !installed_matches {
+            return None;
+        }
+        let candidate = self.signed.qualified_release_candidate_v3();
+        Some(NativeEnrollmentTupleAdmission {
+            desktop_sha256: tuple.desktop_digest(),
+            writer_sha256: tuple.writer_digest(),
+            daemon_sha256: tuple.daemon_digest(),
+            credential_service_sha256: Some(tuple.credential_service_digest()),
+            release_tuple_sha256: candidate.map_or_else(
+                || tuple.tuple_digest(),
+                runne_api::SignedInstalledReleaseCandidateV3::release_binding_digest,
+            ),
+            candidate_source_sha256: candidate
+                .map(|value| value.native_enrollment_tuple().candidate_digest()),
+            target_manifest_sha256: candidate
+                .map(runne_api::SignedInstalledReleaseCandidateV3::target_manifest_digest),
+            qualification: NativeEnrollmentQualification::from_candidate_v3(candidate, true),
+            macos_desktop_code_identity: Some(
+                macos_identity::MacOsCodeIdentityV1::from_expectation(tuple.desktop_identity()),
+            ),
+            macos_writer_code_identity: Some(
+                macos_identity::MacOsCodeIdentityV1::from_expectation(tuple.writer_identity()),
+            ),
+            macos_daemon_code_identity: Some(
+                macos_identity::MacOsCodeIdentityV1::from_expectation(tuple.daemon_identity()),
+            ),
+            macos_credential_service_code_identity: Some(
+                macos_identity::MacOsCodeIdentityV1::from_expectation(
+                    tuple.credential_service_identity(),
+                ),
+            ),
         })
     }
 

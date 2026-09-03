@@ -1,7 +1,10 @@
 use super::super::{
     MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentQualification,
-    NativeEnrollmentQualificationRowV1, NativeEnrollmentTupleV2, UpdateMetadataV2,
-    UpdateRootRoleV2, UpdateSignatureV2, UpdateSnapshotRoleV2, UpdateTargetV2,
+    MacOsCodeIdentityExpectationV1, NativeEnrollmentQualificationRowV1, NativeEnrollmentTupleV2,
+    NativeEnrollmentTupleV3, NativeEnrollmentTupleV3CodeIdentities,
+    NativeEnrollmentTupleV3Deployment, NativeEnrollmentTupleV3Digests,
+    NativeEnrollmentTupleV3ProtocolCompatibility, NativeEnrollmentTupleV3ProtocolVersions,
+    UpdateMetadataV2, UpdateRootRoleV2, UpdateSignatureV2, UpdateSnapshotRoleV2, UpdateTargetV2,
     UpdateTargetV2Binding, UpdateTargetsRoleV2, UpdateTimestampRoleV2, UpdateTrustRootV2,
     UpdateV2VerificationError, verify_update_v2,
 };
@@ -38,6 +41,76 @@ fn qualified_target(expires_at_unix_seconds: u64) -> UpdateTargetV2 {
     .unwrap();
     target.native_enrollment_tuple = Some(tuple.with_qualification(&target, qualification).unwrap());
     target
+}
+
+fn identity(identifier: &str, cdhash: char) -> MacOsCodeIdentityExpectationV1 {
+    MacOsCodeIdentityExpectationV1::new(
+        identifier,
+        "758F9Z45SR",
+        cdhash.to_string().repeat(40),
+    )
+    .unwrap()
+}
+
+fn macos_tuple_v3(target: &UpdateTargetV2, service_digest: char) -> NativeEnrollmentTupleV3 {
+    NativeEnrollmentTupleV3::new(
+        NativeEnrollmentTupleV3Digests {
+            candidate_sha256: target.release_candidate_sha256.clone(),
+            desktop_sha256: "1".repeat(64),
+            writer_sha256: "2".repeat(64),
+            daemon_sha256: "3".repeat(64),
+            credential_service_sha256: service_digest.to_string().repeat(64),
+            launch_agent_plist_sha256: "5".repeat(64),
+            entitlements_sha256: "6".repeat(64),
+            provisioning_sha256: "7".repeat(64),
+            xpc_protocol_sha256: "8".repeat(64),
+            contract_sha256: target.bundle_sha256.clone(),
+        },
+        NativeEnrollmentTupleV3Deployment::exact(NativeEnrollmentTupleV3ProtocolVersions::new(
+            vec![NativeEnrollmentTupleV3ProtocolCompatibility::new(1, 1, 2, 1, 2, 3, 3)],
+        )),
+        NativeEnrollmentTupleV3CodeIdentities::new(
+            identity("com.runne.desktop", '1'),
+            identity("runne", '2'),
+            identity("runned", '3'),
+            identity("com.runne.credential-service", '4'),
+        ),
+        target,
+    )
+    .unwrap()
+}
+
+#[test]
+fn qualified_v3_admission_requires_the_exact_remeasured_tuple() {
+    let mut target = super::updater_enrollment_macos_identity::target();
+    target.native_enrollment_tuple = None;
+    let measured = macos_tuple_v3(&target, '4');
+    let row = NativeEnrollmentQualificationRowV1::new_v3(
+        &target,
+        &measured,
+        "9".repeat(64),
+        99,
+        200,
+    )
+    .unwrap();
+    target.native_enrollment_tuple_v3 = Some(
+        measured
+            .clone()
+            .with_qualification(&target, row)
+            .unwrap(),
+    );
+    let verified = super::updater_enrollment_macos_identity::verify_target(&target).unwrap();
+
+    let admission = verified.admit_native_enrollment_v3(&measured).unwrap();
+    assert!(matches!(
+        admission.qualification(),
+        NativeEnrollmentQualification::Qualified(_)
+    ));
+    assert!(
+        verified
+            .admit_native_enrollment_v3(&macos_tuple_v3(&target, 'e'))
+            .is_none()
+    );
 }
 
 #[test]

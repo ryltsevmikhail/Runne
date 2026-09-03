@@ -41,6 +41,36 @@ impl VerifiedSignedNativeEnrollmentTupleV3 {
     pub fn credential_service_identity(&self) -> &MacOsCodeIdentityExpectationV1 {
         self.code_identities.values()[3]
     }
+    pub fn desktop_identity(&self) -> &MacOsCodeIdentityExpectationV1 {
+        self.code_identities.values()[0]
+    }
+    pub fn writer_identity(&self) -> &MacOsCodeIdentityExpectationV1 {
+        self.code_identities.values()[1]
+    }
+    pub fn daemon_identity(&self) -> &MacOsCodeIdentityExpectationV1 {
+        self.code_identities.values()[2]
+    }
+    pub const fn desktop_digest(&self) -> [u8; 32] {
+        self.digests[1]
+    }
+    pub const fn writer_digest(&self) -> [u8; 32] {
+        self.digests[2]
+    }
+    pub const fn daemon_digest(&self) -> [u8; 32] {
+        self.digests[3]
+    }
+    pub const fn credential_service_digest(&self) -> [u8; 32] {
+        self.digests[4]
+    }
+    pub const fn candidate_digest(&self) -> [u8; 32] {
+        self.digests[0]
+    }
+    pub fn matches_measured_tuple(&self, measured: &NativeEnrollmentTupleV3) -> bool {
+        measured.qualification().is_none()
+            && measured
+                .tuple_digest()
+                .is_some_and(|digest| bool::from(self.tuple_digest.ct_eq(&digest)))
+    }
     pub fn matches_release_digests(&self, candidate: &NativeEnrollmentTupleV3Digests) -> bool {
         let Some(candidate) = decode_digests(candidate) else {
             return false;
