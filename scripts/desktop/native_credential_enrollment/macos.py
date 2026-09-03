@@ -52,7 +52,7 @@ CODE_IDENTIFIERS = {
 NATIVE_STORE = {
     "access_group": f"{TEAM_ID}.com.runne.credential-service",
     "data_protection_keychain": True,
-    "accessibility": "after_first_unlock_this_device_only",
+    "accessibility": "when_unlocked_this_device_only",
     "synchronizable": False,
     "file_keychain": False,
     "environment_keychain": False,

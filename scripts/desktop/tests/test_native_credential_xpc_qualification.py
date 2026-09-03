@@ -59,7 +59,7 @@ def _row() -> dict[str, object]:
         "native_store": {
             "access_group": "758F9Z45SR.com.runne.credential-service",
             "data_protection_keychain": True,
-            "accessibility": "after_first_unlock_this_device_only",
+            "accessibility": "when_unlocked_this_device_only",
             "synchronizable": False,
             "file_keychain": False,
             "environment_keychain": False,
@@ -97,6 +97,7 @@ class MacosXpcQualificationTests(unittest.TestCase):
         store = definition["properties"]["native_store"]["properties"]
         self.assertEqual(store["data_protection_keychain"], {"const": True})
         self.assertEqual(store["file_keychain"], {"const": False})
+        self.assertEqual(store["accessibility"], {"const": "when_unlocked_this_device_only"})
 
     def test_exact_signed_isolated_dpk_row_is_structurally_valid(self) -> None:
         self.assertEqual(validate_evidence(_evidence(), "macos", _expected()), [])
@@ -124,6 +125,9 @@ class MacosXpcQualificationTests(unittest.TestCase):
 
     def test_non_dpk_or_nonisolated_context_fails_closed(self) -> None:
         cases = {
+            "wrong_accessibility": lambda row: row["native_store"].update(
+                accessibility="after_first_unlock_this_device_only"
+            ),
             "not_dpk": lambda row: row["native_store"].update(data_protection_keychain=False),
             "file_keychain": lambda row: row["native_store"].update(file_keychain=True),
             "environment_keychain": lambda row: row["native_store"].update(
