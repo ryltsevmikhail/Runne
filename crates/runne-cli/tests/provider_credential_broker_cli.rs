@@ -9,6 +9,10 @@ use std::os::fd::{AsFd as _, BorrowedFd, OwnedFd};
 #[cfg(target_os = "macos")]
 use std::os::unix::net::UnixStream;
 
+#[path = "provider_credential_broker_cli/source_helpers.rs"]
+mod source_helpers;
+use source_helpers::{broker_sources, source_path_ends_with};
+
 const BROKER_MODE: &str = "__provider-credential-broker-v1";
 #[cfg(target_os = "macos")]
 const RESPONSE_BYTES: usize = 160;
@@ -271,32 +275,4 @@ fn run_with_kept_open_stdin(arguments: &[&str]) -> Output {
     let output = child.wait_with_output().expect("collect broker output");
     drop(kept_open);
     output
-}
-
-fn broker_sources() -> Vec<(std::path::PathBuf, String)> {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut paths = Vec::new();
-    collect_rust_sources(&root, &mut paths);
-    paths
-        .into_iter()
-        .map(|path| {
-            let source = std::fs::read_to_string(&path).unwrap();
-            (path, source)
-        })
-        .collect()
-}
-
-fn source_path_ends_with(path: &std::path::Path, components: &[&str]) -> bool {
-    path.ends_with(components.iter().collect::<std::path::PathBuf>())
-}
-
-fn collect_rust_sources(directory: &std::path::Path, paths: &mut Vec<std::path::PathBuf>) {
-    for entry in std::fs::read_dir(directory).unwrap() {
-        let path = entry.unwrap().path();
-        if path.is_dir() {
-            collect_rust_sources(&path, paths);
-        } else if path.extension().is_some_and(|extension| extension == "rs") {
-            paths.push(path);
-        }
-    }
 }

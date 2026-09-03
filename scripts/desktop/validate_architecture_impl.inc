@@ -5,6 +5,7 @@ from pathlib import Path
 parts = Path(__file__).with_name("validate_architecture_impl_parts")
 for name in (
     "checks.inc",
+    "renderer_channel_checks.inc",
     "credential_service_core_dependencies.inc",
     "native_process_identity.inc",
     "macos_process_identity_crate_dependencies.inc",

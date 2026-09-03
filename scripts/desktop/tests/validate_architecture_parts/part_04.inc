@@ -210,6 +210,11 @@ class MacOsProcessIdentityDependencyTest(unittest.TestCase):
                 "dependencies": [],
             },
             {
+                "name": "runne-api",
+                "manifest_path": "/workspace/crates/runne-api/Cargo.toml",
+                "dependencies": [],
+            },
+            {
                 "name": "runne-macos-process-identity",
                 "manifest_path": "/workspace/crates/runne-macos-process-identity/Cargo.toml",
                 "dependencies": [],
