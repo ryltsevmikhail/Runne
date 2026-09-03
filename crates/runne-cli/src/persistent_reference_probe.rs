@@ -144,6 +144,8 @@ fn duplicate_stdin() -> Result<fs::File, ()> {
 mod tests {
     use super::*;
 
+    const _: () = assert!(MAX_REFERENCE_BYTES <= 1024);
+
     #[test]
     fn mode_requires_explicit_local_opt_in() {
         assert!(!selected(&[MODE.into()]));
@@ -152,6 +154,5 @@ mod tests {
         assert!(!local_opt_in(Some("1".as_ref()), Some("wrong".as_ref())));
         assert!(local_opt_in(Some("1".as_ref()), Some(MODE.as_ref())));
         assert_eq!(RECORD_MAGIC.len(), 8);
-        assert!(MAX_REFERENCE_BYTES <= 1024);
     }
 }
