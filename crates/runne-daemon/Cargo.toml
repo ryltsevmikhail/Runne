@@ -111,6 +111,11 @@ name = "protected_bundled_runtime_process"
 path = "tests/protected_bundled_runtime_process.rs"
 required-features = ["test-support", "desktop-protected"]
 
+[[test]]
+name = "provider_credential_writer_authority"
+path = "tests/provider_credential_writer_authority.rs"
+required-features = ["test-support", "desktop-protected"]
+
 [lib]
 name = "runne_daemon"
 path = "src/lib.rs"
