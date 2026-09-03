@@ -207,7 +207,9 @@ fn real_child_process_receives_a_receiver_authenticated_transfer() {
     }
     let directory = tempdir().unwrap();
     let root = open(directory.path());
-    let socket_path = directory.path().join("child.sock");
+    // CI TMPDIR may already exceed the Unix socket path limit.
+    let socket_directory = tempfile::tempdir_in("/tmp").unwrap();
+    let socket_path = socket_directory.path().join("child.sock");
     let child = Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
