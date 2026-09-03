@@ -12,9 +12,13 @@ use super::{
 };
 use crate::{ProviderCredentialAccessPolicy, ProviderCredentialMaterial, SecureStoreError};
 
+mod legacy_source;
+#[cfg(test)]
+mod legacy_source_tests;
 mod native;
 #[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
 mod native_authenticated;
+pub use legacy_source::BrokeredProviderCredentialLegacySource;
 #[cfg(test)]
 pub use native::NativeBrokeredProviderCredentialWriter;
 pub use native::{NativeProviderCredentialEffectRoute, NativeProviderCredentialWriters};

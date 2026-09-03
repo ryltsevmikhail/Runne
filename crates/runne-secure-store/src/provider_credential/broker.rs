@@ -44,8 +44,8 @@ pub use verification_readback::{
 };
 #[cfg(feature = "provider-credential-broker-writer")]
 pub use writer::{
-    BrokeredProviderCredentialWriter, NativeProviderCredentialEffectRoute,
-    NativeProviderCredentialWriters,
+    BrokeredProviderCredentialLegacySource, BrokeredProviderCredentialWriter,
+    NativeProviderCredentialEffectRoute, NativeProviderCredentialWriters,
 };
 
 #[cfg(test)]

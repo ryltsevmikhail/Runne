@@ -159,12 +159,18 @@ pub(super) fn writer_plan_for_action_with_grant(
     CredentialWriterServiceBindingHandoff,
 ) {
     let provider = ProviderId::new("provider-1").unwrap();
+    let version = CredentialVersionRef::new(provider.clone(), 1).unwrap();
+    let target = match action {
+        CredentialOperationAction::MigrateLegacy => CredentialBrokerTarget::LegacyImport(version),
+        CredentialOperationAction::LegacySourceCleanup => CredentialBrokerTarget::LegacySource,
+        _ => CredentialBrokerTarget::Version(version),
+    };
     let command = CredentialBrokerCommand::new(
         CredentialOperationId::from_bytes([1; 16]).unwrap(),
         CredentialTicketAttempt::new(1).unwrap(),
         provider.clone(),
         action,
-        CredentialBrokerTarget::Version(CredentialVersionRef::new(provider, 1).unwrap()),
+        target,
         CredentialLifecycleRevision::new(1).unwrap(),
         CredentialFence::new(1).unwrap(),
         None,

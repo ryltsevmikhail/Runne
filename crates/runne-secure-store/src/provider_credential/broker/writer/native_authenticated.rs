@@ -11,6 +11,9 @@ use runne_provider::{
     PendingCredentialIssueTicketV1,
 };
 
+use super::legacy_source::{
+    BrokeredProviderCredentialLegacySource, NativeProviderCredentialLegacySource,
+};
 use super::native::{
     NativeBrokeredProviderCredentialWriter, NativeProviderCredentialEffectRoute,
     NativeProviderCredentialWriters,
@@ -52,15 +55,28 @@ impl NativeProviderCredentialWriters {
         let (effects, writer_path, reader_path) = effect
             .into_macos_effect_parts()
             .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
-        let effect_route = build_effect_route(effects, credential_service, |effects| {
-            let access = ProviderCredentialAccessPolicy::new(&writer_path, &reader_path)?;
-            let (lifecycle, native_authority) = CredentialAuthorityPair::new().split();
-            let native = NativeProviderCredentialStore::new_versioned(native_authority);
-            let writer = NativeBrokeredProviderCredentialWriter::new(lifecycle, native);
-            Ok(Arc::new(BrokeredProviderCredentialWriterAdapter::new(
-                effects, writer, access,
-            )) as Arc<dyn BrokeredProviderCredentialWriter>)
-        })?;
+        let effect_route = build_effect_route(
+            effects,
+            credential_service,
+            |effects| {
+                let access = ProviderCredentialAccessPolicy::new(&writer_path, &reader_path)?;
+                let (lifecycle, native_authority) = CredentialAuthorityPair::new().split();
+                let native = NativeProviderCredentialStore::new_versioned(native_authority);
+                let writer = NativeBrokeredProviderCredentialWriter::new(lifecycle, native);
+                Ok(Arc::new(BrokeredProviderCredentialWriterAdapter::new(
+                    effects, writer, access,
+                ))
+                    as Arc<dyn BrokeredProviderCredentialWriter>)
+            },
+            || {
+                let access = ProviderCredentialAccessPolicy::new(&writer_path, &reader_path)?;
+                Ok(Arc::new(NativeProviderCredentialLegacySource::new(
+                    NativeProviderCredentialStore::new(),
+                    access,
+                ))
+                    as Arc<dyn BrokeredProviderCredentialLegacySource>)
+            },
+        )?;
 
         Ok(Self {
             issuer,
@@ -115,11 +131,16 @@ fn build_effect_route(
     legacy: impl FnOnce(
         runne_provider::CredentialWriterEffectAuthority,
     ) -> Result<Arc<dyn BrokeredProviderCredentialWriter>, SecureStoreError>,
+    legacy_source: impl FnOnce() -> Result<
+        Arc<dyn BrokeredProviderCredentialLegacySource>,
+        SecureStoreError,
+    >,
 ) -> Result<NativeProviderCredentialEffectRoute, SecureStoreError> {
     match credential_service {
         Some(configuration) => Ok(NativeProviderCredentialEffectRoute::CredentialService {
             effects,
             configuration,
+            legacy: legacy_source()?,
         }),
         None => legacy(effects).map(NativeProviderCredentialEffectRoute::Legacy),
     }
@@ -150,6 +171,8 @@ fn requirement(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use runne_api::MacOsCodeIdentityExpectationV1;
     use runne_macos_xpc::CredentialServiceEndpointRole;
     use runne_provider::CredentialWriterAuthorityPair;
@@ -174,9 +197,12 @@ mod tests {
         let configuration = super::writer_endpoint_configuration(&service, &writer).unwrap();
         let (_, effects) = CredentialWriterAuthorityPair::new().split();
 
-        let route = super::build_effect_route(effects, Some(configuration), |_| {
-            panic!("tuple V3 must not construct the legacy native writer")
-        })
+        let route = super::build_effect_route(
+            effects,
+            Some(configuration),
+            |_| panic!("tuple V3 must not construct the legacy native writer"),
+            || Ok(legacy_source()),
+        )
         .unwrap();
 
         assert!(matches!(
@@ -188,5 +214,14 @@ mod tests {
     fn identity(identifier: &str, cdhash: char) -> MacOsCodeIdentityExpectationV1 {
         MacOsCodeIdentityExpectationV1::new(identifier, "758F9Z45SR", cdhash.to_string().repeat(40))
             .unwrap()
+    }
+
+    fn legacy_source() -> Arc<dyn super::BrokeredProviderCredentialLegacySource> {
+        let executable = std::env::current_exe().unwrap();
+        let access = crate::ProviderCredentialAccessPolicy::new(&executable, &executable).unwrap();
+        Arc::new(super::NativeProviderCredentialLegacySource::new(
+            crate::NativeProviderCredentialStore::new(),
+            access,
+        ))
     }
 }

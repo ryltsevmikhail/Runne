@@ -147,6 +147,11 @@ impl ProviderCredentialMaterial {
     pub fn with_bytes<T>(&self, operation: impl FnOnce(&[u8]) -> T) -> T {
         operation(&self.bytes)
     }
+
+    #[cfg(feature = "provider-credential-broker-writer")]
+    pub(crate) fn into_bytes(mut self) -> Vec<u8> {
+        std::mem::take(&mut self.bytes)
+    }
 }
 
 impl fmt::Debug for ProviderCredentialMaterial {

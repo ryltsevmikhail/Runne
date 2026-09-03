@@ -2,8 +2,8 @@ use zeroize::Zeroizing;
 
 use crate::credential::enrollment::{
     BrokerChannelBinding, ClaimedWriterAuthorization, CredentialBindingDigest,
-    CredentialEnrollmentError, CredentialWriterEffectAuthority, PendingCredentialSecretOpening,
-    SealedCredentialEnvelope,
+    CredentialEnrollmentError, CredentialMaterial, CredentialOperationAction,
+    CredentialWriterEffectAuthority, PendingCredentialSecretOpening, SealedCredentialEnvelope,
 };
 
 use super::super::{
@@ -64,6 +64,31 @@ impl CredentialServiceProtocolCodec {
             channel,
         )?;
         CredentialWriterConsumeRequest::from_authenticated_control_parts(binding, grant)
+    }
+
+    /// Authenticates one legacy migration before reading its exact source item.
+    pub fn decode_authenticated_writer_legacy_handoff(
+        bytes: &[u8],
+        authorization: ClaimedWriterAuthorization,
+        effects: &CredentialWriterEffectAuthority,
+        channel: &BrokerChannelBinding,
+        claim_binding: CredentialBindingDigest,
+        load_material: impl FnOnce(
+            &crate::credential::enrollment::CredentialBrokerCommand,
+        ) -> Result<CredentialMaterial, CredentialEnrollmentError>,
+    ) -> Result<CredentialWriterConsumeRequest, CredentialEnrollmentError> {
+        let (binding, grant) = decode_handoff(bytes)?;
+        if binding.command.action() != CredentialOperationAction::MigrateLegacy {
+            return Err(CredentialEnrollmentError::InvalidInput);
+        }
+        let command = effects.authorize(
+            authorization,
+            binding.command.clone(),
+            claim_binding,
+            channel,
+        )?;
+        let material = load_material(&command)?;
+        CredentialWriterConsumeRequest::from_authenticated_parts(binding, grant, material)
     }
 }
 

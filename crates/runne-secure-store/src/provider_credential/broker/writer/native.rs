@@ -11,6 +11,7 @@ use runne_provider::{
 
 #[cfg(any(test, feature = "test-support"))]
 use super::BrokeredProviderCredentialWriterAdapter;
+use super::legacy_source::BrokeredProviderCredentialLegacySource;
 use super::{
     BrokeredCreateInput, BrokeredDeleteInput, BrokeredLegacySourceDeleteInput,
     BrokeredMigrateLegacyInput, BrokeredProviderCredentialWriter,
@@ -84,6 +85,7 @@ pub enum NativeProviderCredentialEffectRoute {
     CredentialService {
         effects: CredentialWriterEffectAuthority,
         configuration: runne_macos_xpc::CredentialServiceEndpointConfiguration,
+        legacy: Arc<dyn BrokeredProviderCredentialLegacySource>,
     },
 }
 

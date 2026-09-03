@@ -1,8 +1,17 @@
 use runne_provider::{
+    ClaimedWriterAuthorization, CredentialMaterial,
     CredentialBindingDigest, CredentialMutationGrant, CredentialRuntimeMutationPlan,
     CredentialServiceCorrelation, CredentialServiceDeadline, CredentialServiceEpoch,
     CredentialServiceProtocolCodec, CredentialServiceRequestSequence,
     CredentialWriterAuthorityPair,
+};
+use runne_secure_store::{
+    BrokeredLegacySourceDeleteInput, BrokeredMigrateLegacyInput,
+    BrokeredProviderCredentialLegacySource, SecureStoreError,
+};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
 use super::super::claim::claim_writer_authorization_with_service_parts;
@@ -28,6 +37,7 @@ fn v3_claim_requires_and_retains_the_exact_service_handoff_after_ack() {
         parts.ticket,
         &issuer,
         effects,
+        legacy_source(),
         CredentialSecretInputPresence::Present,
         writer_service_configuration(),
     );
@@ -47,11 +57,66 @@ fn v3_claim_requires_and_retains_the_exact_service_handoff_after_ack() {
             parts.ticket,
             &issuer,
             effects,
+            legacy_source(),
             CredentialSecretInputPresence::Present,
             writer_service_configuration(),
         )
         .is_err()
     );
+}
+
+#[test]
+fn v3_legacy_cleanup_claim_does_not_wait_for_a_service_handoff() {
+    let command = command(17, CredentialOperationAction::LegacySourceCleanup);
+    let (parts, written) = endpoint(
+        issue(command.clone(), binding(), [11; 32]),
+        Some(accepted(&command)),
+    );
+    let (issuer, effects) = CredentialWriterAuthorityPair::new().split();
+
+    let claimed = claim_writer_authorization_with_service_parts(
+        parts.control,
+        parts.channel,
+        parts.ticket,
+        &issuer,
+        effects,
+        legacy_source(),
+        CredentialSecretInputPresence::Absent,
+        writer_service_configuration(),
+    );
+
+    assert!(claimed.is_ok());
+    assert_one_claim(&written, false);
+}
+
+#[test]
+fn v3_legacy_cleanup_executes_only_the_narrow_legacy_delete() {
+    let command = command(18, CredentialOperationAction::LegacySourceCleanup);
+    let (parts, _) = endpoint(
+        issue(command.clone(), binding(), [11; 32]),
+        Some(accepted(&command)),
+    );
+    let (issuer, effects) = CredentialWriterAuthorityPair::new().split();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let source = Arc::new(RecordingDeleteSource(calls.clone()));
+    let claimed = claim_writer_authorization_with_service_parts(
+        parts.control,
+        parts.channel,
+        parts.ticket,
+        &issuer,
+        effects,
+        source,
+        CredentialSecretInputPresence::Absent,
+        writer_service_configuration(),
+    )
+    .unwrap();
+
+    super::super::effect::execute_non_pair_effect(
+        claimed.authorize_without_secret().unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
 fn service_handoff(command: CredentialBrokerCommand) -> Vec<u8> {
@@ -93,4 +158,49 @@ fn writer_service_configuration() -> runne_macos_xpc::CredentialServiceEndpointC
         requirement("runne", '2'),
     )
     .unwrap()
+}
+
+struct UnusedLegacySource;
+
+impl BrokeredProviderCredentialLegacySource for UnusedLegacySource {
+    fn load_exact(
+        &self,
+        _input: &BrokeredMigrateLegacyInput,
+    ) -> Result<CredentialMaterial, SecureStoreError> {
+        Err(SecureStoreError::ProviderCredentialOperationFailed)
+    }
+
+    fn delete_exact(
+        &self,
+        _effects: &runne_provider::CredentialWriterEffectAuthority,
+        _authorization: ClaimedWriterAuthorization,
+        _input: BrokeredLegacySourceDeleteInput,
+    ) -> Result<(), SecureStoreError> {
+        Err(SecureStoreError::ProviderCredentialOperationFailed)
+    }
+}
+
+fn legacy_source() -> Arc<dyn BrokeredProviderCredentialLegacySource> {
+    Arc::new(UnusedLegacySource)
+}
+
+struct RecordingDeleteSource(Arc<AtomicUsize>);
+
+impl BrokeredProviderCredentialLegacySource for RecordingDeleteSource {
+    fn load_exact(
+        &self,
+        _input: &BrokeredMigrateLegacyInput,
+    ) -> Result<CredentialMaterial, SecureStoreError> {
+        Err(SecureStoreError::ProviderCredentialOperationFailed)
+    }
+
+    fn delete_exact(
+        &self,
+        _effects: &runne_provider::CredentialWriterEffectAuthority,
+        _authorization: ClaimedWriterAuthorization,
+        _input: BrokeredLegacySourceDeleteInput,
+    ) -> Result<(), SecureStoreError> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
 }

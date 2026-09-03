@@ -92,6 +92,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
         )?;
         let service_command = service
             .as_ref()
+            .filter(|_| requires_service_arm(receipt.operation().action()))
             .map(|_| {
                 runne_provider::CredentialBrokerCommand::from_operation(
                     receipt.operation(),
@@ -109,10 +110,8 @@ impl DaemonProtectedCredentialEnrollmentSession {
             self.control.store.as_ref(),
             channel,
         )?;
-        if let Some(service) = service {
-            let handoff = service.arm_mutation(
-                service_command.ok_or(ProviderCredentialEnrollmentHostError::InvariantViolation)?,
-            )?;
+        if let (Some(service), Some(service_command)) = (service, service_command) {
+            let handoff = service.arm_mutation(service_command)?;
             channel.send_service_handoff(handoff)?;
         }
         let relay = claimed.take_secret_relay()?;
@@ -214,6 +213,13 @@ impl DaemonProtectedCredentialEnrollmentSession {
     }
 }
 
+const fn requires_service_arm(action: runne_provider::CredentialOperationAction) -> bool {
+    !matches!(
+        action,
+        runne_provider::CredentialOperationAction::LegacySourceCleanup
+    )
+}
+
 const fn production_claim_ticket_ttl_seconds() -> i64 {
     60
 }
@@ -224,4 +230,26 @@ fn claim_ticket_ttl_seconds() -> i64 {
         return 180;
     }
     production_claim_ticket_ttl_seconds()
+}
+
+#[cfg(test)]
+mod tests {
+    use runne_provider::CredentialOperationAction;
+
+    #[test]
+    fn only_legacy_source_cleanup_skips_the_credential_service_arm() {
+        for action in [
+            CredentialOperationAction::Pair,
+            CredentialOperationAction::Revoke,
+            CredentialOperationAction::MigrateLegacy,
+            CredentialOperationAction::RetiredVersionCleanup,
+            CredentialOperationAction::WriterIdentityMigrationEffect,
+            CredentialOperationAction::WriterIdentityMigrationVerify,
+        ] {
+            assert!(super::requires_service_arm(action));
+        }
+        assert!(!super::requires_service_arm(
+            CredentialOperationAction::LegacySourceCleanup
+        ));
+    }
 }

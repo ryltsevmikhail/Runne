@@ -1,21 +1,6 @@
 //! Native/service effect dispatch after an accepted writer claim.
 
-#[cfg(target_os = "macos")]
-use std::time::{Duration, Instant};
-
 use runne_provider::{CredentialBrokerFrame, CredentialOperationAction};
-#[cfg(target_os = "macos")]
-use runne_provider::{
-    BrokerChannelBinding, ClaimedWriterAuthorization, CredentialBindingDigest,
-    CredentialServiceProtocolCodec, CredentialServiceReply, CredentialServiceRequest,
-    CredentialServiceRequestContext, CredentialWriterBrokerHandoffFrame,
-    CredentialWriterEffectAuthority, PendingCredentialSecretOpening, SealedCredentialEnvelope,
-};
-#[cfg(target_os = "macos")]
-use runne_platform_ports::credential_service::{
-    CredentialServiceCallContext, CredentialServiceCancellation, CredentialServiceWriterPort,
-    CredentialServiceWriterRequest,
-};
 use runne_secure_store::{
     BrokeredCreateInput, BrokeredDeleteInput, BrokeredLegacySourceDeleteInput,
     BrokeredMigrateLegacyInput, NativeProviderCredentialEffectRoute,
@@ -25,6 +10,19 @@ use super::{
     CliError,
     claim::{AuthorizedWriterControl, NonPairWriterEffectKind},
     pair::AuthorizedPairWriterControl,
+};
+
+#[cfg(target_os = "macos")]
+#[path = "effect/service.rs"]
+mod service;
+#[cfg(target_os = "macos")]
+use service::{
+    consume_service_control, consume_service_legacy_migration, consume_service_pair,
+};
+#[cfg(all(test, target_os = "macos"))]
+pub use service::{
+    consume_service_control_with_port, consume_service_legacy_migration_with_port,
+    consume_service_pair_with_port,
 };
 
 /// Executes a sealed Pair effect only after source decoding and claim acceptance.
@@ -55,8 +53,9 @@ pub fn execute_pair_effect(authority: AuthorizedPairWriterControl) -> Result<(),
         NativeProviderCredentialEffectRoute::CredentialService {
             effects,
             configuration,
+            legacy: _,
         } => consume_service_pair(
-            effects,
+            &effects,
             configuration,
             service_handoff.ok_or(CliError::CredentialOperation)?,
             authorization,
@@ -115,10 +114,11 @@ pub fn execute_non_pair_effect(authority: AuthorizedWriterControl) -> Result<(),
             NativeProviderCredentialEffectRoute::CredentialService {
                 effects,
                 configuration,
+                legacy: _,
             },
             NonPairWriterEffectKind::Delete,
         ) => consume_service_control(
-            effects,
+            &effects,
             configuration,
             service_handoff.ok_or(CliError::CredentialOperation)?,
             authorization,
@@ -126,8 +126,36 @@ pub fn execute_non_pair_effect(authority: AuthorizedWriterControl) -> Result<(),
             binding,
         ),
         #[cfg(target_os = "macos")]
-        (NativeProviderCredentialEffectRoute::CredentialService { .. }, _) => {
-            Err(CliError::CredentialOperation)
+        (
+            NativeProviderCredentialEffectRoute::CredentialService {
+                effects,
+                configuration,
+                legacy,
+            },
+            NonPairWriterEffectKind::ImportLegacy,
+        ) => consume_service_legacy_migration(
+            &effects,
+            configuration,
+            legacy.as_ref(),
+            service_handoff.ok_or(CliError::CredentialOperation)?,
+            authorization,
+            &channel,
+            binding,
+        ),
+        #[cfg(target_os = "macos")]
+        (
+            NativeProviderCredentialEffectRoute::CredentialService {
+                effects,
+                configuration: _,
+                legacy,
+            },
+            NonPairWriterEffectKind::DeleteLegacySource,
+        ) => {
+            let input = BrokeredLegacySourceDeleteInput::new(command.clone(), binding, channel)
+                .map_err(|_| CliError::CredentialOperation)?;
+            legacy
+                .delete_exact(&effects, authorization, input)
+                .map_err(|_| CliError::CredentialOperation)
         }
     };
     control.write_frame(CredentialBrokerFrame::NativeEffectObserved {
@@ -135,144 +163,4 @@ pub fn execute_non_pair_effect(authority: AuthorizedWriterControl) -> Result<(),
         binding,
     })?;
     result
-}
-
-#[cfg(target_os = "macos")]
-#[allow(clippy::too_many_arguments)]
-fn consume_service_pair(
-    effects: CredentialWriterEffectAuthority,
-    configuration: runne_macos_xpc::CredentialServiceEndpointConfiguration,
-    handoff: CredentialWriterBrokerHandoffFrame,
-    authorization: ClaimedWriterAuthorization,
-    channel: &BrokerChannelBinding,
-    binding: CredentialBindingDigest,
-    pending: PendingCredentialSecretOpening,
-    envelope: SealedCredentialEnvelope,
-) -> Result<(), CliError> {
-    let port = runne_macos_xpc::CredentialServiceWriterXpcClient::connect(configuration)
-        .map_err(|_| CliError::CredentialOperation)?;
-    let result = consume_service_pair_with_port(
-        &port,
-        &effects,
-        handoff,
-        authorization,
-        channel,
-        binding,
-        pending,
-        envelope,
-    );
-    drop(effects);
-    result
-}
-
-#[cfg(target_os = "macos")]
-#[allow(clippy::too_many_arguments)]
-pub fn consume_service_pair_with_port(
-    port: &impl CredentialServiceWriterPort,
-    effects: &CredentialWriterEffectAuthority,
-    handoff: CredentialWriterBrokerHandoffFrame,
-    authorization: ClaimedWriterAuthorization,
-    channel: &BrokerChannelBinding,
-    binding: CredentialBindingDigest,
-    pending: PendingCredentialSecretOpening,
-    envelope: SealedCredentialEnvelope,
-) -> Result<(), CliError> {
-    let handoff = handoff.into_transport_bytes();
-    let consume = CredentialServiceProtocolCodec::decode_authenticated_writer_broker_handoff(
-        &handoff,
-        authorization,
-        effects,
-        channel,
-        binding,
-        pending,
-        envelope,
-    )
-    .map_err(|_| CliError::CredentialOperation)?;
-    let request = CredentialServiceRequest::WriterConsume(consume);
-    let reply_context = request.context();
-    let frame = CredentialServiceProtocolCodec::encode_request(request)
-        .map_err(|_| CliError::CredentialOperation)?;
-    let transport = CredentialServiceWriterRequest::from_zeroizing(frame.into_transport_bytes())
-        .map_err(|_| CliError::CredentialOperation)?;
-    consume_service_request(port, transport, reply_context)
-}
-
-#[cfg(target_os = "macos")]
-fn consume_service_request(
-    port: &impl CredentialServiceWriterPort,
-    request: CredentialServiceWriterRequest,
-    reply_context: CredentialServiceRequestContext,
-) -> Result<(), CliError> {
-    let deadline = Instant::now()
-        .checked_add(Duration::from_secs(30))
-        .ok_or(CliError::CredentialOperation)?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_time()
-        .build()
-        .map_err(|_| CliError::CredentialOperation)?;
-    let reply = runtime
-        .block_on(port.consume_mutation(
-            request,
-            CredentialServiceCallContext::new(deadline, CredentialServiceCancellation::new()),
-        ))
-        .map_err(|_| CliError::CredentialOperation)?;
-    match reply
-        .with_bytes(|bytes| {
-            CredentialServiceProtocolCodec::decode_writer_reply(bytes, reply_context)
-        })
-        .map_err(|_| CliError::CredentialOperation)?
-    {
-        CredentialServiceReply::Consumed => Ok(()),
-        _ => Err(CliError::CredentialOperation),
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn consume_service_control(
-    effects: CredentialWriterEffectAuthority,
-    configuration: runne_macos_xpc::CredentialServiceEndpointConfiguration,
-    handoff: CredentialWriterBrokerHandoffFrame,
-    authorization: ClaimedWriterAuthorization,
-    channel: &BrokerChannelBinding,
-    binding: CredentialBindingDigest,
-) -> Result<(), CliError> {
-    let port = runne_macos_xpc::CredentialServiceWriterXpcClient::connect(configuration)
-        .map_err(|_| CliError::CredentialOperation)?;
-    let result = consume_service_control_with_port(
-        &port,
-        &effects,
-        handoff,
-        authorization,
-        channel,
-        binding,
-    );
-    drop(effects);
-    result
-}
-
-#[cfg(target_os = "macos")]
-pub fn consume_service_control_with_port(
-    port: &impl CredentialServiceWriterPort,
-    effects: &CredentialWriterEffectAuthority,
-    handoff: CredentialWriterBrokerHandoffFrame,
-    authorization: ClaimedWriterAuthorization,
-    channel: &BrokerChannelBinding,
-    binding: CredentialBindingDigest,
-) -> Result<(), CliError> {
-    let handoff = handoff.into_transport_bytes();
-    let consume = CredentialServiceProtocolCodec::decode_authenticated_writer_control_handoff(
-        &handoff,
-        authorization,
-        effects,
-        channel,
-        binding,
-    )
-    .map_err(|_| CliError::CredentialOperation)?;
-    let request = CredentialServiceRequest::WriterConsume(consume);
-    let reply_context = request.context();
-    let frame = CredentialServiceProtocolCodec::encode_request(request)
-        .map_err(|_| CliError::CredentialOperation)?;
-    let transport = CredentialServiceWriterRequest::from_zeroizing(frame.into_transport_bytes())
-        .map_err(|_| CliError::CredentialOperation)?;
-    consume_service_request(port, transport, reply_context)
 }

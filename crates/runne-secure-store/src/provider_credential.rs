@@ -24,10 +24,10 @@ mod broker;
 #[cfg(feature = "provider-credential-broker-writer")]
 pub use broker::{
     BrokeredCreateInput, BrokeredDeleteInput, BrokeredLegacySourceDeleteInput,
-    BrokeredMigrateLegacyInput, BrokeredProviderCredentialWriter,
-    BrokeredWriterIdentityMigrationInput, BrokeredWriterIdentityVerificationInput,
-    NativeProviderCredentialEffectRoute, NativeProviderCredentialWriters,
-    WriterIdentityMigrationObservation,
+    BrokeredMigrateLegacyInput, BrokeredProviderCredentialLegacySource,
+    BrokeredProviderCredentialWriter, BrokeredWriterIdentityMigrationInput,
+    BrokeredWriterIdentityVerificationInput, NativeProviderCredentialEffectRoute,
+    NativeProviderCredentialWriters, WriterIdentityMigrationObservation,
 };
 pub use broker::{
     CredentialReadbackObservation, ExactAbsenceReadback, ExactVersionReadback,

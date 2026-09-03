@@ -44,10 +44,10 @@ pub use project_owner_keychain_policy::{
 #[cfg(feature = "provider-credential-broker-writer")]
 pub use provider_credential::{
     BrokeredCreateInput, BrokeredDeleteInput, BrokeredLegacySourceDeleteInput,
-    BrokeredMigrateLegacyInput, BrokeredProviderCredentialWriter,
-    BrokeredWriterIdentityMigrationInput, BrokeredWriterIdentityVerificationInput,
-    NativeProviderCredentialEffectRoute, NativeProviderCredentialWriters,
-    WriterIdentityMigrationObservation,
+    BrokeredMigrateLegacyInput, BrokeredProviderCredentialLegacySource,
+    BrokeredProviderCredentialWriter, BrokeredWriterIdentityMigrationInput,
+    BrokeredWriterIdentityVerificationInput, NativeProviderCredentialEffectRoute,
+    NativeProviderCredentialWriters, WriterIdentityMigrationObservation,
 };
 pub use provider_credential::{
     CredentialReadbackObservation, ExactAbsenceReadback, ExactVersionReadback,

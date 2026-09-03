@@ -225,18 +225,21 @@ pub fn claim_writer_authorization_with_legacy_parts<C: Read + Write + 'static>(
 }
 
 #[cfg(all(test, target_os = "macos"))]
+#[allow(clippy::too_many_arguments)]
 pub fn claim_writer_authorization_with_service_parts<C: Read + Write + 'static>(
     control: C,
     channel: BrokerChannelBinding,
     ticket: PendingCredentialIssueTicketV1,
     issuer: &CredentialWriterClaimIssuer,
     effects: runne_provider::CredentialWriterEffectAuthority,
+    legacy: Arc<dyn runne_secure_store::BrokeredProviderCredentialLegacySource>,
     secret_input: CredentialSecretInputPresence,
     configuration: runne_macos_xpc::CredentialServiceEndpointConfiguration,
 ) -> Result<ClaimedWriterControl, CliError> {
     let effect_route = NativeProviderCredentialEffectRoute::CredentialService {
         effects,
         configuration,
+        legacy,
     };
     claim_writer_authorization_with_parts(
         control,
@@ -270,7 +273,7 @@ fn claim_writer_authorization_with_parts<C: Read + Write + 'static>(
     let requires_service_handoff = matches!(
         &effect_route,
         NativeProviderCredentialEffectRoute::CredentialService { .. }
-    );
+    ) && command_kind != CredentialWriterCommandKindV1::LegacySourceCleanup;
     #[cfg(not(target_os = "macos"))]
     let requires_service_handoff = false;
     let service_handoff = if requires_service_handoff {

@@ -236,12 +236,18 @@ fn command_with_attempt_and_action(
     action: CredentialOperationAction,
 ) -> CredentialBrokerCommand {
     let provider = ProviderId::new("openai").expect("provider");
+    let version = CredentialVersionRef::new(provider.clone(), 1).expect("version");
+    let target = match action {
+        CredentialOperationAction::MigrateLegacy => CredentialBrokerTarget::LegacyImport(version),
+        CredentialOperationAction::LegacySourceCleanup => CredentialBrokerTarget::LegacySource,
+        _ => CredentialBrokerTarget::Version(version),
+    };
     CredentialBrokerCommand::new(
         CredentialOperationId::from_bytes([id; 16]).expect("operation"),
         CredentialTicketAttempt::new(attempt).expect("attempt"),
-        provider.clone(),
+        provider,
         action,
-        CredentialBrokerTarget::Version(CredentialVersionRef::new(provider, 1).expect("version")),
+        target,
         CredentialLifecycleRevision::new(1).expect("revision"),
         CredentialFence::new(1).expect("fence"),
         None,

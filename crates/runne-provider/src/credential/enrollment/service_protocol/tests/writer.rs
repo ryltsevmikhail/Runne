@@ -1,13 +1,14 @@
 use super::super::{
-    CredentialMutationGrant, CredentialServiceDisposition, CredentialServiceEpoch,
-    CredentialServiceIngressRequest, CredentialServiceProtocolCodec, CredentialServiceReply,
-    CredentialServiceRequest, CredentialWriterBrokerHandoffFrame,
+    CredentialMaterial, CredentialMutationGrant, CredentialServiceDisposition,
+    CredentialServiceEpoch, CredentialServiceIngressRequest, CredentialServiceProtocolCodec,
+    CredentialServiceReply, CredentialServiceRequest, CredentialWriterBrokerHandoffFrame,
 };
 use super::support::{digest, writer_plan_for_action_with_grant, writer_plan_with_grant};
 use crate::credential::enrollment::{
     CredentialBindingDigest, CredentialBrokerFrame, CredentialEnrollmentAuthorityPair,
     CredentialOperationAction, CredentialWriterAuthorityPair, protocol::sealed_pair_for_test,
 };
+use std::cell::Cell;
 
 #[test]
 fn broker_handoff_authenticates_real_claim_before_service_writer_decode() {
@@ -181,4 +182,100 @@ fn revoke_handoff_authenticates_without_inventing_credential_material() {
         CredentialServiceProtocolCodec::decode_writer_request(encoded.test_bytes()),
         Ok(CredentialServiceIngressRequest::WriterConsume(_))
     ));
+}
+
+#[test]
+fn legacy_migration_handoff_reads_material_only_after_exact_claim_authentication() {
+    let grant = CredentialMutationGrant::from_wire([71; 32]).unwrap();
+    let (command, _, writer_handoff) =
+        writer_plan_for_action_with_grant(CredentialOperationAction::MigrateLegacy, grant.digest());
+    let (_, measurements) = CredentialEnrollmentAuthorityPair::new().split();
+    let channel = measurements.broker_channel_binding([7; 32]).unwrap();
+    let binding = CredentialBindingDigest::from_measured([9; 32]).unwrap();
+    let (issuer, effects) = CredentialWriterAuthorityPair::new().split();
+    let pending = issuer.issue_pending_claim(&command, binding, &channel);
+    let authorization = issuer
+        .claim_accepted(
+            pending,
+            CredentialBrokerFrame::ClaimAccepted {
+                operation_id: command.operation_id(),
+                attempt: command.ticket_attempt(),
+            },
+            &command,
+            binding,
+            &channel,
+        )
+        .unwrap();
+    let handoff =
+        CredentialServiceProtocolCodec::encode_writer_broker_handoff(writer_handoff, grant)
+            .unwrap()
+            .into_transport_bytes();
+    let reads = Cell::new(0);
+
+    let request = CredentialServiceProtocolCodec::decode_authenticated_writer_legacy_handoff(
+        &handoff,
+        authorization,
+        &effects,
+        &channel,
+        binding,
+        |_| {
+            reads.set(reads.get() + 1);
+            CredentialMaterial::from_bytes(vec![72; 32])
+        },
+    )
+    .unwrap();
+
+    assert_eq!(reads.get(), 1);
+    let encoded = CredentialServiceProtocolCodec::encode_request(
+        CredentialServiceRequest::WriterConsume(request),
+    )
+    .unwrap();
+    assert!(matches!(
+        CredentialServiceProtocolCodec::decode_writer_request(encoded.test_bytes()),
+        Ok(CredentialServiceIngressRequest::WriterConsume(_))
+    ));
+}
+
+#[test]
+fn legacy_migration_handoff_rejects_mismatched_claim_before_reading_material() {
+    let grant = CredentialMutationGrant::from_wire([61; 32]).unwrap();
+    let (command, _, writer_handoff) =
+        writer_plan_for_action_with_grant(CredentialOperationAction::MigrateLegacy, grant.digest());
+    let (_, measurements) = CredentialEnrollmentAuthorityPair::new().split();
+    let channel = measurements.broker_channel_binding([7; 32]).unwrap();
+    let binding = CredentialBindingDigest::from_measured([9; 32]).unwrap();
+    let (issuer, effects) = CredentialWriterAuthorityPair::new().split();
+    let pending = issuer.issue_pending_claim(&command, binding, &channel);
+    let authorization = issuer
+        .claim_accepted(
+            pending,
+            CredentialBrokerFrame::ClaimAccepted {
+                operation_id: command.operation_id(),
+                attempt: command.ticket_attempt(),
+            },
+            &command,
+            binding,
+            &channel,
+        )
+        .unwrap();
+    let handoff =
+        CredentialServiceProtocolCodec::encode_writer_broker_handoff(writer_handoff, grant)
+            .unwrap()
+            .into_transport_bytes();
+    let reads = Cell::new(0);
+
+    let result = CredentialServiceProtocolCodec::decode_authenticated_writer_legacy_handoff(
+        &handoff,
+        authorization,
+        &effects,
+        &channel,
+        CredentialBindingDigest::from_measured([10; 32]).unwrap(),
+        |_| {
+            reads.set(reads.get() + 1);
+            CredentialMaterial::from_bytes(vec![62; 32])
+        },
+    );
+
+    assert!(result.is_err());
+    assert_eq!(reads.get(), 0);
 }
