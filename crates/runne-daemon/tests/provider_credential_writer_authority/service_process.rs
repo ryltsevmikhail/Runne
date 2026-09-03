@@ -13,7 +13,7 @@ const SELECTOR: &str = "credential_service_real_process_pair_status_and_restart"
 
 pub(super) fn run() {
     super::harness::dispatch_scenarios(SELECTOR, &["service-joined"], |context, _| {
-        context.run_positive_transcript()
+        context.run_positive_transcript(false)
     });
 }
 

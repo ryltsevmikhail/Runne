@@ -3,5 +3,5 @@ pub(super) fn run() {
 }
 
 fn inner(context: &super::support::InnerContext) -> Result<(), &'static str> {
-    context.run_positive_transcript()
+    context.run_positive_transcript(false)
 }

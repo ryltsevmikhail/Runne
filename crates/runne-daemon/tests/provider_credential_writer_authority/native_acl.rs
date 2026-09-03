@@ -14,7 +14,7 @@ pub(super) fn run() {
 fn inner(context: &super::support::InnerContext) -> Result<(), &'static str> {
     assert_reader_source_boundary()?;
     assert_reader_binary_boundary(context.daemon())?;
-    context.run_positive_transcript()
+    context.run_positive_transcript(false)
 }
 
 fn assert_reader_source_boundary() -> Result<(), &'static str> {

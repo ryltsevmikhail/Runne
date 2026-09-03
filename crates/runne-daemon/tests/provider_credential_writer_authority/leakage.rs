@@ -7,7 +7,7 @@ pub(super) fn run() {
 }
 
 fn inner(context: &super::support::InnerContext, _: &str) -> Result<(), &'static str> {
-    context.run_positive_transcript()?;
+    context.run_positive_transcript(false)?;
     let secret = super::audit::secret_canary(context.root());
     let patterns = super::audit::sensitive_patterns(&secret);
     let borrowed = patterns.iter().map(Vec::as_slice).collect::<Vec<_>>();

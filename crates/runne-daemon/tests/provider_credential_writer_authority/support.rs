@@ -48,12 +48,12 @@ impl InnerContext {
             runtime,
         })
     }
-    pub(super) fn run_positive_transcript(&self) -> Result<(), &'static str> {
+    pub(super) fn run_positive_transcript(&self, admission_only: bool) -> Result<(), &'static str> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .map_err(|_| "tokio-runtime")?;
-        runtime.block_on(self.positive_async())
+        runtime.block_on(self.positive_async(admission_only))
     }
     pub(super) fn root(&self) -> &Path {
         &self.root
@@ -80,7 +80,7 @@ impl InnerContext {
         ))
     }
 
-    async fn positive_async(&self) -> Result<(), &'static str> {
+    async fn positive_async(&self, admission_only: bool) -> Result<(), &'static str> {
         let prepared = runne_platform_desktop::prepare_local_native_enrollment(&self.profile)
             .ok_or("local-admission")?;
         let mut supervisor = self.supervisor()?;
@@ -132,6 +132,18 @@ impl InnerContext {
             .receive_credential_secret_relay(&mut enrollment)
             .map_err(|_| "secret-relay")?;
         let relay = enrollment.take_relay().ok_or("relay-take")?;
+        if admission_only {
+            drop(handoff.take_pair_secret_relay());
+            supervisor
+                .crash_local_fixture_process()
+                .map_err(|_| "admission-daemon-crash")?;
+            supervisor.stop().map_err(|_| "admission-stop")?;
+            handoff
+                .reap_exact_writer_bounded(Duration::from_secs(10))
+                .map_err(|_| "admission-reap")?;
+            super::native_item::assert_absent(&self.root)?;
+            return super::release_fault_support::assert_no_owned_children(self);
+        }
         let audit_secret = secret.clone();
         let secret_digest = hex::encode(Sha256::digest(secret.as_slice()));
         if runne_api::test_support::local_native_enrollment_case()

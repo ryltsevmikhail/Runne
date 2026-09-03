@@ -37,6 +37,15 @@ fn real_pair_transcript_persists_across_runned_restart() {
 }
 
 #[test]
+fn signed_writer_admission_stops_before_secret_and_reaps() {
+    harness::dispatch_scenarios(
+        "signed_writer_admission_stops_before_secret_and_reaps",
+        &["service-joined"],
+        |context, _| context.run_positive_transcript(true),
+    );
+}
+
+#[test]
 fn credential_service_real_process_pair_status_and_restart() {
     service_process::run();
 }
