@@ -101,7 +101,8 @@ const CHILD_TEST: &str =
     "provider_credential_broker::tests_macos_daemon_kill::macos_peer_kill_writer_child";
 
 fn daemon_connected_writer() -> (UnixStream, std::process::Child) {
-    let directory = tempfile::tempdir().unwrap();
+    // A CI TMPDIR can exceed sockaddr_un.sun_path before the socket name is added.
+    let directory = tempfile::tempdir_in("/tmp").unwrap();
     let socket = directory.path().join("writer.sock");
     let listener = UnixListener::bind(&socket).unwrap();
     let child = Command::new(std::env::current_exe().unwrap())
