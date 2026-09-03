@@ -120,25 +120,24 @@ impl Drop for ReceivedReference {
     fn drop(&mut self) {
         self.bytes.as_mut_slice().zeroize();
         #[cfg(test)]
-        FRAME_ZEROIZATION_OBSERVED.store(
-            self.bytes.iter().all(|byte| *byte == 0),
-            std::sync::atomic::Ordering::Release,
-        );
+        FRAME_ZEROIZATION_OBSERVED
+            .with(|observed| observed.set(self.bytes.iter().all(|byte| *byte == 0)));
     }
 }
 
 #[cfg(test)]
-static FRAME_ZEROIZATION_OBSERVED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+thread_local! {
+    static FRAME_ZEROIZATION_OBSERVED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
 
 #[cfg(test)]
 fn reset_framing_zeroization_observer() {
-    FRAME_ZEROIZATION_OBSERVED.store(false, std::sync::atomic::Ordering::Release);
+    FRAME_ZEROIZATION_OBSERVED.with(|observed| observed.set(false));
 }
 
 #[cfg(test)]
 fn framing_zeroization_observed() -> bool {
-    FRAME_ZEROIZATION_OBSERVED.load(std::sync::atomic::Ordering::Acquire)
+    FRAME_ZEROIZATION_OBSERVED.with(std::cell::Cell::get)
 }
 
 fn metadata() -> [u8; 55] {
