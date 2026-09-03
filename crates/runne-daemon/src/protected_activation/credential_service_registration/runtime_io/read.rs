@@ -8,7 +8,7 @@ use runne_provider::{
     CredentialServiceRequestSequence, CredentialVersionRef,
 };
 
-use super::{CredentialServiceRuntimeSession, RuntimeCall, map_disposition};
+use super::{CredentialServiceRuntimeSession, RuntimeCall};
 
 impl CredentialServiceRuntimeSession {
     pub(crate) fn read_metadata(
@@ -62,7 +62,7 @@ impl CredentialServiceRuntimeSession {
             .await?
         {
             CredentialServiceReply::Metadata { present } => Ok(present),
-            CredentialServiceReply::Rejected(disposition) => Err(map_disposition(disposition)),
+            CredentialServiceReply::Rejected(disposition) => Err(self.map_disposition(disposition)),
             _ => Err(ProviderCredentialEnrollmentHostError::AccessDenied),
         }
     }
@@ -96,7 +96,7 @@ impl CredentialServiceRuntimeSession {
             .await?
         {
             CredentialServiceReply::Material(material) => Ok(material),
-            CredentialServiceReply::Rejected(disposition) => Err(map_disposition(disposition)),
+            CredentialServiceReply::Rejected(disposition) => Err(self.map_disposition(disposition)),
             _ => Err(ProviderCredentialEnrollmentHostError::AccessDenied),
         }
     }

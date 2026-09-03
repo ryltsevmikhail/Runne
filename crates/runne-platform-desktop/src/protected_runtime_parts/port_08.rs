@@ -20,6 +20,9 @@ pub struct ProtectedBundledRuntimeSupervisor {
     backoff: BundledRuntimeBackoff,
     restart_at: Option<Instant>,
     state: BundledRuntimeLifecycleState,
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    credential_service_rejoin:
+        Option<credential_service_session::CredentialServiceRejoinContext>,
 }
 
 impl fmt::Debug for ProtectedBundledRuntimeSupervisor {

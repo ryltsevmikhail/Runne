@@ -210,7 +210,7 @@ async fn dispatch_pair_inner(
                 .transition_and_install(confirmed)
                 .await
                 .map_err(|_| DispatchFailure::Closed("provider_credential_handoff_failed"))?;
-            let _registration = runtime_lease
+            runtime_lease
                 .register_credential_service_session(&confirmed)
                 .await
                 .map_err(|_| DispatchFailure::Closed("provider_credential_service_unavailable"))?;

@@ -16,6 +16,8 @@ use runne_provider::{
 use super::CredentialServiceRuntimeSession;
 
 mod read;
+#[cfg(test)]
+mod tests;
 
 impl CredentialServiceRuntimeSession {
     pub(crate) fn arm_mutation(
@@ -90,7 +92,7 @@ impl CredentialServiceRuntimeSession {
                 CredentialServiceProtocolCodec::encode_writer_broker_handoff(writer_handoff, grant)
                     .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)
             }
-            CredentialServiceReply::Rejected(disposition) => Err(map_disposition(disposition)),
+            CredentialServiceReply::Rejected(disposition) => Err(self.map_disposition(disposition)),
             _ => Err(ProviderCredentialEnrollmentHostError::AccessDenied),
         }
     }
@@ -153,6 +155,16 @@ impl CredentialServiceRuntimeSession {
         decoded
             .ok_or(ProviderCredentialEnrollmentHostError::InvariantViolation)?
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
+    }
+
+    pub(super) fn map_disposition(
+        &mut self,
+        value: CredentialServiceDisposition,
+    ) -> ProviderCredentialEnrollmentHostError {
+        if let CredentialServiceDisposition::SessionMissing { current_epoch } = value {
+            self.missing_epoch = Some(current_epoch);
+        }
+        map_disposition(value)
     }
 }
 

@@ -86,12 +86,14 @@ fn supersession_and_restart_invalidate_old_sessions_and_admissions() {
 }
 
 #[test]
-fn same_runtime_rejoin_requires_the_next_attempt_and_exact_session() {
+fn same_runtime_rejoin_accepts_authenticated_session_rotation_and_requires_next_attempt() {
     let mut core = registered_core();
     let current = binding(2, 12, 14, 100);
+    let mut rotated_session = *current.protected_session_id();
+    rotated_session[15] ^= 1;
     let rejoin = runne_api::CredentialServiceRegistrationBinding::new(
         *current.service_epoch(),
-        *current.protected_session_id(),
+        rotated_session,
         current.daemon_authority_generation(),
         current.runtime_generation(),
         current.supervisor_generation(),

@@ -14,8 +14,21 @@ use runne_provider::{
 use std::sync::{Arc, Mutex};
 
 use super::credential_service_registration::{
-    ExpectedCredentialServiceRegistration, accept_registration_frames,
+    ExpectedCredentialServiceRegistration, accept_registration_frames, registration_payload,
 };
+
+#[test]
+fn service_registration_accepts_only_one_exact_nested_control_payload() {
+    let payload = b"RNCRED01-registration";
+    let mut frame = Vec::with_capacity(payload.len() + 4);
+    frame.extend_from_slice(&u32::try_from(payload.len()).unwrap().to_be_bytes());
+    frame.extend_from_slice(payload);
+
+    assert_eq!(registration_payload(&frame), Ok(payload.as_slice()));
+    assert!(registration_payload(payload).is_err());
+    frame.push(0);
+    assert!(registration_payload(&frame).is_err());
+}
 
 #[test]
 fn exact_service_registration_claim_and_ack_are_admitted_once() {

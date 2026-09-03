@@ -83,6 +83,7 @@ pub fn test_only_ready_v3_enrollment_supervisor() -> TestOnlyReadyV3EnrollmentSu
         launcher: DevelopmentBundledRuntimeLauncher::new(), spec, process: Some(process),
         pending_profile: None, backoff: BundledRuntimeBackoff::new(), restart_at: None,
         state: BundledRuntimeLifecycleState::Ready,
+        credential_service_rejoin: None,
     };
     let _ = std::fs::remove_dir(root);
     TestOnlyReadyV3EnrollmentSupervisor(supervisor)

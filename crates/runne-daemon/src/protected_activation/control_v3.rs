@@ -1,12 +1,10 @@
 use super::*;
-
 #[cfg(unix)]
 mod runtime;
 #[cfg(unix)]
 use runtime::V3EnrollmentRuntime;
 #[cfg(unix)]
 pub(super) use runtime::{V3EnrollmentDispatch, enrollment_transcript_allows_rotation};
-
 type TicketClock = Arc<dyn Fn() -> Result<u64, LaunchAuthorityError> + Send + Sync>;
 
 /// Builds the production ticket clock without making an unverified V3 launch
@@ -89,6 +87,9 @@ pub(crate) fn run_control_loop_v3_entered(
             .installed_facts
             .ok_or(LaunchAuthorityError::OwnershipMismatch)?;
         #[cfg(target_os = "macos")]
+        let credential_service_configuration =
+            installed_facts.runtime_credential_service_configuration();
+        #[cfg(target_os = "macos")]
         let credential_service_session =
             super::credential_service_registration::receive_required_registration(
                 &mut channel,
@@ -134,6 +135,8 @@ pub(crate) fn run_control_loop_v3_entered(
             channel: None,
             #[cfg(target_os = "macos")]
             credential_service,
+            #[cfg(target_os = "macos")]
+            credential_service_configuration,
         }
     } else {
         V3EnrollmentRuntime {
@@ -149,6 +152,8 @@ pub(crate) fn run_control_loop_v3_entered(
             channel: None,
             #[cfg(target_os = "macos")]
             credential_service: None,
+            #[cfg(target_os = "macos")]
+            credential_service_configuration: None,
         }
     };
     let transcript = serve_v3_transcript(
@@ -182,6 +187,10 @@ fn serve_v3_transcript(
 ) -> Result<(), LaunchAuthorityError> {
     let mut last_renew_sequence = 0_u64;
     loop {
+        #[cfg(target_os = "macos")]
+        if runtime.yield_for_credential_service_rejoin(channel, keys, owned_launch)? {
+            continue;
+        }
         let frame = channel.read_control_frame()?;
         #[cfg(unix)]
         if runtime.broker.dispatch(channel, &frame, ticket_clock)? {

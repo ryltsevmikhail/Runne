@@ -13,6 +13,8 @@ impl ProtectedBundledRuntimeSupervisor {
             backoff: BundledRuntimeBackoff::new(),
             restart_at: None,
             state: BundledRuntimeLifecycleState::Absent,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            credential_service_rejoin: None,
         }
     }
 
@@ -51,6 +53,10 @@ impl ProtectedBundledRuntimeSupervisor {
     }
 
     fn spawn_fresh(&mut self) -> Result<(), ProtectedBundledRuntimeError> {
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        {
+            self.credential_service_rejoin = None;
+        }
         self.pending_profile = None;
         self.restart_at = None;
         self.state = BundledRuntimeLifecycleState::ValidatingBinary;
@@ -158,6 +164,10 @@ impl ProtectedBundledRuntimeSupervisor {
             }
         }
         self.process = None;
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        {
+            self.credential_service_rejoin = None;
+        }
         self.schedule_restart(Instant::now())
     }
 
@@ -200,6 +210,10 @@ impl ProtectedBundledRuntimeSupervisor {
         if exited {
             self.process = None;
             self.pending_profile = None;
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            {
+                self.credential_service_rejoin = None;
+            }
             self.state = BundledRuntimeLifecycleState::Crashed;
             self.schedule_restart(now)?;
         }
@@ -232,6 +246,10 @@ impl ProtectedBundledRuntimeSupervisor {
         self.restart_at = None;
         self.pending_profile = None;
         self.backoff.record_disconnected();
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        {
+            self.credential_service_rejoin = None;
+        }
         let Some(mut process) = self.process.take() else {
             self.state = BundledRuntimeLifecycleState::Stopped;
             return Ok(BundledRuntimeStopDisposition::Graceful);

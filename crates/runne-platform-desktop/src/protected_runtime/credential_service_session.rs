@@ -5,14 +5,18 @@ use super::{
     ProtectedBundledRuntimeProcess, ProtectedBundledRuntimeSupervisor, ProtectedProcessActivation,
 };
 use runne_api::{
-    CredentialServiceRegistrationAck, CredentialServiceRegistrationBinding,
-    CredentialServiceRegistrationRequest, CredentialServiceSessionAuthenticator,
+    CREDENTIAL_SERVICE_MAX_FRAME_BYTES, CredentialServiceRegistrationAck,
+    CredentialServiceRegistrationBinding, CredentialServiceRegistrationRequest,
+    CredentialServiceSessionAuthenticator,
 };
 
 const REGISTRATION_TIMEOUT: Duration = Duration::from_secs(5);
 
 mod registration_exchange;
+mod rejoin;
 pub(super) use registration_exchange::register_credential_service_session_with_port;
+pub use rejoin::CredentialServiceRejoinContext;
+pub use rejoin::PreparedCredentialServiceRejoin;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum CredentialServiceSessionRegistrationError {
@@ -31,10 +35,12 @@ pub(super) struct CredentialServiceRegistrationFacts {
     release_binding: [u8; 32],
     join_attempt: u64,
     expires_at_unix_millis: u64,
+    expected_service_epoch: Option<[u8; 16]>,
 }
 
 pub struct PreparedCredentialServiceSessionRegistration {
     client: runne_macos_xpc::CredentialServiceDesktopXpcClient,
+    configuration: runne_macos_xpc::CredentialServiceEndpointConfiguration,
     authenticator: CredentialServiceSessionAuthenticator,
     facts: CredentialServiceRegistrationFacts,
 }
@@ -43,6 +49,7 @@ pub struct PreparedCredentialServiceSessionRegistration {
 pub struct RegisteredCredentialServiceSession {
     claim: CredentialServiceRegistrationRequest,
     acknowledgement: CredentialServiceRegistrationAck,
+    configuration: Option<runne_macos_xpc::CredentialServiceEndpointConfiguration>,
 }
 
 impl RegisteredCredentialServiceSession {
@@ -64,9 +71,15 @@ impl PreparedCredentialServiceSessionRegistration {
     pub async fn register(
         self,
     ) -> Result<RegisteredCredentialServiceSession, ProtectedBundledRuntimeError> {
-        register_credential_service_session_with_port(&self.client, self.authenticator, self.facts)
-            .await
-            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)
+        let mut registered = register_credential_service_session_with_port(
+            &self.client,
+            self.authenticator,
+            self.facts,
+        )
+        .await
+        .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        registered.configuration = Some(self.configuration);
+        Ok(registered)
     }
 }
 
@@ -96,10 +109,18 @@ impl ProtectedBundledRuntimeSupervisor {
         &mut self,
         registered: RegisteredCredentialServiceSession,
     ) -> Result<(), ProtectedBundledRuntimeError> {
-        self.process
+        let context = CredentialServiceRejoinContext::from_registered(&registered)?;
+        let result = self
+            .process
             .as_mut()
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?
-            .confirm_credential_service_session(registered)
+            .confirm_credential_service_session(registered);
+        if result.is_ok() {
+            self.credential_service_rejoin = Some(context);
+        } else {
+            self.credential_service_rejoin = None;
+        }
+        result
     }
 }
 
@@ -119,8 +140,9 @@ impl ProtectedBundledRuntimeProcess {
             return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
         }
         let configuration = confirmed.desktop_credential_service_configuration()?;
-        let client = runne_macos_xpc::CredentialServiceDesktopXpcClient::connect(configuration)
-            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let client =
+            runne_macos_xpc::CredentialServiceDesktopXpcClient::connect(configuration.clone())
+                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
         let generation = owned.launch_generation();
         let expires_at = unix_millis()
             .ok()
@@ -140,6 +162,7 @@ impl ProtectedBundledRuntimeProcess {
         .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
         Ok(PreparedCredentialServiceSessionRegistration {
             client,
+            configuration,
             authenticator: CredentialServiceSessionAuthenticator::from_protected_activation(
                 &self.keys,
             ),
@@ -156,15 +179,29 @@ impl ProtectedBundledRuntimeProcess {
         {
             return Err(ProtectedBundledRuntimeError::InvalidState);
         }
-        let result = super::write_frame(&mut self.channel, &registered.claim.into_bytes())
-            .and_then(|()| {
-                super::write_frame(&mut self.channel, &registered.acknowledgement.into_bytes())
-            });
+        let claim = protected_control_frame(registered.claim.into_bytes())?;
+        let acknowledgement = protected_control_frame(registered.acknowledgement.into_bytes())?;
+        let result = super::write_frame(&mut self.channel, &claim)
+            .and_then(|()| super::write_frame(&mut self.channel, &acknowledgement));
         if result.is_err() {
             self.fence_ambiguous_transition();
         }
         result
     }
+}
+
+pub(super) fn protected_control_frame(
+    payload: Vec<u8>,
+) -> Result<zeroize::Zeroizing<Vec<u8>>, ProtectedBundledRuntimeError> {
+    if payload.is_empty() || payload.len() > CREDENTIAL_SERVICE_MAX_FRAME_BYTES {
+        return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
+    }
+    let length = u32::try_from(payload.len())
+        .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+    let mut frame = zeroize::Zeroizing::new(Vec::with_capacity(payload.len() + 4));
+    frame.extend_from_slice(&length.to_be_bytes());
+    frame.extend(payload);
+    Ok(frame)
 }
 
 impl CredentialServiceRegistrationFacts {
@@ -204,6 +241,7 @@ impl CredentialServiceRegistrationFacts {
             release_binding,
             join_attempt,
             expires_at_unix_millis,
+            expected_service_epoch: None,
         })
     }
 
@@ -213,6 +251,12 @@ impl CredentialServiceRegistrationFacts {
         challenge_nonce: [u8; 16],
     ) -> Result<CredentialServiceRegistrationBinding, CredentialServiceSessionRegistrationError>
     {
+        if self
+            .expected_service_epoch
+            .is_some_and(|expected| expected != service_epoch)
+        {
+            return Err(CredentialServiceSessionRegistrationError::InvalidReply);
+        }
         CredentialServiceRegistrationBinding::new(
             service_epoch,
             self.protected_session_id,

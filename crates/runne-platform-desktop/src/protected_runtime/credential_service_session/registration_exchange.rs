@@ -57,6 +57,7 @@ pub(in crate::protected_runtime) async fn register_credential_service_session_wi
     Ok(RegisteredCredentialServiceSession {
         claim,
         acknowledgement,
+        configuration: None,
     })
 }
 

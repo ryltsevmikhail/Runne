@@ -1,5 +1,5 @@
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use runne_api::ProviderCredentialEnrollmentHostError;
 use runne_provider::{
@@ -13,12 +13,19 @@ use runne_secure_store::{
 
 use super::credential_service_registration::CredentialServiceRuntimeSession;
 
+mod rejoin;
+mod retry;
+use rejoin::{CredentialServiceRejoinCoordinator, CredentialServiceRejoinRequest};
+
+const REJOIN_WAIT: Duration = Duration::from_secs(5);
+
 /// Shared daemon boundary installed only by an authenticated Desktop/service
 /// registration and consumed by enrollment readback and provider dispatch.
 pub(crate) struct CredentialServiceRuntimeGateway {
     session: Mutex<Option<CredentialServiceRuntimeSession>>,
     authority: CredentialEnrollmentStoreAuthority,
     runtime: tokio::runtime::Handle,
+    rejoin: CredentialServiceRejoinCoordinator,
 }
 
 impl CredentialServiceRuntimeGateway {
@@ -30,6 +37,7 @@ impl CredentialServiceRuntimeGateway {
             session: Mutex::new(None),
             authority,
             runtime,
+            rejoin: CredentialServiceRejoinCoordinator::new(),
         }
     }
 
@@ -58,18 +66,20 @@ impl CredentialServiceRuntimeGateway {
         ProviderCredentialEnrollmentHostError,
     > {
         let now = now_unix_millis()?;
-        let mut slot = self
-            .session
-            .lock()
-            .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
-        slot.as_mut()
-            .ok_or(ProviderCredentialEnrollmentHostError::Unavailable)?
-            .arm_mutation(
-                &self.runtime,
-                &self.authority.runtime_arm_authority(),
-                command,
-                now,
-            )
+        let (result, missing_epoch) = self.with_session(|session| {
+            session
+                .ok_or(ProviderCredentialEnrollmentHostError::Unavailable)?
+                .arm_mutation(
+                    &self.runtime,
+                    &self.authority.runtime_arm_authority(),
+                    command,
+                    now,
+                )
+        });
+        if let Some(epoch) = missing_epoch {
+            let _ = self.rejoin.queue(epoch);
+        }
+        result
     }
 
     fn read_metadata(
@@ -78,22 +88,77 @@ impl CredentialServiceRuntimeGateway {
         lifecycle: runne_provider::CredentialLifecycleRevision,
         fence: runne_provider::CredentialFence,
     ) -> Result<bool, SecureStoreError> {
-        let now = now_unix_millis().map_err(map_host_error)?;
-        let mut slot = self
-            .session
+        self.retry_metadata_after_rejoin(|| {
+            let call_now = match now_unix_millis() {
+                Ok(value) => value,
+                Err(error) => return (Err(error), None),
+            };
+            self.with_session(|session| {
+                session
+                    .ok_or(ProviderCredentialEnrollmentHostError::Unavailable)?
+                    .read_metadata(
+                        &self.runtime,
+                        &self.authority.runtime_read_authority(),
+                        version.clone(),
+                        lifecycle,
+                        fence,
+                        call_now,
+                    )
+            })
+        })
+        .map_err(map_host_error)
+    }
+
+    fn with_session<T>(
+        &self,
+        operation: impl FnOnce(
+            Option<&mut CredentialServiceRuntimeSession>,
+        ) -> Result<T, ProviderCredentialEnrollmentHostError>,
+    ) -> (
+        Result<T, ProviderCredentialEnrollmentHostError>,
+        Option<runne_provider::CredentialServiceEpoch>,
+    ) {
+        let Ok(mut slot) = self.session.lock() else {
+            return (
+                Err(ProviderCredentialEnrollmentHostError::Unavailable),
+                None,
+            );
+        };
+        let result = operation(slot.as_mut());
+        let missing = slot
+            .as_mut()
+            .and_then(CredentialServiceRuntimeSession::take_missing_epoch);
+        (result, missing)
+    }
+
+    pub(crate) fn take_rejoin_request(
+        &self,
+    ) -> Result<Option<CredentialServiceRejoinRequest>, ProviderCredentialEnrollmentHostError> {
+        self.rejoin.take()
+    }
+
+    pub(crate) fn complete_rejoin(
+        &self,
+        request: CredentialServiceRejoinRequest,
+        succeeded: bool,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        self.rejoin.complete(request, succeeded)
+    }
+
+    pub(crate) fn prepare_rejoin_binding(
+        &self,
+        request: CredentialServiceRejoinRequest,
+        owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
+        expires_at_unix_millis: u64,
+    ) -> Result<runne_api::CredentialServiceRejoinBinding, ProviderCredentialEnrollmentHostError>
+    {
+        self.session
             .lock()
-            .map_err(|_| SecureStoreError::Unavailable)?;
-        slot.as_mut()
-            .ok_or(SecureStoreError::Unavailable)?
-            .read_metadata(
-                &self.runtime,
-                &self.authority.runtime_read_authority(),
-                version,
-                lifecycle,
-                fence,
-                now,
-            )
-            .map_err(map_host_error)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?
+            .as_ref()
+            .ok_or(ProviderCredentialEnrollmentHostError::Unavailable)?
+            .prepare_rejoin_binding(request.epoch(), owned, expires_at_unix_millis)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)
     }
 }
 
@@ -137,24 +202,24 @@ impl ProviderCredentialDispatchMaterializer for CredentialServiceRuntimeGateway 
         let receipt = CredentialBindingDigest::from_measured(read.effect_receipt_digest())
             .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
         let now = now_unix_millis().map_err(map_host_error)?;
-        let mut slot = self
-            .session
-            .lock()
-            .map_err(|_| SecureStoreError::Unavailable)?;
-        let material = slot
-            .as_mut()
-            .ok_or(SecureStoreError::Unavailable)?
-            .read_material(
-                &self.runtime,
-                &self.authority.runtime_read_authority(),
-                &self.authority.dispatch_effect_receipt_authority(),
-                read.capability().version_ref().clone(),
-                read.lifecycle(),
-                read.fence(),
-                receipt,
-                now,
-            )
-            .map_err(map_host_error)?;
+        let (result, missing_epoch) = self.with_session(|session| {
+            session
+                .ok_or(ProviderCredentialEnrollmentHostError::Unavailable)?
+                .read_material(
+                    &self.runtime,
+                    &self.authority.runtime_read_authority(),
+                    &self.authority.dispatch_effect_receipt_authority(),
+                    read.capability().version_ref().clone(),
+                    read.lifecycle(),
+                    read.fence(),
+                    receipt,
+                    now,
+                )
+        });
+        if let Some(epoch) = missing_epoch {
+            let _ = self.rejoin.queue(epoch);
+        }
+        let material = result.map_err(map_host_error)?;
         let mut converted = Err(SecureStoreError::InvalidProviderCredential);
         material.consume(|bytes| {
             converted = ProviderCredentialMaterial::new(bytes.to_vec());

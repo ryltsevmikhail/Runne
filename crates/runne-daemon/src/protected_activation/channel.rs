@@ -167,6 +167,23 @@ impl ProtectedActivationChannel {
         self.write_frame(frame)
     }
 
+    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+    pub(super) fn control_frame_ready(&self) -> Result<bool, LaunchAuthorityError> {
+        use std::os::fd::AsRawFd as _;
+
+        let mut byte = [0_u8; 1];
+        match nix::sys::socket::recv(
+            self.stream.as_raw_fd(),
+            &mut byte,
+            nix::sys::socket::MsgFlags::MSG_PEEK | nix::sys::socket::MsgFlags::MSG_DONTWAIT,
+        ) {
+            Ok(0) => Err(LaunchAuthorityError::ProtectedChannelUnavailable),
+            Ok(_) => Ok(true),
+            Err(nix::errno::Errno::EAGAIN) => Ok(false),
+            Err(_) => Err(LaunchAuthorityError::ProtectedChannelUnavailable),
+        }
+    }
+
     #[cfg(any(feature = "desktop-protected", feature = "test-support"))]
     pub(super) fn enter_control_loop(&self) -> Result<(), LaunchAuthorityError> {
         self.stream

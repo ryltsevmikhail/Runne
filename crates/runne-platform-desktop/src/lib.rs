@@ -28,8 +28,8 @@ pub use protected_runtime::FirstActivationFaultPoint;
 #[cfg(target_os = "macos")]
 pub use protected_runtime::{
     CredentialWriterHandoff, CredentialWriterHandoffMode, NativeProtectedCredentialEnrollmentBegin,
-    PreparedCredentialServiceSessionRegistration, PreparedProtectedCredentialEnrollment,
-    RegisteredCredentialServiceSession,
+    PreparedCredentialServiceRejoin, PreparedCredentialServiceSessionRegistration,
+    PreparedProtectedCredentialEnrollment, RegisteredCredentialServiceSession,
 };
 pub use protected_runtime::{
     DevelopmentBundledRuntimeLauncher, ProtectedBundledRuntimeError,

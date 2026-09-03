@@ -22,6 +22,10 @@ impl BundledRuntimeController {
                 .await;
             return;
         };
+        if let Err(error) = self.drive_credential_service_rejoin().await {
+            let _ = self.reject_current_client(map_protected_failure(error)).await;
+            return;
+        }
         let monitor_result = self
             .run_supervisor(ProtectedBundledRuntimeSupervisor::monitor)
             .await;
@@ -87,6 +91,24 @@ impl BundledRuntimeController {
             return;
         }
         let _ = self.connect_pending_profile(lease).await;
+    }
+
+    async fn drive_credential_service_rejoin(
+        &self,
+    ) -> Result<(), ProtectedBundledRuntimeError> {
+        let prepared = self
+            .run_supervisor(|supervisor| {
+                supervisor.prepare_pending_credential_service_rejoin()
+            })
+            .await?;
+        let Some(prepared) = prepared else {
+            return Ok(());
+        };
+        let registered = prepared.register().await?;
+        self.run_supervisor(move |supervisor| {
+            supervisor.confirm_credential_service_rejoin(registered)
+        })
+        .await
     }
 
     fn arm_renewal_schedule(&self) -> Result<(), AppCoreError> {

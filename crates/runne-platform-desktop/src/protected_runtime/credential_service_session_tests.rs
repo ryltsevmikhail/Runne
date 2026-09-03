@@ -15,7 +15,7 @@ use zeroize::Zeroizing;
 
 use super::credential_service_session::{
     CredentialServiceRegistrationFacts, bounded_session_expiry_unix_millis,
-    register_credential_service_session_with_port,
+    protected_control_frame, register_credential_service_session_with_port,
 };
 
 const EPOCH: [u8; 16] = [21; 16];
@@ -127,9 +127,11 @@ async fn desktop_registration_challenges_installs_and_verifies_one_exact_session
     assert_eq!(registered.service_epoch(), &EPOCH);
     assert_eq!(registered.installed_generation(), 5);
     let (challenge_nonce, release_binding) = {
-        let accepted = peer.accepted.lock().unwrap();
-        let accepted = accepted.as_ref().unwrap();
-        (*accepted.challenge_nonce(), *accepted.release_binding())
+        let guard = peer.accepted.lock().unwrap();
+        let accepted = guard.as_ref().unwrap();
+        let facts = (*accepted.challenge_nonce(), *accepted.release_binding());
+        drop(guard);
+        facts
     };
     assert_eq!(challenge_nonce, NONCE);
     assert_eq!(release_binding, [8; 32]);
@@ -144,6 +146,23 @@ fn service_registration_uses_unix_time_and_expires_before_the_parent_session() {
     let parent_ttl = u64::try_from(runne_api::LOCAL_RUNTIME_SESSION_TTL.as_millis()).unwrap();
     assert_eq!(expires - now, renew_after);
     assert!(expires - now < parent_ttl);
+}
+
+#[test]
+fn service_registration_payload_is_nested_in_one_exact_protected_control_frame() {
+    let payload = b"RNCRED01-registration".to_vec();
+    let framed = protected_control_frame(payload.clone()).unwrap();
+
+    assert_eq!(
+        u32::from_be_bytes(framed[..4].try_into().unwrap()) as usize,
+        payload.len()
+    );
+    assert_eq!(&framed[4..], payload);
+    assert!(protected_control_frame(Vec::new()).is_err());
+    assert!(
+        protected_control_frame(vec![0; runne_api::CREDENTIAL_SERVICE_MAX_FRAME_BYTES + 1])
+            .is_err()
+    );
 }
 
 fn unix_millis() -> u64 {

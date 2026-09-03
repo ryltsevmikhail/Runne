@@ -1,6 +1,7 @@
 mod authenticator;
 mod codec;
 mod registration;
+mod rejoin;
 mod transport;
 
 pub use authenticator::{
@@ -11,6 +12,7 @@ pub use registration::{
     CredentialServiceRegistrationError, CredentialServiceRegistrationRequest,
     VerifiedCredentialServiceRegistration,
 };
+pub use rejoin::{CredentialServiceRejoinBinding, CredentialServiceRejoinRequired};
 pub use transport::{
     AcceptedCredentialServiceRegistration, CredentialServiceRegistrationInstall,
     CredentialServiceRuntimeEnvelope, VerifiedCredentialServiceRuntimePayload,

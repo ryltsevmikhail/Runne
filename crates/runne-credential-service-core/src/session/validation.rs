@@ -33,16 +33,15 @@ impl CredentialServiceCore {
             && candidate.installed_generation() >= old.installed_generation()
             && candidate.challenge_nonce() != old.challenge_nonce()
             && release_is_current;
-        let exact_rejoin = candidate.runtime_generation() == old.runtime_generation()
+        let same_runtime_rejoin = candidate.runtime_generation() == old.runtime_generation()
             && candidate.daemon_authority_generation() == old.daemon_authority_generation()
-            && candidate.supervisor_generation() == old.supervisor_generation()
-            && candidate.protected_session_id() == old.protected_session_id();
+            && candidate.supervisor_generation() == old.supervisor_generation();
         let runtime_restart = candidate.daemon_authority_generation()
             > old.daemon_authority_generation()
             && candidate.runtime_generation() > old.runtime_generation()
             && candidate.supervisor_generation() >= old.supervisor_generation()
             && candidate.protected_session_id() != old.protected_session_id();
-        if common && (exact_rejoin || runtime_restart) {
+        if common && (same_runtime_rejoin || runtime_restart) {
             Ok(CredentialRegistrationOutcome::Superseded)
         } else {
             Err(())

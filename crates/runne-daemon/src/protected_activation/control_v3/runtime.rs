@@ -78,6 +78,9 @@ pub(super) struct V3EnrollmentRuntime {
     #[cfg(target_os = "macos")]
     pub(super) credential_service:
         Option<Arc<crate::protected_activation::CredentialServiceRuntimeGateway>>,
+    #[cfg(target_os = "macos")]
+    pub(super) credential_service_configuration:
+        Option<runne_macos_xpc::CredentialServiceEndpointConfiguration>,
 }
 
 impl V3EnrollmentRuntime {
@@ -91,6 +94,71 @@ impl V3EnrollmentRuntime {
             channel.terminate_exact_writer();
         }
         self.broker.terminate_retained_writer();
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(super) fn drive_credential_service_rejoin(
+        &self,
+        protected: &mut crate::protected_activation::ProtectedActivationChannel,
+        keys: &runne_api::ProtectedActivationKeys,
+        owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
+    ) -> Result<bool, runne_api::LaunchAuthorityError> {
+        let Some(gateway) = self.credential_service.as_ref() else {
+            return Ok(false);
+        };
+        let Some(request) = gateway
+            .take_rejoin_request()
+            .map_err(map_enrollment_error)?
+        else {
+            return Ok(false);
+        };
+        let result = (|| {
+            let now = unix_now_millis()?;
+            let expiry = now
+                .checked_add(5_000)
+                .ok_or(runne_api::LaunchAuthorityError::InvalidContract)?;
+            let binding = gateway
+                .prepare_rejoin_binding(request, owned, expiry)
+                .map_err(map_enrollment_error)?;
+            let frame =
+                runne_api::CredentialServiceSessionAuthenticator::from_protected_activation(keys)
+                    .require_rejoin(binding.clone())
+                    .into_control_frame();
+            protected.write_control_frame(&frame)?;
+            let configuration = self
+                .credential_service_configuration
+                .clone()
+                .ok_or(runne_api::LaunchAuthorityError::OwnershipMismatch)?;
+            let session = crate::protected_activation::credential_service_registration::receive_rejoin_registration(
+                protected,
+                keys,
+                &binding,
+                configuration,
+                unix_now_millis()?,
+            )?;
+            gateway.install(session).map_err(map_enrollment_error)
+        })();
+        gateway
+            .complete_rejoin(request, result.is_ok())
+            .map_err(map_enrollment_error)?;
+        result.map(|()| true)
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(super) fn yield_for_credential_service_rejoin(
+        &self,
+        protected: &mut crate::protected_activation::ProtectedActivationChannel,
+        keys: &runne_api::ProtectedActivationKeys,
+        owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
+    ) -> Result<bool, runne_api::LaunchAuthorityError> {
+        if self.drive_credential_service_rejoin(protected, keys, owned)? {
+            return Ok(true);
+        }
+        if protected.control_frame_ready()? {
+            return Ok(false);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        Ok(true)
     }
 
     #[cfg(target_os = "macos")]
