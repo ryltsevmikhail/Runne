@@ -88,24 +88,38 @@ pub(crate) fn run_control_loop_v3_entered(
         let installed_facts = enrollment
             .installed_facts
             .ok_or(LaunchAuthorityError::OwnershipMismatch)?;
+        #[cfg(target_os = "macos")]
+        let credential_service_session =
+            super::credential_service_registration::receive_required_registration(
+                &mut channel,
+                &keys,
+                &owned_launch,
+                &installed_facts,
+                runtime::unix_now_millis()?,
+            )?;
+        #[cfg(target_os = "macos")]
+        let credential_service = credential_service_session
+            .map(|session| control.install_credential_service_session(session))
+            .transpose()
+            .map_err(runtime::map_enrollment_error)?;
         let owned_rendezvous = enrollment.rendezvous.into_owned()?;
         let mut enrollment = control
             .start_protected_session(&keys, &owned_launch, owned_rendezvous, installed_facts)
-            .map_err(map_enrollment_error)?;
+            .map_err(runtime::map_enrollment_error)?;
         let request = channel.read_control_frame()?;
-        let now = unix_now_millis()?;
+        let now = runtime::unix_now_millis()?;
         let admission = enrollment
             .accept_request(&request, now)
-            .map_err(map_enrollment_error)?;
+            .map_err(runtime::map_enrollment_error)?;
         channel.write_control_frame(&admission)?;
         let begin = channel.read_control_frame()?;
         let snapshot = enrollment
-            .begin(&begin, unix_now_millis()?)
-            .map_err(map_enrollment_error)?;
+            .begin(&begin, runtime::unix_now_millis()?)
+            .map_err(runtime::map_enrollment_error)?;
         channel.write_control_frame(&snapshot)?;
         let handoff = enrollment
             .take_bound_broker_handoff()
-            .map_err(map_enrollment_error)?;
+            .map_err(runtime::map_enrollment_error)?;
         let broker = super::broker_handoff::BrokerHandoffDispatch::from_bound_enrollment(
             &keys,
             &owned_launch,
@@ -118,6 +132,8 @@ pub(crate) fn run_control_loop_v3_entered(
             claim_measurements: None,
             #[cfg(target_os = "macos")]
             channel: None,
+            #[cfg(target_os = "macos")]
+            credential_service,
         }
     } else {
         V3EnrollmentRuntime {
@@ -131,6 +147,8 @@ pub(crate) fn run_control_loop_v3_entered(
             claim_measurements: None,
             #[cfg(target_os = "macos")]
             channel: None,
+            #[cfg(target_os = "macos")]
+            credential_service: None,
         }
     };
     let transcript = serve_v3_transcript(
@@ -149,28 +167,6 @@ pub(crate) fn run_control_loop_v3_entered(
         runtime.terminate_retained_writer();
     }
     transcript
-}
-
-fn map_enrollment_error(
-    error: runne_api::ProviderCredentialEnrollmentHostError,
-) -> LaunchAuthorityError {
-    match error {
-        runne_api::ProviderCredentialEnrollmentHostError::Unsupported => {
-            LaunchAuthorityError::UnsupportedPlatformBackend
-        }
-        runne_api::ProviderCredentialEnrollmentHostError::Unavailable => {
-            LaunchAuthorityError::ProtectedChannelUnavailable
-        }
-        _ => LaunchAuthorityError::OwnershipMismatch,
-    }
-}
-
-fn unix_now_millis() -> Result<u64, LaunchAuthorityError> {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .and_then(|value| u64::try_from(value.as_millis()).ok())
-        .ok_or(LaunchAuthorityError::StaleLaunchAuthority)
 }
 
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
@@ -203,7 +199,7 @@ fn serve_v3_transcript(
                 runtime.claim_measurements = Some(
                     session
                         .prepare_claim_measurements(writer, launch_attempt)
-                        .map_err(map_enrollment_error)?,
+                        .map_err(runtime::map_enrollment_error)?,
                 );
             }
             #[cfg(target_os = "macos")]

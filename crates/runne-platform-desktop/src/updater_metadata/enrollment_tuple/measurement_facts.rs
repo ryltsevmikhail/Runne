@@ -5,12 +5,20 @@ pub struct VerifiedInstalledEnrollmentMeasurementFacts {
     desktop: [u8; 32],
     writer: [u8; 32],
     daemon: [u8; 32],
+    credential_service: Option<[u8; 32]>,
+    #[cfg(target_os = "macos")]
+    runtime_credential_service:
+        Option<runne_macos_xpc::CredentialServiceEndpointConfiguration>,
+    #[cfg(target_os = "macos")]
+    writer_credential_service:
+        Option<runne_macos_xpc::CredentialServiceEndpointConfiguration>,
     contract: [u8; 32],
     desktop_start: [u8; 32],
     release: [u8; 32],
     candidate_source: [u8; 32],
     target_manifest: [u8; 32],
     qualification: [u8; 32],
+    installed_generation: u64,
     release_frame: Vec<u8>,
 }
 
@@ -37,12 +45,21 @@ impl VerifiedInstalledEnrollmentMeasurementFacts {
             desktop: decode(&measured.desktop_sha256)?,
             writer: decode(&measured.writer_sha256)?,
             daemon: decode(&measured.daemon_sha256)?,
+            credential_service: admission.credential_service_sha256,
+            #[cfg(target_os = "macos")]
+            runtime_credential_service: admission
+                .runtime_credential_service_configuration()
+                .ok(),
+            #[cfg(target_os = "macos")]
+            writer_credential_service:
+                admission.writer_credential_service_configuration().ok(),
             contract: decode(&measured.contract_sha256)?,
             desktop_start: value.peer.as_ref()?.process_start_digest(),
             release: admission.release_tuple_sha256,
             candidate_source: admission.candidate_source_sha256?,
             target_manifest: admission.target_manifest_sha256?,
             qualification: admission.qualification.retained_qualification_binding_digest()?,
+            installed_generation: admission.installed_generation,
             release_frame,
         })
     }
@@ -53,6 +70,22 @@ impl VerifiedInstalledEnrollmentMeasurementFacts {
     pub const fn writer(&self) -> [u8; 32] { self.writer }
     #[must_use]
     pub const fn daemon(&self) -> [u8; 32] { self.daemon }
+    #[must_use]
+    pub const fn credential_service(&self) -> Option<[u8; 32]> { self.credential_service }
+    #[cfg(target_os = "macos")]
+    #[must_use]
+    pub fn runtime_credential_service_configuration(
+        &self,
+    ) -> Option<runne_macos_xpc::CredentialServiceEndpointConfiguration> {
+        self.runtime_credential_service.clone()
+    }
+    #[cfg(target_os = "macos")]
+    #[must_use]
+    pub fn writer_credential_service_configuration(
+        &self,
+    ) -> Option<runne_macos_xpc::CredentialServiceEndpointConfiguration> {
+        self.writer_credential_service.clone()
+    }
     #[must_use]
     pub const fn contract(&self) -> [u8; 32] { self.contract }
     #[must_use]
@@ -65,6 +98,8 @@ impl VerifiedInstalledEnrollmentMeasurementFacts {
     pub const fn target_manifest(&self) -> [u8; 32] { self.target_manifest }
     #[must_use]
     pub const fn qualification(&self) -> [u8; 32] { self.qualification }
+    #[must_use]
+    pub const fn installed_generation(&self) -> u64 { self.installed_generation }
 
     pub fn write_signed_release_metadata(
         &self,

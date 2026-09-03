@@ -189,6 +189,32 @@ fn wrong_raw_grant_is_denied_and_crash_outcome_requires_reconciliation() {
 }
 
 #[test]
+fn revoke_consumes_one_secretless_grant_and_deletes_the_exact_version() {
+    let mut core = registered_core();
+    let (arm, writer, _) = mutation_frames(1, 1, 7, CredentialOperationAction::Revoke);
+    assert!(matches!(
+        runtime_reply(&mut core, &arm, 7, 10, |_| panic!()),
+        Ok(CredentialServiceReply::Armed)
+    ));
+    let mut backend = MemoryBackend::new();
+    backend
+        .items
+        .insert(("provider".to_owned(), 1), b"secret".to_vec());
+
+    assert!(matches!(
+        writer_reply(&mut core, &writer, 10, |effect| backend.mutate(effect)),
+        Ok(CredentialServiceReply::Consumed)
+    ));
+    assert!(backend.items.is_empty());
+    assert!(matches!(
+        writer_reply(&mut core, &writer, 10, |effect| backend.mutate(effect)),
+        Ok(CredentialServiceReply::Rejected(
+            CredentialServiceDisposition::Denied
+        ))
+    ));
+}
+
+#[test]
 fn native_backend_results_map_to_the_closed_writer_reply_vocabulary() {
     for (mode, result) in [
         (0, CredentialBackendResult::Absent),

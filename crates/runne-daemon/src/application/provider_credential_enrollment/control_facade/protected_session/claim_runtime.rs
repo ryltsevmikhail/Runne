@@ -47,6 +47,26 @@ impl DaemonProtectedCredentialEnrollmentSession {
         continuation: runne_provider::CredentialBindingDigest,
         channel: &mut broker::MacOsCredentialBrokerChannel,
     ) -> Result<PendingProtectedBrokerClaim, ProviderCredentialEnrollmentHostError> {
+        self.claim_writer_inner(measurements, continuation, channel, None)
+    }
+
+    pub(crate) fn claim_writer_with_service(
+        &self,
+        measurements: runne_provider::CredentialMeasurementSnapshot,
+        continuation: runne_provider::CredentialBindingDigest,
+        channel: &mut broker::MacOsCredentialBrokerChannel,
+        service: &crate::protected_activation::CredentialServiceRuntimeGateway,
+    ) -> Result<PendingProtectedBrokerClaim, ProviderCredentialEnrollmentHostError> {
+        self.claim_writer_inner(measurements, continuation, channel, Some(service))
+    }
+
+    fn claim_writer_inner(
+        &self,
+        measurements: runne_provider::CredentialMeasurementSnapshot,
+        continuation: runne_provider::CredentialBindingDigest,
+        channel: &mut broker::MacOsCredentialBrokerChannel,
+        service: Option<&crate::protected_activation::CredentialServiceRuntimeGateway>,
+    ) -> Result<PendingProtectedBrokerClaim, ProviderCredentialEnrollmentHostError> {
         let operation_id = self.operation_id()?;
         let operation = self
             .control
@@ -70,6 +90,16 @@ impl DaemonProtectedCredentialEnrollmentSession {
             self.control.store.as_ref(),
             channel,
         )?;
+        let service_command = service
+            .as_ref()
+            .map(|_| {
+                runne_provider::CredentialBrokerCommand::from_operation(
+                    receipt.operation(),
+                    receipt.ticket_attempt(),
+                )
+                .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)
+            })
+            .transpose()?;
         let mut claimed = coordinator.claim_ticket_from_channel(
             receipt,
             continuation,
@@ -79,6 +109,12 @@ impl DaemonProtectedCredentialEnrollmentSession {
             self.control.store.as_ref(),
             channel,
         )?;
+        if let Some(service) = service {
+            let handoff = service.arm_mutation(
+                service_command.ok_or(ProviderCredentialEnrollmentHostError::InvariantViolation)?,
+            )?;
+            channel.send_service_handoff(handoff)?;
+        }
         let relay = claimed.take_secret_relay()?;
         Ok(PendingProtectedBrokerClaim { claimed, relay })
     }

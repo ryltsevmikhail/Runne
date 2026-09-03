@@ -27,6 +27,7 @@ local-native-enrollment-test = [
 
 [target.'cfg(target_os = "macos")'.dependencies]
 runne-macos-keychain-acl = { path = "../runne-macos-keychain-acl" }
+runne-macos-xpc = { path = "../runne-macos-xpc" }
 runne-native-enrollment-authority = { path = "../runne-native-enrollment-authority", optional = true }
 security-framework = { version = "=3.7.0", features = ["OSX_10_15"] }
 

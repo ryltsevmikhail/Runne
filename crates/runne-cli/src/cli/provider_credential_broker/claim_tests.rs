@@ -4,13 +4,15 @@ use std::sync::{Arc, Mutex};
 use runne_provider::{
     CredentialBindingDigest, CredentialBrokerCommand, CredentialBrokerFrame,
     CredentialBrokerFrameCodec, CredentialBrokerTarget, CredentialEnrollmentAuthorityPair,
-    CredentialFence, CredentialLifecycleRevision, CredentialOperationAction, CredentialOperationId,
-    CredentialSecretInputPresence, CredentialTicketAttempt, CredentialVersionRef,
-    PendingCredentialIssueTicketV1, ProviderId, RawCredentialTicket,
+    CredentialFence, CredentialLifecycleRevision, CredentialOperationAction,
+    CredentialOperationId, CredentialSecretInputPresence, CredentialTicketAttempt,
+    CredentialVersionRef, PendingCredentialIssueTicketV1, ProviderId, RawCredentialTicket,
 };
 use runne_secure_store::{NativeProviderCredentialWriters, ProviderCredentialAccessPolicy};
 
-use super::claim::claim_writer_authorization_with_parts;
+use super::claim::{
+    claim_writer_authorization_with_legacy_parts,
+};
 #[cfg(target_os = "macos")]
 use super::claim::claim_writer_authorization;
 
@@ -18,6 +20,9 @@ use super::claim::claim_writer_authorization;
 mod presence;
 #[path = "claim_tests/secret_path.rs"]
 mod secret_path;
+#[cfg(target_os = "macos")]
+#[path = "claim_tests/service.rs"]
+mod service;
 
 #[test]
 #[cfg(target_os = "macos")]
@@ -140,7 +145,7 @@ fn claim_for_test(
 ) -> Result<super::claim::ClaimedWriterControl, super::CliError> {
     let writers = native_writers();
     let (issuer, writer) = writers.into_parts();
-    claim_writer_authorization_with_parts(
+    claim_writer_authorization_with_legacy_parts(
         parts.control,
         parts.channel,
         parts.ticket,

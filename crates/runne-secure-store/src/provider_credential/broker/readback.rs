@@ -1,7 +1,6 @@
 use runne_provider::{
     CredentialBindingDigest, CredentialBrokerCommand, CredentialBrokerTarget,
-    CredentialDispatchCapability, CredentialOperationAction, CredentialVerificationCapability,
-    CredentialVersionRef,
+    CredentialOperationAction, CredentialVersionRef,
 };
 
 use super::errors::BrokerError;
@@ -10,8 +9,7 @@ use super::readback_observation::{
 };
 use crate::{
     NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
-    ProviderCredentialMaterial, ProviderCredentialStatus, ProviderCredentialStore,
-    SecureStoreError,
+    ProviderCredentialStatus, ProviderCredentialStore, SecureStoreError,
 };
 
 pub trait ProviderCredentialReadback: Send + Sync {
@@ -34,30 +32,6 @@ pub trait ProviderCredentialReadback: Send + Sync {
         &self,
         input: ExactAbsenceReadback,
     ) -> Result<CredentialReadbackObservation, SecureStoreError>;
-}
-
-pub trait ProviderCredentialDispatchMaterializer: Send + Sync {
-    /// Materializes only the version named by a current dispatch capability.
-    ///
-    /// # Errors
-    ///
-    /// Returns a closed stale-capability, access, missing, or backend error.
-    fn materialize_active(
-        &self,
-        capability: &CredentialDispatchCapability,
-    ) -> Result<ProviderCredentialMaterial, SecureStoreError>;
-}
-
-pub trait ProviderCredentialVerificationMaterializer: Send + Sync {
-    /// Materializes only the version named by a current verification capability.
-    ///
-    /// # Errors
-    ///
-    /// Returns a closed stale-capability, access, missing, or backend error.
-    fn materialize_for_verification(
-        &self,
-        capability: &CredentialVerificationCapability,
-    ) -> Result<ProviderCredentialMaterial, SecureStoreError>;
 }
 
 pub struct ExactVersionReadback {
@@ -105,6 +79,41 @@ impl ExactVersionReadback {
         };
         Ok(Self { command, reference })
     }
+
+    /// Returns the exact command used to bind a service metadata read.
+    #[must_use]
+    pub const fn command(&self) -> &CredentialBrokerCommand {
+        &self.command
+    }
+
+    /// Returns the immutable version queried through the service.
+    #[must_use]
+    pub const fn version_ref(&self) -> &CredentialVersionRef {
+        &self.reference
+    }
+
+    /// Converts service metadata into the canonical readback observation.
+    ///
+    /// # Errors
+    ///
+    /// Preserves missing-version and legacy-source-revision failures.
+    pub fn observe_service_presence(
+        self,
+        present: bool,
+    ) -> Result<CredentialReadbackObservation, SecureStoreError> {
+        if !present {
+            return Err(BrokerError::Missing.into());
+        }
+        match self.command.action() {
+            CredentialOperationAction::Pair => {
+                version_observation(&self.command, &self.reference, true)
+            }
+            CredentialOperationAction::MigrateLegacy => {
+                Err(SecureStoreError::ProviderCredentialSourceRevisionUnavailable)
+            }
+            _ => Err(BrokerError::AccessDenied.into()),
+        }
+    }
 }
 
 impl ExactAbsenceReadback {
@@ -127,6 +136,36 @@ impl ExactAbsenceReadback {
             _ => return Err(BrokerError::AccessDenied.into()),
         };
         Ok(Self { command, reference })
+    }
+
+    /// Returns the exact command used to bind a service metadata read.
+    #[must_use]
+    pub const fn command(&self) -> &CredentialBrokerCommand {
+        &self.command
+    }
+
+    /// Returns the immutable version, or `None` for the legacy source.
+    #[must_use]
+    pub const fn version_ref(&self) -> Option<&CredentialVersionRef> {
+        self.reference.as_ref()
+    }
+
+    /// Converts service metadata into the canonical absence observation.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a still-present target as a conflicting mutation outcome.
+    pub fn observe_service_presence(
+        self,
+        present: bool,
+    ) -> Result<CredentialReadbackObservation, SecureStoreError> {
+        if present {
+            return Err(BrokerError::Conflict.into());
+        }
+        match self.reference.as_ref() {
+            Some(reference) => version_observation(&self.command, reference, false),
+            None => legacy_observation(&self.command),
+        }
     }
 }
 
@@ -220,65 +259,5 @@ where
             ProviderCredentialStatus::Configured => Err(BrokerError::Conflict.into()),
             ProviderCredentialStatus::Unsupported => Err(BrokerError::Unsupported.into()),
         }
-    }
-}
-
-pub(super) struct VersionStoreDispatchMaterializer<N> {
-    native: N,
-    access: ProviderCredentialAccessPolicy,
-}
-
-impl<N> VersionStoreDispatchMaterializer<N> {
-    pub(super) const fn new(native: N, access: ProviderCredentialAccessPolicy) -> Self {
-        Self { native, access }
-    }
-}
-
-impl<N> ProviderCredentialDispatchMaterializer for VersionStoreDispatchMaterializer<N>
-where
-    N: NativeProviderCredentialVersionStore,
-{
-    fn materialize_active(
-        &self,
-        capability: &CredentialDispatchCapability,
-    ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
-        self.native.load_version(capability, &self.access)
-    }
-}
-
-// Staged unwired: the canonical verification-effect boundary is composed in a
-// later enrollment task; until then no production constructor exists.
-#[allow(dead_code)]
-pub(super) trait VerificationNativeMaterializer: Send + Sync {
-    fn materialize_for_verification(
-        &self,
-        capability: &CredentialVerificationCapability,
-        access: &ProviderCredentialAccessPolicy,
-    ) -> Result<ProviderCredentialMaterial, SecureStoreError>;
-}
-
-#[allow(dead_code)]
-pub(super) struct VerificationMaterializerAdapter<N> {
-    native: N,
-    access: ProviderCredentialAccessPolicy,
-}
-
-impl<N> VerificationMaterializerAdapter<N> {
-    #[allow(dead_code)]
-    pub(super) const fn new(native: N, access: ProviderCredentialAccessPolicy) -> Self {
-        Self { native, access }
-    }
-}
-
-impl<N> ProviderCredentialVerificationMaterializer for VerificationMaterializerAdapter<N>
-where
-    N: VerificationNativeMaterializer,
-{
-    fn materialize_for_verification(
-        &self,
-        capability: &CredentialVerificationCapability,
-    ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
-        self.native
-            .materialize_for_verification(capability, &self.access)
     }
 }

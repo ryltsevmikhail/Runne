@@ -1,5 +1,27 @@
 use std::sync::Arc;
 
+pub(super) fn map_enrollment_error(
+    error: runne_api::ProviderCredentialEnrollmentHostError,
+) -> runne_api::LaunchAuthorityError {
+    match error {
+        runne_api::ProviderCredentialEnrollmentHostError::Unsupported => {
+            runne_api::LaunchAuthorityError::UnsupportedPlatformBackend
+        }
+        runne_api::ProviderCredentialEnrollmentHostError::Unavailable => {
+            runne_api::LaunchAuthorityError::ProtectedChannelUnavailable
+        }
+        _ => runne_api::LaunchAuthorityError::OwnershipMismatch,
+    }
+}
+
+pub(super) fn unix_now_millis() -> Result<u64, runne_api::LaunchAuthorityError> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|value| u64::try_from(value.as_millis()).ok())
+        .ok_or(runne_api::LaunchAuthorityError::StaleLaunchAuthority)
+}
+
 pub(crate) const fn enrollment_transcript_allows_rotation(
     has_session: bool,
     terminal: bool,
@@ -53,6 +75,9 @@ pub(super) struct V3EnrollmentRuntime {
     pub(super) channel: Option<
         crate::application::provider_credential_enrollment::broker::MacOsCredentialBrokerChannel,
     >,
+    #[cfg(target_os = "macos")]
+    pub(super) credential_service:
+        Option<Arc<crate::protected_activation::CredentialServiceRuntimeGateway>>,
 }
 
 impl V3EnrollmentRuntime {
@@ -91,7 +116,7 @@ impl V3EnrollmentRuntime {
             .ok_or(runne_api::LaunchAuthorityError::InvalidContract)?;
         let installed = session
             .take_installed_facts()
-            .map_err(super::map_enrollment_error)?;
+            .map_err(map_enrollment_error)?;
         let writer = self
             .broker
             .take_verified_writer()
@@ -105,30 +130,34 @@ impl V3EnrollmentRuntime {
             .channel
             .as_mut()
             .ok_or(runne_api::LaunchAuthorityError::InvalidContract)?;
-        let pending = session
-            .claim_writer(measurements, continuation, broker_channel)
-            .map_err(super::map_enrollment_error)?;
+        let pending = if let Some(service) = self.credential_service.as_ref() {
+            session
+                .claim_writer_with_service(measurements, continuation, broker_channel, service)
+                .map_err(map_enrollment_error)?
+        } else {
+            session
+                .claim_writer(measurements, continuation, broker_channel)
+                .map_err(map_enrollment_error)?
+        };
         let released = if let Some(relay) = pending.relay().map(<[u8]>::to_vec) {
-            let frame = session
-                .encode_relay(&relay)
-                .map_err(super::map_enrollment_error)?;
+            let frame = session.encode_relay(&relay).map_err(map_enrollment_error)?;
             protected.write_control_frame(&frame)?;
             let acknowledgement = protected.read_control_frame()?;
             session
                 .accept_relay_ack(&acknowledgement, &relay, pending, broker_channel)
-                .map_err(super::map_enrollment_error)?
+                .map_err(map_enrollment_error)?
         } else {
             return Err(runne_api::LaunchAuthorityError::InvalidContract);
         };
-        let now = super::unix_now_millis()? / 1_000;
+        let now = unix_now_millis()? / 1_000;
         let now =
             i64::try_from(now).map_err(|_| runne_api::LaunchAuthorityError::InvalidContract)?;
         let terminal = session
             .finish_writer(released, broker_channel, now)
-            .map_err(super::map_enrollment_error)?;
+            .map_err(map_enrollment_error)?;
         let frame = session
             .encode_terminal_snapshot(terminal)
-            .map_err(super::map_enrollment_error)?;
+            .map_err(map_enrollment_error)?;
         protected.write_control_frame(&frame)?;
         self.terminal = true;
         if let Some(channel) = self.channel.take() {

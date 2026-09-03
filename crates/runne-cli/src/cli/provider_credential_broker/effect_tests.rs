@@ -1,5 +1,21 @@
 use runne_provider::CredentialOperationAction;
 
+#[cfg(target_os = "macos")]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(target_os = "macos")]
+use runne_platform_ports::credential_service::{
+    CredentialServiceCallContext, CredentialServicePortFuture, CredentialServiceWriterPort,
+    CredentialServiceWriterReply, CredentialServiceWriterRequest,
+};
+#[cfg(target_os = "macos")]
+use runne_provider::{
+    CredentialBindingDigest, CredentialBrokerFrame, CredentialEnrollmentAuthorityPair,
+    CredentialMutationGrant, CredentialRuntimeMutationPlan, CredentialServiceCorrelation,
+    CredentialServiceDeadline, CredentialServiceEpoch, CredentialServiceProtocolCodec,
+    CredentialServiceReply, CredentialServiceRequestSequence, CredentialWriterAuthorityPair,
+    sealed_pair_for_test,
+};
+
 use super::effect::{execute_non_pair_effect, execute_pair_effect};
 use super::effect_test_support::{
     EffectCall, assert_frames, claimed, claimed_with_diagnostic_failure, pair_authorized,
@@ -76,4 +92,130 @@ fn diagnostic_write_failure_closes_after_native_invocation() {
         vec![EffectCall::ImportLegacy]
     );
     assert_frames(&fixture.written, false);
+}
+
+#[test]
+#[cfg(target_os = "macos")]
+fn service_pair_consumes_the_authenticated_handoff_through_writer_only_port() {
+    let command = super::effect_test_support::command(CredentialOperationAction::Pair);
+    let binding = CredentialBindingDigest::from_measured([13; 32]).unwrap();
+    let (_, measurements) = CredentialEnrollmentAuthorityPair::new().split();
+    let channel = measurements.broker_channel_binding([11; 32]).unwrap();
+    let sealed = sealed_pair_for_test(&command, binding, &channel, b"credential".to_vec()).unwrap();
+    let (issuer, effects) = CredentialWriterAuthorityPair::new().split();
+    let pending_claim = issuer.issue_pending_claim(&command, binding, &channel);
+    let authorization = issuer
+        .claim_accepted(
+            pending_claim,
+            CredentialBrokerFrame::ClaimAccepted {
+                operation_id: command.operation_id(),
+                attempt: command.ticket_attempt(),
+            },
+            &command,
+            binding,
+            &channel,
+        )
+        .unwrap();
+    let handoff = service_handoff(command);
+    let port = ConsumingWriterPort(AtomicBool::new(false));
+
+    super::effect::consume_service_pair_with_port(
+        &port,
+        &effects,
+        handoff,
+        authorization,
+        &channel,
+        binding,
+        sealed.pending,
+        sealed.envelope,
+    )
+    .unwrap();
+
+    assert!(port.0.load(Ordering::SeqCst));
+}
+
+#[test]
+#[cfg(target_os = "macos")]
+fn service_revoke_consumes_a_secretless_authenticated_handoff() {
+    let command = super::effect_test_support::command(CredentialOperationAction::Revoke);
+    let binding = CredentialBindingDigest::from_measured([13; 32]).unwrap();
+    let (_, measurements) = CredentialEnrollmentAuthorityPair::new().split();
+    let channel = measurements.broker_channel_binding([11; 32]).unwrap();
+    let (issuer, effects) = CredentialWriterAuthorityPair::new().split();
+    let pending = issuer.issue_pending_claim(&command, binding, &channel);
+    let authorization = issuer
+        .claim_accepted(
+            pending,
+            CredentialBrokerFrame::ClaimAccepted {
+                operation_id: command.operation_id(),
+                attempt: command.ticket_attempt(),
+            },
+            &command,
+            binding,
+            &channel,
+        )
+        .unwrap();
+    let handoff = service_handoff(command);
+    let port = ConsumingWriterPort(AtomicBool::new(false));
+
+    super::effect::consume_service_control_with_port(
+        &port,
+        &effects,
+        handoff,
+        authorization,
+        &channel,
+        binding,
+    )
+    .unwrap();
+
+    assert!(port.0.load(Ordering::SeqCst));
+}
+
+#[cfg(target_os = "macos")]
+fn service_handoff(
+    command: runne_provider::CredentialBrokerCommand,
+) -> runne_provider::CredentialWriterBrokerHandoffFrame {
+    let grant = CredentialMutationGrant::generate().unwrap();
+    let (store, _) = CredentialEnrollmentAuthorityPair::new().split();
+    let plan = CredentialRuntimeMutationPlan::issue(
+        &store.runtime_arm_authority(),
+        command,
+        CredentialServiceEpoch::from_bytes([2; 16]).unwrap(),
+        [3; 32],
+        [4; 16],
+        5,
+        CredentialBindingDigest::from_measured([6; 32]).unwrap(),
+        CredentialServiceRequestSequence::new(1).unwrap(),
+        CredentialServiceCorrelation::from_bytes([7; 16]).unwrap(),
+        CredentialServiceDeadline::new(10, 20).unwrap(),
+        grant.digest(),
+    )
+    .unwrap();
+    let (_, writer) = plan.split();
+    CredentialServiceProtocolCodec::encode_writer_broker_handoff(writer, grant).unwrap()
+}
+
+#[cfg(target_os = "macos")]
+struct ConsumingWriterPort(AtomicBool);
+
+#[cfg(target_os = "macos")]
+impl CredentialServiceWriterPort for ConsumingWriterPort {
+    fn consume_mutation(
+        &self,
+        request: CredentialServiceWriterRequest,
+        _context: CredentialServiceCallContext,
+    ) -> CredentialServicePortFuture<'_, CredentialServiceWriterReply> {
+        self.0.store(true, Ordering::SeqCst);
+        let reply = request.with_bytes(|bytes| {
+            let request = CredentialServiceProtocolCodec::decode_writer_request(bytes).unwrap();
+            CredentialServiceProtocolCodec::encode_reply(
+                request.context(),
+                CredentialServiceReply::Consumed,
+            )
+            .unwrap()
+        });
+        Box::pin(async move {
+            CredentialServiceWriterReply::from_zeroizing(reply.into_transport_bytes())
+        })
+    }
 }

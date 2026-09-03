@@ -55,6 +55,8 @@ fn protected_begin_without_verified_request_admission_is_rejected_before_store()
             enrollment_store,
             id(9),
             10,
+            #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+            None,
         )
         .unwrap(),
     );
@@ -177,6 +179,8 @@ fn control() -> (
             enrollment_store,
             id(9),
             10,
+            #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+            None,
         )
         .unwrap(),
     );

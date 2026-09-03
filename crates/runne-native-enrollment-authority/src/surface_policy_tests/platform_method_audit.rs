@@ -13,6 +13,7 @@ pub(super) fn is_exact_macos_claim_parts(item: &ItemImpl, method: &syn::ImplItem
                 &["std", "os", "unix", "net", "UnixStream"],
                 &["runne_provider", "BrokerChannelBinding"],
                 &["runne_provider", "PendingCredentialIssueTicketV1"],
+                &["runne_api", "VerifiedSignedInstalledReleaseV2"],
             ],
         )
 }

@@ -32,7 +32,6 @@ pub(in crate::tests) fn mutation_frames(
     let channel = measurements.broker_channel_binding([7; 32]).unwrap();
     let claim = digest(9);
     let (issuer, effects) = CredentialWriterAuthorityPair::new().split();
-    let sealed = sealed_pair_for_test(&command, claim, &channel, b"secret".to_vec()).unwrap();
     let pending = issuer.issue_pending_claim(&command, claim, &channel);
     let authorization = issuer
         .claim_accepted(
@@ -54,16 +53,33 @@ pub(in crate::tests) fn mutation_frames(
             Ok::<(), ()>(())
         })
         .unwrap();
-    let writer = CredentialServiceProtocolCodec::decode_authenticated_writer_broker_handoff(
-        &handoff,
-        authorization,
-        &effects,
-        &channel,
-        claim,
-        sealed.pending,
-        sealed.envelope,
-    )
-    .unwrap();
+    let writer = match command.action() {
+        CredentialOperationAction::Pair | CredentialOperationAction::MigrateLegacy => {
+            let sealed =
+                sealed_pair_for_test(&command, claim, &channel, b"secret".to_vec()).unwrap();
+            CredentialServiceProtocolCodec::decode_authenticated_writer_broker_handoff(
+                &handoff,
+                authorization,
+                &effects,
+                &channel,
+                claim,
+                sealed.pending,
+                sealed.envelope,
+            )
+            .unwrap()
+        }
+        CredentialOperationAction::Revoke | CredentialOperationAction::RetiredVersionCleanup => {
+            CredentialServiceProtocolCodec::decode_authenticated_writer_control_handoff(
+                &handoff,
+                authorization,
+                &effects,
+                &channel,
+                claim,
+            )
+            .unwrap()
+        }
+        _ => panic!("unsupported service test action"),
+    };
     let writer = provider_frame(CredentialServiceRequest::WriterConsume(writer));
     (arm, writer, CredentialMutationGrant::generate().unwrap())
 }

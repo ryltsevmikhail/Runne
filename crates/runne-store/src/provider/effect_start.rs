@@ -10,6 +10,8 @@ include!("effect_start/receipt.rs");
 mod online;
 mod online_proof;
 mod online_receipt;
+#[cfg(test)]
+mod receipt_tests;
 
 pub(super) use online::start_online_effect;
 pub(crate) use online_receipt::ProviderOnlineEffectStartReceipt;

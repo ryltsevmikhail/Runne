@@ -21,7 +21,7 @@ pub enum CredentialBackendResult<T = ()> {
 /// One mutation passed to the public closure seam for the platform adapter.
 pub struct CredentialMutationEffect<'a> {
     command: &'a CredentialBrokerCommand,
-    material: CredentialMaterial,
+    material: Option<CredentialMaterial>,
 }
 
 /// One authenticated runtime read passed to the public platform closure seam.
@@ -43,7 +43,7 @@ pub enum CredentialRuntimeReadObservation {
 impl<'a> CredentialMutationEffect<'a> {
     pub(crate) const fn new(
         command: &'a CredentialBrokerCommand,
-        material: CredentialMaterial,
+        material: Option<CredentialMaterial>,
     ) -> Self {
         Self { command, material }
     }
@@ -56,7 +56,7 @@ impl<'a> CredentialMutationEffect<'a> {
 
     /// Moves secret material into the native effect implementation.
     #[must_use]
-    pub fn into_material(self) -> CredentialMaterial {
+    pub fn into_material(self) -> Option<CredentialMaterial> {
         self.material
     }
 }

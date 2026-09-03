@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+#[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
+use runne_provider::CredentialWriterEffectAuthority;
 #[cfg(any(test, feature = "test-support"))]
 use runne_provider::{CredentialAuthorityPair, CredentialWriterAuthorityPair};
 use runne_provider::{
@@ -65,9 +67,24 @@ fn test_factory_is_not_production_api(access: ProviderCredentialAccessPolicy) {
 )]
 pub struct NativeProviderCredentialWriters {
     pub(super) issuer: CredentialWriterClaimIssuer,
-    pub(super) writer: Arc<dyn BrokeredProviderCredentialWriter>,
+    pub(super) effect_route: NativeProviderCredentialEffectRoute,
     #[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
     pub(super) authenticated: Option<super::native_authenticated::AuthenticatedNativeWriterParts>,
+}
+
+/// Exact post-claim mutation route selected by the authenticated release tuple.
+///
+/// Tuple V3 transfers the process-local effect authority only to the credential
+/// service protocol. It never retains the legacy in-process native writer.
+pub enum NativeProviderCredentialEffectRoute {
+    #[doc(hidden)]
+    Legacy(Arc<dyn BrokeredProviderCredentialWriter>),
+    #[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
+    #[doc(hidden)]
+    CredentialService {
+        effects: CredentialWriterEffectAuthority,
+        configuration: runne_macos_xpc::CredentialServiceEndpointConfiguration,
+    },
 }
 
 impl NativeProviderCredentialWriters {
@@ -82,8 +99,8 @@ impl NativeProviderCredentialWriters {
         let writer = NativeBrokeredProviderCredentialWriter::new(lifecycle, native);
         Self {
             issuer,
-            writer: Arc::new(BrokeredProviderCredentialWriterAdapter::new(
-                effects, writer, access,
+            effect_route: NativeProviderCredentialEffectRoute::Legacy(Arc::new(
+                BrokeredProviderCredentialWriterAdapter::new(effects, writer, access),
             )),
             #[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
             authenticated: None,
@@ -100,7 +117,10 @@ impl NativeProviderCredentialWriters {
         CredentialWriterClaimIssuer,
         Arc<dyn BrokeredProviderCredentialWriter>,
     ) {
-        (self.issuer, self.writer)
+        let NativeProviderCredentialEffectRoute::Legacy(writer) = self.effect_route else {
+            panic!("authenticated service routes cannot enter the test-only legacy split")
+        };
+        (self.issuer, writer)
     }
 }
 

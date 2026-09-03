@@ -1,12 +1,16 @@
 use std::sync::Arc;
 
+#[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+use runne_provider::CredentialAuthorityPair;
 use runne_provider::{
     CredentialEnrollmentAuthorityPair, CredentialEnrollmentMeasurementAuthority,
     CredentialEnrollmentStoreAuthority,
 };
+#[cfg(not(all(target_os = "macos", feature = "desktop-protected")))]
+use runne_secure_store::NativeProviderCredentialReaders;
 use runne_secure_store::{
-    NativeProviderCredentialReaders, ProviderCredentialAccessPolicy,
-    ProviderCredentialDispatchMaterializer, ProviderCredentialId, ProviderCredentialReadback,
+    ProviderCredentialAccessPolicy, ProviderCredentialDispatchMaterializer, ProviderCredentialId,
+    ProviderCredentialReadback,
 };
 use runne_store::provider::SqliteProviderCredentialLifecycleStore;
 use runne_store::schema::ManagedConnection;
@@ -19,35 +23,85 @@ pub(super) struct ComposedCredentialReaders {
     pub(super) dispatch: Arc<dyn ProviderCredentialDispatchMaterializer>,
     pub(super) measurements: CredentialEnrollmentMeasurementAuthority,
     pub(super) enrollment_store_authority: CredentialEnrollmentStoreAuthority,
+    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+    pub(super) credential_service:
+        Option<Arc<crate::protected_activation::CredentialServiceRuntimeGateway>>,
+    pub(super) defer_initial_reconciliation: bool,
 }
 
 pub(super) fn compose(
     connection: ManagedConnection,
     _credential_id: ProviderCredentialId,
-    access: ProviderCredentialAccessPolicy,
+    _access: ProviderCredentialAccessPolicy,
+    service_only: bool,
 ) -> Result<ComposedCredentialReaders, DaemonError> {
-    let (lifecycle_authority, readback, dispatch, _) =
-        NativeProviderCredentialReaders::new(access.clone()).into_parts();
     let (enrollment_store_authority, measurements) =
         CredentialEnrollmentAuthorityPair::new().split();
+    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+    if service_only {
+        let (lifecycle_authority, _) = CredentialAuthorityPair::new().split();
+        let credential_service = Arc::new(
+            crate::protected_activation::CredentialServiceRuntimeGateway::new(
+                enrollment_store_authority.clone(),
+                tokio::runtime::Handle::current(),
+            ),
+        );
+        let readback: Arc<dyn ProviderCredentialReadback> = credential_service.clone();
+        let dispatch: Arc<dyn ProviderCredentialDispatchMaterializer> = credential_service.clone();
+        let store = SqliteProviderCredentialLifecycleStore::open_with_connection_and_authorities(
+            connection,
+            lifecycle_authority,
+            enrollment_store_authority.clone(),
+        )
+        .map_err(|_| DaemonError::Bootstrap("provider credential lifecycle unavailable".into()))?;
+        return Ok(ComposedCredentialReaders {
+            store: Arc::new(store),
+            readback,
+            dispatch,
+            measurements,
+            enrollment_store_authority,
+            credential_service: Some(credential_service),
+            defer_initial_reconciliation: true,
+        });
+    }
+    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+    return Err(DaemonError::Bootstrap(
+        "protected credential service registration is required".into(),
+    ));
+    #[cfg(not(all(target_os = "macos", feature = "desktop-protected")))]
+    let _ = service_only;
+    #[cfg(not(all(target_os = "macos", feature = "desktop-protected")))]
+    let (lifecycle_authority, readback, dispatch, _) =
+        NativeProviderCredentialReaders::new(_access.clone()).into_parts();
+    #[cfg(not(all(target_os = "macos", feature = "desktop-protected")))]
     let store = SqliteProviderCredentialLifecycleStore::open_with_connection_and_authorities(
         connection,
         lifecycle_authority,
         enrollment_store_authority.clone(),
     )
     .map_err(|_| DaemonError::Bootstrap("provider credential lifecycle unavailable".into()))?;
-    #[cfg(feature = "test-support")]
-    prove_existing_local_material(&store, _credential_id, &access)?;
+    #[cfg(all(
+        feature = "test-support",
+        not(all(target_os = "macos", feature = "desktop-protected"))
+    ))]
+    prove_existing_local_material(&store, _credential_id, &_access)?;
+    #[cfg(not(all(target_os = "macos", feature = "desktop-protected")))]
     Ok(ComposedCredentialReaders {
         store: Arc::new(store),
         readback,
         dispatch,
         measurements,
         enrollment_store_authority,
+        #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+        credential_service: None,
+        defer_initial_reconciliation: false,
     })
 }
 
-#[cfg(feature = "test-support")]
+#[cfg(all(
+    feature = "test-support",
+    not(all(target_os = "macos", feature = "desktop-protected"))
+))]
 fn prove_existing_local_material(
     store: &SqliteProviderCredentialLifecycleStore,
     credential_id: ProviderCredentialId,

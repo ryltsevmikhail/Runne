@@ -18,6 +18,10 @@ pub(super) struct CredentialBoundary {
     pub(super) adapter: Arc<dyn CanonicalProviderEffect>,
     pub(super) status: ProviderCredentialStatus,
     pub(super) enrollment_authorities: Option<CredentialEnrollmentControlAuthorities>,
+    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+    pub(super) credential_service:
+        Option<Arc<crate::protected_activation::CredentialServiceRuntimeGateway>>,
+    pub(super) defer_initial_reconciliation: bool,
 }
 
 pub(super) struct CredentialEnrollmentControlAuthorities {
@@ -29,11 +33,13 @@ pub(super) fn production(
     connection: ManagedConnection,
     credential_id: ProviderCredentialId,
     adapter_factory: &ProviderEffectFactory,
+    protected_activation: bool,
 ) -> Result<CredentialBoundary, DaemonError> {
     let credentials = super::super::credential_reader::compose(
         connection,
         credential_id,
         credential_access_policy(credential_id)?,
+        protected_activation,
     )?;
     let adapter = adapter_factory(Arc::clone(&credentials.dispatch))?;
     Ok(CredentialBoundary {
@@ -45,6 +51,9 @@ pub(super) fn production(
             measurements: credentials.measurements,
             store: credentials.enrollment_store_authority,
         }),
+        #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+        credential_service: credentials.credential_service,
+        defer_initial_reconciliation: credentials.defer_initial_reconciliation,
     })
 }
 
@@ -74,6 +83,9 @@ pub(super) fn fixture(
         adapter,
         status: ProviderCredentialStatus::Configured,
         enrollment_authorities: None,
+        #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+        credential_service: None,
+        defer_initial_reconciliation: false,
     })
 }
 
@@ -92,6 +104,9 @@ pub(super) fn fixture(
         adapter,
         status: ProviderCredentialStatus::Configured,
         enrollment_authorities: None,
+        #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+        credential_service: None,
+        defer_initial_reconciliation: false,
     })
 }
 // fixture-only capability end

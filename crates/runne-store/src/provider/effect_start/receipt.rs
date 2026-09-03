@@ -50,6 +50,42 @@ impl ProviderEffectStartReceipt {
         self.deadline
     }
 
+    /// Measures the complete durable effect-start authority for one-use
+    /// credential materialization. The derived monotonic deadline is omitted;
+    /// its authoritative absolute expiry is included instead.
+    #[must_use]
+    pub fn credential_read_receipt_digest(&self) -> [u8; 32] {
+        let mut hash = Sha256::new();
+        hash.update(CREDENTIAL_READ_RECEIPT_DOMAIN);
+        hash.update(self.expires_at.to_be_bytes());
+        hash.update(self.attempt_id);
+        hash.update(self.permit_id);
+        hash.update(
+            u64::try_from(self.provider_idempotency_key.len())
+                .unwrap_or(u64::MAX)
+                .to_be_bytes(),
+        );
+        hash.update(self.provider_idempotency_key.as_bytes());
+        hash.update(self.prepared_digest);
+        hash.update(self.render_digest);
+        hash.update(self.profile_digest);
+        hash.update(self.fencing_token.to_be_bytes());
+        hash.update(self.token_reservation_id);
+        hash.update(self.cost_reservation_id);
+        hash.update(
+            u64::try_from(self.credential_provider.len())
+                .unwrap_or(u64::MAX)
+                .to_be_bytes(),
+        );
+        hash.update(self.credential_provider.as_bytes());
+        hash.update(self.credential_version.to_be_bytes());
+        hash.update(self.credential_ref_digest);
+        hash.update(self.credential_owner);
+        hash.update(self.credential_expires_at.to_be_bytes());
+        hash.update(self.credential_fencing_token.to_be_bytes());
+        hash.finalize().into()
+    }
+
     /// Returns whether this receipt is bound to the exact admitted claim.
     pub fn matches_claim(&self, claim: &ProviderDispatchClaim) -> bool {
         self.attempt_id == *claim.attempt_id.as_bytes()
@@ -74,3 +110,7 @@ impl ProviderEffectStartReceipt {
             && self.credential_fencing_token == binding.fencing_token()
     }
 }
+use sha2::{Digest as _, Sha256};
+
+const CREDENTIAL_READ_RECEIPT_DOMAIN: &[u8] =
+    b"gocode/provider-effect-start/credential-read-receipt/v1\0";

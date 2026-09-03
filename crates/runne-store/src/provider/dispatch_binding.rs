@@ -1,6 +1,7 @@
 use runne_provider::{
-    CredentialDispatchCapability, CredentialLease, CredentialVersionRef, DispatchAttemptId,
-    ProviderCallDigestVersion, ProviderDispatchClaim, ProviderId, ProviderStreamId,
+    CredentialDispatchCapability, CredentialFence, CredentialLease, CredentialLifecycleRevision,
+    CredentialVersionRef, DispatchAttemptId, ProviderCallDigestVersion, ProviderDispatchClaim,
+    ProviderId, ProviderStreamId,
 };
 
 use super::PreparedProviderRecord;
@@ -105,6 +106,30 @@ impl CredentialDispatchBinding {
     /// Returns the native-load capability bound to this authoritative lease.
     pub const fn native_capability(&self) -> &CredentialDispatchCapability {
         &self.0
+    }
+
+    /// Returns the lifecycle/fence tuple captured by the online authorization
+    /// CAS and required for point-of-use credential reads.
+    ///
+    /// # Errors
+    ///
+    /// Rejects fixture-only or corrupt bindings without an online seal.
+    pub fn point_of_use_revisions(
+        &self,
+    ) -> Result<
+        (CredentialLifecycleRevision, CredentialFence),
+        runne_provider::CredentialLifecycleError,
+    > {
+        let seal = self
+            .1
+            .as_ref()
+            .ok_or(runne_provider::CredentialLifecycleError::StaleLease)?;
+        Ok((
+            CredentialLifecycleRevision::new(seal.lifecycle_revision)
+                .map_err(|_| runne_provider::CredentialLifecycleError::CorruptState)?,
+            CredentialFence::new(seal.credential_fence)
+                .map_err(|_| runne_provider::CredentialLifecycleError::CorruptState)?,
+        ))
     }
 
     /// Rechecks the store-owned online tuple immediately before native loading.

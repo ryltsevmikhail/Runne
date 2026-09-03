@@ -82,6 +82,7 @@ rustix = { version = "=1.1.4", features = ["fs", "process"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 nix = { version = "=0.31.3", default-features = false, features = ["socket"], optional = true }
+runne-macos-xpc = { path = "../runne-macos-xpc" }
 runne-macos-keychain-acl = { path = "../runne-macos-keychain-acl" }
 runne-native-enrollment-authority = { path = "../runne-native-enrollment-authority", optional = true }
 

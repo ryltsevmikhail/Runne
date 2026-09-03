@@ -218,7 +218,7 @@ fn verified_admission_at(
     .ok()?;
     let admission = (verified.target().version == record.version
         && verified.target().artifact_sha256 == record.artifact_sha256)
-        .then(|| verified.admit_native_enrollment(&artifacts))??;
+        .then(|| paths.admit_verified(&verified).ok().flatten())??;
     #[cfg(all(feature = "test-support", target_os = "macos"))]
     if runne_api::test_support::local_native_enrollment_enabled() {
         return admission.with_local_code_identities(paths);

@@ -1,11 +1,61 @@
 use runne_provider::{
-    CredentialVerificationKind, CredentialVerificationLease, CredentialVerificationResult,
+    CredentialVerificationCapability, CredentialVerificationKind, CredentialVerificationLease,
+    CredentialVerificationResult,
 };
 
 use crate::{
-    NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy, ProviderCredentialStatus,
-    SecureStoreError,
+    NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy,
+    ProviderCredentialMaterial, ProviderCredentialStatus, SecureStoreError,
 };
+
+pub trait ProviderCredentialVerificationMaterializer: Send + Sync {
+    /// Materializes only the version named by a current verification capability.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed stale-capability, access, missing, or backend error.
+    fn materialize_for_verification(
+        &self,
+        capability: &CredentialVerificationCapability,
+    ) -> Result<ProviderCredentialMaterial, SecureStoreError>;
+}
+
+// Staged unwired: the canonical verification-effect boundary is composed in a
+// later enrollment task; until then no production constructor exists.
+#[allow(dead_code)]
+pub(super) trait VerificationNativeMaterializer: Send + Sync {
+    fn materialize_for_verification(
+        &self,
+        capability: &CredentialVerificationCapability,
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialMaterial, SecureStoreError>;
+}
+
+#[allow(dead_code)]
+pub(super) struct VerificationMaterializerAdapter<N> {
+    native: N,
+    access: ProviderCredentialAccessPolicy,
+}
+
+impl<N> VerificationMaterializerAdapter<N> {
+    #[allow(dead_code)]
+    pub(super) const fn new(native: N, access: ProviderCredentialAccessPolicy) -> Self {
+        Self { native, access }
+    }
+}
+
+impl<N> ProviderCredentialVerificationMaterializer for VerificationMaterializerAdapter<N>
+where
+    N: VerificationNativeMaterializer,
+{
+    fn materialize_for_verification(
+        &self,
+        capability: &CredentialVerificationCapability,
+    ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
+        self.native
+            .materialize_for_verification(capability, &self.access)
+    }
+}
 
 /// Metadata-only local verification for one store-issued lease.
 ///

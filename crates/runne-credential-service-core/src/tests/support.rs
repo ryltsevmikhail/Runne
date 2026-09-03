@@ -51,9 +51,12 @@ impl MemoryBackend {
         };
         let key = key(version);
         if command.action() == CredentialOperationAction::Pair {
-            effect.into_material().consume(|bytes| {
-                self.items.insert(key, bytes.to_vec());
-            });
+            effect
+                .into_material()
+                .expect("pair material")
+                .consume(|bytes| {
+                    self.items.insert(key, bytes.to_vec());
+                });
         } else if command.action() == CredentialOperationAction::Revoke {
             self.items.remove(&key);
         }
@@ -107,7 +110,7 @@ pub(super) fn binding_for_owner(
     let mut session = SESSION;
     session[15] = u8::try_from(join).unwrap();
     CredentialServiceRegistrationBinding::new(
-        EPOCH, session, 11, runtime, 13, installed, owner, [4; 32], nonce, join, expires,
+        EPOCH, session, runtime, runtime, 13, installed, owner, [4; 32], nonce, join, expires,
     )
     .unwrap()
 }

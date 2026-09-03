@@ -172,7 +172,7 @@ impl PendingPinnedProviderCredentialWriterSessionV1 {
         crate::AuthenticatedProviderCredentialWriterSession,
         runne_macos_process_identity::MacOsPackagedWriterObservationError,
     > {
-        let (control, channel_bytes, ticket, writer, reader) =
+        let (control, channel_bytes, ticket, writer, reader, release) =
             self.inner.into_authenticated_parts()?;
         let (_, measurements) = runne_provider::CredentialEnrollmentAuthorityPair::new().split();
         let channel = measurements
@@ -182,7 +182,7 @@ impl PendingPinnedProviderCredentialWriterSessionV1 {
             })?;
         Ok(crate::AuthenticatedProviderCredentialWriterSession::mint(
             crate::session::VerifiedEnrollmentSession::MacOs(Box::new((
-                control, channel, ticket, writer, reader,
+                control, channel, ticket, writer, reader, release,
             ))),
         ))
     }

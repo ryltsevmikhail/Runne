@@ -44,6 +44,16 @@ impl MacOsCredentialBrokerChannel {
         let _ = self.writer.terminate_exact_writer();
     }
 
+    pub(crate) fn send_service_handoff(
+        &mut self,
+        frame: runne_provider::CredentialWriterBrokerHandoffFrame,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        frame.send(|bytes| {
+            std::io::Write::write_all(self.writer.control(), bytes)
+                .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)
+        })
+    }
+
     fn receive_once(
         &mut self,
     ) -> Result<CredentialBrokerFrame, ProviderCredentialEnrollmentHostError> {

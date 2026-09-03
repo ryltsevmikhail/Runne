@@ -1,12 +1,12 @@
 use super::super::{
     CredentialMutationGrant, CredentialServiceDisposition, CredentialServiceEpoch,
     CredentialServiceIngressRequest, CredentialServiceProtocolCodec, CredentialServiceReply,
-    CredentialServiceRequest,
+    CredentialServiceRequest, CredentialWriterBrokerHandoffFrame,
 };
-use super::support::{digest, writer_plan_with_grant};
+use super::support::{digest, writer_plan_for_action_with_grant, writer_plan_with_grant};
 use crate::credential::enrollment::{
-    CredentialBrokerFrame, CredentialEnrollmentAuthorityPair, CredentialWriterAuthorityPair,
-    protocol::sealed_pair_for_test,
+    CredentialBindingDigest, CredentialBrokerFrame, CredentialEnrollmentAuthorityPair,
+    CredentialOperationAction, CredentialWriterAuthorityPair, protocol::sealed_pair_for_test,
 };
 
 #[test]
@@ -111,4 +111,74 @@ fn broker_handoff_authenticates_real_claim_before_service_writer_decode() {
     let length = u32::try_from(legacy.len() - 14).unwrap();
     legacy[10..14].copy_from_slice(&length.to_be_bytes());
     assert!(CredentialServiceProtocolCodec::decode_writer_request(&legacy).is_err());
+}
+
+#[test]
+fn writer_handoff_stream_reader_consumes_exactly_one_bounded_frame() {
+    let grant = CredentialMutationGrant::from_wire([91; 32]).unwrap();
+    let (_, _, writer_handoff) = writer_plan_with_grant(grant.digest());
+    let encoded =
+        CredentialServiceProtocolCodec::encode_writer_broker_handoff(writer_handoff, grant)
+            .unwrap()
+            .into_transport_bytes();
+    let frame_len = encoded.len();
+    let mut stream = std::io::Cursor::new(encoded.to_vec());
+    stream.get_mut().extend_from_slice(b"NEXT");
+
+    let decoded = CredentialWriterBrokerHandoffFrame::read_from(&mut stream).unwrap();
+
+    assert_eq!(stream.position(), u64::try_from(frame_len).unwrap());
+    decoded
+        .send::<()>(|bytes| {
+            assert_eq!(&bytes[..8], b"RNCRED01");
+            assert_eq!(&bytes[8..10], &2_u16.to_be_bytes());
+            Ok(())
+        })
+        .unwrap();
+}
+
+#[test]
+fn revoke_handoff_authenticates_without_inventing_credential_material() {
+    let grant = CredentialMutationGrant::from_wire([81; 32]).unwrap();
+    let (command, _, writer_handoff) =
+        writer_plan_for_action_with_grant(CredentialOperationAction::Revoke, grant.digest());
+    let (_, measurements) = CredentialEnrollmentAuthorityPair::new().split();
+    let channel = measurements.broker_channel_binding([7; 32]).unwrap();
+    let binding = CredentialBindingDigest::from_measured([9; 32]).unwrap();
+    let (issuer, effects) = CredentialWriterAuthorityPair::new().split();
+    let pending = issuer.issue_pending_claim(&command, binding, &channel);
+    let authorization = issuer
+        .claim_accepted(
+            pending,
+            CredentialBrokerFrame::ClaimAccepted {
+                operation_id: command.operation_id(),
+                attempt: command.ticket_attempt(),
+            },
+            &command,
+            binding,
+            &channel,
+        )
+        .unwrap();
+    let handoff =
+        CredentialServiceProtocolCodec::encode_writer_broker_handoff(writer_handoff, grant)
+            .unwrap()
+            .into_transport_bytes();
+
+    let request = CredentialServiceProtocolCodec::decode_authenticated_writer_control_handoff(
+        &handoff,
+        authorization,
+        &effects,
+        &channel,
+        binding,
+    )
+    .unwrap();
+    let encoded = CredentialServiceProtocolCodec::encode_request(
+        CredentialServiceRequest::WriterConsume(request),
+    )
+    .unwrap();
+
+    assert!(matches!(
+        CredentialServiceProtocolCodec::decode_writer_request(encoded.test_bytes()),
+        Ok(CredentialServiceIngressRequest::WriterConsume(_))
+    ));
 }

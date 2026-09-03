@@ -10,7 +10,8 @@ use runne_provider::{
 use runne_secure_store::BrokeredProviderCredentialWriter;
 
 use super::{
-    ClaimFixture, EffectCall, FakeWriter, claim_writer_authorization_with_parts, command, endpoint,
+    ClaimFixture, EffectCall, FakeWriter, claim_writer_authorization_with_legacy_parts, command,
+    endpoint,
 };
 use super::super::pair::AuthorizedPairWriterControl;
 
@@ -40,7 +41,7 @@ pub fn pair_claimed_with_release(release: Option<CredentialBrokerFrame>) -> Clai
         create_succeeds: false,
     });
     let (issuer, _) = CredentialWriterAuthorityPair::new().split();
-    let claimed = claim_writer_authorization_with_parts(
+    let claimed = claim_writer_authorization_with_legacy_parts(
         control,
         channel,
         ticket,
@@ -88,7 +89,7 @@ fn pair_authorized_with_control(
         create_succeeds,
     });
     let (issuer, _) = CredentialWriterAuthorityPair::new().split();
-    let claimed = claim_writer_authorization_with_parts(
+    let claimed = claim_writer_authorization_with_legacy_parts(
         control,
         channel,
         ticket,

@@ -170,6 +170,23 @@ mod channel;
 mod control;
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 mod control_v3;
+#[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+mod credential_service_gateway;
+#[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+mod credential_service_registration;
+#[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+pub(crate) use credential_service_gateway::CredentialServiceRuntimeGateway;
+#[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+pub(crate) use credential_service_registration::CredentialServiceRuntimeSession;
+#[cfg(all(test, target_os = "macos", feature = "desktop-protected"))]
+#[path = "protected_activation/credential_service_gateway_tests.rs"]
+mod credential_service_gateway_tests;
+#[cfg(all(test, target_os = "macos", feature = "desktop-protected"))]
+#[path = "protected_activation/credential_service_registration_read_tests.rs"]
+mod credential_service_registration_read_tests;
+#[cfg(all(test, target_os = "macos", feature = "desktop-protected"))]
+#[path = "protected_activation/credential_service_registration_tests.rs"]
+mod credential_service_registration_tests;
 #[cfg(any(unix, windows))]
 mod first_activation;
 #[cfg(any(unix, windows))]

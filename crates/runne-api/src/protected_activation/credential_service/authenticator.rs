@@ -135,6 +135,16 @@ impl CredentialServiceSessionAuthenticator {
         Ok(VerifiedCredentialServiceRegistration(request))
     }
 
+    /// Verifies the registration MAC before a daemon checks its independently
+    /// retained session and installed-release facts.
+    pub fn decode_and_verify_registration(
+        &self,
+        bytes: &[u8],
+    ) -> Result<VerifiedCredentialServiceRegistration, CredentialServiceRegistrationError> {
+        let request = self.decode_registration(bytes)?;
+        Ok(VerifiedCredentialServiceRegistration(request))
+    }
+
     pub fn registration_ack(
         &self,
         verified: VerifiedCredentialServiceRegistration,

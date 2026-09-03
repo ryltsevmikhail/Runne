@@ -18,7 +18,7 @@ use runne_secure_store::{
     SecureStoreError, WriterIdentityMigrationObservation,
 };
 
-use super::claim::{ClaimedWriterControl, claim_writer_authorization_with_parts};
+use super::claim::{ClaimedWriterControl, claim_writer_authorization_with_legacy_parts};
 
 #[path = "effect_test_support/pair.rs"]
 mod pair;
@@ -75,7 +75,7 @@ fn claimed_from_parts(
         CredentialSecretInputPresence::Absent
     };
     ClaimFixture {
-        claimed: claim_writer_authorization_with_parts(
+        claimed: claim_writer_authorization_with_legacy_parts(
             control,
             channel,
             ticket,

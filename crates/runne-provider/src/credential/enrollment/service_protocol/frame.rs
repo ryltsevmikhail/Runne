@@ -1,3 +1,6 @@
+use std::io::Read;
+
+use crate::credential::enrollment::CredentialEnrollmentError;
 use zeroize::Zeroizing;
 
 /// Move-only zeroizing canonical credential-service request frame.
@@ -61,3 +64,38 @@ macro_rules! frame_api {
 frame_api!(CredentialServiceRequestFrame);
 frame_api!(CredentialServiceReplyFrame);
 frame_api!(CredentialWriterBrokerHandoffFrame);
+
+impl CredentialWriterBrokerHandoffFrame {
+    /// Reads exactly one canonical bounded handoff frame from a live broker stream.
+    pub fn read_from(reader: &mut impl Read) -> Result<Self, CredentialEnrollmentError> {
+        const HEADER_BYTES: usize = 14;
+        let mut header = [0_u8; HEADER_BYTES];
+        reader
+            .read_exact(&mut header)
+            .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
+        if header[..8] != super::CredentialServiceProtocolCodec::MAGIC
+            || header[8..10] != super::CredentialServiceProtocolCodec::VERSION.to_be_bytes()
+        {
+            return Err(CredentialEnrollmentError::InvalidFrame);
+        }
+        let payload_len = usize::try_from(u32::from_be_bytes(
+            header[10..14]
+                .try_into()
+                .map_err(|_| CredentialEnrollmentError::InvalidFrame)?,
+        ))
+        .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
+        let frame_len = HEADER_BYTES
+            .checked_add(payload_len)
+            .ok_or(CredentialEnrollmentError::InvalidFrame)?;
+        if payload_len == 0 || frame_len > super::CredentialServiceProtocolCodec::MAX_FRAME_BYTES {
+            return Err(CredentialEnrollmentError::InvalidFrame);
+        }
+        let mut bytes = Zeroizing::new(Vec::with_capacity(frame_len));
+        bytes.extend_from_slice(&header);
+        bytes.resize(frame_len, 0);
+        reader
+            .read_exact(&mut bytes[HEADER_BYTES..])
+            .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
+        Ok(Self(bytes))
+    }
+}

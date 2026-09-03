@@ -207,6 +207,7 @@ impl MacOsPendingProvisionalWriterSessionV1 {
             PendingCredentialIssueTicketV1,
             PathBuf,
             PathBuf,
+            VerifiedSignedInstalledReleaseV2,
         ),
         MacOsPackagedWriterObservationError,
     > {
@@ -230,6 +231,7 @@ impl MacOsPendingProvisionalWriterSessionV1 {
             verified.issue_ticket,
             writer,
             reader,
+            verified.release,
         ))
     }
 }

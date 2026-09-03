@@ -15,6 +15,10 @@ const BINDING_DIGEST: &str = "2f2e790095684939377ae3e6991bef381ef1bd314f0f33b501
 const RELEASE_BINDING_DIGEST: &str =
     "0a0030f450326a725e260adc9a9a81056b1151b9e2e06bca2fa50752f7280781";
 
+#[cfg(target_os = "macos")]
+#[path = "updater_enrollment_qualification/credential_service.rs"]
+mod credential_service;
+
 fn macos_tuple(target: &UpdateTargetV2) -> NativeEnrollmentTupleV2 {
     NativeEnrollmentTupleV2::new_macos(
         target.release_candidate_sha256.clone(), "c".repeat(64), "e".repeat(64),
@@ -106,10 +110,32 @@ fn qualified_v3_admission_requires_the_exact_remeasured_tuple() {
         admission.qualification(),
         NativeEnrollmentQualification::Qualified(_)
     ));
+    assert_eq!(admission.installed_generation(), 8);
     assert!(
         verified
             .admit_native_enrollment_v3(&macos_tuple_v3(&target, 'e'))
             .is_none()
+    );
+    assert_eq!(
+        admission
+            .desktop_credential_service_configuration()
+            .unwrap()
+            .role(),
+        runne_macos_xpc::CredentialServiceEndpointRole::Desktop,
+    );
+    assert_eq!(
+        admission
+            .runtime_credential_service_configuration()
+            .unwrap()
+            .role(),
+        runne_macos_xpc::CredentialServiceEndpointRole::Runtime,
+    );
+    assert_eq!(
+        admission
+            .writer_credential_service_configuration()
+            .unwrap()
+            .role(),
+        runne_macos_xpc::CredentialServiceEndpointRole::Writer,
     );
 }
 

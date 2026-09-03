@@ -62,11 +62,28 @@ impl<C: OpenAiCredentialMaterializer> Sender<C> {
         }
         let request_id = HeaderValue::from_str(ready.request.provider_idempotency_key())
             .map_err(|_| DispatchError::MaybeDispatched)?;
-        let material = self
-            .credential
-            .materialize(ready.credential.native_capability())
-            .await
-            .map_err(super::map_credential)?;
+        let receipt_digest = receipt.credential_read_receipt_digest();
+        let material = match ready.credential.point_of_use_revisions() {
+            Ok((lifecycle, fence)) => {
+                self.credential
+                    .materialize(
+                        ready.credential.native_capability(),
+                        lifecycle,
+                        fence,
+                        receipt_digest,
+                    )
+                    .await
+            }
+            Err(_) => {
+                self.credential
+                    .materialize_legacy_fixture(
+                        ready.credential.native_capability(),
+                        receipt_digest,
+                    )
+                    .await
+            }
+        }
+        .map_err(super::map_credential)?;
         let credential = bearer_header(&material)?;
         let url = format!("{}{}", self.policy.origin(), self.policy.path());
         let effect = async {
@@ -127,9 +144,9 @@ impl<C: OpenAiCredentialMaterializer> Sender<C> {
 
 #[cfg(test)]
 mod tests {
-    use runne_provider::CredentialDispatchCapability;
     use runne_secure_store::{
-        ProviderCredentialDispatchMaterializer, ProviderCredentialMaterial, SecureStoreError,
+        ProviderCredentialDispatchMaterializer, ProviderCredentialDispatchRead,
+        ProviderCredentialMaterial, SecureStoreError,
     };
 
     use super::*;
@@ -139,7 +156,7 @@ mod tests {
     impl ProviderCredentialDispatchMaterializer for DenyingMaterializer {
         fn materialize_active(
             &self,
-            _: &CredentialDispatchCapability,
+            _: ProviderCredentialDispatchRead<'_>,
         ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
             Err(SecureStoreError::CredentialAccessDenied)
         }

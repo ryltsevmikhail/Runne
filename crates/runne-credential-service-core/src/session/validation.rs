@@ -26,17 +26,23 @@ impl CredentialServiceCore {
             return Ok(CredentialRegistrationOutcome::Idempotent);
         }
         let old = &current.binding;
+        let next_attempt = old.join_attempt().checked_add(1).ok_or(())?;
         let release_is_current = candidate.installed_generation() > old.installed_generation()
             || candidate.release_binding() == old.release_binding();
-        if candidate.join_attempt() > old.join_attempt()
-            && candidate.daemon_authority_generation() >= old.daemon_authority_generation()
+        let common = candidate.join_attempt() == next_attempt
+            && candidate.installed_generation() >= old.installed_generation()
+            && candidate.challenge_nonce() != old.challenge_nonce()
+            && release_is_current;
+        let exact_rejoin = candidate.runtime_generation() == old.runtime_generation()
+            && candidate.daemon_authority_generation() == old.daemon_authority_generation()
+            && candidate.supervisor_generation() == old.supervisor_generation()
+            && candidate.protected_session_id() == old.protected_session_id();
+        let runtime_restart = candidate.daemon_authority_generation()
+            > old.daemon_authority_generation()
             && candidate.runtime_generation() > old.runtime_generation()
             && candidate.supervisor_generation() >= old.supervisor_generation()
-            && candidate.installed_generation() >= old.installed_generation()
-            && candidate.protected_session_id() != old.protected_session_id()
-            && candidate.challenge_nonce() != old.challenge_nonce()
-            && release_is_current
-        {
+            && candidate.protected_session_id() != old.protected_session_id();
+        if common && (exact_rejoin || runtime_restart) {
             Ok(CredentialRegistrationOutcome::Superseded)
         } else {
             Err(())

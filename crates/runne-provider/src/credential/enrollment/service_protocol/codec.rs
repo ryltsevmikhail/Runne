@@ -56,7 +56,7 @@ impl CredentialServiceProtocolCodec {
                 kind_role(&mut payload, 3, role);
                 mutation_binding(&mut payload, value.binding())?;
                 payload.extend_from_slice(value.grant().wire_bytes());
-                put_bytes(&mut payload, value.material().wire_bytes())?;
+                put_bytes(&mut payload, value.material_bytes())?;
             }
             CredentialServiceRequest::MetadataReadback(value) => {
                 kind_role(&mut payload, 4, role);
@@ -154,7 +154,10 @@ fn decode_request_for(
         3 => {
             let binding = take_mutation_binding(bytes, &mut at)?;
             let grant = CredentialMutationGrant::from_wire(take(bytes, &mut at)?)?;
-            let material = CredentialMaterial::from_wire(take_vec(bytes, &mut at)?)?;
+            let material = match take_vec(bytes, &mut at)? {
+                value if value.is_empty() => None,
+                value => Some(CredentialMaterial::from_wire(value)?),
+            };
             CredentialServiceIngressRequest::WriterConsume(
                 CredentialWriterIngressRequest::from_wire(binding, grant, material)?,
             )

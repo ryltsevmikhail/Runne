@@ -1,16 +1,13 @@
 //! Sealed Pair relay state retained after an exact claim acknowledgement.
 
-use std::{
-    io::Read,
-    sync::Arc,
-};
+use std::io::Read;
 
 use runne_provider::{
     BrokerChannelBinding, ClaimedWriterAuthorization, CredentialBindingDigest,
     CredentialBrokerCommand, CredentialBrokerFrame, CredentialOperationAction,
-    PendingCredentialSecretOpening, SealedCredentialEnvelope,
+    CredentialWriterBrokerHandoffFrame, PendingCredentialSecretOpening, SealedCredentialEnvelope,
 };
-use runne_secure_store::BrokeredProviderCredentialWriter;
+use runne_secure_store::NativeProviderCredentialEffectRoute;
 
 use super::{
     CliError,
@@ -21,24 +18,26 @@ use super::{
 /// Move-only Pair authority retaining only sealed secret relay state.
 pub struct AuthorizedPairWriterControl {
     control: Box<dyn BrokerControl>,
-    writer: Arc<dyn BrokeredProviderCredentialWriter>,
+    effect_route: NativeProviderCredentialEffectRoute,
     authorization: ClaimedWriterAuthorization,
     command: CredentialBrokerCommand,
     binding: CredentialBindingDigest,
     channel: BrokerChannelBinding,
     pending_opening: PendingCredentialSecretOpening,
     envelope: SealedCredentialEnvelope,
+    service_handoff: Option<CredentialWriterBrokerHandoffFrame>,
 }
 
 pub struct PairEffectParts {
     pub control: Box<dyn BrokerControl>,
-    pub writer: Arc<dyn BrokeredProviderCredentialWriter>,
+    pub effect_route: NativeProviderCredentialEffectRoute,
     pub authorization: ClaimedWriterAuthorization,
     pub command: CredentialBrokerCommand,
     pub binding: CredentialBindingDigest,
     pub channel: BrokerChannelBinding,
     pub pending: PendingCredentialSecretOpening,
     pub envelope: SealedCredentialEnvelope,
+    pub service_handoff: Option<CredentialWriterBrokerHandoffFrame>,
 }
 
 impl ClaimedWriterControl {
@@ -49,12 +48,13 @@ impl ClaimedWriterControl {
     ) -> Result<AuthorizedPairWriterControl, CliError> {
         let super::claim::ClaimedPairParts {
             mut control,
-            writer,
+            effect_route,
             authorization,
             command,
             binding,
             channel,
             pending_opening,
+            service_handoff,
         } = self.into_pair_parts();
         let pending_opening = pending_opening.ok_or(CliError::CredentialOperation)?;
         if command.action() != CredentialOperationAction::Pair {
@@ -80,13 +80,14 @@ impl ClaimedWriterControl {
         }
         Ok(AuthorizedPairWriterControl {
             control,
-            writer,
+            effect_route,
             authorization,
             command,
             binding,
             channel,
             pending_opening,
             envelope,
+            service_handoff,
         })
     }
 }
@@ -95,23 +96,25 @@ impl AuthorizedPairWriterControl {
     pub(super) fn into_effect_parts(self) -> PairEffectParts {
         let Self {
             control,
-            writer,
+            effect_route,
             authorization,
             command,
             binding,
             channel,
             pending_opening,
             envelope,
+            service_handoff,
         } = self;
         PairEffectParts {
             control,
-            writer,
+            effect_route,
             authorization,
             command,
             binding,
             channel,
             pending: pending_opening,
             envelope,
+            service_handoff,
         }
     }
 }

@@ -1,4 +1,6 @@
-use runne_provider::{CredentialDispatchCapability, ProviderFuture};
+use runne_provider::{
+    CredentialDispatchCapability, CredentialFence, CredentialLifecycleRevision, ProviderFuture,
+};
 use thiserror::Error;
 use zeroize::Zeroizing;
 
@@ -26,5 +28,19 @@ pub trait DeepSeekCredentialMaterializer: Send + Sync {
     fn materialize(
         &self,
         capability: &CredentialDispatchCapability,
+        lifecycle: CredentialLifecycleRevision,
+        fence: CredentialFence,
+        effect_receipt_digest: [u8; 32],
     ) -> ProviderFuture<'_, Result<Zeroizing<Vec<u8>>, DeepSeekCredentialError>>;
+
+    /// Preserves pre-online transport fixtures without granting a native read.
+    /// Production materializers must keep the default fail-closed result.
+    #[doc(hidden)]
+    fn materialize_legacy_fixture(
+        &self,
+        _capability: &CredentialDispatchCapability,
+        _effect_receipt_digest: [u8; 32],
+    ) -> ProviderFuture<'_, Result<Zeroizing<Vec<u8>>, DeepSeekCredentialError>> {
+        Box::pin(async { Err(DeepSeekCredentialError::AccessDenied) })
+    }
 }

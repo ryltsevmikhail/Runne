@@ -2,7 +2,6 @@ use super::readiness::{
     credential_access_policy, native_journal_keyring, native_withheld_tail_store,
 };
 use super::*;
-use crate::application::provider_credential_enrollment::CredentialEnrollmentRecoveryGateway;
 #[cfg(test)]
 use crate::application::workspace_internal::ProtectedProviderDependencyCapsule;
 use crate::application::workspace_internal::ProviderDependencyState;
@@ -10,6 +9,7 @@ use runne_observability::operational::RecoveryObservationRegistry;
 #[cfg(test)]
 use runne_secure_store::ProviderCredentialId;
 mod credential_reader;
+mod credential_reconciliation;
 mod enrollment_control;
 #[cfg(all(feature = "test-support", not(test)))]
 mod fixture_credentials;
@@ -161,6 +161,7 @@ impl DaemonCanonicalProviderService {
                 credential_connection,
                 credential_id,
                 adapter_factory.as_ref(),
+                activation_provenance.is_protected(),
             )?,
         };
         #[cfg(all(feature = "test-support", not(test)))]
@@ -176,6 +177,7 @@ impl DaemonCanonicalProviderService {
                 credential_connection,
                 credential_id,
                 adapter_factory.as_ref(),
+                activation_provenance.is_protected(),
             )?,
         };
         #[cfg(not(any(test, feature = "test-support")))]
@@ -183,7 +185,9 @@ impl DaemonCanonicalProviderService {
             credential_connection,
             credential_id,
             adapter_factory.as_ref(),
+            activation_provenance.is_protected(),
         )?;
+        let defer_initial_credential_reconciliation = credentials.defer_initial_reconciliation;
         let credential_enrollment_control =
             enrollment_control::compose(&mut credentials, runtime_authority_id, 1)?;
         let matcher = ProhibitedContentCredentialMatcher::new(prohibited_content.as_ref());
@@ -277,21 +281,11 @@ impl DaemonCanonicalProviderService {
             launch_capability,
             recovery_registry,
         });
-        match service.credential_readback.as_deref() {
-            Some(reader) => {
-                CredentialEnrollmentRecoveryGateway::new(service.credential_store.as_ref(), reader)
-                    .reconcile_online(chrono::Utc::now().timestamp())
-                    .map_err(|_| {
-                        DaemonError::Bootstrap("credential enrollment recovery unavailable".into())
-                    })?
-            }
-            None if effect_source.is_none() => {
-                return Err(DaemonError::Bootstrap(
-                    "provider credential reader unavailable".into(),
-                ));
-            }
-            None => {}
-        }
+        credential_reconciliation::reconcile_initial(
+            service.as_ref(),
+            defer_initial_credential_reconciliation,
+            effect_source.is_some(),
+        )?;
         service.recover_pending().await?;
         Ok(service)
     }

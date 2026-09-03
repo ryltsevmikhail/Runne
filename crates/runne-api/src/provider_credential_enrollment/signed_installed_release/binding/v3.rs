@@ -65,6 +65,9 @@ impl VerifiedSignedNativeEnrollmentTupleV3 {
     pub const fn candidate_digest(&self) -> [u8; 32] {
         self.digests[0]
     }
+    pub const fn contract_digest(&self) -> [u8; 32] {
+        self.digests[9]
+    }
     pub fn matches_measured_tuple(&self, measured: &NativeEnrollmentTupleV3) -> bool {
         measured.qualification().is_none()
             && measured

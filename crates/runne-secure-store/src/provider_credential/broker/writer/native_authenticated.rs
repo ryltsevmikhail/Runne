@@ -1,13 +1,20 @@
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 
+use runne_macos_xpc::{
+    CredentialServiceEndpointConfiguration, CredentialServiceEndpointRole,
+    CredentialServicePeerRequirement, CredentialServiceXpcError,
+};
 use runne_native_enrollment_authority::AuthenticatedProviderCredentialWriterSession;
 use runne_provider::{
     BrokerChannelBinding, CredentialAuthorityPair, CredentialWriterClaimIssuer,
     PendingCredentialIssueTicketV1,
 };
 
-use super::native::{NativeBrokeredProviderCredentialWriter, NativeProviderCredentialWriters};
+use super::native::{
+    NativeBrokeredProviderCredentialWriter, NativeProviderCredentialEffectRoute,
+    NativeProviderCredentialWriters,
+};
 use super::{BrokeredProviderCredentialWriter, BrokeredProviderCredentialWriterAdapter};
 use crate::{NativeProviderCredentialStore, ProviderCredentialAccessPolicy, SecureStoreError};
 
@@ -29,22 +36,35 @@ impl NativeProviderCredentialWriters {
         session: AuthenticatedProviderCredentialWriterSession,
     ) -> Result<Self, SecureStoreError> {
         let (claim, effect) = session.split();
-        let (issuer, control, channel, ticket) = claim
+        let (issuer, control, channel, ticket, release) = claim
             .into_macos_claim_parts()
+            .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
+        let credential_service = release
+            .native_enrollment_tuple_v3()
+            .map(|tuple| {
+                writer_endpoint_configuration(
+                    tuple.credential_service_identity(),
+                    tuple.writer_identity(),
+                )
+            })
+            .transpose()
             .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
         let (effects, writer_path, reader_path) = effect
             .into_macos_effect_parts()
             .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
-        let access = ProviderCredentialAccessPolicy::new(&writer_path, &reader_path)?;
-        let (lifecycle, native_authority) = CredentialAuthorityPair::new().split();
-        let native = NativeProviderCredentialStore::new_versioned(native_authority);
-        let writer = NativeBrokeredProviderCredentialWriter::new(lifecycle, native);
+        let effect_route = build_effect_route(effects, credential_service, |effects| {
+            let access = ProviderCredentialAccessPolicy::new(&writer_path, &reader_path)?;
+            let (lifecycle, native_authority) = CredentialAuthorityPair::new().split();
+            let native = NativeProviderCredentialStore::new_versioned(native_authority);
+            let writer = NativeBrokeredProviderCredentialWriter::new(lifecycle, native);
+            Ok(Arc::new(BrokeredProviderCredentialWriterAdapter::new(
+                effects, writer, access,
+            )) as Arc<dyn BrokeredProviderCredentialWriter>)
+        })?;
 
         Ok(Self {
             issuer,
-            writer: Arc::new(BrokeredProviderCredentialWriterAdapter::new(
-                effects, writer, access,
-            )),
+            effect_route,
             authenticated: Some(AuthenticatedNativeWriterParts {
                 control,
                 channel,
@@ -72,7 +92,7 @@ impl NativeProviderCredentialWriters {
             BrokerChannelBinding,
             PendingCredentialIssueTicketV1,
             CredentialWriterClaimIssuer,
-            Arc<dyn BrokeredProviderCredentialWriter>,
+            NativeProviderCredentialEffectRoute,
         ),
         SecureStoreError,
     > {
@@ -84,7 +104,89 @@ impl NativeProviderCredentialWriters {
             authenticated.channel,
             authenticated.ticket,
             self.issuer,
-            self.writer,
+            self.effect_route,
         ))
+    }
+}
+
+fn build_effect_route(
+    effects: runne_provider::CredentialWriterEffectAuthority,
+    credential_service: Option<CredentialServiceEndpointConfiguration>,
+    legacy: impl FnOnce(
+        runne_provider::CredentialWriterEffectAuthority,
+    ) -> Result<Arc<dyn BrokeredProviderCredentialWriter>, SecureStoreError>,
+) -> Result<NativeProviderCredentialEffectRoute, SecureStoreError> {
+    match credential_service {
+        Some(configuration) => Ok(NativeProviderCredentialEffectRoute::CredentialService {
+            effects,
+            configuration,
+        }),
+        None => legacy(effects).map(NativeProviderCredentialEffectRoute::Legacy),
+    }
+}
+
+fn writer_endpoint_configuration(
+    service: &runne_api::MacOsCodeIdentityExpectationV1,
+    writer: &runne_api::MacOsCodeIdentityExpectationV1,
+) -> Result<CredentialServiceEndpointConfiguration, CredentialServiceXpcError> {
+    CredentialServiceEndpointConfiguration::new(
+        CredentialServiceEndpointRole::Writer,
+        CredentialServiceEndpointRole::Writer.endpoint_name(),
+        requirement(service)?,
+        requirement(writer)?,
+    )
+}
+
+fn requirement(
+    identity: &runne_api::MacOsCodeIdentityExpectationV1,
+) -> Result<CredentialServicePeerRequirement, CredentialServiceXpcError> {
+    CredentialServicePeerRequirement::new(format!(
+        "identifier \"{}\" and anchor apple generic and certificate leaf[subject.OU] = \"{}\" and cdhash H\"{}\"",
+        identity.identifier(),
+        identity.team_identifier(),
+        identity.cdhash(),
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use runne_api::MacOsCodeIdentityExpectationV1;
+    use runne_macos_xpc::CredentialServiceEndpointRole;
+    use runne_provider::CredentialWriterAuthorityPair;
+
+    use crate::provider_credential::broker::writer::NativeProviderCredentialEffectRoute;
+
+    #[test]
+    fn exact_v3_identity_pair_builds_only_the_writer_service_endpoint() {
+        let service = identity("com.runne.credential-service", '4');
+        let writer = identity("runne", '2');
+
+        let configuration = super::writer_endpoint_configuration(&service, &writer).unwrap();
+
+        assert_eq!(configuration.role(), CredentialServiceEndpointRole::Writer);
+        assert!(super::writer_endpoint_configuration(&service, &service).is_err());
+    }
+
+    #[test]
+    fn exact_v3_route_never_constructs_the_legacy_native_writer() {
+        let service = identity("com.runne.credential-service", '4');
+        let writer = identity("runne", '2');
+        let configuration = super::writer_endpoint_configuration(&service, &writer).unwrap();
+        let (_, effects) = CredentialWriterAuthorityPair::new().split();
+
+        let route = super::build_effect_route(effects, Some(configuration), |_| {
+            panic!("tuple V3 must not construct the legacy native writer")
+        })
+        .unwrap();
+
+        assert!(matches!(
+            route,
+            NativeProviderCredentialEffectRoute::CredentialService { .. }
+        ));
+    }
+
+    fn identity(identifier: &str, cdhash: char) -> MacOsCodeIdentityExpectationV1 {
+        MacOsCodeIdentityExpectationV1::new(identifier, "758F9Z45SR", cdhash.to_string().repeat(40))
+            .unwrap()
     }
 }

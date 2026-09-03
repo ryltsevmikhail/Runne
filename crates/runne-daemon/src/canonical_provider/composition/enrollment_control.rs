@@ -22,6 +22,8 @@ pub(super) fn compose(
         authorities.store,
         runtime_authority,
         database_generation,
+        #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+        credentials.credential_service.clone(),
     )
     .map(|control| Some(Arc::new(control)))
     .map_err(|_| DaemonError::Bootstrap("provider credential control unavailable".into()))

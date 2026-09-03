@@ -2,10 +2,8 @@ use std::sync::Arc;
 
 use runne_provider::{CredentialAuthorityPair, CredentialLifecycleAuthority};
 
-use super::readback::{
-    ProviderCredentialDispatchMaterializer, ProviderCredentialReadback,
-    VersionStoreDispatchMaterializer, VersionStoreReadback,
-};
+use super::dispatch::{ProviderCredentialDispatchMaterializer, VersionStoreDispatchMaterializer};
+use super::readback::{ProviderCredentialReadback, VersionStoreReadback};
 use super::verification_readback::{
     ProviderCredentialVerificationReadback, VersionStoreVerificationReadback,
 };
@@ -78,7 +76,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::SecureStoreError;
+    use crate::{ProviderCredentialDispatchRead, SecureStoreError};
 
     #[test]
     fn stale_dispatch_capability_cannot_materialize() {
@@ -87,9 +85,16 @@ mod tests {
         let reference = CredentialVersionRef::new(ProviderId::new("openai").unwrap(), 1).unwrap();
         let capability =
             foreign.issue_dispatch(CredentialLease::new(reference, [1; 16], i64::MAX, 1).unwrap());
+        let read = ProviderCredentialDispatchRead::new(
+            &capability,
+            CredentialLifecycleRevision::new(1).unwrap(),
+            CredentialFence::new(1).unwrap(),
+            [1; 32],
+        )
+        .unwrap();
 
         assert_eq!(
-            materializer.materialize_active(&capability).unwrap_err(),
+            materializer.materialize_active(read).unwrap_err(),
             SecureStoreError::CredentialAccessDenied
         );
     }

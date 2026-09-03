@@ -19,6 +19,9 @@ pub use enrollment_live_daemon::NativeEnrollmentConfirmationV1;
 pub use enrollment_live_daemon::{
     ConfirmedInstalledNativeEnrollment, PreparedInstalledNativeEnrollment,
 };
+#[cfg(target_os = "macos")]
+#[path = "enrollment_tuple/live_daemon/credential_service.rs"]
+mod enrollment_live_daemon_credential_service;
 #[path = "enrollment_tuple/desktop_peer_claim.rs"]
 mod enrollment_desktop_peer_claim;
 #[path = "enrollment_tuple/daemon_installed.rs"]

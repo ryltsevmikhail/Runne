@@ -37,6 +37,14 @@ include!("protected_runtime/renewal.rs");
 include!("protected_runtime/enrollment_transition.rs");
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 include!("protected_runtime/enrollment_broker_handoff.rs");
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+mod credential_service_session;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub use credential_service_session::{
+    PreparedCredentialServiceSessionRegistration, RegisteredCredentialServiceSession,
+};
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
+mod credential_service_session_tests;
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 include!("protected_runtime/enrollment_transition_tests.rs");
 #[cfg(feature = "test-support")]

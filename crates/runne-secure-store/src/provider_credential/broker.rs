@@ -1,3 +1,4 @@
+mod dispatch;
 mod errors;
 mod factory;
 #[cfg(feature = "provider-credential-broker-writer")]
@@ -22,6 +23,7 @@ mod verification_readback;
 )]
 mod writer;
 
+pub use dispatch::{ProviderCredentialDispatchMaterializer, ProviderCredentialDispatchRead};
 pub use factory::{NativeProviderCredentialReaderParts, NativeProviderCredentialReaders};
 #[cfg(feature = "provider-credential-broker-writer")]
 pub use migration::{
@@ -35,12 +37,16 @@ pub use migration_identity::{
 };
 pub use readback::{
     CredentialReadbackObservation, ExactAbsenceReadback, ExactVersionReadback,
-    ProviderCredentialDispatchMaterializer, ProviderCredentialReadback,
-    ProviderCredentialVerificationMaterializer,
+    ProviderCredentialReadback,
 };
-pub use verification_readback::ProviderCredentialVerificationReadback;
+pub use verification_readback::{
+    ProviderCredentialVerificationMaterializer, ProviderCredentialVerificationReadback,
+};
 #[cfg(feature = "provider-credential-broker-writer")]
-pub use writer::{BrokeredProviderCredentialWriter, NativeProviderCredentialWriters};
+pub use writer::{
+    BrokeredProviderCredentialWriter, NativeProviderCredentialEffectRoute,
+    NativeProviderCredentialWriters,
+};
 
 #[cfg(test)]
 mod tests;

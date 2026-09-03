@@ -8,59 +8,78 @@ impl VerifiedSignedInstalledReleaseV2 {
     #[doc(hidden)]
     #[must_use]
     pub fn matches_desktop_digest(&self, candidate: &[u8; 32]) -> bool {
-        matches_digest(
-            &self
-                .signed_candidate
-                .native_enrollment_tuple
-                .desktop_image_digest,
-            candidate,
-        )
+        self.signed_candidate.as_ref().is_some_and(|release| {
+            matches_digest(
+                &release.native_enrollment_tuple.desktop_image_digest,
+                candidate,
+            )
+        }) || self.signed_candidate_v3.as_ref().is_some_and(|release| {
+            matches_digest(
+                &release.native_enrollment_tuple().desktop_digest(),
+                candidate,
+            )
+        })
     }
 
     /// Compares the exact signed writer artifact digest.
     #[doc(hidden)]
     #[must_use]
     pub fn matches_writer_digest(&self, candidate: &[u8; 32]) -> bool {
-        matches_digest(
-            &self
-                .signed_candidate
-                .native_enrollment_tuple
-                .writer_image_digest,
-            candidate,
-        )
+        self.signed_candidate.as_ref().is_some_and(|release| {
+            matches_digest(
+                &release.native_enrollment_tuple.writer_image_digest,
+                candidate,
+            )
+        }) || self.signed_candidate_v3.as_ref().is_some_and(|release| {
+            matches_digest(
+                &release.native_enrollment_tuple().writer_digest(),
+                candidate,
+            )
+        })
     }
 
     /// Compares the exact signed daemon artifact digest.
     #[doc(hidden)]
     #[must_use]
     pub fn matches_daemon_digest(&self, candidate: &[u8; 32]) -> bool {
-        matches_digest(
-            &self
-                .signed_candidate
-                .native_enrollment_tuple
-                .daemon_image_digest,
-            candidate,
-        )
+        self.signed_candidate.as_ref().is_some_and(|release| {
+            matches_digest(
+                &release.native_enrollment_tuple.daemon_image_digest,
+                candidate,
+            )
+        }) || self.signed_candidate_v3.as_ref().is_some_and(|release| {
+            matches_digest(
+                &release.native_enrollment_tuple().daemon_digest(),
+                candidate,
+            )
+        })
     }
 
     /// Compares the exact signed package-contract digest.
     #[doc(hidden)]
     #[must_use]
     pub fn matches_contract_digest(&self, candidate: &[u8; 32]) -> bool {
-        matches_digest(
-            &self
-                .signed_candidate
-                .native_enrollment_tuple
-                .contract_digest,
-            candidate,
-        )
+        self.signed_candidate.as_ref().is_some_and(|release| {
+            matches_digest(&release.native_enrollment_tuple.contract_digest, candidate)
+        }) || self.signed_candidate_v3.as_ref().is_some_and(|release| {
+            matches_digest(
+                &release.native_enrollment_tuple().contract_digest(),
+                candidate,
+            )
+        })
     }
 
     /// Compares the exact final signed-release binding.
     #[doc(hidden)]
     #[must_use]
     pub fn matches_release_binding(&self, candidate: &[u8; 32]) -> bool {
-        matches_digest(&self.signed_candidate.release_binding_digest, candidate)
+        self.signed_candidate
+            .as_ref()
+            .is_some_and(|release| matches_digest(&release.release_binding_digest, candidate))
+            || self
+                .signed_candidate_v3
+                .as_ref()
+                .is_some_and(|release| matches_digest(&release.release_binding_digest(), candidate))
     }
 
     /// Compares all signed Desktop code-identity fields.
@@ -72,15 +91,23 @@ impl VerifiedSignedInstalledReleaseV2 {
         team_identifier: &str,
         cdhash: &str,
     ) -> bool {
-        matches_identity(
-            self.signed_candidate
-                .native_enrollment_tuple
-                .desktop_code_identity
-                .as_ref(),
-            identifier,
-            team_identifier,
-            cdhash,
-        )
+        self.signed_candidate.as_ref().is_some_and(|release| {
+            matches_identity(
+                release
+                    .native_enrollment_tuple
+                    .desktop_code_identity
+                    .as_ref(),
+                identifier,
+                team_identifier,
+                cdhash,
+            )
+        }) || self.signed_candidate_v3.as_ref().is_some_and(|release| {
+            release.native_enrollment_tuple().matches_desktop_identity(
+                identifier,
+                team_identifier,
+                cdhash,
+            )
+        })
     }
 
     /// Compares all signed writer code-identity fields.
@@ -92,15 +119,23 @@ impl VerifiedSignedInstalledReleaseV2 {
         team_identifier: &str,
         cdhash: &str,
     ) -> bool {
-        matches_identity(
-            self.signed_candidate
-                .native_enrollment_tuple
-                .writer_code_identity
-                .as_ref(),
-            identifier,
-            team_identifier,
-            cdhash,
-        )
+        self.signed_candidate.as_ref().is_some_and(|release| {
+            matches_identity(
+                release
+                    .native_enrollment_tuple
+                    .writer_code_identity
+                    .as_ref(),
+                identifier,
+                team_identifier,
+                cdhash,
+            )
+        }) || self.signed_candidate_v3.as_ref().is_some_and(|release| {
+            release.native_enrollment_tuple().matches_writer_identity(
+                identifier,
+                team_identifier,
+                cdhash,
+            )
+        })
     }
 
     /// Compares all signed daemon code-identity fields.
@@ -112,22 +147,39 @@ impl VerifiedSignedInstalledReleaseV2 {
         team_identifier: &str,
         cdhash: &str,
     ) -> bool {
-        matches_identity(
-            self.signed_candidate
-                .native_enrollment_tuple
-                .daemon_code_identity
-                .as_ref(),
-            identifier,
-            team_identifier,
-            cdhash,
-        )
+        self.signed_candidate.as_ref().is_some_and(|release| {
+            matches_identity(
+                release
+                    .native_enrollment_tuple
+                    .daemon_code_identity
+                    .as_ref(),
+                identifier,
+                team_identifier,
+                cdhash,
+            )
+        }) || self.signed_candidate_v3.as_ref().is_some_and(|release| {
+            release.native_enrollment_tuple().matches_daemon_identity(
+                identifier,
+                team_identifier,
+                cdhash,
+            )
+        })
     }
 
     /// Creates a non-authoritative equality matcher for the final binding.
     #[doc(hidden)]
     #[must_use]
     pub fn release_binding_matcher(&self) -> DigestEqualityMatcherV1 {
-        DigestEqualityMatcherV1::from_expected(self.signed_candidate.release_binding_digest)
+        let digest = self.signed_candidate.as_ref().map_or_else(
+            || {
+                self.signed_candidate_v3
+                    .as_ref()
+                    .expect("exact release has one qualified candidate")
+                    .release_binding_digest()
+            },
+            |candidate| candidate.release_binding_digest,
+        );
+        DigestEqualityMatcherV1::from_expected(digest)
     }
 }
 
@@ -173,7 +225,7 @@ mod tests {
             daemon_code_identity,
         ] = identities;
         VerifiedSignedInstalledReleaseV2 {
-            signed_candidate: SignedInstalledReleaseCandidateV2 {
+            signed_candidate: Some(SignedInstalledReleaseCandidateV2 {
                 native_enrollment_tuple: VerifiedSignedNativeEnrollmentTupleV2 {
                     candidate_digest: [1; 32],
                     inner_tuple_digest: [2; 32],
@@ -191,7 +243,8 @@ mod tests {
                 qualification_binding_digest: [10; 32],
                 qualified_at_unix_seconds: 11,
                 expires_at_unix_seconds: 12,
-            },
+            }),
+            signed_candidate_v3: None,
         }
     }
 

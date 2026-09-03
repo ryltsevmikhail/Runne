@@ -1,4 +1,3 @@
-use runne_domain::DigestEqualityMatcherV1;
 use sha2::{Digest, Sha256};
 
 use super::model::{UpdateMetadataV2, UpdateTargetV2, update_metadata_signing_bytes};
@@ -6,9 +5,12 @@ use super::tuple::NativeEnrollmentTupleV2;
 use super::tuple_identity::MacOsCodeIdentityExpectationV1;
 use super::verification::SignedInstalledReleaseVerificationErrorV2;
 
+#[path = "binding/exact.rs"]
+mod exact;
 mod matchers;
 #[path = "binding/v3.rs"]
 mod v3;
+pub(super) use exact::{exact, exact_with_matcher};
 pub use v3::{SignedInstalledReleaseCandidateV3, VerifiedSignedNativeEnrollmentTupleV3};
 
 const MANIFEST_DOMAIN: &[u8] = b"GOCODE_SIGNED_INSTALLED_RELEASE_MANIFEST_V1\0";
@@ -50,7 +52,8 @@ pub struct VerifiedSignedUpdateMetadataV2 {
 
 #[derive(Eq, PartialEq)]
 pub struct VerifiedSignedInstalledReleaseV2 {
-    signed_candidate: SignedInstalledReleaseCandidateV2,
+    signed_candidate: Option<SignedInstalledReleaseCandidateV2>,
+    signed_candidate_v3: Option<SignedInstalledReleaseCandidateV3>,
 }
 
 impl core::fmt::Debug for VerifiedSignedInstalledReleaseV2 {
@@ -84,6 +87,19 @@ impl VerifiedSignedUpdateMetadataV2 {
         &self,
     ) -> Option<&SignedInstalledReleaseCandidateV3> {
         self.qualified_release_candidate_v3.as_ref()
+    }
+}
+
+impl VerifiedSignedInstalledReleaseV2 {
+    /// Returns the exact qualified V3 tuple retained for native writer admission.
+    #[doc(hidden)]
+    pub const fn native_enrollment_tuple_v3(
+        &self,
+    ) -> Option<&VerifiedSignedNativeEnrollmentTupleV3> {
+        match self.signed_candidate_v3.as_ref() {
+            Some(candidate) => Some(candidate.native_enrollment_tuple()),
+            None => None,
+        }
     }
 }
 
@@ -264,31 +280,4 @@ pub(super) fn release_digest(
     hasher.update(tuple);
     hasher.update(qualification);
     hasher.finalize().into()
-}
-
-pub(super) fn exact(
-    verified: VerifiedSignedUpdateMetadataV2,
-    expected: [u8; 32],
-) -> Result<VerifiedSignedInstalledReleaseV2, SignedInstalledReleaseVerificationErrorV2> {
-    if expected == [0; 32] {
-        return Err(SignedInstalledReleaseVerificationErrorV2::ReleaseBindingMismatch);
-    }
-    exact_with_matcher(verified, &DigestEqualityMatcherV1::from_expected(expected))
-}
-
-pub(super) fn exact_with_matcher(
-    verified: VerifiedSignedUpdateMetadataV2,
-    expected: &DigestEqualityMatcherV1,
-) -> Result<VerifiedSignedInstalledReleaseV2, SignedInstalledReleaseVerificationErrorV2> {
-    let candidate = verified
-        .qualified_release_candidate
-        .ok_or(SignedInstalledReleaseVerificationErrorV2::Unqualified)?;
-    if candidate.release_binding_digest == [0; 32]
-        || !expected.matches(&candidate.release_binding_digest)
-    {
-        return Err(SignedInstalledReleaseVerificationErrorV2::ReleaseBindingMismatch);
-    }
-    Ok(VerifiedSignedInstalledReleaseV2 {
-        signed_candidate: candidate,
-    })
 }

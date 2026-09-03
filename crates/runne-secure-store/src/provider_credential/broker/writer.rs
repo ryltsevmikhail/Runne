@@ -17,7 +17,7 @@ mod native;
 mod native_authenticated;
 #[cfg(test)]
 pub use native::NativeBrokeredProviderCredentialWriter;
-pub use native::NativeProviderCredentialWriters;
+pub use native::{NativeProviderCredentialEffectRoute, NativeProviderCredentialWriters};
 
 pub trait BrokeredProviderCredentialWriter: Send + Sync {
     /// Creates one exact immutable version from one sealed Pair relay.

@@ -46,17 +46,18 @@ pub use provider_credential::{
     BrokeredCreateInput, BrokeredDeleteInput, BrokeredLegacySourceDeleteInput,
     BrokeredMigrateLegacyInput, BrokeredProviderCredentialWriter,
     BrokeredWriterIdentityMigrationInput, BrokeredWriterIdentityVerificationInput,
-    NativeProviderCredentialWriters, WriterIdentityMigrationObservation,
+    NativeProviderCredentialEffectRoute, NativeProviderCredentialWriters,
+    WriterIdentityMigrationObservation,
 };
 pub use provider_credential::{
     CredentialReadbackObservation, ExactAbsenceReadback, ExactVersionReadback,
     MAX_PROVIDER_CREDENTIAL_BYTES, NativeProviderCredentialReaderParts,
     NativeProviderCredentialReaders, NativeProviderCredentialVersionStore,
     PROVIDER_CREDENTIAL_SERVICE, ProviderCredentialAccessPolicy,
-    ProviderCredentialDispatchMaterializer, ProviderCredentialId, ProviderCredentialMaterial,
-    ProviderCredentialReadback, ProviderCredentialSource, ProviderCredentialSourceRevision,
-    ProviderCredentialStatus, ProviderCredentialStore, ProviderCredentialVerificationMaterializer,
-    ProviderCredentialVerificationReadback,
+    ProviderCredentialDispatchMaterializer, ProviderCredentialDispatchRead, ProviderCredentialId,
+    ProviderCredentialMaterial, ProviderCredentialReadback, ProviderCredentialSource,
+    ProviderCredentialSourceRevision, ProviderCredentialStatus, ProviderCredentialStore,
+    ProviderCredentialVerificationMaterializer, ProviderCredentialVerificationReadback,
 };
 pub use provider_journal_key::{
     ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,

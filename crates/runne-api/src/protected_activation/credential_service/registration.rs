@@ -115,6 +115,11 @@ pub struct CredentialServiceRegistrationRequest {
 pub struct VerifiedCredentialServiceRegistration(pub(crate) CredentialServiceRegistrationRequest);
 
 impl VerifiedCredentialServiceRegistration {
+    #[must_use]
+    pub const fn binding(&self) -> &CredentialServiceRegistrationBinding {
+        &self.0.binding
+    }
+
     pub(crate) fn into_request(self) -> CredentialServiceRegistrationRequest {
         self.0
     }

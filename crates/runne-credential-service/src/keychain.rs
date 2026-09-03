@@ -100,13 +100,18 @@ impl KeychainBackend {
         }
         let action = command.action();
         match action {
-            CredentialOperationAction::Pair | CredentialOperationAction::MigrateLegacy => {
-                Self::store(&reference, effect.into_material())
-            }
+            CredentialOperationAction::Pair | CredentialOperationAction::MigrateLegacy => effect
+                .into_material()
+                .map_or(CredentialBackendResult::AccessDenied, |material| {
+                    Self::store(&reference, material)
+                }),
             CredentialOperationAction::Revoke
             | CredentialOperationAction::RetiredVersionCleanup => {
-                drop(effect.into_material());
-                Self::delete(&reference)
+                if effect.into_material().is_some() {
+                    CredentialBackendResult::AccessDenied
+                } else {
+                    Self::delete(&reference)
+                }
             }
             CredentialOperationAction::LegacySourceCleanup
             | CredentialOperationAction::WriterIdentityMigrationEffect

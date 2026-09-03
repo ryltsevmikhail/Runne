@@ -29,6 +29,22 @@ fn brokered_provider_credential_readback_returns_only_metadata() {
 }
 
 #[test]
+fn service_presence_uses_the_same_pair_and_absence_observation_contract() {
+    let pair = ExactVersionReadback::new(command(1, 1))
+        .unwrap()
+        .observe_service_presence(true)
+        .unwrap();
+    let revoke = ExactAbsenceReadback::new(revoke_command(2, 1))
+        .unwrap()
+        .observe_service_presence(false)
+        .unwrap();
+
+    assert!(pair.present());
+    assert!(!revoke.present());
+    assert_ne!(pair.binding(), revoke.binding());
+}
+
+#[test]
 fn legacy_import_readback_binds_the_retained_source_revision() {
     let first = VersionStoreReadback::new(ConfiguredVersionStore([7; 16]), access())
         .readback_exact_version(ExactVersionReadback::new(legacy_import_command(1, 1)).unwrap())
@@ -223,6 +239,23 @@ fn legacy_import_command(operation: u8, version: u64) -> runne_provider::Credent
         provider.clone(),
         runne_provider::CredentialOperationAction::MigrateLegacy,
         runne_provider::CredentialBrokerTarget::LegacyImport(
+            CredentialVersionRef::new(provider, version).unwrap(),
+        ),
+        runne_provider::CredentialLifecycleRevision::new(1).unwrap(),
+        runne_provider::CredentialFence::new(1).unwrap(),
+        None,
+    )
+    .unwrap()
+}
+
+fn revoke_command(operation: u8, version: u64) -> runne_provider::CredentialBrokerCommand {
+    let provider = ProviderId::new("openai").unwrap();
+    runne_provider::CredentialBrokerCommand::new(
+        runne_provider::CredentialOperationId::from_bytes([operation; 16]).unwrap(),
+        runne_provider::CredentialTicketAttempt::new(1).unwrap(),
+        provider.clone(),
+        runne_provider::CredentialOperationAction::Revoke,
+        runne_provider::CredentialBrokerTarget::Version(
             CredentialVersionRef::new(provider, version).unwrap(),
         ),
         runne_provider::CredentialLifecycleRevision::new(1).unwrap(),

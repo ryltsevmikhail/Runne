@@ -47,6 +47,24 @@ impl CredentialServiceProtocolCodec {
             envelope,
         )
     }
+
+    /// Authenticates one secretless revoke/cleanup handoff.
+    pub fn decode_authenticated_writer_control_handoff(
+        bytes: &[u8],
+        authorization: ClaimedWriterAuthorization,
+        effects: &CredentialWriterEffectAuthority,
+        channel: &BrokerChannelBinding,
+        claim_binding: CredentialBindingDigest,
+    ) -> Result<CredentialWriterConsumeRequest, CredentialEnrollmentError> {
+        let (binding, grant) = decode_handoff(bytes)?;
+        effects.authorize(
+            authorization,
+            binding.command.clone(),
+            claim_binding,
+            channel,
+        )?;
+        CredentialWriterConsumeRequest::from_authenticated_control_parts(binding, grant)
+    }
 }
 
 fn encode(
@@ -80,10 +98,29 @@ fn decode_authenticated(
     pending: PendingCredentialSecretOpening,
     envelope: SealedCredentialEnvelope,
 ) -> Result<CredentialWriterConsumeRequest, CredentialEnrollmentError> {
-    let bytes = payload(
-        bytes,
-        super::CredentialServiceProtocolCodec::MAX_FRAME_BYTES,
+    let (binding, grant) = decode_handoff(bytes)?;
+    let opening = effects.authorize_secret_opening(
+        authorization,
+        binding.command.clone(),
+        claim_binding,
+        channel,
     )?;
+    let material = pending
+        .open_after_claim(opening, channel, envelope)?
+        .into_service_material()?;
+    CredentialWriterConsumeRequest::from_authenticated_parts(binding, grant, material)
+}
+
+fn decode_handoff(
+    bytes: &[u8],
+) -> Result<
+    (
+        super::super::request::CredentialRuntimeMutationBinding,
+        CredentialMutationGrant,
+    ),
+    CredentialEnrollmentError,
+> {
+    let bytes = payload(bytes, CredentialServiceProtocolCodec::MAX_FRAME_BYTES)?;
     let mut at = HEADER;
     if byte(bytes, &mut at)? != HANDOFF_KIND
         || decode_role(byte(bytes, &mut at)?)? != CredentialServiceEndpointRole::Writer
@@ -95,14 +132,5 @@ fn decode_authenticated(
     if at != bytes.len() || !binding.grant_digest.ct_matches(grant.digest()) {
         return Err(CredentialEnrollmentError::InvalidFrame);
     }
-    let opening = effects.authorize_secret_opening(
-        authorization,
-        binding.command.clone(),
-        claim_binding,
-        channel,
-    )?;
-    let material = pending
-        .open_after_claim(opening, channel, envelope)?
-        .into_service_material()?;
-    CredentialWriterConsumeRequest::from_authenticated_parts(binding, grant, material)
+    Ok((binding, grant))
 }

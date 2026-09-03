@@ -67,3 +67,18 @@ fn typed_metadata_accessors_do_not_expose_registration_secret() {
     assert_eq!(ack.service_epoch(), binding().service_epoch());
     assert_eq!(ack.installed_generation(), 14);
 }
+
+#[test]
+fn daemon_can_verify_a_registration_claim_before_checking_its_exact_facts() {
+    let authenticator = auth(7);
+    let expected = binding();
+    let frame = authenticator
+        .authenticate_registration(expected.clone())
+        .unwrap()
+        .into_bytes();
+
+    let verified = authenticator
+        .decode_and_verify_registration(&frame)
+        .unwrap();
+    assert!(verified.binding() == &expected);
+}

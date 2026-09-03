@@ -13,9 +13,14 @@ use super::{
     VerifiedUpdateV2, macos_identity, matches_installed,
 };
 
+#[cfg(target_os = "macos")]
+#[path = "admission/credential_service.rs"]
+mod credential_service;
+
 /// Non-serializable installed-package admission minted only by `VerifiedUpdateV2`.
 #[derive(Debug, Eq, PartialEq)]
 pub struct NativeEnrollmentTupleAdmission {
+    pub(super) installed_generation: u64,
     pub(super) desktop_sha256: [u8; 32],
     pub(super) writer_sha256: [u8; 32],
     pub(super) daemon_sha256: [u8; 32],
@@ -77,6 +82,7 @@ impl VerifiedUpdateV2 {
                 .map(macos_identity::MacOsCodeIdentityV1::from_expectation),
         ];
         Some(NativeEnrollmentTupleAdmission {
+            installed_generation: self.metadata().targets.version,
             desktop_sha256: tuple.desktop_image_digest(),
             writer_sha256: tuple.writer_image_digest(),
             daemon_sha256: tuple.daemon_image_digest(),
@@ -109,6 +115,7 @@ impl VerifiedUpdateV2 {
         }
         let candidate = self.signed.qualified_release_candidate_v3();
         Some(NativeEnrollmentTupleAdmission {
+            installed_generation: self.metadata().targets.version,
             desktop_sha256: tuple.desktop_digest(),
             writer_sha256: tuple.writer_digest(),
             daemon_sha256: tuple.daemon_digest(),
@@ -156,6 +163,11 @@ impl VerifiedUpdateV2 {
 }
 
 impl NativeEnrollmentTupleAdmission {
+    #[must_use]
+    pub(crate) const fn installed_generation(&self) -> u64 {
+        self.installed_generation
+    }
+
     #[must_use]
     pub const fn qualification(&self) -> &NativeEnrollmentQualification {
         &self.qualification

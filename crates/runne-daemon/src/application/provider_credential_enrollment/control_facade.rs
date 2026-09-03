@@ -34,6 +34,8 @@ pub(crate) struct DaemonProviderCredentialEnrollmentControl {
     rendezvous: PendingBrokerRendezvousRegistry,
     runtime_authority: [u8; 16],
     database_generation: u64,
+    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+    credential_service: Option<Arc<crate::protected_activation::CredentialServiceRuntimeGateway>>,
 }
 
 impl DaemonProviderCredentialEnrollmentControl {
@@ -44,6 +46,9 @@ impl DaemonProviderCredentialEnrollmentControl {
         enrollment_store_authority: CredentialEnrollmentStoreAuthority,
         runtime_authority: [u8; 16],
         database_generation: u64,
+        #[cfg(all(target_os = "macos", feature = "desktop-protected"))] credential_service: Option<
+            Arc<crate::protected_activation::CredentialServiceRuntimeGateway>,
+        >,
     ) -> Result<Self, ProviderCredentialEnrollmentHostError> {
         if runtime_authority == [0; 16] || database_generation == 0 {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
@@ -60,7 +65,27 @@ impl DaemonProviderCredentialEnrollmentControl {
             rendezvous,
             runtime_authority,
             database_generation,
+            #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+            credential_service,
         })
+    }
+
+    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+    pub(crate) fn install_credential_service_session(
+        &self,
+        session: crate::protected_activation::CredentialServiceRuntimeSession,
+    ) -> Result<
+        Arc<crate::protected_activation::CredentialServiceRuntimeGateway>,
+        ProviderCredentialEnrollmentHostError,
+    > {
+        let gateway = self
+            .credential_service
+            .as_ref()
+            .ok_or(ProviderCredentialEnrollmentHostError::Unsupported)?;
+        gateway.install(session)?;
+        super::CredentialEnrollmentRecoveryGateway::new(self.store.as_ref(), gateway.as_ref())
+            .reconcile_online(chrono::Utc::now().timestamp())?;
+        Ok(Arc::clone(gateway))
     }
 
     #[allow(clippy::too_many_arguments)]

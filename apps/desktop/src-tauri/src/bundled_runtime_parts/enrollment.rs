@@ -57,6 +57,27 @@ impl NativeCredentialEnrollmentLease {
             .map_err(|_| AppCoreError::RuntimeUnavailable)
     }
 
+    pub(crate) async fn register_credential_service_session(
+        &self,
+        confirmed: &ConfirmedInstalledNativeEnrollment,
+    ) -> Result<(), AppCoreError> {
+        let prepared = self
+            .supervisor
+            .lock()
+            .map_err(|_| AppCoreError::RuntimeUnavailable)?
+            .prepare_credential_service_session_registration(confirmed)
+            .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        let registered = prepared
+            .register()
+            .await
+            .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        self.supervisor
+            .lock()
+            .map_err(|_| AppCoreError::RuntimeUnavailable)?
+            .confirm_credential_service_session(registered)
+            .map_err(|_| AppCoreError::RuntimeUnavailable)
+    }
+
     async fn install_transitioned_profile(
         &self,
         activation: BundledRuntimeActivationLease,

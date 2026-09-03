@@ -147,12 +147,23 @@ pub(super) fn writer_plan_with_grant(
     CredentialRuntimeMutationArmRequest,
     CredentialWriterServiceBindingHandoff,
 ) {
+    writer_plan_for_action_with_grant(CredentialOperationAction::Pair, grant)
+}
+
+pub(super) fn writer_plan_for_action_with_grant(
+    action: CredentialOperationAction,
+    grant: CredentialMutationGrantDigest,
+) -> (
+    CredentialBrokerCommand,
+    CredentialRuntimeMutationArmRequest,
+    CredentialWriterServiceBindingHandoff,
+) {
     let provider = ProviderId::new("provider-1").unwrap();
     let command = CredentialBrokerCommand::new(
         CredentialOperationId::from_bytes([1; 16]).unwrap(),
         CredentialTicketAttempt::new(1).unwrap(),
         provider.clone(),
-        CredentialOperationAction::Pair,
+        action,
         CredentialBrokerTarget::Version(CredentialVersionRef::new(provider, 1).unwrap()),
         CredentialLifecycleRevision::new(1).unwrap(),
         CredentialFence::new(1).unwrap(),

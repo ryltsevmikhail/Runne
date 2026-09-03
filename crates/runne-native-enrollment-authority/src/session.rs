@@ -15,6 +15,7 @@ pub(crate) enum VerifiedEnrollmentSession {
             runne_provider::PendingCredentialIssueTicketV1,
             std::path::PathBuf,
             std::path::PathBuf,
+            runne_api::VerifiedSignedInstalledReleaseV2,
         )>,
     ),
     #[cfg(test)]
@@ -95,6 +96,7 @@ pub struct AuthenticatedWriterClaimContext {
         std::os::unix::net::UnixStream,
         runne_provider::BrokerChannelBinding,
         runne_provider::PendingCredentialIssueTicketV1,
+        runne_api::VerifiedSignedInstalledReleaseV2,
     )>,
 }
 
@@ -158,8 +160,11 @@ impl AuthenticatedProviderCredentialWriterSession {
         let (native, native_paths) = match self.verified {
             #[cfg(target_os = "macos")]
             VerifiedEnrollmentSession::MacOs(parts) => {
-                let (control, channel, ticket, writer, reader) = *parts;
-                (Some((control, channel, ticket)), Some((writer, reader)))
+                let (control, channel, ticket, writer, reader, release) = *parts;
+                (
+                    Some((control, channel, ticket, release)),
+                    Some((writer, reader)),
+                )
             }
             #[cfg(test)]
             VerifiedEnrollmentSession::Verified => (None, None),
@@ -206,13 +211,14 @@ impl AuthenticatedWriterClaimContext {
             std::os::unix::net::UnixStream,
             runne_provider::BrokerChannelBinding,
             runne_provider::PendingCredentialIssueTicketV1,
+            runne_api::VerifiedSignedInstalledReleaseV2,
         ),
         runne_macos_process_identity::MacOsPackagedWriterObservationError,
     > {
-        let (control, channel, ticket) = self
+        let (control, channel, ticket, release) = self
             .native
             .ok_or(runne_macos_process_identity::MacOsPackagedWriterObservationError::Rejected)?;
-        Ok((self.issuer, control, channel, ticket))
+        Ok((self.issuer, control, channel, ticket, release))
     }
 }
 

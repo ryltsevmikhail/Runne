@@ -86,6 +86,62 @@ fn supersession_and_restart_invalidate_old_sessions_and_admissions() {
 }
 
 #[test]
+fn same_runtime_rejoin_requires_the_next_attempt_and_exact_session() {
+    let mut core = registered_core();
+    let current = binding(2, 12, 14, 100);
+    let rejoin = runne_api::CredentialServiceRegistrationBinding::new(
+        *current.service_epoch(),
+        *current.protected_session_id(),
+        current.daemon_authority_generation(),
+        current.runtime_generation(),
+        current.supervisor_generation(),
+        current.installed_generation(),
+        *current.installation_owner(),
+        *current.release_binding(),
+        [33; 16],
+        3,
+        100,
+    )
+    .unwrap();
+
+    assert_eq!(
+        register(
+            &mut core,
+            7,
+            rejoin.clone(),
+            CredentialServiceEndpointRole::Desktop
+        )
+        .unwrap()
+        .0,
+        CredentialRegistrationOutcome::Superseded
+    );
+    let skipped = runne_api::CredentialServiceRegistrationBinding::new(
+        *rejoin.service_epoch(),
+        *rejoin.protected_session_id(),
+        rejoin.daemon_authority_generation(),
+        rejoin.runtime_generation(),
+        rejoin.supervisor_generation(),
+        rejoin.installed_generation(),
+        *rejoin.installation_owner(),
+        *rejoin.release_binding(),
+        [34; 16],
+        5,
+        100,
+    )
+    .unwrap();
+    assert_eq!(
+        register(
+            &mut core,
+            7,
+            skipped,
+            CredentialServiceEndpointRole::Desktop
+        )
+        .unwrap_err(),
+        CredentialServiceDisposition::Denied
+    );
+}
+
+#[test]
 fn wrong_endpoint_mac_replay_and_expiry_do_not_advance_session() {
     let mut core = registered_core();
     let (valid, _, _) = mutation_frames(1, 1, 7, CredentialOperationAction::Pair);

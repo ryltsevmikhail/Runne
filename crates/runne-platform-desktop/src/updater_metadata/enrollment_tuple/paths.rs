@@ -9,6 +9,9 @@ use super::{
     enrollment_measurement::{self, OpenedNativeEnrollmentFile},
 };
 
+#[path = "paths/admission.rs"]
+mod admission;
+
 /// Exact native release files derived from the installed package, never caller input.
 #[derive(Debug)]
 #[expect(

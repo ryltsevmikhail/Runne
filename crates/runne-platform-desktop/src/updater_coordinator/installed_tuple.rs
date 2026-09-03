@@ -79,12 +79,8 @@ impl UpdateCoordinator {
         };
         let paths = crate::updater_metadata::NativeEnrollmentArtifactPathsV1::resolve_installed()
             .map_err(|_| UpdateCoordinatorError::InvalidTransition)?;
-        let artifacts = paths
-            .measure()
-            .map_err(|_| UpdateCoordinatorError::InvalidTransition)?;
-        let admission = verified.admit_native_enrollment(&artifacts);
-        paths
-            .confirm_current()
+        let admission = paths
+            .admit_verified(&verified)
             .map_err(|_| UpdateCoordinatorError::InvalidTransition)?;
         Ok(admission.map(|admission| admission.retain_installed_paths(paths)))
     }
@@ -110,14 +106,9 @@ impl UpdateCoordinator {
         };
         let paths = crate::updater_metadata::NativeEnrollmentArtifactPathsV1::resolve_installed()
             .map_err(|_| UpdateCoordinatorError::InvalidTransition)?;
-        let artifacts = paths
-            .measure()
-            .map_err(|_| UpdateCoordinatorError::InvalidTransition)?;
-        paths
-            .confirm_current()
-            .map_err(|_| UpdateCoordinatorError::InvalidTransition)?;
-        Ok(verified
-            .admit_native_enrollment(&artifacts)
+        Ok(paths
+            .admit_verified(&verified)
+            .map_err(|_| UpdateCoordinatorError::InvalidTransition)?
             .is_some_and(|admission| confirmed.matches_admission(&admission)))
     }
 

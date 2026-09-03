@@ -1,9 +1,13 @@
 use reqwest::redirect::Policy;
-use runne_provider::{CredentialDispatchCapability, ProviderFuture};
+use runne_provider::{
+    CredentialDispatchCapability, CredentialFence, CredentialLifecycleRevision, ProviderFuture,
+};
 use runne_provider_openai::{
     OpenAiCredentialError, OpenAiCredentialMaterializer, OpenAiTransportPolicy,
 };
-use runne_secure_store::{ProviderCredentialDispatchMaterializer, SecureStoreError};
+use runne_secure_store::{
+    ProviderCredentialDispatchMaterializer, ProviderCredentialDispatchRead, SecureStoreError,
+};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use subtle::ConstantTimeEq as _;
@@ -62,13 +66,23 @@ impl OpenAiCredentialMaterializer for NativeCredential {
     fn materialize(
         &self,
         capability: &CredentialDispatchCapability,
+        lifecycle: CredentialLifecycleRevision,
+        fence: CredentialFence,
+        effect_receipt_digest: [u8; 32],
     ) -> ProviderFuture<'_, Result<Zeroizing<Vec<u8>>, OpenAiCredentialError>> {
         let materializer = Arc::clone(&self.materializer);
         let capability = capability.clone();
         Box::pin(async move {
             tokio::task::spawn_blocking(move || {
+                let read = ProviderCredentialDispatchRead::new(
+                    &capability,
+                    lifecycle,
+                    fence,
+                    effect_receipt_digest,
+                )
+                .map_err(|_| OpenAiCredentialError::AccessDenied)?;
                 materializer
-                    .materialize_active(&capability)
+                    .materialize_active(read)
                     .map(|value| value.with_bytes(|bytes| Zeroizing::new(bytes.to_vec())))
                     .map_err(|error| match error {
                         SecureStoreError::ProviderCredentialNotFound => {
@@ -118,6 +132,17 @@ impl OpenAiCredentialMaterializer for FixtureCredential {
     fn materialize(
         &self,
         _capability: &CredentialDispatchCapability,
+        _lifecycle: CredentialLifecycleRevision,
+        _fence: CredentialFence,
+        _effect_receipt_digest: [u8; 32],
+    ) -> ProviderFuture<'_, Result<Zeroizing<Vec<u8>>, OpenAiCredentialError>> {
+        Box::pin(async { Ok(Zeroizing::new(FIXTURE_CREDENTIAL.to_vec())) })
+    }
+
+    fn materialize_legacy_fixture(
+        &self,
+        _capability: &CredentialDispatchCapability,
+        _effect_receipt_digest: [u8; 32],
     ) -> ProviderFuture<'_, Result<Zeroizing<Vec<u8>>, OpenAiCredentialError>> {
         Box::pin(async { Ok(Zeroizing::new(FIXTURE_CREDENTIAL.to_vec())) })
     }
@@ -130,7 +155,10 @@ mod tests {
     use runne_provider::{
         CredentialAuthorityPair, CredentialLease, CredentialVersionRef, ProviderId,
     };
-    use runne_secure_store::{ProviderCredentialDispatchMaterializer, ProviderCredentialMaterial};
+    use runne_secure_store::{
+        ProviderCredentialDispatchMaterializer, ProviderCredentialDispatchRead,
+        ProviderCredentialMaterial,
+    };
 
     use super::*;
 
@@ -143,9 +171,12 @@ mod tests {
     impl ProviderCredentialDispatchMaterializer for Materializer {
         fn materialize_active(
             &self,
-            capability: &CredentialDispatchCapability,
+            read: ProviderCredentialDispatchRead<'_>,
         ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
-            assert_eq!(capability.version_ref(), &self.expected);
+            assert_eq!(read.capability().version_ref(), &self.expected);
+            assert_eq!(read.lifecycle().get(), 2);
+            assert_eq!(read.fence().get(), 3);
+            assert_eq!(read.effect_receipt_digest(), [4; 32]);
             self.calls.fetch_add(1, Ordering::SeqCst);
             let bytes = self
                 .result
@@ -172,7 +203,15 @@ mod tests {
         let dispatch: Arc<dyn ProviderCredentialDispatchMaterializer> = materializer.clone();
         let credential = NativeCredential::from_materializer(dispatch);
 
-        let material = credential.materialize(&capability).await.unwrap();
+        let material = credential
+            .materialize(
+                &capability,
+                CredentialLifecycleRevision::new(2).unwrap(),
+                CredentialFence::new(3).unwrap(),
+                [4; 32],
+            )
+            .await
+            .unwrap();
 
         assert_eq!(material.as_slice(), b"narrow-material");
         assert_eq!(materializer.calls.load(Ordering::SeqCst), 1);
@@ -188,8 +227,34 @@ mod tests {
         }));
 
         assert!(matches!(
-            credential.materialize(&capability).await,
+            credential
+                .materialize(
+                    &capability,
+                    CredentialLifecycleRevision::new(2).unwrap(),
+                    CredentialFence::new(3).unwrap(),
+                    [4; 32],
+                )
+                .await,
             Err(OpenAiCredentialError::Missing)
         ));
+    }
+
+    #[tokio::test]
+    async fn native_credential_rejects_the_legacy_fixture_fallback() {
+        let capability = capability();
+        let materializer = Arc::new(Materializer {
+            expected: capability.version_ref().clone(),
+            calls: AtomicUsize::new(0),
+            result: Ok(b"must-not-load".to_vec()),
+        });
+        let credential = NativeCredential::from_materializer(materializer.clone());
+
+        assert_eq!(
+            credential
+                .materialize_legacy_fixture(&capability, [5; 32])
+                .await,
+            Err(OpenAiCredentialError::AccessDenied)
+        );
+        assert_eq!(materializer.calls.load(Ordering::SeqCst), 0);
     }
 }
