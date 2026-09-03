@@ -146,6 +146,19 @@ class MacosXpcQualificationTests(unittest.TestCase):
                 mutate(value["rows"][0])
                 self.assertTrue(validate_evidence(value, "macos", _expected()))
 
+    def test_native_store_rejects_numeric_boolean_substitutes(self) -> None:
+        fields = {
+            "data_protection_keychain": 1, "synchronizable": 0,
+            "file_keychain": 0, "environment_keychain": 0,
+            "ksec_use_keychain": 0, "legacy_acl": 0,
+        }
+        for field, number in fields.items():
+            for substitute in (number, float(number)):
+                with self.subTest(field=field, substitute=repr(substitute)):
+                    value = _evidence()
+                    value["rows"][0]["native_store"][field] = substitute
+                    self.assertTrue(validate_evidence(value, "macos", _expected()))
+
     def test_every_peer_and_kill_point_receipt_is_required(self) -> None:
         required = {
             "standalone_writer_denied", "standalone_daemon_denied",

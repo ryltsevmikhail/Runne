@@ -161,7 +161,10 @@ def _runner_errors(value: object) -> list[str]:
 
 
 def _native_store_errors(value: object) -> list[str]:
-    if value != NATIVE_STORE:
+    if not isinstance(value, dict) or value != NATIVE_STORE or any(
+        type(value[field]) is not type(expected)
+        for field, expected in NATIVE_STORE.items()
+    ):
         return ["native store is not the exact isolated DPK profile"]
     return []
 
