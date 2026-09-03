@@ -22,6 +22,26 @@ pub(super) fn unix_now_millis() -> Result<u64, runne_api::LaunchAuthorityError> 
         .ok_or(runne_api::LaunchAuthorityError::StaleLaunchAuthority)
 }
 
+pub(super) fn bind_broker(
+    keys: &runne_api::ProtectedActivationKeys,
+    owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
+    session: &mut crate::application::provider_credential_enrollment::DaemonProtectedCredentialEnrollmentSession,
+) -> Result<
+    Option<crate::protected_activation::broker_handoff::BrokerHandoffDispatch>,
+    runne_api::LaunchAuthorityError,
+> {
+    if session.begun_is_terminal() {
+        return Ok(None);
+    }
+    let handoff = session
+        .take_bound_broker_handoff()
+        .map_err(map_enrollment_error)?;
+    crate::protected_activation::broker_handoff::BrokerHandoffDispatch::from_bound_enrollment(
+        keys, owned, handoff,
+    )
+    .map(Some)
+}
+
 pub(crate) const fn enrollment_transcript_allows_rotation(
     has_session: bool,
     terminal: bool,
@@ -62,7 +82,7 @@ impl V3EnrollmentDispatch {
 }
 
 pub(super) struct V3EnrollmentRuntime {
-    pub(super) broker: crate::protected_activation::broker_handoff::BrokerHandoffDispatch,
+    pub(super) broker: Option<crate::protected_activation::broker_handoff::BrokerHandoffDispatch>,
     pub(super) session: Option<
         crate::application::provider_credential_enrollment::DaemonProtectedCredentialEnrollmentSession,
     >,
@@ -93,7 +113,9 @@ impl V3EnrollmentRuntime {
         if let Some(channel) = self.channel.take() {
             channel.terminate_exact_writer();
         }
-        self.broker.terminate_retained_writer();
+        if let Some(broker) = self.broker.as_mut() {
+            broker.terminate_retained_writer();
+        }
     }
 
     #[cfg(target_os = "macos")]
@@ -187,6 +209,8 @@ impl V3EnrollmentRuntime {
             .map_err(map_enrollment_error)?;
         let writer = self
             .broker
+            .as_mut()
+            .ok_or(runne_api::LaunchAuthorityError::InvalidContract)?
             .take_verified_writer()
             .ok_or(runne_api::LaunchAuthorityError::InvalidContract)?;
         self.channel = Some(

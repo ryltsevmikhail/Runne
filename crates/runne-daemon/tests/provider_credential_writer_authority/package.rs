@@ -10,7 +10,6 @@ pub(super) struct LocalPackage {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum PackageMode {
-    CredentialWriter,
     CredentialService,
 }
 

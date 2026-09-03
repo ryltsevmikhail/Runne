@@ -35,7 +35,6 @@ pub(super) struct CredentialServiceRegistrationFacts {
     release_binding: [u8; 32],
     join_attempt: u64,
     expires_at_unix_millis: u64,
-    expected_service_epoch: Option<[u8; 16]>,
 }
 
 pub struct PreparedCredentialServiceSessionRegistration {
@@ -241,7 +240,6 @@ impl CredentialServiceRegistrationFacts {
             release_binding,
             join_attempt,
             expires_at_unix_millis,
-            expected_service_epoch: None,
         })
     }
 
@@ -251,12 +249,6 @@ impl CredentialServiceRegistrationFacts {
         challenge_nonce: [u8; 16],
     ) -> Result<CredentialServiceRegistrationBinding, CredentialServiceSessionRegistrationError>
     {
-        if self
-            .expected_service_epoch
-            .is_some_and(|expected| expected != service_epoch)
-        {
-            return Err(CredentialServiceSessionRegistrationError::InvalidReply);
-        }
         CredentialServiceRegistrationBinding::new(
             service_epoch,
             self.protected_session_id,

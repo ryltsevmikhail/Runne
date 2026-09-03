@@ -4,8 +4,6 @@ use std::path::Path;
 
 use sha2::{Digest as _, Sha256};
 
-const RAW_TICKET_CANARY: [u8; 32] = [0xa7; 32];
-
 pub(super) fn secret_canary(root: &Path) -> Vec<u8> {
     use std::os::unix::ffi::OsStrExt as _;
 
@@ -15,14 +13,22 @@ pub(super) fn secret_canary(root: &Path) -> Vec<u8> {
     format!("sk-slice-e-{}", hex::encode(digest.finalize())).into_bytes()
 }
 
+pub(super) fn ticket_canary(secret: &[u8]) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update(b"runne-slice-e-ticket-canary-v1\0");
+    digest.update(secret);
+    digest.finalize().into()
+}
+
 pub(super) fn sensitive_patterns(secret: &[u8]) -> Vec<Vec<u8>> {
     let secret_digest = Sha256::digest(secret);
-    let ticket_digest = Sha256::digest(RAW_TICKET_CANARY);
+    let ticket = ticket_canary(secret);
+    let ticket_digest = Sha256::digest(ticket);
     vec![
         secret.to_vec(),
         secret_digest.to_vec(),
         hex::encode(secret_digest).into_bytes(),
-        RAW_TICKET_CANARY.to_vec(),
+        ticket.to_vec(),
         ticket_digest.to_vec(),
         hex::encode(ticket_digest).into_bytes(),
     ]

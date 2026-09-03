@@ -191,8 +191,10 @@ impl ProtectedBundledRuntimeProcess {
         let snapshot = codec
             .decode_daemon_snapshot(&read_frame(&mut self.channel)?, 0)
             .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        if snapshot.state() != ProviderCredentialOperationStateV2::Prepared
-            || snapshot.broker_rendezvous_id().is_none()
+        let terminal = snapshot.state().terminal();
+        if !terminal
+            && (snapshot.state() != ProviderCredentialOperationStateV2::Prepared
+                || snapshot.broker_rendezvous_id().is_none())
         {
             return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
         }
@@ -201,7 +203,7 @@ impl ProtectedBundledRuntimeProcess {
             snapshot,
             relay: None,
             relay_taken: false,
-            terminal: false,
+            terminal,
         })
     }
 

@@ -13,6 +13,11 @@ const MAC_BYTES: usize = 32;
 const FRAME_BYTES: usize = 4 + MAGIC.len() + 2 + BINDING_BYTES + MAC_BYTES;
 const MAC_DOMAIN: &[u8] = b"gocode/macos-credential-service/rejoin-required/v1\0";
 
+/// Authenticated daemon request to replace its service session.
+///
+/// `service_epoch` identifies the session that triggered recovery. Desktop
+/// independently challenges the currently admitted service, so the replacement
+/// registration may bind a newer epoch after a service-process restart.
 #[derive(Clone, Eq, PartialEq)]
 pub struct CredentialServiceRejoinBinding {
     service_epoch: [u8; 16],

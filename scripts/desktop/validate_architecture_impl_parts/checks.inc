@@ -20,7 +20,13 @@ ALLOWED_RUST_DEPENDENCIES: dict[str, set[str]] = {
         "runne-runtime-client",
         "runne-secure-store",
     },
-    "runne-platform-desktop": {"runne-api", "runne-platform-ports", "runne-provider", "runne-runtime-client"},
+    "runne-platform-desktop": {
+        "runne-api",
+        "runne-macos-xpc",
+        "runne-platform-ports",
+        "runne-provider",
+        "runne-runtime-client",
+    },
     "runne-platform-mobile": {"runne-platform-ports"},
     "runne-local-store": {
         "runne-api",
@@ -34,6 +40,7 @@ ALLOWED_RUST_DEPENDENCIES: dict[str, set[str]] = {
     "runne-secure-store": {
         "runne-api",
         "runne-macos-keychain-acl",
+        "runne-macos-xpc",
         "runne-provider",
     },
 }

@@ -179,19 +179,29 @@ impl DaemonProtectedCredentialEnrollmentSession {
             operation_id,
         )
         .map_err(super::super::effect_authority::map_store)?;
-        self.handoff = Some(
-            self.control.rendezvous.begin_endpoint_handoff(
-                snapshot
-                    .broker_rendezvous_id()
-                    .ok_or(ProviderCredentialEnrollmentHostError::InvariantViolation)?,
+        if let Some(rendezvous_id) = snapshot.broker_rendezvous_id() {
+            self.handoff = Some(self.control.rendezvous.begin_endpoint_handoff(
+                rendezvous_id,
                 &operation,
                 &authority,
                 &proof,
                 now_high_water,
-            )?,
-        );
+            )?);
+        } else if snapshot.state().terminal() {
+            self.control
+                .rendezvous
+                .discard_transition_rendezvous(&authority, &proof)?;
+        } else {
+            return Err(ProviderCredentialEnrollmentHostError::InvariantViolation);
+        }
         self.begun = Some((command, snapshot.clone()));
         self.encode_snapshot(snapshot)
+    }
+
+    pub(crate) fn begun_is_terminal(&self) -> bool {
+        self.begun
+            .as_ref()
+            .is_some_and(|(_, snapshot)| snapshot.state().terminal())
     }
 
     pub(crate) fn take_bound_broker_handoff(

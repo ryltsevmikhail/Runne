@@ -72,9 +72,12 @@ fn run() -> Result<(), ProbeError> {
         &keychain, SERVICE, ACCOUNT, &metadata, &access,
     )
     .map_err(|_| ProbeError::Closed("item-create"))?;
-    let mut item = item
-        .finalize(&access)
-        .map_err(|_| ProbeError::Closed("item-finalize"))?;
+    let mut item = item.finalize(&access).map_err(|error| match error {
+        runne_macos_keychain_acl::KeychainAclError::AccessDenied => {
+            ProbeError::Closed("item-finalize-access-denied")
+        }
+        _ => ProbeError::Closed("item-finalize"),
+    })?;
     let reference = (|| {
         runne_macos_keychain_acl::verify_item_access(&item, access.digest())
             .map_err(|_| ProbeError::Closed("item-verify-before-populate"))?;

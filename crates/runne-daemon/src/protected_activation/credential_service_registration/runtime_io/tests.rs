@@ -138,3 +138,22 @@ fn binding() -> CredentialServiceRegistrationBinding {
     )
     .unwrap()
 }
+
+#[test]
+fn only_transport_terminal_states_request_reconnection() {
+    use CredentialServicePortError as Error;
+
+    for error in [
+        Error::Unavailable,
+        Error::TimedOut,
+        Error::Cancelled,
+        Error::Interrupted,
+        Error::Invalidated,
+        Error::OutcomeUnknown,
+    ] {
+        assert!(super::is_transport_failure(error));
+    }
+    for error in [Error::Rejected, Error::Unsupported, Error::InvalidReply] {
+        assert!(!super::is_transport_failure(error));
+    }
+}

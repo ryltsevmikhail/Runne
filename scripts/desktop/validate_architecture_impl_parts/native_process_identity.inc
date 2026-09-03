@@ -16,6 +16,7 @@ ALLOWED_RUST_DEPENDENCIES["runne-platform-desktop"].add(
     MACOS_PROCESS_IDENTITY_PACKAGE
 )
 ALLOWED_RUST_DEPENDENCIES[NATIVE_ENROLLMENT_AUTHORITY_PACKAGE] = {
+    "runne-api",
     MACOS_PROCESS_IDENTITY_PACKAGE,
     "runne-provider",
 }
@@ -59,6 +60,14 @@ def find_native_writer_bootstrap_dependency_violations(
         if dependency.get("kind") is None
     ]
     expected_authority = {
+        "runne-api": (
+            None,
+            MACOS_PROCESS_IDENTITY_TARGET,
+            "*",
+            (),
+            "local",
+            _package_directory(by_name, "runne-api"),
+        ),
         "runne-provider": (
             None,
             None,

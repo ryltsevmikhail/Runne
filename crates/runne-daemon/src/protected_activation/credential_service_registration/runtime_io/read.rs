@@ -27,12 +27,39 @@ impl CredentialServiceRuntimeSession {
         let result = runtime.block_on(self.read_metadata_with_port(
             &client,
             authority,
+            version.clone(),
+            lifecycle,
+            fence,
+            now_unix_millis,
+        ));
+        self.client = Some(client);
+        if !should_reconnect_metadata(&result, self.last_transport_failure, self.missing_epoch) {
+            return result;
+        }
+        let configuration = self
+            .configuration
+            .clone()
+            .ok_or(ProviderCredentialEnrollmentHostError::Unavailable)?;
+        let client =
+            match runne_macos_xpc::CredentialServiceRuntimeXpcClient::connect(configuration) {
+                Ok(client) => client,
+                Err(_) => {
+                    self.queue_transport_rejoin()?;
+                    return Err(ProviderCredentialEnrollmentHostError::Unavailable);
+                }
+            };
+        let result = runtime.block_on(self.read_metadata_with_port(
+            &client,
+            authority,
             version,
             lifecycle,
             fence,
             now_unix_millis,
         ));
         self.client = Some(client);
+        if self.last_transport_failure {
+            self.queue_transport_rejoin()?;
+        }
         result
     }
 
@@ -128,6 +155,9 @@ impl CredentialServiceRuntimeSession {
             now_unix_millis,
         ));
         self.client = Some(client);
+        if self.last_transport_failure {
+            self.queue_transport_rejoin()?;
+        }
         result
     }
 
@@ -163,5 +193,45 @@ impl CredentialServiceRuntimeSession {
             )
             .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?;
         Ok((binding, expires_at - now_unix_millis))
+    }
+
+    pub(super) fn queue_transport_rejoin(
+        &mut self,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        self.missing_epoch = Some(
+            CredentialServiceEpoch::from_bytes(*self.binding.service_epoch())
+                .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?,
+        );
+        Ok(())
+    }
+}
+
+fn should_reconnect_metadata(
+    result: &Result<bool, ProviderCredentialEnrollmentHostError>,
+    transport_failure: bool,
+    missing_epoch: Option<CredentialServiceEpoch>,
+) -> bool {
+    matches!(
+        result,
+        Err(ProviderCredentialEnrollmentHostError::Unavailable)
+    ) && transport_failure
+        && missing_epoch.is_none()
+}
+
+#[cfg(test)]
+mod policy_tests {
+    use super::*;
+
+    #[test]
+    fn reconnects_only_unavailable_metadata_without_authenticated_session_loss() {
+        let unavailable = Err(ProviderCredentialEnrollmentHostError::Unavailable);
+        let denied = Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        let epoch = CredentialServiceEpoch::from_bytes([3; 16]).unwrap();
+
+        assert!(should_reconnect_metadata(&unavailable, true, None));
+        assert!(!should_reconnect_metadata(&unavailable, true, Some(epoch)));
+        assert!(!should_reconnect_metadata(&unavailable, false, None));
+        assert!(!should_reconnect_metadata(&denied, true, None));
+        assert!(!should_reconnect_metadata(&Ok(true), true, None));
     }
 }

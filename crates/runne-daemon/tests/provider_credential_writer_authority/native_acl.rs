@@ -6,7 +6,7 @@ const DISPOSABLE_PASSWORD: &[u8] = b"slice-e-disposable";
 
 pub(super) fn run() {
     super::harness::dispatch(
-        "reader_and_unrelated_processes_cannot_mutate_or_read_native_item",
+        "daemon_binary_has_no_legacy_native_mutation_and_service_path_completes",
         inner,
     );
 }
@@ -14,11 +14,7 @@ pub(super) fn run() {
 fn inner(context: &super::support::InnerContext) -> Result<(), &'static str> {
     assert_reader_source_boundary()?;
     assert_reader_binary_boundary(context.daemon())?;
-    context.run_positive_transcript_with_probe(Some(unrelated_probe))
-}
-
-fn unrelated_probe(context: &super::support::InnerContext) -> Result<&'static str, &'static str> {
-    super::native_item::assert_unrelated_denied(context.root(), context.runtime_root())
+    context.run_positive_transcript()
 }
 
 fn assert_reader_source_boundary() -> Result<(), &'static str> {

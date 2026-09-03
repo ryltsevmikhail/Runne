@@ -174,7 +174,7 @@ impl NativeEnrollmentTupleAdmission {
     }
 
     #[cfg(all(feature = "test-support", target_os = "macos"))]
-    pub(super) fn with_local_code_identities(
+    pub(crate) fn with_local_code_identities(
         mut self,
         paths: &super::NativeEnrollmentArtifactPathsV1,
     ) -> Option<Self> {

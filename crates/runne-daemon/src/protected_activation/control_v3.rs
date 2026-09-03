@@ -118,18 +118,12 @@ pub(crate) fn run_control_loop_v3_entered(
             .begin(&begin, runtime::unix_now_millis()?)
             .map_err(runtime::map_enrollment_error)?;
         channel.write_control_frame(&snapshot)?;
-        let handoff = enrollment
-            .take_bound_broker_handoff()
-            .map_err(runtime::map_enrollment_error)?;
-        let broker = super::broker_handoff::BrokerHandoffDispatch::from_bound_enrollment(
-            &keys,
-            &owned_launch,
-            handoff,
-        )?;
+        let terminal = enrollment.begun_is_terminal();
+        let broker = runtime::bind_broker(&keys, &owned_launch, &mut enrollment)?;
         V3EnrollmentRuntime {
             broker,
             session: Some(enrollment),
-            terminal: false,
+            terminal,
             claim_measurements: None,
             #[cfg(target_os = "macos")]
             channel: None,
@@ -140,11 +134,11 @@ pub(crate) fn run_control_loop_v3_entered(
         }
     } else {
         V3EnrollmentRuntime {
-            broker: super::broker_handoff::BrokerHandoffDispatch::new(
+            broker: Some(super::broker_handoff::BrokerHandoffDispatch::new(
                 &keys,
                 &owned_launch,
                 enrollment.rendezvous,
-            )?,
+            )?),
             session: None,
             terminal: true,
             claim_measurements: None,
@@ -193,16 +187,15 @@ fn serve_v3_transcript(
         }
         let frame = channel.read_control_frame()?;
         #[cfg(unix)]
-        if runtime.broker.dispatch(channel, &frame, ticket_clock)? {
+        if let Some(broker) = runtime.broker.as_mut()
+            && broker.dispatch(channel, &frame, ticket_clock)?
+        {
             #[cfg(target_os = "macos")]
             if runtime.claim_measurements.is_none()
-                && let (Some(session), Some(writer)) = (
-                    runtime.session.as_ref(),
-                    runtime.broker.verified_writer_facts(),
-                )
+                && let (Some(session), Some(writer)) =
+                    (runtime.session.as_ref(), broker.verified_writer_facts())
             {
-                let launch_attempt = runtime
-                    .broker
+                let launch_attempt = broker
                     .verified_writer_launch_attempt()
                     .ok_or(LaunchAuthorityError::InvalidContract)?;
                 runtime.claim_measurements = Some(

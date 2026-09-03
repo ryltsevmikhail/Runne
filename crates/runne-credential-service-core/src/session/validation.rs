@@ -29,15 +29,15 @@ impl CredentialServiceCore {
         let next_attempt = old.join_attempt().checked_add(1).ok_or(())?;
         let release_is_current = candidate.installed_generation() > old.installed_generation()
             || candidate.release_binding() == old.release_binding();
-        let common = candidate.join_attempt() == next_attempt
-            && candidate.installed_generation() >= old.installed_generation()
+        let common = candidate.installed_generation() >= old.installed_generation()
             && candidate.challenge_nonce() != old.challenge_nonce()
             && release_is_current;
-        let same_runtime_rejoin = candidate.runtime_generation() == old.runtime_generation()
+        let same_runtime_rejoin = candidate.join_attempt() == next_attempt
+            && candidate.runtime_generation() == old.runtime_generation()
             && candidate.daemon_authority_generation() == old.daemon_authority_generation()
             && candidate.supervisor_generation() == old.supervisor_generation();
-        let runtime_restart = candidate.daemon_authority_generation()
-            > old.daemon_authority_generation()
+        let runtime_restart = candidate.join_attempt() == 1
+            && candidate.daemon_authority_generation() > old.daemon_authority_generation()
             && candidate.runtime_generation() > old.runtime_generation()
             && candidate.supervisor_generation() >= old.supervisor_generation()
             && candidate.protected_session_id() != old.protected_session_id();

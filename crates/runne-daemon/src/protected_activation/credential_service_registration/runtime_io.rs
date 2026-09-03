@@ -38,6 +38,9 @@ impl CredentialServiceRuntimeSession {
             now_unix_millis,
         ));
         self.client = Some(client);
+        if self.last_transport_failure {
+            self.queue_transport_rejoin()?;
+        }
         result
     }
 
@@ -113,7 +116,7 @@ impl CredentialServiceRuntimeSession {
     }
 
     async fn exchange<P: CredentialServiceRuntimePort>(
-        &self,
+        &mut self,
         port: &P,
         request: CredentialServiceRequest,
         lifetime_millis: u64,
@@ -136,12 +139,19 @@ impl CredentialServiceRuntimeSession {
             .ok_or(ProviderCredentialEnrollmentHostError::InvalidRequest)?;
         let context =
             CredentialServiceCallContext::new(deadline, CredentialServiceCancellation::new());
+        self.last_transport_failure = false;
         let reply = match call {
             RuntimeCall::Arm => port.arm_mutation(request, context).await,
             RuntimeCall::Metadata => port.read_metadata(request, context).await,
             RuntimeCall::Material => port.read_material(request, context).await,
-        }
-        .map_err(map_port_error)?;
+        };
+        let reply = match reply {
+            Ok(reply) => reply,
+            Err(error) => {
+                self.last_transport_failure = is_transport_failure(error);
+                return Err(map_port_error(error));
+            }
+        };
         let verified = reply
             .with_bytes(|bytes| self.authenticator.verify_runtime_reply(owner, bytes))
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
@@ -166,6 +176,18 @@ impl CredentialServiceRuntimeSession {
         }
         map_disposition(value)
     }
+}
+
+const fn is_transport_failure(error: CredentialServicePortError) -> bool {
+    matches!(
+        error,
+        CredentialServicePortError::Unavailable
+            | CredentialServicePortError::TimedOut
+            | CredentialServicePortError::Cancelled
+            | CredentialServicePortError::Interrupted
+            | CredentialServicePortError::Invalidated
+            | CredentialServicePortError::OutcomeUnknown
+    )
 }
 
 #[derive(Clone, Copy)]

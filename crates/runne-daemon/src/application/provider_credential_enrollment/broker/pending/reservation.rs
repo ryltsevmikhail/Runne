@@ -84,6 +84,27 @@ impl PendingBrokerRendezvousRegistry {
         Ok(())
     }
 
+    pub(crate) fn discard_transition_rendezvous(
+        &self,
+        authority: &ProviderCredentialBaseRequestAuthority,
+        proof: &ProviderCredentialIntentConsumptionProof,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        let mut reserved = self
+            .reserved
+            .lock()
+            .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
+        let candidate = reserved
+            .as_ref()
+            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        if !candidate.authority_witness.matches_authority(authority)
+            || candidate.binding != ReservedAuthorityBinding::new(authority, proof)
+        {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        reserved.take();
+        Ok(())
+    }
+
     #[cfg(all(test, unix))]
     pub(crate) fn reserve_new_for_test(
         &self,

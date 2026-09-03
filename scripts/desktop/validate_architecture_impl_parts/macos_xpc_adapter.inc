@@ -8,7 +8,7 @@ MACOS_XPC_DEPENDENCIES = {
     "runne-platform-ports": (None, "*", (), True, None, "path"),
     "zeroize": (None, "=1.9.0", (), True, None, "registry"),
     "block2": (None, "=0.6.2", (), True, MACOS_XPC_TARGET, "registry"),
-    "objc2": (None, "=0.6.4", (), True, MACOS_XPC_TARGET, "registry"),
+    "objc2": (None, "=0.6.4", ("exception",), True, MACOS_XPC_TARGET, "registry"),
     "objc2-foundation": (
         None,
         "=0.3.2",

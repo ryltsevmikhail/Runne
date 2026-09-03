@@ -16,13 +16,13 @@ MACOS_XPC_PUBLIC_FOUNDATION_FIELD = re.compile(
     r"(?m)^\s*pub\s+[A-Za-z_][A-Za-z0-9_]*\s*:\s*[^,\n]*"
     r"(?:\bNSData\b|\bNSError\b|\bNSString\b|\bNSXPC\w*\b|\bSMAppService\w*\b)"
 )
-MACOS_XPC_FOUNDATION_ALIAS = re.compile(
-    r"(?ms)(?:"
-    r"\buse\b[^;]*(?:\bNSData\b|\bNSError\b|\bNSString\b|\bNSXPC\w*\b|\bSMAppService\w*\b)"
-    r"[^;]*\bas\s+(?:r#)?[A-Za-z_][A-Za-z0-9_]*[^;]*;"
-    r"|\btype\b[^;=]*=\s*[^;]*"
+MACOS_XPC_FOUNDATION_USE_ALIAS = re.compile(
+    r"(?ms)\buse\b[^;]*(?:\bNSData\b|\bNSError\b|\bNSString\b|\bNSXPC\w*\b|\bSMAppService\w*\b)"
+    r"[^;]*\bas\s+(?P<alias>(?:r#)?[A-Za-z_][A-Za-z0-9_]*)[^;]*;"
+)
+MACOS_XPC_FOUNDATION_TYPE_ALIAS = re.compile(
+    r"(?ms)\btype\s+(?P<alias>(?:r#)?[A-Za-z_][A-Za-z0-9_]*)[^;=]*=\s*[^;]*"
     r"(?:\bNSData\b|\bNSError\b|\bNSString\b|\bNSXPC\w*\b|\bSMAppService\w*\b)[^;]*;"
-    r")"
 )
 MACOS_XPC_EXPORTED_MACRO = re.compile(
     r"(?ms)#\s*\[\s*macro_export\b[^]]*\]|\bpub\s+macro\b"
@@ -136,20 +136,38 @@ def _public_macro_expands_foundation(source: str, public_generators) -> bool:
 
 def rust_public_api_exposes_foundation(source: str, crate_generators=()) -> bool:
     masked = _mask_rust_comments_and_strings(source)
+    aliases = {
+        match.group("alias")
+        for pattern in (
+            MACOS_XPC_FOUNDATION_USE_ALIAS,
+            MACOS_XPC_FOUNDATION_TYPE_ALIAS,
+        )
+        for match in pattern.finditer(masked)
+    }
+
+    def exposes(text: str) -> bool:
+        return MACOS_XPC_FOUNDATION_TYPE.search(text) is not None or any(
+            re.search(rf"\b{re.escape(alias)}\b", text) for alias in aliases
+        )
+
     for item in MACOS_XPC_PUBLIC_ITEM.finditer(masked):
         end, delimiter = _rust_item_header_end(masked, item.end())
-        if MACOS_XPC_FOUNDATION_TYPE.search(masked[item.start() : end + 1]):
+        if exposes(masked[item.start() : end + 1]):
             return True
         if delimiter == "{" and item.group("kind") in {"trait", "enum"}:
             close = _matching_rust_delimiter(masked, end)
-            if MACOS_XPC_FOUNDATION_TYPE.search(masked[end + 1 : close]):
+            if exposes(masked[end + 1 : close]):
                 return True
+    public_fields = re.finditer(
+        r"(?m)^\s*pub\s+[A-Za-z_][A-Za-z0-9_]*\s*:\s*[^,\n]*", masked
+    )
+    if any(exposes(match.group(0)) for match in public_fields):
+        return True
     generators = set(crate_generators) | _public_generating_macros(masked)
     return _public_macro_expands_foundation(masked, generators) or any(
         pattern.search(masked)
         for pattern in (
             MACOS_XPC_PUBLIC_FOUNDATION_REEXPORT,
             MACOS_XPC_PUBLIC_FOUNDATION_FIELD,
-            MACOS_XPC_FOUNDATION_ALIAS,
         )
     )

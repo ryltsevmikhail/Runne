@@ -38,9 +38,15 @@ fn service_presence_uses_the_same_pair_and_absence_observation_contract() {
         .unwrap()
         .observe_service_presence(false)
         .unwrap();
+    let failed_pair = ExactVersionReadback::new(command(3, 1))
+        .unwrap()
+        .observe_service_presence(false)
+        .unwrap();
 
     assert!(pair.present());
     assert!(!revoke.present());
+    assert!(!failed_pair.present());
+    assert_ne!(failed_pair.binding().as_bytes(), [0; 32]);
     assert_ne!(pair.binding(), revoke.binding());
 }
 
@@ -286,7 +292,6 @@ fn local_verification_lease() -> CredentialVerificationLease {
     let (store, _) = CredentialEnrollmentAuthorityPair::new().split();
     store.issue_credential_verification_lease(begin, reference)
 }
-
 #[cfg(feature = "provider-credential-broker-writer")]
 #[path = "tests_writer.rs"]
 mod writer;

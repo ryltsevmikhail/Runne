@@ -100,6 +100,7 @@ fn stale_after_daemon_restart(context: &super::support::InnerContext) -> Result<
             .record_client_ready(&v3)
             .map_err(|_| "v3-ready")?;
         drop(v3);
+        super::support::register_credential_service_session(&mut supervisor, &confirmed).await?;
 
         let mut enrollment = supervisor
             .begin_protected_credential_enrollment(begin_command()?)
@@ -117,7 +118,7 @@ fn stale_after_daemon_restart(context: &super::support::InnerContext) -> Result<
         let sealer = handoff.take_pair_secret_relay().ok_or("pair-relay")?;
 
         let _ = supervisor.abort_protected_credential_enrollment();
-        let _ = supervisor.stop();
+        supervisor.stop().map_err(|_| "stale-runned-stop")?;
         let secret = zeroize::Zeroizing::new(super::audit::secret_canary(context.root()));
         if sealer.seal_and_write(&relay, secret).is_ok() {
             return Err("stale-fd3-accepted");
@@ -128,16 +129,28 @@ fn stale_after_daemon_restart(context: &super::support::InnerContext) -> Result<
         super::native_item::assert_absent(context.root())?;
         assert_not_completed(context.runtime_root())?;
 
-        let mut restarted = context.supervisor()?;
-        restarted.start().map_err(|_| "restart-runned")?;
-        let client = super::support::connect(&mut restarted, "stale-restart").await?;
-        super::support::require_selected(&client, ProviderReadinessStatusV1::CredentialMissing)?;
-        restarted
-            .record_client_ready(&client)
-            .map_err(|_| "restart-ready")?;
-        drop(client);
-        restarted.stop().map_err(|_| "restart-stop")?;
-        Ok(())
+        match supervisor.start() {
+            Err(
+                runne_platform_desktop::ProtectedBundledRuntimeError::ProviderActivationNotReady(
+                    runne_api::ProviderActivationReadinessV1::SecureStoreUnavailable,
+                ),
+            ) => Ok(()),
+            Err(_) => Err("restart-fence"),
+            Ok(()) => {
+                let restarted = super::support::connect(&mut supervisor, "stale-restart").await?;
+                super::support::require_selected(
+                    &restarted,
+                    ProviderReadinessStatusV1::SecureStoreUnavailable,
+                )?;
+                supervisor
+                    .record_client_ready(&restarted)
+                    .map_err(|_| "stale-restart-ready")?;
+                drop(restarted);
+                supervisor.stop().map_err(|_| "stale-restart-stop")?;
+                super::native_item::assert_absent(context.root())?;
+                assert_not_completed(context.runtime_root())
+            }
+        }
     })
 }
 

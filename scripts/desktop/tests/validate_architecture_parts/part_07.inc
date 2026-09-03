@@ -51,6 +51,12 @@ class MacosXpcAdapterBoundaryTest(unittest.TestCase):
             )
             self.assertNotEqual([], architecture.find_macos_xpc_source_violations(root))
             (crate / "src" / "lib.rs").write_text(
+                "type Reply = objc2_foundation::NSData;\n"
+                "pub(super) fn private() -> Reply { todo!() }\n",
+                encoding="utf-8",
+            )
+            self.assertEqual([], architecture.find_macos_xpc_source_violations(root))
+            (crate / "src" / "lib.rs").write_text(
                 "pub use objc2_foundation::NSData;\n", encoding="utf-8"
             )
             self.assertNotEqual([], architecture.find_macos_xpc_source_violations(root))
@@ -102,7 +108,7 @@ class MacosXpcAdapterBoundaryTest(unittest.TestCase):
                 cls.dependency("runne-platform-ports", path="/repo/crates/runne-platform-ports"),
                 cls.dependency("zeroize", req="=1.9.0", source=registry),
                 cls.dependency("block2", req="=0.6.2", target=mac, source=registry),
-                cls.dependency("objc2", req="=0.6.4", target=mac, source=registry),
+                cls.dependency("objc2", req="=0.6.4", target=mac, features=["exception"], source=registry),
                 cls.dependency("objc2-foundation", req="=0.3.2", target=mac, features=foundation, defaults=False, source=registry),
                 cls.dependency("objc2-service-management", req="=0.3.2", target=mac, features=service, defaults=False, source=registry),
                 cls.dependency("tokio", req="^1", target=mac, features=["full"], source=registry),

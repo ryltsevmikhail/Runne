@@ -8,7 +8,7 @@ use super::credential_service_registration::{
 };
 
 #[test]
-fn rejoin_registration_requires_requested_epoch_attempt_and_expiry() {
+fn rejoin_registration_accepts_fresh_challenge_epoch_but_requires_attempt_and_expiry() {
     let keys = LaunchSecret::from_bytes([7; 32]).unwrap().derive_keys();
     let requested = CredentialServiceRejoinBinding::new(
         [9; 16],
@@ -41,7 +41,7 @@ fn rejoin_registration_requires_requested_epoch_attempt_and_expiry() {
     let (claim, acknowledgement) = registration_frames(&keys, &exact);
     assert!(accept_registration_frames(&keys, &expected, &claim, &acknowledgement, 99).is_ok());
 
-    let wrong_epoch = CredentialServiceRegistrationBinding::new(
+    let fresh_epoch = CredentialServiceRegistrationBinding::new(
         [8; 16],
         uuid(1),
         11,
@@ -55,8 +55,29 @@ fn rejoin_registration_requires_requested_epoch_attempt_and_expiry() {
         30_100,
     )
     .unwrap();
-    let (claim, acknowledgement) = registration_frames(&keys, &wrong_epoch);
-    assert!(accept_registration_frames(&keys, &expected, &claim, &acknowledgement, 99).is_err());
+    let (claim, acknowledgement) = registration_frames(&keys, &fresh_epoch);
+    assert!(accept_registration_frames(&keys, &expected, &claim, &acknowledgement, 99).is_ok());
+
+    for (join_attempt, expiry) in [(3, 30_100), (2, 30_101)] {
+        let wrong = CredentialServiceRegistrationBinding::new(
+            [8; 16],
+            uuid(1),
+            11,
+            11,
+            13,
+            14,
+            [3; 32],
+            [4; 32],
+            [7; 16],
+            join_attempt,
+            expiry,
+        )
+        .unwrap();
+        let (claim, acknowledgement) = registration_frames(&keys, &wrong);
+        assert!(
+            accept_registration_frames(&keys, &expected, &claim, &acknowledgement, 99).is_err()
+        );
+    }
 }
 
 fn registration_frames(

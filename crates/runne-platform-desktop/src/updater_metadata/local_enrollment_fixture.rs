@@ -11,7 +11,10 @@ use super::{
     UpdateTimestampRoleV2, UpdateTrustRootV2, verify_update_v2,
 };
 use crate::updater_installed_metadata::InstalledUpdateMetadataJournal;
-use crate::{StagedUpdate, UpdateInstallState, UpdateJournal, UpdateTrustJournal};
+use crate::{
+    StagedUpdate, UpdateCoordinator, UpdateInstallState, UpdateJournal, UpdateTargetBindingConfig,
+    UpdateTrustJournal,
+};
 
 const VERSION: &str = "1.2.0";
 const FLOOR: &str = "1.0.0";
@@ -30,6 +33,14 @@ pub fn prepare_local_native_enrollment(
     }
     let paths = NativeEnrollmentArtifactPathsV1::resolve_installed().ok()?;
     let artifacts = paths.measure().ok()?;
+    let updates = profile.join("updates");
+    let journal = UpdateJournal::new(updates.join("install-state.json"));
+    if journal.read().ok()?.is_some() {
+        return UpdateCoordinator::new(test_trust(), binding_config(&artifacts), profile)
+            .ok()?
+            .prepare_installed_native_enrollment()
+            .ok()?;
+    }
     let metadata = signed_metadata(&artifacts)?;
     let trust = test_trust();
     let now = unix_seconds()?;
@@ -51,6 +62,22 @@ pub fn prepare_local_native_enrollment(
         .with_local_code_identities(&paths)?
         .retain_installed_paths(paths)
         .into()
+}
+
+fn binding_config(
+    artifacts: &super::MeasuredNativeEnrollmentArtifactsV1,
+) -> UpdateTargetBindingConfig {
+    UpdateTargetBindingConfig {
+        product_id: "com.runne.desktop".into(),
+        platform: "macos".into(),
+        arch: "arm64".into(),
+        min_os: "macos-13".into(),
+        profile_id: "slice-e-local".into(),
+        bundle_sha256: artifacts.contract_sha256.clone(),
+        runtime_version: "0.1.0".into(),
+        runtime_digest: artifacts.daemon_sha256.clone(),
+        channel: "local".into(),
+    }
 }
 
 fn signed_metadata(

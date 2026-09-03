@@ -5,7 +5,9 @@ use runne_provider::{
     CredentialLifecycleRevision, CredentialLifecycleSnapshot, CredentialOperationAction,
     CredentialOperationId, CredentialOperationSnapshot, CredentialReadbackDisposition,
     CredentialReadinessDisposition, CredentialReadinessObservation, CredentialReadinessRevision,
+    FailCredentialOperation,
 };
+use runne_secure_store::SecureStoreError;
 use runne_secure_store::{ExactAbsenceReadback, ExactVersionReadback, ProviderCredentialReadback};
 
 pub(crate) trait CredentialEnrollmentReadback {
@@ -14,6 +16,20 @@ pub(crate) trait CredentialEnrollmentReadback {
         operation: &CredentialOperationSnapshot,
         command: &runne_provider::CredentialBrokerCommand,
     ) -> Result<BindCredentialReadback, ProviderCredentialEnrollmentHostError>;
+
+    fn observe_recovery(
+        &self,
+        operation: &CredentialOperationSnapshot,
+        command: &runne_provider::CredentialBrokerCommand,
+    ) -> Result<CredentialRecoveryReadback, ProviderCredentialEnrollmentHostError> {
+        self.observe(operation, command)
+            .map(CredentialRecoveryReadback::Bound)
+    }
+}
+
+pub(crate) enum CredentialRecoveryReadback {
+    Bound(BindCredentialReadback),
+    VerifiedAbsence(FailCredentialOperation),
 }
 
 impl<R: ProviderCredentialReadback + ?Sized> CredentialEnrollmentReadback for R {
@@ -22,6 +38,19 @@ impl<R: ProviderCredentialReadback + ?Sized> CredentialEnrollmentReadback for R 
         operation: &CredentialOperationSnapshot,
         command: &runne_provider::CredentialBrokerCommand,
     ) -> Result<BindCredentialReadback, ProviderCredentialEnrollmentHostError> {
+        match observe_exact(self, operation, command)? {
+            CredentialRecoveryReadback::Bound(readback) => Ok(readback),
+            CredentialRecoveryReadback::VerifiedAbsence(_) => {
+                Err(ProviderCredentialEnrollmentHostError::InvariantViolation)
+            }
+        }
+    }
+
+    fn observe_recovery(
+        &self,
+        operation: &CredentialOperationSnapshot,
+        command: &runne_provider::CredentialBrokerCommand,
+    ) -> Result<CredentialRecoveryReadback, ProviderCredentialEnrollmentHostError> {
         observe_exact(self, operation, command)
     }
 }
@@ -41,7 +70,7 @@ fn observe_exact<R: ProviderCredentialReadback + ?Sized>(
     reader: &R,
     operation: &CredentialOperationSnapshot,
     command: &runne_provider::CredentialBrokerCommand,
-) -> Result<BindCredentialReadback, ProviderCredentialEnrollmentHostError> {
+) -> Result<CredentialRecoveryReadback, ProviderCredentialEnrollmentHostError> {
     let (disposition, observation) = match operation.action() {
         CredentialOperationAction::Pair | CredentialOperationAction::MigrateLegacy => (
             CredentialReadbackDisposition::ExactVersion,
@@ -50,7 +79,7 @@ fn observe_exact<R: ProviderCredentialReadback + ?Sized>(
                     ExactVersionReadback::new(command.clone())
                         .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?,
                 )
-                .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?,
+                .map_err(map_readback_error)?,
         ),
         CredentialOperationAction::Revoke
         | CredentialOperationAction::RetiredVersionCleanup
@@ -61,15 +90,46 @@ fn observe_exact<R: ProviderCredentialReadback + ?Sized>(
                     ExactAbsenceReadback::new(command.clone())
                         .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?,
                 )
-                .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?,
+                .map_err(map_readback_error)?,
         ),
         _ => return Err(ProviderCredentialEnrollmentHostError::Unsupported),
     };
+    if !observation.present()
+        && matches!(
+            operation.action(),
+            CredentialOperationAction::Pair | CredentialOperationAction::MigrateLegacy
+        )
+    {
+        return Ok(CredentialRecoveryReadback::VerifiedAbsence(
+            FailCredentialOperation::new(operation.operation_id(), observation.binding()),
+        ));
+    }
     if observation.present() != (disposition == CredentialReadbackDisposition::ExactVersion) {
         return Err(ProviderCredentialEnrollmentHostError::InvariantViolation);
     }
     BindCredentialReadback::new(operation.operation_id(), disposition, observation.binding())
+        .map(CredentialRecoveryReadback::Bound)
         .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)
+}
+
+fn map_readback_error(error: SecureStoreError) -> ProviderCredentialEnrollmentHostError {
+    match error {
+        SecureStoreError::CredentialAccessDenied
+        | SecureStoreError::CredentialIdentityMismatch
+        | SecureStoreError::CredentialAclMigrationRequired => {
+            ProviderCredentialEnrollmentHostError::AccessDenied
+        }
+        SecureStoreError::UnsupportedSecureStoreBackend => {
+            ProviderCredentialEnrollmentHostError::Unsupported
+        }
+        SecureStoreError::CorruptProviderCredential => {
+            ProviderCredentialEnrollmentHostError::InvariantViolation
+        }
+        SecureStoreError::ProviderCredentialOperationFailed => {
+            ProviderCredentialEnrollmentHostError::Conflict
+        }
+        _ => ProviderCredentialEnrollmentHostError::Unavailable,
+    }
 }
 
 pub(super) fn persisted(

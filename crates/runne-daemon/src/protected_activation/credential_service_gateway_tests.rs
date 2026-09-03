@@ -48,7 +48,7 @@ async fn service_gateway_accepts_only_exact_rejoin_and_newer_runtime_supersessio
     let exact_rejoin = binding(3, uuid(2), 11, 13, 2, [4; 32]);
     gateway.install(session(&exact_rejoin, 7)).unwrap();
 
-    let runtime_restart = binding(3, uuid(3), 12, 13, 3, [4; 32]);
+    let runtime_restart = binding(3, uuid(3), 12, 13, 1, [4; 32]);
     gateway.install(session(&runtime_restart, 8)).unwrap();
 
     assert!(gateway.install(session(&exact_rejoin, 7)).is_err());

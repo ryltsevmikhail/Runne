@@ -3,7 +3,10 @@ use runne_api::{
     ProviderCredentialCommandContext, ProviderCredentialEnrollmentHostError,
     ProviderCredentialIntentConsumptionProof, ProviderCredentialOperationSnapshotV2,
 };
-use runne_provider::{ProviderCredentialEnrollmentStore, ProviderId};
+use runne_provider::{
+    ClosePreparedCredentialOperation, CredentialOperationState, ProviderCredentialEnrollmentStore,
+    ProviderId,
+};
 
 use super::{
     CredentialEnrollmentReadback, CredentialEnrollmentRecoveryGateway, ProviderCredentialAdmission,
@@ -71,9 +74,6 @@ where
             .require_begin_command(authority, proof, command, context)?;
         CredentialEnrollmentRecoveryGateway::new(self.store, self.reader)
             .reconcile_online(now_high_water)?;
-        let proof_digest =
-            runne_provider::CredentialBindingDigest::from_measured(*proof.proof_digest())
-                .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
         #[cfg(test)]
         if let Some(barrier) = &self.before_gate_barrier {
             barrier.wait();
@@ -84,18 +84,11 @@ where
         return Err(ProviderCredentialEnrollmentHostError::Unsupported);
         if let Some(operation) = self
             .store
-            .find_by_begin_proof(proof_digest)
+            .find_by_command(context.command_id, &context.idempotency_key)
             .map_err(map_store)?
         {
             drop(gate);
-            return self.replay(
-                authority,
-                proof_digest,
-                context,
-                command,
-                operation,
-                now_high_water,
-            );
+            return self.replay(authority, context, command, operation, now_high_water);
         }
         #[cfg(unix)]
         let rendezvous = gate.preflight(authority, proof)?;
@@ -134,25 +127,42 @@ where
     fn replay(
         &self,
         authority: &ProviderCredentialBaseRequestAuthority,
-        proof: runne_provider::CredentialBindingDigest,
         context: &ProviderCredentialCommandContext,
         command: &BeginProviderCredentialEnrollment,
-        operation: runne_provider::CredentialOperationSnapshot,
+        mut operation: runne_provider::CredentialOperationSnapshot,
         now_high_water: i64,
     ) -> Result<ProviderCredentialOperationSnapshotV2, ProviderCredentialEnrollmentHostError> {
         let owner = runne_provider::CredentialInstallationOwnerId::from_bytes(
             *authority.installation_identity(),
         )
         .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
-        if operation.begin_proof_digest() != proof
-            || operation.installation_owner_id() != owner
+        if operation.installation_owner_id() != owner
             || operation.metadata().command_id() != context.command_id
             || operation.metadata().idempotency_key() != &context.idempotency_key
             || operation.lifecycle_revision().get() != command.expected_lifecycle_revision()
             || operation.provider() != &provider(command.provider())?
             || action(command.action())? != operation.action()
+            || operation.metadata().qualified_release_tuple_digest()
+                != Some(
+                    runne_provider::CredentialBindingDigest::from_measured(
+                        *authority.release_tuple_digest(),
+                    )
+                    .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?,
+                )
         {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        if operation.state() == CredentialOperationState::Prepared
+            && !self
+                .rendezvous
+                .has_live(operation.operation_id(), now_high_water)
+        {
+            let closure = ClosePreparedCredentialOperation::new(
+                operation.operation_id(),
+                CredentialOperationState::Expired,
+            )
+            .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?;
+            operation = self.store.expire_before_claim(closure).map_err(map_store)?;
         }
         let lifecycle = self
             .store

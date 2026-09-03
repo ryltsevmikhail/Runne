@@ -5,7 +5,6 @@ pub(super) enum BrokerError {
     AccessDenied,
     Conflict,
     Corrupt,
-    Missing,
     Unsupported,
 }
 
@@ -15,7 +14,6 @@ impl From<BrokerError> for SecureStoreError {
             BrokerError::AccessDenied => Self::CredentialAccessDenied,
             BrokerError::Conflict => Self::ProviderCredentialOperationFailed,
             BrokerError::Corrupt => Self::CorruptProviderCredential,
-            BrokerError::Missing => Self::ProviderCredentialNotFound,
             BrokerError::Unsupported => Self::UnsupportedSecureStoreBackend,
         }
     }

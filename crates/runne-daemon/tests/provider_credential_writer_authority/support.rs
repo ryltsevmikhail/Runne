@@ -9,16 +9,14 @@ use runne_api::{
     ProviderCredentialProviderV2, ProviderReadinessStatusV1,
 };
 use runne_platform_desktop::{
-    CredentialWriterHandoffMode, DevelopmentBundledRuntimeLauncher,
-    NativeProtectedCredentialEnrollmentBegin, ProtectedBundledRuntimeLaunchSpec,
-    ProtectedBundledRuntimeSupervisor,
+    ConfirmedInstalledNativeEnrollment, CredentialWriterHandoffMode,
+    DevelopmentBundledRuntimeLauncher, NativeProtectedCredentialEnrollmentBegin,
+    ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeSupervisor,
 };
 use sha2::{Digest as _, Sha256};
 use zeroize::Zeroizing;
 
 const FIXTURE_ROOT: &str = "RUNNE_SLICE_E_FIXTURE_ROOT";
-
-type ConcurrentProbe = fn(&InnerContext) -> Result<&'static str, &'static str>;
 
 pub(super) struct InnerContext {
     root: PathBuf,
@@ -50,42 +48,28 @@ impl InnerContext {
             runtime,
         })
     }
-
     pub(super) fn run_positive_transcript(&self) -> Result<(), &'static str> {
-        self.run_positive_transcript_with_probe(None)
-    }
-
-    pub(super) fn run_positive_transcript_with_probe(
-        &self,
-        probe: Option<ConcurrentProbe>,
-    ) -> Result<(), &'static str> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .map_err(|_| "tokio-runtime")?;
-        runtime.block_on(self.positive_async(probe))
+        runtime.block_on(self.positive_async())
     }
-
     pub(super) fn root(&self) -> &Path {
         &self.root
     }
-
     pub(super) fn profile(&self) -> &Path {
         &self.profile
     }
-
     pub(super) fn runtime_root(&self) -> &Path {
         &self.runtime
     }
-
     pub(super) fn daemon(&self) -> &Path {
         &self.daemon
     }
-
     pub(super) fn writer(&self) -> PathBuf {
         self.root.join("Runne.app/Contents/MacOS/runne")
     }
-
     pub(super) fn supervisor(&self) -> Result<ProtectedBundledRuntimeSupervisor, &'static str> {
         let spec = ProtectedBundledRuntimeLaunchSpec::new(&self.daemon, &self.runtime)
             .map_err(|_| "launch-spec")?
@@ -96,7 +80,7 @@ impl InnerContext {
         ))
     }
 
-    async fn positive_async(&self, probe: Option<ConcurrentProbe>) -> Result<(), &'static str> {
+    async fn positive_async(&self) -> Result<(), &'static str> {
         let prepared = runne_platform_desktop::prepare_local_native_enrollment(&self.profile)
             .ok_or("local-admission")?;
         let mut supervisor = self.supervisor()?;
@@ -118,18 +102,8 @@ impl InnerContext {
             .record_client_ready(&v3)
             .map_err(|_| "v3-ready")?;
         drop(v3);
-        if service_fixture_enabled() {
-            let prepared = supervisor
-                .prepare_credential_service_session_registration(&confirmed)
-                .map_err(|_| "service-registration-prepare")?;
-            let registered = prepared
-                .register()
-                .await
-                .map_err(|_| "service-registration-exchange")?;
-            supervisor
-                .confirm_credential_service_session(registered)
-                .map_err(|_| "service-registration-confirm")?;
-        }
+        register_credential_service_session(&mut supervisor, &confirmed).await?;
+        let secret = Zeroizing::new(super::audit::secret_canary(&self.root));
         let command_id = uuid::Uuid::now_v7().to_string();
         let command = BeginProviderCredentialEnrollment::new(
             ProviderCredentialEnrollmentActionV2::Pair,
@@ -140,8 +114,11 @@ impl InnerContext {
             "slice-e-native-intent",
         )
         .map_err(|_| "begin-command")?;
-        let begin = NativeProtectedCredentialEnrollmentBegin::new(command, [71; 32])
-            .map_err(|_| "native-begin")?;
+        let begin = NativeProtectedCredentialEnrollmentBegin::new(
+            command,
+            super::audit::ticket_canary(secret.as_slice()),
+        )
+        .map_err(|_| "native-begin")?;
         let mut enrollment = supervisor
             .begin_protected_credential_enrollment(begin)
             .map_err(|_| "protected-begin")?;
@@ -155,7 +132,6 @@ impl InnerContext {
             .receive_credential_secret_relay(&mut enrollment)
             .map_err(|_| "secret-relay")?;
         let relay = enrollment.take_relay().ok_or("relay-take")?;
-        let secret = Zeroizing::new(super::audit::secret_canary(&self.root));
         let audit_secret = secret.clone();
         let secret_digest = hex::encode(Sha256::digest(secret.as_slice()));
         if runne_api::test_support::local_native_enrollment_case()
@@ -169,22 +145,9 @@ impl InnerContext {
             .ok_or("pair-relay")?
             .seal_and_write(&relay, secret)
             .map_err(|_| "sealed-fd3")?;
-        let (finish, probe_evidence) = if let Some(probe) = probe {
-            let (finish, observed) = std::thread::scope(|scope| {
-                let observer = scope.spawn(|| probe(self));
-                let finish =
-                    supervisor.finish_protected_credential_enrollment(&mut enrollment, &relay);
-                (finish, observer.join())
-            });
-            let evidence = observed.map_err(|_| "native-probe-panic")??;
-            (finish, Some(evidence))
-        } else {
-            (
-                supervisor.finish_protected_credential_enrollment(&mut enrollment, &relay),
-                None,
-            )
-        };
-        finish.map_err(|_| probe_evidence.unwrap_or("terminal-readback"))?;
+        supervisor
+            .finish_protected_credential_enrollment(&mut enrollment, &relay)
+            .map_err(|_| "terminal-readback")?;
         if !enrollment.terminal()
             || enrollment.snapshot().state() != ProviderCredentialOperationStateV2::Completed
         {
@@ -204,6 +167,10 @@ impl InnerContext {
         supervisor
             .record_client_ready(&current)
             .map_err(|_| "status-ready")?;
+        if service_fixture_enabled() {
+            super::service_process::prove_restart_rejoin(&mut supervisor, &current, &self.runtime)
+                .await?;
+        }
         drop(current);
         supervisor.stop().map_err(|_| "first-runned-stop")?;
         assert_durable_counts(&self.runtime)?;
@@ -238,8 +205,26 @@ impl InnerContext {
 }
 
 fn service_fixture_enabled() -> bool {
-    runne_api::test_support::validated_local_native_enrollment_case_name().as_deref()
-        == Some("service-joined")
+    runne_api::test_support::local_credential_service_fixture_enabled()
+}
+
+pub(super) async fn register_credential_service_session(
+    supervisor: &mut ProtectedBundledRuntimeSupervisor,
+    confirmed: &ConfirmedInstalledNativeEnrollment,
+) -> Result<(), &'static str> {
+    if !service_fixture_enabled() {
+        return Ok(());
+    }
+    let prepared = supervisor
+        .prepare_credential_service_session_registration(confirmed)
+        .map_err(|_| "service-registration-prepare")?;
+    let registered = prepared
+        .register()
+        .await
+        .map_err(|_| "service-registration-exchange")?;
+    supervisor
+        .confirm_credential_service_session(registered)
+        .map_err(|_| "service-registration-confirm")
 }
 
 pub(super) async fn connect(

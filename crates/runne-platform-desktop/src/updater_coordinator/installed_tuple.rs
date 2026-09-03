@@ -82,6 +82,12 @@ impl UpdateCoordinator {
         let admission = paths
             .admit_verified(&verified)
             .map_err(|_| UpdateCoordinatorError::InvalidTransition)?;
+        #[cfg(all(feature = "test-support", target_os = "macos"))]
+        let admission = if runne_api::test_support::local_native_enrollment_enabled() {
+            admission.and_then(|admission| admission.with_local_code_identities(&paths))
+        } else {
+            admission
+        };
         Ok(admission.map(|admission| admission.retain_installed_paths(paths)))
     }
 

@@ -15,6 +15,24 @@ pub fn local_native_enrollment_enabled() -> bool {
     validated_local_native_enrollment_case_name().is_some()
 }
 
+/// Returns true only for the package-shaped local fixture that contains the
+/// credential-service helper at its canonical packaged path.
+#[must_use]
+pub fn local_credential_service_fixture_enabled() -> bool {
+    if validated_local_native_enrollment_case_name().is_none() {
+        return false;
+    }
+    let root = std::env::var_os("RUNNE_SLICE_E_FIXTURE_ROOT")
+        .and_then(|path| std::fs::canonicalize(path).ok());
+    let Some(root) = root else {
+        return false;
+    };
+    let helper = root.join(
+        "Runne.app/Contents/Library/Helpers/RunneCredentialService.app/Contents/MacOS/runne-credential-service",
+    );
+    std::fs::canonicalize(&helper).ok().as_deref() == Some(helper.as_path())
+}
+
 fn local_native_enrollment_opted_in() -> bool {
     std::env::var_os("RUNNE_LOCAL_NATIVE_ENROLLMENT_TEST").as_deref()
         == Some(std::ffi::OsStr::new("1"))

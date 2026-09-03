@@ -1,4 +1,5 @@
 use super::{CredentialEnrollmentReadback, effect_authority::map_store, readback};
+use readback::CredentialRecoveryReadback;
 use runne_api::ProviderCredentialEnrollmentHostError;
 use runne_provider::{
     CredentialNativeEffectDisposition, CredentialOperationState, ObserveNativeEffect,
@@ -89,9 +90,18 @@ where
                 let command = work
                     .command()
                     .ok_or(ProviderCredentialEnrollmentHostError::InvariantViolation)?;
-                let readback = self.reader.observe(operation, command)?;
-                let bound = self.store.bind_readback(readback).map_err(map_store)?;
-                readback::persisted(&bound)?
+                match self.reader.observe_recovery(operation, command)? {
+                    CredentialRecoveryReadback::Bound(readback) => {
+                        let bound = self.store.bind_readback(readback).map_err(map_store)?;
+                        readback::persisted(&bound)?
+                    }
+                    CredentialRecoveryReadback::VerifiedAbsence(absence) => {
+                        self.store
+                            .fail_with_verified_absence(absence)
+                            .map_err(map_store)?;
+                        return Ok(());
+                    }
+                }
             }
             CredentialOperationState::ReadbackVerified => readback::persisted(operation)?,
             _ => return Err(ProviderCredentialEnrollmentHostError::InvariantViolation),

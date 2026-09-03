@@ -8,8 +8,6 @@ mod harness;
 mod keychain;
 #[path = "provider_credential_writer_authority/leakage.rs"]
 mod leakage;
-#[path = "provider_credential_writer_authority/native_access.rs"]
-mod native_access;
 #[path = "provider_credential_writer_authority/native_acl.rs"]
 mod native_acl;
 #[path = "provider_credential_writer_authority/native_item.rs"]
@@ -24,6 +22,8 @@ mod point_of_use;
 mod positive;
 #[path = "provider_credential_writer_authority/process_faults.rs"]
 mod process_faults;
+#[path = "provider_credential_writer_authority/release_fault_support.rs"]
+mod release_fault_support;
 #[path = "provider_credential_writer_authority/release_faults.rs"]
 mod release_faults;
 #[path = "provider_credential_writer_authority/service_process.rs"]
@@ -42,7 +42,7 @@ fn credential_service_real_process_pair_status_and_restart() {
 }
 
 #[test]
-fn persistent_reference_locates_exact_item_without_expanding_authority() {
+fn persistent_reference_is_bounded_or_fails_closed_on_native_acl_rewrite() {
     persistent_reference::run();
 }
 
@@ -57,7 +57,7 @@ fn wrong_replaced_and_stale_writer_attempts_have_zero_native_effect() {
 }
 
 #[test]
-fn reader_and_unrelated_processes_cannot_mutate_or_read_native_item() {
+fn daemon_binary_has_no_legacy_native_mutation_and_service_path_completes() {
     native_acl::run();
 }
 

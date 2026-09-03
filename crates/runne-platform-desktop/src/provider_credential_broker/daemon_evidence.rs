@@ -23,7 +23,7 @@ pub use facts::VerifiedWriterMeasurementFacts;
 const CHALLENGE_BYTES: usize = 128;
 const RECORD_BYTES: usize = CHALLENGE_BYTES + 128;
 const FRAME_BYTES: usize = RECORD_BYTES + 32;
-const TRANSFER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+const TRANSFER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const CHALLENGE_TAG: &[u8] = b"gocode/provider-credential-broker/daemon-evidence/v1/challenge\0";
 const RESPONSE_TAG: &[u8] = b"gocode/provider-credential-broker/daemon-evidence/v1/response\0";
 

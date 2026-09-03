@@ -179,9 +179,7 @@ fn requirement(
 fn local_writer_endpoint_configuration(
     writer: &std::path::Path,
 ) -> Result<Option<CredentialServiceEndpointConfiguration>, CredentialServiceXpcError> {
-    if runne_api::test_support::validated_local_native_enrollment_case_name().as_deref()
-        != Some("service-joined")
-    {
+    if !runne_api::test_support::local_credential_service_fixture_enabled() {
         return Ok(None);
     }
     let root = std::fs::canonicalize(

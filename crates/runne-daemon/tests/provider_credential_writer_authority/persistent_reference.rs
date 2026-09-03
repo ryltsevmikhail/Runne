@@ -17,7 +17,7 @@ const UNRELATED_PEER_SOCKET: &str = "RUNNE_SLICE_E_UNRELATED_PEER_SOCKET";
 
 pub(super) fn run() {
     super::harness::dispatch(
-        "persistent_reference_locates_exact_item_without_expanding_authority",
+        "persistent_reference_is_bounded_or_fails_closed_on_native_acl_rewrite",
         inner,
     );
 }
@@ -30,7 +30,13 @@ pub(super) fn unrelated_peer_run() {
 }
 
 fn inner(context: &super::support::InnerContext) -> Result<(), &'static str> {
-    let record = collect_writer_record(context)?;
+    let record = match collect_writer_record(context) {
+        Ok(record) => record,
+        Err("persistent-reference-writer-item-finalize-access-denied") => {
+            return super::native_item::assert_absent(context.root());
+        }
+        Err(error) => return Err(error),
+    };
     run_reader(context, &record)?;
     run_reader(context, &record)
 }
@@ -114,6 +120,9 @@ fn collect_writer_record(
             }
             b"persistent-reference-probe-closed-stage:item-finalize\n" => {
                 Err("persistent-reference-writer-item-finalize")
+            }
+            b"persistent-reference-probe-closed-stage:item-finalize-access-denied\n" => {
+                Err("persistent-reference-writer-item-finalize-access-denied")
             }
             b"persistent-reference-probe-closed-stage:item-verify-before-populate\n" => {
                 Err("persistent-reference-writer-item-verify-before-populate")
@@ -286,7 +295,6 @@ fn native_fd_probe_requires_coupled_features_and_package_fixture_preflight() {
     assert!(contains(fixture, b"pub const fn parent_pid"));
     assert!(!contains(fixture, b"MacOsLocalPeerProcessIdentity"));
 }
-
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     !needle.is_empty() && haystack.windows(needle.len()).any(|part| part == needle)
 }

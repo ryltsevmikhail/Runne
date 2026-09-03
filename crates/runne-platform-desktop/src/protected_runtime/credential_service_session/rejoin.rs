@@ -152,7 +152,7 @@ impl CredentialServiceRegistrationFacts {
     fn from_rejoin(
         binding: &CredentialServiceRejoinBinding,
     ) -> Result<Self, CredentialServiceSessionRegistrationError> {
-        let mut facts = Self::new(
+        Self::new(
             binding.protected_session_id(),
             binding.daemon_authority_generation(),
             binding.runtime_generation(),
@@ -162,9 +162,7 @@ impl CredentialServiceRegistrationFacts {
             binding.release_binding(),
             binding.join_attempt(),
             binding.expires_at_unix_millis(),
-        )?;
-        facts.expected_service_epoch = Some(binding.service_epoch());
-        Ok(facts)
+        )
     }
 }
 
@@ -189,7 +187,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rejoin_facts_accept_only_daemon_requested_epoch_and_expiry() {
+    fn rejoin_facts_use_fresh_service_challenge_and_exact_daemon_expiry() {
         let binding = CredentialServiceRejoinBinding::new(
             [9; 16],
             [1, 1, 1, 1, 1, 1, 0x70, 1, 0x80, 1, 1, 1, 1, 1, 1, 1],
@@ -208,6 +206,9 @@ mod tests {
         let accepted = facts.binding([9; 16], [8; 16]).unwrap();
         assert_eq!(accepted.service_epoch(), &[9; 16]);
         assert_eq!(accepted.expires_at_unix_millis(), 10_000);
-        assert!(facts.binding([10; 16], [8; 16]).is_err());
+        assert_eq!(
+            facts.binding([10; 16], [8; 16]).unwrap().service_epoch(),
+            &[10; 16]
+        );
     }
 }

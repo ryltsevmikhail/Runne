@@ -1,5 +1,5 @@
 #[test]
-fn credential_missing_keeps_v2_transport_admissible_but_other_provider_failures_close_it() {
+fn recoverable_store_unavailability_keeps_control_transport_admissible() {
     use runne_api::ProviderActivationReadinessV1::{
         CredentialAccessDenied, CredentialIdentityMismatch, CredentialMissing, Ready,
         SecureStoreUnavailable,
@@ -7,11 +7,8 @@ fn credential_missing_keeps_v2_transport_admissible_but_other_provider_failures_
 
     assert!(!provider_readiness_blocks_launch(Ready));
     assert!(!provider_readiness_blocks_launch(CredentialMissing));
-    for readiness in [
-        CredentialAccessDenied,
-        CredentialIdentityMismatch,
-        SecureStoreUnavailable,
-    ] {
+    assert!(!provider_readiness_blocks_launch(SecureStoreUnavailable));
+    for readiness in [CredentialAccessDenied, CredentialIdentityMismatch] {
         assert!(provider_readiness_blocks_launch(readiness));
     }
 }

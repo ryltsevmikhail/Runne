@@ -1,4 +1,5 @@
 use crate::{CredentialLifecycleError, ProviderId};
+use runne_domain::id::{CommandId, IdempotencyKey};
 
 use super::{
     AttachCredentialProcess, BeginCredentialOperation, BeginCredentialOperationOutcome,
@@ -26,6 +27,15 @@ pub trait ProviderCredentialEnrollmentStore: Send + Sync {
     fn find_by_begin_proof(
         &self,
         _proof: CredentialBindingDigest,
+    ) -> Result<Option<CredentialOperationSnapshot>, CredentialLifecycleError> {
+        Ok(None)
+    }
+
+    /// Returns a prior operation for the same durable command identity.
+    fn find_by_command(
+        &self,
+        _command: CommandId,
+        _idempotency_key: &IdempotencyKey,
     ) -> Result<Option<CredentialOperationSnapshot>, CredentialLifecycleError> {
         Ok(None)
     }

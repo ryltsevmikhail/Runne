@@ -101,12 +101,12 @@ impl ExactVersionReadback {
         self,
         present: bool,
     ) -> Result<CredentialReadbackObservation, SecureStoreError> {
-        if !present {
-            return Err(BrokerError::Missing.into());
-        }
         match self.command.action() {
             CredentialOperationAction::Pair => {
-                version_observation(&self.command, &self.reference, true)
+                version_observation(&self.command, &self.reference, present)
+            }
+            CredentialOperationAction::MigrateLegacy if !present => {
+                version_observation(&self.command, &self.reference, false)
             }
             CredentialOperationAction::MigrateLegacy => {
                 Err(SecureStoreError::ProviderCredentialSourceRevisionUnavailable)
@@ -236,7 +236,9 @@ where
                     _ => Err(BrokerError::AccessDenied.into()),
                 }
             }
-            ProviderCredentialStatus::Missing => Err(BrokerError::Missing.into()),
+            ProviderCredentialStatus::Missing => {
+                version_observation(&input.command, &input.reference, false)
+            }
             ProviderCredentialStatus::Unsupported => Err(BrokerError::Unsupported.into()),
         }
     }

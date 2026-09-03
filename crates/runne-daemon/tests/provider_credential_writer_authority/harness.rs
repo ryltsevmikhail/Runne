@@ -33,20 +33,18 @@ where
 }
 
 fn run_outer(selector: &'static str, scenario: &str) {
+    let persistent_reference = selector
+        == "persistent_reference_is_bounded_or_fails_closed_on_native_acl_rewrite"
+        || selector == "persistent_reference_rejects_unrelated_same_uid_peer";
     let keychain = super::keychain::DisposableKeychain::create().expect("disposable Keychain");
     let package = super::package::LocalPackage::create(
         keychain.root(),
-        selector == "persistent_reference_locates_exact_item_without_expanding_authority"
-            || selector == "persistent_reference_rejects_unrelated_same_uid_peer",
-        if scenario == "service-joined" {
-            super::package::PackageMode::CredentialService
-        } else {
-            super::package::PackageMode::CredentialWriter
-        },
+        persistent_reference,
+        super::package::PackageMode::CredentialService,
     )
     .expect("local package");
     assert!(package.application().starts_with(keychain.root()));
-    let mut service = (scenario == "service-joined")
+    let mut service = (!persistent_reference)
         .then(|| {
             super::service_process::TemporaryCredentialService::bootstrap(
                 keychain.root(),

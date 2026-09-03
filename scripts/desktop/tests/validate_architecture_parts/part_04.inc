@@ -26,6 +26,7 @@ class MacOsProcessIdentityDependencyTest(unittest.TestCase):
         authority = "runne-native-enrollment-authority"
         self.assertEqual(
             {
+                "runne-api",
                 "runne-macos-process-identity",
                 "runne-provider",
             },
@@ -167,6 +168,9 @@ class MacOsProcessIdentityDependencyTest(unittest.TestCase):
                     ),
                     MacOsProcessIdentityDependencyTest.dependency(
                         "runne-macos-process-identity", target=macos
+                    ),
+                    MacOsProcessIdentityDependencyTest.dependency(
+                        "runne-api", target=macos
                     ),
                     MacOsProcessIdentityDependencyTest.dependency(
                         "serde",

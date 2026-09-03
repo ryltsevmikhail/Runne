@@ -23,6 +23,24 @@ fn credential_online_begin_exactly_replays_the_durable_operation() {
 }
 
 #[test]
+fn credential_online_finds_durable_command_across_session_proofs() {
+    let store = store();
+    let input = begin(2, "durable-command", 3);
+    let command = input.command_id();
+    let key = input.idempotency_key().clone();
+    let expected = ProviderCredentialEnrollmentStore::begin(&store, input)
+        .unwrap()
+        .snapshot()
+        .clone();
+
+    let found = ProviderCredentialEnrollmentStore::find_by_command(&store, command, &key)
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(found, expected);
+}
+
+#[test]
 fn credential_online_ticket_reissue_has_one_claim_winner() {
     let store = store();
     ProviderCredentialEnrollmentStore::begin(&store, begin(3, "ticket", 4)).unwrap();

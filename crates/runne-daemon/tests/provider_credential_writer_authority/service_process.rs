@@ -2,6 +2,11 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;
 use std::process::Command;
+use std::time::{Duration, Instant};
+
+use runne_api::ProviderReadinessStatusV1;
+use runne_platform_desktop::ProtectedBundledRuntimeSupervisor;
+use runne_runtime_client::AuthenticatedRuntimeClient;
 
 const LABEL: &str = "com.runne.credential-service";
 const SELECTOR: &str = "credential_service_real_process_pair_status_and_restart";
@@ -10,6 +15,65 @@ pub(super) fn run() {
     super::harness::dispatch_scenarios(SELECTOR, &["service-joined"], |context, _| {
         context.run_positive_transcript()
     });
+}
+
+pub(super) async fn prove_restart_rejoin(
+    supervisor: &mut ProtectedBundledRuntimeSupervisor,
+    client: &AuthenticatedRuntimeClient,
+    runtime: &Path,
+) -> Result<(), &'static str> {
+    let target = service_target()?;
+    let old_pid = service_pid(&target)?.ok_or("service-pid-before-kill")?;
+    let killed = Command::new("/bin/launchctl")
+        .args(["kill", "SIGKILL", &target])
+        .status()
+        .map_err(|_| "service-kill-command")?;
+    if !killed.success() {
+        return Err("service-kill-status");
+    }
+    wait_for_service_exit(&target, old_pid)?;
+
+    super::point_of_use::prove_service_loss_is_fenced(client, runtime).await?;
+    complete_pending_rejoin(supervisor).await?;
+    let renewed = supervisor
+        .renew_profile()
+        .map_err(|_| "service-rejoin-renew")?
+        .connect(Duration::from_secs(10))
+        .await
+        .map_err(|_| "service-rejoin-connect")?;
+    super::support::require_selected(&renewed, ProviderReadinessStatusV1::Ready)?;
+    supervisor
+        .record_client_ready(&renewed)
+        .map_err(|_| "service-rejoin-ready")?;
+    let new_pid = service_pid(&target)?.ok_or("service-pid-after-rejoin")?;
+    (new_pid != old_pid)
+        .then_some(())
+        .ok_or("service-process-not-replaced")
+}
+
+pub(super) async fn complete_pending_rejoin(
+    supervisor: &mut ProtectedBundledRuntimeSupervisor,
+) -> Result<(), &'static str> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if Instant::now() >= deadline {
+            return Err("service-rejoin-timeout");
+        }
+        if let Some(prepared) = supervisor
+            .prepare_pending_credential_service_rejoin()
+            .map_err(|_| "service-rejoin-prepare")?
+        {
+            let registered = prepared
+                .register()
+                .await
+                .map_err(|_| "service-rejoin-register")?;
+            supervisor
+                .confirm_credential_service_rejoin(registered)
+                .map_err(|_| "service-rejoin-confirm")?;
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 }
 
 pub(super) struct TemporaryCredentialService {
@@ -88,6 +152,38 @@ fn command_output(program: &str, arguments: &[&str]) -> Option<String> {
         .success()
         .then(|| String::from_utf8(output.stdout).ok())
         .flatten()
+}
+
+fn service_target() -> Result<String, &'static str> {
+    let uid = command_output("/usr/bin/id", &["-u"]).ok_or("service-uid")?;
+    Ok(format!("gui/{}/{LABEL}", uid.trim()))
+}
+
+fn service_pid(target: &str) -> Result<Option<u32>, &'static str> {
+    let output = Command::new("/bin/launchctl")
+        .args(["print", target])
+        .output()
+        .map_err(|_| "service-print-command")?;
+    if !output.status.success() {
+        return Err("service-print-status");
+    }
+    let text = String::from_utf8(output.stdout).map_err(|_| "service-print-utf8")?;
+    Ok(text.lines().find_map(|line| {
+        line.trim()
+            .strip_prefix("pid = ")
+            .and_then(|value| value.parse().ok())
+    }))
+}
+
+fn wait_for_service_exit(target: &str, old_pid: u32) -> Result<(), &'static str> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        if service_pid(target)? != Some(old_pid) {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    Err("service-kill-timeout")
 }
 
 fn not_found(stderr: &[u8]) -> bool {

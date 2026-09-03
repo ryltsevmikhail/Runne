@@ -169,6 +169,10 @@ fn begin_recovers_then_returns_the_exact_idempotent_prepared_projection() {
         .admit(&authority, &proof, &context, &command, 100)
         .unwrap();
     assert_eq!(consumed_replay.operation_handle(), first.operation_handle());
+    assert_eq!(
+        consumed_replay.state(),
+        ProviderCredentialOperationStateV2::Expired
+    );
     assert_eq!(consumed_replay.broker_rendezvous_id(), None);
     assert!(matches!(
         rendezvous.begin_endpoint_handoff(

@@ -50,6 +50,16 @@ impl ProviderCredentialEnrollmentStore for SqliteProviderCredentialLifecycleStor
     > {
         begin::find_by_begin_proof(self, proof)
     }
+    fn find_by_command(
+        &self,
+        command: runne_domain::id::CommandId,
+        idempotency_key: &runne_domain::id::IdempotencyKey,
+    ) -> Result<
+        Option<runne_provider::CredentialOperationSnapshot>,
+        runne_provider::CredentialLifecycleError,
+    > {
+        begin::find_by_command(self, command, idempotency_key)
+    }
     fn attach_process(
         &self,
         input: runne_provider::AttachCredentialProcess,

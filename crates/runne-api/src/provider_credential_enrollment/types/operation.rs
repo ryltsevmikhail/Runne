@@ -37,6 +37,16 @@ pub enum ProviderCredentialOperationStateV2 {
     Tombstoned,
 }
 
+impl ProviderCredentialOperationStateV2 {
+    #[must_use]
+    pub const fn terminal(self) -> bool {
+        matches!(
+            self,
+            Self::Completed | Self::Failed | Self::Expired | Self::Cancelled | Self::Tombstoned
+        )
+    }
+}
+
 /// Safe operation response used by begin, resume and explicit verification.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", try_from = "OperationSnapshotWire")]

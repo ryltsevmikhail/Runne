@@ -18,7 +18,6 @@ pub(super) struct ExpectedCredentialServiceRegistration {
     installation_owner: [u8; 32],
     release_binding: [u8; 32],
     join_attempt: u64,
-    exact_service_epoch: Option<[u8; 16]>,
     exact_expiry: Option<u64>,
 }
 
@@ -37,7 +36,6 @@ impl ExpectedCredentialServiceRegistration {
             installation_owner: *enrollment.installation_identity_digest(),
             release_binding: *enrollment.release_tuple_digest(),
             join_attempt: 1,
-            exact_service_epoch: None,
             exact_expiry: None,
         }
     }
@@ -53,7 +51,6 @@ impl ExpectedCredentialServiceRegistration {
             installation_owner: *binding.installation_owner(),
             release_binding: *binding.release_binding(),
             join_attempt: binding.join_attempt(),
-            exact_service_epoch: None,
             exact_expiry: None,
         }
     }
@@ -68,7 +65,6 @@ impl ExpectedCredentialServiceRegistration {
             installation_owner: binding.installation_owner(),
             release_binding: binding.release_binding(),
             join_attempt: binding.join_attempt(),
-            exact_service_epoch: Some(binding.service_epoch()),
             exact_expiry: Some(binding.expires_at_unix_millis()),
         }
     }
@@ -83,9 +79,6 @@ impl ExpectedCredentialServiceRegistration {
             && binding.release_binding() == &self.release_binding
             && binding.join_attempt() == self.join_attempt
             && self
-                .exact_service_epoch
-                .is_none_or(|epoch| binding.service_epoch() == &epoch)
-            && self
                 .exact_expiry
                 .is_none_or(|expiry| binding.expires_at_unix_millis() == expiry)
     }
@@ -94,9 +87,11 @@ impl ExpectedCredentialServiceRegistration {
 pub(crate) struct CredentialServiceRuntimeSession {
     authenticator: CredentialServiceSessionAuthenticator,
     binding: CredentialServiceRegistrationBinding,
+    configuration: Option<runne_macos_xpc::CredentialServiceEndpointConfiguration>,
     client: Option<runne_macos_xpc::CredentialServiceRuntimeXpcClient>,
     next_sequence: u64,
     missing_epoch: Option<runne_provider::CredentialServiceEpoch>,
+    last_transport_failure: bool,
 }
 
 impl CredentialServiceRuntimeSession {
@@ -108,11 +103,7 @@ impl CredentialServiceRuntimeSession {
     pub(super) fn supersedes(&self, old: &Self) -> bool {
         let candidate = &self.binding;
         let current = &old.binding;
-        let Some(next_attempt) = current.join_attempt().checked_add(1) else {
-            return false;
-        };
         if candidate.installation_owner() != current.installation_owner()
-            || candidate.join_attempt() != next_attempt
             || candidate.challenge_nonce() == current.challenge_nonce()
             || candidate.installed_generation() < current.installed_generation()
         {
@@ -123,10 +114,15 @@ impl CredentialServiceRuntimeSession {
         if !release_is_current {
             return false;
         }
-        let same_runtime_rejoin = candidate.runtime_generation() == current.runtime_generation()
+        let same_runtime_rejoin = current
+            .join_attempt()
+            .checked_add(1)
+            .is_some_and(|next| candidate.join_attempt() == next)
+            && candidate.runtime_generation() == current.runtime_generation()
             && candidate.daemon_authority_generation() == current.daemon_authority_generation()
             && candidate.supervisor_generation() == current.supervisor_generation();
-        let runtime_restart = candidate.runtime_generation() > current.runtime_generation()
+        let runtime_restart = candidate.join_attempt() == 1
+            && candidate.runtime_generation() > current.runtime_generation()
             && candidate.daemon_authority_generation() > current.daemon_authority_generation()
             && candidate.supervisor_generation() >= current.supervisor_generation()
             && candidate.protected_session_id() != current.protected_session_id();
@@ -191,9 +187,11 @@ pub(super) fn accept_registration_frames(
     Ok(CredentialServiceRuntimeSession {
         authenticator,
         binding,
+        configuration: None,
         client: None,
         next_sequence: 0,
         missing_epoch: None,
+        last_transport_failure: false,
     })
 }
 
@@ -222,9 +220,10 @@ pub(super) fn receive_required_registration(
         .runtime_credential_service_configuration()
         .ok_or(LaunchAuthorityError::OwnershipMismatch)?;
     session.client = Some(
-        runne_macos_xpc::CredentialServiceRuntimeXpcClient::connect(configuration)
+        runne_macos_xpc::CredentialServiceRuntimeXpcClient::connect(configuration.clone())
             .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)?,
     );
+    session.configuration = Some(configuration);
     Ok(Some(session))
 }
 
@@ -245,9 +244,10 @@ pub(super) fn receive_rejoin_registration(
         now_unix_millis,
     )?;
     session.client = Some(
-        runne_macos_xpc::CredentialServiceRuntimeXpcClient::connect(configuration)
+        runne_macos_xpc::CredentialServiceRuntimeXpcClient::connect(configuration.clone())
             .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)?,
     );
+    session.configuration = Some(configuration);
     Ok(session)
 }
 

@@ -44,6 +44,7 @@ class RustDependencyRulesTest(unittest.TestCase):
                 "runne-secure-store": {
                     "runne-api",
                     "runne-macos-keychain-acl",
+                    "runne-macos-xpc",
                 }
             }
         )

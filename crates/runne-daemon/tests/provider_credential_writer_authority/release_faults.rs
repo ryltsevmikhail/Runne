@@ -1,6 +1,9 @@
-use std::process::Command;
 use std::time::Duration;
 
+use super::release_fault_support::{
+    assert_no_owned_children, assert_operation_state, require_incomplete, require_not_completed,
+    restart_with,
+};
 use runne_api::{
     BeginProviderCredentialEnrollment, ProviderCredentialEnrollmentActionV2,
     ProviderCredentialOperationStateV2, ProviderCredentialProviderV2, ProviderReadinessStatusV1,
@@ -48,22 +51,28 @@ fn inner(context: &super::support::InnerContext, scenario: &str) -> Result<(), &
 
 async fn die_prepared(context: &super::support::InnerContext) -> Result<(), &'static str> {
     let (mut supervisor, _) = enter_v3(context).await?;
-    let enrollment = begin_pair(&mut supervisor, "prepared")?;
+    let (enrollment, command) = begin_pair(&mut supervisor, "prepared")?;
     if enrollment.snapshot().state() != ProviderCredentialOperationStateV2::Prepared {
         return Err("prepared-state");
     }
     supervisor
         .crash_local_fixture_process()
         .map_err(|_| "prepared-daemon-crash")?;
+    supervisor.stop().map_err(|_| "prepared-daemon-stop")?;
     drop(enrollment);
-    drop(supervisor);
     require_incomplete(context, "PREPARED")?;
-    restart_with(context, ProviderReadinessStatusV1::CredentialMissing).await
+    restart_with(
+        &mut supervisor,
+        context,
+        command,
+        ProviderReadinessStatusV1::CredentialMissing,
+    )
+    .await
 }
 
 async fn die_claimed(context: &super::support::InnerContext) -> Result<(), &'static str> {
     let (mut supervisor, confirmed) = enter_v3(context).await?;
-    let mut enrollment = begin_pair(&mut supervisor, "claimed")?;
+    let (mut enrollment, command) = begin_pair(&mut supervisor, "claimed")?;
     let mut handoff = writer_claim(&mut supervisor, &confirmed, &mut enrollment)?;
     let relay = enrollment.take_relay().ok_or("claimed-relay")?;
     let sealer = handoff.take_pair_secret_relay().ok_or("claimed-sealer")?;
@@ -79,15 +88,30 @@ async fn die_claimed(context: &super::support::InnerContext) -> Result<(), &'sta
     handoff
         .reap_exact_writer_bounded(Duration::from_secs(10))
         .map_err(|_| "claimed-writer-reap")?;
-    drop(supervisor);
+    supervisor.stop().map_err(|_| "claimed-daemon-stop")?;
     require_incomplete(context, "CLAIMED")?;
-    restart_with(context, ProviderReadinessStatusV1::CredentialMissing).await
+    restart_with(
+        &mut supervisor,
+        context,
+        command,
+        ProviderReadinessStatusV1::CredentialMissing,
+    )
+    .await
 }
 
 async fn reject_before_effect(context: &super::support::InnerContext) -> Result<(), &'static str> {
     let (mut supervisor, confirmed) = enter_v3(context).await?;
-    let mut enrollment = begin_pair(&mut supervisor, "release")?;
-    let mut handoff = writer_claim(&mut supervisor, &confirmed, &mut enrollment)?;
+    let (mut enrollment, command) = begin_pair(&mut supervisor, "release")?;
+    let mut handoff = match writer_claim(&mut supervisor, &confirmed, &mut enrollment) {
+        Ok(handoff) => handoff,
+        Err("writer-handoff") => {
+            let _ = supervisor.abort_protected_credential_enrollment();
+            let _ = supervisor.stop();
+            require_not_completed(context)?;
+            return super::native_item::assert_absent(context.root());
+        }
+        Err(error) => return Err(error),
+    };
     let relay = enrollment.take_relay().ok_or("release-relay")?;
     handoff
         .take_pair_secret_relay()
@@ -106,14 +130,20 @@ async fn reject_before_effect(context: &super::support::InnerContext) -> Result<
     handoff
         .reap_exact_writer_bounded(Duration::from_secs(10))
         .map_err(|_| "release-writer-reap")?;
-    drop(supervisor);
+    let _ = supervisor.stop();
     require_incomplete(context, "CLAIMED")?;
-    restart_with(context, ProviderReadinessStatusV1::CredentialMissing).await
+    restart_with(
+        &mut supervisor,
+        context,
+        command,
+        ProviderReadinessStatusV1::CredentialMissing,
+    )
+    .await
 }
 
 async fn die_readback(context: &super::support::InnerContext) -> Result<(), &'static str> {
     let (mut supervisor, confirmed) = enter_v3(context).await?;
-    let mut enrollment = begin_pair(&mut supervisor, "readback")?;
+    let (mut enrollment, command) = begin_pair(&mut supervisor, "readback")?;
     let mut handoff = writer_claim(&mut supervisor, &confirmed, &mut enrollment)?;
     let relay = enrollment.take_relay().ok_or("readback-relay")?;
     handoff
@@ -133,12 +163,15 @@ async fn die_readback(context: &super::support::InnerContext) -> Result<(), &'st
     handoff
         .reap_exact_writer_bounded(Duration::from_secs(10))
         .map_err(|_| "readback-writer-reap")?;
-    drop(supervisor);
-    super::native_item::exists(context.root())?
-        .then_some(())
-        .ok_or("readback-native-effect")?;
+    supervisor.stop().map_err(|_| "readback-daemon-stop")?;
     assert_operation_state(context, "NATIVE_EFFECT_OBSERVED")?;
-    restart_with(context, ProviderReadinessStatusV1::Ready).await?;
+    restart_with(
+        &mut supervisor,
+        context,
+        command,
+        ProviderReadinessStatusV1::Ready,
+    )
+    .await?;
     super::support::assert_durable_counts(context.runtime_root())
 }
 
@@ -172,13 +205,20 @@ async fn enter_v3(
         .record_client_ready(&v3)
         .map_err(|_| "v3-ready")?;
     drop(v3);
+    super::support::register_credential_service_session(&mut supervisor, &confirmed).await?;
     Ok((supervisor, confirmed))
 }
 
 fn begin_pair(
     supervisor: &mut ProtectedBundledRuntimeSupervisor,
     label: &str,
-) -> Result<PreparedProtectedCredentialEnrollment, &'static str> {
+) -> Result<
+    (
+        PreparedProtectedCredentialEnrollment,
+        BeginProviderCredentialEnrollment,
+    ),
+    &'static str,
+> {
     let command_id = uuid::Uuid::now_v7().to_string();
     let command = BeginProviderCredentialEnrollment::new(
         ProviderCredentialEnrollmentActionV2::Pair,
@@ -189,10 +229,11 @@ fn begin_pair(
         "slice-e-release-fault-intent",
     )
     .map_err(|_| "begin-command")?;
-    let begin = NativeProtectedCredentialEnrollmentBegin::new(command, [79; 32])
+    let begin = NativeProtectedCredentialEnrollmentBegin::new(command.clone(), [79; 32])
         .map_err(|_| "native-begin")?;
     supervisor
         .begin_protected_credential_enrollment(begin)
+        .map(|enrollment| (enrollment, command))
         .map_err(|_| "protected-begin")
 }
 
@@ -208,65 +249,4 @@ fn writer_claim(
         .receive_credential_secret_relay(enrollment)
         .map_err(|_| "secret-relay")?;
     Ok(handoff)
-}
-
-fn require_incomplete(
-    context: &super::support::InnerContext,
-    expected: &str,
-) -> Result<(), &'static str> {
-    super::native_item::assert_absent(context.root())?;
-    assert_operation_state(context, expected)
-}
-
-fn assert_operation_state(
-    context: &super::support::InnerContext,
-    expected: &str,
-) -> Result<(), &'static str> {
-    let database = context.runtime_root().join("runne-daemon/event-log.db");
-    let connection =
-        rusqlite::Connection::open_with_flags(database, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(|_| "sqlite-open")?;
-    let state: String = connection
-        .query_row(
-            "SELECT state FROM provider_credential_operations",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(|_| "sqlite-state")?;
-    (state == expected).then_some(()).ok_or("truthful-state")
-}
-
-async fn restart_with(
-    context: &super::support::InnerContext,
-    expected: ProviderReadinessStatusV1,
-) -> Result<(), &'static str> {
-    let mut restarted = context.supervisor()?;
-    restarted.start().map_err(|_| "restart-runned")?;
-    let client = super::support::connect(&mut restarted, "fault-restart").await?;
-    super::support::require_selected(&client, expected)?;
-    restarted
-        .record_client_ready(&client)
-        .map_err(|_| "restart-ready")?;
-    drop(client);
-    restarted.stop().map(|_| ()).map_err(|_| "restart-stop")
-}
-
-fn assert_no_owned_children(context: &super::support::InnerContext) -> Result<(), &'static str> {
-    let output = Command::new("/bin/ps")
-        .args(["-axo", "state=,command="])
-        .output()
-        .map_err(|_| "ps-command")?;
-    if !output.status.success() {
-        return Err("ps-status");
-    }
-    let writer = context.writer();
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
-        let mut fields = line.split_whitespace();
-        let _state = fields.next();
-        let executable = fields.next().map(std::path::Path::new);
-        if executable == Some(writer.as_path()) || executable == Some(context.daemon()) {
-            return Err("owned-child-survived");
-        }
-    }
-    Ok(())
 }

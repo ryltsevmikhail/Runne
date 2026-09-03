@@ -23,7 +23,7 @@ pub(super) use pair_secret_handoff::AuthenticatedPairSecretHandoff;
 const CHALLENGE_BYTES: usize = 96;
 const RESPONSE_BYTES: usize = CHALLENGE_BYTES + 32;
 const FRAME_BYTES: usize = RESPONSE_BYTES + 32;
-const TRANSFER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+const TRANSFER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const CHALLENGE_TAG: &[u8] = b"gocode/provider-credential-broker/daemon-endpoint/v1/challenge\0";
 const RESPONSE_TAG: &[u8] = b"gocode/provider-credential-broker/daemon-endpoint/v1/response\0";
 const HANDOFF_DOMAIN: &[u8] = b"GOCODE_WRITER_ENDPOINT_HANDOFF_V1\0";

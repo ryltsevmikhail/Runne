@@ -67,7 +67,7 @@ fn supersession_and_restart_invalidate_old_sessions_and_admissions() {
         register(
             &mut core,
             8,
-            binding(3, 13, 15, 200),
+            binding(1, 13, 15, 200),
             CredentialServiceEndpointRole::Desktop
         )
         .unwrap()
@@ -78,6 +78,17 @@ fn supersession_and_restart_invalidate_old_sessions_and_admissions() {
         runtime_reply(&mut core, &arm, 7, 10, |_| panic!()),
         Err(CredentialServiceIngressFailure::Invalidate)
     ));
+    let mut rejected = registered_core();
+    assert_eq!(
+        register(
+            &mut rejected,
+            8,
+            binding(3, 13, 15, 200),
+            CredentialServiceEndpointRole::Desktop
+        )
+        .unwrap_err(),
+        CredentialServiceDisposition::Denied,
+    );
     let mut restarted = CredentialServiceCore::with_test_epoch([9; 16]).unwrap();
     assert!(matches!(
         runtime_reply(&mut restarted, &arm, 7, 10, |_| panic!()),
