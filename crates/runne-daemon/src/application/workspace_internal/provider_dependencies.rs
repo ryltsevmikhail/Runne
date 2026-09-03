@@ -3,6 +3,8 @@ use std::sync::Arc;
 
 #[cfg(any(test, feature = "test-support"))]
 use crate::canonical_provider::CanonicalProviderEffect;
+#[cfg(all(feature = "test-support", not(test)))]
+use crate::canonical_provider::ProviderEffectFactory;
 #[cfg(any(test, feature = "test-support"))]
 use crate::canonical_provider::RuntimeStoreDecorator;
 // fixture-only capability begin
@@ -33,6 +35,12 @@ pub(crate) enum ProviderDependencyState {
         #[cfg(test)]
         credential_versions: Arc<FixtureCredentialVersionStoreFactory>,
     },
+    #[cfg(all(feature = "test-support", not(test)))]
+    ServiceLoopbackFixture {
+        adapter_factory: Arc<ProviderEffectFactory>,
+        keyring: Arc<dyn ProviderJournalKeyring>,
+        decorator: Arc<RuntimeStoreDecorator>,
+    },
     // fixture-only capability end
 }
 
@@ -55,6 +63,19 @@ impl ProtectedProviderDependencyCapsule {
             keyring,
             decorator,
             credential_versions,
+        })
+    }
+
+    #[cfg(all(feature = "test-support", not(test)))]
+    pub(crate) fn from_service_loopback_fixture(
+        adapter_factory: Arc<ProviderEffectFactory>,
+        keyring: Arc<dyn ProviderJournalKeyring>,
+        decorator: Arc<RuntimeStoreDecorator>,
+    ) -> Self {
+        Self(ProviderDependencyState::ServiceLoopbackFixture {
+            adapter_factory,
+            keyring,
+            decorator,
         })
     }
 

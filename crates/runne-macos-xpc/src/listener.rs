@@ -132,7 +132,7 @@ impl CredentialServiceXpcListener {
         #[cfg(target_os = "macos")]
         {
             Ok(Self {
-                native: native::NativeListener::bind(configuration, handler),
+                native: native::NativeListener::bind(configuration, handler)?,
             })
         }
         #[cfg(not(target_os = "macos"))]

@@ -18,18 +18,27 @@ mod native_item;
 mod package;
 #[path = "provider_credential_writer_authority/persistent_reference.rs"]
 mod persistent_reference;
+#[path = "provider_credential_writer_authority/point_of_use.rs"]
+mod point_of_use;
 #[path = "provider_credential_writer_authority/positive.rs"]
 mod positive;
 #[path = "provider_credential_writer_authority/process_faults.rs"]
 mod process_faults;
 #[path = "provider_credential_writer_authority/release_faults.rs"]
 mod release_faults;
+#[path = "provider_credential_writer_authority/service_process.rs"]
+mod service_process;
 #[path = "provider_credential_writer_authority/support.rs"]
 mod support;
 
 #[test]
 fn real_pair_transcript_persists_across_runned_restart() {
     positive::run();
+}
+
+#[test]
+fn credential_service_real_process_pair_status_and_restart() {
+    service_process::run();
 }
 
 #[test]

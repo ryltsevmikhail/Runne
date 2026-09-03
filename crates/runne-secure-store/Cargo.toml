@@ -23,6 +23,7 @@ test-support = ["runne-api/test-support"]
 local-native-enrollment-test = [
     "test-support",
     "runne-macos-keychain-acl/local-native-enrollment-test",
+    "runne-macos-xpc/test-support",
 ]
 
 [target.'cfg(target_os = "macos")'.dependencies]

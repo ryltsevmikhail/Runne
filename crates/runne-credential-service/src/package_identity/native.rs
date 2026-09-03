@@ -32,6 +32,17 @@ unsafe extern "C" {
 }
 
 pub(super) fn observe(path: &Path) -> Result<ObservedIdentity, CredentialServiceXpcError> {
+    let code = validated_code(path)?;
+    copy_identity(code.as_concrete_TypeRef())
+}
+
+#[cfg(feature = "test-support")]
+pub(super) fn observe_local(path: &Path) -> Result<ObservedIdentity, CredentialServiceXpcError> {
+    let code = validated_code(path)?;
+    copy_local_identity(code.as_concrete_TypeRef())
+}
+
+fn validated_code(path: &Path) -> Result<SecStaticCode, CredentialServiceXpcError> {
     let metadata = path
         .symlink_metadata()
         .map_err(|_| CredentialServiceXpcError::Unavailable)?;
@@ -55,7 +66,7 @@ pub(super) fn observe(path: &Path) -> Result<ObservedIdentity, CredentialService
     if status != 0 {
         return Err(CredentialServiceXpcError::Rejected);
     }
-    copy_identity(code.as_concrete_TypeRef())
+    Ok(code)
 }
 
 fn copy_identity(code: SecStaticCodeRef) -> Result<ObservedIdentity, CredentialServiceXpcError> {
@@ -71,6 +82,27 @@ fn copy_identity(code: SecStaticCodeRef) -> Result<ObservedIdentity, CredentialS
     Ok(ObservedIdentity {
         identifier,
         team_identifier,
+        cdhash: cdhash
+            .try_into()
+            .map_err(|_| CredentialServiceXpcError::Rejected)?,
+    })
+}
+
+#[cfg(feature = "test-support")]
+fn copy_local_identity(
+    code: SecStaticCodeRef,
+) -> Result<ObservedIdentity, CredentialServiceXpcError> {
+    let mut raw: CFDictionaryRef = std::ptr::null();
+    let status = unsafe { SecCodeCopySigningInformation(code, SIGNING_INFORMATION, &raw mut raw) };
+    if status != 0 || raw.is_null() {
+        return Err(CredentialServiceXpcError::Rejected);
+    }
+    let information: CFDictionary = unsafe { CFDictionary::wrap_under_create_rule(raw) };
+    let identifier = copy_string(&information, unsafe { kSecCodeInfoIdentifier })?;
+    let cdhash = copy_data(&information, unsafe { kSecCodeInfoUnique })?;
+    Ok(ObservedIdentity {
+        identifier,
+        team_identifier: "LOCAL00000".into(),
         cdhash: cdhash
             .try_into()
             .map_err(|_| CredentialServiceXpcError::Rejected)?,

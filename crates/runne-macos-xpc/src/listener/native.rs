@@ -1,3 +1,4 @@
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use block2::{DynBlock, RcBlock};
@@ -139,6 +140,16 @@ pub(super) struct NativeListener {
 
 impl NativeListener {
     pub(super) fn bind(
+        configuration: &CredentialServiceEndpointConfiguration,
+        handler: Arc<dyn CredentialServiceRequestHandler>,
+    ) -> Result<Self, CredentialServiceXpcError> {
+        objc2::exception::catch(AssertUnwindSafe(|| {
+            Self::bind_native(configuration, handler)
+        }))
+        .map_err(|_| CredentialServiceXpcError::Rejected)
+    }
+
+    fn bind_native(
         configuration: &CredentialServiceEndpointConfiguration,
         handler: Arc<dyn CredentialServiceRequestHandler>,
     ) -> Self {

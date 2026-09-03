@@ -15,6 +15,15 @@ pub fn run_verified_protected_channel(
 ) -> Result<(), DaemonError> {
     #[cfg(feature = "desktop-protected")]
     {
+        #[cfg(all(feature = "test-support", not(test), target_os = "macos"))]
+        if runne_api::test_support::validated_local_native_enrollment_case_name().as_deref()
+            == Some("service-joined")
+        {
+            return run_verified_protected_channel_with_fixture(channel, |runtime_root| {
+                let runtime_root = runtime_root.to_path_buf();
+                async move { super::loopback_fixture::service_dependencies(&runtime_root).await }
+            });
+        }
         run_verified_protected_channel_with_fixture(channel, |_| async {
             Ok((ProtectedProviderDependencyCapsule::production(), ()))
         })

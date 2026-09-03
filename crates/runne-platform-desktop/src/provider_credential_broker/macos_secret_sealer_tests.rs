@@ -103,7 +103,9 @@ fn relay(offer: &CredentialSecretClaimOffer) -> ([u8; 388], [u8; 32], [u8; 32]) 
     let daemon = signing.verifying_key().to_bytes();
     let mut publication = [0; 257];
     publication[0] = 1;
-    publication[1..121].copy_from_slice(&offer[2..122]);
+    publication[1..57].copy_from_slice(&offer[2..58]);
+    publication[57..89].copy_from_slice(&offer[90..122]);
+    publication[89..121].copy_from_slice(&offer[58..90]);
     publication[121..153].copy_from_slice(&channel);
     publication[153..185].copy_from_slice(&daemon);
     publication[185..193].copy_from_slice(&1_u64.to_be_bytes());

@@ -42,6 +42,9 @@ impl NativeProviderCredentialWriters {
         let (issuer, control, channel, ticket, release) = claim
             .into_macos_claim_parts()
             .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
+        let (effects, writer_path, reader_path) = effect
+            .into_macos_effect_parts()
+            .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
         let credential_service = release
             .native_enrollment_tuple_v3()
             .map(|tuple| {
@@ -52,9 +55,12 @@ impl NativeProviderCredentialWriters {
             })
             .transpose()
             .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
-        let (effects, writer_path, reader_path) = effect
-            .into_macos_effect_parts()
-            .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
+        #[cfg(feature = "local-native-enrollment-test")]
+        let credential_service = match credential_service {
+            Some(configuration) => Some(configuration),
+            None => local_writer_endpoint_configuration(&writer_path)
+                .map_err(|_| SecureStoreError::CredentialAccessDenied)?,
+        };
         let effect_route = build_effect_route(
             effects,
             credential_service,
@@ -167,6 +173,63 @@ fn requirement(
         identity.team_identifier(),
         identity.cdhash(),
     ))
+}
+
+#[cfg(feature = "local-native-enrollment-test")]
+fn local_writer_endpoint_configuration(
+    writer: &std::path::Path,
+) -> Result<Option<CredentialServiceEndpointConfiguration>, CredentialServiceXpcError> {
+    if runne_api::test_support::validated_local_native_enrollment_case_name().as_deref()
+        != Some("service-joined")
+    {
+        return Ok(None);
+    }
+    let root = std::fs::canonicalize(
+        std::env::var_os("RUNNE_SLICE_E_FIXTURE_ROOT")
+            .ok_or(CredentialServiceXpcError::Rejected)?,
+    )
+    .map_err(|_| CredentialServiceXpcError::Rejected)?;
+    let writer = std::fs::canonicalize(writer).map_err(|_| CredentialServiceXpcError::Rejected)?;
+    if writer != root.join("Runne.app/Contents/MacOS/runne") {
+        return Err(CredentialServiceXpcError::Rejected);
+    }
+    let service = root.join(
+        "Runne.app/Contents/Library/Helpers/RunneCredentialService.app/Contents/MacOS/runne-credential-service",
+    );
+    CredentialServiceEndpointConfiguration::new(
+        CredentialServiceEndpointRole::Writer,
+        CredentialServiceEndpointRole::Writer.endpoint_name(),
+        local_requirement(&service, "dev.runne.slice-e.credential-service")?,
+        local_requirement(&writer, "dev.runne.slice-e.writer")?,
+    )
+    .map(Some)
+}
+
+#[cfg(feature = "local-native-enrollment-test")]
+fn local_requirement(
+    path: &std::path::Path,
+    expected_identifier: &str,
+) -> Result<CredentialServicePeerRequirement, CredentialServiceXpcError> {
+    let output = std::process::Command::new("/usr/bin/codesign")
+        .args(["-d", "-r", "-", "--"])
+        .arg(path)
+        .output()
+        .map_err(|_| CredentialServiceXpcError::Unavailable)?;
+    if !output.status.success() {
+        return Err(CredentialServiceXpcError::Rejected);
+    }
+    let requirement = std::str::from_utf8(&output.stdout)
+        .map_err(|_| CredentialServiceXpcError::Rejected)?
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("designated => ")
+                .or_else(|| line.strip_prefix("# designated => "))
+        })
+        .ok_or(CredentialServiceXpcError::Rejected)?;
+    CredentialServicePeerRequirement::from_local_designated_requirement(
+        expected_identifier,
+        requirement,
+    )
 }
 
 #[cfg(test)]

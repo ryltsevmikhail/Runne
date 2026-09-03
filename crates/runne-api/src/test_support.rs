@@ -94,6 +94,7 @@ pub fn validated_local_native_enrollment_case_name() -> Option<String> {
             | "leakage"
             | "death-prepared"
             | "death-claimed"
+            | "service-joined"
             | "joined"
             | "wrong"
             | "replaced"

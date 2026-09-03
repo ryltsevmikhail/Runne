@@ -1,8 +1,9 @@
+use std::panic::AssertUnwindSafe;
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use block2::RcBlock;
+use block2::{ManualBlockEncoding, RcBlock};
 use objc2::rc::Retained;
 use objc2::{AnyThread, msg_send};
 use objc2_foundation::{NSData, NSError, NSString, NSXPCConnection, NSXPCConnectionOptions};
@@ -23,6 +24,16 @@ enum ConnectionEvent {
 type ReplyResult = Result<NativeReplyFrame, CredentialServiceXpcError>;
 type ReplySlot = Arc<Mutex<Option<oneshot::Sender<ReplyResult>>>>;
 
+struct ReplyBlockEncoding;
+
+// SAFETY: On 64-bit macOS this is the clang ABI encoding for
+// `void (^)(NSData *)`, including the hidden block object at offset zero.
+unsafe impl ManualBlockEncoding for ReplyBlockEncoding {
+    type Arguments = (*mut NSData,);
+    type Return = ();
+    const ENCODING_CSTR: &'static core::ffi::CStr = c"v16@?0@8";
+}
+
 pub(super) struct NativeClient {
     connection: Retained<NSXPCConnection>,
     events: watch::Sender<ConnectionEvent>,
@@ -36,7 +47,14 @@ unsafe impl Send for NativeClient {}
 unsafe impl Sync for NativeClient {}
 
 impl NativeClient {
-    pub(super) fn connect(configuration: &CredentialServiceEndpointConfiguration) -> Self {
+    pub(super) fn connect(
+        configuration: &CredentialServiceEndpointConfiguration,
+    ) -> Result<Self, CredentialServiceXpcError> {
+        objc2::exception::catch(AssertUnwindSafe(|| Self::connect_native(configuration)))
+            .map_err(|_| CredentialServiceXpcError::Rejected)
+    }
+
+    fn connect_native(configuration: &CredentialServiceEndpointConfiguration) -> Self {
         let endpoint = NSString::from_str(configuration.endpoint_name());
         let requirement = NSString::from_str(configuration.service_requirement().as_str());
         let connection = NSXPCConnection::initWithMachServiceName_options(
@@ -127,17 +145,21 @@ impl NativeClient {
         });
         let proxy = self.connection.remoteObjectProxyWithErrorHandler(&error);
         let reply_slot = Arc::clone(&slot);
-        let reply = RcBlock::new(move |data: *mut NSData| {
-            let result = NonNull::new(data)
-                .ok_or(CredentialServiceXpcError::OutcomeUnknown)
-                .and_then(|data| {
-                    native::copy_reply(unsafe { data.as_ref() })
-                        .map_err(|_| CredentialServiceXpcError::OutcomeUnknown)
-                });
-            send_once(&reply_slot, result);
-        });
-        // SAFETY: proxy implements the registered one-NSData request/reply protocol.
-        let _: () = unsafe { msg_send![&*proxy, exchange: &*data, reply: &*reply] };
+        let reply =
+            RcBlock::with_encoding::<_, _, _, ReplyBlockEncoding>(move |data: *mut NSData| {
+                let result = NonNull::new(data)
+                    .ok_or(CredentialServiceXpcError::OutcomeUnknown)
+                    .and_then(|data| {
+                        native::copy_reply(unsafe { data.as_ref() })
+                            .map_err(|_| CredentialServiceXpcError::OutcomeUnknown)
+                    });
+                send_once(&reply_slot, result);
+            });
+        objc2::exception::catch(AssertUnwindSafe(|| {
+            // SAFETY: proxy implements the registered one-NSData request/reply protocol.
+            let _: () = unsafe { msg_send![&*proxy, exchange: &*data, reply: &*reply] };
+        }))
+        .map_err(|_| CredentialServiceXpcError::OutcomeUnknown)?;
         Ok((receiver, slot))
     }
 }

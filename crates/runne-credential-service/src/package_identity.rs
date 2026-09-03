@@ -14,6 +14,11 @@ struct PackageExecutables {
     writer: PathBuf,
 }
 
+pub struct InstalledConfigurations {
+    pub endpoints: [CredentialServiceEndpointConfiguration; 3],
+    pub local_fixture: bool,
+}
+
 #[derive(Clone)]
 struct ObservedIdentity {
     identifier: String,
@@ -38,21 +43,133 @@ impl ObservedIdentity {
     }
 }
 
-pub fn installed_configurations()
--> Result<[CredentialServiceEndpointConfiguration; 3], CredentialServiceXpcError> {
+pub fn installed_configurations() -> Result<InstalledConfigurations, CredentialServiceXpcError> {
     #[cfg(target_os = "macos")]
     {
         let executable =
             std::env::current_exe().map_err(|_| CredentialServiceXpcError::Unavailable)?;
         let paths = package_executables(&executable)?;
+        #[cfg(feature = "test-support")]
+        if local_fixture_enabled(&executable) {
+            return Ok(InstalledConfigurations {
+                endpoints: local_configurations(&paths)?,
+                local_fixture: true,
+            });
+        }
         let service = observe(&paths.service)?;
         let desktop = observe(&paths.desktop)?;
         let runtime = observe(&paths.runtime)?;
         let writer = observe(&paths.writer)?;
-        configurations(&service, &desktop, &runtime, &writer)
+        Ok(InstalledConfigurations {
+            endpoints: configurations(&service, &desktop, &runtime, &writer)?,
+            local_fixture: false,
+        })
     }
     #[cfg(not(target_os = "macos"))]
     Err(CredentialServiceXpcError::Unsupported)
+}
+
+#[cfg(all(feature = "test-support", target_os = "macos"))]
+fn local_configurations(
+    paths: &PackageExecutables,
+) -> Result<[CredentialServiceEndpointConfiguration; 3], CredentialServiceXpcError> {
+    let roles = [
+        (&paths.service, "dev.runne.slice-e.credential-service"),
+        (&paths.desktop, "dev.runne.slice-e.desktop"),
+        (&paths.runtime, "dev.runne.slice-e.daemon"),
+        (&paths.writer, "dev.runne.slice-e.writer"),
+    ];
+    let observed = roles
+        .iter()
+        .map(|(path, expected)| {
+            let identity = observe_local(path)?;
+            if identity.identifier != *expected {
+                return Err(CredentialServiceXpcError::Rejected);
+            }
+            Ok(identity)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if observed.iter().enumerate().any(|(index, identity)| {
+        observed[..index]
+            .iter()
+            .any(|prior| prior.cdhash == identity.cdhash)
+    }) {
+        return Err(CredentialServiceXpcError::Rejected);
+    }
+    let service = local_requirement(roles[0].0, roles[0].1)?;
+    let clients = [
+        (CredentialServiceEndpointRole::Desktop, roles[1]),
+        (CredentialServiceEndpointRole::Runtime, roles[2]),
+        (CredentialServiceEndpointRole::Writer, roles[3]),
+    ];
+    clients
+        .map(|(role, (path, identifier))| {
+            CredentialServiceEndpointConfiguration::new(
+                role,
+                role.endpoint_name(),
+                service.clone(),
+                local_requirement(path, identifier)?,
+            )
+        })
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?
+        .try_into()
+        .map_err(|_| CredentialServiceXpcError::Rejected)
+}
+
+#[cfg(all(feature = "test-support", target_os = "macos"))]
+fn local_requirement(
+    path: &Path,
+    expected_identifier: &str,
+) -> Result<CredentialServicePeerRequirement, CredentialServiceXpcError> {
+    let output = std::process::Command::new("/usr/bin/codesign")
+        .args(["-d", "-r", "-", "--"])
+        .arg(path)
+        .output()
+        .map_err(|_| CredentialServiceXpcError::Unavailable)?;
+    if !output.status.success() {
+        return Err(CredentialServiceXpcError::Rejected);
+    }
+    let requirement = std::str::from_utf8(&output.stdout)
+        .map_err(|_| CredentialServiceXpcError::Rejected)?
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("designated => ")
+                .or_else(|| line.strip_prefix("# designated => "))
+        })
+        .ok_or(CredentialServiceXpcError::Rejected)?;
+    CredentialServicePeerRequirement::from_local_designated_requirement(
+        expected_identifier,
+        requirement,
+    )
+}
+
+#[cfg(all(feature = "test-support", target_os = "macos"))]
+fn local_fixture_enabled(executable: &Path) -> bool {
+    let Some(root) = std::env::var_os("RUNNE_SLICE_E_FIXTURE_ROOT")
+        .and_then(|path| std::fs::canonicalize(path).ok())
+    else {
+        return false;
+    };
+    let home = std::env::var_os("HOME").and_then(|path| std::fs::canonicalize(path).ok());
+    let keychain = std::env::var_os("RUNNE_CI_MACOS_KEYCHAIN")
+        .and_then(|path| std::fs::canonicalize(path).ok());
+    let current = std::fs::canonicalize(executable).ok();
+    std::env::var_os("RUNNE_LOCAL_NATIVE_ENROLLMENT_TEST").as_deref()
+        == Some(std::ffi::OsStr::new("1"))
+        && std::env::var_os("RUNNE_SLICE_E_SCENARIO").as_deref()
+            == Some(std::ffi::OsStr::new("service-joined"))
+        && home.as_deref() == Some(root.join("home").as_path())
+        && keychain.as_deref()
+            == Some(
+                root.join("home/Library/Keychains/runne-ci.keychain-db")
+                    .as_path(),
+            )
+        && current.as_deref()
+            == Some(
+                root.join("Runne.app/Contents/Library/Helpers/RunneCredentialService.app/Contents/MacOS/runne-credential-service")
+                    .as_path(),
+            )
 }
 
 fn configurations(
@@ -139,6 +256,8 @@ fn exact_parent(
 mod native;
 #[cfg(target_os = "macos")]
 use native::observe;
+#[cfg(all(feature = "test-support", target_os = "macos"))]
+use native::observe_local;
 
 #[cfg(test)]
 #[path = "package_identity/tests.rs"]

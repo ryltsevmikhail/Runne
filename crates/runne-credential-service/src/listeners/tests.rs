@@ -19,7 +19,7 @@ fn idle_shutdown_requires_every_owner_to_be_quiescent() {
 
 #[test]
 fn malformed_pre_context_frame_requires_connection_invalidation() {
-    let handler = ServiceHandler::new().expect("handler");
+    let handler = ServiceHandler::new(false).expect("handler");
     assert_eq!(
         handler.handle(
             CredentialServiceEndpointRole::Runtime,

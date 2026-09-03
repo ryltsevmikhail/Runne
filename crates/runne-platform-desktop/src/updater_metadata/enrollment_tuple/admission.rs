@@ -181,17 +181,52 @@ impl NativeEnrollmentTupleAdmission {
         if !runne_api::test_support::local_native_enrollment_enabled() {
             return None;
         }
-        let desktop = super::macos_identity::MacOsCodeIdentityV1::local(&paths.desktop)?;
+        let desktop = super::macos_identity::MacOsCodeIdentityV1::local(
+            &paths.desktop,
+            "dev.runne.slice-e.desktop",
+        )?;
         let writer_path = paths.writer_executable_path();
-        let writer = super::macos_identity::MacOsCodeIdentityV1::local(&writer_path)?;
+        let writer = super::macos_identity::MacOsCodeIdentityV1::local(
+            &writer_path,
+            "dev.runne.slice-e.writer",
+        )?;
         let daemon_path = paths.desktop.parent()?.join("runned");
-        let daemon = super::macos_identity::MacOsCodeIdentityV1::local(&daemon_path)?;
+        let daemon = super::macos_identity::MacOsCodeIdentityV1::local(
+            &daemon_path,
+            "dev.runne.slice-e.daemon",
+        )?;
         if desktop == writer || desktop == daemon || writer == daemon {
             return None;
         }
         self.macos_desktop_code_identity = Some(desktop);
         self.macos_writer_code_identity = Some(writer);
         self.macos_daemon_code_identity = Some(daemon);
+        let service_path = paths.desktop.parent()?.parent()?.join(
+            "Library/Helpers/RunneCredentialService.app/Contents/MacOS/runne-credential-service",
+        );
+        if service_path.exists() {
+            let service = super::macos_identity::MacOsCodeIdentityV1::local(
+                &service_path,
+                "dev.runne.slice-e.credential-service",
+            )?;
+            if self
+                .macos_desktop_code_identity
+                .as_ref()
+                .is_some_and(|identity| identity == &service)
+                || self
+                    .macos_writer_code_identity
+                    .as_ref()
+                    .is_some_and(|identity| identity == &service)
+                || self
+                    .macos_daemon_code_identity
+                    .as_ref()
+                    .is_some_and(|identity| identity == &service)
+            {
+                return None;
+            }
+            self.credential_service_sha256 = Some(measure_regular_file(&service_path)?);
+            self.macos_credential_service_code_identity = Some(service);
+        }
         Some(self)
     }
 

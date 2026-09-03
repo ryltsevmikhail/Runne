@@ -15,13 +15,14 @@ use runne_macos_xpc::{
 use runne_provider::CredentialServiceEndpointRole as DomainRole;
 use zeroize::Zeroizing;
 
-use crate::keychain::KeychainBackend;
+use crate::service_backend::ServiceBackend;
 
 const IDLE_TIMEOUT_MILLIS: u64 = 30_000;
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 struct ServiceState {
     core: CredentialServiceCore,
+    backend: ServiceBackend,
 }
 
 struct ServiceHandler {
@@ -31,11 +32,12 @@ struct ServiceHandler {
 }
 
 impl ServiceHandler {
-    fn new() -> Result<Self, CredentialServiceXpcError> {
+    fn new(local_fixture: bool) -> Result<Self, CredentialServiceXpcError> {
         Ok(Self {
             state: Mutex::new(ServiceState {
                 core: CredentialServiceCore::new()
                     .map_err(|_| CredentialServiceXpcError::Unavailable)?,
+                backend: ServiceBackend::new(local_fixture)?,
             }),
             in_flight: AtomicUsize::new(0),
             last_activity: Mutex::new(Instant::now()),
@@ -121,10 +123,10 @@ impl ServiceHandler {
             .state
             .lock()
             .map_err(|_| CredentialServiceXpcError::Unavailable)?;
-        let response = state
-            .core
+        let ServiceState { core, backend } = &mut *state;
+        let response = core
             .handle_runtime(DomainRole::Runtime, request, now, |effect| {
-                KeychainBackend::read(&effect)
+                backend.read(&effect)
             })
             .map_or_else(
                 |_| Err(CredentialServiceXpcError::Invalidated),
@@ -143,9 +145,11 @@ impl ServiceHandler {
             .state
             .lock()
             .map_err(|_| CredentialServiceXpcError::Unavailable)?;
-        let response = state
-            .core
-            .handle_writer(DomainRole::Writer, request, now, KeychainBackend::mutate)
+        let ServiceState { core, backend } = &mut *state;
+        let response = core
+            .handle_writer(DomainRole::Writer, request, now, |effect| {
+                backend.mutate(effect)
+            })
             .map_or_else(
                 |_| Err(CredentialServiceXpcError::Invalidated),
                 |reply| Ok(reply.into_transport_bytes()),
@@ -187,6 +191,7 @@ impl IdlePolicy {
 
 fn serve(
     configurations: &[CredentialServiceEndpointConfiguration; 3],
+    local_fixture: bool,
 ) -> Result<(), CredentialServiceXpcError> {
     let expected = [
         runne_macos_xpc::CredentialServiceEndpointRole::Desktop,
@@ -200,7 +205,7 @@ fn serve(
     {
         return Err(CredentialServiceXpcError::Rejected);
     }
-    let handler = Arc::new(ServiceHandler::new()?);
+    let handler = Arc::new(ServiceHandler::new(local_fixture)?);
     let handler_api: Arc<dyn CredentialServiceRequestHandler> = handler.clone();
     let listeners = configurations
         .iter()
@@ -239,10 +244,10 @@ fn serve(
 }
 
 pub fn run() -> ExitCode {
-    let Ok(configurations) = crate::package_identity::installed_configurations() else {
+    let Ok(installed) = crate::package_identity::installed_configurations() else {
         return ExitCode::FAILURE;
     };
-    if serve(&configurations).is_ok() {
+    if serve(&installed.endpoints, installed.local_fixture).is_ok() {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE

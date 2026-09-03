@@ -81,10 +81,33 @@ pub fn effect_from_loopback_fixture(
     Ok((effect, authenticator))
 }
 
+/// Creates the fixture-only sender while retaining the production
+/// point-of-use credential materializer boundary.
+#[doc(hidden)]
+pub fn effect_from_loopback_fixture_with_materializer(
+    client: reqwest::Client,
+    materializer: Arc<dyn runne_secure_store::ProviderCredentialDispatchMaterializer>,
+) -> Result<Arc<dyn OpenAiEffect>, OpenAiEffectError> {
+    let profile = profile().map_err(|_| OpenAiEffectError)?;
+    let credential = client::NativeCredential::from_materializer(materializer);
+    Ok(Arc::new(
+        Sender::new(profile, credential, client).map_err(|_| OpenAiEffectError)?,
+    ))
+}
+
 /// Builds the opaque fixture-only authorization gate before the loopback server starts.
 #[doc(hidden)]
 pub fn loopback_fixture_request_authenticator() -> FixtureRequestAuthenticator {
     client::FixtureCredential::new().request_authenticator()
+}
+
+/// Builds a fixture-only request authenticator for material retained by an
+/// external point-of-use authority.
+#[doc(hidden)]
+pub fn loopback_fixture_request_authenticator_for_material(
+    material: Zeroizing<Vec<u8>>,
+) -> FixtureRequestAuthenticator {
+    client::FixtureRequestAuthenticator::from_material(material)
 }
 
 fn profile() -> Result<OpenAiResponsesTextProfile, ()> {

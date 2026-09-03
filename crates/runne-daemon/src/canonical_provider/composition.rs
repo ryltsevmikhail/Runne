@@ -4,12 +4,12 @@ use super::readiness::{
 use super::*;
 #[cfg(test)]
 use crate::application::workspace_internal::ProtectedProviderDependencyCapsule;
-use crate::application::workspace_internal::ProviderDependencyState;
 use runne_observability::operational::RecoveryObservationRegistry;
 #[cfg(test)]
 use runne_secure_store::ProviderCredentialId;
 mod credential_reader;
 mod credential_reconciliation;
+mod dependencies;
 mod enrollment_control;
 #[cfg(all(feature = "test-support", not(test)))]
 mod fixture_credentials;
@@ -69,39 +69,15 @@ impl DaemonCanonicalProviderService {
             credential_id,
             dependencies,
         } = composition;
-        #[cfg(test)]
-        let (effect_source, retained_keyring, terminal_store_decorator, credential_versions) =
-            match dependencies.into_provider_state() {
-                ProviderDependencyState::Production => (None, None, None, None),
-                ProviderDependencyState::LoopbackFixture {
-                    effect,
-                    keyring,
-                    decorator,
-                    credential_versions,
-                } => (
-                    Some(effect),
-                    Some(keyring),
-                    Some(decorator),
-                    Some(credential_versions),
-                ),
-            };
+        let selected_dependencies = dependencies::select(dependencies);
+        let effect_source = selected_dependencies.effect;
         #[cfg(all(feature = "test-support", not(test)))]
-        let (effect_source, retained_keyring, terminal_store_decorator) =
-            match dependencies.into_provider_state() {
-                ProviderDependencyState::Production => (None, None, None),
-                ProviderDependencyState::LoopbackFixture {
-                    effect,
-                    keyring,
-                    decorator,
-                } => (Some(effect), Some(keyring), Some(decorator)),
-            };
-        #[cfg(not(any(test, feature = "test-support")))]
-        let (retained_keyring, terminal_store_decorator) = match dependencies.into_provider_state()
-        {
-            ProviderDependencyState::Production => (None, None),
-        };
-        #[cfg(not(any(test, feature = "test-support")))]
-        let effect_source: Option<Arc<dyn CanonicalProviderEffect>> = None;
+        let adapter_override = selected_dependencies.adapter_override;
+        let retained_keyring = selected_dependencies.keyring;
+        let terminal_store_decorator = selected_dependencies.decorator;
+        let fixture_transport = selected_dependencies.fixture_transport;
+        #[cfg(test)]
+        let credential_versions = selected_dependencies.credential_versions;
         if profile.profile_digest() != expected_profile_digest {
             return Err(DaemonError::Bootstrap(
                 "provider profile binding mismatch".into(),
@@ -137,7 +113,7 @@ impl DaemonCanonicalProviderService {
         let recovery_registry = Arc::new(RecoveryObservationRegistry::new().0);
         let keyring =
             retained_keyring.unwrap_or_else(|| native_journal_keyring(runtime_authority_id));
-        let tail_store: Arc<dyn WithheldTailStore> = if effect_source.is_some() {
+        let tail_store: Arc<dyn WithheldTailStore> = if fixture_transport {
             Arc::new(LoopbackWithheldTailStore::default())
         } else {
             native_withheld_tail_store(runtime_authority_id)
@@ -173,12 +149,17 @@ impl DaemonCanonicalProviderService {
                 credential_id,
                 effect,
             )?,
-            None => credential_reader::production(
-                credential_connection,
-                credential_id,
-                adapter_factory.as_ref(),
-                activation_provenance.is_protected(),
-            )?,
+            None => {
+                let selected = adapter_override
+                    .as_deref()
+                    .unwrap_or(adapter_factory.as_ref());
+                credential_reader::production(
+                    credential_connection,
+                    credential_id,
+                    selected,
+                    activation_provenance.is_protected(),
+                )?
+            }
         };
         #[cfg(not(any(test, feature = "test-support")))]
         let mut credentials = credential_reader::production(

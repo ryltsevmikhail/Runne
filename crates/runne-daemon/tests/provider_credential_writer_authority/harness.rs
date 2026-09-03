@@ -38,9 +38,25 @@ fn run_outer(selector: &'static str, scenario: &str) {
         keychain.root(),
         selector == "persistent_reference_locates_exact_item_without_expanding_authority"
             || selector == "persistent_reference_rejects_unrelated_same_uid_peer",
+        if scenario == "service-joined" {
+            super::package::PackageMode::CredentialService
+        } else {
+            super::package::PackageMode::CredentialWriter
+        },
     )
     .expect("local package");
     assert!(package.application().starts_with(keychain.root()));
+    let mut service = (scenario == "service-joined")
+        .then(|| {
+            super::service_process::TemporaryCredentialService::bootstrap(
+                keychain.root(),
+                keychain.home(),
+                keychain.path(),
+                &package.credential_service(),
+            )
+        })
+        .transpose()
+        .expect("temporary credential service");
     let secret = super::audit::secret_canary(keychain.root());
     let patterns = super::audit::sensitive_patterns(&secret);
     let output = Command::new(package.desktop())
@@ -55,18 +71,24 @@ fn run_outer(selector: &'static str, scenario: &str) {
         .env("RUST_BACKTRACE", "0")
         .output()
         .expect("package desktop process");
+    if let Some(service) = service.as_mut() {
+        service.shutdown().expect("credential service cleanup");
+    }
+    let service_stderr =
+        std::fs::read(keychain.root().join("credential-service.stderr")).unwrap_or_default();
     let cleanup = keychain.cleanup();
     assert!(cleanup.is_ok(), "explicit Keychain cleanup failed");
-    for sink in [&output.stdout, &output.stderr] {
+    for sink in [&output.stdout, &output.stderr, &service_stderr] {
         for pattern in &patterns {
             assert!(!contains(sink, pattern));
         }
     }
     assert!(
         output.status.success(),
-        "package desktop failed: stdout={} stderr={}",
+        "package desktop failed: stdout={} stderr={} service_stderr={}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(&service_stderr),
     );
 }
 

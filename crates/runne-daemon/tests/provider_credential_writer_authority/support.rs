@@ -118,6 +118,18 @@ impl InnerContext {
             .record_client_ready(&v3)
             .map_err(|_| "v3-ready")?;
         drop(v3);
+        if service_fixture_enabled() {
+            let prepared = supervisor
+                .prepare_credential_service_session_registration(&confirmed)
+                .map_err(|_| "service-registration-prepare")?;
+            let registered = prepared
+                .register()
+                .await
+                .map_err(|_| "service-registration-exchange")?;
+            supervisor
+                .confirm_credential_service_session(registered)
+                .map_err(|_| "service-registration-confirm")?;
+        }
         let command_id = uuid::Uuid::now_v7().to_string();
         let command = BeginProviderCredentialEnrollment::new(
             ProviderCredentialEnrollmentActionV2::Pair,
@@ -186,6 +198,9 @@ impl InnerContext {
             .await
             .map_err(|_| "status-connect")?;
         require_selected(&current, ProviderReadinessStatusV1::Ready)?;
+        if service_fixture_enabled() {
+            super::point_of_use::prove(&current, &self.runtime).await?;
+        }
         supervisor
             .record_client_ready(&current)
             .map_err(|_| "status-ready")?;
@@ -220,6 +235,11 @@ impl InnerContext {
         }
         Ok(())
     }
+}
+
+fn service_fixture_enabled() -> bool {
+    runne_api::test_support::validated_local_native_enrollment_case_name().as_deref()
+        == Some("service-joined")
 }
 
 pub(super) async fn connect(

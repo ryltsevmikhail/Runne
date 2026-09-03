@@ -41,9 +41,51 @@ impl CredentialServicePeerRequirement {
         Ok(Self(value))
     }
 
+    /// Retains one local codesign-designated requirement for package-shaped
+    /// real-process tests that cannot possess a Developer ID certificate.
+    ///
+    /// This constructor is absent from production builds. It does not accept a
+    /// caller-selected identifier, multiline value, NUL, or an unbounded rule.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed rejection unless the requirement starts with the exact
+    /// locally signed executable identifier and remains one bounded line.
+    #[cfg(feature = "test-support")]
+    #[doc(hidden)]
+    pub fn from_local_designated_requirement(
+        expected_identifier: &str,
+        value: impl Into<String>,
+    ) -> Result<Self, CredentialServiceXpcError> {
+        let value = value.into();
+        let prefix = format!("identifier \"{expected_identifier}\" and ");
+        if !valid_local_identifier(expected_identifier)
+            || value.len() > MAX_REQUIREMENT_BYTES
+            || !value.starts_with(&prefix)
+            || value
+                .bytes()
+                .any(|byte| matches!(byte, b'\0' | b'\n' | b'\r'))
+        {
+            return Err(CredentialServiceXpcError::Rejected);
+        }
+        Ok(Self(value))
+    }
+
     pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+#[cfg(feature = "test-support")]
+fn valid_local_identifier(value: &str) -> bool {
+    value
+        .strip_prefix("dev.runne.slice-e.")
+        .is_some_and(|suffix| {
+            !suffix.is_empty()
+                && suffix
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || matches!(byte, b'-'))
+        })
 }
 
 fn valid_canonical_requirement(value: &str) -> bool {
@@ -175,5 +217,37 @@ impl ConnectionPreparation {
         }
         self.resumed = true;
         Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "test-support"))]
+mod local_tests {
+    use super::*;
+
+    #[test]
+    fn local_designated_requirement_is_exact_bounded_and_feature_gated() {
+        let identifier = "dev.runne.slice-e.credential-service";
+        let local = format!("identifier \"{identifier}\" and anchor rootCert");
+        assert!(CredentialServicePeerRequirement::new(&local).is_err());
+        assert!(
+            CredentialServicePeerRequirement::from_local_designated_requirement(identifier, &local)
+                .is_ok()
+        );
+        for rejected in [
+            CredentialServicePeerRequirement::from_local_designated_requirement(
+                "com.runne.credential-service",
+                &local,
+            ),
+            CredentialServicePeerRequirement::from_local_designated_requirement(
+                identifier,
+                local.replace(identifier, "dev.runne.slice-e.writer"),
+            ),
+            CredentialServicePeerRequirement::from_local_designated_requirement(
+                identifier,
+                format!("{local}\n or true"),
+            ),
+        ] {
+            assert_eq!(rejected, Err(CredentialServiceXpcError::Rejected));
+        }
     }
 }

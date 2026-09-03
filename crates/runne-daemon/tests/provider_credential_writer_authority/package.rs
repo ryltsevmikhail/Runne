@@ -8,10 +8,17 @@ pub(super) struct LocalPackage {
     desktop: PathBuf,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum PackageMode {
+    CredentialWriter,
+    CredentialService,
+}
+
 impl LocalPackage {
     pub(super) fn create(
         root: &Path,
         persistent_reference_probe: bool,
+        mode: PackageMode,
     ) -> Result<Self, &'static str> {
         let repository = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -24,6 +31,9 @@ impl LocalPackage {
         fs::create_dir_all(&macos).map_err(|_| "package-macos")?;
         fs::create_dir_all(contract.parent().ok_or("package-contract-parent")?)
             .map_err(|_| "package-resources")?;
+        let helpers = application.join("Contents/Library/Helpers");
+        let service_bundle = helpers.join("RunneCredentialService.app");
+        let service_macos = service_bundle.join("Contents/MacOS");
         for directory in [
             &application,
             &application.join("Contents"),
@@ -34,6 +44,19 @@ impl LocalPackage {
         ] {
             fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
                 .map_err(|_| "package-directory-mode")?;
+        }
+        if mode == PackageMode::CredentialService {
+            for directory in [
+                &application.join("Contents/Library"),
+                &helpers,
+                &service_bundle,
+                &service_bundle.join("Contents"),
+                &service_macos,
+            ] {
+                fs::create_dir_all(directory).map_err(|_| "package-service-directory")?;
+                fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
+                    .map_err(|_| "package-service-directory-mode")?;
+            }
         }
         let desktop = macos.join("runne-desktop");
         let writer = macos.join("runne");
@@ -49,7 +72,11 @@ impl LocalPackage {
         )
         .map_err(|_| "writer-copy")?;
         fs::copy(
-            build_runned(repository, persistent_reference_probe)?,
+            build_runned(
+                repository,
+                persistent_reference_probe,
+                mode == PackageMode::CredentialService,
+            )?,
             &daemon,
         )
         .map_err(|_| "daemon-copy")?;
@@ -58,11 +85,20 @@ impl LocalPackage {
             &contract,
         )
         .map_err(|_| "contract-copy")?;
-        for (path, identifier) in [
+        let service = service_macos.join("runne-credential-service");
+        if mode == PackageMode::CredentialService {
+            fs::copy(build_credential_service(repository)?, &service)
+                .map_err(|_| "service-copy")?;
+        }
+        let mut executables = vec![
             (&desktop, "dev.runne.slice-e.desktop"),
             (&writer, "dev.runne.slice-e.writer"),
             (&daemon, "dev.runne.slice-e.daemon"),
-        ] {
+        ];
+        if mode == PackageMode::CredentialService {
+            executables.push((&service, "dev.runne.slice-e.credential-service"));
+        }
+        for (path, identifier) in executables {
             command("/usr/bin/strip", &["-S", "-x"], path, "strip")?;
             let output = Command::new("/usr/bin/codesign")
                 .args(["--force", "--keychain"])
@@ -98,6 +134,40 @@ impl LocalPackage {
     pub(super) fn desktop(&self) -> &Path {
         &self.desktop
     }
+
+    pub(super) fn credential_service(&self) -> PathBuf {
+        self.application.join(
+            "Contents/Library/Helpers/RunneCredentialService.app/Contents/MacOS/runne-credential-service",
+        )
+    }
+}
+
+fn build_credential_service(repository: &Path) -> Result<PathBuf, &'static str> {
+    let target = repository.join("target/slice-e-real-process-build");
+    let output = Command::new("cargo")
+        .args([
+            "build",
+            "--offline",
+            "--locked",
+            "-p",
+            "runne-credential-service",
+            "--features",
+            "test-support",
+        ])
+        .current_dir(repository)
+        .env("CARGO_TARGET_DIR", &target)
+        .env_remove("RUNNE_LOCAL_NATIVE_ENROLLMENT_TEST")
+        .env_remove("RUNNE_CI_MACOS_KEYCHAIN")
+        .output()
+        .map_err(|_| "service-build-command")?;
+    if !output.status.success() {
+        return Err("service-build-status");
+    }
+    let binary = target.join("debug/runne-credential-service");
+    binary
+        .is_file()
+        .then_some(binary)
+        .ok_or("service-build-artifact")
 }
 
 fn build_runne(
@@ -141,6 +211,7 @@ fn build_runne(
 fn build_runned(
     repository: &Path,
     persistent_reference_probe: bool,
+    release: bool,
 ) -> Result<PathBuf, &'static str> {
     let target = repository.join("target/slice-e-real-process-build");
     let features = if persistent_reference_probe {
@@ -148,18 +219,22 @@ fn build_runned(
     } else {
         "test-support,desktop-protected"
     };
+    let mut arguments = vec![
+        "build",
+        "--offline",
+        "--locked",
+        "-p",
+        "runne-daemon",
+        "--bin",
+        "runned",
+        "--features",
+        features,
+    ];
+    if release {
+        arguments.push("--release");
+    }
     let output = Command::new("cargo")
-        .args([
-            "build",
-            "--offline",
-            "--locked",
-            "-p",
-            "runne-daemon",
-            "--bin",
-            "runned",
-            "--features",
-            features,
-        ])
+        .args(arguments)
         .current_dir(repository)
         .env("CARGO_TARGET_DIR", &target)
         .env_remove("RUNNE_LOCAL_NATIVE_ENROLLMENT_TEST")
@@ -169,7 +244,11 @@ fn build_runned(
     if !output.status.success() {
         return Err("runned-build-status");
     }
-    let binary = target.join("debug/runned");
+    let binary = target.join(if release {
+        "release/runned"
+    } else {
+        "debug/runned"
+    });
     binary
         .is_file()
         .then_some(binary)

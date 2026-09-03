@@ -120,6 +120,12 @@ impl FixtureCredential {
 }
 
 impl FixtureRequestAuthenticator {
+    pub(super) fn from_material(material: Zeroizing<Vec<u8>>) -> Self {
+        let mut expected = Zeroizing::new(b"Bearer ".to_vec());
+        expected.extend_from_slice(&material);
+        Self { expected }
+    }
+
     /// Compares an authorization field without exposing or logging its expected bytes.
     #[doc(hidden)]
     pub fn matches(&self, candidate: &[u8]) -> bool {

@@ -72,16 +72,13 @@ struct ClientCore {
 }
 
 impl ClientCore {
-    // Non-macOS returns typed `Unsupported`; macOS construction is infallible
-    // after the configuration passes the canonical requirement parser.
-    #[allow(clippy::unnecessary_wraps)]
     fn connect(
         configuration: &CredentialServiceEndpointConfiguration,
     ) -> Result<Self, CredentialServiceXpcError> {
         #[cfg(target_os = "macos")]
         {
             Ok(Self {
-                native: native::NativeClient::connect(configuration),
+                native: native::NativeClient::connect(configuration)?,
             })
         }
         #[cfg(not(target_os = "macos"))]

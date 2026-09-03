@@ -10,6 +10,11 @@ const REQUIRED_HEADERS: [&str; 6] = [
     "accept",
 ];
 const EXPECTED_REQUEST_ID: &str = "gocode-provider-c436f15d42859a67270a2f39ff1c8508";
+#[derive(Clone, Copy)]
+pub(super) enum FixtureRequestKind {
+    Pinned,
+    ServicePointOfUse,
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -47,8 +52,13 @@ struct Reasoning {
     effort: String,
 }
 
+#[cfg(test)]
 pub(crate) fn request_length(headers: &[u8]) -> Result<usize, ()> {
-    let fields = parse_headers(headers)?;
+    request_length_for(headers, FixtureRequestKind::Pinned)
+}
+
+pub(super) fn request_length_for(headers: &[u8], kind: FixtureRequestKind) -> Result<usize, ()> {
+    let fields = parse_headers(headers, kind)?;
     fields
         .iter()
         .find(|(name, _)| name == "content-length")
@@ -61,11 +71,12 @@ pub(crate) fn request_length(headers: &[u8]) -> Result<usize, ()> {
 pub(crate) fn matches_expected_request(
     request: &[u8],
     authenticator: &FixtureRequestAuthenticator,
+    kind: FixtureRequestKind,
 ) -> bool {
     let Some(headers_end) = request.windows(4).position(|window| window == b"\r\n\r\n") else {
         return false;
     };
-    let Ok(fields) = parse_headers(&request[..headers_end + 4]) else {
+    let Ok(fields) = parse_headers(&request[..headers_end + 4], kind) else {
         return false;
     };
     let Ok(content_length) = fields
@@ -88,7 +99,7 @@ pub(crate) fn matches_expected_request(
             .is_ok_and(matches_expected_body)
 }
 
-fn parse_headers(headers: &[u8]) -> Result<Vec<(String, &str)>, ()> {
+fn parse_headers(headers: &[u8], kind: FixtureRequestKind) -> Result<Vec<(String, &str)>, ()> {
     let headers = std::str::from_utf8(headers).map_err(|_| ())?;
     let mut lines = headers.split("\r\n");
     if lines.next() != Some("POST /v1/responses HTTP/1.1") {
@@ -121,7 +132,7 @@ fn parse_headers(headers: &[u8]) -> Result<Vec<(String, &str)>, ()> {
             || (name == "host" && value != "api.openai.com")
             || (name == "content-type" && value != "application/json")
             || (name == "accept" && value != "*/*")
-            || (name == "x-client-request-id" && value != EXPECTED_REQUEST_ID)
+            || (name == "x-client-request-id" && !request_id_matches(value, kind))
             || fields.iter().any(|(known, _)| *known == name)
         {
             return Err(());
@@ -129,6 +140,20 @@ fn parse_headers(headers: &[u8]) -> Result<Vec<(String, &str)>, ()> {
         fields.push((name, value));
     }
     Err(())
+}
+
+fn request_id_matches(value: &str, kind: FixtureRequestKind) -> bool {
+    match kind {
+        FixtureRequestKind::Pinned => value == EXPECTED_REQUEST_ID,
+        FixtureRequestKind::ServicePointOfUse => value
+            .strip_prefix("gocode-provider-")
+            .is_some_and(|digest| {
+                digest.len() == 32
+                    && digest
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            }),
+    }
 }
 
 fn matches_expected_body(request: Request) -> bool {
@@ -148,7 +173,7 @@ fn matches_expected_body(request: Request) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::request_length;
+    use super::{FixtureRequestKind, request_length, request_length_for};
 
     fn valid_headers() -> String {
         concat!(
@@ -195,6 +220,35 @@ mod tests {
             "accept: */*\r\n",
         );
         assert_eq!(request_length(request(headers).as_bytes()), Ok(0));
+    }
+
+    #[test]
+    fn service_point_of_use_accepts_only_canonical_dynamic_request_ids() {
+        let headers = valid_headers();
+        let dynamic = headers.replace(
+            super::EXPECTED_REQUEST_ID,
+            "gocode-provider-0123456789abcdef0123456789abcdef",
+        );
+        assert_eq!(
+            request_length_for(
+                request(&dynamic).as_bytes(),
+                FixtureRequestKind::ServicePointOfUse,
+            ),
+            Ok(0)
+        );
+        for invalid in [
+            dynamic.replace("gocode-provider-", "runne-provider-"),
+            dynamic.replace('f', "F"),
+            dynamic.replace("0123456789abcdef", "0123456789abcde"),
+        ] {
+            assert!(
+                request_length_for(
+                    request(&invalid).as_bytes(),
+                    FixtureRequestKind::ServicePointOfUse,
+                )
+                .is_err()
+            );
+        }
     }
 
     #[test]

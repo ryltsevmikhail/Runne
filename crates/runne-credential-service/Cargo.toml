@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+test-support = ["runne-macos-xpc/test-support"]
+
 [dependencies]
 hex.workspace = true
 runne-credential-service-core = { path = "../runne-credential-service-core" }

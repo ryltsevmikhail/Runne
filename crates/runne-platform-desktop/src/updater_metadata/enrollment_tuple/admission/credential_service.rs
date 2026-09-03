@@ -59,5 +59,9 @@ impl NativeEnrollmentTupleAdmission {
 fn requirement(
     identity: &crate::updater_metadata::macos_identity::MacOsCodeIdentityV1,
 ) -> Result<CredentialServicePeerRequirement, CredentialServiceXpcError> {
+    #[cfg(feature = "test-support")]
+    if let Some(requirement) = identity.local_xpc_requirement() {
+        return Ok(requirement);
+    }
     CredentialServicePeerRequirement::new(identity.requirement())
 }

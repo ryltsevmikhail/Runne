@@ -40,7 +40,7 @@ impl MacOsCodeIdentityV1 {
     }
 
     #[cfg(feature = "test-support")]
-    pub(super) fn local(path: &std::path::Path) -> Option<Self> {
+    pub(super) fn local(path: &std::path::Path, expected_identifier: &str) -> Option<Self> {
         if !runne_api::test_support::local_native_enrollment_enabled() {
             return None;
         }
@@ -60,12 +60,28 @@ impl MacOsCodeIdentityV1 {
                     .or_else(|| line.strip_prefix("# designated => "))
             })?
             .to_owned();
+        runne_macos_xpc::CredentialServicePeerRequirement::from_local_designated_requirement(
+            expected_identifier,
+            &requirement,
+        )
+        .ok()?;
         Some(Self {
-            identifier: "local".into(),
+            identifier: expected_identifier.to_owned(),
             team_identifier: "LOCAL00000".into(),
             cdhash: "0".repeat(40),
             local_requirement: Some(requirement),
         })
+    }
+
+    #[cfg(feature = "test-support")]
+    pub(super) fn local_xpc_requirement(
+        &self,
+    ) -> Option<runne_macos_xpc::CredentialServicePeerRequirement> {
+        runne_macos_xpc::CredentialServicePeerRequirement::from_local_designated_requirement(
+            &self.identifier,
+            self.local_requirement.as_ref()?.clone(),
+        )
+        .ok()
     }
 }
 

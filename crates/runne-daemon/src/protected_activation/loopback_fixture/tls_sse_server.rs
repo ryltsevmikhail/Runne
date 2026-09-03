@@ -10,7 +10,7 @@ use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 
 use super::fixed_response::SSE_RESPONSE;
-use super::request_validation::{matches_expected_request, request_length};
+use super::request_validation::{FixtureRequestKind, matches_expected_request, request_length_for};
 
 /// One-use loopback HTTPS endpoint serving the fixture's fixed SSE response.
 pub struct TlsSseServer {
@@ -20,9 +20,10 @@ pub struct TlsSseServer {
 }
 
 impl TlsSseServer {
-    pub async fn start(
+    pub(super) async fn start(
         runtime_root: &Path,
         authenticator: FixtureRequestAuthenticator,
+        request_kind: FixtureRequestKind,
     ) -> Result<Self, ()> {
         let listener = TcpListener::bind("127.0.0.1:0").await.map_err(|_| ())?;
         let address = listener.local_addr().map_err(|_| ())?;
@@ -35,10 +36,11 @@ impl TlsSseServer {
             let Ok(mut stream) = TlsAcceptor::from(config).accept(stream).await else {
                 return;
             };
-            let Ok(request) = read_request(&mut stream).await else {
+            let Ok(request) = read_request(&mut stream, request_kind).await else {
                 return;
             };
-            if !matches_expected_request(&request, &authenticator)
+            if increment_named_count(&count_path, "fixture-provider-connection-count").is_err()
+                || !matches_expected_request(&request, &authenticator, request_kind)
                 || increment_request_count(&count_path).is_err()
             {
                 return;
@@ -110,17 +112,7 @@ pub fn loopback_client(address: SocketAddr, certificate_der: &[u8]) -> Result<re
         .map_err(|_| ())
 }
 
-/// Reads the durable count of exact OpenAI requests accepted by this fixture root.
-#[allow(clippy::result_unit_err)]
-pub fn request_count(runtime_root: &Path) -> Result<u64, ()> {
-    match std::fs::read_to_string(runtime_root.join("fixture-provider-request-count")) {
-        Ok(value) => value.trim().parse().map_err(|_| ()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
-        Err(_) => Err(()),
-    }
-}
-
-async fn read_request<S>(stream: &mut S) -> Result<Vec<u8>, ()>
+async fn read_request<S>(stream: &mut S, request_kind: FixtureRequestKind) -> Result<Vec<u8>, ()>
 where
     S: tokio::io::AsyncRead + Unpin,
 {
@@ -138,7 +130,7 @@ where
         }
     };
     let request_length = headers_end
-        .checked_add(request_length(&request[..headers_end])?)
+        .checked_add(request_length_for(&request[..headers_end], request_kind)?)
         .ok_or(())?;
     if request_length > MAX_REQUEST_BYTES || request.len() > request_length {
         return Err(());
@@ -154,10 +146,19 @@ where
 }
 
 fn increment_request_count(path: &Path) -> Result<(), ()> {
-    let count = request_count(path.parent().ok_or(())?)?
-        .checked_add(1)
-        .ok_or(())?;
-    let temporary = temporary_path(path);
+    increment_named_count(path, "fixture-provider-request-count")
+}
+
+fn increment_named_count(path: &Path, name: &str) -> Result<(), ()> {
+    let path = path.parent().ok_or(())?.join(name);
+    let count = match std::fs::read_to_string(&path) {
+        Ok(value) => value.trim().parse::<u64>().map_err(|_| ())?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(_) => return Err(()),
+    }
+    .checked_add(1)
+    .ok_or(())?;
+    let temporary = temporary_path(&path);
     let result = (|| {
         let mut file = std::fs::OpenOptions::new()
             .create_new(true)
@@ -169,7 +170,7 @@ fn increment_request_count(path: &Path) -> Result<(), ()> {
             .map_err(|_| ())?;
         file.sync_all().map_err(|_| ())?;
         drop(file);
-        std::fs::rename(&temporary, path).map_err(|_| ())
+        std::fs::rename(&temporary, &path).map_err(|_| ())
     })();
     if temporary.exists() {
         let _ = std::fs::remove_file(&temporary);

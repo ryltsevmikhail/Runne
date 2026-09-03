@@ -12,6 +12,7 @@ protected-channel-integration = []
 test-support = [
     "runne-api/test-support",
     "runne-macos-process-identity/test-support",
+    "runne-macos-xpc/test-support",
     "runne-runtime-client/test-support",
 ]
 
