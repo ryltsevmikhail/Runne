@@ -83,7 +83,7 @@ fn run_outer(selector: &'static str, scenario: &str) {
     }
     assert!(
         output.status.success(),
-        "package desktop failed: stdout={} stderr={} service_stderr={}",
+        "package desktop failed: scenario={scenario} stdout={} stderr={} service_stderr={}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr),
         String::from_utf8_lossy(&service_stderr),

@@ -126,10 +126,18 @@ impl PrefixBudget {
 
 #[cfg(feature = "test-support")]
 fn production_or_local_prefix_budget() -> Duration {
-    if runne_api::test_support::validated_local_native_enrollment_case_name().is_some() {
-        return Duration::from_mins(2);
+    let opted_in = std::env::var_os("RUNNE_LOCAL_NATIVE_ENROLLMENT_TEST").as_deref()
+        == Some(std::ffi::OsStr::new("1"));
+    prefix_budget_for_local_test_opt_in(opted_in)
+}
+
+#[cfg(feature = "test-support")]
+const fn prefix_budget_for_local_test_opt_in(opted_in: bool) -> Duration {
+    if opted_in {
+        Duration::from_mins(2)
+    } else {
+        PRODUCTION_PREFIX_BUDGET
     }
-    PRODUCTION_PREFIX_BUDGET
 }
 
 #[cfg(not(feature = "test-support"))]
