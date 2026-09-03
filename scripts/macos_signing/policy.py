@@ -63,6 +63,5 @@ def _argument_is_safe(value: str) -> bool:
     return (
         len(value.encode("utf-8")) <= MAX_ARGV_ITEM_BYTES
         and "\0" not in value
-        and value != "--deep"
         and not any(fragment in value for fragment in _SHELL_METACHARACTER_FRAGMENTS)
     )

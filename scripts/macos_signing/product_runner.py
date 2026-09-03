@@ -50,7 +50,7 @@ class ProductLiveRunner:
             timeout,
             timeout_failure,
             MAX_PROFILE_OUTPUT_BYTES
-            if command.phase == "inspect-provisioning-profile"
+            if command.phase.startswith("inspect-provisioning-profile-")
             else None,
         )
         if result.exit_code == 0 and expected_output is not None:
@@ -88,8 +88,9 @@ class ProductLiveRunner:
 
 
 def _path_contract(phase: str):
+    if phase.startswith("inspect-provisioning-profile-"):
+        return (((3, "file", "root"),), None)
     contracts = {
-        "inspect-provisioning-profile": (((3, "file", "root"),), None),
         "package-app-zip": (((4, "directory", "root"),), (5, "file")),
         "notary-app-submit": (
             ((2, "file", "root"), (6, "file", "external")),

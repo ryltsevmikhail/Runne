@@ -97,8 +97,18 @@ class DesktopQualificationWorkflowTest(unittest.TestCase):
             end = qualification.find("\n      - name: ", start + 1)
             section = qualification[start:] if end == -1 else qualification[start:end]
             self.assertIn("prepare-macos-signing.sh", section)
-            for name in ("APPLE_CERTIFICATE", "APPLE_SIGNING_IDENTITY", "APPLE_PASSWORD", "APPLE_TEAM_ID"):
+            for name in (
+                "APPLE_CERTIFICATE",
+                "APPLE_CREDENTIAL_SERVICE_PROVISIONING_PROFILE",
+                "APPLE_SIGNING_IDENTITY",
+                "APPLE_PASSWORD",
+                "APPLE_TEAM_ID",
+            ):
                 self.assertIn(name, section)
+        bootstrap = (
+            ROOT / "scripts/sourcecraft/prepare-macos-signing.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("RUNNE_CREDENTIAL_SERVICE_PROVISIONING_PROFILE", bootstrap)
         windows_start = qualification.index("- name: qualification-native-windows")
         windows_end = qualification.find("\n      - name: ", windows_start + 1)
         windows = qualification[windows_start:] if windows_end == -1 else qualification[windows_start:windows_end]

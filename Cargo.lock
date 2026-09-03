@@ -3907,6 +3907,7 @@ dependencies = [
  "runne-credential-service-core",
  "runne-macos-xpc",
  "runne-provider",
+ "security-framework",
  "security-framework-sys",
  "zeroize",
 ]
@@ -4084,6 +4085,7 @@ dependencies = [
  "rand 0.8.7",
  "runne-api",
  "runne-app-core",
+ "runne-macos-xpc",
  "runne-platform-desktop",
  "serde",
  "serde_json",

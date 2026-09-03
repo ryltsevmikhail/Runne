@@ -27,10 +27,34 @@ class PackageSmokeTests(unittest.TestCase):
         self.assertFalse(config["bundle"]["windows"]["allowDowngrades"])
         self.assertEqual(config["bundle"]["windows"]["digestAlgorithm"], "sha256")
         self.assertIn("stage:bundled-daemon", config["build"]["beforeBuildCommand"])
+        self.assertIn("stage:credential-service", config["build"]["beforeBuildCommand"])
         self.assertIn("stage:bundled-daemon", package["scripts"])
+        self.assertIn("stage:credential-service", package["scripts"])
         staging = (ROOT / "scripts/desktop/stage_bundled_daemon.mjs").read_text(encoding="utf-8")
         for token in ("runne-daemon", "desktop-protected", "runned-", "CARGO_BUILD_TARGET"):
             self.assertIn(token, staging)
+        service_staging = (
+            ROOT / "scripts/desktop/stage_credential_service.mjs"
+        ).read_text(encoding="utf-8")
+        for token in (
+            "runne-credential-service",
+            "RUNNE_CREDENTIAL_SERVICE_PROVISIONING_PROFILE",
+            "RUNNE_RELEASE_CANDIDATE_SHA256",
+            "release-candidate-binding.json",
+            "xpc-protocol-v1.json",
+        ):
+            self.assertIn(token, service_staging)
+        macos_files = config["bundle"]["macOS"]["files"]
+        self.assertEqual(
+            macos_files["macos/com.runne.credential-service.plist"],
+            "Library/LaunchAgents/com.runne.credential-service.plist",
+        )
+        self.assertEqual(
+            macos_files[
+                "macos/credential-service/staged/RunneCredentialService.app"
+            ],
+            "Library/Helpers/RunneCredentialService.app",
+        )
 
     def test_production_manifest_has_no_configuration_blockers(self) -> None:
         result = subprocess.run(

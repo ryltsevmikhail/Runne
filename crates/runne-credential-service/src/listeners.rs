@@ -238,13 +238,8 @@ fn serve(
     }
 }
 
-const fn installed_configurations() -> Option<[CredentialServiceEndpointConfiguration; 3]> {
-    // Task 8 replaces this fail-closed seam with signed package-derived requirements.
-    None
-}
-
 pub fn run() -> ExitCode {
-    let Some(configurations) = installed_configurations() else {
+    let Ok(configurations) = crate::package_identity::installed_configurations() else {
         return ExitCode::FAILURE;
     };
     if serve(&configurations).is_ok() {

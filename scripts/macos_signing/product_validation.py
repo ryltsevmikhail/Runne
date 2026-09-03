@@ -12,6 +12,9 @@ from .product_models import (
 )
 from .product_entitlements import bind_product_entitlements
 from .tree import tree_sha256
+from scripts.macos.validate_credential_service_package import (
+    validate_credential_service_package,
+)
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _EXECUTABLE_NAMES = ("runne-desktop", "runne", "runned")
@@ -27,8 +30,11 @@ def validate_product_candidate(
     ):
         return _failure(FailureCode.ARTIFACT_NOT_FOUND, "candidate")
     paths = _candidate_targets(request.candidate_app)
-    if paths is None:
+    package = validate_credential_service_package(request.candidate_app)
+    if paths is None or package is None:
         return _failure(FailureCode.ARTIFACT_NOT_FOUND, "candidate")
+    if package.release_candidate_sha256 != request.release_candidate_sha256:
+        return _failure(FailureCode.ARTIFACT_IDENTITY_MISMATCH, "candidate-binding")
     if not _regular_file(
         request.candidate_app / "Contents" / "embedded.provisionprofile"
     ):
@@ -39,6 +45,7 @@ def validate_product_candidate(
                 request.app_entitlements,
                 request.cli_entitlements,
                 request.daemon_entitlements,
+                request.credential_service_entitlements,
             )
         )
     except Exception:
@@ -47,29 +54,46 @@ def validate_product_candidate(
         main, cli, daemon = tuple(
             _target(request.candidate_app, path) for path in paths
         )
+        credential_service = ValidatedTarget(
+            str(package.helper.relative_to(request.candidate_app)),
+            tree_sha256(package.helper),
+        )
         tree_digest = tree_sha256(request.candidate_app)
     except (OSError, ValueError):
         return _failure(FailureCode.ARTIFACT_NOT_FOUND, "candidate")
-    app_binding, cli_binding, daemon_binding = entitlements
+    app_binding, cli_binding, daemon_binding, service_binding = entitlements
     identity = ProductCandidateIdentity(
         relative_name=request.candidate_app.name,
         tree_sha256=tree_digest,
         main_sha256=main.sha256,
         cli_sha256=cli.sha256,
         daemon_sha256=daemon.sha256,
+        credential_service_sha256=sha256_file(package.executable),
+        launch_agent_plist_sha256=sha256_file(package.launch_agent_plist),
+        credential_service_info_sha256=sha256_file(package.info_plist),
+        credential_service_provisioning_sha256=sha256_file(
+            package.provisioning_profile
+        ),
+        xpc_protocol_sha256=sha256_file(package.xpc_protocol),
+        release_candidate_binding_sha256=sha256_file(
+            package.release_candidate_binding
+        ),
         release_candidate_sha256=request.release_candidate_sha256,
         app_entitlements_sha256=app_binding.sha256,
         cli_entitlements_sha256=cli_binding.sha256,
         daemon_entitlements_sha256=daemon_binding.sha256,
+        credential_service_entitlements_sha256=service_binding.sha256,
     )
     return ProductValidatedCandidate(
         identity,
         main,
         cli,
         daemon,
+        credential_service,
         app_binding,
         cli_binding,
         daemon_binding,
+        service_binding,
     )
 
 
@@ -82,10 +106,17 @@ def revalidate_product_candidate(
     ):
         return _failure(FailureCode.ARTIFACT_NOT_FOUND, "candidate")
     paths = _candidate_targets(candidate_app)
+    package = validate_credential_service_package(candidate_app)
     if paths is None:
         return _failure(FailureCode.ARTIFACT_NOT_FOUND, "candidate")
+    if package is None:
+        return _failure(FailureCode.ARTIFACT_IDENTITY_MISMATCH, "candidate")
     try:
         current = tuple(_target(candidate_app, path) for path in paths)
+        current_service = ValidatedTarget(
+            str(package.helper.relative_to(candidate_app)),
+            tree_sha256(package.helper),
+        )
         tree_digest = tree_sha256(candidate_app)
     except (OSError, ValueError):
         return _failure(FailureCode.ARTIFACT_NOT_FOUND, "candidate")
@@ -93,9 +124,11 @@ def revalidate_product_candidate(
         captured.app_entitlements,
         captured.cli_entitlements,
         captured.daemon_entitlements,
+        captured.credential_service_entitlements,
     )
     if (
         current != (captured.main, captured.cli, captured.daemon)
+        or current_service != captured.credential_service
         or tree_digest != captured.candidate.tree_sha256
         or not all(entitlement_binding_is_current(binding) for binding in bindings)
     ):

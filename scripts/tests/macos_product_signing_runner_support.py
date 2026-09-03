@@ -16,12 +16,16 @@ class ProductRecordingRunner:
         mutate: bool = True,
         empty_app_entitlements: bool = False,
         invalid_profile: bool = False,
+        invalid_service_profile: bool = False,
+        invalid_requirement_role: str | None = None,
     ) -> None:
         self.root = root
         self.failure_phase = failure_phase
         self.mutate = mutate
         self.empty_app_entitlements = empty_app_entitlements
         self.invalid_profile = invalid_profile
+        self.invalid_service_profile = invalid_service_profile
+        self.invalid_requirement_role = invalid_requirement_role
         self.commands = []
 
     def run(self, command):
@@ -36,6 +40,12 @@ class ProductRecordingRunner:
         macos = self.root / "Runne.app" / "Contents" / "MacOS"
         if phase == "sign-daemon":
             (macos / "runned").write_bytes(b"signed daemon\n")
+        elif phase == "sign-credential-service":
+            helper = (
+                self.root
+                / "Runne.app/Contents/Library/Helpers/RunneCredentialService.app/Contents/MacOS/runne-credential-service"
+            )
+            helper.write_bytes(b"signed credential service\n")
         elif phase == "sign-cli":
             (macos / "runne").write_bytes(b"signed cli\n")
         elif phase == "sign-app":
@@ -65,12 +75,27 @@ class ProductRecordingRunner:
             )
 
     def _success(self, phase: str) -> CommandResult:
-        if phase == "inspect-provisioning-profile":
-            return self._profile_result()
+        if phase.startswith("inspect-provisioning-profile-"):
+            return self._profile_result(
+                phase.removeprefix("inspect-provisioning-profile-")
+            )
         if phase.startswith("metadata-"):
             return self._metadata_result(phase.removeprefix("metadata-"))
         if phase.startswith("requirement-"):
-            return CommandResult(0, "", "designated => synthetic requirement")
+            role = phase.removeprefix("requirement-")
+            identifier = {
+                "app": "com.runne.desktop",
+                "cli": "runne",
+                "daemon": "runned",
+                "credential-service": "com.runne.credential-service",
+            }[role]
+            if role == self.invalid_requirement_role:
+                identifier = "example.invalid"
+            return CommandResult(
+                0,
+                "",
+                f'designated => identifier "{identifier}" and anchor apple generic',
+            )
         if phase.startswith("entitlements-"):
             payload = self._entitlement_payload(phase)
             return CommandResult(0, plistlib.dumps(payload).decode(), "")
@@ -78,11 +103,16 @@ class ProductRecordingRunner:
             return CommandResult(0, '{"status":"Accepted"}', "")
         return CommandResult(0, "", "")
 
-    def _profile_result(self) -> CommandResult:
+    def _profile_result(self, role: str) -> CommandResult:
+        expected = {
+            "app": "758F9Z45SR.com.runne.desktop",
+            "credential-service": "758F9Z45SR.com.runne.credential-service",
+        }[role]
         application_identifier = (
             "758F9Z45SR.example.invalid"
             if self.invalid_profile
-            else "758F9Z45SR.com.runne.desktop"
+            or (role == "credential-service" and self.invalid_service_profile)
+            else expected
         )
         payload = {
             "TeamIdentifier": [_TEAM_ID],
@@ -101,6 +131,7 @@ class ProductRecordingRunner:
             "app": "com.runne.desktop",
             "cli": "runne",
             "daemon": "runned",
+            "credential-service": "com.runne.credential-service",
         }[role]
         lines = (
             f"Identifier={identifier}",
@@ -112,10 +143,15 @@ class ProductRecordingRunner:
         return CommandResult(0, "", "\n".join(lines))
 
     def _entitlement_payload(self, phase: str) -> dict:
-        if phase != "entitlements-app" or self.empty_app_entitlements:
+        role = phase.removeprefix("entitlements-")
+        if role in ("cli", "daemon") or (role == "app" and self.empty_app_entitlements):
             return {}
+        identifier = {
+            "app": "758F9Z45SR.com.runne.desktop",
+            "credential-service": "758F9Z45SR.com.runne.credential-service",
+        }[role]
         return {
-            "com.apple.application-identifier": "758F9Z45SR.com.runne.desktop",
+            "com.apple.application-identifier": identifier,
             "com.apple.developer.team-identifier": _TEAM_ID,
-            "keychain-access-groups": ["758F9Z45SR.com.runne.desktop"],
+            "keychain-access-groups": [identifier],
         }

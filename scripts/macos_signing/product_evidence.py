@@ -8,7 +8,7 @@ from .product_models import (
 )
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
-_SCHEMA_VERSION = "macos-product-signing-evidence.v2"
+_SCHEMA_VERSION = "macos-product-signing-evidence.v3"
 
 
 def normalize_product_evidence(evidence: ProductSigningEvidence) -> bytes:
@@ -52,10 +52,17 @@ def _candidate(identity) -> dict[str, str]:
         "main_sha256": identity.main_sha256,
         "cli_sha256": identity.cli_sha256,
         "daemon_sha256": identity.daemon_sha256,
+        "credential_service_sha256": identity.credential_service_sha256,
+        "launch_agent_plist_sha256": identity.launch_agent_plist_sha256,
+        "credential_service_info_sha256": identity.credential_service_info_sha256,
+        "credential_service_provisioning_sha256": identity.credential_service_provisioning_sha256,
+        "xpc_protocol_sha256": identity.xpc_protocol_sha256,
+        "release_candidate_binding_sha256": identity.release_candidate_binding_sha256,
         "release_candidate_sha256": identity.release_candidate_sha256,
         "app_entitlements_sha256": identity.app_entitlements_sha256,
         "cli_entitlements_sha256": identity.cli_entitlements_sha256,
         "daemon_entitlements_sha256": identity.daemon_entitlements_sha256,
+        "credential_service_entitlements_sha256": identity.credential_service_entitlements_sha256,
     }
 
 

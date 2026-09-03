@@ -5,13 +5,14 @@ from .models import CommandResult, FailureCode
 from .product_entitlements import (
     APPLICATION_IDENTIFIER,
     BUNDLE_IDENTIFIER,
+    CREDENTIAL_SERVICE_APPLICATION_IDENTIFIER,
     TEAM_IDENTIFIER,
 )
 
 MAX_PROFILE_OUTPUT_BYTES = 128 * 1024
 
 
-def profile_result_failure(result: CommandResult) -> FailureCode | None:
+def profile_result_failure(role: str, result: CommandResult) -> FailureCode | None:
     if not isinstance(result, CommandResult):
         return FailureCode.UNKNOWN_STATUS
     if result.exit_code != 0:
@@ -25,12 +26,16 @@ def profile_result_failure(result: CommandResult) -> FailureCode | None:
         profile = plistlib.loads(result.stdout.encode())
     except (plistlib.InvalidFileException, ValueError):
         return FailureCode.UNKNOWN_STATUS
-    if not _profile_authorizes_product(profile):
+    expected = {
+        "app": APPLICATION_IDENTIFIER,
+        "credential-service": CREDENTIAL_SERVICE_APPLICATION_IDENTIFIER,
+    }.get(role)
+    if expected is None or not _profile_authorizes_product(profile, expected):
         return FailureCode.ENTITLEMENTS_MISMATCH
     return None
 
 
-def _profile_authorizes_product(profile: object) -> bool:
+def _profile_authorizes_product(profile: object, expected_identifier: str) -> bool:
     if type(profile) is not dict:
         return False
     entitlements = profile.get("Entitlements")
@@ -47,12 +52,12 @@ def _profile_authorizes_product(profile: object) -> bool:
     groups = entitlements.get("keychain-access-groups")
     prefix = APPLICATION_IDENTIFIER.removesuffix(BUNDLE_IDENTIFIER)
     return (
-        application_identifier == APPLICATION_IDENTIFIER
+        application_identifier == expected_identifier
         and entitlements.get("com.apple.developer.team-identifier")
         == TEAM_IDENTIFIER
         and type(groups) is list
         and all(isinstance(group, str) for group in groups)
-        and any(group in (APPLICATION_IDENTIFIER, f"{prefix}*") for group in groups)
+        and any(group in (expected_identifier, f"{prefix}*") for group in groups)
         and entitlements.get("get-task-allow") is not True
         and entitlements.get("com.apple.security.get-task-allow") is not True
     )

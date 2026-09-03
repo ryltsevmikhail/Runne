@@ -16,6 +16,7 @@ class ProductCandidateRequest:
     app_entitlements: Path
     cli_entitlements: Path
     daemon_entitlements: Path
+    credential_service_entitlements: Path
 
 
 @dataclass(frozen=True)
@@ -25,10 +26,17 @@ class ProductCandidateIdentity:
     main_sha256: str
     cli_sha256: str
     daemon_sha256: str
+    credential_service_sha256: str
+    launch_agent_plist_sha256: str
+    credential_service_info_sha256: str
+    credential_service_provisioning_sha256: str
+    xpc_protocol_sha256: str
+    release_candidate_binding_sha256: str
     release_candidate_sha256: str
     app_entitlements_sha256: str
     cli_entitlements_sha256: str
     daemon_entitlements_sha256: str
+    credential_service_entitlements_sha256: str
 
 
 @dataclass(frozen=True)
@@ -37,9 +45,11 @@ class ProductValidatedCandidate:
     main: ValidatedTarget
     cli: ValidatedTarget
     daemon: ValidatedTarget
+    credential_service: ValidatedTarget
     app_entitlements: EntitlementBinding
     cli_entitlements: EntitlementBinding
     daemon_entitlements: EntitlementBinding
+    credential_service_entitlements: EntitlementBinding
 
 
 @dataclass(frozen=True)
@@ -74,6 +84,7 @@ class ExternalCommandTemplate:
 
 class ProductSigningStage(StrEnum):
     UNSIGNED_APP = "UNSIGNED_APP"
+    CREDENTIAL_SERVICE_SIGNED_VERIFIED = "CREDENTIAL_SERVICE_SIGNED_VERIFIED"
     RUNNED_SIGNED_VERIFIED = "RUNNED_SIGNED_VERIFIED"
     RUNNE_SIGNED_VERIFIED = "RUNNE_SIGNED_VERIFIED"
     APP_SIGNED_VERIFIED = "APP_SIGNED_VERIFIED"

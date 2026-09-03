@@ -31,6 +31,7 @@ CREDENTIAL_SERVICE_DEPENDENCIES = {
     "core-foundation": CREDENTIAL_SERVICE_NATIVE_TARGET,
     "core-foundation-sys": CREDENTIAL_SERVICE_NATIVE_TARGET,
     "security-framework-sys": CREDENTIAL_SERVICE_NATIVE_TARGET,
+    "security-framework": CREDENTIAL_SERVICE_NATIVE_TARGET,
 }
 
 

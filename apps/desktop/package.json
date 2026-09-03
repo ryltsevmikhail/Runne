@@ -8,6 +8,7 @@
     "dev": "vite",
     "stage:bundled-daemon": "node ../../scripts/desktop/stage_bundled_daemon.mjs",
     "stage:bundled-cli": "node ../../scripts/desktop/stage_bundled_cli.mjs",
+    "stage:credential-service": "node ../../scripts/desktop/stage_credential_service.mjs",
     "tauri": "tauri",
     "test": "vitest run",
     "typecheck": "vue-tsc -b"

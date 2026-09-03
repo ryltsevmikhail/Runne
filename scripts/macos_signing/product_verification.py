@@ -16,6 +16,7 @@ _EXPECTED_IDENTIFIERS = {
     "daemon": "runned",
     "cli": "runne",
     "app": "com.runne.desktop",
+    "credential-service": "com.runne.credential-service",
 }
 _TEAM_ID = "758F9Z45SR"
 
@@ -25,15 +26,16 @@ def verify_product_command_result(
     result: CommandResult,
 ) -> FailureCode | None:
     phase = command.phase
-    if phase == "inspect-provisioning-profile":
-        return profile_result_failure(result)
+    if phase.startswith("inspect-provisioning-profile-"):
+        return profile_result_failure(
+            phase.removeprefix("inspect-provisioning-profile-"), result
+        )
     if phase.startswith(("sign-", "verify-")):
         return parse_codesign_result(result)
     if phase.startswith("metadata-"):
         return _metadata_failure(phase.removeprefix("metadata-"), result)
     if phase.startswith("requirement-"):
-        value = parse_designated_requirement(result)
-        return value if isinstance(value, FailureCode) else None
+        return _requirement_failure(phase.removeprefix("requirement-"), result)
     if phase.startswith("entitlements-"):
         return parse_product_embedded_entitlements(
             phase.removeprefix("entitlements-"),
@@ -59,6 +61,17 @@ def _metadata_failure(role: str, result: CommandResult) -> FailureCode | None:
         or observed.team_identifier != _TEAM_ID
         or observed.authority_class != "Developer ID Application"
     ):
+        return FailureCode.ARTIFACT_IDENTITY_MISMATCH
+    return None
+
+
+def _requirement_failure(role: str, result: CommandResult) -> FailureCode | None:
+    value = parse_designated_requirement(result)
+    if isinstance(value, FailureCode):
+        return value
+    identifier = _EXPECTED_IDENTIFIERS.get(role)
+    prefix = f'designated => identifier "{identifier}" and anchor apple generic'
+    if identifier is None or not value.startswith(prefix) or " or " in value:
         return FailureCode.ARTIFACT_IDENTITY_MISMATCH
     return None
 

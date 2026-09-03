@@ -34,7 +34,7 @@ class MacOSProductSigningOrchestrationTests(unittest.TestCase):
                 keychain,
             ),
             output_dmg=publication / "Runne.dmg",
-            evidence_path=publication / "Runne-signing-evidence.v2.json",
+            evidence_path=publication / "Runne-signing-evidence.v3.json",
         )
 
     def test_success_publishes_notarized_dmg_and_redacted_evidence(self) -> None:
@@ -52,10 +52,11 @@ class MacOSProductSigningOrchestrationTests(unittest.TestCase):
         self.assertNotIn(b"runne-notary-01", encoded)
         self.assertNotIn(b"SYNTHETIC-RAW-MARKER", encoded)
         document = json.loads(encoded)
+        self.assertEqual(document["schema_version"], "macos-product-signing-evidence.v3")
         self.assertEqual(document["distribution"]["dmg_sha256"], outcome.evidence.dmg_sha256)
         self.assertEqual(
             document["commands"][0]["phase"],
-            "inspect-provisioning-profile",
+            "inspect-provisioning-profile-app",
         )
         self.assertEqual(document["commands"][-1]["phase"], "validate-dmg")
         create_dmg = next(
@@ -80,11 +81,29 @@ class MacOSProductSigningOrchestrationTests(unittest.TestCase):
         )
         self.assertEqual(
             getattr(outcome.failure, "phase", None),
-            "inspect-provisioning-profile",
+            "inspect-provisioning-profile-app",
         )
         self.assertEqual(
             [command.phase for command in runner.commands],
-            ["inspect-provisioning-profile"],
+            ["inspect-provisioning-profile-app"],
+        )
+
+    def test_helper_profile_for_another_application_id_stops_before_signing(self) -> None:
+        runner = ProductRecordingRunner(self.root, invalid_service_profile=True)
+
+        outcome = run_product_signing(self.request, runner, "darwin")
+
+        self.assertEqual(outcome.failure.code, FailureCode.ENTITLEMENTS_MISMATCH)
+        self.assertEqual(
+            outcome.failure.phase,
+            "inspect-provisioning-profile-credential-service",
+        )
+        self.assertEqual(
+            [command.phase for command in runner.commands],
+            [
+                "inspect-provisioning-profile-app",
+                "inspect-provisioning-profile-credential-service",
+            ],
         )
 
     def test_empty_embedded_app_entitlements_stop_before_notarization(self) -> None:
@@ -99,6 +118,18 @@ class MacOSProductSigningOrchestrationTests(unittest.TestCase):
         self.assertEqual(getattr(outcome.failure, "phase", None), "entitlements-app")
         self.assertEqual(runner.commands[-1].phase, "entitlements-app")
         self.assertFalse(self.request.output_dmg.exists())
+
+    def test_helper_designated_requirement_must_name_exact_identifier(self) -> None:
+        runner = ProductRecordingRunner(
+            self.root,
+            invalid_requirement_role="credential-service",
+        )
+
+        outcome = run_product_signing(self.request, runner, "darwin")
+
+        self.assertEqual(outcome.failure.code, FailureCode.ARTIFACT_IDENTITY_MISMATCH)
+        self.assertEqual(outcome.failure.phase, "requirement-credential-service")
+        self.assertEqual(runner.commands[-1].phase, "requirement-credential-service")
 
     def test_dmg_and_evidence_are_published_by_one_directory_rename(self) -> None:
         real_replace = os.replace
@@ -220,10 +251,14 @@ class MacOSProductSigningOrchestrationTests(unittest.TestCase):
         outcome = run_product_signing(self.request, runner, "darwin")
 
         self.assertEqual(outcome.failure.code, FailureCode.ARTIFACT_IDENTITY_MISMATCH)
-        self.assertEqual(outcome.failure.phase, "sign-daemon")
+        self.assertEqual(outcome.failure.phase, "sign-credential-service")
         self.assertEqual(
             [command.phase for command in runner.commands],
-            ["inspect-provisioning-profile", "sign-daemon"],
+            [
+                "inspect-provisioning-profile-app",
+                "inspect-provisioning-profile-credential-service",
+                "sign-credential-service",
+            ],
         )
         self.assertFalse(self.request.output_dmg.exists())
 

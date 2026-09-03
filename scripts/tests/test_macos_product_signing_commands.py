@@ -35,10 +35,13 @@ class MacOSProductSigningCommandTests(unittest.TestCase):
 
         self.assertEqual(
             tuple(command.phase for command in commands),
-            ("inspect-provisioning-profile",)
+            (
+                "inspect-provisioning-profile-app",
+                "inspect-provisioning-profile-credential-service",
+            )
             + tuple(
                 f"{operation}-{role}"
-                for role in ("daemon", "cli", "app")
+                for role in ("credential-service", "daemon", "cli", "app")
                 for operation in (
                     "sign",
                     "verify",
@@ -49,21 +52,19 @@ class MacOSProductSigningCommandTests(unittest.TestCase):
             ),
         )
         for command in commands:
-            if command.phase == "inspect-provisioning-profile":
+            if command.phase.startswith("inspect-provisioning-profile-"):
                 self.assertEqual(command.program, "/usr/bin/security")
-                self.assertEqual(
-                    command.argv,
-                    (
-                        "cms",
-                        "-D",
-                        "-i",
-                        "Runne.app/Contents/embedded.provisionprofile",
-                    ),
-                )
+                self.assertEqual(command.argv[:3], ("cms", "-D", "-i"))
+                self.assertTrue(command.argv[3].endswith("embedded.provisionprofile"))
                 continue
             parsed = parse_command_spec(command)
             self.assertIsNotNone(parsed)
-            self.assertNotIn("--deep", command.argv)
+            if command.phase == "verify-app":
+                self.assertEqual(
+                    command.argv[:3], ("--verify", "--deep", "--strict")
+                )
+            else:
+                self.assertNotIn("--deep", command.argv)
             if command.phase.startswith("sign-"):
                 self.assertEqual(
                     command.argv[:8],
@@ -75,7 +76,9 @@ class MacOSProductSigningCommandTests(unittest.TestCase):
                         "--options",
                         "runtime",
                         "--entitlements",
-                        f"{command.phase.removeprefix('sign-')}.plist",
+                        "service.plist"
+                        if command.phase == "sign-credential-service"
+                        else f"{command.phase.removeprefix('sign-')}.plist",
                     ),
                 )
                 self.assertTrue(parsed.hardened_runtime)
@@ -92,8 +95,11 @@ class MacOSProductSigningCommandTests(unittest.TestCase):
 
         self.assertNotIn(self.credentials.signing_identity_ref, encoded)
         self.assertNotIn(self.credentials.notary_profile_ref, encoded)
+        helper = next(
+            template for template in templates if template.phase == "sign-credential-service"
+        )
         self.assertEqual(
-            templates[1].argv,
+            helper.argv,
             (
                 "--force",
                 "--sign",
@@ -102,8 +108,8 @@ class MacOSProductSigningCommandTests(unittest.TestCase):
                 "--options",
                 "runtime",
                 "--entitlements",
-                "daemon.plist",
-                "Runne.app/Contents/MacOS/runned",
+                "service.plist",
+                "Runne.app/Contents/Library/Helpers/RunneCredentialService.app",
             ),
         )
 

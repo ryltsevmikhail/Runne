@@ -76,6 +76,15 @@ pub use enrollment_qualification::{
 #[path = "updater_metadata/enrollment_tuple/admission.rs"]
 mod enrollment_admission;
 pub use enrollment_admission::NativeEnrollmentTupleAdmission;
+#[cfg(any(target_os = "macos", all(test, unix)))]
+#[path = "updater_metadata/enrollment_tuple/tuple_v3_producer.rs"]
+mod enrollment_tuple_v3_producer;
+#[cfg(target_os = "macos")]
+pub use enrollment_tuple_v3_producer::produce_staged_native_enrollment_tuple_v3;
+
+#[cfg(all(test, unix))]
+#[path = "updater_metadata/enrollment_tuple/tuple_v3_producer_tests.rs"]
+mod enrollment_tuple_v3_producer_tests;
 
 #[cfg(all(feature = "test-support", target_os = "macos", target_arch = "aarch64"))]
 #[path = "updater_metadata/local_enrollment_fixture.rs"]

@@ -208,6 +208,8 @@ def _sign_changed(phase: str, before, after) -> bool:
     role = phase.removeprefix("sign-")
     if role == "daemon":
         return before.daemon.sha256 != after.daemon.sha256
+    if role == "credential-service":
+        return before.credential_service.sha256 != after.credential_service.sha256
     if role == "cli":
         return before.cli.sha256 != after.cli.sha256
     return role == "app" and before.candidate.tree_sha256 != after.candidate.tree_sha256
@@ -248,6 +250,7 @@ def _publish(publication, initial, candidate, records, workspace):
 
 def _component_stage(phase, current):
     return {
+        "entitlements-credential-service": ProductSigningStage.CREDENTIAL_SERVICE_SIGNED_VERIFIED,
         "entitlements-daemon": ProductSigningStage.RUNNED_SIGNED_VERIFIED,
         "entitlements-cli": ProductSigningStage.RUNNE_SIGNED_VERIFIED,
         "entitlements-app": ProductSigningStage.APP_SIGNED_VERIFIED,

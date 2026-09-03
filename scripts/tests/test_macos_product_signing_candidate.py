@@ -5,11 +5,13 @@ from dataclasses import replace
 from pathlib import Path
 
 from scripts.macos_signing.models import FailureCode
+from scripts.macos_signing.product_entitlements import CREDENTIAL_SERVICE_ENTITLEMENTS
 from scripts.macos_signing.product_models import ProductCandidateRequest
 from scripts.macos_signing.product_validation import (
     revalidate_product_candidate,
     validate_product_candidate,
 )
+from scripts.tests.macos_product_signing_support import add_credential_service_fixture
 
 
 class MacOSProductSigningCandidateTests(unittest.TestCase):
@@ -35,11 +37,12 @@ class MacOSProductSigningCandidateTests(unittest.TestCase):
         (self.candidate / "Contents" / "embedded.provisionprofile").write_bytes(
             b"developer-id-profile\n"
         )
+        add_credential_service_fixture(self.candidate)
         (self.candidate / "Contents" / "Resources" / "asset.txt").write_text(
             "asset\n"
         )
         self.entitlements = {}
-        for role in ("app", "cli", "daemon"):
+        for role in ("app", "cli", "daemon", "credential-service"):
             path = self.root / f"{role}.plist"
             payload = (
                 {
@@ -48,6 +51,8 @@ class MacOSProductSigningCandidateTests(unittest.TestCase):
                     "keychain-access-groups": ["758F9Z45SR.com.runne.desktop"],
                 }
                 if role == "app"
+                else CREDENTIAL_SERVICE_ENTITLEMENTS
+                if role == "credential-service"
                 else {}
             )
             path.write_bytes(plistlib.dumps(payload))
@@ -60,6 +65,7 @@ class MacOSProductSigningCandidateTests(unittest.TestCase):
             app_entitlements=self.entitlements["app"],
             cli_entitlements=self.entitlements["cli"],
             daemon_entitlements=self.entitlements["daemon"],
+            credential_service_entitlements=self.entitlements["credential-service"],
         )
 
     def test_product_app_entitlements_authorize_private_data_protection_group(self) -> None:
@@ -86,23 +92,67 @@ class MacOSProductSigningCandidateTests(unittest.TestCase):
             FailureCode.ENTITLEMENTS_MISMATCH,
         )
 
-    def test_exact_three_component_bundle_is_captured(self) -> None:
+    def test_service_group_is_exclusive_to_helper_entitlements(self) -> None:
+        service_group = "758F9Z45SR.com.runne.credential-service"
+        for role in ("app", "cli", "daemon"):
+            with self.subTest(role=role), self._fresh_fixture():
+                payload = plistlib.loads(self.entitlements[role].read_bytes())
+                payload["keychain-access-groups"] = [service_group]
+                self.entitlements[role].write_bytes(plistlib.dumps(payload))
+                failure = validate_product_candidate(self.request())
+                self.assertEqual(failure.code, FailureCode.ENTITLEMENTS_MISMATCH)
+
+    def test_helper_requires_exact_entitlements_and_profile(self) -> None:
+        self.entitlements["credential-service"].write_bytes(plistlib.dumps({}))
+        failure = validate_product_candidate(self.request())
+        self.assertEqual(failure.code, FailureCode.ENTITLEMENTS_MISMATCH)
+
+        with self._fresh_fixture():
+            profile = (
+                self.candidate
+                / "Contents/Library/Helpers/RunneCredentialService.app/Contents/embedded.provisionprofile"
+            )
+            profile.unlink()
+            failure = validate_product_candidate(self.request())
+            self.assertEqual(failure.code, FailureCode.ARTIFACT_NOT_FOUND)
+
+    def test_exact_four_component_bundle_is_captured(self) -> None:
         validated = validate_product_candidate(self.request())
 
         self.assertEqual(validated.candidate.relative_name, "Runne.app")
         self.assertEqual(validated.main.relative_path, "Contents/MacOS/runne-desktop")
         self.assertEqual(validated.cli.relative_path, "Contents/MacOS/runne")
         self.assertEqual(validated.daemon.relative_path, "Contents/MacOS/runned")
-        self.assertEqual(len({validated.main.sha256, validated.cli.sha256, validated.daemon.sha256}), 3)
+        self.assertEqual(
+            validated.credential_service.relative_path,
+            "Contents/Library/Helpers/RunneCredentialService.app",
+        )
+        self.assertEqual(
+            len({
+                validated.main.sha256,
+                validated.cli.sha256,
+                validated.daemon.sha256,
+                validated.credential_service.sha256,
+            }),
+            4,
+        )
+        self.assertNotEqual(
+            validated.candidate.xpc_protocol_sha256,
+            validated.candidate.release_candidate_binding_sha256,
+        )
         self.assertEqual(
             len(
                 {
                     (validated.app_entitlements.device, validated.app_entitlements.inode),
                     (validated.cli_entitlements.device, validated.cli_entitlements.inode),
                     (validated.daemon_entitlements.device, validated.daemon_entitlements.inode),
+                    (
+                        validated.credential_service_entitlements.device,
+                        validated.credential_service_entitlements.inode,
+                    ),
                 }
             ),
-            3,
+            4,
         )
 
     def test_malformed_release_digest_fails_closed(self) -> None:
@@ -112,6 +162,13 @@ class MacOSProductSigningCandidateTests(unittest.TestCase):
                     replace(self.request(), release_candidate_sha256=value)
                 )
                 self.assertEqual(failure.code, FailureCode.ARTIFACT_NOT_FOUND)
+
+    def test_release_digest_must_match_signed_candidate_resource(self) -> None:
+        failure = validate_product_candidate(
+            replace(self.request(), release_candidate_sha256="b" * 64)
+        )
+        self.assertEqual(failure.code, FailureCode.ARTIFACT_IDENTITY_MISMATCH)
+        self.assertEqual(failure.phase, "candidate-binding")
 
     def test_non_exact_component_layout_is_rejected(self) -> None:
         for mutation in ("missing", "extra", "not-executable"):
@@ -161,6 +218,8 @@ class MacOSProductSigningCandidateTests(unittest.TestCase):
             "Contents/MacOS/runne",
             "Contents/MacOS/runned",
             "Contents/Resources/asset.txt",
+            "Contents/Library/Helpers/RunneCredentialService.app/Contents/MacOS/runne-credential-service",
+            "Contents/Library/LaunchAgents/com.runne.credential-service.plist",
         ):
             with self.subTest(relative=relative):
                 with self._fresh_fixture():

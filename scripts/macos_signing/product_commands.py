@@ -31,23 +31,34 @@ def build_product_signing_commands(
         candidate.candidate.tree_sha256,
     )
     components = (
+        (
+            "credential-service",
+            _rooted(candidate, candidate.credential_service),
+            candidate.credential_service_entitlements,
+        ),
         ("daemon", _rooted(candidate, candidate.daemon), candidate.daemon_entitlements),
         ("cli", _rooted(candidate, candidate.cli), candidate.cli_entitlements),
         ("app", app, candidate.app_entitlements),
     )
-    commands = [
-        CommandSpec(
-            "inspect-provisioning-profile",
+    commands = []
+    for role, relative in (
+        ("app", "Contents/embedded.provisionprofile"),
+        (
+            "credential-service",
+            "Contents/Library/Helpers/RunneCredentialService.app/Contents/embedded.provisionprofile",
+        ),
+    ):
+        commands.append(CommandSpec(
+            f"inspect-provisioning-profile-{role}",
             _SECURITY,
             (
                 "cms",
                 "-D",
                 "-i",
-                f"{candidate.candidate.relative_name}/Contents/embedded.provisionprofile",
+                f"{candidate.candidate.relative_name}/{relative}",
             ),
             ".",
-        )
-    ]
+        ))
     for role, target, entitlement in components:
         for operation in _OPERATIONS:
             commands.append(
@@ -79,19 +90,29 @@ def redact_external_command(command: CommandSpec) -> ExternalCommandTemplate:
 
 def canonical_product_templates(app_name: str) -> tuple[ExternalCommandTemplate, ...]:
     targets = {
+        "credential-service": (
+            f"{app_name}/Contents/Library/Helpers/RunneCredentialService.app"
+        ),
         "daemon": f"{app_name}/Contents/MacOS/runned",
         "cli": f"{app_name}/Contents/MacOS/runne",
         "app": app_name,
     }
-    templates = [
-        ExternalCommandTemplate(
-            "inspect-provisioning-profile",
+    templates = []
+    for role, relative in (
+        ("app", "Contents/embedded.provisionprofile"),
+        (
+            "credential-service",
+            "Contents/Library/Helpers/RunneCredentialService.app/Contents/embedded.provisionprofile",
+        ),
+    ):
+        templates.append(ExternalCommandTemplate(
+            f"inspect-provisioning-profile-{role}",
             _SECURITY,
-            ("cms", "-D", "-i", f"{app_name}/Contents/embedded.provisionprofile"),
-        )
-    ]
-    for role in ("daemon", "cli", "app"):
+            ("cms", "-D", "-i", f"{app_name}/{relative}"),
+        ))
+    for role in ("credential-service", "daemon", "cli", "app"):
         target = targets[role]
+        entitlement_name = "service" if role == "credential-service" else role
         arguments = {
             "sign": (
                 "--force",
@@ -101,10 +122,14 @@ def canonical_product_templates(app_name: str) -> tuple[ExternalCommandTemplate,
                 "--options",
                 "runtime",
                 "--entitlements",
-                f"{role}.plist",
+                f"{entitlement_name}.plist",
                 target,
             ),
-            "verify": ("--verify", "--strict", target),
+            "verify": (
+                ("--verify", "--deep", "--strict", target)
+                if role == "app"
+                else ("--verify", "--strict", target)
+            ),
             "metadata": ("-dvvv", target),
             "requirement": ("-d", "-r-", target),
             "entitlements": ("-d", "--entitlements", ":-", target),
@@ -122,11 +147,11 @@ def canonical_product_templates(app_name: str) -> tuple[ExternalCommandTemplate,
 
 def _profile_inspection_is_exact(command: CommandSpec) -> bool:
     return (
-        command.phase == "inspect-provisioning-profile"
+        command.phase.startswith("inspect-provisioning-profile-")
         and command.program == _SECURITY
         and len(command.argv) == 4
         and command.argv[:3] == ("cms", "-D", "-i")
-        and command.argv[3].endswith(".app/Contents/embedded.provisionprofile")
+        and command.argv[3].endswith("/Contents/embedded.provisionprofile")
         and not command.argv[3].startswith("/")
         and ".." not in Path(command.argv[3]).parts
     )
@@ -140,6 +165,7 @@ def _component_command(
     identity_reference: str,
 ) -> CommandSpec:
     phase = f"{operation}-{role}"
+    entitlement_name = "service" if role == "credential-service" else role
     if operation == "sign":
         argv = (
             "--force",
@@ -149,12 +175,16 @@ def _component_command(
             "--options",
             "runtime",
             "--entitlements",
-            f"{role}.plist",
+            f"{entitlement_name}.plist",
             target.relative_path,
         )
         return CommandSpec(phase, CODESIGN, argv, ".", entitlement)
     arguments = {
-        "verify": ("--verify", "--strict", target.relative_path),
+        "verify": (
+            ("--verify", "--deep", "--strict", target.relative_path)
+            if role == "app"
+            else ("--verify", "--strict", target.relative_path)
+        ),
         "metadata": ("-dvvv", target.relative_path),
         "requirement": ("-d", "-r-", target.relative_path),
         "entitlements": ("-d", "--entitlements", ":-", target.relative_path),

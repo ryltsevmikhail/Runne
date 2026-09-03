@@ -33,6 +33,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--cli-entitlements", type=Path, default=_ENTITLEMENTS / "cli.plist")
     parser.add_argument("--daemon-entitlements", type=Path, default=_ENTITLEMENTS / "daemon.plist")
+    parser.add_argument(
+        "--credential-service-entitlements",
+        type=Path,
+        default=Path("apps/desktop/src-tauri/macos/credential-service.entitlements"),
+    )
     return parser
 
 
@@ -50,6 +55,7 @@ def main(argv: list[str] | None = None) -> int:
             arguments.app_entitlements,
             arguments.cli_entitlements,
             arguments.daemon_entitlements,
+            arguments.credential_service_entitlements,
         )
         request = ProductSigningRunRequest(
             candidate,

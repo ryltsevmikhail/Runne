@@ -136,6 +136,22 @@ impl OpenedNativeEnrollmentFile {
             .then(|| hex::encode(hasher.finalize()))
             .ok_or(NativeEnrollmentTupleError::Rejected)
     }
+
+    pub(super) fn read_bytes(&self, maximum: u64) -> Result<Vec<u8>, NativeEnrollmentTupleError> {
+        let before = self.file.metadata().map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+        if !valid_regular(&before) || !same_identity(&self.metadata, &before)
+            || !same_security(&self.metadata, &before) || before.len() > maximum {
+            return Err(NativeEnrollmentTupleError::Rejected);
+        }
+        let mut file = self.file.try_clone().map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+        file.seek(SeekFrom::Start(0)).map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+        let capacity = usize::try_from(before.len()).map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+        let mut bytes = Vec::with_capacity(capacity);
+        file.read_to_end(&mut bytes).map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+        let after = self.file.metadata().map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+        (same_identity(&before, &after) && same_security(&before, &after))
+            .then_some(bytes).ok_or(NativeEnrollmentTupleError::Rejected)
+    }
 }
 
 #[cfg(test)]

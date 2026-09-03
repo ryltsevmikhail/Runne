@@ -6,12 +6,13 @@ class CredentialKeychainBoundaryTest(unittest.TestCase):
             "manifest_path": "/repo/crates/runne-credential-service/Cargo.toml",
             "dependencies": [
                 {"name": name, "target": target if name in {
-                    "core-foundation", "core-foundation-sys", "security-framework-sys"
+                    "core-foundation", "core-foundation-sys", "security-framework",
+                    "security-framework-sys"
                 } else None}
                 for name in (
                     "hex", "runne-credential-service-core", "runne-macos-xpc",
                     "runne-provider", "zeroize", "core-foundation",
-                    "core-foundation-sys", "security-framework-sys",
+                    "core-foundation-sys", "security-framework", "security-framework-sys",
                 )
             ],
         }

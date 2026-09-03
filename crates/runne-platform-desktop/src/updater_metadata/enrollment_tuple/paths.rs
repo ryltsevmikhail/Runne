@@ -232,7 +232,7 @@ impl NativeEnrollmentArtifactPathsV1 {
 }
 
 #[cfg(unix)]
-fn open_absolute_directory(path: &Path) -> Result<File, NativeEnrollmentTupleError> {
+pub(super) fn open_absolute_directory(path: &Path) -> Result<File, NativeEnrollmentTupleError> {
     let mut current = File::from(open("/", OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC, Mode::empty()).map_err(|_| NativeEnrollmentTupleError::Rejected)?);
     for component in path.components() {
         let Component::Normal(name) = component else { if matches!(component, Component::RootDir) { continue; } return Err(NativeEnrollmentTupleError::Rejected); };
@@ -242,7 +242,7 @@ fn open_absolute_directory(path: &Path) -> Result<File, NativeEnrollmentTupleErr
 }
 
 #[cfg(unix)]
-fn open_rooted_file(root: &File, components: &[&str]) -> Result<File, NativeEnrollmentTupleError> {
+pub(super) fn open_rooted_file(root: &File, components: &[&str]) -> Result<File, NativeEnrollmentTupleError> {
     let (name, parents) = components.split_last().ok_or(NativeEnrollmentTupleError::Rejected)?;
     let root_stat = fstat(root).map_err(|_| NativeEnrollmentTupleError::Rejected)?;
     if !valid_directory_stat(&root_stat) { return Err(NativeEnrollmentTupleError::Rejected); }
@@ -272,7 +272,7 @@ fn valid_directory_stat(stat: &rustix::fs::Stat) -> bool {
 }
 
 #[cfg(unix)]
-fn same_directory(first: &File, second: &File) -> bool {
+pub(super) fn same_directory(first: &File, second: &File) -> bool {
     let Ok(first) = fstat(first) else { return false }; let Ok(second) = fstat(second) else { return false };
     first.st_dev == second.st_dev && first.st_ino == second.st_ino && first.st_uid == second.st_uid && first.st_mode == second.st_mode && first.st_nlink == second.st_nlink
 }

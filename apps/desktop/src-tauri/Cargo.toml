@@ -17,6 +17,7 @@ tauri-build = { version = "=2.6.3", features = [] }
 runne-app-core = { path = "../../../crates/runne-app-core" }
 runne-api = { path = "../../../crates/runne-api" }
 runne-platform-desktop = { path = "../../../crates/runne-platform-desktop", features = ["protected-channel-integration"] }
+runne-macos-xpc = { path = "../../../crates/runne-macos-xpc" }
 hex.workspace = true
 rand = "0.8"
 serde.workspace = true

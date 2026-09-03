@@ -89,6 +89,8 @@ pub use updater_journal::{UpdateInstallRecord, UpdateJournal, UpdateJournalError
 #[cfg(all(feature = "test-support", target_os = "macos", target_arch = "aarch64"))]
 #[doc(hidden)]
 pub use updater_metadata::prepare_local_native_enrollment;
+#[cfg(target_os = "macos")]
+pub use updater_metadata::produce_staged_native_enrollment_tuple_v3;
 #[cfg(all(feature = "dev-loopback-updater", debug_assertions))]
 pub use updater_metadata::verify_update_v2_dev_loopback;
 pub use updater_metadata::{

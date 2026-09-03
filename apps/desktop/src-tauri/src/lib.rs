@@ -31,6 +31,7 @@ use prepared_workspace::{
     PreparedWorkspaceResponse,
 };
 pub use provider_credential_enrollment::{
+    CredentialServiceRegistration, CredentialServiceRegistrationDisposition,
     CredentialWriterReaperLastError, CredentialWriterReaperSnapshot, CredentialWriterReaperState,
 };
 use runne_api::ProviderStatusSnapshotV1;
@@ -41,14 +42,14 @@ use runne_app_core::{
     CanonicalWorkspaceSummary, DiagnosticsSnapshot, ProjectSummary, RuntimeAvailability,
     RuntimeDeviceSnapshot, RuntimeFailureCode, RuntimeMode, ShortcutSettings,
 };
-use runne_platform_desktop::ProfileLock;
-use runne_platform_desktop::{ProtectedRootHandleAdmission, VerifiedRootHandle, WorkspaceId};
+use runne_platform_desktop::{
+    ProfileLock, ProtectedRootHandleAdmission, VerifiedRootHandle, WorkspaceId,
+};
 use serde::Serialize;
 use std::ffi::{OsStr, OsString};
 use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::{pin::Pin, sync::Arc};
 use task_run_channel::TaskRunSubscriptionManager;
 use tauri::{Manager, RunEvent, State, WebviewWindow, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
@@ -91,7 +92,6 @@ pub trait OwnedRuntimeLifecycle: Send + Sync {
     /// Runs the explicit-quit shutdown sequence for the proven owned runtime.
     fn stop_on_explicit_quit(&self);
 }
-
 trait NativeRootAdmissionLifecycle: OwnedRuntimeLifecycle {
     fn prepare_root_admission(
         &self,

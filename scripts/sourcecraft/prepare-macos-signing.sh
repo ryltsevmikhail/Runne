@@ -8,6 +8,7 @@ umask 077
 
 : "${APPLE_CERTIFICATE:?APPLE_CERTIFICATE is required}"
 : "${APPLE_CERTIFICATE_PASSWORD:?APPLE_CERTIFICATE_PASSWORD is required}"
+: "${APPLE_CREDENTIAL_SERVICE_PROVISIONING_PROFILE:?APPLE_CREDENTIAL_SERVICE_PROVISIONING_PROFILE is required}"
 : "${APPLE_ID:?APPLE_ID is required}"
 : "${APPLE_PASSWORD:?APPLE_PASSWORD is required}"
 : "${APPLE_SIGNING_FINGERPRINT:?APPLE_SIGNING_FINGERPRINT is required}"
@@ -17,6 +18,7 @@ umask 077
 SIGNING_TEMP_DIR="$(mktemp -d)"
 SIGNING_KEYCHAIN="$SIGNING_TEMP_DIR/runne-signing.keychain-db"
 SIGNING_CERTIFICATE="$SIGNING_TEMP_DIR/runne-signing.p12"
+RUNNE_CREDENTIAL_SERVICE_PROVISIONING_PROFILE="$SIGNING_TEMP_DIR/credential-service.provisionprofile"
 SIGNING_KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
 SIGNING_PREVIOUS_KEYCHAINS="$(security list-keychains -d user | tr -d '"' | tr '\n' ' ')"
 SIGNING_PREVIOUS_DEFAULT="$(security default-keychain -d user | tr -d '"')"
@@ -32,6 +34,8 @@ cleanup_macos_signing() {
 trap cleanup_macos_signing EXIT
 
 printf '%s' "$APPLE_CERTIFICATE" | base64 -D > "$SIGNING_CERTIFICATE"
+printf '%s' "$APPLE_CREDENTIAL_SERVICE_PROVISIONING_PROFILE" | base64 -D > "$RUNNE_CREDENTIAL_SERVICE_PROVISIONING_PROFILE"
+test -s "$RUNNE_CREDENTIAL_SERVICE_PROVISIONING_PROFILE"
 security create-keychain -p "$SIGNING_KEYCHAIN_PASSWORD" "$SIGNING_KEYCHAIN" >/dev/null
 security set-keychain-settings -lut 1800 "$SIGNING_KEYCHAIN"
 security unlock-keychain -p "$SIGNING_KEYCHAIN_PASSWORD" "$SIGNING_KEYCHAIN"
@@ -47,3 +51,6 @@ actual_fingerprint="$(openssl x509 -in "$SIGNING_TEMP_DIR/runne-signing.pem" -no
 test "$(printf '%s' "$actual_fingerprint" | tr '[:lower:]' '[:upper:]')" = "$(printf '%s' "$APPLE_SIGNING_FINGERPRINT" | tr '[:lower:]' '[:upper:]')"
 
 export APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+export RUNNE_CREDENTIAL_SERVICE_PROVISIONING_PROFILE
+RUNNE_RELEASE_CANDIDATE_SHA256="$(printf '%s' "${SOURCECRAFT_COMMIT_SHA:-$(git rev-parse HEAD)}" | shasum -a 256 | cut -d' ' -f1)"
+export RUNNE_RELEASE_CANDIDATE_SHA256

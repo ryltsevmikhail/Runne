@@ -7,7 +7,7 @@
   "build": {
     "beforeDevCommand": "cargo build -p runne-daemon && pnpm dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "pnpm stage:bundled-daemon && pnpm stage:bundled-cli && pnpm build",
+    "beforeBuildCommand": "pnpm stage:bundled-daemon && pnpm stage:bundled-cli && pnpm stage:credential-service && pnpm build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -47,7 +47,14 @@
     },
     "macOS": {
       "hardenedRuntime": true,
-      "minimumSystemVersion": "13.0"
+      "minimumSystemVersion": "13.0",
+      "files": {
+        "macos/com.runne.credential-service.plist": "Library/LaunchAgents/com.runne.credential-service.plist",
+        "macos/credential-service/staged/RunneCredentialService.app": "Library/Helpers/RunneCredentialService.app",
+        "macos/credential-service.entitlements": "Resources/native-enrollment/credential-service.entitlements.plist",
+        "macos/native-enrollment/staged/xpc-protocol-v1.json": "Resources/native-enrollment/xpc-protocol-v1.json",
+        "macos/native-enrollment/staged/release-candidate-binding.json": "Resources/native-enrollment/release-candidate-binding.json"
+      }
     },
     "windows": {
       "allowDowngrades": false,

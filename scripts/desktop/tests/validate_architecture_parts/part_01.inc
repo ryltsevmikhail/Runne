@@ -16,7 +16,11 @@ class RustDependencyRulesTest(unittest.TestCase):
     def test_allows_documented_dependency_direction(self):
         violations = architecture.find_rust_dependency_violations(
             {
-                "runne-desktop": {"runne-app-core", "runne-platform-desktop"},
+                "runne-desktop": {
+                    "runne-app-core",
+                    "runne-macos-xpc",
+                    "runne-platform-desktop",
+                },
                 "runne-app-core": {"runne-runtime-client", "runne-local-store"},
                 "runne-platform-desktop": {"runne-platform-ports"},
             }

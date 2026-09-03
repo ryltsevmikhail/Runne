@@ -58,7 +58,13 @@ def _codesign(command: CommandSpec) -> ParsedCommand | None:
         target = _phase_target(phase, argv[-1])
         return ParsedCommand("sign", target, runtime, command.entitlement.sha256, (len(argv) - 1,), 4) if target else None
     if phase.startswith("verify-"):
-        if len(argv) != 3 or argv[:2] != ("--verify", "--strict"):
+        app_verify = phase == "verify-app" and argv[:3] == (
+            "--verify",
+            "--deep",
+            "--strict",
+        )
+        component_verify = len(argv) == 3 and argv[:2] == ("--verify", "--strict")
+        if not ((len(argv) == 4 and app_verify) or component_verify):
             return None
         target = _phase_target(phase, argv[-1])
         return ParsedCommand("verify", target, False, None, (len(argv) - 1,)) if target else None
@@ -98,6 +104,8 @@ def _phase_target(phase: str, target: str) -> str | None:
     suffix = _suffix(phase)
     if suffix == "daemon" and _daemon(target):
         return target
+    if suffix == "service" and phase.endswith("credential-service") and _credential_service(target):
+        return target
     if suffix == "cli" and _cli(target):
         return target
     if suffix == "app" and _app(target):
@@ -132,6 +140,21 @@ def _cli(value: str) -> bool:
     return _relative(value) and len(path.parts) == 4 and path.parts[1:] == ("Contents", "MacOS", "runne") and _app(path.parts[0])
 
 
+def _credential_service(value: str) -> bool:
+    path = Path(value)
+    return (
+        _relative(value)
+        and len(path.parts) == 5
+        and path.parts[1:] == (
+            "Contents",
+            "Library",
+            "Helpers",
+            "RunneCredentialService.app",
+        )
+        and _app(path.parts[0])
+    )
+
+
 def _product_codesign(command: CommandSpec) -> ParsedCommand | None:
     argv, phase = command.argv, command.phase
     if (
@@ -139,7 +162,8 @@ def _product_codesign(command: CommandSpec) -> ParsedCommand | None:
         or argv[3:7] != ("--timestamp", "--options", "runtime", "--entitlements")
         or not _identity(argv[2])
         or argv[2] == "-"
-        or argv[7] != _suffix(phase) + ".plist"
+        or argv[7]
+        != ("service.plist" if phase.endswith("credential-service") else _suffix(phase) + ".plist")
         or not isinstance(command.entitlement, EntitlementBinding)
     ):
         return None

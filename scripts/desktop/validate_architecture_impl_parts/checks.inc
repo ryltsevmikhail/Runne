@@ -7,7 +7,12 @@ import subprocess
 import sys
 
 ALLOWED_RUST_DEPENDENCIES: dict[str, set[str]] = {
-    "runne-desktop": {"runne-api", "runne-app-core", "runne-platform-desktop"},
+    "runne-desktop": {
+        "runne-api",
+        "runne-app-core",
+        "runne-macos-xpc",
+        "runne-platform-desktop",
+    },
     "runne-app-core": {
         "runne-local-store",
         "runne-api",

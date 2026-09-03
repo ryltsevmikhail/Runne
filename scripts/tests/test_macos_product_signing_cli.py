@@ -28,7 +28,7 @@ class MacOSProductSigningCliTests(unittest.TestCase):
             "--output-dmg",
             "Runne.dmg",
             "--evidence",
-            "Runne-signing-evidence.v2.json",
+            "Runne-signing-evidence.v3.json",
             "--release-candidate-sha256",
             "a" * 64,
             "--signing-identity-ref",
