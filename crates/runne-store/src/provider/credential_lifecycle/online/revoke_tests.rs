@@ -12,6 +12,43 @@ use super::online_test_support::{
 };
 
 #[test]
+fn credential_online_revoke_rejects_nonactive_target_without_fencing() {
+    let store = store();
+    complete_pair(&store, 10, "paired-exact-target");
+    let before = ProviderCredentialEnrollmentStore::lifecycle_snapshot(&store, &provider())
+        .unwrap();
+    let template = revoke(20, "wrong-target", 2, 2);
+    let input = runne_provider::BeginCredentialOperation::new(
+        template.command_id(),
+        template.idempotency_key().clone(),
+        template.operation_id(),
+        template.installation_owner_id(),
+        provider(),
+        runne_provider::CredentialOperationAction::Revoke,
+        None,
+        Some(CredentialVersionRef::new(provider(), 2).unwrap()),
+        template.expected_lifecycle_revision(),
+        template.expected_prior_fence(),
+        template.begin_proof_digest(),
+        template.begin_proof_expires_at_high_water(),
+    )
+    .unwrap()
+    .with_qualified_release_tuple(qualified_release(92));
+    assert!(matches!(
+        ProviderCredentialEnrollmentStore::begin(&store, input),
+        Err(runne_provider::CredentialLifecycleError::Conflict)
+    ));
+    let after = ProviderCredentialEnrollmentStore::lifecycle_snapshot(&store, &provider())
+        .unwrap();
+    assert_eq!(after.active_version(), before.active_version());
+    assert_eq!(after.fence(), before.fence());
+    assert_eq!(after.lifecycle_revision(), before.lifecycle_revision());
+    assert!(ProviderCredentialEnrollmentStore::find_by_begin_proof(
+        &store, template.begin_proof_digest(),
+    ).unwrap().is_none());
+}
+
+#[test]
 fn credential_online_revoke_fence_survives_reopen_before_native_deletion() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("revoke-restart.sqlite");
