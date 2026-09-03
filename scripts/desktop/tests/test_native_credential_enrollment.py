@@ -12,6 +12,7 @@ from pathlib import Path
 
 from scripts.desktop.native_credential_enrollment import linux, macos, windows
 from scripts.desktop.native_credential_enrollment_probe import validate_evidence
+from scripts.desktop.tests.test_native_credential_xpc_qualification import _row as xpc_row
 
 
 def digest(seed: str) -> str:
@@ -19,37 +20,10 @@ def digest(seed: str) -> str:
 
 
 def row(architecture: str, run: str) -> dict[str, object]:
-    tuple_values = {
-        "desktop_sha256": digest(f"desktop-{architecture}"),
-        "writer_sha256": digest(f"writer-{architecture}"),
-        "daemon_sha256": digest(f"daemon-{architecture}"),
-        "contract_sha256": digest("contract"),
-        "candidate_sha256": digest(f"candidate-{architecture}"),
-    }
-    selectors = {
-        name: {"status": "verified"}
-        for name in macos.REQUIRED_SELECTORS - {"remote_verify_after_local"}
-    }
-    selectors["local_verify_no_network"] = {"status": "verified", "network_attempts": 0}
-    selectors["remote_verify_after_local"] = {
-        "status": "unsupported",
-        "local_verification": "verified",
-        "retry_count": 0,
-    }
-    return {
-        "platform": "macos",
-        "architecture": architecture,
-        "disposition": "verified",
-        "tuple": {**tuple_values, "tuple_sha256": macos.tuple_digest(tuple_values)},
-        "signing": {
-            "profile": "developer_id",
-            "notarized": True,
-            "ad_hoc": False,
-            "team_id": "EXAMPLETEAM",
-        },
-        "runner": {"workflow_run_id": run, "attestation_verified": True},
-        "selectors": selectors,
-    }
+    value = copy.deepcopy(xpc_row())
+    value["architecture"] = architecture
+    value["runner"]["workflow_run_id"] = run
+    return value
 
 
 def evidence() -> dict[str, object]:
@@ -190,6 +164,11 @@ class NativeCredentialEnrollmentEvidenceTests(unittest.TestCase):
         self.assertEqual(schema["$defs"]["macos_row"]["properties"]["architecture"], {"const": "arm64"})
         self.assertEqual(profile["disposition"], "unsupported")
         self.assertEqual(profile["evidence_rows"], [])
+        self.assertEqual(profile["qualification_contract"], "macos-xpc-service-v1")
+        self.assertEqual(
+            profile["evidence_root"],
+            "docs/evidence/native-credential-enrollment/macos-xpc-service",
+        )
 
     def test_complete_apple_silicon_macos_evidence_is_structurally_valid(self) -> None:
         self.assertTrue(validate_evidence(evidence(), "macos"))
@@ -268,6 +247,17 @@ class NativeCredentialEnrollmentEvidenceTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(json.loads(result.stdout)["qualified"])
+            unsigned = evidence()["rows"][0]
+            unsigned["signing"].update(notarized=False, ad_hoc=True)
+            root.joinpath("macos-13-arm64.json").write_text(
+                json.dumps(unsigned), encoding="utf-8"
+            )
+            result = subprocess.run(
+                [*command, "--expected-tuples", str(expected)],
+                capture_output=True, check=False, text=True,
+            )
+            self.assertEqual(result.returncode, 1, result.stderr)
             self.assertFalse(json.loads(result.stdout)["qualified"])
             expected.write_text('{"arm64":{},"arm64":{}}', encoding="utf-8")
             result = subprocess.run(

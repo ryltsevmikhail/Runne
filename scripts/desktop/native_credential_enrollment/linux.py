@@ -5,7 +5,13 @@ does not claim executable ACL resistance or execute a package probe.
 """
 from __future__ import annotations
 
-from .macos import TUPLE_FIELDS, _forbidden_field_errors, _sha256, tuple_digest
+from .macos import BASE_TUPLE_FIELDS, _forbidden_field_errors, _sha256, tuple_digest as _tuple_digest
+
+TUPLE_FIELDS = BASE_TUPLE_FIELDS
+
+
+def tuple_digest(values: dict[str, object]) -> str:
+    return _tuple_digest(values, TUPLE_FIELDS)
 
 PACKAGE_FORMATS = frozenset({"appimage", "deb"})
 REQUIRED_SELECTORS = frozenset({

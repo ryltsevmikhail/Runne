@@ -5,7 +5,13 @@ same-token crafted replacement claims are never accepted as authority.
 """
 from __future__ import annotations
 
-from .macos import TUPLE_FIELDS, _forbidden_field_errors, _sha256, tuple_digest
+from .macos import BASE_TUPLE_FIELDS, _forbidden_field_errors, _sha256, tuple_digest as _tuple_digest
+
+TUPLE_FIELDS = BASE_TUPLE_FIELDS
+
+
+def tuple_digest(values: dict[str, object]) -> str:
+    return _tuple_digest(values, TUPLE_FIELDS)
 
 REQUIRED_SELECTORS = frozenset({
     "clean_install", "n_to_n_plus_1", "rollback", "mixed_child_manifest_denied",
