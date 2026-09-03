@@ -41,7 +41,7 @@ fn identity(identifier: &str, cdhash: char) -> MacOsCodeIdentityExpectationV1 {
         .unwrap()
 }
 
-fn tuple(target: &UpdateTargetV2) -> NativeEnrollmentTupleV3 {
+pub(super) fn tuple(target: &UpdateTargetV2) -> NativeEnrollmentTupleV3 {
     NativeEnrollmentTupleV3::new(
         NativeEnrollmentTupleV3Digests {
             candidate_sha256: target.release_candidate_sha256.clone(),
@@ -255,7 +255,7 @@ fn decode(value: serde_json::Value) -> NativeEnrollmentTupleV3 {
     serde_json::from_value(value).unwrap()
 }
 
-fn resign_targets(metadata: &mut super::UpdateMetadataV2) {
+pub(super) fn resign_targets(metadata: &mut super::UpdateMetadataV2) {
     metadata.targets_signatures = [31_u8, 32]
         .into_iter()
         .zip(["root-a", "root-b"])

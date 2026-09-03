@@ -9,7 +9,7 @@ use super::verification::SignedInstalledReleaseVerificationErrorV2;
 mod matchers;
 #[path = "binding/v3.rs"]
 mod v3;
-pub use v3::VerifiedSignedNativeEnrollmentTupleV3;
+pub use v3::{SignedInstalledReleaseCandidateV3, VerifiedSignedNativeEnrollmentTupleV3};
 
 const MANIFEST_DOMAIN: &[u8] = b"GOCODE_SIGNED_INSTALLED_RELEASE_MANIFEST_V1\0";
 const RELEASE_DOMAIN: &[u8] = b"GOCODE_SIGNED_INSTALLED_RELEASE_BINDING_V1\0";
@@ -45,6 +45,7 @@ pub struct VerifiedSignedUpdateMetadataV2 {
     native_enrollment_tuple: Option<VerifiedSignedNativeEnrollmentTupleV2>,
     native_enrollment_tuple_v3: Option<VerifiedSignedNativeEnrollmentTupleV3>,
     qualified_release_candidate: Option<SignedInstalledReleaseCandidateV2>,
+    qualified_release_candidate_v3: Option<SignedInstalledReleaseCandidateV3>,
 }
 
 #[derive(Eq, PartialEq)]
@@ -78,6 +79,11 @@ impl VerifiedSignedUpdateMetadataV2 {
     }
     pub const fn qualified_release_candidate(&self) -> Option<&SignedInstalledReleaseCandidateV2> {
         self.qualified_release_candidate.as_ref()
+    }
+    pub const fn qualified_release_candidate_v3(
+        &self,
+    ) -> Option<&SignedInstalledReleaseCandidateV3> {
+        self.qualified_release_candidate_v3.as_ref()
     }
 }
 
@@ -152,12 +158,20 @@ pub(super) fn build_verified(
         (Some(raw), Some(verified)) => candidate(metadata, raw, verified, now)?,
         _ => None,
     };
+    let qualified_release_candidate_v3 = match (
+        metadata.targets.target.native_enrollment_tuple_v3.as_ref(),
+        verified_tuple_v3.as_ref(),
+    ) {
+        (Some(raw), Some(verified)) => v3::candidate_v3(metadata, raw, verified, now)?,
+        _ => None,
+    };
     Ok(VerifiedSignedUpdateMetadataV2 {
         metadata: metadata.clone(),
         verified_at_unix_seconds: now,
         native_enrollment_tuple: verified_tuple,
         native_enrollment_tuple_v3: verified_tuple_v3,
         qualified_release_candidate,
+        qualified_release_candidate_v3,
     })
 }
 
@@ -228,7 +242,7 @@ fn candidate(
     }))
 }
 
-fn manifest_digest(
+pub(super) fn manifest_digest(
     metadata: &UpdateMetadataV2,
 ) -> Result<[u8; 32], SignedInstalledReleaseVerificationErrorV2> {
     let bytes = update_metadata_signing_bytes(&metadata.targets)
@@ -239,7 +253,11 @@ fn manifest_digest(
     Ok(hasher.finalize().into())
 }
 
-fn release_digest(manifest: [u8; 32], tuple: [u8; 32], qualification: [u8; 32]) -> [u8; 32] {
+pub(super) fn release_digest(
+    manifest: [u8; 32],
+    tuple: [u8; 32],
+    qualification: [u8; 32],
+) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(RELEASE_DOMAIN);
     hasher.update(manifest);

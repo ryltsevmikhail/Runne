@@ -9,9 +9,9 @@ mod tuple_v3;
 mod verification;
 
 pub use binding::{
-    SignedInstalledReleaseCandidateV2, VerifiedSignedInstalledReleaseV2,
-    VerifiedSignedNativeEnrollmentTupleV2, VerifiedSignedNativeEnrollmentTupleV3,
-    VerifiedSignedUpdateMetadataV2,
+    SignedInstalledReleaseCandidateV2, SignedInstalledReleaseCandidateV3,
+    VerifiedSignedInstalledReleaseV2, VerifiedSignedNativeEnrollmentTupleV2,
+    VerifiedSignedNativeEnrollmentTupleV3, VerifiedSignedUpdateMetadataV2,
 };
 pub use compiled_trust::CompiledUpdateTrustRootV2;
 pub use frame::PendingSignedInstalledReleaseMetadataV2;
@@ -35,6 +35,8 @@ pub use verification::{
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tuple_v3_qualification_tests;
 #[cfg(test)]
 mod tuple_v3_tests;
 

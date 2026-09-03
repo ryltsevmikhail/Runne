@@ -3,6 +3,7 @@ use sha2::{Digest, Sha256};
 
 use super::model::UpdateTargetV2;
 use super::tuple::{NativeEnrollmentTupleError, NativeEnrollmentTupleV2, digest_valid};
+use super::tuple_v3::NativeEnrollmentTupleV3;
 
 const QUALIFICATION_DOMAIN: &[u8] = b"gocode/native-enrollment-qualification-binding/v1\0";
 
@@ -27,6 +28,41 @@ impl NativeEnrollmentQualificationRowV1 {
         qualified_at_unix_seconds: u64,
         expires_at_unix_seconds: u64,
     ) -> Result<Self, NativeEnrollmentTupleError> {
+        Self::build(
+            target,
+            tuple.tuple_digest(),
+            tuple.digest_for(target) == hex::encode(tuple.tuple_digest().unwrap_or_default()),
+            receipt_sha256,
+            qualified_at_unix_seconds,
+            expires_at_unix_seconds,
+        )
+    }
+
+    pub fn new_v3(
+        target: &UpdateTargetV2,
+        tuple: &NativeEnrollmentTupleV3,
+        receipt_sha256: String,
+        qualified_at_unix_seconds: u64,
+        expires_at_unix_seconds: u64,
+    ) -> Result<Self, NativeEnrollmentTupleError> {
+        Self::build(
+            target,
+            tuple.tuple_digest(),
+            tuple.valid_without_qualification(target),
+            receipt_sha256,
+            qualified_at_unix_seconds,
+            expires_at_unix_seconds,
+        )
+    }
+
+    fn build(
+        target: &UpdateTargetV2,
+        tuple_digest: Option<[u8; 32]>,
+        tuple_matches_target: bool,
+        receipt_sha256: String,
+        qualified_at_unix_seconds: u64,
+        expires_at_unix_seconds: u64,
+    ) -> Result<Self, NativeEnrollmentTupleError> {
         let mut row = Self {
             schema_version: 1,
             platform: "macos".into(),
@@ -37,10 +73,10 @@ impl NativeEnrollmentQualificationRowV1 {
             expires_at_unix_seconds,
             binding_sha256: String::new(),
         };
-        row.valid_shape(target, tuple)
+        row.valid_shape(target, tuple_digest, tuple_matches_target)
             .then_some(())
             .ok_or(NativeEnrollmentTupleError::Rejected)?;
-        row.binding_sha256 = row.digest_for(target, tuple);
+        row.binding_sha256 = row.digest_for(target, tuple_digest);
         Ok(row)
     }
 
@@ -49,10 +85,41 @@ impl NativeEnrollmentQualificationRowV1 {
         target: &UpdateTargetV2,
         tuple: &NativeEnrollmentTupleV2,
     ) -> bool {
-        self.valid_shape(target, tuple) && self.binding_sha256 == self.digest_for(target, tuple)
+        self.valid_binding_for(
+            target,
+            tuple.tuple_digest(),
+            tuple.digest_for(target) == hex::encode(tuple.tuple_digest().unwrap_or_default()),
+        )
     }
 
-    fn valid_shape(&self, target: &UpdateTargetV2, tuple: &NativeEnrollmentTupleV2) -> bool {
+    pub(super) fn valid_binding_v3(
+        &self,
+        target: &UpdateTargetV2,
+        tuple: &NativeEnrollmentTupleV3,
+    ) -> bool {
+        self.valid_binding_for(
+            target,
+            tuple.tuple_digest(),
+            tuple.valid_without_qualification(target),
+        )
+    }
+
+    fn valid_binding_for(
+        &self,
+        target: &UpdateTargetV2,
+        tuple_digest: Option<[u8; 32]>,
+        tuple_matches_target: bool,
+    ) -> bool {
+        self.valid_shape(target, tuple_digest, tuple_matches_target)
+            && self.binding_sha256 == self.digest_for(target, tuple_digest)
+    }
+
+    fn valid_shape(
+        &self,
+        target: &UpdateTargetV2,
+        tuple_digest: Option<[u8; 32]>,
+        tuple_matches_target: bool,
+    ) -> bool {
         self.schema_version == 1
             && self.platform == "macos"
             && self.architecture == "arm64"
@@ -68,15 +135,15 @@ impl NativeEnrollmentQualificationRowV1 {
             && self.qualified_at_unix_seconds != 0
             && self.qualified_at_unix_seconds < self.expires_at_unix_seconds
             && self.expires_at_unix_seconds <= target.expires_at_unix_seconds
-            && tuple.tuple_digest().is_some()
-            && tuple.digest_for(target) == hex::encode(tuple.tuple_digest().unwrap_or_default())
+            && tuple_digest.is_some()
+            && tuple_matches_target
     }
 
-    fn digest_for(&self, target: &UpdateTargetV2, tuple: &NativeEnrollmentTupleV2) -> String {
+    fn digest_for(&self, target: &UpdateTargetV2, tuple_digest: Option<[u8; 32]>) -> String {
         let mut hasher = Sha256::new();
         hasher.update(QUALIFICATION_DOMAIN);
         for value in [
-            hex::encode(tuple.tuple_digest().unwrap_or_default()).as_str(),
+            hex::encode(tuple_digest.unwrap_or_default()).as_str(),
             target.product_id.as_str(),
             target.version.as_str(),
             target.platform.as_str(),

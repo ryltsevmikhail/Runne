@@ -3,9 +3,20 @@ use subtle::ConstantTimeEq;
 use super::super::{
     MacOsCodeIdentityExpectationV1, NativeEnrollmentTupleV3, NativeEnrollmentTupleV3CodeIdentities,
     NativeEnrollmentTupleV3Deployment, NativeEnrollmentTupleV3Digests,
-    NativeEnrollmentTupleV3ProtocolCompatibility,
+    NativeEnrollmentTupleV3ProtocolCompatibility, UpdateMetadataV2,
 };
 use super::SignedInstalledReleaseVerificationErrorV2;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SignedInstalledReleaseCandidateV3 {
+    native_enrollment_tuple: VerifiedSignedNativeEnrollmentTupleV3,
+    target_manifest_digest: [u8; 32],
+    release_binding_digest: [u8; 32],
+    qualification_receipt_digest: [u8; 32],
+    qualification_binding_digest: [u8; 32],
+    qualified_at_unix_seconds: u64,
+    expires_at_unix_seconds: u64,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VerifiedSignedNativeEnrollmentTupleV3 {
@@ -85,6 +96,64 @@ impl VerifiedSignedNativeEnrollmentTupleV3 {
             cdhash,
         )
     }
+}
+
+impl SignedInstalledReleaseCandidateV3 {
+    pub const fn native_enrollment_tuple(&self) -> &VerifiedSignedNativeEnrollmentTupleV3 {
+        &self.native_enrollment_tuple
+    }
+    pub const fn target_manifest_digest(&self) -> [u8; 32] {
+        self.target_manifest_digest
+    }
+    pub const fn release_binding_digest(&self) -> [u8; 32] {
+        self.release_binding_digest
+    }
+    pub const fn qualification_receipt_digest(&self) -> [u8; 32] {
+        self.qualification_receipt_digest
+    }
+    pub const fn qualification_binding_digest(&self) -> [u8; 32] {
+        self.qualification_binding_digest
+    }
+    pub const fn qualified_at_unix_seconds(&self) -> u64 {
+        self.qualified_at_unix_seconds
+    }
+    pub const fn expires_at_unix_seconds(&self) -> u64 {
+        self.expires_at_unix_seconds
+    }
+}
+
+pub(super) fn candidate_v3(
+    metadata: &UpdateMetadataV2,
+    raw: &NativeEnrollmentTupleV3,
+    tuple: &VerifiedSignedNativeEnrollmentTupleV3,
+    now: u64,
+) -> Result<Option<SignedInstalledReleaseCandidateV3>, SignedInstalledReleaseVerificationErrorV2> {
+    let Some(row) = raw.qualification() else {
+        return Ok(None);
+    };
+    if row.qualified_at() > now || now >= row.expires_at() {
+        return Ok(None);
+    }
+    let qualification_binding_digest = row
+        .binding_digest()
+        .ok_or(SignedInstalledReleaseVerificationErrorV2::InvalidMetadata)?;
+    let target_manifest_digest = super::manifest_digest(metadata)?;
+    let release_binding_digest = super::release_digest(
+        target_manifest_digest,
+        tuple.tuple_digest,
+        qualification_binding_digest,
+    );
+    Ok(Some(SignedInstalledReleaseCandidateV3 {
+        native_enrollment_tuple: tuple.clone(),
+        target_manifest_digest,
+        release_binding_digest,
+        qualification_receipt_digest: row
+            .receipt_digest()
+            .ok_or(SignedInstalledReleaseVerificationErrorV2::InvalidMetadata)?,
+        qualification_binding_digest,
+        qualified_at_unix_seconds: row.qualified_at(),
+        expires_at_unix_seconds: row.expires_at(),
+    }))
 }
 
 pub(super) fn verified_tuple_v3(

@@ -2,11 +2,14 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::model::UpdateTargetV2;
+use super::qualification::NativeEnrollmentQualificationRowV1;
 use super::tuple::{decode_digest, digest_valid};
 use super::{MacOsCodeIdentityExpectationV1, NativeEnrollmentTupleError};
 
 #[path = "tuple_v3/protocol.rs"]
 mod protocol;
+#[path = "tuple_v3/qualification.rs"]
+mod qualification;
 pub use protocol::{
     NativeEnrollmentTupleV3ProtocolCompatibility, NativeEnrollmentTupleV3ProtocolVersions,
 };
@@ -155,6 +158,8 @@ pub struct NativeEnrollmentTupleV3 {
     digests: NativeEnrollmentTupleV3Digests,
     deployment: NativeEnrollmentTupleV3Deployment,
     code_identities: NativeEnrollmentTupleV3CodeIdentities,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    native_enrollment_qualification: Option<NativeEnrollmentQualificationRowV1>,
     tuple_sha256: String,
 }
 
@@ -170,6 +175,7 @@ impl NativeEnrollmentTupleV3 {
             digests,
             deployment,
             code_identities,
+            native_enrollment_qualification: None,
             tuple_sha256: String::new(),
         };
         tuple
@@ -181,6 +187,9 @@ impl NativeEnrollmentTupleV3 {
     }
 
     pub(super) fn valid_signed(&self, target: &UpdateTargetV2) -> bool {
+        self.valid_base(target, true) && self.qualification_valid(target)
+    }
+    pub(super) fn valid_without_qualification(&self, target: &UpdateTargetV2) -> bool {
         self.valid_base(target, true)
     }
     pub(super) fn tuple_digest(&self) -> Option<[u8; 32]> {
