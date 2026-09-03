@@ -42,7 +42,7 @@ fn inner(context: &super::support::InnerContext) -> Result<(), &'static str> {
 }
 
 fn unrelated_peer_inner(context: &super::support::InnerContext) -> Result<(), &'static str> {
-    let socket = context.root().join("unrelated-peer.sock");
+    let socket = std::path::PathBuf::from(format!("/tmp/runne-u-{}", std::process::id()));
     let listener = UnixListener::bind(&socket).map_err(|_| "unrelated-peer-listener")?;
     let mut unrelated = Command::new(std::env::current_exe().map_err(|_| "unrelated-peer-self")?)
         .args(["--exact", "persistent_reference::unrelated_peer_holder"])

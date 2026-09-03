@@ -248,10 +248,32 @@ fn challenge_transcript(challenge: &[u8], publication_public_key: [u8; 32]) -> V
 }
 
 fn configure(transport: &UnixStream) -> Result<(), BrokerHandoffError> {
+    let timeout = transfer_timeout();
     transport
-        .set_read_timeout(Some(TRANSFER_TIMEOUT))
-        .and_then(|()| transport.set_write_timeout(Some(TRANSFER_TIMEOUT)))
+        .set_read_timeout(Some(timeout))
+        .and_then(|()| transport.set_write_timeout(Some(timeout)))
         .map_err(|_| BrokerHandoffError::Unavailable)
+}
+
+#[cfg(feature = "test-support")]
+fn transfer_timeout() -> std::time::Duration {
+    let opted_in = std::env::var_os("RUNNE_LOCAL_NATIVE_ENROLLMENT_TEST").as_deref()
+        == Some(std::ffi::OsStr::new("1"));
+    transfer_timeout_for_local_test_opt_in(opted_in)
+}
+
+#[cfg(feature = "test-support")]
+pub(super) const fn transfer_timeout_for_local_test_opt_in(opted_in: bool) -> std::time::Duration {
+    if opted_in {
+        std::time::Duration::from_mins(2)
+    } else {
+        TRANSFER_TIMEOUT
+    }
+}
+
+#[cfg(not(feature = "test-support"))]
+const fn transfer_timeout() -> std::time::Duration {
+    TRANSFER_TIMEOUT
 }
 
 fn require_eof(transport: &mut UnixStream) -> Result<(), BrokerHandoffError> {

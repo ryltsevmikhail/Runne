@@ -5,6 +5,18 @@ use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
 
 use super::*;
 
+#[test]
+fn local_test_opt_in_extends_only_the_endpoint_rendezvous_wait_budget() {
+    assert_eq!(
+        daemon_rendezvous::transfer_timeout_for_local_test_opt_in(true),
+        std::time::Duration::from_mins(2)
+    );
+    assert_eq!(
+        daemon_rendezvous::transfer_timeout_for_local_test_opt_in(false),
+        std::time::Duration::from_secs(5)
+    );
+}
+
 fn daemon_authority(
     authenticator: &CredentialBrokerTransferAuthenticator,
 ) -> ProviderCredentialBrokerTransferAuthority {

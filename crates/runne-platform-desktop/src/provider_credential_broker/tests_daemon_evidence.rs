@@ -7,8 +7,21 @@ use runne_platform_ports::provider_credential_broker::{
 
 use super::daemon_evidence::{
     receive_daemon_owned_writer_measurements, send_daemon_owned_writer_evidence,
+    transfer_timeout_for_local_test_opt_in,
 };
 use super::*;
+
+#[test]
+fn local_test_opt_in_extends_only_the_daemon_evidence_wait_budget() {
+    assert_eq!(
+        transfer_timeout_for_local_test_opt_in(true),
+        std::time::Duration::from_mins(2)
+    );
+    assert_eq!(
+        transfer_timeout_for_local_test_opt_in(false),
+        std::time::Duration::from_secs(5)
+    );
+}
 
 fn daemon_authority(
     authenticator: &runne_api::CredentialBrokerTransferAuthenticator,
