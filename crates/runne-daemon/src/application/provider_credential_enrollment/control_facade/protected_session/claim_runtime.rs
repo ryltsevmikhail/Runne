@@ -126,20 +126,27 @@ impl DaemonProtectedCredentialEnrollmentSession {
             .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)
     }
 
-    /// Recovery has no secret relay; the accepted exchange and writer claim are required.
+    /// Secretless release for one claimed control-only effect of this exact
+    /// session: a fresh begun operation or the accepted recovery operation.
+    /// The claimed operation id must resolve through the same session identity,
+    /// and no relay may exist for a control-only claim.
     pub(crate) fn release_control_only(
         &self,
         pending: PendingProtectedBrokerClaim,
         channel: &mut broker::MacOsCredentialBrokerChannel,
     ) -> Result<ReleasedProtectedBrokerClaim, ProviderCredentialEnrollmentHostError> {
-        if !self.recovery.started || pending.relay.is_some() {
+        if pending.relay.is_some() {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        let operation_id = self.operation_id()?;
+        if pending.claimed.operation_id != operation_id {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
         let coordinator =
             broker::ProviderCredentialBroker::new(Arc::new(self.control.measurements.clone()));
         coordinator.release_control_only_effect(
             &pending.claimed,
-            self.operation_id()?,
+            operation_id,
             self.control.store.as_ref(),
             channel,
         )?;
