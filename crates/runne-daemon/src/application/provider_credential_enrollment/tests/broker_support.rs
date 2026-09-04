@@ -86,8 +86,12 @@ fn fixture_with_action(action: CredentialOperationAction, idempotency: &str) -> 
     .with_qualified_release_tuple(qualified);
     let input = match action {
         CredentialOperationAction::MigrateLegacy => {
-            let authorization = enrollment.issue_legacy_import_authorization(&input).unwrap();
-            input.with_legacy_import_authorization(authorization).unwrap()
+            let authorization = enrollment
+                .issue_legacy_import_authorization(&input)
+                .unwrap();
+            input
+                .with_legacy_import_authorization(authorization)
+                .unwrap()
         }
         _ => input,
     };

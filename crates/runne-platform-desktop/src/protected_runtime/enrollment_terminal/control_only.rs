@@ -5,7 +5,7 @@ use super::{
 };
 
 impl ProtectedBundledRuntimeSupervisor {
-    /// Receives Revoke and MigrateLegacy terminal evidence without a secret-relay
+    /// Receives Revoke and `MigrateLegacy` terminal evidence without a secret-relay
     /// acknowledgement. Caller retains exclusive leases and non-cancellable writer
     /// cleanup ownership.
     ///

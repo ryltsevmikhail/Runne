@@ -38,6 +38,12 @@ mod service_process;
 mod support;
 
 #[test]
+#[ignore = "real native scenario; isolated disposable macOS host only"]
+fn legacy_cleanup_scenario_chain_completes_import_cutover_delete_crash_and_tombstone() {
+    legacy_scenario::run();
+}
+
+#[test]
 fn real_pair_transcript_persists_across_runned_restart() {
     positive::run();
 }

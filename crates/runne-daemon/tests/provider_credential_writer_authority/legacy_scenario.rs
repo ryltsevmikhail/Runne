@@ -1,41 +1,101 @@
 //! Dedicated legacy import/cutover/delete/crash native scenario.
 //!
 //! The scenario runs only under the disposable Keychain rig on an isolated
-//! darwin arm64 host through the pinned `--ignored` invocation. Until its
-//! native stages are implemented it fails closed: it validates the runner
-//! binding and then refuses, so a green result can never be produced without
-//! the real chain.
+//! darwin arm64 host through the pinned `--ignored` invocation. Every stage
+//! either executes the real production path or fails closed with a named
+//! error, so a green result is impossible without the real chain.
 
 use super::legacy_evidence::{
     LEGACY_CLEANUP_CANDIDATE_ENV, LEGACY_CLEANUP_EVIDENCE_ENV, LEGACY_CLEANUP_RUN_ID_ENV,
     LEGACY_CLEANUP_TUPLE_ENV, is_evidence_digest_shape, is_evidence_run_id_shape,
 };
+use super::support::InnerContext;
 
-#[test]
-#[ignore = "real native scenario; isolated disposable macOS host only"]
-fn legacy_cleanup_scenario_chain_completes_import_cutover_delete_crash_and_tombstone() {
-    let environment = scenario_binding_from_environment();
-    // Native stages (legacy seeding, authorized import, durable cutover,
-    // exact deletion, delete-before-confirmation crash, restart absence
-    // readback, tombstone, replacement/ambiguity denial, evidence emission)
-    // are the next implementation slice. Refuse rather than pass.
-    let ScenarioBinding {
-        candidate_sha256,
-        tuple_sha256,
-        workflow_run_id,
-        evidence,
-    } = environment;
-    assert!(!candidate_sha256.is_empty());
-    assert!(!tuple_sha256.is_empty());
-    assert!(!workflow_run_id.is_empty());
-    assert!(!evidence.as_os_str().is_empty());
-    panic!("native legacy cleanup scenario stages are not implemented yet");
+pub(super) fn run() {
+    super::harness::dispatch_scenarios(
+        "legacy_cleanup_scenario_chain_completes_import_cutover_delete_crash_and_tombstone",
+        &["import"],
+        inner,
+    );
 }
 
-fn scenario_binding_from_environment() -> ScenarioBinding {
-    let evidence = std::env::var_os(LEGACY_CLEANUP_EVIDENCE_ENV)
+fn inner(context: &InnerContext, scenario: &str) -> Result<(), &'static str> {
+    scenario_binding_from_environment();
+    match scenario {
+        "import" => import_stage(context),
+        _ => Err("unknown-legacy-scenario"),
+    }
+}
+
+/// Seeds the generation-0 legacy source, then drives the production daemon
+/// MigrateLegacy transcript to its durable cutover.
+fn import_stage(context: &InnerContext) -> Result<(), &'static str> {
+    seed_legacy_source(context)?;
+    // The daemon transcript stages (ControlOnly handoff, authorized import,
+    // durable cutover, atomic PREPARED cleanup) are wired in the next slice.
+    // Refuse rather than pass without them.
+    Err("migrate-transcript-stage-not-implemented")
+}
+
+fn seed_legacy_source(context: &InnerContext) -> Result<(), &'static str> {
+    use runne_secure_store::{
+        NativeProviderCredentialStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
+        ProviderCredentialMaterial, ProviderCredentialSourceRevision,
+    };
+    let store = NativeProviderCredentialStore::new();
+    let access = ProviderCredentialAccessPolicy::new(&context.writer(), context.daemon())
+        .map_err(|_| "seed-access-policy")?;
+    let exact =
+        runne_macos_keychain_acl::ExactKeychainAccess::new(&context.writer(), context.daemon())
+            .map_err(|_| "seed-exact-access")?;
+    let material = ProviderCredentialMaterial::new(super::audit::secret_canary(context.root()))
+        .map_err(|_| "seed-material")?;
+    let revision = ProviderCredentialSourceRevision::new([
+        0x5c, 0x4a, 0x11, 0xf2, 0x9d, 0x63, 0xb8, 0x27, 0x40, 0x71, 0xe5, 0x0a, 0xd3, 0x96, 0x18,
+        0x6f,
+    ])
+    .map_err(|_| "seed-revision")?;
+    store
+        .seed_generation_zero_source_scenario(
+            ProviderCredentialId::OpenAi,
+            &material,
+            &access,
+            &exact,
+            revision,
+        )
+        .map_err(|_| "seed-generation-zero")?;
+    assert_seeded_item_is_visible();
+    Ok(())
+}
+
+/// The seeded item must be findable by its exact service and account identity.
+fn assert_seeded_item_is_visible() {
+    let keychain = scenario_keychain();
+    let metadata = runne_macos_keychain_acl::find_generic_password_metadata(
+        &keychain,
+        runne_secure_store::PROVIDER_CREDENTIAL_SERVICE,
+        runne_secure_store::ProviderCredentialId::OpenAi.account(),
+    )
+    .expect("seeded item lookup")
+    .expect("seeded generation-0 item must exist");
+    assert!(!metadata.bytes.is_empty(), "seeded metadata is empty");
+}
+
+fn scenario_keychain() -> security_framework::os::macos::keychain::SecKeychain {
+    let home = std::env::var_os("HOME").expect("scenario HOME");
+    let path = std::path::PathBuf::from(home).join("Library/Keychains/runne-ci.keychain-db");
+    security_framework::os::macos::keychain::SecKeychain::open(&path)
+        .expect("scenario disposable keychain")
+}
+
+fn scenario_binding_from_environment() {
+    let evidence_path = std::env::var_os(LEGACY_CLEANUP_EVIDENCE_ENV)
         .ok_or("scenario binding is missing the evidence path")
         .expect("scenario evidence path binding");
+    assert!(
+        !std::path::PathBuf::from(&evidence_path).exists(),
+        "scenario evidence path must not exist before the run"
+    );
     let read = |name: &'static str| -> String {
         match std::env::var(name) {
             Ok(value) => value,
@@ -53,17 +113,4 @@ fn scenario_binding_from_environment() -> ScenarioBinding {
         is_evidence_run_id_shape(&workflow_run_id),
         "scenario workflow identity is invalid"
     );
-    ScenarioBinding {
-        candidate_sha256,
-        tuple_sha256,
-        workflow_run_id,
-        evidence: std::path::PathBuf::from(evidence),
-    }
-}
-
-struct ScenarioBinding {
-    candidate_sha256: String,
-    tuple_sha256: String,
-    workflow_run_id: String,
-    evidence: std::path::PathBuf,
 }
