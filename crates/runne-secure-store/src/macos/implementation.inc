@@ -8,6 +8,8 @@ include!("implementation_parts/provider_credential_version_store.inc");
 include!("implementation_parts/migration.inc");
 include!("implementation_parts/recovery_and_lookup.inc");
 include!("implementation_parts/keyring_and_codec.inc");
+#[cfg(feature = "test-support")]
+include!("implementation_parts/scenario_source_seed.inc");
 
 #[cfg(test)]
 mod tests {
