@@ -178,6 +178,29 @@ struct Terminal<R> {
     stage: Stage,
 }
 
+/// Blocking control-only terminal accept for one fresh Revoke or
+/// `MigrateLegacy` enrollment: no relay was ever sent, so no ack precedes
+/// the terminal snapshot. The enrollment kind gate mirrors the async
+/// control-only path.
+pub(in crate::protected_runtime) fn accept_control_only(
+    process: &mut ProtectedBundledRuntimeProcess,
+    enrollment: &mut PreparedProtectedCredentialEnrollment,
+    frame: &[u8],
+) -> Result<(), ProtectedBundledRuntimeError> {
+    use runne_api::ProviderCredentialOperationKindV2;
+    if !matches!(
+        enrollment.snapshot.operation_kind(),
+        ProviderCredentialOperationKindV2::Revoke
+            | ProviderCredentialOperationKindV2::MigrateLegacy
+    ) || enrollment.relay.is_some()
+        || enrollment.relay_taken
+        || enrollment.terminal
+    {
+        return Err(ProtectedBundledRuntimeError::InvalidState);
+    }
+    accept_after(process, enrollment, frame, 1)
+}
+
 impl<R: RejoinRegistration> ControlSteps for Terminal<R> {
     type Output = PreparedProtectedCredentialEnrollment;
     async fn read(&mut self) -> Result<Response<Self::Output>, ProtectedBundledRuntimeError> {

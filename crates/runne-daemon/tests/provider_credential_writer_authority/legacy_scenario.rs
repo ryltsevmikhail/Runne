@@ -10,11 +10,12 @@ use super::legacy_evidence::{
     LEGACY_CLEANUP_TUPLE_ENV, is_evidence_digest_shape, is_evidence_run_id_shape,
 };
 use super::support::InnerContext;
+use zeroize::Zeroizing;
 
 pub(super) fn run() {
     super::harness::dispatch_scenarios(
         "legacy_cleanup_scenario_chain_completes_import_cutover_delete_crash_and_tombstone",
-        &["import"],
+        &["legacy-import"],
         inner,
     );
 }
@@ -22,7 +23,7 @@ pub(super) fn run() {
 fn inner(context: &InnerContext, scenario: &str) -> Result<(), &'static str> {
     scenario_binding_from_environment();
     match scenario {
-        "import" => import_stage(context),
+        "legacy-import" => import_stage(context),
         _ => Err("unknown-legacy-scenario"),
     }
 }
@@ -31,10 +32,137 @@ fn inner(context: &InnerContext, scenario: &str) -> Result<(), &'static str> {
 /// MigrateLegacy transcript to its durable cutover.
 fn import_stage(context: &InnerContext) -> Result<(), &'static str> {
     seed_legacy_source(context)?;
-    // The daemon transcript stages (ControlOnly handoff, authorized import,
-    // durable cutover, atomic PREPARED cleanup) are wired in the next slice.
-    // Refuse rather than pass without them.
-    Err("migrate-transcript-stage-not-implemented")
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|_| "tokio-runtime")?;
+    runtime.block_on(migrate_transcript(context))?;
+    assert_durable_migrate_state(context)
+}
+
+async fn migrate_transcript(context: &InnerContext) -> Result<(), &'static str> {
+    use runne_api::{
+        BeginProviderCredentialEnrollment, ProviderCredentialEnrollmentActionV2,
+        ProviderCredentialOperationStateV2, ProviderCredentialProviderV2,
+        ProviderReadinessStatusV1,
+    };
+    use runne_platform_desktop::{
+        CredentialWriterHandoffMode, NativeProtectedCredentialEnrollmentBegin,
+    };
+
+    let prepared = runne_platform_desktop::prepare_local_native_enrollment(context.profile())
+        .ok_or("local-admission")?;
+    let mut supervisor = context.supervisor()?;
+    supervisor.start().map_err(|_| "initial-runned-start")?;
+    let initial = super::support::connect(&mut supervisor, "initial").await?;
+    // The seeded generation-0 source is a committed slot: the daemon reader
+    // reports the provider Ready before the migration begins.
+    super::support::require_selected(&initial, ProviderReadinessStatusV1::Ready)?;
+    supervisor
+        .record_client_ready(&initial)
+        .map_err(|_| "initial-ready")?;
+    drop(initial);
+    let confirmed = supervisor
+        .confirm_installed_native_enrollment(prepared)
+        .map_err(|_| "local-confirmation")?;
+    supervisor
+        .begin_credential_enrollment_transition(&confirmed)
+        .map_err(|_| "v3-transition")?;
+    let v3 = super::support::connect(&mut supervisor, "v3").await?;
+    supervisor
+        .record_client_ready(&v3)
+        .map_err(|_| "v3-ready")?;
+    drop(v3);
+    super::support::register_credential_service_session(&mut supervisor, &confirmed).await?;
+
+    let secret = Zeroizing::new(super::audit::secret_canary(context.root()));
+    let command_id = uuid::Uuid::now_v7().to_string();
+    let command = BeginProviderCredentialEnrollment::new(
+        ProviderCredentialEnrollmentActionV2::MigrateLegacy,
+        ProviderCredentialProviderV2::OpenAi,
+        1,
+        &command_id,
+        format!("slice-e-migrate-{command_id}"),
+        "slice-e-migrate-intent",
+    )
+    .map_err(|_| "begin-command")?;
+    let begin = NativeProtectedCredentialEnrollmentBegin::new(
+        command,
+        super::audit::ticket_canary(secret.as_slice()),
+    )
+    .map_err(|_| "native-begin")?;
+    let mut enrollment = supervisor
+        .begin_protected_credential_enrollment(begin)
+        .map_err(|_| "protected-begin")?;
+    if enrollment.snapshot().state() != ProviderCredentialOperationStateV2::Prepared {
+        return Err("prepared-state");
+    }
+    let mut handoff = supervisor
+        .run_credential_writer_handoff(&confirmed, CredentialWriterHandoffMode::ControlOnly)
+        .map_err(|_| "writer-handoff")?;
+    // Control-only claimed effects carry no secret relay, so no relay receive
+    // or acknowledgement precedes the terminal evidence.
+    supervisor
+        .finish_control_only_credential_enrollment(&mut enrollment)
+        .map_err(|_| "control-only-terminal")?;
+    if !enrollment.terminal()
+        || enrollment.snapshot().state() != ProviderCredentialOperationStateV2::Completed
+    {
+        return Err("terminal-state");
+    }
+    handoff.reap_exact_writer().map_err(|_| "writer-reap")?;
+    supervisor.stop().map_err(|_| "first-runned-stop")?;
+    Ok(())
+}
+
+/// The durable cutover must be committed before any cleanup runs: the import
+/// operation is COMPLETED, the head carries the consumed legacy linkage, the
+/// linked cleanup operation is only PREPARED, and the legacy item is intact.
+fn assert_durable_migrate_state(context: &InnerContext) -> Result<(), &'static str> {
+    let database = context.runtime_root().join("runne-daemon/event-log.db");
+    let connection = rusqlite::Connection::open_with_flags(
+        &database,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .map_err(|_| "sqlite-open")?;
+    let mut operations = connection
+        .prepare("SELECT action, state FROM provider_credential_operations ORDER BY action")
+        .map_err(|_| "sqlite-prepare")?;
+    let rows = operations
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|_| "sqlite-query")?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "sqlite-row")?;
+    drop(operations);
+    if rows
+        != vec![
+            ("LEGACY_SOURCE_CLEANUP".to_string(), "PREPARED".to_string()),
+            ("MIGRATE_LEGACY".to_string(), "COMPLETED".to_string()),
+        ]
+    {
+        return Err("durable-operations");
+    }
+    type LegacyHeadRow = (i64, Option<Vec<u8>>, Option<i64>, Option<Vec<u8>>);
+    let (consumed, digest, revision, cleanup): LegacyHeadRow = connection
+        .query_row(
+            "SELECT legacy_import_consumed, legacy_source_binding_digest,
+                        legacy_consumed_lifecycle_revision, legacy_cleanup_operation_id
+                 FROM provider_credential_authority_heads WHERE provider_id='openai'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .map_err(|_| "sqlite-head")?;
+    if consumed != 1
+        || digest.is_none_or(|value| value.iter().all(|byte| *byte == 0))
+        || revision != Some(2)
+        || cleanup.is_none()
+    {
+        return Err("durable-cutover-linkage");
+    }
+    assert_seeded_item_is_visible();
+    Ok(())
 }
 
 fn seed_legacy_source(context: &InnerContext) -> Result<(), &'static str> {

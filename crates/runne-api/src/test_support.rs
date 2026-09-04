@@ -118,6 +118,10 @@ pub fn validated_local_native_enrollment_case_name() -> Option<String> {
             | "replaced"
             | "stale"
             | "acl"
+            | "legacy-import"
+            | "legacy-crash-delete"
+            | "legacy-replacement-denied"
+            | "legacy-ambiguous-denied"
     )
     .then_some(scenario)
 }

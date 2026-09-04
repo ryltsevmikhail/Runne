@@ -99,6 +99,26 @@ impl ProtectedBundledRuntimeSupervisor {
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?
             .finish_protected_credential_enrollment(enrollment, relay)
     }
+
+    /// Reads terminal evidence for one control-only claimed effect (fresh
+    /// Revoke or `MigrateLegacy`) without any relay acknowledgement.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed failure for stale lifecycle, a retained relay, or
+    /// invalid terminal evidence.
+    pub fn finish_control_only_credential_enrollment(
+        &mut self,
+        enrollment: &mut PreparedProtectedCredentialEnrollment,
+    ) -> Result<(), ProtectedBundledRuntimeError> {
+        if self.state != BundledRuntimeLifecycleState::Ready || self.pending_profile.is_some() {
+            return Err(ProtectedBundledRuntimeError::InvalidState);
+        }
+        self.process
+            .as_mut()
+            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?
+            .finish_control_only_credential_enrollment(enrollment)
+    }
 }
 
 impl ProtectedBundledRuntimeProcess {
@@ -239,6 +259,14 @@ impl ProtectedBundledRuntimeProcess {
         write_frame(&mut self.channel, &ack)?;
         let frame = read_frame(&mut self.channel)?;
         enrollment_terminal::accept(self, enrollment, &frame)
+    }
+
+    fn finish_control_only_credential_enrollment(
+        &mut self,
+        enrollment: &mut PreparedProtectedCredentialEnrollment,
+    ) -> Result<(), ProtectedBundledRuntimeError> {
+        let frame = read_frame(&mut self.channel)?;
+        enrollment_terminal::accept_control_only(self, enrollment, &frame)
     }
 
     fn v3_enrollment_facts(
