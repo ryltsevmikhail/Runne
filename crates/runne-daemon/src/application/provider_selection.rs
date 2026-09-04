@@ -1,8 +1,9 @@
 use super::*;
 use crate::canonical_provider::{
     OpenAiTextProviderProfile, ProviderEffectFactory, SharedTextProviderProfile,
-    deepseek_effect_adapter, openai_effect_adapter,
+    deepseek_effect_adapter, local_engine_effect_adapter, openai_effect_adapter,
 };
+use runne_daemon_local_engine_effect::LocalEngineTextProfile;
 use runne_provider_deepseek::{
     DEEPSEEK_MODEL_ID, DEEPSEEK_MODEL_REVISION, DeepSeekResponsesTextProfile,
 };
@@ -26,6 +27,7 @@ pub(super) fn select_provider_runtime(
         ProviderActivation::Deterministic(_) => Ok(None),
         ProviderActivation::OpenAiResponsesText(_) => openai_runtime().map(Some),
         ProviderActivation::DeepSeekResponsesText(_) => deepseek_runtime().map(Some),
+        ProviderActivation::LocalEngineText(_) => local_engine_runtime().map(Some),
     }
 }
 
@@ -36,6 +38,7 @@ pub(super) const fn provider_credential_id(
         ProviderActivation::Deterministic(_) => None,
         ProviderActivation::OpenAiResponsesText(_) => Some(ProviderCredentialId::OpenAi),
         ProviderActivation::DeepSeekResponsesText(_) => Some(ProviderCredentialId::DeepSeek),
+        ProviderActivation::LocalEngineText(_) => Some(ProviderCredentialId::LocalEngine),
     }
 }
 
@@ -78,5 +81,25 @@ fn deepseek_runtime() -> Result<SelectedProviderRuntime, DaemonError> {
         model_revision: DEEPSEEK_MODEL_REVISION,
         scope: "provider.deepseek.responses.text",
         credential_id: ProviderCredentialId::DeepSeek,
+    })
+}
+
+fn local_engine_runtime() -> Result<SelectedProviderRuntime, DaemonError> {
+    let profile = LocalEngineTextProfile::from_json(include_bytes!(
+        "../../../../docs/profiles/local-engine-text-v1.json"
+    ))
+    .map_err(|_| DaemonError::Bootstrap("provider profile unavailable".into()))?;
+    Ok(SelectedProviderRuntime {
+        profile: Arc::new(SharedTextProviderProfile::new(Arc::new(profile))),
+        adapter_factory: Arc::new(|_authority| {
+            runne_daemon_local_engine_effect::production()
+                .map(local_engine_effect_adapter)
+                .map_err(|_| DaemonError::Bootstrap("provider adapter unavailable".into()))
+        }),
+        provider_id: "local",
+        model_id: "local-engine-text",
+        model_revision: "v1",
+        scope: "provider.local.engine.text",
+        credential_id: ProviderCredentialId::LocalEngine,
     })
 }

@@ -25,6 +25,10 @@ struct DeepSeekAdapter {
     inner: Arc<dyn runne_daemon_deepseek_effect::DeepSeekEffect>,
 }
 
+struct LocalEngineAdapter {
+    inner: Arc<dyn runne_daemon_local_engine_effect::LocalEngineEffect>,
+}
+
 pub(crate) fn openai_effect_adapter(
     inner: Arc<dyn runne_daemon_openai_effect::OpenAiEffect>,
 ) -> Arc<dyn CanonicalProviderEffect> {
@@ -35,6 +39,12 @@ pub(crate) fn deepseek_effect_adapter(
     inner: Arc<dyn runne_daemon_deepseek_effect::DeepSeekEffect>,
 ) -> Arc<dyn CanonicalProviderEffect> {
     Arc::new(DeepSeekAdapter { inner })
+}
+
+pub(crate) fn local_engine_effect_adapter(
+    inner: Arc<dyn runne_daemon_local_engine_effect::LocalEngineEffect>,
+) -> Arc<dyn CanonicalProviderEffect> {
+    Arc::new(LocalEngineAdapter { inner })
 }
 
 macro_rules! impl_provider_adapter {
@@ -112,3 +122,4 @@ macro_rules! impl_provider_adapter {
 
 impl_provider_adapter!(OpenAiAdapter);
 impl_provider_adapter!(DeepSeekAdapter);
+impl_provider_adapter!(LocalEngineAdapter);

@@ -35,6 +35,7 @@ runne-platform-desktop = { path = "../runne-platform-desktop", optional = true }
 runne-http = { path = "../runne-http" }
 runne-daemon-openai-effect = { path = "../runne-daemon-openai-effect" }
 runne-daemon-deepseek-effect = { path = "../runne-daemon-deepseek-effect" }
+runne-daemon-local-engine-effect = { path = "../runne-daemon-local-engine-effect" }
 axum = "0.8"
 hyper = { version = "1", features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["http1", "server", "tokio"] }

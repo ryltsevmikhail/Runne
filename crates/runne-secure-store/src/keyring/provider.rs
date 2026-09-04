@@ -194,6 +194,7 @@ fn provider_id(reference: &CredentialVersionRef) -> Result<ProviderCredentialId,
     match reference.provider().as_str() {
         "openai" => Ok(ProviderCredentialId::OpenAi),
         "deepseek" => Ok(ProviderCredentialId::DeepSeek),
+        "local-engine" => Ok(ProviderCredentialId::LocalEngine),
         _ => Err(SecureStoreError::ProviderCredentialOperationFailed),
     }
 }

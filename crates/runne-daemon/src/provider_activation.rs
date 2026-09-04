@@ -11,6 +11,8 @@ pub enum ProviderActivation {
     OpenAiResponsesText(ProviderActivationBindingV1),
     /// Exact DeepSeek Responses text mode. Execution wiring is admitted separately.
     DeepSeekResponsesText(ProviderActivationBindingV1),
+    /// Exact bounded Local Engine text mode. Execution wiring is admitted separately.
+    LocalEngineText(ProviderActivationBindingV1),
 }
 
 impl ProviderActivation {
@@ -29,6 +31,7 @@ impl ProviderActivation {
             ProviderActivationModeV1::DeepSeekResponsesTextV1 => {
                 Self::DeepSeekResponsesText(binding)
             }
+            ProviderActivationModeV1::LocalEngineTextV1 => Self::LocalEngineText(binding),
         }
     }
 
@@ -38,7 +41,8 @@ impl ProviderActivation {
         match self {
             Self::Deterministic(binding)
             | Self::OpenAiResponsesText(binding)
-            | Self::DeepSeekResponsesText(binding) => binding,
+            | Self::DeepSeekResponsesText(binding)
+            | Self::LocalEngineText(binding) => binding,
         }
     }
 
@@ -52,5 +56,11 @@ impl ProviderActivation {
     #[must_use]
     pub const fn requires_deepseek_execution(&self) -> bool {
         matches!(self, Self::DeepSeekResponsesText(_))
+    }
+
+    /// Reports whether the exact Local Engine execution path is required.
+    #[must_use]
+    pub const fn requires_local_engine_execution(&self) -> bool {
+        matches!(self, Self::LocalEngineText(_))
     }
 }

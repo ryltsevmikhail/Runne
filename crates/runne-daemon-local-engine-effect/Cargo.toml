@@ -9,5 +9,10 @@ publish = false
 runne-provider = { path = "../runne-provider" }
 runne-store = { path = "../runne-store" }
 serde_json = "1"
+sha2 = "0.10"
 thiserror = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+serde_json = "1"
 tokio = { workspace = true }

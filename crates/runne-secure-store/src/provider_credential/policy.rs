@@ -11,6 +11,8 @@ pub enum ProviderCredentialId {
     OpenAi,
     /// `DeepSeek` Responses API credential.
     DeepSeek,
+    /// Local Engine launch-authority credential (non-secret marker).
+    LocalEngine,
 }
 
 impl ProviderCredentialId {
@@ -20,6 +22,7 @@ impl ProviderCredentialId {
         match self {
             Self::OpenAi => "openai",
             Self::DeepSeek => "deepseek",
+            Self::LocalEngine => "local-engine",
         }
     }
 }

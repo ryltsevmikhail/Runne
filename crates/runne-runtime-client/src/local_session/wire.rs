@@ -70,6 +70,7 @@ const fn provider_id(mode: runne_api::ProviderActivationModeV1) -> &'static str 
         runne_api::ProviderActivationModeV1::DeterministicV1 => "deterministic",
         runne_api::ProviderActivationModeV1::OpenAiResponsesTextV1 => "openai",
         runne_api::ProviderActivationModeV1::DeepSeekResponsesTextV1 => "deepseek",
+        runne_api::ProviderActivationModeV1::LocalEngineTextV1 => "local",
     }
 }
 

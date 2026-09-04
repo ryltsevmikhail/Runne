@@ -3954,6 +3954,7 @@ dependencies = [
  "runne-app-core",
  "runne-application",
  "runne-daemon-deepseek-effect",
+ "runne-daemon-local-engine-effect",
  "runne-daemon-openai-effect",
  "runne-domain",
  "runne-http",
@@ -4028,6 +4029,7 @@ dependencies = [
  "runne-provider",
  "runne-store",
  "serde_json",
+ "sha2",
  "thiserror 2.0.18",
  "tokio",
 ]

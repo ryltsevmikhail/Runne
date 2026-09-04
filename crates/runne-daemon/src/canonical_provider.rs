@@ -68,7 +68,8 @@ pub(crate) use activation_provenance::DaemonActivationProvenance;
 pub(crate) use composition::DaemonCanonicalProviderComposition;
 pub use composition::DaemonCanonicalProviderService;
 pub(crate) use effect_adapter::{
-    CanonicalProviderEffect, ProviderEffectFactory, deepseek_effect_adapter, openai_effect_adapter,
+    CanonicalProviderEffect, ProviderEffectFactory, deepseek_effect_adapter,
+    local_engine_effect_adapter, openai_effect_adapter,
 };
 pub(crate) use openai_profile::OpenAiTextProviderProfile;
 pub(crate) use readiness::probe_provider_readiness;

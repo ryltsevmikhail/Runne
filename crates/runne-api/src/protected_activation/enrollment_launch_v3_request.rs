@@ -171,7 +171,10 @@ fn require_credential_provider(
     match provider.mode() {
         ProviderActivationModeV1::OpenAiResponsesTextV1
         | ProviderActivationModeV1::DeepSeekResponsesTextV1 => Ok(()),
-        ProviderActivationModeV1::DeterministicV1 => {
+        // Local Engine execution is credential-free by contract: it is
+        // admitted through the launch binding, not through enrollment.
+        ProviderActivationModeV1::LocalEngineTextV1
+        | ProviderActivationModeV1::DeterministicV1 => {
             Err(LaunchAuthorityError::ProviderModeMismatch)
         }
     }

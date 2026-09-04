@@ -19,6 +19,8 @@ use runne_provider::{
 use runne_store::provider::{ProviderEffectPort, ProviderEffectStartReceipt, ProviderReadyEffect};
 
 mod engine;
+pub mod profile;
+pub use profile::LocalEngineTextProfile;
 mod port_impl;
 #[cfg(test)]
 mod tests;
