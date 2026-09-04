@@ -72,6 +72,13 @@ pub(super) struct ClaimedBrokerEffect {
     publication_taken: bool,
 }
 
+impl ClaimedBrokerEffect {
+    /// Returns the exact claimed operation identity for session binding checks.
+    pub(crate) const fn operation_id(&self) -> CredentialOperationId {
+        self.operation_id
+    }
+}
+
 pub(super) struct AcceptedBrokerClaim {
     acknowledgement: Vec<u8>,
     pending_publication: Option<CredentialSecretClaimOffer>,

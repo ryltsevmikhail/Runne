@@ -139,7 +139,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
         let operation_id = self.operation_id()?;
-        if pending.claimed.operation_id != operation_id {
+        if pending.claimed.operation_id() != operation_id {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
         let coordinator =
