@@ -19,6 +19,10 @@ disposable user only):
 The scenario reads its binding from ``RUNNE_LEGACY_CLEANUP_CANDIDATE``,
 ``RUNNE_LEGACY_CLEANUP_TUPLE``, ``RUNNE_LEGACY_CLEANUP_RUN_ID`` and writes the
 envelope to ``RUNNE_LEGACY_CLEANUP_EVIDENCE``.
+The native outer harness additionally requires ``RUNNE_LEGACY_CLEANUP_ISOLATED=1``.
+Set it only on the confirmed disposable macOS login/VM after ``check-host
+--isolated-host`` succeeds. This explicit opt-in is not proof of isolation or
+qualification; runner-owned enforcement must establish those separately.
 """
 from __future__ import annotations
 
@@ -49,7 +53,8 @@ def _invalid_constant(_value):
 
 
 def load_evidence(path: Path) -> object:
-    encoded = path.read_bytes()[: MAX_EVIDENCE_BYTES + 1]
+    with path.open("rb") as source:
+        encoded = source.read(MAX_EVIDENCE_BYTES + 1)
     if len(encoded) > MAX_EVIDENCE_BYTES:
         raise ValueError("oversized evidence")
     return json.loads(encoded, object_pairs_hook=_unique, parse_constant=_invalid_constant)

@@ -47,6 +47,7 @@ pub enum LocalNativeEnrollmentCase {
     DeathReleased,
     DeathReadback,
     Leakage,
+    LegacyCrashDelete,
 }
 
 impl LocalNativeEnrollmentCase {
@@ -60,7 +61,14 @@ impl LocalNativeEnrollmentCase {
             Self::DeathReleased => "death-released",
             Self::DeathReadback => "death-readback",
             Self::Leakage => "leakage",
+            Self::LegacyCrashDelete => "legacy-crash-delete",
         }
+    }
+
+    /// Limits the destructive self-termination hook to the exact crash fixture.
+    #[must_use]
+    pub const fn crashes_after_legacy_source_delete(self) -> bool {
+        matches!(self, Self::LegacyCrashDelete)
     }
 }
 
@@ -68,13 +76,18 @@ impl LocalNativeEnrollmentCase {
 #[must_use]
 pub fn local_native_enrollment_case() -> Option<LocalNativeEnrollmentCase> {
     let name = validated_local_native_enrollment_case_name()?;
-    match name.as_str() {
+    local_native_enrollment_case_from_name(&name)
+}
+
+fn local_native_enrollment_case_from_name(name: &str) -> Option<LocalNativeEnrollmentCase> {
+    match name {
         "release-wrong" => Some(LocalNativeEnrollmentCase::ReleaseWrong),
         "release-replayed" => Some(LocalNativeEnrollmentCase::ReleaseReplayed),
         "release-missing" => Some(LocalNativeEnrollmentCase::ReleaseMissing),
         "death-released" => Some(LocalNativeEnrollmentCase::DeathReleased),
         "death-readback" => Some(LocalNativeEnrollmentCase::DeathReadback),
         "leakage" => Some(LocalNativeEnrollmentCase::Leakage),
+        "legacy-crash-delete" => Some(LocalNativeEnrollmentCase::LegacyCrashDelete),
         _ => None,
     }
 }
@@ -193,4 +206,21 @@ fn envelope<T: Clone>(
 
 const fn bytes(last: u8) -> [u8; 16] {
     [1, 143, 46, 58, 112, 0, 112, 0, 128, 0, 0, 0, 0, 0, 0, last]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_crash_delete_selector_routes_only_to_the_post_delete_fault() {
+        let fault = local_native_enrollment_case_from_name("legacy-crash-delete");
+        assert_eq!(fault, Some(LocalNativeEnrollmentCase::LegacyCrashDelete));
+        assert!(fault.is_some_and(|case| case.crashes_after_legacy_source_delete()));
+        assert!(!LocalNativeEnrollmentCase::Leakage.crashes_after_legacy_source_delete());
+        assert_eq!(
+            local_native_enrollment_case_from_name("legacy-crash-delete-typo"),
+            None
+        );
+    }
 }

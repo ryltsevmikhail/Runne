@@ -1,13 +1,20 @@
 //! Builds the exact `legacy-source-cleanup-evidence.v1` envelope from real
 //! scenario outcomes. The envelope never carries secrets, native paths or
 //! receipts: each selector collapses to one SHA-256 observation digest.
-//! Writing an envelope is not qualification — protected enforcement and
-//! signature verification remain separate mandatory gates.
 
 use std::collections::BTreeMap;
+use std::io::Write as _;
 use std::path::Path;
 
 use sha2::{Digest as _, Sha256};
+
+#[path = "legacy_evidence/fragment.rs"]
+mod fragment;
+#[cfg(test)]
+#[path = "legacy_evidence/tests.rs"]
+mod tests;
+
+pub(super) use fragment::LegacyEvidenceBindings;
 
 pub(super) const SCHEMA_VERSION: &str = "legacy-source-cleanup-evidence.v1";
 pub(super) const AUTHORIZED_IMPORT: &str = "authorized_import";
@@ -27,13 +34,26 @@ const SELECTORS: [&str; 7] = [
     RESTART_AFTER_DELETE,
     REIMPORT_DENIED,
 ];
-
+const LEGACY_SCENARIOS: [(&str, &[&str]); 4] = [
+    ("legacy-import", &[AUTHORIZED_IMPORT, DURABLE_CUTOVER]),
+    (
+        "legacy-crash-delete",
+        &[EXACT_SOURCE_DELETED, RESTART_AFTER_DELETE, REIMPORT_DENIED],
+    ),
+    ("legacy-replacement-denied", &[REPLACEMENT_DENIED]),
+    ("legacy-ambiguous-denied", &[AMBIGUOUS_SOURCE_DENIED]),
+];
+pub(super) const LEGACY_SCENARIO_NAMES: [&str; 4] = [
+    "legacy-import",
+    "legacy-crash-delete",
+    "legacy-replacement-denied",
+    "legacy-ambiguous-denied",
+];
 pub(super) const LEGACY_CLEANUP_CANDIDATE_ENV: &str = "RUNNE_LEGACY_CLEANUP_CANDIDATE";
 pub(super) const LEGACY_CLEANUP_TUPLE_ENV: &str = "RUNNE_LEGACY_CLEANUP_TUPLE";
 pub(super) const LEGACY_CLEANUP_RUN_ID_ENV: &str = "RUNNE_LEGACY_CLEANUP_RUN_ID";
 pub(super) const LEGACY_CLEANUP_EVIDENCE_ENV: &str = "RUNNE_LEGACY_CLEANUP_EVIDENCE";
 
-/// Collects one digest per scenario selector and fails closed on duplicates.
 #[derive(Default)]
 pub(super) struct LegacyCleanupEvidence {
     observations: BTreeMap<&'static str, String>,
@@ -49,17 +69,17 @@ impl LegacyCleanupEvidence {
             !observation.is_empty(),
             "legacy cleanup observation must be non-empty"
         );
-        let digest = hex::encode(Sha256::digest(observation.as_bytes()));
-        let previous = self.observations.insert(selector, digest);
-        assert!(previous.is_none(), "duplicate legacy cleanup selector");
+        assert!(
+            self.observations
+                .insert(
+                    selector,
+                    hex::encode(Sha256::digest(observation.as_bytes()))
+                )
+                .is_none(),
+            "duplicate legacy cleanup selector"
+        );
     }
 
-    /// Writes the exact envelope accepted by the structural contract.
-    ///
-    /// # Errors
-    ///
-    /// Returns a static failure for incomplete scenarios, invalid expected
-    /// identities, or an unwritable evidence path.
     pub(super) fn write_envelope(
         self,
         path: &Path,
@@ -70,35 +90,88 @@ impl LegacyCleanupEvidence {
         if self.observations.len() != SELECTORS.len() {
             return Err("legacy evidence scenario is incomplete");
         }
-        for digest in [candidate_sha256, tuple_sha256] {
-            if !is_evidence_digest(digest) {
-                return Err("legacy evidence expected digest is invalid");
-            }
+        if ![candidate_sha256, tuple_sha256]
+            .into_iter()
+            .all(is_evidence_digest)
+        {
+            return Err("legacy evidence expected digest is invalid");
         }
         if !is_evidence_run_id_shape(workflow_run_id) {
             return Err("legacy evidence workflow identity is invalid");
         }
-        let selectors = SELECTORS
-            .map(|selector| {
-                let digest = &self.observations[selector];
-                format!(
-                    "\"{selector}\":{{\"observation_sha256\":\"{digest}\",\"status\":\"verified\"}}"
-                )
-            })
-            .join(",");
-        let envelope = format!(
-            "{{\"candidate_sha256\":\"{candidate_sha256}\",\
-             \"schema_version\":\"{SCHEMA_VERSION}\",\
-             \"selectors\":{{{selectors}}},\
-             \"tuple_sha256\":\"{tuple_sha256}\",\
-             \"workflow_run_id\":\"{}\"}}",
-            workflow_run_id
-        );
-        std::fs::write(path, envelope).map_err(|_| "legacy evidence write failed")
+        let selectors = SELECTORS.map(|selector| {
+            format!(
+                "\"{selector}\":{{\"observation_sha256\":\"{}\",\"status\":\"verified\"}}",
+                self.observations[selector]
+            )
+        });
+        write_new(path, format!("{{\"candidate_sha256\":\"{candidate_sha256}\",\"schema_version\":\"{SCHEMA_VERSION}\",\"selectors\":{{{}}},\"tuple_sha256\":\"{tuple_sha256}\",\"workflow_run_id\":\"{workflow_run_id}\"}}", selectors.join(",")).as_bytes())
+    }
+
+    pub(super) fn write_fragment(
+        &self,
+        path: &Path,
+        scenario: &str,
+        bindings: &LegacyEvidenceBindings,
+    ) -> Result<(), &'static str> {
+        fragment::write_fragment(self, path, scenario, bindings)
+    }
+
+    pub(super) fn read_fragment(
+        path: &Path,
+        scenario: &str,
+        bindings: &LegacyEvidenceBindings,
+    ) -> Result<Self, &'static str> {
+        fragment::read_fragment(path, scenario, bindings)
+    }
+
+    pub(super) fn merge(&mut self, child: Self) -> Result<(), &'static str> {
+        for (selector, digest) in child.observations {
+            if self.observations.insert(selector, digest).is_some() {
+                return Err("legacy evidence fragment selectors are invalid");
+            }
+        }
+        Ok(())
     }
 }
 
-fn is_evidence_digest(value: &str) -> bool {
+pub(super) fn scenario_selectors(scenario: &str) -> Result<&'static [&'static str], &'static str> {
+    LEGACY_SCENARIOS
+        .iter()
+        .find_map(|(name, selectors)| (*name == scenario).then_some(*selectors))
+        .ok_or("unknown legacy cleanup scenario")
+}
+
+pub(super) fn is_complete_selector_set(
+    evidence: &LegacyCleanupEvidence,
+    expected: &[&str],
+) -> bool {
+    evidence.observations.len() == expected.len()
+        && expected
+            .iter()
+            .all(|selector| evidence.observations.contains_key(selector))
+}
+
+pub(super) fn write_new(path: &Path, bytes: &[u8]) -> Result<(), &'static str> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => return Err("legacy evidence output already exists"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return Err("legacy evidence output check failed"),
+    }
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|error| match error.kind() {
+            std::io::ErrorKind::AlreadyExists => "legacy evidence output already exists",
+            _ => "legacy evidence write failed",
+        })?;
+    output
+        .write_all(bytes)
+        .map_err(|_| "legacy evidence write failed")
+}
+
+pub(super) fn is_evidence_digest(value: &str) -> bool {
     is_evidence_digest_shape(value) && value != "0".repeat(64)
 }
 
@@ -115,83 +188,4 @@ pub(super) fn is_evidence_run_id_shape(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b':'))
-}
-
-#[test]
-fn complete_scenario_writes_the_exact_structural_envelope() {
-    let mut evidence = LegacyCleanupEvidence::default();
-    for selector in SELECTORS {
-        evidence.record(selector, "canonical-observation");
-    }
-    let path = std::env::temp_dir().join("runne-legacy-evidence-complete.json");
-    evidence
-        .write_envelope(&path, &"a".repeat(64), &"b".repeat(64), "run-1")
-        .expect("envelope");
-    let written = std::fs::read_to_string(&path).expect("envelope read");
-    std::fs::remove_file(&path).expect("cleanup");
-    assert!(written.contains("\"schema_version\":\"legacy-source-cleanup-evidence.v1\""));
-    for selector in SELECTORS {
-        assert!(written.contains(&format!("\"{selector}\":{{")));
-        assert!(written.contains(&format!("\"{selector}\":{{\"observation_sha256\":")));
-    }
-    assert!(written.contains("\"status\":\"verified\""));
-    assert_eq!(written.matches("\"status\"").count(), 7);
-}
-
-#[test]
-fn incomplete_duplicate_and_foreign_selectors_fail_closed() {
-    let mut evidence = LegacyCleanupEvidence::default();
-    evidence.record(AUTHORIZED_IMPORT, "one");
-    let path = std::env::temp_dir().join("runne-legacy-evidence-incomplete.json");
-    assert_eq!(
-        evidence.write_envelope(&path, &"a".repeat(64), &"b".repeat(64), "run-1"),
-        Err("legacy evidence scenario is incomplete")
-    );
-    let mut duplicate = LegacyCleanupEvidence::default();
-    duplicate.record(AUTHORIZED_IMPORT, "one");
-    let duplicate_result =
-        std::panic::catch_unwind(move || duplicate.record(AUTHORIZED_IMPORT, "two"));
-    assert!(duplicate_result.is_err());
-}
-
-#[test]
-fn invalid_expected_identities_fail_closed() {
-    let complete = || {
-        let mut evidence = LegacyCleanupEvidence::default();
-        for selector in SELECTORS {
-            evidence.record(selector, "canonical-observation");
-        }
-        evidence
-    };
-    let path = std::env::temp_dir().join("runne-legacy-evidence-identity.json");
-    assert_eq!(
-        complete().write_envelope(&path, &"A".repeat(64), &"b".repeat(64), "run-1"),
-        Err("legacy evidence expected digest is invalid")
-    );
-    assert_eq!(
-        complete().write_envelope(&path, &"0".repeat(64), &"b".repeat(64), "run-1"),
-        Err("legacy evidence expected digest is invalid")
-    );
-    assert_eq!(
-        complete().write_envelope(&path, &"a".repeat(64), &"b".repeat(64), ""),
-        Err("legacy evidence workflow identity is invalid")
-    );
-    assert_eq!(
-        complete().write_envelope(&path, &"a".repeat(64), &"b".repeat(64), "bad id;rm"),
-        Err("legacy evidence workflow identity is invalid")
-    );
-}
-
-#[test]
-fn observation_digests_are_deterministic_and_discriminating() {
-    let mut first = LegacyCleanupEvidence::default();
-    let mut second = LegacyCleanupEvidence::default();
-    first.record(AUTHORIZED_IMPORT, "authorized-import-fact");
-    first.record(DURABLE_CUTOVER, "authorized-import-fact");
-    second.record(AUTHORIZED_IMPORT, "authorized-import-fact");
-    second.record(DURABLE_CUTOVER, "other-fact");
-    let same = first.observations[AUTHORIZED_IMPORT] == second.observations[AUTHORIZED_IMPORT];
-    let different = first.observations[DURABLE_CUTOVER] != second.observations[DURABLE_CUTOVER];
-    assert!(same && different);
-    assert_ne!(first.observations[AUTHORIZED_IMPORT], "0".repeat(64));
 }

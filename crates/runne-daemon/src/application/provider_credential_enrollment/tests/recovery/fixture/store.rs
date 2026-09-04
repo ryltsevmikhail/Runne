@@ -133,9 +133,33 @@ impl ProviderCredentialEnrollmentStore for Fixture {
 
     fn tombstone(
         &self,
-        _: TombstoneCredentialOperation,
+        input: TombstoneCredentialOperation,
     ) -> Result<CredentialOperationSnapshot, CredentialLifecycleError> {
-        unreachable!()
+        self.event("tombstone");
+        if self.state() != CredentialOperationState::Completed
+            || input.terminal_state() != CredentialOperationState::Completed
+        {
+            return Err(CredentialLifecycleError::Conflict);
+        }
+        let current = self.operation.lock().unwrap().clone();
+        let mut digest_bytes = [0u8; 32];
+        digest_bytes[..16].copy_from_slice(&input.operation_id().as_bytes());
+        let metadata = current.metadata().clone().with_tombstone(
+            runne_provider::CredentialBindingDigest::from_measured(digest_bytes)
+                .map_err(|_| CredentialLifecycleError::CorruptState)?,
+        );
+        let next = CredentialOperationSnapshot::new(
+            current.operation_id(),
+            current.provider().clone(),
+            current.action(),
+            CredentialOperationState::Tombstoned,
+            current.allocated_credential_version().cloned(),
+            current.target_credential_version().cloned(),
+            metadata,
+        )
+        .map_err(|_| CredentialLifecycleError::CorruptState)?;
+        *self.operation.lock().unwrap() = next.clone();
+        Ok(next)
     }
 
     fn load_operation(

@@ -266,6 +266,9 @@ pub use macos::MacOsKeychainStore;
 #[cfg(target_os = "macos")]
 pub use macos::MacOsProviderCredentialStore as NativeProviderCredentialStore;
 
+#[cfg(all(target_os = "macos", feature = "test-support"))]
+pub use macos::ScenarioSourceSlotSeed;
+
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 mod keyring;
 

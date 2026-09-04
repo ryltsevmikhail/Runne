@@ -8,8 +8,18 @@ mod harness;
 mod keychain;
 #[path = "provider_credential_writer_authority/leakage.rs"]
 mod leakage;
+#[path = "provider_credential_writer_authority/legacy_crash.rs"]
+mod legacy_crash;
+#[path = "provider_credential_writer_authority/legacy_crash_readback.rs"]
+mod legacy_crash_readback;
+#[path = "provider_credential_writer_authority/legacy_crash_reimport.rs"]
+mod legacy_crash_reimport;
+#[path = "provider_credential_writer_authority/legacy_denial.rs"]
+mod legacy_denial;
 #[path = "provider_credential_writer_authority/legacy_evidence.rs"]
 mod legacy_evidence;
+#[path = "provider_credential_writer_authority/legacy_observations.rs"]
+mod legacy_observations;
 #[path = "provider_credential_writer_authority/legacy_scenario.rs"]
 mod legacy_scenario;
 #[path = "provider_credential_writer_authority/native_acl.rs"]

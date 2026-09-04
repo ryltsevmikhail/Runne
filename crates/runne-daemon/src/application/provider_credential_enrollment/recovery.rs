@@ -111,9 +111,21 @@ where
             .lifecycle_snapshot(operation.provider())
             .map_err(map_store)?;
         let completion = readback::completion(operation, readback, lifecycle, now_high_water)?;
-        self.store
+        let completed = self
+            .store
             .complete_with_receipt(completion)
             .map_err(map_store)?;
+        // A verified legacy cleanup is permanently retired from the recovery
+        // queue once its completion receipt is durable; the consumed linkage,
+        // receipt and active destination remain intact.
+        if completed.action() == runne_provider::CredentialOperationAction::LegacySourceCleanup {
+            let tombstone = runne_provider::TombstoneCredentialOperation::new(
+                completed.operation_id(),
+                CredentialOperationState::Completed,
+            )
+            .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?;
+            self.store.tombstone(tombstone).map_err(map_store)?;
+        }
         Ok(())
     }
 }

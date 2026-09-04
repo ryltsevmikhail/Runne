@@ -13,7 +13,8 @@ fn enrollment_recovery_legacy_cleanup_accepts_newer_head_after_rotation() {
     let reader = StatefulReader::new(&fixture);
     let gateway = CredentialEnrollmentRecoveryGateway::new(&fixture, &reader);
     gateway.reconcile_online(100).unwrap();
-    assert_eq!(fixture.state(), CredentialOperationState::Completed);
+    // The verified legacy cleanup is tombstoned after its durable receipt.
+    assert_eq!(fixture.state(), CredentialOperationState::Tombstoned);
     let receipt = fixture.receipt().unwrap();
     assert_eq!(receipt.predecessor_lifecycle_revision().get(), 2);
     assert_eq!(receipt.lifecycle_revision().get(), 3);
@@ -56,7 +57,19 @@ fn enrollment_recovery_legacy_cleanup_preserves_v28_head_without_readiness_obser
 
     gateway.reconcile_online(100).unwrap();
 
-    assert_eq!(fixture.state(), CredentialOperationState::Completed);
+    // The verified legacy cleanup is tombstoned after its durable receipt.
+    assert_eq!(fixture.state(), CredentialOperationState::Tombstoned);
+    assert_eq!(
+        fixture.events(),
+        [
+            "reconcile",
+            "mark",
+            "readback",
+            "bind",
+            "complete",
+            "tombstone"
+        ]
+    );
     let receipt = fixture.receipt().unwrap();
     assert_eq!(
         receipt.action(),

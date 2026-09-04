@@ -16,9 +16,7 @@ use super::{
 #[path = "effect/service.rs"]
 mod service;
 #[cfg(target_os = "macos")]
-use service::{
-    consume_service_control, consume_service_legacy_migration, consume_service_pair,
-};
+use service::{consume_service_control, consume_service_legacy_migration, consume_service_pair};
 #[cfg(all(test, target_os = "macos"))]
 pub use service::{
     consume_service_control_with_port, consume_service_legacy_migration_with_port,
@@ -72,6 +70,57 @@ pub fn execute_pair_effect(authority: AuthorizedPairWriterControl) -> Result<(),
     result
 }
 
+#[cfg(feature = "local-native-enrollment-test")]
+fn pause_after_legacy_source_delete(
+    result: &Result<(), CliError>,
+    legacy_source_cleanup: bool,
+) -> Result<(), CliError> {
+    if result.is_ok()
+        && legacy_source_cleanup
+        && runne_api::test_support::local_native_enrollment_case()
+            .is_some_and(runne_api::test_support::LocalNativeEnrollmentCase::crashes_after_legacy_source_delete)
+    {
+        wait_for_legacy_delete_release()?;
+        // This is the exact retained writer process. It runs after the
+        // authenticated native deletion and before the durable observation frame.
+        nix::sys::signal::raise(nix::sys::signal::Signal::SIGKILL)
+            .map_err(|_| CliError::CredentialOperation)?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "local-native-enrollment-test")]
+fn wait_for_legacy_delete_release() -> Result<(), CliError> {
+    use std::io::Write as _;
+    use std::os::unix::fs::PermissionsExt as _;
+    use std::time::{Duration, Instant};
+
+    let root = std::fs::canonicalize(
+        std::env::var_os("RUNNE_SLICE_E_FIXTURE_ROOT").ok_or(CliError::CredentialOperation)?,
+    )
+    .map_err(|_| CliError::CredentialOperation)?;
+    let marker = root.join("legacy-source-delete.marker");
+    let release = root.join("legacy-source-delete.release");
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(marker)
+        .map_err(|_| CliError::CredentialOperation)?;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))
+        .map_err(|_| CliError::CredentialOperation)?;
+    file.write_all(b"post-delete")
+        .and_then(|()| file.sync_all())
+        .map_err(|_| CliError::CredentialOperation)?;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        if release.is_file() {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    Err(CliError::CredentialOperation)
+}
+
 /// Executes a closed non-Pair effect only after native endpoint admission.
 pub fn execute_non_pair_effect(authority: AuthorizedWriterControl) -> Result<(), CliError> {
     let super::claim::NonPairEffectParts {
@@ -84,30 +133,32 @@ pub fn execute_non_pair_effect(authority: AuthorizedWriterControl) -> Result<(),
         effect_kind,
         service_handoff,
     } = authority.into_effect_parts();
+    #[cfg(feature = "local-native-enrollment-test")]
+    let legacy_source_cleanup = matches!(&effect_kind, NonPairWriterEffectKind::DeleteLegacySource);
     let result = match (effect_route, effect_kind) {
         (NativeProviderCredentialEffectRoute::Legacy(writer), effect_kind) => match effect_kind {
-        NonPairWriterEffectKind::Delete => {
-            let input = BrokeredDeleteInput::new(command.clone(), binding, channel)
-                .map_err(|_| CliError::CredentialOperation)?;
-            writer
-                .delete_exact(authorization, input)
-                .map(|_| ())
-                .map_err(|_| CliError::CredentialOperation)
-        }
-        NonPairWriterEffectKind::ImportLegacy => {
-            let input = BrokeredMigrateLegacyInput::new(command.clone(), binding, channel)
-                .map_err(|_| CliError::CredentialOperation)?;
-            writer
-                .import_legacy_exact(authorization, input)
-                .map_err(|_| CliError::CredentialOperation)
-        }
-        NonPairWriterEffectKind::DeleteLegacySource => {
-            let input = BrokeredLegacySourceDeleteInput::new(command.clone(), binding, channel)
-                .map_err(|_| CliError::CredentialOperation)?;
-            writer
-                .delete_legacy_source_exact(authorization, input)
-                .map_err(|_| CliError::CredentialOperation)
-        }
+            NonPairWriterEffectKind::Delete => {
+                let input = BrokeredDeleteInput::new(command.clone(), binding, channel)
+                    .map_err(|_| CliError::CredentialOperation)?;
+                writer
+                    .delete_exact(authorization, input)
+                    .map(|_| ())
+                    .map_err(|_| CliError::CredentialOperation)
+            }
+            NonPairWriterEffectKind::ImportLegacy => {
+                let input = BrokeredMigrateLegacyInput::new(command.clone(), binding, channel)
+                    .map_err(|_| CliError::CredentialOperation)?;
+                writer
+                    .import_legacy_exact(authorization, input)
+                    .map_err(|_| CliError::CredentialOperation)
+            }
+            NonPairWriterEffectKind::DeleteLegacySource => {
+                let input = BrokeredLegacySourceDeleteInput::new(command.clone(), binding, channel)
+                    .map_err(|_| CliError::CredentialOperation)?;
+                writer
+                    .delete_legacy_source_exact(authorization, input)
+                    .map_err(|_| CliError::CredentialOperation)
+            }
         },
         #[cfg(target_os = "macos")]
         (
@@ -158,6 +209,8 @@ pub fn execute_non_pair_effect(authority: AuthorizedWriterControl) -> Result<(),
                 .map_err(|_| CliError::CredentialOperation)
         }
     };
+    #[cfg(feature = "local-native-enrollment-test")]
+    pause_after_legacy_source_delete(&result, legacy_source_cleanup)?;
     control.write_frame(CredentialBrokerFrame::NativeEffectObserved {
         operation_id: command.operation_id(),
         binding,

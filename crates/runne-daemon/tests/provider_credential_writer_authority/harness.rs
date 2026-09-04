@@ -6,6 +6,9 @@ const SCENARIO: &str = "RUNNE_SLICE_E_SCENARIO";
 const FIXTURE_ROOT: &str = "RUNNE_SLICE_E_FIXTURE_ROOT";
 static PROCESS_LOCK: Mutex<()> = Mutex::new(());
 
+#[path = "harness/legacy_dispatch.rs"]
+mod legacy_dispatch;
+
 pub(super) fn dispatch(
     selector: &'static str,
     inner: fn(&super::support::InnerContext) -> Result<(), &'static str>,
@@ -30,6 +33,16 @@ where
     for scenario in scenarios {
         run_outer(selector, scenario);
     }
+}
+
+pub(super) fn dispatch_legacy_scenarios(
+    selector: &'static str,
+    inner: fn(
+        &super::support::InnerContext,
+        &str,
+    ) -> Result<super::legacy_evidence::LegacyCleanupEvidence, &'static str>,
+) {
+    legacy_dispatch::dispatch(selector, inner);
 }
 
 fn run_outer(selector: &'static str, scenario: &str) {
@@ -92,4 +105,72 @@ fn run_outer(selector: &'static str, scenario: &str) {
 
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     !needle.is_empty() && haystack.windows(needle.len()).any(|part| part == needle)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::legacy_dispatch::{legacy_child_plan, legacy_preflight};
+    use crate::legacy_evidence::LegacyEvidenceBindings;
+
+    #[test]
+    fn legacy_child_plan_runs_the_ignored_selector_with_only_allowlisted_bindings() {
+        let temporary = tempfile::tempdir().expect("temporary evidence root");
+        let bindings = LegacyEvidenceBindings::from_values(
+            "a".repeat(64),
+            "b".repeat(64),
+            "run-1".to_owned(),
+            temporary.path().join("final.json"),
+        )
+        .expect("bindings");
+        let plan = legacy_child_plan(
+            "legacy_cleanup_scenario_chain_completes_import_cutover_delete_crash_and_tombstone",
+            "legacy-import",
+            temporary.path().join("child.json"),
+            &bindings,
+        );
+        assert_eq!(
+            plan.args,
+            vec![
+                "--ignored",
+                "--exact",
+                "legacy_cleanup_scenario_chain_completes_import_cutover_delete_crash_and_tombstone",
+                "--nocapture",
+                "--test-threads=1",
+            ]
+        );
+        assert_eq!(
+            plan.environment
+                .iter()
+                .map(|(name, _)| *name)
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([
+                "RUNNE_LEGACY_CLEANUP_CANDIDATE",
+                "RUNNE_LEGACY_CLEANUP_EVIDENCE",
+                "RUNNE_LEGACY_CLEANUP_RUN_ID",
+                "RUNNE_LEGACY_CLEANUP_TUPLE",
+            ])
+        );
+        assert!(
+            plan.environment
+                .iter()
+                .all(|(_, value)| value != bindings.final_path().as_os_str())
+        );
+    }
+
+    #[test]
+    fn legacy_preflight_requires_the_explicit_isolated_host_opt_in() {
+        let temporary = tempfile::tempdir().expect("temporary evidence root");
+        assert!(matches!(
+            legacy_preflight(
+                "0",
+                "a".repeat(64),
+                "b".repeat(64),
+                "run-1".to_owned(),
+                temporary.path().join("final.json"),
+            ),
+            Err("legacy cleanup isolated host opt-in is required")
+        ));
+    }
 }

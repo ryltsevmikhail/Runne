@@ -1,5 +1,6 @@
 """Runner gates: host preconditions and evidence validation, never qualified."""
 import json
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,6 +11,21 @@ from scripts.desktop.tests.test_legacy_cleanup_evidence import evidence
 
 
 class LegacyCleanupScenarioRunnerTests(unittest.TestCase):
+    def test_evidence_input_is_bounded_before_json_decoding(self):
+        # A slice after read_bytes still allocates an unbounded external file.
+        sizes = []
+
+        class ObservedInput(io.BytesIO):
+            def read(self, size=-1):
+                sizes.append(size)
+                return super().read(size)
+
+        source = ObservedInput(b" " * (runner.MAX_EVIDENCE_BYTES + 2))
+        with mock.patch.object(Path, "open", return_value=source):
+            with self.assertRaises(ValueError):
+                runner.load_evidence(Path("unused-evidence.json"))
+        self.assertEqual(sizes, [runner.MAX_EVIDENCE_BYTES + 1])
+
     def test_check_host_requires_darwin_arm64_and_opt_in(self):
         with mock.patch.object(runner, "host_is_isolated_darwin_arm64", return_value=False):
             self.assertEqual(runner.check_host(True),

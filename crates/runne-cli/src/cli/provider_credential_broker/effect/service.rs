@@ -74,14 +74,7 @@ pub(super) fn consume_service_control(
 ) -> Result<(), CliError> {
     let port = runne_macos_xpc::CredentialServiceWriterXpcClient::connect(configuration)
         .map_err(|_| CliError::CredentialOperation)?;
-    consume_service_control_with_port(
-        &port,
-        effects,
-        handoff,
-        authorization,
-        channel,
-        binding,
-    )
+    consume_service_control_with_port(&port, effects, handoff, authorization, channel, binding)
 }
 
 pub fn consume_service_control_with_port(

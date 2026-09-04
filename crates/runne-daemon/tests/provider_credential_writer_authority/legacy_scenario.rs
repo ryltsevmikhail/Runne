@@ -13,24 +13,41 @@ use super::support::InnerContext;
 use zeroize::Zeroizing;
 
 pub(super) fn run() {
-    super::harness::dispatch_scenarios(
+    super::harness::dispatch_legacy_scenarios(
         "legacy_cleanup_scenario_chain_completes_import_cutover_delete_crash_and_tombstone",
-        &["legacy-import"],
         inner,
     );
 }
 
-fn inner(context: &InnerContext, scenario: &str) -> Result<(), &'static str> {
+fn inner(
+    context: &InnerContext,
+    scenario: &str,
+) -> Result<super::legacy_evidence::LegacyCleanupEvidence, &'static str> {
     scenario_binding_from_environment();
     match scenario {
-        "legacy-import" => import_stage(context),
+        "legacy-import" => {
+            import_stage(context)?;
+            let mut evidence = super::legacy_evidence::LegacyCleanupEvidence::default();
+            evidence.record(
+                super::legacy_evidence::AUTHORIZED_IMPORT,
+                &super::legacy_observations::import(context)?,
+            );
+            evidence.record(
+                super::legacy_evidence::DURABLE_CUTOVER,
+                &super::legacy_observations::cutover(context)?,
+            );
+            Ok(evidence)
+        }
+        "legacy-crash-delete" => super::legacy_crash::crash_stage(context),
+        "legacy-replacement-denied" => super::legacy_denial::replacement_stage(context),
+        "legacy-ambiguous-denied" => super::legacy_denial::ambiguous_stage(context),
         _ => Err("unknown-legacy-scenario"),
     }
 }
 
 /// Seeds the generation-0 legacy source, then drives the production daemon
 /// MigrateLegacy transcript to its durable cutover.
-fn import_stage(context: &InnerContext) -> Result<(), &'static str> {
+pub(super) fn import_stage(context: &InnerContext) -> Result<(), &'static str> {
     seed_legacy_source(context)?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -165,10 +182,10 @@ fn assert_durable_migrate_state(context: &InnerContext) -> Result<(), &'static s
     Ok(())
 }
 
-fn seed_legacy_source(context: &InnerContext) -> Result<(), &'static str> {
+pub(super) fn seed_legacy_source(context: &InnerContext) -> Result<(), &'static str> {
     use runne_secure_store::{
         NativeProviderCredentialStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
-        ProviderCredentialMaterial, ProviderCredentialSourceRevision,
+        ProviderCredentialMaterial,
     };
     let store = NativeProviderCredentialStore::new();
     let access = ProviderCredentialAccessPolicy::new(&context.writer(), context.daemon())
@@ -178,18 +195,13 @@ fn seed_legacy_source(context: &InnerContext) -> Result<(), &'static str> {
             .map_err(|_| "seed-exact-access")?;
     let material = ProviderCredentialMaterial::new(super::audit::secret_canary(context.root()))
         .map_err(|_| "seed-material")?;
-    let revision = ProviderCredentialSourceRevision::new([
-        0x5c, 0x4a, 0x11, 0xf2, 0x9d, 0x63, 0xb8, 0x27, 0x40, 0x71, 0xe5, 0x0a, 0xd3, 0x96, 0x18,
-        0x6f,
-    ])
-    .map_err(|_| "seed-revision")?;
     store
         .seed_generation_zero_source_scenario(
             ProviderCredentialId::OpenAi,
             &material,
             &access,
             &exact,
-            revision,
+            scenario_revision()?,
         )
         .map_err(|_| "seed-generation-zero")?;
     assert_seeded_item_is_visible();
@@ -197,6 +209,16 @@ fn seed_legacy_source(context: &InnerContext) -> Result<(), &'static str> {
 }
 
 /// The seeded item must be findable by its exact service and account identity.
+/// The fixed nonzero source revision every legacy fixture seeds.
+pub(super) fn scenario_revision()
+-> Result<runne_secure_store::ProviderCredentialSourceRevision, &'static str> {
+    runne_secure_store::ProviderCredentialSourceRevision::new([
+        0x5c, 0x4a, 0x11, 0xf2, 0x9d, 0x63, 0xb8, 0x27, 0x40, 0x71, 0xe5, 0x0a, 0xd3, 0x96, 0x18,
+        0x6f,
+    ])
+    .map_err(|_| "seed-revision")
+}
+
 fn assert_seeded_item_is_visible() {
     let keychain = scenario_keychain();
     let metadata = runne_macos_keychain_acl::find_generic_password_metadata(
@@ -209,7 +231,7 @@ fn assert_seeded_item_is_visible() {
     assert!(!metadata.bytes.is_empty(), "seeded metadata is empty");
 }
 
-fn scenario_keychain() -> security_framework::os::macos::keychain::SecKeychain {
+pub(super) fn scenario_keychain() -> security_framework::os::macos::keychain::SecKeychain {
     let home = std::env::var_os("HOME").expect("scenario HOME");
     let path = std::path::PathBuf::from(home).join("Library/Keychains/runne-ci.keychain-db");
     security_framework::os::macos::keychain::SecKeychain::open(&path)
