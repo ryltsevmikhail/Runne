@@ -8,12 +8,17 @@ envelope. Both modes are fail-closed and never report qualification:
 signature verification and protected enforcement remain separate gates.
 
 Pinned scenario invocation (run from the candidate checkout, darwin arm64
-disposable user only):
+disposable user only; identical to the desktop-qualification task):
 
+    RUNNE_LEGACY_CLEANUP_ISOLATED=1 \
+    RUNNE_LEGACY_CLEANUP_CANDIDATE="$CANDIDATE_DIGEST" \
+    RUNNE_LEGACY_CLEANUP_TUPLE="$TUPLE_DIGEST" \
+    RUNNE_LEGACY_CLEANUP_RUN_ID="$SOURCECRAFT_RUN_ID" \
+    RUNNE_LEGACY_CLEANUP_EVIDENCE="$EVIDENCE_PATH" \
     cargo test -p runne-daemon \
         --test provider_credential_writer_authority \
         --features test-support,desktop-protected \
-        --locked legacy_cleanup_scenario_chain -- --exact --ignored \
+        --locked -- --ignored --exact \
         legacy_cleanup_scenario_chain_completes_import_cutover_delete_crash_and_tombstone
 
 The scenario reads its binding from ``RUNNE_LEGACY_CLEANUP_CANDIDATE``,
