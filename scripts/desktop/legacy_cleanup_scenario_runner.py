@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform as host_platform
 from pathlib import Path
 
@@ -65,12 +66,28 @@ def host_is_isolated_darwin_arm64() -> bool:
             and host_platform.machine().lower() == "arm64")
 
 
-def check_host(isolated_opt_in: bool) -> list[str]:
+def icloud_account_present() -> bool:
+    """A signed-in iCloud account leaves this preferences plist behind."""
+    return (Path.home() / "Library/Preferences/MobileMeAccounts.plist").exists()
+
+
+def current_user() -> str:
+    import pwd
+
+    return pwd.getpwuid(os.getuid()).pw_name
+
+
+def check_host(isolated_opt_in: bool, expected_user: str = "") -> list[str]:
     if not host_is_isolated_darwin_arm64():
         return ["legacy scenario host is not darwin arm64"]
     if not isolated_opt_in:
         return ["isolated disposable host opt-in is missing"]
-    return []
+    errors: list[str] = []
+    if expected_user and current_user() != expected_user:
+        errors.append("legacy scenario host user is not the disposable account")
+    if icloud_account_present():
+        errors.append("legacy scenario host has a signed-in iCloud account")
+    return errors
 
 
 def validate_evidence_file(path: Path, candidate_sha256: str, tuple_sha256: str,
@@ -90,6 +107,7 @@ def main(argv=None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     check = commands.add_parser("check-host")
     check.add_argument("--isolated-host", action="store_true")
+    check.add_argument("--expected-user", default="")
     evidence = commands.add_parser("validate-evidence")
     evidence.add_argument("--evidence", type=Path, required=True)
     evidence.add_argument("--candidate-sha256", required=True)
@@ -97,7 +115,7 @@ def main(argv=None) -> int:
     evidence.add_argument("--workflow-run-id", required=True)
     args = parser.parse_args(argv)
     if args.command == "check-host":
-        errors = check_host(args.isolated_host)
+        errors = check_host(args.isolated_host, args.expected_user)
     else:
         errors = validate_evidence_file(
             args.evidence, args.candidate_sha256, args.tuple_sha256, args.workflow_run_id,

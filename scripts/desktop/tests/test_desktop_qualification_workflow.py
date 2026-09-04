@@ -90,6 +90,40 @@ class DesktopQualificationWorkflowTest(unittest.TestCase):
             ):
                 self.assertIn(value, section)
 
+    def test_legacy_cleanup_gate_runs_only_after_the_macos_native_task(self):
+        qualification = self._qualification()
+        start = qualification.index("- name: qualification-native-macos-legacy-cleanup")
+        section = qualification[start:]
+        self.assertIn(
+            "needs: [qualification-native-macos]", section[: section.index("cubes:")]
+        )
+        self.assertIn(
+            "runs_on: [self-hosted, gocode-macos-arm64]", section[: section.index("cubes:")]
+        )
+        # Isolation is verified on the host before any keychain work starts.
+        self.assertIn(
+            "check-host --isolated-host --expected-user runne-qualification", section
+        )
+        # The pinned ignored scenario runs with all three binding variables and
+        # never without the isolated host opt-in.
+        self.assertIn("RUNNE_LEGACY_CLEANUP_ISOLATED=1", section)
+        for name in (
+            "RUNNE_LEGACY_CLEANUP_CANDIDATE",
+            "RUNNE_LEGACY_CLEANUP_TUPLE",
+            "RUNNE_LEGACY_CLEANUP_RUN_ID",
+            "RUNNE_LEGACY_CLEANUP_EVIDENCE",
+        ):
+            self.assertIn(name, section)
+        self.assertIn(
+            "--ignored --exact legacy_cleanup_scenario_chain_completes_import_cutover_delete_crash_and_tombstone",
+            section,
+        )
+        # The produced envelope is validated against the same bindings.
+        self.assertIn("validate-evidence --evidence \"$EVIDENCE_PATH\"", section)
+        self.assertIn('--candidate-sha256 "$CANDIDATE_DIGEST"', section)
+        self.assertIn('--tuple-sha256 "$TUPLE_DIGEST"', section)
+        self.assertIn('--workflow-run-id "$SOURCECRAFT_RUN_ID"', section)
+
     def test_native_release_tasks_require_real_signing_bootstrap(self):
         qualification = self._qualification()
         for task in ("qualification-native-macos", "qualification-native-macos-x86_64"):

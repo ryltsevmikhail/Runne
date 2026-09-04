@@ -82,6 +82,23 @@ class LegacyCleanupScenarioRunnerTests(unittest.TestCase):
                     "--workflow-run-id", "isolated-run-1",
                 ]), 1)
 
+    def test_check_host_rejects_foreign_user_and_signed_in_icloud(self):
+        with mock.patch.object(runner, "host_is_isolated_darwin_arm64", return_value=True), \
+             mock.patch.object(runner, "current_user", return_value="runne-qualification"), \
+             mock.patch.object(runner, "icloud_account_present", return_value=False):
+            self.assertEqual(runner.check_host(True, "runne-qualification"), [])
+            self.assertEqual(
+                runner.check_host(True, "someone-else"),
+                ["legacy scenario host user is not the disposable account"],
+            )
+        with mock.patch.object(runner, "host_is_isolated_darwin_arm64", return_value=True), \
+             mock.patch.object(runner, "current_user", return_value="runne-qualification"), \
+             mock.patch.object(runner, "icloud_account_present", return_value=True):
+            self.assertEqual(
+                runner.check_host(True, "runne-qualification"),
+                ["legacy scenario host has a signed-in iCloud account"],
+            )
+
     def test_pinned_scenario_contract_names_are_stable(self):
         self.assertEqual(runner.__doc__ and "legacy_cleanup_scenario_chain"
                          in runner.__doc__, True)
