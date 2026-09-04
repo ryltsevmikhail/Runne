@@ -10,9 +10,7 @@ use runne_provider::{
     CredentialServiceRequestContext, CredentialWriterBrokerHandoffFrame,
     CredentialWriterEffectAuthority, PendingCredentialSecretOpening, SealedCredentialEnvelope,
 };
-use runne_secure_store::{
-    BrokeredMigrateLegacyInput, BrokeredProviderCredentialLegacySource,
-};
+use runne_secure_store::BrokeredProviderCredentialLegacySource;
 
 use super::CliError;
 
@@ -146,12 +144,9 @@ pub fn consume_service_legacy_migration_with_port(
         effects,
         channel,
         binding,
-        |command| {
-            let input =
-                BrokeredMigrateLegacyInput::new(command.clone(), binding, channel.clone())
-                    .map_err(|_| runne_provider::CredentialEnrollmentError::InvalidInput)?;
+        |read| {
             legacy
-                .load_exact(&input)
+                .load_exact(read)
                 .map_err(|_| runne_provider::CredentialEnrollmentError::InvalidEvidence)
         },
     )

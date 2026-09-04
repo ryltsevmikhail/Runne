@@ -92,8 +92,9 @@ fn validate(
         || receipt.readback_disposition() != input.readback().disposition()
         || receipt.readback_observation_digest() != input.readback().observation_digest()
         || (legacy_source_cleanup
-            && (receipt.lifecycle_revision() != receipt.predecessor_lifecycle_revision()
-                || receipt.fence() != receipt.predecessor_fence()
+            && (receipt.lifecycle_revision().get() < receipt.predecessor_lifecycle_revision().get()
+                || receipt.fence().get() < receipt.predecessor_fence().get()
+                || operation.metadata().legacy_cleanup_binding().is_none()
                 || receipt.readiness_observation_id().is_some()
                 || observation.is_some()
                 || receipt.readback_disposition() != CredentialReadbackDisposition::ExactAbsence))

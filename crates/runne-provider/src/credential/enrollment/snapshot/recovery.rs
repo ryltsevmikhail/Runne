@@ -70,9 +70,12 @@ fn recovery_command_matches(
             .is_some_and(|value| {
                 command.target() == &CredentialBrokerTarget::LegacyImport(value.clone())
             }),
-        CredentialOperationAction::LegacySourceCleanup => {
-            command.target() == &CredentialBrokerTarget::LegacySource
-        }
+        CredentialOperationAction::LegacySourceCleanup => operation
+            .metadata()
+            .legacy_cleanup_binding()
+            .is_some_and(|binding| {
+                command.target() == &CredentialBrokerTarget::ExactLegacySource(binding.clone())
+            }),
         CredentialOperationAction::WriterIdentityMigrationEffect
         | CredentialOperationAction::WriterIdentityMigrationVerify => {
             operation.metadata().migration().is_some_and(|migration| {

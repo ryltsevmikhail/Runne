@@ -1,7 +1,11 @@
 #![allow(dead_code)]
 
+#[path = "support/online_credential_fixture.rs"]
+mod online_credential_fixture;
 #[path = "support/online_proof.rs"]
 mod online_proof;
+#[path = "support/online_stream_fixture.rs"]
+mod online_stream_fixture;
 #[path = "support/provider_credential_fixture.rs"]
 mod provider_credential_fixture;
 #[path = "provider_recovery_full_audit_parts/runtime_config.rs"]
@@ -11,6 +15,7 @@ use runtime_config::runtime_config;
 mod validated_reopen;
 
 include!("provider_recovery_full_audit_parts/fixture.rs");
+include!("provider_recovery_full_audit_parts/online_fixture.rs");
 include!("provider_recovery_full_audit_parts/terminal_fixture.rs");
 include!("provider_recovery_full_audit_parts/part_01.rs");
 include!("provider_recovery_full_audit_parts/part_02.rs");

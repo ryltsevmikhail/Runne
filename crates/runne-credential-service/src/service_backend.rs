@@ -56,6 +56,7 @@ pub struct MemoryBackend {
 
 #[cfg(feature = "test-support")]
 struct MemoryItem {
+    source_revision: Option<[u8; 16]>,
     reference: runne_provider::CredentialVersionRef,
     material: zeroize::Zeroizing<Vec<u8>>,
 }
@@ -66,6 +67,7 @@ impl MemoryBackend {
         use runne_provider::CredentialOperationAction;
 
         let command = effect.command();
+        let source_revision = effect.source_revision();
         let Some(reference) = command.target().version_ref().cloned() else {
             return CredentialBackendResult::Unsupported;
         };
@@ -83,6 +85,7 @@ impl MemoryBackend {
                 let mut retained = zeroize::Zeroizing::new(Vec::new());
                 material.consume(|bytes| retained.extend_from_slice(bytes));
                 self.items.push(MemoryItem {
+                    source_revision,
                     reference,
                     material: retained,
                 });
@@ -117,6 +120,13 @@ impl MemoryBackend {
             | CredentialRuntimeReadEffect::PointOfUse(reference) => *reference,
         };
         let item = self.items.iter().find(|item| &item.reference == reference);
+        if matches!(effect, CredentialRuntimeReadEffect::Metadata(_))
+            && let Some(source_revision) = item.and_then(|item| item.source_revision)
+        {
+            return CredentialRuntimeReadObservation::LegacyMetadata(
+                CredentialBackendResult::Observed(source_revision),
+            );
+        }
         match effect {
             CredentialRuntimeReadEffect::Metadata(_) => CredentialRuntimeReadObservation::Metadata(
                 item.map_or(CredentialBackendResult::Absent, |_| {

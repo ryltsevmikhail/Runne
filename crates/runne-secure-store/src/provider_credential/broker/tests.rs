@@ -50,23 +50,11 @@ fn service_presence_uses_the_same_pair_and_absence_observation_contract() {
     assert_ne!(pair.binding(), revoke.binding());
 }
 
-#[test]
-fn legacy_import_readback_binds_the_retained_source_revision() {
-    let first = VersionStoreReadback::new(ConfiguredVersionStore([7; 16]), access())
-        .readback_exact_version(ExactVersionReadback::new(legacy_import_command(1, 1)).unwrap())
-        .unwrap();
-    let second = VersionStoreReadback::new(ConfiguredVersionStore([8; 16]), access())
-        .readback_exact_version(ExactVersionReadback::new(legacy_import_command(1, 1)).unwrap())
-        .unwrap();
-
-    assert!(first.present());
-    assert!(second.present());
-    assert_ne!(first.binding(), second.binding());
-}
+#[path = "tests_service_revision.rs"]
+mod service_revision;
 
 #[test]
-fn brokered_provider_credential_proves_legacy_source_absence() {
-    let reader = VersionStoreReadback::new(ConfiguredVersionStore([7; 16]), access());
+fn brokered_provider_credential_rejects_unbound_legacy_source_absence() {
     let provider = ProviderId::new("openai").unwrap();
     let command = runne_provider::CredentialBrokerCommand::new(
         runne_provider::CredentialOperationId::from_bytes([7; 16]).unwrap(),
@@ -79,10 +67,7 @@ fn brokered_provider_credential_proves_legacy_source_absence() {
         None,
     )
     .unwrap();
-    let observation = reader
-        .readback_exact_absence(ExactAbsenceReadback::new(command).unwrap())
-        .unwrap();
-    assert!(!observation.present());
+    assert!(ExactAbsenceReadback::new(command).is_err());
 }
 
 #[test]

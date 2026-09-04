@@ -243,9 +243,12 @@ impl ProviderPort for CommitCheckingProvider {
 
     fn cancel(
         &self,
-        _request: CancelRequest,
+        request: CancelRequest,
     ) -> ProviderFuture<'_, Result<CancelDisposition, DispatchError>> {
-        Box::pin(async { unreachable!("fixture does not cancel") })
+        Box::pin(async move {
+            assert_eq!(request.stream_id(), ProviderStreamId::from_bytes([9; 16]));
+            Ok(CancelDisposition::Requested)
+        })
     }
 
     fn reconcile(

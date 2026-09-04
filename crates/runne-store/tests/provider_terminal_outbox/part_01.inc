@@ -13,7 +13,7 @@ use runne_runtime::provider_execution::{
     ProviderTerminalCommitRequest, ProviderTerminalPersistence,
 };
 use runne_store::provider::{
-    MarkProviderStreaming, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
+    PreparedProviderRecord,
     ProviderRuntimeAuthorityConfig, ProviderRuntimeLaunchCapability, SqliteProviderDispatchStore,
     SqliteProviderExecutionStore,
 };
@@ -85,10 +85,7 @@ fn fixture() -> Fixture {
     dispatch
         .persist_prepared(&launch, &prepared_record)
         .unwrap();
-    let ProviderAuthorityIssueOutcome::Winner(admitted) = execution
-        .issue(
-            &launch,
-            &ProviderAuthorityIssueRequest {
+    let request = ProviderAuthorityIssueRequest {
                 provider_id: ProviderId::new("fixture-provider").unwrap(),
                 principal_id: "principal-1".to_owned(),
                 conversation_id: ConversationId::from_bytes([6; 16]),
@@ -107,25 +104,14 @@ fn fixture() -> Fixture {
                 max_cost_micros: 50_000,
                 currency: "USD".to_owned(),
                 provider_idempotency_key: "provider-terminal-1".to_owned(),
-            },
-        )
-        .unwrap()
-    else {
-        panic!("first issue must win")
     };
-    dispatch
-        .mark_streaming(&MarkProviderStreaming {
-            attempt_id: admitted.claim().attempt_id,
-            fencing_token: admitted.claim().fencing_token,
-            stream_id: ProviderStreamId::from_bytes([9; 16]),
-        })
-        .unwrap();
+    let (binding, _) = online_stream_fixture::start(&database, &execution, &launch, call, &request, ProviderStreamId::from_bytes([9; 16]), 82);
     Fixture {
         execution,
         launch,
         dispatch,
-        attempt_id: admitted.claim().attempt_id,
-        fencing_token: admitted.claim().fencing_token,
+        attempt_id: binding.execution().attempt_id(),
+        fencing_token: binding.execution().fencing_token(),
         key,
         database,
     }

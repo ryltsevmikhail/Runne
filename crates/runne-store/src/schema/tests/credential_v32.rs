@@ -1,9 +1,8 @@
 #[test]
 fn v32_allows_only_the_linked_legacy_cleanup_to_overlap_import() {
     let connection = Connection::open_in_memory().unwrap();
-    apply_migrations(&connection).unwrap();
+    apply_migrations_internal(&connection, 32).unwrap();
 
-    assert_eq!(CURRENT_SCHEMA_VERSION, 32);
     assert!(v32_matches(&connection, 32).unwrap());
     for name in V32_OPERATION_INDEXES {
         assert!(

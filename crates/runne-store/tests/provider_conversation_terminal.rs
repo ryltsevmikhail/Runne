@@ -172,7 +172,7 @@ fn production_terminal_application_reconstructs_started_command_and_finishes_onc
     assert_eq!(snapshots, 2);
     connection
         .execute_batch(
-            "DROP TRIGGER IF EXISTS aggregate_state_snapshots_bind_insert;
+            "DROP TABLE IF EXISTS credential_cleanup_recovery_attempts; DROP TRIGGER IF EXISTS aggregate_state_snapshots_bind_insert;
              DROP TRIGGER IF EXISTS aggregate_state_snapshots_bind_update;
              DROP TRIGGER IF EXISTS schema_v12_fence_aggregate_state_snapshots_insert;
              DROP TRIGGER IF EXISTS schema_v12_fence_aggregate_state_snapshots_update;

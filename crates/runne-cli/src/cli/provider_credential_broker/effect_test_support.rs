@@ -153,6 +153,7 @@ fn endpoint(
     (control, channel, ticket, written)
 }
 
+use super::legacy_cleanup_test_support as legacy;
 pub fn command(action: CredentialOperationAction) -> CredentialBrokerCommand {
     let provider = ProviderId::new("openai").expect("provider");
     let operation_id = CredentialOperationId::from_bytes([21; 16]).expect("operation");
@@ -161,7 +162,7 @@ pub fn command(action: CredentialOperationAction) -> CredentialBrokerCommand {
         CredentialOperationAction::MigrateLegacy => {
             (CredentialBrokerTarget::LegacyImport(version), None)
         }
-        CredentialOperationAction::LegacySourceCleanup => (CredentialBrokerTarget::LegacySource, None),
+        CredentialOperationAction::LegacySourceCleanup => (legacy::target(version), None),
         CredentialOperationAction::WriterIdentityMigrationEffect => (
             CredentialBrokerTarget::Migration {
                 migration_id: operation_id,
@@ -184,8 +185,8 @@ pub fn command(action: CredentialOperationAction) -> CredentialBrokerCommand {
         provider,
         action,
         target,
-        CredentialLifecycleRevision::new(1).expect("revision"),
-        CredentialFence::new(1).expect("fence"),
+        CredentialLifecycleRevision::new(legacy::revision(action)).expect("revision"),
+        CredentialFence::new(legacy::revision(action)).expect("fence"),
         migration_binding,
     )
     .expect("command")

@@ -1,9 +1,11 @@
 use super::reap_guard::{ExactWriterCleanup, RetainedWriterCleanup};
 use super::reaper_registry::{CredentialWriterReaperRegistry, ReaperOperationId};
 use super::*;
-use runne_api::{BeginProviderCredentialEnrollment, ProviderCredentialEnrollmentActionV2};
+use runne_api::BeginProviderCredentialEnrollment;
 use runne_platform_desktop::NativeProtectedCredentialEnrollmentBegin;
 use std::sync::Arc;
+#[path = "runner_exchange.rs"]
+mod exchange;
 
 pub(in crate::provider_credential_enrollment) trait RecoverableWriterHandoff {
     type Error;
@@ -30,9 +32,11 @@ impl RecoverableWriterHandoff for runne_platform_desktop::CredentialWriterHandof
 pub struct ProtectedWriterCleanup<H = runne_platform_desktop::CredentialWriterHandoff> {
     handoff: H,
     supervisor: Arc<std::sync::Mutex<runne_platform_desktop::ProtectedBundledRuntimeSupervisor>>,
+    _recovery_resources: Option<Arc<super::recovery::RecoveryResources>>,
 }
 
 impl<H> ProtectedWriterCleanup<H> {
+    #[cfg(test)]
     pub(in crate::provider_credential_enrollment) const fn new(
         handoff: H,
         supervisor: Arc<
@@ -42,6 +46,21 @@ impl<H> ProtectedWriterCleanup<H> {
         Self {
             handoff,
             supervisor,
+            _recovery_resources: None,
+        }
+    }
+
+    pub(super) const fn with_recovery_resources(
+        handoff: H,
+        supervisor: Arc<
+            std::sync::Mutex<runne_platform_desktop::ProtectedBundledRuntimeSupervisor>,
+        >,
+        resources: Arc<super::recovery::RecoveryResources>,
+    ) -> Self {
+        Self {
+            handoff,
+            supervisor,
+            _recovery_resources: Some(resources),
         }
     }
 }
@@ -77,6 +96,50 @@ where
 
 pub type ProtectedWriterReaperRegistry = CredentialWriterReaperRegistry<ProtectedWriterCleanup>;
 
+pub(super) const fn pair_cleanup<H>(
+    handoff: H,
+    supervisor: Arc<std::sync::Mutex<runne_platform_desktop::ProtectedBundledRuntimeSupervisor>>,
+    resources: Arc<super::recovery::RecoveryResources>,
+) -> ProtectedWriterCleanup<H> {
+    ProtectedWriterCleanup::with_recovery_resources(handoff, supervisor, resources)
+}
+
+pub(super) fn retain_failed_handoff(
+    error: runne_platform_desktop::CredentialWriterHandoffError,
+    operation: &ReaperOperationId,
+    reapers: &ProtectedWriterReaperRegistry,
+    cleanup: impl FnOnce(runne_platform_desktop::CredentialWriterHandoff) -> ProtectedWriterCleanup,
+) {
+    if let (_, Some(handoff)) = error.into_parts() {
+        reapers.retain_after_initial_failure(operation.clone(), cleanup(handoff));
+    }
+}
+
+fn pair_handoff(
+    exchange: &PreparedCredentialEnrollmentExchange,
+    supervisor: &Arc<std::sync::Mutex<runne_platform_desktop::ProtectedBundledRuntimeSupervisor>>,
+    operation: &ReaperOperationId,
+    reapers: &ProtectedWriterReaperRegistry,
+) -> Result<runne_platform_desktop::CredentialWriterHandoff, PreparedCredentialEnrollmentError> {
+    let result = tauri::async_runtime::block_on(
+        runne_platform_desktop::ProtectedBundledRuntimeSupervisor::run_credential_writer_handoff_with_rejoin(
+            Arc::clone(supervisor),
+            &exchange.resources.installed,
+            exchange.request.writer_handoff_mode(),
+        ),
+    );
+    result.map_err(|error| {
+        retain_failed_handoff(error, operation, reapers, |handoff| {
+            pair_cleanup(
+                handoff,
+                Arc::clone(supervisor),
+                Arc::clone(&exchange.resources),
+            )
+        });
+        PreparedCredentialEnrollmentError
+    })
+}
+
 pub(super) fn begin_then_handoff<B, H, E: Default>(
     begin_operation: impl FnOnce() -> Result<B, E>,
     prepared: impl FnOnce(&B) -> bool,
@@ -97,8 +160,9 @@ impl PreparedCredentialEnrollmentExchange {
         mut self,
         registry: &CredentialIntentRegistry,
         reapers: Arc<ProtectedWriterReaperRegistry>,
-    ) -> Result<(), PreparedCredentialEnrollmentError> {
-        self.run_retained(registry, reapers)
+    ) -> Result<Arc<super::recovery::RecoveryResources>, PreparedCredentialEnrollmentError> {
+        self.run_retained(registry, reapers)?;
+        Ok(self.resources)
     }
 
     fn run_retained(
@@ -106,8 +170,10 @@ impl PreparedCredentialEnrollmentExchange {
         registry: &CredentialIntentRegistry,
         reapers: Arc<ProtectedWriterReaperRegistry>,
     ) -> Result<(), PreparedCredentialEnrollmentError> {
-        self.updater_lease
-            .revalidate_confirmed(&self.installed)
+        let secretless = exchange::secretless(self.request.action, self.material.is_some())?;
+        self.resources
+            .updater
+            .revalidate_confirmed(&self.resources.installed)
             .map_err(|()| PreparedCredentialEnrollmentError)?;
         let intent = self
             .intent
@@ -123,9 +189,6 @@ impl PreparedCredentialEnrollmentExchange {
                 Instant::now(),
             )
             .map_err(|_| PreparedCredentialEnrollmentError)?;
-        if self.request.action != ProviderCredentialEnrollmentActionV2::Pair {
-            return Err(PreparedCredentialEnrollmentError);
-        }
         let command_id = uuid::Uuid::now_v7().to_string();
         let reaper_operation =
             ReaperOperationId::new(&command_id).ok_or(PreparedCredentialEnrollmentError)?;
@@ -141,8 +204,8 @@ impl PreparedCredentialEnrollmentExchange {
         let begin =
             NativeProtectedCredentialEnrollmentBegin::new(command, self.native_confirmation)
                 .map_err(|_| PreparedCredentialEnrollmentError)?;
-        let supervisor = self.runtime_lease.supervisor_handle();
-        let (mut enrollment, retained_handoff) = begin_then_handoff(
+        let supervisor = self.resources.runtime.supervisor_handle();
+        let (enrollment, retained_handoff) = begin_then_handoff(
             || {
                 supervisor
                     .lock()
@@ -151,28 +214,26 @@ impl PreparedCredentialEnrollmentExchange {
                     .map_err(|_| PreparedCredentialEnrollmentError)
             },
             |enrollment| enrollment.snapshot().broker_rendezvous_id().is_some(),
-            |_| {
-                supervisor
-                    .lock()
-                    .map_err(|_| PreparedCredentialEnrollmentError)?
-                    .run_credential_writer_handoff(
-                        &self.installed,
-                        self.request.writer_handoff_mode(),
-                    )
-                    .map_err(|_| PreparedCredentialEnrollmentError)
-            },
+            |_| pair_handoff(self, &supervisor, &reaper_operation, &reapers),
         )?;
         let mut handoff = RetainedWriterCleanup::new(
-            ProtectedWriterCleanup::new(retained_handoff, Arc::clone(&supervisor)),
+            pair_cleanup(
+                retained_handoff,
+                Arc::clone(&supervisor),
+                Arc::clone(&self.resources),
+            ),
             reaper_operation,
             reapers,
         );
         let exchange = (|| {
-            supervisor
-                .lock()
-                .map_err(|_| PreparedCredentialEnrollmentError)?
-                .receive_credential_secret_relay(&mut enrollment)
-                .map_err(|_| PreparedCredentialEnrollmentError)?;
+            if secretless {
+                return exchange::finish_control_only(Arc::clone(&supervisor), enrollment);
+            }
+            let mut enrollment = tauri::async_runtime::block_on(
+                runne_platform_desktop::ProtectedBundledRuntimeSupervisor::receive_credential_secret_relay_with_rejoin(
+                    Arc::clone(&supervisor), enrollment,
+                ),
+            ).map_err(|_| PreparedCredentialEnrollmentError)?;
             let relay = enrollment
                 .take_relay()
                 .ok_or(PreparedCredentialEnrollmentError)?;
@@ -190,11 +251,11 @@ impl PreparedCredentialEnrollmentExchange {
                 .ok_or(PreparedCredentialEnrollmentError)?
                 .seal_and_write(&relay, secret)
                 .map_err(|_| PreparedCredentialEnrollmentError)?;
-            supervisor
-                .lock()
-                .map_err(|_| PreparedCredentialEnrollmentError)?
-                .finish_protected_credential_enrollment(&mut enrollment, &relay)
-                .map_err(|_| PreparedCredentialEnrollmentError)?;
+            let enrollment = tauri::async_runtime::block_on(
+                runne_platform_desktop::ProtectedBundledRuntimeSupervisor::finish_protected_credential_enrollment_with_rejoin(
+                    Arc::clone(&supervisor), enrollment, &relay,
+                ),
+            ).map_err(|_| PreparedCredentialEnrollmentError)?;
             (enrollment.terminal() && terminal_is_success(enrollment.snapshot().state()))
                 .then_some(())
                 .ok_or(PreparedCredentialEnrollmentError)

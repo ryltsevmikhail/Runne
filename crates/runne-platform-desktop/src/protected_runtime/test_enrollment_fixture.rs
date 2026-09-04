@@ -4,6 +4,13 @@ pub struct TestOnlyReadyV3EnrollmentSupervisor(ProtectedBundledRuntimeSupervisor
 
 impl TestOnlyReadyV3EnrollmentSupervisor {
     #[must_use]
+    pub fn owned_launch(&self) -> Option<runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3> {
+        match &self.0.process.as_ref()?.activation {
+            ProtectedProcessActivation::V3 { owned, .. } => Some(owned.clone()),
+            _ => None,
+        }
+    }
+    #[must_use]
     pub fn owned_process_id(&self) -> Option<u32> {
         self.0.process.as_ref().map(|process| process.child.id())
     }
@@ -72,7 +79,7 @@ pub fn test_only_ready_v3_enrollment_supervisor() -> TestOnlyReadyV3EnrollmentSu
         child, channel, keys, activation, runtime_profile: None, renewal_sequence: 0,
         #[cfg(feature = "protected-channel-integration")]
         root_control_sequence: 0,
-        graceful_requested: false, enrollment_broker_facts: None,
+        graceful_requested: false, graceful_acknowledged: false, enrollment_broker_facts: None,
         captured_stdout: None, captured_stderr: None,
     };
     let root = std::env::temp_dir().join(format!("runne-v3-test-{}", uuid::Uuid::now_v7()));

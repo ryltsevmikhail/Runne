@@ -11,6 +11,7 @@ use runne_provider::{
     CredentialTicketAttempt, CredentialVersionRef, ProviderId,
 };
 
+mod legacy;
 mod reader;
 mod store;
 
@@ -50,6 +51,11 @@ impl Fixture {
     }
 
     fn new(action: CredentialOperationAction, failure: FailurePoint) -> Self {
+        let base = if action == CredentialOperationAction::LegacySourceCleanup {
+            2
+        } else {
+            1
+        };
         let (authority, _) = CredentialEnrollmentAuthorityPair::new().split();
         let provider = provider();
         let operation_id = operation();
@@ -61,8 +67,8 @@ impl Fixture {
                 CommandId::from_bytes([1; 16]),
                 IdempotencyKey::new("recovery").unwrap(),
                 owner(),
-                revision(1),
-                fence(1),
+                revision(base),
+                fence(base),
                 digest(3),
                 1,
                 1,
@@ -76,7 +82,9 @@ impl Fixture {
                 runne_provider::CredentialBrokerTarget::Version(target.clone().unwrap())
             }
             CredentialOperationAction::LegacySourceCleanup => {
-                runne_provider::CredentialBrokerTarget::LegacySource
+                let binding = legacy::binding();
+                metadata = metadata.with_legacy_cleanup_binding(binding.clone());
+                runne_provider::CredentialBrokerTarget::ExactLegacySource(binding)
             }
             CredentialOperationAction::WriterIdentityMigrationEffect
             | CredentialOperationAction::WriterIdentityMigrationVerify => {
@@ -121,17 +129,17 @@ impl Fixture {
             provider.clone(),
             action,
             command_target,
-            revision(1),
-            fence(1),
+            revision(base),
+            fence(base),
             binding,
         )
         .unwrap();
         let lifecycle = CredentialLifecycleSnapshot::new(
             provider.clone(),
             Some(CredentialVersionRef::new(provider.clone(), 2).unwrap()),
-            revision(1),
-            fence(1),
-            readiness(1),
+            revision(base),
+            fence(base),
+            readiness(base),
             3,
         )
         .unwrap();

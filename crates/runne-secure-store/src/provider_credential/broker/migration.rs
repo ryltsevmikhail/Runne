@@ -177,7 +177,10 @@ impl ExactLegacySourceCommand {
         channel: BrokerChannelBinding,
     ) -> Result<Self, SecureStoreError> {
         (command.action() == CredentialOperationAction::LegacySourceCleanup
-            && matches!(command.target(), CredentialBrokerTarget::LegacySource))
+            && matches!(
+                command.target(),
+                CredentialBrokerTarget::ExactLegacySource(_)
+            ))
         .then_some(())
         .ok_or(BrokerError::AccessDenied)?;
         Ok(Self {

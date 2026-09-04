@@ -34,6 +34,12 @@ impl PausedAppendStore {
     }
 }
 
+#[derive(Default)]
+struct IdempotentTerminalApplication {
+    calls: AtomicUsize,
+    committed: Mutex<HashMap<String, Vec<u8>>>,
+}
+
 impl ProviderExecutionStore for PausedAppendStore {
     fn active_journal_key_binding(
         &self,
@@ -67,6 +73,9 @@ impl ProviderExecutionStore for PausedAppendStore {
         request: &ProviderPollRequest,
     ) -> Result<(), ProviderExecutionError> {
         self.inner.begin_provider_poll(request)
+    }
+    fn revalidate_provider_poll(&self, request: &ProviderPollRequest) -> Result<(), ProviderExecutionError> {
+        self.inner.revalidate_provider_poll(request)
     }
 
     fn append_encrypted_event(
@@ -169,9 +178,12 @@ impl ProviderPort for SinglePollProvider {
 
     fn cancel(
         &self,
-        _request: CancelRequest,
+        request: CancelRequest,
     ) -> ProviderFuture<'_, Result<CancelDisposition, DispatchError>> {
-        Box::pin(async { unreachable!("fixture does not cancel") })
+        Box::pin(async move {
+            assert_eq!(request.stream_id(), ProviderStreamId::from_bytes([9; 16]));
+            Ok(CancelDisposition::Requested)
+        })
     }
 
     fn reconcile(

@@ -15,6 +15,9 @@ use super::credential_service_registration::{
     ExpectedCredentialServiceRegistration, accept_registration_frames,
 };
 
+#[path = "credential_service_gateway_legacy_tests.rs"]
+mod legacy;
+
 #[tokio::test]
 async fn service_gateway_fails_closed_before_authenticated_registration() {
     let (store, _) = CredentialEnrollmentAuthorityPair::new().split();

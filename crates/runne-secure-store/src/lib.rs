@@ -51,7 +51,7 @@ pub use provider_credential::{
 };
 pub use provider_credential::{
     CredentialReadbackObservation, ExactAbsenceReadback, ExactVersionReadback,
-    MAX_PROVIDER_CREDENTIAL_BYTES, NativeProviderCredentialReaderParts,
+    MAX_PROVIDER_CREDENTIAL_BYTES, NativeLegacySourceReadback, NativeProviderCredentialReaderParts,
     NativeProviderCredentialReaders, NativeProviderCredentialVersionStore,
     PROVIDER_CREDENTIAL_SERVICE, ProviderCredentialAccessPolicy,
     ProviderCredentialDispatchMaterializer, ProviderCredentialDispatchRead, ProviderCredentialId,

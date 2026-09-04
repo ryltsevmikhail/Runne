@@ -54,7 +54,23 @@ pub(in crate::tests) fn mutation_frames(
         })
         .unwrap();
     let writer = match command.action() {
-        CredentialOperationAction::Pair | CredentialOperationAction::MigrateLegacy => {
+        CredentialOperationAction::MigrateLegacy => {
+            CredentialServiceProtocolCodec::decode_authenticated_writer_legacy_handoff(
+                &handoff,
+                authorization,
+                &effects,
+                &channel,
+                claim,
+                |_| {
+                    runne_provider::CredentialLegacySourceMaterial::new(
+                        runne_provider::CredentialMaterial::from_bytes(b"secret".to_vec()).unwrap(),
+                        [73; 16],
+                    )
+                },
+            )
+            .unwrap()
+        }
+        CredentialOperationAction::Pair => {
             let sealed =
                 sealed_pair_for_test(&command, claim, &channel, b"secret".to_vec()).unwrap();
             CredentialServiceProtocolCodec::decode_authenticated_writer_broker_handoff(
@@ -217,7 +233,11 @@ fn command(id: u8, action: CredentialOperationAction) -> CredentialBrokerCommand
         CredentialTicketAttempt::new(1).unwrap(),
         provider.clone(),
         action,
-        CredentialBrokerTarget::Version(CredentialVersionRef::new(provider, 1).unwrap()),
+        if action == CredentialOperationAction::MigrateLegacy {
+            CredentialBrokerTarget::LegacyImport(CredentialVersionRef::new(provider, 1).unwrap())
+        } else {
+            CredentialBrokerTarget::Version(CredentialVersionRef::new(provider, 1).unwrap())
+        },
         CredentialLifecycleRevision::new(1).unwrap(),
         CredentialFence::new(1).unwrap(),
         None,

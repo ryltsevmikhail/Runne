@@ -13,6 +13,26 @@ pub(super) fn attach(
     store: &SqliteProviderCredentialLifecycleStore,
     input: AttachCredentialProcess,
 ) -> Result<CredentialOperationSnapshot, CredentialLifecycleError> {
+    attach_inner(store, input, None)
+}
+
+pub(super) fn attach_recovery(
+    store: &SqliteProviderCredentialLifecycleStore,
+    accepted: runne_provider::AcceptedCredentialCleanupRecovery,
+) -> Result<CredentialOperationSnapshot, CredentialLifecycleError> {
+    store.enrollment_authority.validate_cleanup_recovery(&accepted)
+        .map_err(|_| CredentialLifecycleError::Conflict)?;
+    let input = AttachCredentialProcess::new(
+        accepted.request().operation_id(), accepted.request().continuation_digest(),
+    ).map_err(|_| CredentialLifecycleError::InvalidInput)?;
+    attach_inner(store, input, Some(accepted))
+}
+
+fn attach_inner(
+    store: &SqliteProviderCredentialLifecycleStore,
+    input: AttachCredentialProcess,
+    accepted: Option<runne_provider::AcceptedCredentialCleanupRecovery>,
+) -> Result<CredentialOperationSnapshot, CredentialLifecycleError> {
     let mut connection = store.connection.lock().map_err(super::map_lock)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -25,19 +45,29 @@ pub(super) fn attach(
     if operation.state() != CredentialOperationState::Prepared {
         return Err(CredentialLifecycleError::LifecycleClosed);
     }
+    let retired_continuation: bool = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM provider_credential_process_attachments
+         WHERE operation_id=?1 AND continuation_binding_digest=?2 AND state='TOMBSTONED')",
+        params![input.operation_id().as_bytes().as_slice(), input.continuation_binding_digest().as_bytes().as_slice()],
+        |row| row.get(0),
+    ).map_err(map_sql)?;
+    if retired_continuation {
+        return Err(CredentialLifecycleError::Conflict);
+    }
     let head = load_head(&transaction, operation.provider())?
         .ok_or(CredentialLifecycleError::CorruptState)?;
     if !claim_head_matches(&operation, &head)? {
         return Err(CredentialLifecycleError::Conflict);
     }
     let now = head.observed_at.max((store.now)());
-    let expires: i64 = transaction
+    let recovery_expiry = super::recovery_attachment::deadline(&transaction, &operation, accepted.as_ref())?;
+    let expires: i64 = if let Some(expires) = recovery_expiry { expires } else { transaction
         .query_row(
             "SELECT begin_proof_expires_at_high_water FROM provider_credential_operations WHERE operation_id=?1",
             [input.operation_id().as_bytes().as_slice()],
             |row| row.get(0),
         )
-        .map_err(map_sql)?;
+        .map_err(map_sql)? };
     if expires <= now {
         transaction
             .execute(

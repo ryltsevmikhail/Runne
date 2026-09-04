@@ -192,6 +192,7 @@ impl ProtectedBundledRuntimeProcess {
             .decode_daemon_snapshot(&read_frame(&mut self.channel)?, 0)
             .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
         let terminal = snapshot.state().terminal();
+        if terminal { self.record_enrollment_terminal()?; }
         if !terminal
             && (snapshot.state() != ProviderCredentialOperationStateV2::Prepared
                 || snapshot.broker_rendezvous_id().is_none())
@@ -214,17 +215,8 @@ impl ProtectedBundledRuntimeProcess {
         if enrollment.relay.is_some() || enrollment.relay_taken || enrollment.terminal {
             return Err(ProtectedBundledRuntimeError::InvalidState);
         }
-        let relay = enrollment
-            .codec
-            .decode_daemon_relay(&read_frame(&mut self.channel)?, 1)
-            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        enrollment.relay = Some(
-            relay
-                .try_into()
-                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?,
-        );
-        enrollment.relay_taken = false;
-        Ok(())
+        let frame = read_frame(&mut self.channel)?;
+        enrollment_terminal::relay::accept(enrollment, &frame)
     }
 
     fn finish_protected_credential_enrollment(
@@ -245,25 +237,8 @@ impl ProtectedBundledRuntimeProcess {
             .encode_desktop_relay_ack(relay, 2)
             .map_err(|_| ProtectedBundledRuntimeError::InvalidState)?;
         write_frame(&mut self.channel, &ack)?;
-        let terminal = enrollment
-            .codec
-            .decode_daemon_snapshot(&read_frame(&mut self.channel)?, 2)
-            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        if !matches!(
-            terminal.state(),
-            ProviderCredentialOperationStateV2::Completed
-                | ProviderCredentialOperationStateV2::Failed
-                | ProviderCredentialOperationStateV2::Expired
-                | ProviderCredentialOperationStateV2::Cancelled
-                | ProviderCredentialOperationStateV2::Tombstoned
-        ) {
-            return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
-        }
-        enrollment.snapshot = terminal;
-        enrollment.relay = None;
-        enrollment.relay_taken = true;
-        enrollment.terminal = true;
-        Ok(())
+        let frame = read_frame(&mut self.channel)?;
+        enrollment_terminal::accept(self, enrollment, &frame)
     }
 
     fn v3_enrollment_facts(

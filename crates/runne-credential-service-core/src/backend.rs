@@ -22,6 +22,7 @@ pub enum CredentialBackendResult<T = ()> {
 pub struct CredentialMutationEffect<'a> {
     command: &'a CredentialBrokerCommand,
     material: Option<CredentialMaterial>,
+    source_revision: Option<[u8; 16]>,
 }
 
 /// One authenticated runtime read passed to the public platform closure seam.
@@ -34,6 +35,8 @@ pub enum CredentialRuntimeReadEffect<'a> {
 
 /// Closed observation returned by the runtime read closure.
 pub enum CredentialRuntimeReadObservation {
+    /// Exact imported version metadata, including its persisted source revision.
+    LegacyMetadata(CredentialBackendResult<[u8; 16]>),
     /// Metadata lookup result.
     Metadata(CredentialBackendResult<()>),
     /// Point-of-use lookup result.
@@ -44,8 +47,19 @@ impl<'a> CredentialMutationEffect<'a> {
     pub(crate) const fn new(
         command: &'a CredentialBrokerCommand,
         material: Option<CredentialMaterial>,
+        source_revision: Option<[u8; 16]>,
     ) -> Self {
-        Self { command, material }
+        Self {
+            command,
+            material,
+            source_revision,
+        }
+    }
+
+    /// Source revision authenticated with a legacy import; absent for other mutations.
+    #[must_use]
+    pub const fn source_revision(&self) -> Option<[u8; 16]> {
+        self.source_revision
     }
 
     /// Returns the exact non-secret durable command identity.

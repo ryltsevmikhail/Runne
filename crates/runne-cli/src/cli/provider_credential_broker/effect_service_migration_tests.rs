@@ -12,7 +12,7 @@ use runne_provider::{
     CredentialServiceReply, CredentialServiceRequestSequence, CredentialWriterAuthorityPair,
 };
 use runne_secure_store::{
-    BrokeredLegacySourceDeleteInput, BrokeredMigrateLegacyInput,
+    BrokeredLegacySourceDeleteInput,
     BrokeredProviderCredentialLegacySource, SecureStoreError,
 };
 
@@ -82,10 +82,12 @@ struct RecordingLegacySource(AtomicUsize);
 impl BrokeredProviderCredentialLegacySource for RecordingLegacySource {
     fn load_exact(
         &self,
-        _input: &BrokeredMigrateLegacyInput,
-    ) -> Result<CredentialMaterial, SecureStoreError> {
+        read: runne_provider::AuthorizedCredentialLegacyRead,
+    ) -> Result<runne_provider::CredentialLegacySourceMaterial, SecureStoreError> {
+        assert_eq!(read.command().action(), CredentialOperationAction::MigrateLegacy);
+        assert_eq!(read.binding(), CredentialBindingDigest::from_measured([13; 32]).unwrap());
         self.0.fetch_add(1, Ordering::SeqCst);
-        CredentialMaterial::from_bytes(b"legacy-secret".to_vec())
+        CredentialMaterial::from_bytes(b"legacy-secret".to_vec()).and_then(|material| runne_provider::CredentialLegacySourceMaterial::new(material, [73; 16]))
             .map_err(|_| SecureStoreError::InvalidProviderCredential)
     }
 

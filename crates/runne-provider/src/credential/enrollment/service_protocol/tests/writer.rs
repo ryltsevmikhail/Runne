@@ -218,9 +218,13 @@ fn legacy_migration_handoff_reads_material_only_after_exact_claim_authentication
         &effects,
         &channel,
         binding,
-        |_| {
+        |read| {
+            assert_eq!(read.command(), &command);
+            assert_eq!(read.binding(), binding);
+            assert_eq!(read.channel_digest(), channel.digest());
             reads.set(reads.get() + 1);
             CredentialMaterial::from_bytes(vec![72; 32])
+                .and_then(|material| crate::CredentialLegacySourceMaterial::new(material, [73; 16]))
         },
     )
     .unwrap();
@@ -230,10 +234,7 @@ fn legacy_migration_handoff_reads_material_only_after_exact_claim_authentication
         CredentialServiceRequest::WriterConsume(request),
     )
     .unwrap();
-    assert!(matches!(
-        CredentialServiceProtocolCodec::decode_writer_request(encoded.test_bytes()),
-        Ok(CredentialServiceIngressRequest::WriterConsume(_))
-    ));
+    super::legacy_wire::assert_revision_roundtrip(&encoded);
 }
 
 #[test]
@@ -273,6 +274,7 @@ fn legacy_migration_handoff_rejects_mismatched_claim_before_reading_material() {
         |_| {
             reads.set(reads.get() + 1);
             CredentialMaterial::from_bytes(vec![62; 32])
+                .and_then(|material| crate::CredentialLegacySourceMaterial::new(material, [73; 16]))
         },
     );
 

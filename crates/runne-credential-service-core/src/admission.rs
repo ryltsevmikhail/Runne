@@ -76,7 +76,7 @@ impl AdmissionLedger {
         now: u64,
         backend: impl FnOnce(CredentialMutationEffect<'_>) -> CredentialBackendResult<()>,
     ) -> Result<CredentialBackendResult<()>, CredentialServiceDisposition> {
-        let (binding, grant, material) = request.into_parts();
+        let (binding, grant, material, source_revision) = request.into_parts();
         let entry = self
             .entries
             .iter_mut()
@@ -93,7 +93,7 @@ impl AdmissionLedger {
         let command = entry.request.command().clone();
         Ok(execute_mutation(
             backend,
-            CredentialMutationEffect::new(&command, material),
+            CredentialMutationEffect::new(&command, material, source_revision),
         ))
     }
 }

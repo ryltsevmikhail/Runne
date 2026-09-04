@@ -3,19 +3,8 @@
 fn authority_restart_atomically_freezes_old_live_attempt_before_new_lease_is_usable() {
     let database = validated_reopen::ProviderTestDatabase::new("provider-generation-restart");
     let (store, launch, request) = initialize(&database);
-    let ProviderAuthorityIssueOutcome::Winner(admitted) = store.issue(&launch, &request).unwrap()
-    else {
-        panic!("first generation must admit one attempt")
-    };
-    let attempt_id = admitted.claim().attempt_id;
-    database
-        .dispatch()
-        .mark_streaming(&runne_store::provider::MarkProviderStreaming {
-            attempt_id,
-            fencing_token: admitted.claim().fencing_token,
-            stream_id: runne_provider::ProviderStreamId::from_bytes([41; 16]),
-        })
-        .unwrap();
+    let (binding, _) = online_stream_fixture::start(&database, &store, &launch, prepared().2, &request, runne_provider::ProviderStreamId::from_bytes([41; 16]), 83);
+    let attempt_id = binding.execution().attempt_id();
 
     let mut restarted = config();
     restarted.generation = 12;
@@ -31,15 +20,15 @@ fn authority_restart_atomically_freezes_old_live_attempt_before_new_lease_is_usa
         reopened.state,
         runne_store::provider::ProviderDispatchState::Uncertain
     );
-    assert!(
-        database
-            .dispatch()
-            .mark_streaming(&runne_store::provider::MarkProviderStreaming {
+    assert_eq!(
+        store.begin_provider_poll(&runne_application::provider::ProviderPollRequest {
                 attempt_id,
-                fencing_token: admitted.claim().fencing_token,
-                stream_id: runne_provider::ProviderStreamId::from_bytes([42; 16]),
-            })
-            .is_err()
+                fencing_token: binding.execution().fencing_token(),
+                cursor: 0,
+                profile_digest: request.prepared.profile_digest,
+                runtime_generation: 11,
+            }),
+        Err(runne_application::provider::ProviderExecutionError::StaleGeneration),
     );
     assert_eq!(
         store.issue(&restarted_launch, &request),

@@ -12,7 +12,9 @@ pub(super) trait PostFenceEnrollmentDependencies {
     fn admit_registry(self) -> Result<Self::Output, Self::Error>;
 }
 
-pub(super) struct EnrollmentWatcher(tauri::async_runtime::JoinHandle<()>);
+pub(in crate::provider_credential_enrollment) struct EnrollmentWatcher(
+    tauri::async_runtime::JoinHandle<()>,
+);
 
 impl EnrollmentWatcher {
     #[cfg_attr(
@@ -37,7 +39,15 @@ where
         .and_then(|()| dependencies.admit_registry())
 }
 
-pub(super) fn spawn_pre_fence_enrollment_owner<W, O, X, F, J, T, E>(
+pub(in crate::provider_credential_enrollment) fn spawn_pre_fence_enrollment_owner<
+    W,
+    O,
+    X,
+    F,
+    J,
+    T,
+    E,
+>(
     work: W,
     cleanup: X,
     join_failure: J,

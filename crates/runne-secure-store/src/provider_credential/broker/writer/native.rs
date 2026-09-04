@@ -43,17 +43,21 @@ use crate::{
 ///     let (_issuer, _effect_capable_writer) = writers.into_parts();
 /// }
 /// ```
-///
-/// An authenticated production bundle cannot discard its retained ticket and
-/// recover the locally paired issuer/effect writer directly either:
-///
-/// ```compile_fail
-/// use runne_secure_store::NativeProviderCredentialWriters;
-///
-/// fn cannot_bypass_retained_ticket(writers: NativeProviderCredentialWriters) {
-///     let (_issuer, _effect_capable_writer) = writers.into_parts();
-/// }
-/// ```
+#[cfg_attr(
+    not(feature = "test-support"),
+    doc = r"An authenticated production bundle cannot discard its retained ticket
+and recover the locally paired issuer/effect writer directly either. The explicit
+test-support feature exposes a separate test-only split, so this production API
+absence check runs without that feature:
+
+```compile_fail
+use runne_secure_store::NativeProviderCredentialWriters;
+
+fn cannot_bypass_retained_ticket(writers: NativeProviderCredentialWriters) {
+    let (_issuer, _effect_capable_writer) = writers.into_parts();
+}
+```"
+)]
 #[cfg_attr(
     not(feature = "test-support"),
     doc = r"The test-only factory is absent from the normal writer-feature API too:
@@ -229,12 +233,12 @@ where
 
     fn delete_legacy_source_exact(
         &self,
-        input: &BrokeredLegacySourceDeleteInput,
-        access: &ProviderCredentialAccessPolicy,
+        _input: &BrokeredLegacySourceDeleteInput,
+        _access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
-        Self::validate_writer(access)?;
-        self.native
-            .delete_provider_credential(provider(input.command().provider())?)
+        // The legacy in-process route retains no authenticated source-import session.
+        // Tuple V3 cleanup uses NativeProviderCredentialLegacySource instead.
+        Err(SecureStoreError::UnsupportedSecureStoreBackend)
     }
 
     fn migrate_writer_identity_exact(

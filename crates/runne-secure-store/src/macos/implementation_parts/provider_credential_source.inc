@@ -9,6 +9,16 @@ impl MacOsProviderCredentialStore {
         expected_access
             .validate_reader_current()
             .map_err(map_identity_access_error)?;
+        self.load_admitted_provider_credential_record(provider, expected_access)
+    }
+
+    fn load_admitted_provider_credential_record(
+        &self,
+        provider: ProviderCredentialId,
+        expected_access: &ProviderCredentialAccessPolicy,
+    ) -> Result<StoredProviderCredential, SecureStoreError> {
+        let store = self.scoped_provider_store(provider);
+        store.validate_provider(provider)?;
         expected_access
             .remeasure()
             .map_err(map_identity_access_error)?;

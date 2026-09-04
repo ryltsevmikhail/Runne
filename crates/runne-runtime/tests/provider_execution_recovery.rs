@@ -1,3 +1,7 @@
+#[path = "../../runne-store/tests/support/online_credential_fixture.rs"]
+mod online_credential_fixture;
+#[path = "../../runne-store/tests/support/online_stream_fixture.rs"]
+mod online_stream_fixture;
 #[path = "../../runne-store/tests/support/validated_reopen.rs"]
 mod validated_reopen;
 

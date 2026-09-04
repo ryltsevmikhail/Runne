@@ -18,7 +18,21 @@ pub mod provider_credential_broker;
 mod provider_credential_prompt;
 mod root_handle_broker;
 mod updater;
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "protected-channel-integration",
+    feature = "test-support"
+))]
+pub use protected_runtime::test_only_crossed_broker_offer;
+#[cfg(all(feature = "test-support", target_os = "macos", target_arch = "aarch64"))]
+pub use protected_runtime::{
+    test_only_crossed_discovery, test_only_crossed_renewal, test_only_crossed_round,
+    test_only_crossed_shutdown, test_only_pair_terminal,
+};
 mod updater_artifact;
+#[cfg(all(target_os = "macos", feature = "test-support"))]
+pub use protected_runtime::test_only_failed_writer_handoff;
 mod updater_coordinator;
 mod updater_feed;
 mod updater_install;
@@ -31,9 +45,10 @@ mod updater_trust;
 pub use protected_runtime::FirstActivationFaultPoint;
 #[cfg(target_os = "macos")]
 pub use protected_runtime::{
-    CredentialWriterHandoff, CredentialWriterHandoffMode, NativeProtectedCredentialEnrollmentBegin,
-    PreparedCredentialServiceRejoin, PreparedCredentialServiceSessionRegistration,
-    PreparedProtectedCredentialEnrollment, RegisteredCredentialServiceSession,
+    CredentialWriterHandoff, CredentialWriterHandoffError, CredentialWriterHandoffMode,
+    NativeProtectedCredentialEnrollmentBegin, PreparedCredentialServiceRejoin,
+    PreparedCredentialServiceSessionRegistration, PreparedProtectedCredentialEnrollment,
+    PreparedProtectedCredentialRecovery, RegisteredCredentialServiceSession,
 };
 pub use protected_runtime::{
     DevelopmentBundledRuntimeLauncher, ProtectedBundledRuntimeError,

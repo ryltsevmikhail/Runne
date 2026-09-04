@@ -12,7 +12,7 @@ use runne_provider::{
     CredentialTicketAttempt, CredentialVersionRef, CredentialWriterAuthorityPair, ProviderId,
 };
 
-use super::super::{BrokeredLegacySourceDeleteInput, BrokeredMigrateLegacyInput};
+use super::super::BrokeredLegacySourceDeleteInput;
 use super::legacy_source::{
     BrokeredProviderCredentialLegacySource, NativeProviderCredentialLegacySource,
 };
@@ -22,25 +22,46 @@ use crate::{
     ProviderCredentialStore, SecureStoreError,
 };
 
+include!("legacy_read_fixture.inc");
+include!("legacy_native_role_tests.inc");
+#[path = "legacy_cleanup_tests.rs"]
+mod cleanup;
+
 #[test]
-fn exact_legacy_migration_loads_the_source_once_into_service_material() {
+fn legacy_port_rejects_token_from_unretained_writer_authority() {
     let access = current_writer_access();
     let loads = Arc::new(AtomicUsize::new(0));
     let source = NativeProviderCredentialLegacySource::new(
         RecordingLegacyStore::new(loads.clone(), Arc::new(AtomicUsize::new(0))),
         access.policy.clone(),
+        legacy_read_with_verifier().1,
     );
-    let input = BrokeredMigrateLegacyInput::new(
-        command(CredentialOperationAction::MigrateLegacy),
-        binding(9),
-        channel(),
-    )
-    .unwrap();
+    assert_eq!(
+        source.load_exact(authorized_legacy_read()).err(),
+        Some(SecureStoreError::CredentialAccessDenied)
+    );
+    assert_eq!(loads.load(Ordering::SeqCst), 0);
+    drop(access);
+}
 
-    let material = source.load_exact(&input).unwrap();
+#[test]
+fn exact_legacy_migration_loads_the_source_once_into_service_material() {
+    let (read, verifier) = legacy_read_with_verifier();
+    let access = current_writer_access();
+    let loads = Arc::new(AtomicUsize::new(0));
+    let source = NativeProviderCredentialLegacySource::new(
+        RecordingLegacyStore::new(loads.clone(), Arc::new(AtomicUsize::new(0))),
+        access.policy.clone(),
+        verifier,
+    );
+    let material = source.load_exact(read).unwrap();
     drop(access);
 
-    material.consume(|bytes| assert_eq!(bytes, b"legacy-secret"));
+    assert_eq!(material.source_revision(), [7; 16]);
+    material
+        .into_parts()
+        .0
+        .consume(|bytes| assert_eq!(bytes, b"legacy-secret"));
     assert_eq!(loads.load(Ordering::SeqCst), 1);
 }
 
@@ -51,6 +72,7 @@ fn legacy_cleanup_requires_exact_claim_before_deleting_the_source() {
     let source = NativeProviderCredentialLegacySource::new(
         RecordingLegacyStore::new(Arc::new(AtomicUsize::new(0)), deletes.clone()),
         access.policy.clone(),
+        legacy_read_with_verifier().1,
     );
     let command = command(CredentialOperationAction::LegacySourceCleanup);
     let channel = channel();
@@ -67,12 +89,13 @@ fn legacy_cleanup_requires_exact_claim_before_deleting_the_source() {
 }
 
 #[test]
-fn exact_legacy_cleanup_deletes_the_source_once() {
+fn legacy_cleanup_rejects_unretained_authority_before_native_delete() {
     let access = current_writer_access();
     let deletes = Arc::new(AtomicUsize::new(0));
     let source = NativeProviderCredentialLegacySource::new(
         RecordingLegacyStore::new(Arc::new(AtomicUsize::new(0)), deletes.clone()),
         access.policy.clone(),
+        legacy_read_with_verifier().1,
     );
     let command = command(CredentialOperationAction::LegacySourceCleanup);
     let channel = channel();
@@ -81,24 +104,46 @@ fn exact_legacy_cleanup_deletes_the_source_once() {
     let authorization = authorization(&issuer, &command, binding, &channel);
     let input = BrokeredLegacySourceDeleteInput::new(command, binding, channel).unwrap();
 
-    source.delete_exact(&effects, authorization, input).unwrap();
+    assert_eq!(
+        source.delete_exact(&effects, authorization, input),
+        Err(SecureStoreError::CredentialAccessDenied)
+    );
     drop(access);
 
-    assert_eq!(deletes.load(Ordering::SeqCst), 1);
+    assert_eq!(deletes.load(Ordering::SeqCst), 0);
 }
 
 struct RecordingLegacyStore {
     loads: Arc<AtomicUsize>,
     deletes: Arc<AtomicUsize>,
+    revision: [u8; 16],
 }
 
 impl RecordingLegacyStore {
     const fn new(loads: Arc<AtomicUsize>, deletes: Arc<AtomicUsize>) -> Self {
-        Self { loads, deletes }
+        Self {
+            loads,
+            deletes,
+            revision: [7; 16],
+        }
     }
 }
 
 impl ProviderCredentialStore for RecordingLegacyStore {
+    fn delete_provider_credential(
+        &self,
+        _provider: ProviderCredentialId,
+    ) -> Result<(), SecureStoreError> {
+        panic!("legacy cleanup must never fall back to provider-scoped deletion")
+    }
+    fn migrate_provider_credential_access(
+        &self,
+        _provider: ProviderCredentialId,
+        _current: &ProviderCredentialAccessPolicy,
+        _replacement: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
+        unreachable!()
+    }
     fn provider_credential_status(
         &self,
         _provider: ProviderCredentialId,
@@ -123,59 +168,46 @@ impl ProviderCredentialStore for RecordingLegacyStore {
     ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
         unreachable!()
     }
+}
 
-    fn load_provider_credential_source(
+impl crate::provider_credential::AuthorizedLegacySourceStore for RecordingLegacyStore {
+    fn delete_authorized_legacy_source(
         &self,
         provider: ProviderCredentialId,
+        binding: &runne_provider::CredentialLegacyCleanupBinding,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
+        assert_eq!(provider, ProviderCredentialId::OpenAi);
+        crate::provider_credential::source_cleanup::select(
+            binding,
+            vec![(
+                ProviderCredentialSourceRevision::new(self.revision).unwrap(),
+                (),
+            )],
+        )?;
+        self.deletes.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+    fn load_authorized_legacy_source(
+        &self,
+        read: runne_provider::AuthorizedCredentialLegacyRead,
         _access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialSource, SecureStoreError> {
-        assert_eq!(provider, ProviderCredentialId::OpenAi);
+        assert_eq!(read.command().provider().as_str(), "openai");
+        assert_eq!(
+            read.command().action(),
+            CredentialOperationAction::MigrateLegacy
+        );
         self.loads.fetch_add(1, Ordering::SeqCst);
         Ok(ProviderCredentialSource::new(
             ProviderCredentialMaterial::new(b"legacy-secret".to_vec()).unwrap(),
             ProviderCredentialSourceRevision::new([7; 16]).unwrap(),
         ))
     }
-
-    fn delete_provider_credential(
-        &self,
-        provider: ProviderCredentialId,
-    ) -> Result<(), SecureStoreError> {
-        assert_eq!(provider, ProviderCredentialId::OpenAi);
-        self.deletes.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    }
-
-    fn migrate_provider_credential_access(
-        &self,
-        _provider: ProviderCredentialId,
-        _current: &ProviderCredentialAccessPolicy,
-        _replacement: &ProviderCredentialAccessPolicy,
-    ) -> Result<(), SecureStoreError> {
-        unreachable!()
-    }
 }
 
 fn command(action: CredentialOperationAction) -> CredentialBrokerCommand {
-    let provider = ProviderId::new("openai").unwrap();
-    let target = match action {
-        CredentialOperationAction::MigrateLegacy => CredentialBrokerTarget::LegacyImport(
-            CredentialVersionRef::new(provider.clone(), 1).unwrap(),
-        ),
-        CredentialOperationAction::LegacySourceCleanup => CredentialBrokerTarget::LegacySource,
-        _ => unreachable!(),
-    };
-    CredentialBrokerCommand::new(
-        CredentialOperationId::from_bytes([3; 16]).unwrap(),
-        CredentialTicketAttempt::new(1).unwrap(),
-        provider,
-        action,
-        target,
-        CredentialLifecycleRevision::new(1).unwrap(),
-        CredentialFence::new(1).unwrap(),
-        None,
-    )
-    .unwrap()
+    cleanup::command(action)
 }
 
 fn authorization(

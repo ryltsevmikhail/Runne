@@ -121,7 +121,7 @@ where
         cursor: StreamCursor,
         context: &ProviderEventJournalContext,
     ) -> Result<ProviderStreamItem, RuntimeProviderExecutionError> {
-        self.store
+        if let Err(error) = self.store
             .begin_provider_poll(&ProviderPollRequest {
                 attempt_id: context.attempt_id,
                 fencing_token: context.fencing_token,
@@ -129,22 +129,55 @@ where
                 profile_digest: context.profile_digest,
                 runtime_generation: context.runtime_generation,
             })
-            .map_err(map_execution_error)?;
-        let item = match provider.next(stream_id, cursor).await {
+        {
+            let freeze = if matches!(error, ProviderExecutionError::StoreUnavailable | ProviderExecutionError::StaleGeneration) {
+                self.store.mark_execution_uncertain(context.attempt_id, context.fencing_token)
+            } else {
+                Ok(())
+            };
+            cancel_uncommitted_stream(provider, *stream_id).await;
+            match freeze {
+                Ok(()) => {}
+                Err(ProviderExecutionError::StaleGeneration) if error == ProviderExecutionError::StaleGeneration => {}
+                Err(_) => return Err(RuntimeProviderExecutionError::JournalCommitLost),
+            }
+            return Err(map_execution_error(error));
+        }
+        let pending = wait_for_provider_item(provider.next(stream_id, cursor), || {
+            self.store.revalidate_provider_poll(&ProviderPollRequest {
+                attempt_id: context.attempt_id,
+                fencing_token: context.fencing_token,
+                cursor: cursor.sequence(),
+                profile_digest: context.profile_digest,
+                runtime_generation: context.runtime_generation,
+            })
+        }).await;
+        let polled = match pending {
+            Ok(item) => item,
+            Err(error) => {
+                let persisted = self.store.mark_execution_uncertain(context.attempt_id, context.fencing_token);
+                cancel_uncommitted_stream(provider, *stream_id).await;
+                persisted.map_err(|_| RuntimeProviderExecutionError::JournalCommitLost)?;
+                return Err(map_execution_error(error));
+            }
+        };
+        let item = match polled {
             Ok(item) => item,
             Err(_) => {
-                self.store
-                    .mark_execution_uncertain(context.attempt_id, context.fencing_token)
-                    .map_err(|_| RuntimeProviderExecutionError::JournalCommitLost)?;
+                let persisted = self.store
+                    .mark_execution_uncertain(context.attempt_id, context.fencing_token);
+                cancel_uncommitted_stream(provider, *stream_id).await;
+                persisted.map_err(|_| RuntimeProviderExecutionError::JournalCommitLost)?;
                 return Err(RuntimeProviderExecutionError::AdapterStreamUnavailable);
             }
         };
         match self.commit_polled_event(context, item.event()) {
             Ok((_outcome, sanitized_item)) => Ok(sanitized_item),
             Err(error) => {
-                self.store
-                    .mark_execution_uncertain(context.attempt_id, context.fencing_token)
-                    .map_err(|_| RuntimeProviderExecutionError::JournalCommitLost)?;
+                let persisted = self.store
+                    .mark_execution_uncertain(context.attempt_id, context.fencing_token);
+                cancel_uncommitted_stream(provider, *stream_id).await;
+                persisted.map_err(|_| RuntimeProviderExecutionError::JournalCommitLost)?;
                 Err(if error == RuntimeProviderExecutionError::PolicyDenied {
                     error
                 } else {
@@ -153,6 +186,41 @@ where
             }
         }
     }
+}
+
+async fn wait_for_provider_item<T>(
+    future: impl std::future::Future<Output = T>,
+    mut revalidate: impl FnMut() -> Result<(), ProviderExecutionError>,
+) -> Result<T, ProviderExecutionError> {
+    use std::future::Future as _;
+    use std::pin::Pin;
+    use std::task::Poll;
+    tokio::pin!(future);
+    let interval = std::time::Duration::from_millis(50);
+    let mut timer = futures_timer::Delay::new(interval);
+    std::future::poll_fn(|cx| {
+        if Pin::new(&mut timer).poll(cx).is_ready() {
+            if let Err(error) = revalidate() { return Poll::Ready(Err(error)); }
+            timer.reset(interval);
+            let _ = Pin::new(&mut timer).poll(cx);
+        }
+        future.as_mut().poll(cx).map(Ok)
+    }).await
+}
+
+async fn cancel_uncommitted_stream(provider: &(impl ProviderPort + ?Sized), stream: ProviderStreamId) {
+    use std::future::Future as _;
+    use std::pin::Pin;
+    use std::task::Poll;
+    let cancel = provider.cancel(runne_provider::CancelRequest::new(stream));
+    tokio::pin!(cancel);
+    let mut timeout = futures_timer::Delay::new(std::time::Duration::from_secs(1));
+    std::future::poll_fn(|cx| {
+        if Pin::new(&mut timeout).poll(cx).is_ready() {
+            return Poll::Ready(());
+        }
+        cancel.as_mut().poll(cx).map(|_| ())
+    }).await;
 }
 impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
 where

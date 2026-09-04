@@ -9,7 +9,7 @@ use super::readback_observation::{
 };
 use crate::{
     NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
-    ProviderCredentialStatus, ProviderCredentialStore, SecureStoreError,
+    ProviderCredentialStatus, SecureStoreError,
 };
 
 pub trait ProviderCredentialReadback: Send + Sync {
@@ -101,6 +101,25 @@ impl ExactVersionReadback {
         self,
         present: bool,
     ) -> Result<CredentialReadbackObservation, SecureStoreError> {
+        self.observe_service_metadata(present, None)
+    }
+
+    /// Binds imported-version readback to its atomically persisted source revision.
+    ///
+    /// # Errors
+    /// Rejects missing revision for imports and revision metadata on ordinary or absent records.
+    pub fn observe_service_metadata(
+        self,
+        present: bool,
+        source_revision: Option<crate::ProviderCredentialSourceRevision>,
+    ) -> Result<CredentialReadbackObservation, SecureStoreError> {
+        if let Some(revision) = source_revision {
+            return if present && self.command.action() == CredentialOperationAction::MigrateLegacy {
+                legacy_import_observation(&self.command, &self.reference, revision)
+            } else {
+                Err(BrokerError::AccessDenied.into())
+            };
+        }
         match self.command.action() {
             CredentialOperationAction::Pair => {
                 version_observation(&self.command, &self.reference, present)
@@ -131,7 +150,7 @@ impl ExactAbsenceReadback {
             ) => Some(reference.clone()),
             (
                 CredentialOperationAction::LegacySourceCleanup,
-                CredentialBrokerTarget::LegacySource,
+                CredentialBrokerTarget::ExactLegacySource(_),
             ) => None,
             _ => return Err(BrokerError::AccessDenied.into()),
         };
@@ -182,10 +201,7 @@ pub(super) trait LegacyCredentialSourceReadback: Send + Sync {
     ) -> Result<ProviderCredentialStatus, SecureStoreError>;
 }
 
-impl<T> LegacyCredentialSourceReadback for T
-where
-    T: ProviderCredentialStore,
-{
+impl LegacyCredentialSourceReadback for crate::NativeProviderCredentialStore {
     fn legacy_source_status(
         &self,
         provider: &runne_provider::ProviderId,
@@ -196,7 +212,22 @@ where
             "deepseek" => ProviderCredentialId::DeepSeek,
             _ => return Err(BrokerError::Unsupported.into()),
         };
-        self.provider_credential_status(provider, access)
+        #[cfg(target_os = "macos")]
+        {
+            self.legacy_source_metadata_presence(provider, access)
+                .map(|present| {
+                    if present {
+                        ProviderCredentialStatus::Configured
+                    } else {
+                        ProviderCredentialStatus::Missing
+                    }
+                })
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (provider, access);
+            Err(BrokerError::Unsupported.into())
+        }
     }
 }
 

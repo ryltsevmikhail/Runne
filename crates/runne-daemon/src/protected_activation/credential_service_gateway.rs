@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use runne_api::ProviderCredentialEnrollmentHostError;
@@ -11,7 +11,9 @@ use runne_secure_store::{
     ProviderCredentialMaterial, ProviderCredentialReadback, SecureStoreError,
 };
 
-use super::credential_service_registration::CredentialServiceRuntimeSession;
+use super::credential_service_registration::{
+    CredentialServiceRuntimeSession, ServiceVersionMetadata,
+};
 
 mod rejoin;
 mod retry;
@@ -26,6 +28,7 @@ pub(crate) struct CredentialServiceRuntimeGateway {
     authority: CredentialEnrollmentStoreAuthority,
     runtime: tokio::runtime::Handle,
     rejoin: CredentialServiceRejoinCoordinator,
+    legacy_readback: Option<Arc<dyn ProviderCredentialReadback>>,
 }
 
 impl CredentialServiceRuntimeGateway {
@@ -38,7 +41,16 @@ impl CredentialServiceRuntimeGateway {
             authority,
             runtime,
             rejoin: CredentialServiceRejoinCoordinator::new(),
+            legacy_readback: None,
         }
+    }
+
+    pub(crate) fn with_legacy_readback(
+        mut self,
+        reader: Arc<dyn ProviderCredentialReadback>,
+    ) -> Self {
+        self.legacy_readback = Some(reader);
+        self
     }
 
     pub(crate) fn install(
@@ -87,7 +99,7 @@ impl CredentialServiceRuntimeGateway {
         version: runne_provider::CredentialVersionRef,
         lifecycle: runne_provider::CredentialLifecycleRevision,
         fence: runne_provider::CredentialFence,
-    ) -> Result<bool, SecureStoreError> {
+    ) -> Result<ServiceVersionMetadata, SecureStoreError> {
         self.retry_metadata_after_rejoin(|| {
             let call_now = match now_unix_millis() {
                 Ok(value) => value,
@@ -173,24 +185,37 @@ impl ProviderCredentialReadback for CredentialServiceRuntimeGateway {
             command.expected_lifecycle_revision(),
             command.expected_prior_fence(),
         )?;
-        input.observe_service_presence(present)
+        input.observe_service_metadata(present.present, present.source_revision)
     }
 
     fn readback_exact_absence(
         &self,
         input: ExactAbsenceReadback,
     ) -> Result<CredentialReadbackObservation, SecureStoreError> {
-        let version = input
-            .version_ref()
-            .cloned()
-            .ok_or(SecureStoreError::UnsupportedSecureStoreBackend)?;
+        let Some(version) = input.version_ref().cloned() else {
+            let session = self
+                .session
+                .lock()
+                .map_err(|_| SecureStoreError::Unavailable)?;
+            session
+                .as_ref()
+                .ok_or(SecureStoreError::Unavailable)?
+                .validate_live_registration(now_unix_millis().map_err(map_host_error)?)
+                .map_err(map_host_error)?;
+            // Hold the registration guard through independent native inspection.
+            return self
+                .legacy_readback
+                .as_ref()
+                .ok_or(SecureStoreError::UnsupportedSecureStoreBackend)?
+                .readback_exact_absence(input);
+        };
         let command = input.command();
         let present = self.read_metadata(
             version,
             command.expected_lifecycle_revision(),
             command.expected_prior_fence(),
         )?;
-        input.observe_service_presence(present)
+        input.observe_service_presence(present.present)
     }
 }
 

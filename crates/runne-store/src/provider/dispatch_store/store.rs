@@ -99,6 +99,22 @@ impl SqliteProviderDispatchStore {
         &self,
         request: &MarkProviderStreaming,
     ) -> Result<ProviderDispatchState, ProviderStoreError> {
+        self.mark_streaming_checked(request, || None)
+    }
+
+    pub(super) fn mark_streaming_online(
+        &self,
+        request: &MarkProviderStreaming,
+        now: impl FnOnce() -> i64,
+    ) -> Result<ProviderDispatchState, ProviderStoreError> {
+        self.mark_streaming_checked(request, || Some(now()))
+    }
+
+    fn mark_streaming_checked(
+        &self,
+        request: &MarkProviderStreaming,
+        now: impl FnOnce() -> Option<i64>,
+    ) -> Result<ProviderDispatchState, ProviderStoreError> {
         let mut connection = self
             .connection
             .lock()
@@ -109,6 +125,7 @@ impl SqliteProviderDispatchStore {
         let record = load_dispatch_by_attempt(&transaction, request.attempt_id)?
             .ok_or(ProviderStoreError::NotFound)?;
         verify_fence(&record, request.fencing_token)?;
+        verify_online_publication(&transaction, request.attempt_id, now())?;
         match (record.state, record.stream_id) {
             (ProviderDispatchState::Dispatching, None) => {
                 let changed = transaction

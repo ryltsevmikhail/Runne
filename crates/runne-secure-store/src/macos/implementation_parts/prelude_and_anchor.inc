@@ -74,19 +74,7 @@ pub fn acquire_keychain_interaction_locks() -> Result<KeychainInteractionGuard, 
     })
 }
 
-fn active_keychain() -> Result<SecKeychain, ()> {
-    #[cfg(any(test, feature = "test-support"))]
-    if let Some(path) = std::env::var_os("RUNNE_CI_MACOS_KEYCHAIN") {
-        let home = std::env::var_os("HOME").ok_or(())?;
-        let expected = std::path::PathBuf::from(home)
-            .join("Library/Keychains/runne-ci.keychain-db");
-        if std::path::Path::new(&path) != expected {
-            return Err(());
-        }
-        return SecKeychain::open(path).map_err(|_| ());
-    }
-    SecKeychain::default().map_err(|_| ())
-}
+include!("active_keychain.inc");
 #[cfg(test)]
 std::thread_local! {
     static PROVIDER_CREDENTIAL_PASSWORD_READS: Cell<usize> = const { Cell::new(0) };

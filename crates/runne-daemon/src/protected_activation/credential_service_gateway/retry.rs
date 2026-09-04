@@ -3,7 +3,7 @@ use runne_api::ProviderCredentialEnrollmentHostError;
 use super::CredentialServiceRuntimeGateway;
 
 impl CredentialServiceRuntimeGateway {
-    pub(super) fn retry_metadata_after_rejoin<T>(
+    pub(in crate::protected_activation) fn retry_metadata_after_rejoin<T>(
         &self,
         mut attempt: impl FnMut() -> (
             Result<T, ProviderCredentialEnrollmentHostError>,

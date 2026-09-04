@@ -1,9 +1,13 @@
 use std::sync::Arc;
 
+#[cfg(test)]
+#[path = "native_record_tests.rs"]
+mod record_tests;
+
 use core_foundation::{
-    base::{TCFType, ToVoid},
+    base::{CFType, TCFType, ToVoid},
     boolean::CFBoolean,
-    data::{CFData, CFDataRef},
+    data::CFData,
     dictionary::{CFDictionary, CFMutableDictionary},
     string::CFString,
 };
@@ -17,7 +21,8 @@ use security_framework_sys::{
     access_control::kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
     item::{
         kSecAttrAccessGroup, kSecAttrAccount, kSecAttrService, kSecAttrSynchronizable, kSecClass,
-        kSecClassGenericPassword, kSecReturnData, kSecUseDataProtectionKeychain, kSecValueData,
+        kSecClassGenericPassword, kSecReturnAttributes, kSecReturnData,
+        kSecUseDataProtectionKeychain, kSecValueData,
     },
     keychain_item::{SecItemAdd, SecItemCopyMatching, SecItemDelete},
 };
@@ -30,6 +35,7 @@ use super::{
 
 unsafe extern "C" {
     static kSecAttrAccessible: CFStringRef;
+    static kSecAttrGeneric: CFStringRef;
 }
 
 fn exact_query(locator: &CredentialItemLocator) -> CFDictionary {
@@ -58,12 +64,34 @@ fn exact_query(locator: &CredentialItemLocator) -> CFDictionary {
     query.to_immutable()
 }
 
-pub(super) fn add(locator: &CredentialItemLocator, material: &[u8]) -> CredentialKeychainStatus {
+fn add_attributes(
+    locator: &CredentialItemLocator,
+    material: &[u8],
+    revision: Option<[u8; 16]>,
+) -> CFDictionary {
     let query = exact_query(locator);
     let mut attributes = unsafe { query.to_mutable() };
     let data = CFData::from_arc(Arc::new(Zeroizing::new(material.to_vec())));
     unsafe {
         attributes.add(&kSecValueData.to_void(), &data.to_void());
+        if let Some(revision) = revision {
+            let metadata = CFData::from_buffer(&revision);
+            attributes.add(&kSecAttrGeneric.to_void(), &metadata.to_void());
+        }
+    }
+    attributes.to_immutable()
+}
+
+pub(super) fn add(
+    locator: &CredentialItemLocator,
+    material: &[u8],
+    revision: Option<[u8; 16]>,
+) -> CredentialKeychainStatus {
+    if revision == Some([0; 16]) {
+        return CredentialKeychainStatus::AccessDenied;
+    }
+    let attributes = add_attributes(locator, material, revision);
+    unsafe {
         map_keychain_write_status(SecItemAdd(
             attributes.as_concrete_TypeRef(),
             core::ptr::null_mut(),
@@ -71,7 +99,9 @@ pub(super) fn add(locator: &CredentialItemLocator, material: &[u8]) -> Credentia
     }
 }
 
-pub(super) fn read(locator: &CredentialItemLocator) -> Result<Vec<u8>, CredentialKeychainStatus> {
+pub(super) fn read_record(
+    locator: &CredentialItemLocator,
+) -> Result<super::CredentialStoredRecord, CredentialKeychainStatus> {
     let query = exact_query(locator);
     let mut attributes = unsafe { query.to_mutable() };
     unsafe {
@@ -79,15 +109,67 @@ pub(super) fn read(locator: &CredentialItemLocator) -> Result<Vec<u8>, Credentia
             &kSecReturnData.to_void(),
             &CFBoolean::true_value().to_void(),
         );
+        attributes.add(
+            &kSecReturnAttributes.to_void(),
+            &CFBoolean::true_value().to_void(),
+        );
     }
     let mut result: CFTypeRef = core::ptr::null_mut();
     let status = unsafe { SecItemCopyMatching(attributes.as_concrete_TypeRef(), &raw mut result) };
+    let retained = (!result.is_null()).then(|| unsafe { CFType::wrap_under_create_rule(result) });
     let mapped = map_keychain_read_result(status, !result.is_null());
     if mapped != CredentialKeychainStatus::Observed {
         return Err(mapped);
     }
-    let data = unsafe { CFData::wrap_under_create_rule(result.cast::<_>() as CFDataRef) };
-    Ok(data.bytes().to_vec())
+    let dictionary = retained
+        .and_then(CFType::downcast_into::<CFDictionary>)
+        .ok_or(CredentialKeychainStatus::AccessDenied)?;
+    decode_record(&dictionary)
+}
+
+fn decode_record(
+    attributes: &CFDictionary,
+) -> Result<super::CredentialStoredRecord, CredentialKeychainStatus> {
+    let material = data_attribute(attributes, unsafe { kSecValueData })?
+        .ok_or(CredentialKeychainStatus::AccessDenied)?;
+    let material = runne_provider::CredentialMaterial::from_bytes(material.bytes().to_vec())
+        .map_err(|_| CredentialKeychainStatus::AccessDenied)?;
+    let source_revision = data_attribute(attributes, unsafe { kSecAttrGeneric })?
+        .map(|data| {
+            <[u8; 16]>::try_from(data.bytes()).map_err(|_| CredentialKeychainStatus::AccessDenied)
+        })
+        .transpose()?;
+    if source_revision == Some([0; 16]) {
+        return Err(CredentialKeychainStatus::AccessDenied);
+    }
+    Ok(super::CredentialStoredRecord {
+        material,
+        source_revision,
+    })
+}
+
+fn data_attribute(
+    attributes: &CFDictionary,
+    key: CFStringRef,
+) -> Result<Option<CFData>, CredentialKeychainStatus> {
+    attributes
+        .find(key.to_void())
+        .map(|value| {
+            let value = unsafe { CFType::wrap_under_get_rule((*value).cast()) };
+            value
+                .downcast_into::<CFData>()
+                .ok_or(CredentialKeychainStatus::AccessDenied)
+        })
+        .transpose()
+}
+
+#[cfg(test)]
+pub(super) fn read(locator: &CredentialItemLocator) -> Result<Vec<u8>, CredentialKeychainStatus> {
+    let mut bytes = Vec::new();
+    read_record(locator)?
+        .material
+        .consume(|value| bytes.extend_from_slice(value));
+    Ok(bytes)
 }
 
 pub(super) fn delete(locator: &CredentialItemLocator) -> CredentialKeychainStatus {

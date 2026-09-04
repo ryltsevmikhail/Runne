@@ -196,6 +196,7 @@ impl ProtectedBundledRuntimeProcess {
 
     fn fence_ambiguous_transition(&mut self) {
         self.graceful_requested = true;
+        self.graceful_acknowledged = false;
         #[cfg(unix)]
         {
             use std::net::Shutdown;

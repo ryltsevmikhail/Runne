@@ -184,6 +184,8 @@ impl crate::RuntimeLifecycleManager {
 
 include!("bundled_runtime_parts/connect.rs");
 include!("bundled_runtime_parts/monitor.rs");
+#[path = "bundled_runtime_parts/restart_cleanup.rs"]
+mod restart_cleanup;
 include!("bundled_runtime_parts/lifecycle.rs");
 
 #[cfg(test)]

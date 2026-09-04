@@ -133,7 +133,7 @@ pub(super) fn claim_at(
     .unwrap()
 }
 
-pub(super) fn revoke(
+pub(crate) fn revoke(
     operation: u8,
     key: &str,
     revision: u64,

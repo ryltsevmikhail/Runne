@@ -7,8 +7,10 @@ use super::{
     CredentialTicketAttempt,
 };
 
+mod legacy_cleanup;
 mod migration;
 
+pub use legacy_cleanup::CredentialLegacyCleanupBinding;
 pub use migration::CredentialMigrationMetadata;
 
 /// Safe durable metadata for an enrollment operation snapshot.
@@ -27,6 +29,7 @@ pub struct CredentialOperationMetadata {
     readback_observation_digest: Option<CredentialBindingDigest>,
     terminal_disposition: Option<CredentialTerminalDisposition>,
     migration: Option<CredentialMigrationMetadata>,
+    legacy_cleanup_binding: Option<CredentialLegacyCleanupBinding>,
     created_at_high_water: i64,
     updated_at_high_water: i64,
     tombstone_digest: Option<CredentialBindingDigest>,
@@ -64,6 +67,7 @@ impl CredentialOperationMetadata {
             readback_observation_digest: None,
             terminal_disposition: None,
             migration: None,
+            legacy_cleanup_binding: None,
             created_at_high_water,
             updated_at_high_water,
             tombstone_digest: None,
@@ -105,6 +109,15 @@ impl CredentialOperationMetadata {
     pub fn with_migration(mut self, migration: CredentialMigrationMetadata) -> Self {
         self.migration = Some(migration);
         self
+    }
+    /// Adds validated non-secret import linkage; this does not authorize a native effect.
+    pub fn with_legacy_cleanup_binding(mut self, binding: CredentialLegacyCleanupBinding) -> Self {
+        self.legacy_cleanup_binding = Some(binding);
+        self
+    }
+    /// Returns the original consumed-import linkage, never the current active version.
+    pub const fn legacy_cleanup_binding(&self) -> Option<&CredentialLegacyCleanupBinding> {
+        self.legacy_cleanup_binding.as_ref()
     }
     /// Adds the permanent tombstone digest.
     pub fn with_tombstone(mut self, digest: CredentialBindingDigest) -> Self {
@@ -220,6 +233,7 @@ impl Clone for CredentialOperationMetadata {
             readback_observation_digest: self.readback_observation_digest,
             terminal_disposition: self.terminal_disposition,
             migration: self.migration.clone(),
+            legacy_cleanup_binding: self.legacy_cleanup_binding.clone(),
             created_at_high_water: self.created_at_high_water,
             updated_at_high_water: self.updated_at_high_water,
             tombstone_digest: self.tombstone_digest,

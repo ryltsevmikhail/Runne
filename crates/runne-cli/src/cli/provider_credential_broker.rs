@@ -32,6 +32,9 @@ mod leakage_tests;
 #[path = "provider_credential_broker/effect_test_support.rs"]
 mod effect_test_support;
 #[cfg(test)]
+#[path = "provider_credential_broker/legacy_cleanup_test_support.rs"]
+mod legacy_cleanup_test_support;
+#[cfg(test)]
 #[path = "provider_credential_broker/pair_tests.rs"]
 mod pair_tests;
 #[cfg(test)]

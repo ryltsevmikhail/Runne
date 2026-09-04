@@ -8,6 +8,7 @@ mod operation_metadata;
 mod projection;
 mod protocol;
 mod qualified_release;
+mod recovery_admission;
 mod service_protocol;
 mod snapshot;
 mod state;
@@ -52,7 +53,9 @@ pub use operation::{
     CompleteCredentialOperation, FailCredentialOperation, IssueCredentialTicketDigest,
     IssuedCredentialTicketAttempt, ObserveNativeEffect, TombstoneCredentialOperation,
 };
-pub use operation_metadata::{CredentialMigrationMetadata, CredentialOperationMetadata};
+pub use operation_metadata::{
+    CredentialLegacyCleanupBinding, CredentialMigrationMetadata, CredentialOperationMetadata,
+};
 #[allow(unused_imports)]
 pub use projection::{CredentialSafeSnapshot, CredentialVerificationSnapshot};
 #[doc(hidden)]
@@ -76,8 +79,10 @@ pub use protocol::{
 #[doc(hidden)]
 pub use protocol::{SealedPairFixture, sealed_pair_for_test};
 pub use qualified_release::CredentialQualifiedReleaseTuple;
+pub use recovery_admission::{AcceptedCredentialCleanupRecovery, CredentialCleanupRecoveryRequest};
 pub use service_protocol::{
-    CredentialDispatchEffectReceipt, CredentialMaterial, CredentialMetadataReadbackAdmission,
+    AuthorizedCredentialLegacyRead, CredentialDispatchEffectReceipt, CredentialLegacyReadVerifier,
+    CredentialLegacySourceMaterial, CredentialMaterial, CredentialMetadataReadbackAdmission,
     CredentialMetadataReadbackRequest, CredentialMutationGrant, CredentialMutationGrantDigest,
     CredentialPointOfUseReadAdmission, CredentialPointOfUseReadRequest,
     CredentialRuntimeMutationAdmission, CredentialRuntimeMutationArmRequest,

@@ -226,6 +226,7 @@ fn assert_one_claim(written: &Arc<Mutex<Vec<u8>>>, expects_secret_offer: bool) {
     ));
 }
 
+use super::legacy_cleanup_test_support as legacy;
 fn command(id: u8, action: CredentialOperationAction) -> CredentialBrokerCommand {
     command_with_attempt_and_action(id, 1, action)
 }
@@ -239,7 +240,7 @@ fn command_with_attempt_and_action(
     let version = CredentialVersionRef::new(provider.clone(), 1).expect("version");
     let target = match action {
         CredentialOperationAction::MigrateLegacy => CredentialBrokerTarget::LegacyImport(version),
-        CredentialOperationAction::LegacySourceCleanup => CredentialBrokerTarget::LegacySource,
+        CredentialOperationAction::LegacySourceCleanup => legacy::target(version),
         _ => CredentialBrokerTarget::Version(version),
     };
     CredentialBrokerCommand::new(
@@ -248,8 +249,8 @@ fn command_with_attempt_and_action(
         provider,
         action,
         target,
-        CredentialLifecycleRevision::new(1).expect("revision"),
-        CredentialFence::new(1).expect("fence"),
+        CredentialLifecycleRevision::new(legacy::revision(action)).expect("revision"),
+        CredentialFence::new(legacy::revision(action)).expect("fence"),
         None,
     )
     .expect("command")

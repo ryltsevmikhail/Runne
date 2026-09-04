@@ -170,10 +170,18 @@ mod channel;
 mod control;
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 mod control_v3;
+#[cfg(all(test, unix, feature = "desktop-protected"))]
+pub(crate) use control_v3::require_shutdown_terminal;
 #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
 mod credential_service_gateway;
 #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
 mod credential_service_registration;
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
+mod startup_discovery;
 #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
 pub(crate) use credential_service_gateway::CredentialServiceRuntimeGateway;
 #[cfg(all(target_os = "macos", feature = "desktop-protected"))]

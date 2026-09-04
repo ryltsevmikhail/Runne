@@ -66,6 +66,9 @@ impl ProviderExecutionStore for FailAppendAndFreezeStore {
     ) -> Result<(), ProviderExecutionError> {
         self.inner.begin_provider_poll(request)
     }
+    fn revalidate_provider_poll(&self, request: &ProviderPollRequest) -> Result<(), ProviderExecutionError> {
+        self.inner.revalidate_provider_poll(request)
+    }
 
     fn append_encrypted_event(
         &self,
@@ -204,6 +207,9 @@ pub(crate) struct FailFirstAcknowledgementStore {
 }
 
 impl ProviderExecutionStore for FailFirstAcknowledgementStore {
+    fn revalidate_provider_poll(&self, request: &ProviderPollRequest) -> Result<(), ProviderExecutionError> {
+        self.inner.revalidate_provider_poll(request)
+    }
     fn activate_journal_key(
         &self,
         key: ProviderJournalKeyBinding,
@@ -288,10 +294,4 @@ impl ProviderTerminalPersistence for FailFirstAcknowledgementStore {
     ) -> Result<ProviderTerminalCommitOutcome, ProviderExecutionError> {
         self.inner.commit_terminal(request)
     }
-}
-
-#[derive(Default)]
-struct IdempotentTerminalApplication {
-    calls: AtomicUsize,
-    committed: Mutex<HashMap<String, Vec<u8>>>,
 }

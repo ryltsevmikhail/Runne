@@ -43,6 +43,14 @@ pub struct CredentialClaimBinding {
 }
 
 impl CredentialClaimBinding {
+    pub(crate) fn matches_recovery_context(
+        &self,
+        release: CredentialBindingDigest,
+        session: CredentialBindingDigest,
+    ) -> bool {
+        self.release_manifest_digest == release && self.protected_session_id == session
+    }
+
     /// Constructs a claim only from source-separated measurements and validated operation data.
     pub fn new(
         measurements: CredentialMeasurementSnapshot,

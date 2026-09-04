@@ -11,12 +11,17 @@ impl OwnedRuntimeLifecycle for BundledRuntimeController {
         let core_fenced =
             tauri::async_runtime::block_on(self.core.fence_bundled_runtime_shutdown()).is_ok();
         let _ = self.clear_renewal_schedule();
-        let stop_outcome = self
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        let stop_result = tauri::async_runtime::block_on(
+            ProtectedBundledRuntimeSupervisor::stop_with_rejoin(Arc::clone(&self.supervisor)),
+        );
+        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+        let stop_result = self
             .supervisor
             .lock()
             .map_err(|_| ProtectedBundledRuntimeError::ShutdownIncomplete)
-            .and_then(|mut supervisor| supervisor.stop())
-            .map_or(
+            .and_then(|mut supervisor| supervisor.stop());
+        let stop_outcome = stop_result.map_or(
                 BundledShutdownOutcome::Incomplete,
                 |disposition| match disposition {
                     BundledRuntimeStopDisposition::Graceful => BundledShutdownOutcome::Graceful,

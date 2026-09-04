@@ -48,6 +48,8 @@ fn classify_existing_connection(conn: &Connection) -> SqliteResult<()> {
         30 => v30_matches(conn, schema_version)?,
         31 => v31_matches(conn, schema_version)?,
         32 => v32_matches(conn, schema_version)?,
+        33 => v33_matches(conn, schema_version)?,
+        34 => v34_matches(conn, schema_version)?,
         _ => false,
     };
     if compatible {

@@ -13,7 +13,7 @@ async fn rotation_restart_applies_pre_rotation_outbox_and_freezes_stale() {
     let generation = harness.generation();
     let service = harness.compose().await;
     let (begin, started) = harness.begin();
-    super::super::pending::create(&service, started.clone()).await;
+    super::super::pending::create(&service, started.clone(), harness.writer_connection()).await;
     let issued = harness.issue_incomplete(&service, 11, false);
     let streaming = harness.issue_incomplete(&service, 12, true);
     let before = snapshot(&harness);
@@ -92,10 +92,28 @@ fn assert_credential_rotation(before: &Snapshot, after: &Snapshot, harness: &Har
     let lease_fence = column_index(&columns, "lease_fencing_token");
     let revocation = column_index(&columns, "revocation_fence");
     let tombstone = column_index(&columns, "tombstone_digest");
-    assert_eq!(before["provider_credential_versions"].len(), 1);
-    assert_eq!(after["provider_credential_versions"].len(), 2);
-    let old = &after["provider_credential_versions"][0];
-    let replacement = &after["provider_credential_versions"][1];
+    assert_eq!(before["provider_credential_versions"].len(), 2);
+    assert_eq!(after["provider_credential_versions"].len(), 3);
+    let provider = column_index(&columns, "provider_id");
+    let online_before = before["provider_credential_versions"]
+        .iter()
+        .find(|row| row[provider] == "'fixture-provider'")
+        .unwrap();
+    let online_after = after["provider_credential_versions"]
+        .iter()
+        .find(|row| row[provider] == "'fixture-provider'")
+        .unwrap();
+    assert_eq!(
+        online_before, online_after,
+        "unrelated online credential changed"
+    );
+    let rotated = after["provider_credential_versions"]
+        .iter()
+        .filter(|row| row[provider] == "'openai'")
+        .collect::<Vec<_>>();
+    assert_eq!(rotated.len(), 2);
+    let old = rotated[0];
+    let replacement = rotated[1];
     assert_eq!(
         (old[version].as_str(), old[state].as_str()),
         ("1", "'DELETED'")

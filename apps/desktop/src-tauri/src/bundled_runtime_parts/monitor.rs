@@ -1,5 +1,5 @@
 impl BundledRuntimeController {
-    async fn monitor_loop(self: Arc<Self>) {
+    async fn monitor_loop(self: Arc<Self>, app: tauri::AppHandle) {
         let mut interval = tokio::time::interval(SUPERVISOR_POLL_INTERVAL);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
@@ -7,12 +7,28 @@ impl BundledRuntimeController {
             if self.operation_fence.is_stopping() {
                 break;
             }
-            self.monitor_once().await;
+            self.monitor_once(|| async {
+                #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+                {
+                    use tauri::Manager;
+                    let lifecycle = app.state::<crate::RuntimeLifecycleManager>();
+                    let updates = app.state::<crate::UpdateStatusStore>();
+                    if crate::provider_credential_enrollment::reconcile_startup(&lifecycle, &updates)
+                        .await.is_err()
+                    {
+                        let _ = self.core.mark_bundled_runtime_degraded(
+                            RuntimeFailureCode::ProtectedActivationUnavailable,
+                        ).await;
+                    }
+                }
+                #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+                let _ = &app;
+            }).await;
         }
     }
 
-    async fn monitor_once(&self) {
-        let Some(_operation) = self.operation_fence.enter().await else {
+    async fn monitor_once<F: Future<Output = ()>>(&self, cleanup: impl FnOnce() -> F) {
+        let Some(operation) = self.operation_fence.enter().await else {
             return;
         };
         let Ok(before) = self.supervisor_state() else {
@@ -64,7 +80,8 @@ impl BundledRuntimeController {
                 let Ok(lease) = self.core.begin_bundled_runtime_restart().await else {
                     return;
                 };
-                let _ = self.connect_pending_profile(lease).await;
+                let availability = self.connect_pending_profile(lease).await;
+                restart_cleanup::complete_monitor_restart(availability, operation, cleanup).await;
             }
             (_, BundledRuntimeLifecycleState::Exhausted) => {
                 let _ = self
@@ -81,10 +98,13 @@ impl BundledRuntimeController {
         let Ok(lease) = self.core.begin_bundled_runtime_restart().await else {
             return;
         };
-        if let Err(error) = self
-            .run_supervisor(ProtectedBundledRuntimeSupervisor::queue_renewal_profile)
-            .await
-        {
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        let renewal = ProtectedBundledRuntimeSupervisor::queue_renewal_profile_with_rejoin(
+            Arc::clone(&self.supervisor),
+        ).await;
+        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+        let renewal = self.run_supervisor(ProtectedBundledRuntimeSupervisor::queue_renewal_profile).await;
+        if let Err(error) = renewal {
             let _ = self
                 .reject_current_client(map_protected_failure(error))
                 .await;

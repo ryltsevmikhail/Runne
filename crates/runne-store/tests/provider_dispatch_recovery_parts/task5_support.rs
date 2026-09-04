@@ -24,9 +24,15 @@ pub(super) const SECRET: &[u8] = b"credential-token";
 #[derive(Default)]
 pub(super) struct SecretProvider {
     polls: AtomicUsize,
+    fail_next: bool,
+    pub(super) cancelled: Mutex<Vec<ProviderStreamId>>,
 }
 
 impl SecretProvider {
+    pub(super) fn failing_stream() -> Self {
+        Self { fail_next: true, ..Self::default() }
+    }
+
     pub(super) fn polls(&self) -> usize {
         self.polls.load(Ordering::SeqCst)
     }
@@ -58,6 +64,9 @@ impl ProviderPort for SecretProvider {
         cursor: StreamCursor,
     ) -> ProviderFuture<'_, Result<ProviderStreamItem, StreamError>> {
         self.polls.fetch_add(1, Ordering::SeqCst);
+        if self.fail_next {
+            return Box::pin(async { Err(StreamError::Closed) });
+        }
         let event = match cursor.sequence() {
             0 => ProviderStreamEvent::new(0, ProviderStreamEventKind::Started).unwrap(),
             1 => ProviderStreamEvent::new(
@@ -79,9 +88,12 @@ impl ProviderPort for SecretProvider {
 
     fn cancel(
         &self,
-        _request: CancelRequest,
+        request: CancelRequest,
     ) -> ProviderFuture<'_, Result<CancelDisposition, DispatchError>> {
-        Box::pin(async { unreachable!("fixture does not cancel") })
+        Box::pin(async move {
+            self.cancelled.lock().unwrap().push(request.stream_id());
+            Ok(CancelDisposition::Requested)
+        })
     }
 
     fn reconcile(

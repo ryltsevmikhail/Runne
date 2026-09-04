@@ -71,10 +71,10 @@ impl BundledRuntimeController {
     }
 
     /// Starts the bounded monitor on the native async runtime.
-    pub fn spawn_monitor(self: &Arc<Self>) {
+    pub fn spawn_monitor(self: &Arc<Self>, app: tauri::AppHandle) {
         let controller = Arc::clone(self);
         tauri::async_runtime::spawn(async move {
-            controller.monitor_loop().await;
+            controller.monitor_loop(app).await;
         });
     }
 

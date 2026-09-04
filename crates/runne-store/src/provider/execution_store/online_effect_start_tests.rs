@@ -13,6 +13,7 @@ use crate::provider::credential_lifecycle::online_claim_test_support::{
 use crate::provider::credential_lifecycle::online_test_support::{complete_pair, provider};
 
 mod online_materialization_fence_tests;
+mod online_revoke_fence_tests;
 
 #[test]
 fn cross_provider_claim_is_denied_before_online_effect_cas() {

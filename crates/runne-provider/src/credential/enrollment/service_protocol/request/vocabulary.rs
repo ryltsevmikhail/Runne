@@ -156,6 +156,11 @@ impl CredentialServiceRequestContext {
 
 /// Closed reply vocabulary; errors contain only disposition.
 pub enum CredentialServiceReply {
+    /// Exact imported version exists, with this persisted nonzero source revision.
+    LegacyMetadata {
+        /// Nonzero revision of the source copied into the immutable destination.
+        source_revision: [u8; 16],
+    },
     /// Service-issued challenge reply.
     RegistrationChallenge {
         /// Current epoch.

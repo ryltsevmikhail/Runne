@@ -117,6 +117,11 @@ if gate_enabled local-structural; then
         scripts.tests.test_verify_secure_replay_desktop \
         -v
     "$trusted_python" -m unittest scripts.tests.test_verify_test_inventory -v
+    "$trusted_python" -m unittest \
+        scripts.desktop.tests.test_legacy_cleanup_evidence \
+        scripts.desktop.tests.test_legacy_cleanup_schema \
+        scripts.desktop.tests.test_legacy_cleanup_cli \
+        -v
 fi
 
 if gate_enabled containment; then

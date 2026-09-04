@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 32;
+pub const CURRENT_SCHEMA_VERSION: i64 = 34;
 
 /// Fail-closed reason returned before a file-backed database is made writable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,6 +114,10 @@ include!("schema/migrations/v31_provider_credential_legacy_cutover.rs");
 include!("schema/provider_credential_v31_schema.rs");
 include!("schema/migrations/v32_provider_credential_legacy_cutover_atomic.rs");
 include!("schema/provider_credential_v32_schema.rs");
+include!("schema/migrations/v33_credential_cleanup_recovery.rs");
+include!("schema/provider_credential_v33_schema.rs");
+include!("schema/v33_recovery_triggers.rs");
+include!("schema/migrations/v34_legacy_cleanup_completion.rs");
 mod project_workspace_backfill;
 mod project_workspace_schema;
 pub(crate) mod provider_schema;
@@ -128,6 +132,15 @@ include!("schema/replay.rs");
 pub(crate) fn restore_v25_credential_triggers_for_test(
     connection: &Connection,
 ) -> SqliteResult<()> {
+    let ticket_trigger = V24_TRIGGERS
+        .iter()
+        .find(|(name, _)| *name == "provider_credential_ticket_insert_issued")
+        .expect("V24 ticket trigger exists")
+        .1;
+    connection.execute_batch(&v25_trigger(
+        "provider_credential_ticket_insert_issued",
+        ticket_trigger,
+    ))?;
     let insert_trigger = V24_TRIGGERS
         .iter()
         .find(|(name, _)| *name == "provider_credential_operation_insert_prepared")
@@ -183,5 +196,6 @@ mod tests {
     include!("schema/tests/credential_v29.rs");
     include!("schema/tests/credential_v30.rs");
     include!("schema/tests/credential_v32.rs");
+    include!("schema/tests/credential_v33.rs");
     include!("schema/tests/frozen_migrations.rs");
 }

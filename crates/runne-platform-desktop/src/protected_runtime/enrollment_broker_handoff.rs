@@ -95,12 +95,12 @@ impl ProtectedBundledRuntimeProcess {
         &mut self,
         writer_launch: crate::VerifiedMacOsWriterLaunch,
         mode: CredentialWriterHandoffMode,
-    ) -> Result<CredentialWriterHandoff, ProtectedBundledRuntimeError> {
+    ) -> Result<CredentialWriterHandoff, CredentialWriterHandoffError> {
         if self.graceful_requested {
-            return Err(ProtectedBundledRuntimeError::InvalidState);
+            return Err(ProtectedBundledRuntimeError::InvalidState.into());
         }
         let Some(facts) = self.enrollment_broker_facts else {
-            return Err(ProtectedBundledRuntimeError::InvalidState);
+            return Err(ProtectedBundledRuntimeError::InvalidState.into());
         };
         let authenticator =
             CredentialBrokerTransferAuthenticator::from_protected_activation(&self.keys);
@@ -117,10 +117,10 @@ impl ProtectedBundledRuntimeProcess {
         mode: CredentialWriterHandoffMode,
         facts: EnrollmentBrokerFacts,
         authenticator: &CredentialBrokerTransferAuthenticator,
-    ) -> Result<CredentialWriterHandoff, ProtectedBundledRuntimeError> {
+    ) -> Result<CredentialWriterHandoff, CredentialWriterHandoffError> {
         let owned = match &self.activation {
             ProtectedProcessActivation::V3 { owned, .. } => owned.clone(),
-            _ => return Err(ProtectedBundledRuntimeError::InvalidState),
+            _ => return Err(ProtectedBundledRuntimeError::InvalidState.into()),
         };
         let context = ProviderCredentialBrokerHandoffContext::new(
             *owned.stable().authority_id(),
@@ -130,92 +130,7 @@ impl ProtectedBundledRuntimeProcess {
         )
         .map_err(|_| ProtectedBundledRuntimeError::InvalidState)?;
 
-        // Purpose 1: offer the daemon half of the endpoint transport, answer
-        // the challenge, and spawn the fixed writer with the desktop half.
-        self.offer_broker_transport(
-            &context,
-            authenticator,
-            ProviderCredentialBrokerHandoffFrame::PURPOSE_ENDPOINT,
-        )?;
-        let (endpoint_half, endpoint_daemon_half) = unix_pair()?;
-        self.respond_transport_offer(&endpoint_daemon_half, facts.binding(), authenticator)?;
-        let prepared =
-            crate::provider_credential_broker::prepare_daemon_owned_writer_endpoint_handoff(
-                endpoint_half,
-                authenticator,
-                facts.binding(),
-                facts.publication_public_key(),
-            )
-            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        let (writer, pair_relay) = match mode {
-            CredentialWriterHandoffMode::Pair => {
-                let (writer, relay) = crate::provider_credential_broker::spawn_macos_verified_pair_writer_from_prepared_daemon_handoff(
-                    writer_launch,
-                    prepared,
-                )
-                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-                (writer, Some(relay))
-            }
-            CredentialWriterHandoffMode::ControlOnly => (
-                crate::provider_credential_broker::spawn_macos_verified_writer_from_prepared_daemon_handoff(
-                    writer_launch,
-                    prepared,
-                )
-                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?,
-                None,
-            ),
-        };
-        // Writer ingress requires the transfer socket to retain a connected
-        // peer until its inherited endpoint record has been consumed.
-        drop(endpoint_daemon_half);
-
-        // Purpose 2: offer the evidence transport and answer its challenge.
-        self.offer_broker_transport(
-            &context,
-            authenticator,
-            ProviderCredentialBrokerHandoffFrame::PURPOSE_EVIDENCE,
-        )?;
-        let (evidence_half, evidence_daemon_half) = unix_pair()?;
-        self.respond_transport_offer(&evidence_daemon_half, facts.binding(), authenticator)?;
-        let pending = writer
-            .transfer_evidence_to_daemon(evidence_half, authenticator)
-            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-
-        // Purpose 3: offer the kill transport and complete the fixed
-        // Ready/Relinquished exchange before the daemon's acknowledgement.
-        let nonce = self.offer_broker_transport(
-            &context,
-            authenticator,
-            ProviderCredentialBrokerHandoffFrame::PURPOSE_KILL,
-        )?;
-        let (kill_half, kill_daemon_half) = unix_pair()?;
-        self.respond_transport_offer(&kill_daemon_half, facts.binding(), authenticator)?;
-        let outcome = pending
-            .complete_daemon_kill_ownership(kill_half, authenticator)
-            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        // A delivered acknowledgement proves the daemon read the relinquished
-        // wire; a failed delivery with an acknowledgement is contradictory.
-        if outcome.delivery_result().is_err() {
-            return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
-        }
-
-        let now = crate::MacOsContinuousClock::now_millis()
-            .map_err(|_| ProtectedBundledRuntimeError::ProtectedChannelUnavailable)?;
-        let frame = read_frame(&mut self.channel)?;
-        ProviderCredentialBrokerHandoffFrame::decode_and_verify(
-            &frame,
-            authenticator,
-            &context,
-            ProviderCredentialBrokerHandoffFrame::PHASE_ACK,
-            ProviderCredentialBrokerHandoffFrame::PURPOSE_KILL,
-            nonce,
-            now,
-        )
-        .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        Ok(CredentialWriterHandoff {
-            owner: Some(outcome.into_reap_only_owner()),
-            pair_relay,
-        })
+        broker_driver::drive(self, writer_launch, mode, facts, authenticator, &context)
     }
 
     /// Writes one authenticated offer and verifies the daemon's ready echo.
@@ -225,36 +140,10 @@ impl ProtectedBundledRuntimeProcess {
         authenticator: &CredentialBrokerTransferAuthenticator,
         purpose: u8,
     ) -> Result<[u8; 16], ProtectedBundledRuntimeError> {
-        let now = crate::MacOsContinuousClock::now_millis()
-            .map_err(|_| ProtectedBundledRuntimeError::ProtectedChannelUnavailable)?;
-        let expires = now
-            .checked_add(30_000)
-            .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
-        let mut nonce = [0; 16];
-        rand::RngCore::try_fill_bytes(&mut rand::rngs::OsRng, &mut nonce)
-            .map_err(|_| ProtectedBundledRuntimeError::ProtectedChannelUnavailable)?;
-        let offer = ProviderCredentialBrokerHandoffFrame::offer(
-            context.clone(),
-            purpose,
-            now,
-            expires,
-            nonce,
-            authenticator,
-        )
-        .map_err(|_| ProtectedBundledRuntimeError::InvalidState)?;
-        write_frame(&mut self.channel, &offer.encode_frame())?;
-        let frame = read_frame(&mut self.channel)?;
-        ProviderCredentialBrokerHandoffFrame::decode_and_verify(
-            &frame,
-            authenticator,
-            context,
-            ProviderCredentialBrokerHandoffFrame::PHASE_READY,
-            purpose,
-            nonce,
-            now,
-        )
-        .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        Ok(nonce)
+        broker_offer::exchange(&mut self.channel, context, authenticator, purpose, || {
+            crate::MacOsContinuousClock::now_millis()
+                .map_err(|_| ProtectedBundledRuntimeError::ProtectedChannelUnavailable)
+        })
     }
 
     /// Answers the daemon's control-channel challenge with one offered half.

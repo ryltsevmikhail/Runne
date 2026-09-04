@@ -46,6 +46,7 @@ struct RecordingProvider {
     mode: ProviderMode,
     prepared: Mutex<usize>,
     dispatched: Mutex<usize>,
+    cancelled: Mutex<Vec<ProviderStreamId>>,
 }
 
 impl RecordingProvider {
@@ -54,6 +55,7 @@ impl RecordingProvider {
             mode,
             prepared: Mutex::new(0),
             dispatched: Mutex::new(0),
+            cancelled: Mutex::new(Vec::new()),
         }
     }
 
@@ -103,9 +105,12 @@ impl ProviderPort for RecordingProvider {
 
     fn cancel(
         &self,
-        _request: runne_provider::CancelRequest,
+        request: runne_provider::CancelRequest,
     ) -> ProviderFuture<'_, Result<runne_provider::CancelDisposition, DispatchError>> {
-        Box::pin(async { unreachable!("dispatch coordinator does not cancel") })
+        Box::pin(async move {
+            self.cancelled.lock().unwrap().push(request.stream_id());
+            Ok(runne_provider::CancelDisposition::Requested)
+        })
     }
 
     fn reconcile(

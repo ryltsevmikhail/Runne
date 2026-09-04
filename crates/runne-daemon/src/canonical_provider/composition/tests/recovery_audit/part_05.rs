@@ -8,7 +8,8 @@ async fn restart_does_not_decrypt_or_apply_outbox_without_scanner_completed() {
     let harness = Harness::new().await;
     let service = harness.compose().await;
     let (_begin, started) = harness.begin();
-    let attempt = super::super::pending::create(&service, started).await;
+    let attempt =
+        super::super::pending::create(&service, started, harness.writer_connection()).await;
     let record = service.scanner_store.load(attempt).unwrap().unwrap();
     assert_eq!(
         service

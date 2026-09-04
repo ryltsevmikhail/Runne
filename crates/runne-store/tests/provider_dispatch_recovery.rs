@@ -12,10 +12,12 @@ use runne_store::provider::{
 };
 use rusqlite::Connection;
 
+#[path = "support/online_credential_fixture.rs"]
+mod online_credential_fixture;
 #[path = "support/online_proof.rs"]
 mod online_proof;
-#[path = "support/provider_credential_fixture.rs"]
-mod provider_credential_fixture;
+#[path = "support/online_stream_fixture.rs"]
+mod online_stream_fixture;
 #[path = "support/recovery/mod.rs"]
 mod recovery_support;
 #[path = "support/runtime_launch.rs"]

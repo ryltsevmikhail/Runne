@@ -5,6 +5,37 @@ use zeroize::Zeroizing;
 use super::{ClaimedBrokerEffect, CredentialBrokerChannel, ProviderCredentialBroker};
 
 impl ProviderCredentialBroker {
+    pub(crate) fn release_control_only_effect<C: CredentialBrokerChannel>(
+        &self,
+        claimed: &ClaimedBrokerEffect,
+        expected: runne_provider::CredentialOperationId,
+        store: &dyn runne_provider::ProviderCredentialEnrollmentStore,
+        channel: &mut C,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        use runne_provider::{CredentialOperationAction, CredentialOperationState};
+        if claimed.operation_id != expected
+            || !claimed.publication_taken
+            || claimed.publication.is_some()
+            || claimed.offer.is_some()
+        {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        let operation = store.load_operation(expected).map_err(
+            crate::application::provider_credential_enrollment::effect_authority::map_store,
+        )?;
+        if operation.state() != CredentialOperationState::Claimed
+            || !matches!(
+                operation.action(),
+                CredentialOperationAction::Revoke
+                    | CredentialOperationAction::RetiredVersionCleanup
+                    | CredentialOperationAction::LegacySourceCleanup
+            )
+        {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        self.release_claimed_effect_to_channel(claimed, channel)
+    }
+
     pub(crate) fn release_claimed_effect_to_channel<C: CredentialBrokerChannel>(
         &self,
         claimed: &ClaimedBrokerEffect,

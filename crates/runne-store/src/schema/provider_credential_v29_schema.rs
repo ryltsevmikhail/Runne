@@ -60,6 +60,14 @@ fn v29_catalog_matches_with_credential_operation_indexes(
     connection: &Connection,
     credential_operation_indexes: &[&str],
 ) -> SqliteResult<bool> {
+    v29_catalog_matches_with_extensions(connection, credential_operation_indexes, &CredentialSchemaExtensions::default())
+}
+
+fn v29_catalog_matches_with_extensions(
+    connection: &Connection,
+    credential_operation_indexes: &[&str],
+    extensions: &CredentialSchemaExtensions<'_>,
+) -> SqliteResult<bool> {
     let mut tables = RELEASED_V13_TABLES.to_vec();
     tables.extend([
         "provider_effect_starts", "provider_credential_versions", "provider_credential_clock_high_water",
@@ -72,6 +80,7 @@ fn v29_catalog_matches_with_credential_operation_indexes(
         "provider_credential_verification_observations", V26_ISSUANCE_EVIDENCE_TABLE,
         V26_CLAIM_PROVIDER_TABLE, V26_TABLE, "provider_credential_completion_receipts", V29_TABLE,
     ]);
+    tables.extend_from_slice(extensions.tables);
     let mut indexes = RELEASED_V12_EXPLICIT_INDEXES.to_vec();
     indexes.extend([
         "provider_credential_one_active",
@@ -82,6 +91,7 @@ fn v29_catalog_matches_with_credential_operation_indexes(
         "idx_approvals_pending",
     ]);
     indexes.extend_from_slice(credential_operation_indexes);
+    indexes.extend_from_slice(extensions.indexes);
     released_catalog_matches_with_indexes(connection, &tables, &indexes)
 }
 

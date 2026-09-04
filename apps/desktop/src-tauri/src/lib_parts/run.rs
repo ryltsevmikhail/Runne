@@ -99,6 +99,7 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         &profile_directory.join("profile.sqlite3"),
         runtime_mode,
     )?);
+    let mut monitor = None;
     let lifecycle = match runtime_mode {
         RuntimeMode::ExternalLocal => RuntimeLifecycleManager::external(),
         RuntimeMode::Bundled => match std::env::current_exe()
@@ -111,7 +112,7 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 )
             }) {
             Ok(controller) => {
-                controller.spawn_monitor();
+                monitor = Some(Arc::clone(&controller));
                 RuntimeLifecycleManager::bundled_with_native_root(controller)
             }
             Err(failure) => {
@@ -136,6 +137,10 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(ConversationSubscriptionManager::new());
     app.manage(TaskRunSubscriptionManager::new());
     app.manage(lifecycle);
+    if let Some(controller) = monitor.take() {
+        controller.spawn_monitor(app.handle().clone());
+    }
+    drop(monitor);
     tray::install(app.handle())?;
     let notification_app = app.handle().clone();
     tauri::async_runtime::spawn(async move {

@@ -146,6 +146,16 @@ impl MacOsWriterRelinquishmentOutcome {
 }
 
 impl MacOsWriterReapOnlyOwner {
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn test_child(pid: u32) -> Self {
+        let pid = nix::unistd::Pid::from_raw(i32::try_from(pid).unwrap());
+        Self {
+            process: super::unix::UnixRetainedWriterProcess::from_pid(pid)
+                .unwrap()
+                .into_reap_only(),
+        }
+    }
+
     /// # Errors
     ///
     /// Returns a closed failure if the exact retained writer cannot be reaped.

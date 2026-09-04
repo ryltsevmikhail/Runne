@@ -136,6 +136,10 @@ pub struct ProviderTestDatabase {
 }
 
 impl ProviderTestDatabase {
+    pub fn identity(&self) -> MainDatabaseIdentity {
+        self.identity
+    }
+
     pub fn new(name: &str) -> Self {
         let database = ValidatedTestDatabase::new(name);
         let identity = initialize_database_identity(database.path()).unwrap();

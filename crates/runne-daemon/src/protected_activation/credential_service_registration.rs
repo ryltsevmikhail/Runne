@@ -7,7 +7,15 @@ use runne_provider::CredentialServiceEpoch;
 
 use super::ProtectedActivationChannel;
 
+mod interleaved;
+mod receipt;
 mod runtime_io;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ServiceVersionMetadata {
+    pub(super) present: bool,
+    pub(super) source_revision: Option<runne_secure_store::ProviderCredentialSourceRevision>,
+}
 
 pub(super) struct ExpectedCredentialServiceRegistration {
     protected_session_id: [u8; 16],
@@ -95,6 +103,16 @@ pub(crate) struct CredentialServiceRuntimeSession {
 }
 
 impl CredentialServiceRuntimeSession {
+    pub(super) fn validate_live_registration(
+        &self,
+        now: u64,
+    ) -> Result<(), runne_api::ProviderCredentialEnrollmentHostError> {
+        if now >= self.binding.expires_at_unix_millis() {
+            return Err(runne_api::ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        Ok(())
+    }
+
     #[cfg(test)]
     pub(super) const fn binding(&self) -> &CredentialServiceRegistrationBinding {
         &self.binding
@@ -207,15 +225,15 @@ pub(super) fn receive_required_registration(
     }
     let expected =
         ExpectedCredentialServiceRegistration::from_owned(owned, installed.installed_generation());
-    let claim = channel.read_control_frame()?;
-    let acknowledgement = channel.read_control_frame()?;
-    let mut session = accept_registration_frames(
+    let mut session = receipt::receive(
+        channel,
         keys,
         &expected,
-        registration_payload(&claim)?,
-        registration_payload(&acknowledgement)?,
         now_unix_millis,
-    )?;
+        receipt::initial,
+        receipt::now,
+    )?
+    .session;
     let configuration = installed
         .runtime_credential_service_configuration()
         .ok_or(LaunchAuthorityError::OwnershipMismatch)?;
@@ -227,28 +245,36 @@ pub(super) fn receive_required_registration(
     Ok(Some(session))
 }
 
+pub(super) struct RejoinedCredentialService {
+    pub(super) session: CredentialServiceRuntimeSession,
+    pub(super) deferred: Option<zeroize::Zeroizing<Vec<u8>>>,
+}
+
 pub(super) fn receive_rejoin_registration(
     channel: &mut ProtectedActivationChannel,
     keys: &ProtectedActivationKeys,
     binding: &CredentialServiceRejoinBinding,
     configuration: runne_macos_xpc::CredentialServiceEndpointConfiguration,
     now_unix_millis: u64,
-) -> Result<CredentialServiceRuntimeSession, LaunchAuthorityError> {
-    let claim = channel.read_control_frame()?;
-    let acknowledgement = channel.read_control_frame()?;
-    let mut session = accept_registration_frames(
+) -> Result<RejoinedCredentialService, LaunchAuthorityError> {
+    let received = receipt::receive(
+        channel,
         keys,
         &ExpectedCredentialServiceRegistration::from_rejoin(binding),
-        registration_payload(&claim)?,
-        registration_payload(&acknowledgement)?,
         now_unix_millis,
+        interleaved::receive,
+        receipt::now,
     )?;
+    let mut session = received.session;
     session.client = Some(
         runne_macos_xpc::CredentialServiceRuntimeXpcClient::connect(configuration.clone())
             .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)?,
     );
     session.configuration = Some(configuration);
-    Ok(session)
+    Ok(RejoinedCredentialService {
+        session,
+        deferred: received.deferred,
+    })
 }
 
 pub(super) fn registration_payload(frame: &[u8]) -> Result<&[u8], LaunchAuthorityError> {

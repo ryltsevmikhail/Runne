@@ -14,6 +14,9 @@ use crate::{
 
 use super::*;
 
+#[path = "tests/measurement_capture.rs"]
+mod measurement_capture;
+
 struct Fixture {
     _directory: tempfile::TempDir,
     profile: PathBuf,

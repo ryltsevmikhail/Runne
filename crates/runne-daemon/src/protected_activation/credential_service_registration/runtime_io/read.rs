@@ -8,10 +8,11 @@ use runne_provider::{
     CredentialServiceRequestSequence, CredentialVersionRef,
 };
 
+use super::super::ServiceVersionMetadata;
 use super::{CredentialServiceRuntimeSession, RuntimeCall};
 
 impl CredentialServiceRuntimeSession {
-    pub(crate) fn read_metadata(
+    pub(in crate::protected_activation) fn read_metadata(
         &mut self,
         runtime: &tokio::runtime::Handle,
         authority: &CredentialRuntimeReadAuthority,
@@ -19,7 +20,7 @@ impl CredentialServiceRuntimeSession {
         lifecycle: CredentialLifecycleRevision,
         fence: CredentialFence,
         now_unix_millis: u64,
-    ) -> Result<bool, ProviderCredentialEnrollmentHostError> {
+    ) -> Result<ServiceVersionMetadata, ProviderCredentialEnrollmentHostError> {
         let client = self
             .client
             .take()
@@ -73,7 +74,7 @@ impl CredentialServiceRuntimeSession {
         lifecycle: CredentialLifecycleRevision,
         fence: CredentialFence,
         now_unix_millis: u64,
-    ) -> Result<bool, ProviderCredentialEnrollmentHostError> {
+    ) -> Result<ServiceVersionMetadata, ProviderCredentialEnrollmentHostError> {
         let (binding, lifetime) =
             self.read_binding(authority, version, lifecycle, fence, now_unix_millis)?;
         let request = authority
@@ -88,7 +89,19 @@ impl CredentialServiceRuntimeSession {
             )
             .await?
         {
-            CredentialServiceReply::Metadata { present } => Ok(present),
+            CredentialServiceReply::Metadata { present } => Ok(ServiceVersionMetadata {
+                present,
+                source_revision: None,
+            }),
+            CredentialServiceReply::LegacyMetadata { source_revision } => {
+                Ok(ServiceVersionMetadata {
+                    present: true,
+                    source_revision: Some(
+                        runne_secure_store::ProviderCredentialSourceRevision::new(source_revision)
+                            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?,
+                    ),
+                })
+            }
             CredentialServiceReply::Rejected(disposition) => Err(self.map_disposition(disposition)),
             _ => Err(ProviderCredentialEnrollmentHostError::AccessDenied),
         }
@@ -207,7 +220,7 @@ impl CredentialServiceRuntimeSession {
 }
 
 fn should_reconnect_metadata(
-    result: &Result<bool, ProviderCredentialEnrollmentHostError>,
+    result: &Result<ServiceVersionMetadata, ProviderCredentialEnrollmentHostError>,
     transport_failure: bool,
     missing_epoch: Option<CredentialServiceEpoch>,
 ) -> bool {
@@ -232,6 +245,13 @@ mod policy_tests {
         assert!(!should_reconnect_metadata(&unavailable, true, Some(epoch)));
         assert!(!should_reconnect_metadata(&unavailable, false, None));
         assert!(!should_reconnect_metadata(&denied, true, None));
-        assert!(!should_reconnect_metadata(&Ok(true), true, None));
+        assert!(!should_reconnect_metadata(
+            &Ok(ServiceVersionMetadata {
+                present: true,
+                source_revision: None
+            }),
+            true,
+            None
+        ));
     }
 }

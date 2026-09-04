@@ -4,9 +4,7 @@ use runne_provider::{
     ModelRef, PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest,
     ProviderCall, ProviderCallDigestVersion, ProviderCallId, ProviderId, ProviderStreamId,
 };
-use runne_store::provider::{
-    MarkProviderStreaming, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
-};
+use runne_store::provider::PreparedProviderRecord;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
 
@@ -189,46 +187,34 @@ impl Harness {
             .dispatch_store
             .persist_prepared(&service.launch_capability, &record)
             .unwrap();
-        let ProviderAuthorityIssueOutcome::Winner(admitted) = service
-            .execution_store
-            .issue(
-                &service.launch_capability,
-                &ProviderAuthorityIssueRequest {
-                    provider_id: call.model_ref().provider_id().clone(),
-                    principal_id: "local-owner".into(),
-                    conversation_id: ConversationId::from_bytes([seed.wrapping_add(20); 16]),
-                    taskrun_id: TaskRunId::from_bytes([seed.wrapping_add(40); 16]),
-                    execution_attempt_id: AttemptId::from_bytes([seed.wrapping_add(60); 16]),
-                    prepared: ContractPreparedProviderRecord {
-                        call_id: record.call_id,
-                        call_digest_version: record.call_digest_version,
-                        prepared_digest: record.prepared_digest,
-                        render_digest: record.render_digest,
-                        profile_digest: record.profile_digest,
-                    },
-                    pricing_revision_digest: service.profile.pricing_revision_digest(),
-                    requested_input_tokens: 512,
-                    requested_output_tokens: 1_024,
-                    max_cost_micros: 50_000,
-                    currency: "USD".into(),
-                    provider_idempotency_key: format!("rotation-incomplete-{seed}"),
-                },
-            )
-            .unwrap()
-        else {
-            panic!("fixture admission must win");
+        let request = ProviderAuthorityIssueRequest {
+            provider_id: call.model_ref().provider_id().clone(),
+            principal_id: "local-owner".into(),
+            conversation_id: ConversationId::from_bytes([seed.wrapping_add(20); 16]),
+            taskrun_id: TaskRunId::from_bytes([seed.wrapping_add(40); 16]),
+            execution_attempt_id: AttemptId::from_bytes([seed.wrapping_add(60); 16]),
+            prepared: ContractPreparedProviderRecord {
+                call_id: record.call_id,
+                call_digest_version: record.call_digest_version,
+                prepared_digest: record.prepared_digest,
+                render_digest: record.render_digest,
+                profile_digest: record.profile_digest,
+            },
+            pricing_revision_digest: service.profile.pricing_revision_digest(),
+            requested_input_tokens: 512,
+            requested_output_tokens: 1_024,
+            max_cost_micros: 50_000,
+            currency: "USD".into(),
+            provider_idempotency_key: format!("rotation-incomplete-{seed}"),
         };
-        if streaming {
-            service
-                .dispatch_store
-                .mark_streaming(&MarkProviderStreaming {
-                    attempt_id: admitted.claim().attempt_id,
-                    fencing_token: admitted.claim().fencing_token,
-                    stream_id: ProviderStreamId::from_bytes([seed.wrapping_add(80); 16]),
-                })
-                .unwrap();
-        }
-        admitted.claim().attempt_id
+        super::super::online_dispatch::start(
+            service,
+            self.writer_connection(),
+            call,
+            &request,
+            streaming.then(|| ProviderStreamId::from_bytes([seed.wrapping_add(80); 16])),
+        )
+        .attempt_id
     }
 }
 

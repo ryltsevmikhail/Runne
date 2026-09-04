@@ -42,7 +42,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
     }
 
     pub(crate) fn claim_writer(
-        &self,
+        &mut self,
         measurements: runne_provider::CredentialMeasurementSnapshot,
         continuation: runne_provider::CredentialBindingDigest,
         channel: &mut broker::MacOsCredentialBrokerChannel,
@@ -51,7 +51,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
     }
 
     pub(crate) fn claim_writer_with_service(
-        &self,
+        &mut self,
         measurements: runne_provider::CredentialMeasurementSnapshot,
         continuation: runne_provider::CredentialBindingDigest,
         channel: &mut broker::MacOsCredentialBrokerChannel,
@@ -61,18 +61,12 @@ impl DaemonProtectedCredentialEnrollmentSession {
     }
 
     fn claim_writer_inner(
-        &self,
+        &mut self,
         measurements: runne_provider::CredentialMeasurementSnapshot,
         continuation: runne_provider::CredentialBindingDigest,
         channel: &mut broker::MacOsCredentialBrokerChannel,
         service: Option<&crate::protected_activation::CredentialServiceRuntimeGateway>,
     ) -> Result<PendingProtectedBrokerClaim, ProviderCredentialEnrollmentHostError> {
-        let operation_id = self.operation_id()?;
-        let operation = self
-            .control
-            .store
-            .load_operation(operation_id)
-            .map_err(map_store)?;
         let coordinator =
             broker::ProviderCredentialBroker::new(Arc::new(self.control.measurements.clone()));
         let context = coordinator.claim_issue_context(
@@ -82,8 +76,9 @@ impl DaemonProtectedCredentialEnrollmentSession {
             self.facts.database_generation,
             self.facts.supervisor_generation,
         )?;
+        let authority = self.take_ticket_authority()?;
         let receipt = coordinator.issue_ticket(
-            operation,
+            authority,
             continuation,
             &context,
             claim_ticket_ttl_seconds(),
@@ -131,6 +126,28 @@ impl DaemonProtectedCredentialEnrollmentSession {
             .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)
     }
 
+    /// Recovery has no secret relay; the accepted exchange and writer claim are required.
+    pub(crate) fn release_control_only(
+        &self,
+        pending: PendingProtectedBrokerClaim,
+        channel: &mut broker::MacOsCredentialBrokerChannel,
+    ) -> Result<ReleasedProtectedBrokerClaim, ProviderCredentialEnrollmentHostError> {
+        if !self.recovery.started || pending.relay.is_some() {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        let coordinator =
+            broker::ProviderCredentialBroker::new(Arc::new(self.control.measurements.clone()));
+        coordinator.release_control_only_effect(
+            &pending.claimed,
+            self.operation_id()?,
+            self.control.store.as_ref(),
+            channel,
+        )?;
+        Ok(ReleasedProtectedBrokerClaim {
+            claimed: pending.claimed,
+        })
+    }
+
     pub(crate) fn accept_relay_ack(
         &mut self,
         frame: &[u8],
@@ -153,12 +170,19 @@ impl DaemonProtectedCredentialEnrollmentSession {
         })
     }
 
-    pub(crate) fn finish_writer(
+    pub(crate) fn prepare_writer_readback(
         &mut self,
         released: ReleasedProtectedBrokerClaim,
         channel: &mut broker::MacOsCredentialBrokerChannel,
         now_high_water: i64,
-    ) -> Result<ProviderCredentialOperationSnapshotV2, ProviderCredentialEnrollmentHostError> {
+    ) -> Result<
+        impl FnOnce() -> Result<
+            ProviderCredentialOperationSnapshotV2,
+            ProviderCredentialEnrollmentHostError,
+        > + Send
+        + use<>,
+        ProviderCredentialEnrollmentHostError,
+    > {
         let coordinator =
             broker::ProviderCredentialBroker::new(Arc::new(self.control.measurements.clone()));
         coordinator.observe_effect_from_channel(
@@ -172,44 +196,30 @@ impl DaemonProtectedCredentialEnrollmentSession {
         {
             std::process::exit(86);
         }
-        CredentialEnrollmentRecoveryGateway::new(
-            self.control.store.as_ref(),
-            self.control.readback.as_ref(),
-        )
-        .reconcile_online(now_high_water)?;
-        let operation = self
-            .control
-            .store
-            .load_operation(self.operation_id()?)
-            .map_err(map_store)?;
-        let lifecycle = self
-            .control
-            .store
-            .lifecycle_snapshot(operation.provider())
-            .map_err(map_store)?;
-        operation_projection::snapshot(
-            operation,
-            &self.control.handles,
-            lifecycle.readiness_revision().get(),
-            &self.control.rendezvous,
-            now_high_water,
-        )
-    }
-
-    pub(crate) fn encode_terminal_snapshot(
-        &mut self,
-        snapshot: ProviderCredentialOperationSnapshotV2,
-    ) -> Result<Vec<u8>, ProviderCredentialEnrollmentHostError> {
-        self.encode_snapshot(snapshot)
-    }
-
-    fn operation_id(
-        &self,
-    ) -> Result<runne_provider::CredentialOperationId, ProviderCredentialEnrollmentHostError> {
-        self.begun
-            .as_ref()
-            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)
-            .and_then(|(_, snapshot)| self.control.handles.resolve(snapshot.operation_handle()))
+        let control = Arc::clone(&self.control);
+        let operation_id = self.operation_id()?;
+        Ok(move || {
+            CredentialEnrollmentRecoveryGateway::new(
+                control.store.as_ref(),
+                control.readback.as_ref(),
+            )
+            .reconcile_online(now_high_water)?;
+            let operation = control
+                .store
+                .load_operation(operation_id)
+                .map_err(map_store)?;
+            let lifecycle = control
+                .store
+                .lifecycle_snapshot(operation.provider())
+                .map_err(map_store)?;
+            operation_projection::snapshot(
+                operation,
+                &control.handles,
+                lifecycle.readiness_revision().get(),
+                &control.rendezvous,
+                now_high_water,
+            )
+        })
     }
 }
 

@@ -37,6 +37,7 @@ use crate::operational_telemetry::compose_operational_telemetry_query;
 use crate::provider_activation::ProviderActivation;
 
 mod managed_connection;
+mod online_dispatch;
 mod pending;
 mod provider_fixture;
 mod recovery_audit;
@@ -209,7 +210,17 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
         before.drop_counter_saturated()
     );
 
-    pending::create(&service, started).await;
+    pending::create(
+        &service,
+        started,
+        managed_test_connection(
+            &db_path,
+            authority,
+            lineage,
+            runne_store::schema::ConnectionMode::ValidatedReopen,
+        ),
+    )
+    .await;
     service.recover_pending().await.unwrap();
     let query = DaemonOperationalTelemetryQueryService::new(
         service.operational_telemetry_store(),

@@ -25,32 +25,30 @@ impl DaemonProtectedCredentialEnrollmentSession {
         {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
-        let operation = self
-            .begun
-            .as_ref()
-            .and_then(|(_, snapshot)| {
-                self.control
-                    .handles
-                    .resolve(snapshot.operation_handle())
-                    .ok()
-            })
-            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
-        let mut continuation = Sha256::new();
-        continuation.update(b"gocode/provider-credential-enrollment/continuation/v1\0");
-        continuation.update(operation.as_bytes());
-        continuation.update(writer.channel());
-        continuation.update(writer.process_start());
-        continuation.update(writer.writer_kill_public_key());
-        let continuation =
+        let operation = self.operation_id()?;
+        let continuation = if let Some(continuation) = self.recovery_continuation()? {
+            continuation
+        } else {
+            let mut continuation = Sha256::new();
+            continuation.update(b"gocode/provider-credential-enrollment/continuation/v1\0");
+            continuation.update(operation.as_bytes());
+            continuation.update(writer.channel());
+            continuation.update(writer.process_start());
+            continuation.update(writer.writer_kill_public_key());
             runne_provider::CredentialBindingDigest::from_measured(continuation.finalize().into())
-                .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?;
+                .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?
+        };
         let authority = &self.control.measurements;
         let measurements = runne_provider::CredentialMeasurementSnapshot::new(
             authority
                 .candidate_source_identity(installed.candidate_source())
                 .map_err(map_measurement)?,
             authority
-                .release_manifest_digest(installed.target_manifest())
+                .release_manifest_digest(if self.recovery.started {
+                    self.facts.release
+                } else {
+                    installed.target_manifest()
+                })
                 .map_err(map_measurement)?,
             authority
                 .desktop_executable_identity(installed.desktop())

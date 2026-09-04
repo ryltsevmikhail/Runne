@@ -39,6 +39,7 @@ include!("execution_store/decomposition/online_effect_start.rs");
 include!("execution_store/decomposition/online_effect_proof_install.rs");
 include!("execution_store/decomposition/online_issuance.rs");
 include!("execution_store/decomposition/part_03.rs");
+include!("execution_store/decomposition/poll_revalidation.rs");
 include!("execution_store/decomposition/part_04.rs");
 include!("execution_store/decomposition/part_05.rs");
 include!("execution_store/decomposition/part_06.rs");
@@ -50,6 +51,13 @@ include!("execution_store/decomposition/part_11.rs");
 include!("execution_store/decomposition/part_12.rs");
 
 impl ProviderExecutionStore for SqliteProviderExecutionStore {
+    fn revalidate_provider_poll(
+        &self,
+        request: &ProviderPollRequest,
+    ) -> Result<(), ProviderExecutionError> {
+        self.revalidate_provider_poll_impl(request)
+    }
+
     fn active_journal_key_binding(
         &self,
     ) -> Result<Option<ProviderJournalKeyBinding>, ProviderExecutionError> {

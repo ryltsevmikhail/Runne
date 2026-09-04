@@ -166,10 +166,16 @@ pub(super) fn completion(
     lifecycle: CredentialLifecycleSnapshot,
     now_high_water: i64,
 ) -> Result<CompleteCredentialOperation, ProviderCredentialEnrollmentHostError> {
-    if now_high_water < 0
-        || lifecycle.lifecycle_revision() != operation.lifecycle_revision()
-        || lifecycle.fence() != operation.fence()
-    {
+    let legacy_cleanup = operation.action() == CredentialOperationAction::LegacySourceCleanup;
+    let head_matches = if legacy_cleanup {
+        operation.metadata().legacy_cleanup_binding().is_some()
+            && lifecycle.lifecycle_revision().get() >= operation.lifecycle_revision().get()
+            && lifecycle.fence().get() >= operation.fence().get()
+    } else {
+        lifecycle.lifecycle_revision() == operation.lifecycle_revision()
+            && lifecycle.fence() == operation.fence()
+    };
+    if now_high_water < 0 || lifecycle.provider() != operation.provider() || !head_matches {
         return Err(ProviderCredentialEnrollmentHostError::Conflict);
     }
     let tuple = operation

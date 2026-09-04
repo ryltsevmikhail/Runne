@@ -7,6 +7,7 @@ pub mod intent;
 mod prepared;
 mod projection;
 mod service_registration;
+pub use prepared::reconcile_startup;
 
 pub use command::CredentialIntentIpc;
 pub use intent::CredentialIntentRegistry;

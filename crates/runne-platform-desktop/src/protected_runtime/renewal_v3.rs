@@ -77,6 +77,7 @@ impl ProtectedBundledRuntimeProcess {
 
     fn fence_ambiguous_v3_renewal(&mut self) {
         self.graceful_requested = true;
+        self.graceful_acknowledged = false;
         #[cfg(unix)]
         {
             use std::net::Shutdown;

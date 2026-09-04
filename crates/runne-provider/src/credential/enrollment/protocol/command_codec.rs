@@ -96,6 +96,14 @@ fn put_target(
             put_reference(bytes, reference)?;
         }
         CredentialBrokerTarget::LegacySource => bytes.push(3),
+        CredentialBrokerTarget::ExactLegacySource(binding) => {
+            bytes.push(5);
+            bytes.extend_from_slice(&binding.import_operation_id().as_bytes());
+            bytes.extend_from_slice(&binding.import_lifecycle_revision().get().to_be_bytes());
+            bytes.extend_from_slice(&binding.import_fence().get().to_be_bytes());
+            put_reference(bytes, binding.destination())?;
+            bytes.extend_from_slice(&binding.observation_digest().as_bytes());
+        }
         CredentialBrokerTarget::Migration {
             migration_id,
             phase,
@@ -193,6 +201,24 @@ fn read_target(
             bytes, cursor,
         )?)),
         3 => Ok(CredentialBrokerTarget::LegacySource),
+        5 => {
+            let operation = read_id(bytes, cursor)?;
+            let revision = CredentialLifecycleRevision::new(read_number(bytes, cursor)?)
+                .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
+            let fence = CredentialFence::new(read_number(bytes, cursor)?)
+                .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
+            let destination = read_reference(bytes, cursor)?;
+            let observation = read_digest(bytes, cursor)?;
+            Ok(CredentialBrokerTarget::ExactLegacySource(
+                crate::CredentialLegacyCleanupBinding::from_parts(
+                    operation,
+                    revision,
+                    fence,
+                    destination,
+                    observation,
+                ),
+            ))
+        }
         4 => Ok(CredentialBrokerTarget::Migration {
             migration_id: read_id(bytes, cursor)?,
             phase: read_phase(read_byte(bytes, cursor)?)?,

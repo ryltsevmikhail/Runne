@@ -48,7 +48,7 @@ fn v3_control_completes_the_full_broker_writer_handoff() {
         let (owned, _, _) = super::enrollment_v3_tests::owned_and_sessions();
         *owned.enrollment_binding().release_tuple_digest()
     };
-    send_test_daemon_owned_writer_evidence(
+    let evidence_result = send_test_daemon_owned_writer_evidence(
         evidence_half,
         &fixture.desktop,
         [
@@ -59,8 +59,14 @@ fn v3_control_completes_the_full_broker_writer_handoff() {
             fixture.publication_public_key,
             kill_signing_key.verifying_key().to_bytes(),
         ],
-    )
-    .unwrap();
+    );
+    if let Err(error) = evidence_result {
+        drop(fixture.client);
+        panic!(
+            "writer evidence: {error:?}; daemon: {:?}",
+            fixture.server.join()
+        );
+    }
 
     // Purpose 3: kill exchange; the daemon captures this process as the peer.
     let mut kill_half = offer_transport_half(

@@ -65,16 +65,16 @@ pub(super) fn complete(
     Ok(receipt)
 }
 
-struct CleanupValues {
-    operation_id: [u8; 16],
-    command_id: [u8; 16],
+pub(super) struct CleanupValues {
+    pub(super) operation_id: [u8; 16],
+    pub(super) command_id: [u8; 16],
     begin_proof: [u8; 32],
     idempotency_key: String,
-    lifecycle: u64,
-    fence: u64,
+    pub(super) lifecycle: u64,
+    pub(super) fence: u64,
 }
 
-fn cleanup_values(
+pub(super) fn cleanup_values(
     operation: &CredentialOperationSnapshot,
 ) -> Result<CleanupValues, CredentialLifecycleError> {
     let lifecycle = operation

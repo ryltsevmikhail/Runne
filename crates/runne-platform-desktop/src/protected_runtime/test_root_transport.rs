@@ -17,7 +17,7 @@ impl ProtectedBundledRuntimeProcess {
             runtime_profile: None,
             renewal_sequence: 0,
             root_control_sequence: 0,
-            graceful_requested: false,
+            graceful_requested: false, graceful_acknowledged: false,
             enrollment_broker_facts: None,
             captured_stdout: None,
             captured_stderr: None,

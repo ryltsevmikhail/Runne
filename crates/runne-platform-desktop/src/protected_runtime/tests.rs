@@ -136,7 +136,9 @@ impl ProtectedBundledRuntimeProcess {
         #[cfg(any(unix, windows))]
         {
             if self.graceful_requested {
-                return Ok(());
+                return if self.graceful_acknowledged { Ok(()) } else {
+                    Err(ProtectedBundledRuntimeError::ShutdownIncomplete)
+                };
             }
             match &self.activation {
                 ProtectedProcessActivation::V1 { owned, .. } => {
@@ -212,6 +214,7 @@ impl ProtectedBundledRuntimeProcess {
                 }
             }
             self.graceful_requested = true;
+            self.graceful_acknowledged = true;
             Ok(())
         }
     }

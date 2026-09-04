@@ -52,11 +52,20 @@ pub(super) fn seal_claim(
     store: &SqliteProviderCredentialLifecycleStore,
     draft: ClaimCredentialOperation,
 ) -> ClaimCredentialOperation {
+    seal_claim_with_context(store, draft, [201; 32], [207; 32])
+}
+
+pub(super) fn seal_claim_with_context(
+    store: &SqliteProviderCredentialLifecycleStore,
+    draft: ClaimCredentialOperation,
+    release: [u8; 32],
+    session: [u8; 32],
+) -> ClaimCredentialOperation {
     let key = Arc::as_ptr(&store.connection) as usize;
     MEASUREMENT_AUTHORITIES.with(|authorities| {
         let authorities = authorities.borrow();
         let authority = authorities.get(&key).expect("registered test authority");
-        let measurements = distinct_measurements(authority, &draft);
+        let measurements = distinct_measurements(authority, &draft, release, session);
         let digest = authority
             .measure_claim_operation(&measurements, &draft)
             .unwrap();
@@ -65,19 +74,30 @@ pub(super) fn seal_claim(
     })
 }
 
+pub(super) fn measurements_for(
+    store: &SqliteProviderCredentialLifecycleStore,
+) -> CredentialEnrollmentMeasurementAuthority {
+    let key = Arc::as_ptr(&store.connection) as usize;
+    MEASUREMENT_AUTHORITIES.with(|authorities| {
+        authorities.borrow().get(&key).expect("registered test authority").clone()
+    })
+}
+
 fn distinct_measurements(
     authority: &CredentialEnrollmentMeasurementAuthority,
     claim: &ClaimCredentialOperation,
+    release: [u8; 32],
+    session: [u8; 32],
 ) -> CredentialMeasurementSnapshot {
     CredentialMeasurementSnapshot::new(
         authority.candidate_source_identity([200; 32]).unwrap(),
-        authority.release_manifest_digest([201; 32]).unwrap(),
+        authority.release_manifest_digest(release).unwrap(),
         authority.desktop_executable_identity([202; 32]).unwrap(),
         authority.writer_executable_identity([203; 32]).unwrap(),
         authority.reader_executable_identity([204; 32]).unwrap(),
         authority.contract_bundle_digest([205; 32]).unwrap(),
         authority.daemon_authority_id([206; 32]).unwrap(),
-        authority.protected_session_id([207; 32]).unwrap(),
+        authority.protected_session_id(session).unwrap(),
         authority
             .desktop_supervisor_generation(claim.desktop_supervisor_generation())
             .unwrap(),

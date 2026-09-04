@@ -172,6 +172,17 @@ impl SqliteProviderExecutionStore {
             request.profile_digest,
         )?;
         verify_current_runtime_lease(&transaction, &attempt)?;
+        super::dispatch_store::verify_online_publication(
+            &transaction,
+            request.attempt_id,
+            Some(self.now()),
+        )
+        .map_err(|error| match error {
+            super::dispatch_store::ProviderStoreError::Unavailable => {
+                ProviderExecutionError::StoreUnavailable
+            }
+            _ => ProviderExecutionError::StaleGeneration,
+        })?;
         if attempt.state == 6 {
             return Err(ProviderExecutionError::AttemptUncertain);
         }

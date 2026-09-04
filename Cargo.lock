@@ -3939,6 +3939,7 @@ dependencies = [
  "dirs",
  "ed25519-dalek",
  "fs2",
+ "futures",
  "hex",
  "hmac",
  "hyper",
@@ -4468,6 +4469,8 @@ dependencies = [
 name = "runne-runtime"
 version = "0.1.0"
 dependencies = [
+ "futures",
+ "futures-timer",
  "hex",
  "jsonschema",
  "ring",
@@ -4597,6 +4600,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures",
+ "futures-timer",
  "hmac",
  "libc",
  "rand 0.8.7",

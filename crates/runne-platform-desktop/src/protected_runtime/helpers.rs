@@ -8,6 +8,7 @@ type ProtectedChannel = File;
 #[derive(Clone, Copy)]
 #[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 pub struct EnrollmentBrokerFacts {
+    terminal_session: Option<[u8; 16]>,
     binding: [u8; 32],
     publication_public_key: [u8; 32],
 }
@@ -16,6 +17,7 @@ pub struct EnrollmentBrokerFacts {
 impl EnrollmentBrokerFacts {
     pub const fn new(binding: [u8; 32], publication_public_key: [u8; 32]) -> Self {
         Self {
+            terminal_session: None,
             binding,
             publication_public_key,
         }
@@ -44,6 +46,7 @@ pub struct ProtectedBundledRuntimeProcess {
     #[cfg(all(any(unix, windows), feature = "protected-channel-integration"))]
     root_control_sequence: u64,
     graceful_requested: bool,
+    graceful_acknowledged: bool,
     /// Rendezvous facts retained from the verified enrollment prelude; only a
     /// same-process V2→V3 transition carries them. Absent facts fail closed.
     #[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]

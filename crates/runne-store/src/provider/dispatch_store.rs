@@ -3,4 +3,5 @@ include!("dispatch_store/store.rs");
 include!("dispatch_store/recovery.rs");
 include!("dispatch_store/repository.rs");
 include!("dispatch_store/helpers.rs");
+include!("dispatch_store/online_publication.rs");
 include!("dispatch_store_parts/port_05.rs");

@@ -1,4 +1,14 @@
 impl ProviderCredentialStore for MacOsProviderCredentialStore {
+    fn delete_provider_credential(&self, provider: ProviderCredentialId) -> Result<(), SecureStoreError> {
+        self.delete_provider_credential_inner(provider)
+    }
+
+    fn migrate_provider_credential_access(
+        &self, provider: ProviderCredentialId, current: &ProviderCredentialAccessPolicy,
+        replacement: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
+        self.migrate_provider_credential_access_inner(provider, current, replacement, None)
+    }
     fn provider_credential_status(
         &self,
         provider: ProviderCredentialId,
@@ -83,7 +93,44 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
             .into_source()
     }
 
-    fn delete_provider_credential(
+}
+
+#[cfg(any(test, feature = "provider-credential-broker-writer"))]
+impl crate::provider_credential::AuthorizedLegacySourceStore for MacOsProviderCredentialStore {
+    fn delete_authorized_legacy_source(
+        &self, provider: ProviderCredentialId,
+        binding: &runne_provider::CredentialLegacyCleanupBinding,
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
+        self.delete_exact_legacy_source(provider, binding, access)
+    }
+    fn load_authorized_legacy_source(
+        &self,
+        read: runne_provider::AuthorizedCredentialLegacyRead,
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialSource, SecureStoreError> {
+        access.validate_writer_current().map_err(map_identity_access_error)?;
+        let command = read.command();
+        if command.action() != runne_provider::CredentialOperationAction::MigrateLegacy {
+            return Err(SecureStoreError::CredentialAccessDenied);
+        }
+        let runne_provider::CredentialBrokerTarget::LegacyImport(version) = command.target() else {
+            return Err(SecureStoreError::CredentialAccessDenied);
+        };
+        if version.provider() != command.provider() {
+            return Err(SecureStoreError::CredentialAccessDenied);
+        }
+        let provider = match command.provider().as_str() {
+            "openai" => ProviderCredentialId::OpenAi,
+            "deepseek" => ProviderCredentialId::DeepSeek,
+            _ => return Err(SecureStoreError::UnsupportedSecureStoreBackend),
+        };
+        self.load_admitted_provider_credential_record(provider, access)?.into_source()
+    }
+}
+
+impl MacOsProviderCredentialStore {
+    fn delete_provider_credential_inner(
         &self,
         provider: ProviderCredentialId,
     ) -> Result<(), SecureStoreError> {
@@ -106,12 +153,4 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
         })
     }
 
-    fn migrate_provider_credential_access(
-        &self,
-        provider: ProviderCredentialId,
-        current: &ProviderCredentialAccessPolicy,
-        replacement: &ProviderCredentialAccessPolicy,
-    ) -> Result<(), SecureStoreError> {
-        self.migrate_provider_credential_access_inner(provider, current, replacement, None)
-    }
 }

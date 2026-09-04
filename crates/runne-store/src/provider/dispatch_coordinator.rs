@@ -14,6 +14,7 @@ use super::{
     SqliteProviderDispatchStore, SqliteProviderExecutionStore, VersionedProviderExecutionBinding,
 };
 
+mod inflight;
 mod request;
 use request::{claim_matches, issue_request};
 
@@ -211,20 +212,34 @@ where
                 );
             }
         };
-        match self.effect.dispatch_effect(ready, effect).await {
+        let outcome = inflight::wait(self.effect.dispatch_effect(ready, effect), || {
+            credential
+                .validate_online_materialization(
+                    self.credential,
+                    &claim,
+                    self.execution_store.now(),
+                )
+                .is_ok()
+        })
+        .await;
+        match outcome {
             Ok(stream_id) => {
                 if self
                     .dispatch_store
-                    .mark_streaming(&MarkProviderStreaming {
-                        attempt_id,
-                        fencing_token,
-                        stream_id,
-                    })
+                    .mark_streaming_online(
+                        &MarkProviderStreaming {
+                            attempt_id,
+                            fencing_token,
+                            stream_id,
+                        },
+                        || self.execution_store.now(),
+                    )
                     .is_err()
                 {
                     let _ = self
                         .dispatch_store
                         .mark_uncertain(attempt_id, fencing_token);
+                    inflight::cancel(self.provider, stream_id).await;
                     return Ok(ProviderCoordinatorOutcome::Uncertain);
                 }
                 Ok(ProviderCoordinatorOutcome::Streaming {

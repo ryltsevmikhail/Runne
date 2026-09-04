@@ -2,13 +2,13 @@ use zeroize::Zeroizing;
 
 use crate::credential::enrollment::{
     BrokerChannelBinding, ClaimedWriterAuthorization, CredentialBindingDigest,
-    CredentialEnrollmentError, CredentialMaterial, CredentialOperationAction,
-    CredentialWriterEffectAuthority, PendingCredentialSecretOpening, SealedCredentialEnvelope,
+    CredentialEnrollmentError, CredentialOperationAction, CredentialWriterEffectAuthority,
+    PendingCredentialSecretOpening, SealedCredentialEnvelope,
 };
 
 use super::super::{
-    CredentialMutationGrant, CredentialWriterBrokerHandoffFrame, CredentialWriterConsumeRequest,
-    CredentialWriterServiceBindingHandoff,
+    AuthorizedCredentialLegacyRead, CredentialMutationGrant, CredentialWriterBrokerHandoffFrame,
+    CredentialWriterConsumeRequest, CredentialWriterServiceBindingHandoff,
 };
 use super::{
     CredentialServiceEndpointRole, CredentialServiceProtocolCodec, HEADER, byte, decode_role,
@@ -74,8 +74,11 @@ impl CredentialServiceProtocolCodec {
         channel: &BrokerChannelBinding,
         claim_binding: CredentialBindingDigest,
         load_material: impl FnOnce(
-            &crate::credential::enrollment::CredentialBrokerCommand,
-        ) -> Result<CredentialMaterial, CredentialEnrollmentError>,
+            AuthorizedCredentialLegacyRead,
+        ) -> Result<
+            super::super::CredentialLegacySourceMaterial,
+            CredentialEnrollmentError,
+        >,
     ) -> Result<CredentialWriterConsumeRequest, CredentialEnrollmentError> {
         let (binding, grant) = decode_handoff(bytes)?;
         if binding.command.action() != CredentialOperationAction::MigrateLegacy {
@@ -87,8 +90,13 @@ impl CredentialServiceProtocolCodec {
             claim_binding,
             channel,
         )?;
-        let material = load_material(&command)?;
-        CredentialWriterConsumeRequest::from_authenticated_parts(binding, grant, material)
+        let material = load_material(AuthorizedCredentialLegacyRead::new(
+            command,
+            claim_binding,
+            channel.digest(),
+            effects,
+        ))?;
+        CredentialWriterConsumeRequest::from_authenticated_legacy_parts(binding, grant, material)
     }
 }
 

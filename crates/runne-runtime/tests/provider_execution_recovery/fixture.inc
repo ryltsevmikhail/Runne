@@ -1,5 +1,5 @@
 pub(crate) struct Fixture {
-    _database: validated_reopen::ValidatedTestDatabase,
+    _database: validated_reopen::ProviderTestDatabase,
     pub(crate) execution: Arc<SqliteProviderExecutionStore>,
     pub(crate) attempt_id: runne_provider::DispatchAttemptId,
     fencing_token: u64,
@@ -25,10 +25,10 @@ fn fixture_with_digest_version_and_input_tokens(
     digest_version: ProviderCallDigestVersion,
     requested_input_tokens: u64,
 ) -> Fixture {
-    let database = validated_reopen::ValidatedTestDatabase::new("provider-runtime-recovery");
+    let database = validated_reopen::ProviderTestDatabase::new("provider-runtime-recovery");
     let path = std::path::PathBuf::from(database.path());
     let path_text = path.to_str().unwrap();
-    let identity = validated_reopen::initialize_database_identity(path_text).unwrap();
+    let identity = database.identity();
     let call = ProviderCall::new(
         ProviderCallId::from_bytes([4; 16]),
         ModelRef::new(ProviderId::new("fixture-provider").unwrap(), "fixture-model", "2026-07-31").unwrap(),
@@ -66,14 +66,14 @@ fn fixture_with_digest_version_and_input_tokens(
         profile_digest: [2; 32],
     };
     dispatch.persist_prepared(&launch, &prepared_record).unwrap();
-    let ProviderAuthorityIssueOutcome::Winner(admitted) = execution.issue(&launch, &ProviderAuthorityIssueRequest {
+    let request = ProviderAuthorityIssueRequest {
         provider_id: ProviderId::new("fixture-provider").unwrap(),
         principal_id: "principal-1".to_owned(), conversation_id: ConversationId::from_bytes([6; 16]), taskrun_id: TaskRunId::from_bytes([7; 16]), execution_attempt_id: AttemptId::from_bytes([8; 16]),
         prepared: ContractPreparedProviderRecord { call_id: prepared_record.call_id, call_digest_version: prepared_record.call_digest_version, prepared_digest: prepared_record.prepared_digest, render_digest: prepared_record.render_digest, profile_digest: prepared_record.profile_digest },
         pricing_revision_digest: [3; 32], requested_input_tokens, requested_output_tokens: 1_024, max_cost_micros: 50_000, currency: "USD".to_owned(), provider_idempotency_key: "provider-runtime-recovery-1".to_owned(),
-    }).unwrap() else { panic!("first issue must win") };
-    dispatch.mark_streaming(&MarkProviderStreaming { attempt_id: admitted.claim().attempt_id, fencing_token: admitted.claim().fencing_token, stream_id: ProviderStreamId::from_bytes([9; 16]) }).unwrap();
-    Fixture { _database: database, execution, attempt_id: admitted.claim().attempt_id, fencing_token: admitted.claim().fencing_token, path, identity, call_digest_version: digest_version, keyring }
+    };
+    let (_, claim) = online_stream_fixture::start(&database, &execution, &launch, call, &request, ProviderStreamId::from_bytes([9; 16]), 84);
+    Fixture { _database: database, execution, attempt_id: claim.attempt_id, fencing_token: claim.fencing_token, path, identity, call_digest_version: digest_version, keyring }
 }
 
 impl Fixture {

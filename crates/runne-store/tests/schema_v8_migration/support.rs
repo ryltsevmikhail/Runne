@@ -60,6 +60,7 @@ fn drop_v12_fences(conn: &Connection) {
 }
 
 fn drop_v13_provider_execution(conn: &Connection) {
+    conn.execute_batch("DROP TABLE IF EXISTS credential_cleanup_recovery_attempts;").unwrap();
     let triggers = conn
         .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name GLOB 'provider_*'")
         .unwrap()

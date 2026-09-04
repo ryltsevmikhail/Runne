@@ -12,7 +12,7 @@ use runne_provider::{
 };
 use runne_runtime::provider_execution::ProviderEventJournalContext;
 use runne_store::provider::{
-    MarkProviderStreaming, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
+    PreparedProviderRecord, ProviderAuthorityIssueOutcome,
     ProviderRuntimeAuthorityConfig, ProviderRuntimeLaunchCapability, SqliteProviderExecutionStore,
 };
 
@@ -84,38 +84,10 @@ impl Task5ProductionFixture {
             currency: "USD".into(),
             provider_idempotency_key: "provider-task5-production-1".into(),
         };
-        let ProviderAuthorityIssueOutcome::Winner(admitted) =
-            execution.issue(&launch, &request).unwrap()
-        else {
-            panic!("first issue must win")
-        };
-        let credential = crate::provider_credential_fixture::credential(
-            &database,
-            "fixture-provider",
-            [1; 16],
-            13,
-            100,
-        );
-        let binding = credential
-            .authorize_active(
-                &ProviderId::new("fixture-provider").unwrap(),
-                [1; 16],
-                13,
-                100,
-            )
-            .unwrap();
-        let receipt = execution.start_effect(admitted.claim(), &binding).unwrap();
-        assert!(receipt.matches_claim(admitted.claim()));
-        let attempt = admitted.claim().attempt_id;
-        let fencing_token = admitted.claim().fencing_token;
-        let stream = ProviderStreamId::from_bytes([9; 16]);
-        dispatch
-            .mark_streaming(&MarkProviderStreaming {
-                attempt_id: attempt,
-                fencing_token,
-                stream_id: stream,
-            })
-            .unwrap();
+        let (binding, _) = crate::online_stream_fixture::start(&database, &execution, &launch, call, &request, ProviderStreamId::from_bytes([9; 16]), 81);
+        let attempt = binding.execution().attempt_id();
+        let fencing_token = binding.execution().fencing_token();
+        let stream = binding.execution().stream_id();
         let context = ProviderEventJournalContext {
             attempt_id: attempt,
             fencing_token,
@@ -139,8 +111,32 @@ impl Task5ProductionFixture {
         self.database.as_path()
     }
 
+    pub(super) fn revoke(&self) {
+        use runne_provider::*;
+        use runne_domain::id::{CommandId, IdempotencyKey};
+        let store = runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_connection(self.database.connection()).unwrap();
+        let (_, authority) = CredentialEnrollmentAuthorityPair::new().split();
+        let release = authority.issue_qualified_credential_release_tuple(authority.release_manifest_digest([201; 32]).unwrap()).unwrap();
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let operation = CredentialOperationId::from_bytes([91; 16]).unwrap();
+        let command = BeginCredentialOperation::new(
+            CommandId::from_bytes([111; 16]), IdempotencyKey::new("pending-poll-revoke").unwrap(),
+            operation, CredentialInstallationOwnerId::from_bytes([42; 32]).unwrap(),
+            self.request.provider_id.clone(), CredentialOperationAction::Revoke, None,
+            Some(CredentialVersionRef::new(self.request.provider_id.clone(), 1).unwrap()),
+            CredentialLifecycleRevision::new(2).unwrap(), CredentialFence::new(2).unwrap(),
+            CredentialBindingDigest::from_measured([92; 32]).unwrap(), now + 600,
+        ).unwrap().with_qualified_release_tuple(release);
+        ProviderCredentialEnrollmentStore::begin(&store, command).unwrap();
+        assert_eq!(store.load_operation(operation).unwrap().state(), CredentialOperationState::Prepared);
+    }
+
     pub(super) fn execution(&self) -> &SqliteProviderExecutionStore {
         self.execution.as_ref()
+    }
+
+    pub(super) fn reopened_execution(&self) -> SqliteProviderExecutionStore {
+        self.database.execution()
     }
 
     pub(super) const fn attempt(&self) -> DispatchAttemptId {

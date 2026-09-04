@@ -8,7 +8,7 @@ async fn duplicate_outbox_wakeup_second_recovery_applies_zero() {
     let harness = Harness::new().await;
     let service = harness.compose().await;
     let (begin, started) = harness.begin();
-    super::super::pending::create(&service, started.clone()).await;
+    super::super::pending::create(&service, started.clone(), harness.writer_connection()).await;
     let registry = service.recovery_observation_registry();
     let before = registry.snapshot_recovery_observation();
     service.recover_pending().await.unwrap();
@@ -40,7 +40,7 @@ async fn recovery_completes_before_compose_returns() {
     let harness = Harness::new().await;
     let first = harness.compose().await;
     let (begin, started) = harness.begin();
-    super::super::pending::create(&first, started.clone()).await;
+    super::super::pending::create(&first, started.clone(), harness.writer_connection()).await;
     let before = snapshot(&harness);
     drop(first);
 

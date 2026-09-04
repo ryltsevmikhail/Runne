@@ -6,7 +6,7 @@ use crate::credential::enrollment::{
 };
 
 #[derive(Debug)]
-struct WriterAuthoritySeal;
+pub(crate) struct WriterAuthoritySeal;
 
 /// Pair of process-local issuers for one writer-authorization domain.
 pub struct CredentialWriterAuthorityPair {
@@ -130,6 +130,10 @@ impl CredentialWriterClaimIssuer {
 }
 
 impl CredentialWriterEffectAuthority {
+    pub(crate) fn legacy_read_seal(&self) -> Arc<WriterAuthoritySeal> {
+        Arc::clone(&self.seal)
+    }
+
     /// Consumes one exact Pair authority and borrows plaintext only for `callback`.
     #[doc(hidden)]
     #[allow(

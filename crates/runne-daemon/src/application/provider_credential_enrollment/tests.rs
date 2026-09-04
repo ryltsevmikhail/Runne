@@ -149,6 +149,7 @@ mod broker_exchange;
 mod broker_issue;
 #[path = "tests/broker_publication.rs"]
 mod broker_publication;
+pub(super) mod broker_recovery_issue;
 #[path = "tests/broker_support.rs"]
 mod broker_support;
 mod host;

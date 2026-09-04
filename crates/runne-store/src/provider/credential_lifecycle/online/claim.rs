@@ -50,7 +50,17 @@ pub(super) fn issue_ticket(
             |row| row.get(0),
         )
         .map_err(map_sql)?;
-    if begin_expiry <= 0 || effective_now >= begin_expiry {
+    let recovery_expiry = match super::recovery_claim::lease_deadline(
+        &transaction, input.operation_id(), input.continuation_binding_digest(), effective_now,
+    ) {
+        Err(CredentialLifecycleError::StaleLease) => {
+            advance_observed_at_high_water(&transaction, operation.provider(), effective_now)?;
+            transaction.commit().map_err(map_sql)?;
+            return Err(CredentialLifecycleError::StaleLease);
+        }
+        result => result?,
+    };
+    if recovery_expiry.is_none() && (begin_expiry <= 0 || effective_now >= begin_expiry) {
         advance_observed_at_high_water(&transaction, operation.provider(), effective_now)?;
         transaction.commit().map_err(map_sql)?;
         return Err(CredentialLifecycleError::StaleLease);
@@ -76,6 +86,7 @@ pub(super) fn issue_ticket(
     let expires = effective_now
         .checked_add(input.ticket_ttl_seconds())
         .ok_or(CredentialLifecycleError::InvalidInput)?;
+    let expires = expires.min(recovery_expiry.unwrap_or(i64::MAX));
     transaction.execute("INSERT INTO provider_credential_ticket_attempts (operation_id, attempt, ticket_digest, continuation_binding_digest, issued_at, expires_at, state) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'ISSUED')", params![input.operation_id().as_bytes().as_slice(), attempt.get(), input.ticket_digest().as_bytes().as_slice(), input.continuation_binding_digest().as_bytes().as_slice(), effective_now, expires]).map_err(map_ticket_issue_sql)?;
     advance_observed_at_high_water(&transaction, operation.provider(), effective_now)?;
     transaction.commit().map_err(map_sql)?;
@@ -220,6 +231,7 @@ pub(super) fn claim(
         transaction.commit().map_err(map_sql)?;
         return Err(CredentialLifecycleError::StaleLease);
     }
+    super::recovery_claim::consume(&transaction, &store.enrollment_authority, &input, effective_now)?;
     let changed = transaction.execute("UPDATE provider_credential_ticket_attempts SET state='CLAIMED' WHERE operation_id=?1 AND attempt=?2 AND ticket_digest=?3 AND continuation_binding_digest=?4 AND issued_at=?5 AND expires_at=?6 AND state='ISSUED' AND expires_at>?7", params![input.operation_id().as_bytes().as_slice(), input.ticket_attempt().get(), input.ticket_digest().as_bytes().as_slice(), input.continuation_binding_digest().as_bytes().as_slice(), input.issued_at_high_water(), input.expires_at_high_water(), effective_now]).map_err(map_sql)?;
     if changed != 1 {
         return Err(CredentialLifecycleError::Conflict);
@@ -267,5 +279,9 @@ pub(super) fn claim_head_matches(
         .map_err(|_| CredentialLifecycleError::CorruptState)?
         .checked_add(offset)
         .ok_or(CredentialLifecycleError::CorruptState)?;
+    if operation.action() == runne_provider::CredentialOperationAction::LegacySourceCleanup {
+        return Ok(operation.metadata().legacy_cleanup_binding().is_some()
+            && head.lifecycle >= lifecycle && head.fence >= fence);
+    }
     Ok(head.lifecycle == lifecycle && head.fence == fence)
 }

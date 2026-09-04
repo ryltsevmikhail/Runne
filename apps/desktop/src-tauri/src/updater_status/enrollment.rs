@@ -18,6 +18,13 @@ pub struct NativeInstalledEnrollmentLease {
 }
 
 impl NativeInstalledEnrollmentLease {
+    pub(crate) fn prepare_confirmation(&self) -> Result<PreparedInstalledNativeEnrollment, ()> {
+        self.updater
+            .coordinator
+            .prepare_installed_native_enrollment()
+            .map_err(|_| ())?
+            .ok_or(())
+    }
     /// Retained for prompt-time revalidation before confirmation.
     #[expect(dead_code, reason = "reserved for prompt-time revalidation")]
     pub(crate) fn refresh(&mut self) -> Result<(), ()> {
@@ -57,6 +64,16 @@ impl NativeInstalledEnrollmentLease {
 }
 
 impl UpdateStatusStore {
+    /// Startup may skip an unavailable capability, but never a failed verification.
+    pub(crate) async fn prepare_startup_native_enrollment(
+        &self,
+    ) -> Result<Option<NativeInstalledEnrollmentLease>, ()> {
+        if self.updater.is_none() {
+            return Ok(None);
+        }
+        self.prepare_installed_native_enrollment().await
+    }
+
     /// Returns retained fixed-layout evidence from the compiled updater only.
     pub(crate) async fn prepare_installed_native_enrollment(
         &self,

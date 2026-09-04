@@ -1,4 +1,6 @@
 pub use credential::{
+    CredentialLegacySourceMaterial,
+    AuthorizedCredentialLegacyRead, CredentialLegacyReadVerifier,
     CredentialDispatchEffectReceipt, CredentialDispatchEffectReceiptAuthority,
     CredentialMaterial, CredentialMetadataReadbackAdmission, CredentialMetadataReadbackRequest,
     CredentialMutationGrant, CredentialMutationGrantDigest, CredentialPointOfUseReadAdmission,

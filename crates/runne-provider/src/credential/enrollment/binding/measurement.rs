@@ -203,6 +203,21 @@ impl CredentialMeasurementSnapshot {
         })
     }
 
+    /// Checks the recovery lease's session, release, continuation and generations.
+    pub(crate) fn matches_cleanup_recovery(
+        &self,
+        request: &crate::CredentialCleanupRecoveryRequest,
+        database: u64,
+        supervisor: u64,
+    ) -> bool {
+        self.release_manifest_digest.digest() == request.release_digest()
+            && self.protected_session_id.digest() == request.session_digest()
+            && self.continuation_binding_digest.digest() == request.continuation_digest()
+            && self.desktop_supervisor_generation.generation() == request.supervisor_generation()
+            && supervisor == request.supervisor_generation()
+            && database == request.database_generation()
+    }
+
     /// Returns the source-typed live process binding.
     pub fn process_binding(&self) -> CredentialProcessBinding {
         CredentialProcessBinding::new(

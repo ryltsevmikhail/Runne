@@ -138,6 +138,9 @@ if [ "$MODE" = "pinned" ]; then
         scripts.desktop.tests.test_validate_architecture \
         scripts.tests.test_macos_ci_keychain \
         scripts.tests.test_verify_task_6c_release_exclusion \
+        scripts.desktop.tests.test_legacy_cleanup_evidence \
+        scripts.desktop.tests.test_legacy_cleanup_schema \
+        scripts.desktop.tests.test_legacy_cleanup_cli \
         -v
 
     echo "--- check ---"
@@ -148,6 +151,14 @@ if [ "$MODE" = "pinned" ]; then
 else
     echo "--- check ---"
     cargo check --workspace --all-targets --all-features --locked
+fi
+
+if [ "$(/usr/bin/uname -s)" = "Darwin" ]; then
+    # All-features enables the local native fixture route. Exercise the normal
+    # writer configuration separately so no-service denial cannot be skipped.
+    echo "--- test (production credential writer routing) ---"
+    cargo test -p runne-secure-store --lib --no-default-features \
+        --features provider-credential-broker-writer --locked native_authenticated
 fi
 
 echo "--- test (unit) ---"

@@ -44,7 +44,10 @@ pub(super) fn compose(
             crate::protected_activation::CredentialServiceRuntimeGateway::new(
                 enrollment_store_authority.clone(),
                 tokio::runtime::Handle::current(),
-            ),
+            )
+            .with_legacy_readback(Arc::new(
+                runne_secure_store::NativeLegacySourceReadback::new(_access.clone()),
+            )),
         );
         let readback: Arc<dyn ProviderCredentialReadback> = credential_service.clone();
         let dispatch: Arc<dyn ProviderCredentialDispatchMaterializer> = credential_service.clone();

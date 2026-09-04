@@ -108,8 +108,9 @@ pub(super) fn complete(
         }
         CredentialOperationAction::LegacySourceCleanup => {
             if head.hard_fenced
-                || head.lifecycle != input.expected_lifecycle_revision().get() as i64
-                || head.fence != input.expected_prior_fence().get() as i64
+                || head.lifecycle < input.expected_lifecycle_revision().get() as i64
+                || head.fence < input.expected_prior_fence().get() as i64
+                || operation.metadata().legacy_cleanup_binding().is_none()
             {
                 return Err(CredentialLifecycleError::Conflict);
             }
@@ -126,6 +127,11 @@ pub(super) fn complete(
         &store.enrollment_authority,
     )?;
     transaction.execute("UPDATE provider_credential_operations SET state='COMPLETED', terminal_disposition='COMPLETED', updated_at=?1 WHERE operation_id=?2 AND state='READBACK_VERIFIED'", params![(store.now)(), input.operation_id().as_bytes().as_slice()]).map_err(map_sql)?;
+    if operation.action() == CredentialOperationAction::Pair
+        && let Some(retired) = head.active.as_ref()
+    {
+        super::retired_cleanup::create(&transaction, &operation, retired, (store.now)())?;
+    }
     transaction.commit().map_err(map_sql)?;
     Ok(result)
 }

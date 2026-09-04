@@ -15,6 +15,55 @@ use super::{
 
 /// Durable port for the authoritative online credential enrollment lifecycle.
 pub trait ProviderCredentialEnrollmentStore: Send + Sync {
+    /// Reads the latest expired, unconsumed cleanup attempt for an exact owner.
+    /// Advisory metadata only: supersession must revalidate by exact attempt CAS.
+    fn expired_cleanup_recovery_attempt(
+        &self,
+        _owner: super::CredentialInstallationOwnerId,
+        _operation: CredentialOperationId,
+    ) -> Result<Option<u64>, CredentialLifecycleError> {
+        Err(CredentialLifecycleError::LifecycleClosed)
+    }
+
+    /// Replaces only the exact expired, unconsumed recovery attempt.
+    /// A fresh sealed request is required; metadata alone grants no authority.
+    fn supersede_cleanup_recovery(
+        &self,
+        _request: super::CredentialCleanupRecoveryRequest,
+        _expected_attempt: u64,
+    ) -> Result<super::AcceptedCredentialCleanupRecovery, CredentialLifecycleError> {
+        Err(CredentialLifecycleError::LifecycleClosed)
+    }
+
+    /// Accepts a fresh internal recovery proof once, after fencing prior attempts.
+    /// Metadata replay must never reissue the move-only witness.
+    fn accept_cleanup_recovery(
+        &self,
+        _request: super::CredentialCleanupRecoveryRequest,
+    ) -> Result<super::AcceptedCredentialCleanupRecovery, CredentialLifecycleError> {
+        Err(CredentialLifecycleError::LifecycleClosed)
+    }
+
+    /// Reads at most 64 prepared delete operations for an exact owner/provider.
+    ///
+    /// This metadata query grants no writer or recovery authority. Callers must
+    /// authenticate the owner and separately fence any previous writer attempt.
+    fn prepared_cleanup_operations(
+        &self,
+        _owner: super::CredentialInstallationOwnerId,
+        _provider: &ProviderId,
+    ) -> Result<Vec<CredentialOperationSnapshot>, CredentialLifecycleError> {
+        Err(CredentialLifecycleError::LifecycleClosed)
+    }
+
+    /// Consumes a store-sealed recovery witness to attach its exact continuation.
+    fn attach_cleanup_recovery(
+        &self,
+        _accepted: super::AcceptedCredentialCleanupRecovery,
+    ) -> Result<CredentialOperationSnapshot, CredentialLifecycleError> {
+        Err(CredentialLifecycleError::LifecycleClosed)
+    }
+
     /// Begins or exactly replays one enrollment operation.
     fn begin(
         &self,

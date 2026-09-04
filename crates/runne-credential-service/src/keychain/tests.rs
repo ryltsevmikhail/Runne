@@ -93,30 +93,34 @@ fn duplicate_and_missing_are_closed_and_distinct() {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn native_access_group_denies_unsigned_or_completes_same_process_round_trip() {
+#[ignore = "requires signed service in an isolated disposable macOS login/VM (ADR-0031)"]
+fn native_signed_access_group_completes_same_process_round_trip() {
     use runne_credential_service_core::CredentialBackendResult;
     use runne_provider::CredentialMaterial;
+
+    assert_eq!(
+        std::env::var("RUNNE_SIGNED_KEYCHAIN_TEST").as_deref(),
+        Ok("1"),
+        "native DPK test requires explicit isolated signed qualification"
+    );
 
     let reference = version("runne-task7-native", 1);
     let locator = CredentialItemLocator::new(&reference);
     let material = CredentialMaterial::from_bytes(b"not-a-real-provider-secret".to_vec())
         .expect("bounded material");
-    let stored = KeychainBackend::store(&reference, material);
-    if stored == CredentialBackendResult::AccessDenied {
-        assert_ne!(
-            std::env::var("RUNNE_SIGNED_KEYCHAIN_TEST").as_deref(),
-            Ok("1"),
-            "signed qualification lacks the service-only access group"
-        );
-        return;
-    }
+    let stored = KeychainBackend::store(&reference, material, Some([9; 16]));
     assert_eq!(stored, CredentialBackendResult::Observed(()));
+    let record = super::native::read_record(&locator).expect("revision readback");
+    assert_eq!(record.source_revision, Some([9; 16]));
+    record
+        .material
+        .consume(|bytes| assert_eq!(bytes, b"not-a-real-provider-secret"));
     assert_eq!(
         super::native::read(&locator).expect("readback"),
         b"not-a-real-provider-secret"
     );
     assert_eq!(
-        super::native::add(&locator, b"replacement-is-forbidden"),
+        super::native::add(&locator, b"replacement-is-forbidden", None),
         CredentialKeychainStatus::Duplicate
     );
     assert_eq!(

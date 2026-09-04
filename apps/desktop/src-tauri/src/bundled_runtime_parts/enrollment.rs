@@ -49,6 +49,16 @@ impl NativeCredentialEnrollmentLease {
             .await
     }
 
+    pub(crate) async fn renew_and_install(&self) -> Result<(), AppCoreError> {
+        let activation = self.core.begin_bundled_runtime_restart().await?;
+        ProtectedBundledRuntimeSupervisor::queue_renewal_profile_with_rejoin(Arc::clone(
+            &self.supervisor,
+        ))
+        .await
+        .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        self.install_pending_profile(activation).await
+    }
+
     pub(crate) fn rotated_intent_session_binding(&self) -> Result<[u8; 32], AppCoreError> {
         self.supervisor
             .lock()
@@ -94,6 +104,14 @@ impl NativeCredentialEnrollmentLease {
         })
         .await
         .map_err(|_| AppCoreError::RuntimeUnavailable)??;
+        self.install_pending_profile(activation).await?;
+        Ok(confirmed)
+    }
+
+    async fn install_pending_profile(
+        &self,
+        activation: BundledRuntimeActivationLease,
+    ) -> Result<(), AppCoreError> {
         let profile = self
             .supervisor
             .lock()
@@ -119,7 +137,7 @@ impl NativeCredentialEnrollmentLease {
             .install_bundled_runtime_client(activation, client)
             .await
             .map_err(|_| AppCoreError::RuntimeUnavailable)?;
-        Ok(confirmed)
+        Ok(())
     }
 }
 
@@ -154,6 +172,7 @@ impl NativeCredentialEnrollmentCleanup {
 
 #[cfg(test)]
 pub struct TestOnlyLiveEnrollmentRuntime {
+    operation_fence: Arc<tokio::sync::Mutex<()>>,
     lease: Option<NativeCredentialEnrollmentLease>,
     core: Arc<runne_app_core::AppCore>,
     supervisor: Arc<Mutex<ProtectedBundledRuntimeSupervisor>>,
@@ -162,6 +181,9 @@ pub struct TestOnlyLiveEnrollmentRuntime {
 
 #[cfg(test)]
 impl TestOnlyLiveEnrollmentRuntime {
+    pub(crate) fn operation_available(&self) -> bool {
+        self.operation_fence.try_lock().is_ok()
+    }
     pub(crate) fn take_lease_with_cleanup(
         &mut self,
     ) -> (
@@ -219,8 +241,10 @@ pub async fn test_only_live_enrollment_runtime(
     let supervisor = Arc::new(Mutex::new(fixture.into_supervisor()));
     let writer_reapers = ProtectedWriterReaperRegistry::start(WRITER_REAPER_POLL_INTERVAL)
         .expect("test writer reaper registry");
-    let operation = Arc::new(tokio::sync::Mutex::new(())).lock_owned().await;
+    let operation_fence = Arc::new(tokio::sync::Mutex::new(()));
+    let operation = Arc::clone(&operation_fence).lock_owned().await;
     TestOnlyLiveEnrollmentRuntime {
+        operation_fence,
         lease: Some(NativeCredentialEnrollmentLease {
             core: Arc::clone(&core),
             supervisor: Arc::clone(&supervisor),

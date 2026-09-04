@@ -236,9 +236,11 @@ fn legacy_cleanup_command() -> runne_provider::CredentialBrokerCommand {
         runne_provider::CredentialTicketAttempt::new(1).unwrap(),
         ProviderId::new("openai").unwrap(),
         CredentialOperationAction::LegacySourceCleanup,
-        runne_provider::CredentialBrokerTarget::LegacySource,
-        runne_provider::CredentialLifecycleRevision::new(1).unwrap(),
-        runne_provider::CredentialFence::new(1).unwrap(),
+        runne_provider::CredentialBrokerTarget::ExactLegacySource(
+            crate::provider_credential::source_cleanup_tests::binding(),
+        ),
+        runne_provider::CredentialLifecycleRevision::new(2).unwrap(),
+        runne_provider::CredentialFence::new(2).unwrap(),
         None,
     )
     .unwrap()

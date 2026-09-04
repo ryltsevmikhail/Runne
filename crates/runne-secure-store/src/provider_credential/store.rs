@@ -1,4 +1,13 @@
 /// Native provider credential lifecycle boundary.
+///
+/// ```compile_fail
+/// use runne_secure_store::{ProviderCredentialStore, ProviderCredentialAccessPolicy};
+/// use runne_provider::AuthorizedCredentialLegacyRead;
+/// fn bypass(store: &dyn ProviderCredentialStore, read: AuthorizedCredentialLegacyRead,
+///     access: &ProviderCredentialAccessPolicy) {
+///     let _ = store.load_authorized_legacy_source(read, access);
+/// }
+/// ```
 pub trait ProviderCredentialStore: Send + Sync {
     /// # Errors
     ///
@@ -58,4 +67,23 @@ pub trait ProviderCredentialStore: Send + Sync {
         current: &ProviderCredentialAccessPolicy,
         replacement: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError>;
+}
+
+/// Crate-private native import entry: only the authenticated legacy port admits reads.
+#[allow(clippy::redundant_pub_crate, reason = "native read authority must remain crate-private even if its parent is later exported")]
+#[cfg(any(test, feature = "provider-credential-broker-writer"))]
+pub(crate) trait AuthorizedLegacySourceStore: Send + Sync {
+    fn delete_authorized_legacy_source(
+        &self,
+        _provider: ProviderCredentialId,
+        _binding: &runne_provider::CredentialLegacyCleanupBinding,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
+        Err(SecureStoreError::UnsupportedSecureStoreBackend)
+    }
+    fn load_authorized_legacy_source(
+        &self,
+        read: runne_provider::AuthorizedCredentialLegacyRead,
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialSource, SecureStoreError>;
 }

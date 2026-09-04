@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gocode://schemas/legacy-source-cleanup-evidence-v1",
+  "title": "Legacy Source Cleanup Evidence V1",
+  "description": "Structural evidence only; requires independent protected attestation and native qualification.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "candidate_sha256", "tuple_sha256", "workflow_run_id", "selectors"],
+  "properties": {
+    "schema_version": {"const": "legacy-source-cleanup-evidence.v1"},
+    "candidate_sha256": {"$ref": "#/$defs/digest"},
+    "tuple_sha256": {"$ref": "#/$defs/digest"},
+    "workflow_run_id": {"type": "string", "pattern": "\\S"},
+    "selectors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authorized_import", "durable_cutover", "replacement_denied", "ambiguous_source_denied", "exact_source_deleted", "restart_after_delete_before_confirmation", "reimport_denied"],
+      "properties": {
+        "authorized_import": {"$ref": "#/$defs/receipt"},
+        "durable_cutover": {"$ref": "#/$defs/receipt"},
+        "replacement_denied": {"$ref": "#/$defs/receipt"},
+        "ambiguous_source_denied": {"$ref": "#/$defs/receipt"},
+        "exact_source_deleted": {"$ref": "#/$defs/receipt"},
+        "restart_after_delete_before_confirmation": {"$ref": "#/$defs/receipt"},
+        "reimport_denied": {"$ref": "#/$defs/receipt"}
+      }
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "observation_sha256"],
+      "properties": {
+        "status": {"const": "verified"},
+        "observation_sha256": {"$ref": "#/$defs/digest"}
+      }
+    }
+  }
+}

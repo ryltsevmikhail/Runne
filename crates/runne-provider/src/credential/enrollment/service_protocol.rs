@@ -1,5 +1,7 @@
 mod codec;
 mod frame;
+mod legacy_material;
+mod legacy_read;
 mod request;
 mod types;
 
@@ -7,6 +9,8 @@ pub use codec::CredentialServiceProtocolCodec;
 pub use frame::{
     CredentialServiceReplyFrame, CredentialServiceRequestFrame, CredentialWriterBrokerHandoffFrame,
 };
+pub use legacy_material::CredentialLegacySourceMaterial;
+pub use legacy_read::{AuthorizedCredentialLegacyRead, CredentialLegacyReadVerifier};
 pub use request::{
     CredentialMetadataReadbackAdmission, CredentialMetadataReadbackRequest,
     CredentialPointOfUseReadAdmission, CredentialPointOfUseReadRequest,

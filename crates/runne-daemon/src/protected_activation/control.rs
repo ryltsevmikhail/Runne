@@ -120,9 +120,8 @@ pub(crate) fn run_control_loop(
 /// Serves V2 control messages and rejects every V1 frame rather than allowing
 /// a provider-bound launch to downgrade its authenticated transcript.
 ///
-/// On Apple Silicon an authenticated enrollment prepare frame upgrades this
-/// loop in place: the same channel continues into the V3 control loop without
-/// a second entry handshake.
+/// Apple Silicon supports read-only startup discovery here; enrollment prepare
+/// upgrades the same channel to V3 without a second entry handshake.
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 pub(crate) fn run_control_loop_v2(
     mut channel: ProtectedActivationChannel,
@@ -149,6 +148,22 @@ pub(crate) fn run_control_loop_v2(
     let mut used_root_transfers = std::collections::VecDeque::new();
     loop {
         let frame = channel.read_control_frame()?;
+        #[cfg(all(
+            target_os = "macos",
+            target_arch = "aarch64",
+            feature = "desktop-protected"
+        ))]
+        if runne_api::ProtectedCredentialDiscoveryCodec::recognizes_frame(&frame) {
+            super::startup_discovery::respond(
+                &mut channel,
+                &keys,
+                &owned_launch,
+                &local_session_service,
+                enrollment_transition.as_ref(),
+                &frame,
+            )?;
+            continue;
+        }
         #[cfg(all(
             target_os = "macos",
             target_arch = "aarch64",
@@ -184,7 +199,8 @@ pub(crate) fn run_control_loop_v2(
                     composition.enrollment_control.clone(),
                     rendezvous,
                     installed_facts,
-                ),
+                )
+                .with_round_profile(composition.profile_directory.clone(), installation),
             );
         }
         #[cfg(all(any(unix, windows), feature = "desktop-protected"))]

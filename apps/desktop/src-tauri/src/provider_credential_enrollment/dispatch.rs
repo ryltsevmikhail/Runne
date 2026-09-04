@@ -16,7 +16,7 @@ use tauri::{AppHandle, WebviewWindow};
 
 use super::CredentialIntentIpc;
 #[path = "dispatch/post_fence.rs"]
-mod post_fence;
+pub(super) mod post_fence;
 #[cfg(target_os = "macos")]
 use super::host_prompt::MacOsHostCredentialPrompt;
 #[cfg(target_os = "macos")]
@@ -224,10 +224,16 @@ async fn dispatch_pair_inner(
                 updater: updater_lease,
                 intent_session: None,
             })?;
-            tauri::async_runtime::spawn_blocking(move || exchange.run(&owner_intents, work_reapers))
+            let recovery = tauri::async_runtime::spawn_blocking(move || {
+                exchange.run(&owner_intents, work_reapers)
+            })
+            .await
+            .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))?
+            .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))?;
+            recovery
+                .finish_cleanup()
                 .await
-                .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))?
-                .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))
+                .map_err(|_| DispatchFailure::Closed("provider_credential_cleanup_incomplete"))
         },
         move || async move { cleanup.abort().await },
         || DispatchFailure::Closed("provider_credential_exchange_rejected"),

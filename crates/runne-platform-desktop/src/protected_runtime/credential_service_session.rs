@@ -12,11 +12,16 @@ use runne_api::{
 
 const REGISTRATION_TIMEOUT: Duration = Duration::from_secs(5);
 
+mod confirmation;
+#[cfg(all(test, feature = "test-support"))]
+mod confirmation_tests;
 mod registration_exchange;
 mod rejoin;
 pub(super) use registration_exchange::register_credential_service_session_with_port;
 pub use rejoin::CredentialServiceRejoinContext;
 pub use rejoin::PreparedCredentialServiceRejoin;
+#[cfg(feature = "test-support")]
+pub(super) use rejoin::test_rejoin_context;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum CredentialServiceSessionRegistrationError {
@@ -167,25 +172,6 @@ impl ProtectedBundledRuntimeProcess {
             ),
             facts,
         })
-    }
-
-    fn confirm_credential_service_session(
-        &mut self,
-        registered: RegisteredCredentialServiceSession,
-    ) -> Result<(), ProtectedBundledRuntimeError> {
-        if self.graceful_requested
-            || !matches!(self.activation, ProtectedProcessActivation::V3 { .. })
-        {
-            return Err(ProtectedBundledRuntimeError::InvalidState);
-        }
-        let claim = protected_control_frame(registered.claim.into_bytes())?;
-        let acknowledgement = protected_control_frame(registered.acknowledgement.into_bytes())?;
-        let result = super::write_frame(&mut self.channel, &claim)
-            .and_then(|()| super::write_frame(&mut self.channel, &acknowledgement));
-        if result.is_err() {
-            self.fence_ambiguous_transition();
-        }
-        result
     }
 }
 

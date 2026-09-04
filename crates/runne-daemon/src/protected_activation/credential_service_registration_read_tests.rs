@@ -17,49 +17,56 @@ use super::credential_service_registration::{
 
 #[tokio::test]
 async fn registered_runtime_session_reads_exact_metadata_through_runtime_port() {
-    let keys = LaunchSecret::from_bytes([7; 32]).unwrap().derive_keys();
-    let binding = binding();
-    let authenticator = CredentialServiceSessionAuthenticator::from_protected_activation(&keys);
-    let claim = authenticator
-        .authenticate_registration(binding.clone())
-        .unwrap()
-        .into_bytes();
-    let verified = authenticator
-        .decode_and_verify_registration_for(&claim, &binding, 99)
-        .unwrap();
-    let acknowledgement = authenticator
-        .registration_ack(verified, 99)
-        .unwrap()
-        .into_bytes();
-    let mut session = accept_registration_frames(
-        &keys,
-        &ExpectedCredentialServiceRegistration::from_binding(&binding),
-        &claim,
-        &acknowledgement,
-        99,
-    )
-    .unwrap();
-    let service = MetadataRuntimePort {
-        authenticator: CredentialServiceSessionAuthenticator::from_protected_activation(&keys),
-        owner: [3; 32],
-    };
-    let (store, _) = CredentialEnrollmentAuthorityPair::new().split();
-    let provider = ProviderId::new("deepseek").unwrap();
-    let version = CredentialVersionRef::new(provider, 3).unwrap();
-
-    let present = session
-        .read_metadata_with_port(
-            &service,
-            &store.runtime_read_authority(),
-            version,
-            CredentialLifecycleRevision::new(5).unwrap(),
-            CredentialFence::new(7).unwrap(),
-            100,
+    for source_revision in [None, Some([9; 16])] {
+        let keys = LaunchSecret::from_bytes([7; 32]).unwrap().derive_keys();
+        let binding = binding();
+        let authenticator = CredentialServiceSessionAuthenticator::from_protected_activation(&keys);
+        let claim = authenticator
+            .authenticate_registration(binding.clone())
+            .unwrap()
+            .into_bytes();
+        let verified = authenticator
+            .decode_and_verify_registration_for(&claim, &binding, 99)
+            .unwrap();
+        let acknowledgement = authenticator
+            .registration_ack(verified, 99)
+            .unwrap()
+            .into_bytes();
+        let mut session = accept_registration_frames(
+            &keys,
+            &ExpectedCredentialServiceRegistration::from_binding(&binding),
+            &claim,
+            &acknowledgement,
+            99,
         )
-        .await
         .unwrap();
+        let service = MetadataRuntimePort {
+            source_revision,
+            authenticator: CredentialServiceSessionAuthenticator::from_protected_activation(&keys),
+            owner: [3; 32],
+        };
+        let (store, _) = CredentialEnrollmentAuthorityPair::new().split();
+        let provider = ProviderId::new("deepseek").unwrap();
+        let version = CredentialVersionRef::new(provider, 3).unwrap();
 
-    assert!(present);
+        let present = session
+            .read_metadata_with_port(
+                &service,
+                &store.runtime_read_authority(),
+                version,
+                CredentialLifecycleRevision::new(5).unwrap(),
+                CredentialFence::new(7).unwrap(),
+                100,
+            )
+            .await
+            .unwrap();
+
+        assert!(present.present);
+        assert_eq!(
+            present.source_revision.map(|revision| *revision.as_bytes()),
+            source_revision
+        );
+    }
 }
 
 #[tokio::test]
@@ -113,6 +120,7 @@ async fn registered_runtime_session_reads_material_only_with_effect_receipt() {
 }
 
 struct MetadataRuntimePort {
+    source_revision: Option<[u8; 16]>,
     authenticator: CredentialServiceSessionAuthenticator,
     owner: [u8; 32],
 }
@@ -208,7 +216,12 @@ impl CredentialServiceRuntimePort for MetadataRuntimePort {
                 assert_eq!(request.binding().version().provider().as_str(), "deepseek");
                 let encoded = CredentialServiceProtocolCodec::encode_reply(
                     context,
-                    CredentialServiceReply::Metadata { present: true },
+                    self.source_revision.map_or(
+                        CredentialServiceReply::Metadata { present: true },
+                        |source_revision| CredentialServiceReply::LegacyMetadata {
+                            source_revision,
+                        },
+                    ),
                 )
                 .unwrap();
                 reply = Some(

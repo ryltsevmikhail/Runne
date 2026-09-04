@@ -26,6 +26,8 @@ mod process_faults;
 mod release_fault_support;
 #[path = "provider_credential_writer_authority/release_faults.rs"]
 mod release_faults;
+#[path = "provider_credential_writer_authority/scoped_cleanup.rs"]
+mod scoped_cleanup;
 #[path = "provider_credential_writer_authority/service_process.rs"]
 mod service_process;
 #[path = "provider_credential_writer_authority/support.rs"]

@@ -276,7 +276,7 @@ impl DevelopmentBundledRuntimeLauncher {
                 renewal_sequence: 0,
                 #[cfg(all(any(unix, windows), feature = "protected-channel-integration"))]
                 root_control_sequence: 0,
-                graceful_requested: false,
+                graceful_requested: false, graceful_acknowledged: false,
                 enrollment_broker_facts: None,
                 #[cfg(feature = "test-support")]
                 captured_stdout,

@@ -9,6 +9,24 @@ use runne_provider::{
 use super::{CredentialBrokerChannel, ProviderCredentialBroker};
 use crate::application::provider_credential_enrollment::effect_authority::map_store;
 
+/// Recovery requires the move-only store witness, never a metadata snapshot.
+pub(crate) enum CredentialTicketAuthority {
+    Intent(Box<CredentialOperationSnapshot>),
+    Recovery(Box<runne_provider::AcceptedCredentialCleanupRecovery>),
+}
+
+impl From<CredentialOperationSnapshot> for CredentialTicketAuthority {
+    fn from(value: CredentialOperationSnapshot) -> Self {
+        Self::Intent(Box::new(value))
+    }
+}
+
+impl From<runne_provider::AcceptedCredentialCleanupRecovery> for CredentialTicketAuthority {
+    fn from(value: runne_provider::AcceptedCredentialCleanupRecovery) -> Self {
+        Self::Recovery(Box::new(value))
+    }
+}
+
 /// Complete, authority-issued measurement context required before ticket issuance.
 pub(crate) struct ClaimIssueContext {
     measurements: CredentialMeasurementSnapshot,
@@ -71,7 +89,7 @@ impl ProviderCredentialBroker {
     /// Commits a ticket only with the complete claim context that its writer must echo.
     pub(crate) fn issue_ticket<S: ProviderCredentialEnrollmentStore, C: CredentialBrokerChannel>(
         &self,
-        operation: CredentialOperationSnapshot,
+        operation: impl Into<CredentialTicketAuthority>,
         continuation: CredentialBindingDigest,
         context: &ClaimIssueContext,
         ttl_seconds: i64,
@@ -80,7 +98,7 @@ impl ProviderCredentialBroker {
     ) -> Result<IssuedCredentialTicketAttempt, ProviderCredentialEnrollmentHostError> {
         self.issue_ticket_with_raw(
             generate_ticket(),
-            operation,
+            operation.into(),
             continuation,
             context,
             ttl_seconds,
@@ -106,7 +124,7 @@ impl ProviderCredentialBroker {
     ) -> Result<IssuedCredentialTicketAttempt, ProviderCredentialEnrollmentHostError> {
         self.issue_ticket_with_raw(
             RawCredentialTicket::generate_with_test_entropy(fill),
-            operation,
+            operation.into(),
             continuation,
             context,
             ttl_seconds,
@@ -119,26 +137,43 @@ impl ProviderCredentialBroker {
     fn issue_ticket_with_raw<S: ProviderCredentialEnrollmentStore, C: CredentialBrokerChannel>(
         &self,
         ticket: Result<RawCredentialTicket, CredentialEnrollmentError>,
-        operation: CredentialOperationSnapshot,
+        authority: CredentialTicketAuthority,
         continuation: CredentialBindingDigest,
         context: &ClaimIssueContext,
         ttl_seconds: i64,
         store: &S,
         channel: &mut C,
     ) -> Result<IssuedCredentialTicketAttempt, ProviderCredentialEnrollmentHostError> {
-        if context.measurements.continuation_binding_digest() != continuation {
+        if context.measurements.continuation_binding_digest() != continuation
+            || channel.binding_digest() != context.measurements.broker_channel_binding_digest()
+        {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
         self.measurements
             .validate_measurement_snapshot(&context.measurements)
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
         let ticket = ticket.map_err(map_ticket_generation)?;
-        store
-            .attach_process(
-                AttachCredentialProcess::new(operation.operation_id(), continuation)
-                    .map_err(|_| ProviderCredentialEnrollmentHostError::InvalidRequest)?,
-            )
-            .map_err(map_store)?;
+        let operation = match authority {
+            CredentialTicketAuthority::Intent(operation) => store
+                .attach_process(
+                    AttachCredentialProcess::new(operation.operation_id(), continuation)
+                        .map_err(|_| ProviderCredentialEnrollmentHostError::InvalidRequest)?,
+                )
+                .map_err(map_store)?,
+            CredentialTicketAuthority::Recovery(accepted) => {
+                self.measurements
+                    .validate_cleanup_recovery_measurements(
+                        &accepted,
+                        &context.measurements,
+                        context.database_generation,
+                        context.desktop_supervisor_generation,
+                    )
+                    .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
+                store
+                    .attach_cleanup_recovery(*accepted)
+                    .map_err(map_store)?
+            }
+        };
         let receipt = store
             .issue_ticket_attempt(
                 IssueCredentialTicketDigest::new(

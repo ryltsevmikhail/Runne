@@ -130,7 +130,7 @@ fn assert_dispatch_rotation(
 #[test]
 fn rotation_preserves_settled_bindings_and_freezes_stale_incomplete() {
     let (database, settled_request, _record) = setup("recovery-rotation-preserves", 11);
-    let settled_claim = issue_winner(&database, &settled_request);
+    let settled_claim = online_claim(&database, &settled_request, 11);
     let terminal = terminal_request_for_claim(&database, &settled_claim, 11);
     let execution = database.execution();
     execution.commit_terminal(&terminal).unwrap();
@@ -138,22 +138,11 @@ fn rotation_preserves_settled_bindings_and_freezes_stale_incomplete() {
     execution.acknowledge_terminal_outbox(outbox_id, [123; 32]).unwrap();
 
     let (dispatching_request, _) = prepared_request(&database, 12);
-    let dispatching_claim = issue_winner(&database, &dispatching_request);
-    let (_credential, binding) = credential(&database);
-    database
-        .execution()
-        .start_effect(&dispatching_claim, &binding)
-        .unwrap();
+    let dispatching_claim = online_pending_claim(&database, &dispatching_request, 12);
     let (streaming_request, _) = prepared_request(&database, 13);
-    let streaming_claim = issue_winner(&database, &streaming_request);
-    database
-        .dispatch()
-        .mark_streaming(&MarkProviderStreaming {
-            attempt_id: streaming_claim.attempt_id,
-            fencing_token: streaming_claim.fencing_token,
-            stream_id: runne_provider::ProviderStreamId::from_bytes([124; 16]),
-        })
-        .unwrap();
+    let streaming_claim = online_claim(&database, &streaming_request, 13);
+    assert_eq!(dispatch_state(&database, &dispatching_claim), ProviderDispatchState::Dispatching);
+    assert_eq!(dispatch_state(&database, &streaming_claim), ProviderDispatchState::Streaming);
     let before = database.query_connection();
     let settled_before = settled_evidence_snapshot(&before, &settled_claim);
     let authority_rows_before = sql_table_rows(&before, "provider_runtime_authority_state");
@@ -165,7 +154,7 @@ fn rotation_preserves_settled_bindings_and_freezes_stale_incomplete() {
     let dispatching_before = dispatch_row_snapshot(&before, dispatching_claim.attempt_id);
     let streaming_before = dispatch_row_snapshot(&before, streaming_claim.attempt_id);
     let utilization_before = execution.utilization().unwrap();
-    assert_eq!(effect_starts_before.len(), 1);
+    assert_eq!(effect_starts_before.len(), 3);
     assert_eq!(table_count(&before, "provider_dispatch_attempts"), 3);
     drop(before);
 

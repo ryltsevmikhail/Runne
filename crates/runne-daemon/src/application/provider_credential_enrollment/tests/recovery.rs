@@ -8,6 +8,20 @@ pub(super) mod fixture;
 use fixture::{FailurePoint, Fixture, StatefulReader};
 
 #[test]
+fn enrollment_recovery_legacy_cleanup_accepts_newer_head_after_rotation() {
+    let fixture = Fixture::legacy_cleanup_after_rotation();
+    let reader = StatefulReader::new(&fixture);
+    let gateway = CredentialEnrollmentRecoveryGateway::new(&fixture, &reader);
+    gateway.reconcile_online(100).unwrap();
+    assert_eq!(fixture.state(), CredentialOperationState::Completed);
+    let receipt = fixture.receipt().unwrap();
+    assert_eq!(receipt.predecessor_lifecycle_revision().get(), 2);
+    assert_eq!(receipt.lifecycle_revision().get(), 3);
+    assert_eq!(receipt.fence().get(), 3);
+    assert_eq!(receipt.readiness_observation_id(), None);
+}
+
+#[test]
 fn enrollment_recovery_retired_cleanup_completes_after_exact_absence() {
     let fixture = Fixture::retired_cleanup(FailurePoint::None);
     let reader = StatefulReader::new(&fixture);
@@ -49,9 +63,9 @@ fn enrollment_recovery_legacy_cleanup_preserves_v28_head_without_readiness_obser
         CredentialOperationAction::LegacySourceCleanup
     );
     assert_eq!(receipt.readiness_observation_id(), None);
-    assert_eq!(receipt.lifecycle_revision().get(), 1);
-    assert_eq!(receipt.fence().get(), 1);
-    assert_eq!(receipt.readiness_revision().get(), 1);
+    assert_eq!(receipt.lifecycle_revision().get(), 2);
+    assert_eq!(receipt.fence().get(), 2);
+    assert_eq!(receipt.readiness_revision().get(), 2);
 }
 
 #[test]

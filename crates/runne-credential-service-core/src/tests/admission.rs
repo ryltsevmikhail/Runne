@@ -256,3 +256,29 @@ fn registered_core() -> CredentialServiceCore {
     .unwrap();
     core
 }
+
+#[test]
+fn legacy_import_preserves_source_revision_through_one_use_service_admission() {
+    let mut core = registered_core();
+    let (arm, writer, _) = mutation_frames(1, 1, 7, CredentialOperationAction::MigrateLegacy);
+    assert!(matches!(
+        runtime_reply(&mut core, &arm, 7, 10, |_| panic!()),
+        Ok(CredentialServiceReply::Armed)
+    ));
+    let reply = writer_reply(&mut core, &writer, 10, |effect| {
+        assert_eq!(effect.source_revision(), Some([73; 16]));
+        effect
+            .into_material()
+            .unwrap()
+            .consume(|bytes| assert_eq!(bytes, b"secret"));
+        CredentialBackendResult::Observed(())
+    })
+    .unwrap();
+    assert!(matches!(reply, CredentialServiceReply::Consumed));
+    assert!(matches!(
+        writer_reply(&mut core, &writer, 10, |_| panic!("replayed effect")),
+        Ok(CredentialServiceReply::Rejected(
+            CredentialServiceDisposition::Denied
+        ))
+    ));
+}

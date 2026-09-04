@@ -16,7 +16,7 @@ async fn two_reconcilers_preloaded_before_ack_converge_to_single_receipt() {
     let harness = Harness::new().await;
     let service = harness.compose().await;
     let (begin, started) = harness.begin();
-    super::super::pending::create(&service, started.clone()).await;
+    super::super::pending::create(&service, started.clone(), harness.writer_connection()).await;
     let before = snapshot(&harness);
     let keyring = harness.keyring();
     let prohibited = harness.prohibited();

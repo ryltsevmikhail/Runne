@@ -127,6 +127,12 @@ pub(super) fn snapshot(
     if let Some(value) = raw.24 {
         metadata = metadata.with_tombstone(digest(value)?);
     }
+    if action == CredentialOperationAction::LegacySourceCleanup
+        && let Some(binding) = super::legacy_cleanup_binding::load(
+            connection, authority, operation, &provider, &metadata,
+        )? {
+        metadata = metadata.with_legacy_cleanup_binding(binding);
+    }
     CredentialOperationSnapshot::new(
         operation, provider, action, state, version, target, metadata,
     )

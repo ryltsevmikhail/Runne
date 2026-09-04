@@ -16,6 +16,8 @@ pub(crate) mod claim;
 mod legacy_import;
 mod migration_metadata;
 mod pair;
+mod recovery;
+mod recovery_entropy;
 mod service_protocol;
 mod ticket;
 mod validation;

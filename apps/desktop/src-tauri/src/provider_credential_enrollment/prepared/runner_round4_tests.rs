@@ -13,6 +13,10 @@ use crate::provider_credential_enrollment::prepared::reaper_registry::{
 use runne_platform_desktop::ProtectedBundledRuntimeError;
 
 #[tokio::test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "retained owners deliberately span outer stop and reap"
+)]
 async fn poisoned_supervisor_retains_post_ack_reap_until_outer_stop() {
     let directory = tempfile::tempdir().expect("runtime directory");
     let fixture = runne_platform_desktop::test_only_ready_v3_enrollment_supervisor();
@@ -55,6 +59,10 @@ async fn poisoned_supervisor_retains_post_ack_reap_until_outer_stop() {
 }
 
 #[tokio::test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "registry handles remain retained through explicit cleanup"
+)]
 async fn production_runtime_lease_and_cleanup_share_the_managed_reaper_registry() {
     let directory = tempfile::tempdir().expect("runtime directory");
     let fixture = runne_platform_desktop::test_only_ready_v3_enrollment_supervisor();
@@ -81,6 +89,45 @@ fn poison(supervisor: &Arc<Mutex<runne_platform_desktop::ProtectedBundledRuntime
     });
     assert!(panic.is_err());
     assert!(supervisor.is_poisoned());
+}
+
+#[tokio::test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "runtime and reaper ownership intentionally spans child cleanup"
+)]
+async fn failed_platform_handoff_blocks_next_writer_until_registry_reaps_child() {
+    let directory = tempfile::tempdir().unwrap();
+    let fixture = runne_platform_desktop::test_only_ready_v3_enrollment_supervisor();
+    let mut runtime = test_only_live_enrollment_runtime(directory.path(), fixture).await;
+    let (lease, cleanup) = runtime.take_lease_with_cleanup();
+    let reapers = lease.writer_reaper_registry();
+    let operation = ReaperOperationId::new("failed-platform-handoff").unwrap();
+    let (mut child, error) = runne_platform_desktop::test_only_failed_writer_handoff();
+    super::retain_failed_handoff(error, &operation, &reapers, |handoff| {
+        ProtectedWriterCleanup::new(handoff, lease.supervisor_handle())
+    });
+    let retained = reapers.snapshot();
+    let accepts_before_reap = reapers.accepts_writer();
+    // Clean up the real child even if the retention assertion below detects a mutation.
+    child.kill().unwrap();
+    let reaped = reapers.retry_after_outer_stop(&operation);
+    let wait = child.wait();
+    let accepts_after_reap = reapers.accepts_writer();
+    cleanup.abort().await;
+    assert!(reapers.shutdown());
+    assert_eq!(retained.len(), 1, "failed handoff must remain addressable");
+    assert!(retained[0].owner_retained());
+    assert!(
+        !accepts_before_reap,
+        "unreaped owner fences the next writer"
+    );
+    assert!(reaped);
+    assert!(
+        wait.is_err(),
+        "registry, not Child, must consume the wait status"
+    );
+    assert!(accepts_after_reap);
 }
 
 struct DaemonLifetimeWriter {

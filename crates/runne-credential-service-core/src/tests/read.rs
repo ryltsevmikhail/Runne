@@ -10,6 +10,30 @@ use super::support::{
 };
 
 #[test]
+fn metadata_reply_preserves_import_revision_and_rejects_zero_revision() {
+    let mut core = registered_core();
+    let request = read_frame(1, false, 77, 7);
+    assert!(
+        matches!(runtime_reply(&mut core, &request, 7, 10, |effect| {
+        assert!(matches!(effect, CredentialRuntimeReadEffect::Metadata(_)));
+        CredentialRuntimeReadObservation::LegacyMetadata(
+            crate::CredentialBackendResult::Observed([9; 16]))
+    }), Ok(CredentialServiceReply::LegacyMetadata { source_revision }) if source_revision == [9; 16])
+    );
+    let request = read_frame(2, false, 77, 7);
+    assert!(matches!(
+        runtime_reply(&mut core, &request, 7, 10, |_| {
+            CredentialRuntimeReadObservation::LegacyMetadata(
+                crate::CredentialBackendResult::Observed([0; 16]),
+            )
+        }),
+        Ok(CredentialServiceReply::Rejected(
+            CredentialServiceDisposition::Unavailable
+        ))
+    ));
+}
+
+#[test]
 fn metadata_and_dispatch_bound_read_use_real_backend_state() {
     let mut core = registered_core();
     let mut backend = MemoryBackend::new();

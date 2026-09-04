@@ -16,6 +16,8 @@ use runne_provider::{
 use super::super::{
     ProviderCredentialEffectAuthority, operation_handle::ProviderCredentialOperationHandleIssuer,
 };
+#[cfg(unix)]
+pub(crate) mod recovery;
 mod reservation;
 pub(in crate::application::provider_credential_enrollment::broker) use reservation::PendingBrokerRendezvousBinding;
 use reservation::ReservedTransitionRendezvous;

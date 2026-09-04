@@ -60,7 +60,6 @@ impl CredentialServiceRejoinContext {
 
 /// Native service challenge prepared from one authenticated daemon rejoin request.
 pub struct PreparedCredentialServiceRejoin {
-    client: runne_macos_xpc::CredentialServiceDesktopXpcClient,
     configuration: runne_macos_xpc::CredentialServiceEndpointConfiguration,
     authenticator: CredentialServiceSessionAuthenticator,
     facts: CredentialServiceRegistrationFacts,
@@ -75,13 +74,20 @@ impl PreparedCredentialServiceRejoin {
     pub async fn register(
         self,
     ) -> Result<RegisteredCredentialServiceSession, ProtectedBundledRuntimeError> {
-        let mut registered = register_credential_service_session_with_port(
-            &self.client,
-            self.authenticator,
-            self.facts,
-        )
-        .await
-        .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let client =
+            runne_macos_xpc::CredentialServiceDesktopXpcClient::connect(self.configuration.clone())
+                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        self.register_with_port(&client).await
+    }
+
+    pub(in crate::protected_runtime) async fn register_with_port(
+        self,
+        port: &impl runne_platform_ports::credential_service::CredentialServiceDesktopPort,
+    ) -> Result<RegisteredCredentialServiceSession, ProtectedBundledRuntimeError> {
+        let mut registered =
+            register_credential_service_session_with_port(port, self.authenticator, self.facts)
+                .await
+                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
         registered.configuration = Some(self.configuration);
         Ok(registered)
     }
@@ -101,9 +107,9 @@ impl ProtectedBundledRuntimeSupervisor {
         {
             return Ok(None);
         }
-        let Some(context) = self.credential_service_rejoin.as_ref() else {
+        if self.credential_service_rejoin.is_none() {
             return Ok(None);
-        };
+        }
         let process = self
             .process
             .as_mut()
@@ -111,10 +117,31 @@ impl ProtectedBundledRuntimeSupervisor {
         let Some(frame) = pending_frame(process)? else {
             return Ok(None);
         };
+        self.prepare_received_credential_service_rejoin(&frame)
+            .map(Some)
+    }
+
+    pub(in crate::protected_runtime) fn prepare_received_credential_service_rejoin(
+        &self,
+        frame: &[u8],
+    ) -> Result<PreparedCredentialServiceRejoin, ProtectedBundledRuntimeError> {
+        if self.state != super::super::BundledRuntimeLifecycleState::Ready
+            || self.pending_profile.is_some()
+        {
+            return Err(ProtectedBundledRuntimeError::InvalidState);
+        }
+        let context = self
+            .credential_service_rejoin
+            .as_ref()
+            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let process = self
+            .process
+            .as_ref()
+            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
         let now = unix_millis().map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
         let required =
             CredentialServiceSessionAuthenticator::from_protected_activation(&process.keys)
-                .decode_and_verify_rejoin(&frame, now)
+                .decode_and_verify_rejoin(frame, now)
                 .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
         if !context.matches(required.binding(), process, now) {
             return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
@@ -122,17 +149,13 @@ impl ProtectedBundledRuntimeSupervisor {
         let facts = CredentialServiceRegistrationFacts::from_rejoin(required.binding())
             .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
         let configuration = context.configuration.clone();
-        let client =
-            runne_macos_xpc::CredentialServiceDesktopXpcClient::connect(configuration.clone())
-                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        Ok(Some(PreparedCredentialServiceRejoin {
-            client,
+        Ok(PreparedCredentialServiceRejoin {
             configuration,
             authenticator: CredentialServiceSessionAuthenticator::from_protected_activation(
                 &process.keys,
             ),
             facts,
-        }))
+        })
     }
 
     /// Sends the exact rejoin claim and acknowledgement to the owned daemon.
@@ -145,6 +168,31 @@ impl ProtectedBundledRuntimeSupervisor {
         registered: RegisteredCredentialServiceSession,
     ) -> Result<(), ProtectedBundledRuntimeError> {
         self.confirm_credential_service_session(registered)
+    }
+}
+
+#[cfg(feature = "test-support")]
+pub(in crate::protected_runtime) fn test_rejoin_context() -> CredentialServiceRejoinContext {
+    use runne_macos_xpc::{
+        CredentialServiceEndpointConfiguration, CredentialServiceEndpointRole,
+        CredentialServicePeerRequirement,
+    };
+    let requirement = |identifier: &str, hash: &str| {
+        CredentialServicePeerRequirement::new(format!(
+        "identifier \"{identifier}\" and anchor apple generic and certificate leaf[subject.OU] = \"758F9Z45SR\" and cdhash H\"{hash}\"",
+    )).unwrap()
+    };
+    let role = CredentialServiceEndpointRole::Desktop;
+    CredentialServiceRejoinContext {
+        configuration: CredentialServiceEndpointConfiguration::new(
+            role,
+            role.endpoint_name(),
+            requirement("com.runne.credential-service", &"1".repeat(40)),
+            requirement("com.runne.desktop", &"2".repeat(40)),
+        )
+        .unwrap(),
+        installed_generation: 1,
+        join_attempt: 1,
     }
 }
 

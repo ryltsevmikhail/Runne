@@ -84,6 +84,12 @@ impl ProviderExecutionStore for DaemonProviderRuntimeStore {
     ) -> Result<(), ProviderExecutionError> {
         self.execution.begin_provider_poll(request)
     }
+    fn revalidate_provider_poll(
+        &self,
+        request: &ProviderPollRequest,
+    ) -> Result<(), ProviderExecutionError> {
+        self.execution.revalidate_provider_poll(request)
+    }
     fn append_encrypted_event(
         &self,
         request: &ProviderJournalAppendRequest,

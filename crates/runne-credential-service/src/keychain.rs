@@ -73,15 +73,21 @@ impl CredentialKeychainStatus {
 #[derive(Default)]
 pub struct KeychainBackend;
 
+struct CredentialStoredRecord {
+    material: CredentialMaterial,
+    source_revision: Option<[u8; 16]>,
+}
+
 impl KeychainBackend {
     fn store(
         reference: &CredentialVersionRef,
         material: CredentialMaterial,
+        source_revision: Option<[u8; 16]>,
     ) -> CredentialBackendResult<()> {
         let locator = CredentialItemLocator::new(reference);
         let mut result = CredentialBackendResult::Uncertain;
         material.consume(|bytes| {
-            result = native::add(&locator, bytes).into_backend_unit();
+            result = native::add(&locator, bytes, source_revision).into_backend_unit();
         });
         result
     }
@@ -99,11 +105,12 @@ impl KeychainBackend {
             return CredentialBackendResult::AccessDenied;
         }
         let action = command.action();
+        let source_revision = effect.source_revision();
         match action {
             CredentialOperationAction::Pair | CredentialOperationAction::MigrateLegacy => effect
                 .into_material()
                 .map_or(CredentialBackendResult::AccessDenied, |material| {
-                    Self::store(&reference, material)
+                    Self::store(&reference, material, source_revision)
                 }),
             CredentialOperationAction::Revoke
             | CredentialOperationAction::RetiredVersionCleanup => {
@@ -124,9 +131,13 @@ impl KeychainBackend {
     pub fn read(effect: &CredentialRuntimeReadEffect<'_>) -> CredentialRuntimeReadObservation {
         match effect {
             CredentialRuntimeReadEffect::Metadata(reference) => {
-                let result = match native::read(&CredentialItemLocator::new(reference)) {
-                    Ok(bytes) => {
-                        drop(zeroize::Zeroizing::new(bytes));
+                let result = match native::read_record(&CredentialItemLocator::new(reference)) {
+                    Ok(record) => {
+                        if let Some(revision) = record.source_revision {
+                            return CredentialRuntimeReadObservation::LegacyMetadata(
+                                CredentialBackendResult::Observed(revision),
+                            );
+                        }
                         CredentialBackendResult::Observed(())
                     }
                     Err(status) => status.into_backend_unit(),
@@ -134,11 +145,8 @@ impl KeychainBackend {
                 CredentialRuntimeReadObservation::Metadata(result)
             }
             CredentialRuntimeReadEffect::PointOfUse(reference) => {
-                let result = match native::read(&CredentialItemLocator::new(reference)) {
-                    Ok(bytes) => CredentialMaterial::from_bytes(bytes).map_or(
-                        CredentialBackendResult::Unavailable,
-                        CredentialBackendResult::Observed,
-                    ),
+                let result = match native::read_record(&CredentialItemLocator::new(reference)) {
+                    Ok(record) => CredentialBackendResult::Observed(record.material),
                     Err(status) => match status.into_backend_unit() {
                         CredentialBackendResult::Absent => CredentialBackendResult::Absent,
                         CredentialBackendResult::AccessDenied => {
@@ -164,10 +172,16 @@ impl KeychainBackend {
 mod native {
     use super::{CredentialItemLocator, CredentialKeychainStatus};
 
-    pub(super) fn add(_: &CredentialItemLocator, _: &[u8]) -> CredentialKeychainStatus {
+    pub(super) fn add(
+        _: &CredentialItemLocator,
+        _: &[u8],
+        _: Option<[u8; 16]>,
+    ) -> CredentialKeychainStatus {
         CredentialKeychainStatus::Unavailable
     }
-    pub(super) fn read(_: &CredentialItemLocator) -> Result<Vec<u8>, CredentialKeychainStatus> {
+    pub(super) fn read_record(
+        _: &CredentialItemLocator,
+    ) -> Result<super::CredentialStoredRecord, CredentialKeychainStatus> {
         Err(CredentialKeychainStatus::Unavailable)
     }
     pub(super) fn delete(_: &CredentialItemLocator) -> CredentialKeychainStatus {

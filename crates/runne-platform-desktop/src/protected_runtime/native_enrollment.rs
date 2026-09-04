@@ -90,9 +90,9 @@ impl ProtectedBundledRuntimeSupervisor {
         &mut self,
         confirmed: &crate::ConfirmedInstalledNativeEnrollment,
         mode: CredentialWriterHandoffMode,
-    ) -> Result<CredentialWriterHandoff, ProtectedBundledRuntimeError> {
+    ) -> Result<CredentialWriterHandoff, CredentialWriterHandoffError> {
         if self.state != BundledRuntimeLifecycleState::Ready || self.pending_profile.is_some() {
-            return Err(ProtectedBundledRuntimeError::InvalidState);
+            return Err(ProtectedBundledRuntimeError::InvalidState.into());
         }
         let writer_launch = confirmed.verified_macos_writer_launch()?;
         self.process
@@ -120,26 +120,38 @@ impl ProtectedBundledRuntimeProcess {
                 .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
             let before = runne_macos_process_identity::MacOsProcessStartIdentity::observe(pid)
                 .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-            let owned = self
-                .activation
-                .compatibility_owned()
-                .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
-            if !prepared.matches_protected_daemon_digest(*owned.executable().executable_sha256()) {
+            let digest = match &self.activation {
+                ProtectedProcessActivation::V2 { owned, .. } => *owned.compatibility_owned_launch().executable().executable_sha256(),
+                ProtectedProcessActivation::V3 { owned, .. } => *owned.executable().executable_sha256(),
+                _ => return Err(ProtectedBundledRuntimeError::InvalidState),
+            };
+            if !prepared.matches_protected_daemon_digest(digest) {
                 return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
+            }
+            if let ProtectedProcessActivation::V3 { owned, .. } = &self.activation {
+                let binding = owned.enrollment_binding();
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                    .map_err(|_| ProtectedBundledRuntimeError::InvalidState)?.as_secs();
+                if !prepared.matches_qualified_daemon(digest, *binding.release_tuple_digest(),
+                    *binding.qualification_binding_digest(), now) {
+                    return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
+                }
             }
             prepared.confirm_current_daemon(pid)?;
             let after = runne_macos_process_identity::MacOsProcessStartIdentity::observe(pid)
                 .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-            let confirmation = NativeEnrollmentConfirmationV1 {
-                process_start_before: before.digest(),
-                process_start_after: after.digest(),
-                launch_authority: *owned.launch_authority_id(),
-                desktop_host: *owned.desktop_host_instance_id(),
-                session: *owned.session_id(),
-                daemon: *owned.daemon_instance_id(),
-                generation: owned.launch_generation(),
-            };
-            prepared.confirm(&confirmation)
+            let confirmation = self.activation.native_confirmation(before.digest(), after.digest())?;
+            let confirmed = prepared.confirm(&confirmation)?;
+            if let ProtectedProcessActivation::V3 { owned, .. } = &self.activation {
+                let binding = owned.enrollment_binding();
+                let generation = std::num::NonZeroU64::new(binding.desktop_supervisor_generation())
+                    .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+                if confirmed.current_desktop_peer_binding_digest(generation)?
+                    != *binding.desktop_peer_binding_digest() {
+                    return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
+                }
+            }
+            Ok(confirmed)
         }
         #[cfg(not(target_os = "macos"))]
         {

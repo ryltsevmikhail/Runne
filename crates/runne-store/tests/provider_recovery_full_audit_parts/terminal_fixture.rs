@@ -7,7 +7,6 @@ use runne_provider::{ProviderCallDigestVersion, ProviderUsage};
 use runne_runtime::provider_execution::{
     ProviderTerminalCommitRequest, ProviderTerminalPersistence,
 };
-use runne_store::provider::MarkProviderStreaming;
 
 fn terminal_setup(
     name: &str,
@@ -18,7 +17,7 @@ fn terminal_setup(
     ProviderTerminalCommitRequest,
 ) {
     let (database, request, _record) = setup(name, call_byte);
-    let claim = issue_winner(&database, &request);
+    let claim = online_claim(&database, &request, call_byte);
     let terminal = terminal_request_for_claim(&database, &claim, call_byte);
     (database, claim, terminal)
 }
@@ -28,16 +27,6 @@ fn terminal_request_for_claim(
     claim: &ProviderDispatchClaim,
     call_byte: u8,
 ) -> ProviderTerminalCommitRequest {
-    database
-        .dispatch()
-        .mark_streaming(&MarkProviderStreaming {
-            attempt_id: claim.attempt_id,
-            fencing_token: claim.fencing_token,
-            stream_id: runne_provider::ProviderStreamId::from_bytes(
-                [call_byte.wrapping_add(40); 16],
-            ),
-        })
-        .unwrap();
     let config = runtime_config();
     let key = ProviderJournalKeyBinding::new(
         [9; 16],

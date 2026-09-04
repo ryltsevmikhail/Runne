@@ -1,4 +1,6 @@
-use crate::{CredentialOperationSnapshot, CredentialVersionRef, ProviderId};
+use crate::{
+    CredentialLegacyCleanupBinding, CredentialOperationSnapshot, CredentialVersionRef, ProviderId,
+};
 
 use super::super::{
     CredentialBindingDigest, CredentialEnrollmentError, CredentialFence,
@@ -15,6 +17,8 @@ pub enum CredentialBrokerTarget {
     LegacyImport(CredentialVersionRef),
     /// The single provider-scoped legacy source location.
     LegacySource,
+    /// Exact legacy source linked to the original consumed import, not an active version.
+    ExactLegacySource(CredentialLegacyCleanupBinding),
     /// One exact phase of an identity migration.
     Migration {
         /// Linked durable migration identity.
@@ -29,7 +33,7 @@ impl CredentialBrokerTarget {
     pub const fn version_ref(&self) -> Option<&CredentialVersionRef> {
         match self {
             Self::Version(reference) | Self::LegacyImport(reference) => Some(reference),
-            Self::LegacySource | Self::Migration { .. } => None,
+            Self::LegacySource | Self::ExactLegacySource(_) | Self::Migration { .. } => None,
         }
     }
 }
@@ -71,6 +75,13 @@ impl CredentialBrokerCommand {
         if !target_matches(&provider, action, &target, migration_binding.is_some()) {
             return Err(CredentialEnrollmentError::InvalidInput);
         }
+        if let CredentialBrokerTarget::ExactLegacySource(binding) = &target
+            && (binding.import_lifecycle_revision().get().checked_add(1)
+                != Some(expected_lifecycle_revision.get())
+                || binding.import_fence().get().checked_add(1) != Some(expected_prior_fence.get()))
+        {
+            return Err(CredentialEnrollmentError::InvalidInput);
+        }
         Ok(Self {
             operation_id,
             ticket_attempt,
@@ -110,9 +121,16 @@ impl CredentialBrokerCommand {
                 ),
                 None,
             ),
-            CredentialOperationAction::LegacySourceCleanup => {
-                (CredentialBrokerTarget::LegacySource, None)
-            }
+            CredentialOperationAction::LegacySourceCleanup => (
+                CredentialBrokerTarget::ExactLegacySource(
+                    operation
+                        .metadata()
+                        .legacy_cleanup_binding()
+                        .ok_or(CredentialEnrollmentError::InvalidInput)?
+                        .clone(),
+                ),
+                None,
+            ),
             CredentialOperationAction::WriterIdentityMigrationEffect
             | CredentialOperationAction::WriterIdentityMigrationVerify => {
                 let migration = operation
@@ -194,6 +212,10 @@ fn target_matches(
         (CredentialOperationAction::LegacySourceCleanup, CredentialBrokerTarget::LegacySource) => {
             !has_migration_binding
         }
+        (
+            CredentialOperationAction::LegacySourceCleanup,
+            CredentialBrokerTarget::ExactLegacySource(binding),
+        ) => binding.destination().provider() == provider && !has_migration_binding,
         (
             CredentialOperationAction::WriterIdentityMigrationEffect,
             CredentialBrokerTarget::Migration {

@@ -6,6 +6,8 @@ use crate::credential::enrollment::CredentialOperationAction;
 use zeroize::Zeroizing;
 
 mod constants;
+mod legacy_read;
+mod legacy_wire;
 mod read_support;
 mod support;
 mod writer;

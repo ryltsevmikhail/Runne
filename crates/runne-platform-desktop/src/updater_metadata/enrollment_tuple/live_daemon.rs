@@ -1,5 +1,7 @@
 #![cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 use std::fmt;
+#[path = "live_daemon/v3_confirmation.rs"]
+mod v3_confirmation;
 
 #[cfg(target_os = "macos")]
 use std::{

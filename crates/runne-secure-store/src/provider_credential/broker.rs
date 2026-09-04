@@ -1,6 +1,9 @@
 mod dispatch;
 mod errors;
 mod factory;
+#[cfg(any(target_os = "macos", test))]
+pub mod legacy_presence;
+mod legacy_reader;
 #[cfg(feature = "provider-credential-broker-writer")]
 #[cfg_attr(
     not(any(test, feature = "test-support")),
@@ -14,6 +17,7 @@ mod migration;
 )]
 mod migration_identity;
 mod readback;
+pub use legacy_reader::NativeLegacySourceReadback;
 mod readback_observation;
 mod verification_readback;
 #[cfg(feature = "provider-credential-broker-writer")]
@@ -50,3 +54,5 @@ pub use writer::{
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_legacy_absence;

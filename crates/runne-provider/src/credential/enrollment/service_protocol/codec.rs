@@ -53,10 +53,21 @@ impl CredentialServiceProtocolCodec {
                 mutation_binding(&mut payload, &value.0)?;
             }
             CredentialServiceRequest::WriterConsume(value) => {
-                kind_role(&mut payload, 3, role);
+                kind_role(
+                    &mut payload,
+                    if value.source_revision().is_some() {
+                        7
+                    } else {
+                        3
+                    },
+                    role,
+                );
                 mutation_binding(&mut payload, value.binding())?;
                 payload.extend_from_slice(value.grant().wire_bytes());
                 put_bytes(&mut payload, value.material_bytes())?;
+                if let Some(revision) = value.source_revision() {
+                    payload.extend_from_slice(&revision);
+                }
             }
             CredentialServiceRequest::MetadataReadback(value) => {
                 kind_role(&mut payload, 4, role);
@@ -151,15 +162,25 @@ fn decode_request_for(
         2 => CredentialServiceIngressRequest::RuntimeMutationArm(
             CredentialRuntimeMutationAdmission(take_mutation_binding(bytes, &mut at)?),
         ),
-        3 => {
+        3 | 7 => {
             let binding = take_mutation_binding(bytes, &mut at)?;
             let grant = CredentialMutationGrant::from_wire(take(bytes, &mut at)?)?;
             let material = match take_vec(bytes, &mut at)? {
                 value if value.is_empty() => None,
                 value => Some(CredentialMaterial::from_wire(value)?),
             };
+            let source_revision = if kind == 7 {
+                Some(take(bytes, &mut at)?)
+            } else {
+                None
+            };
             CredentialServiceIngressRequest::WriterConsume(
-                CredentialWriterIngressRequest::from_wire(binding, grant, material)?,
+                CredentialWriterIngressRequest::from_wire(
+                    binding,
+                    grant,
+                    material,
+                    source_revision,
+                )?,
             )
         }
         4 => CredentialServiceIngressRequest::MetadataReadback(

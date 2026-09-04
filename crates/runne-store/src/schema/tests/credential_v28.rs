@@ -1,6 +1,8 @@
 #[test]
 fn v28_remains_a_released_schema_version() {
-    assert_eq!(CURRENT_SCHEMA_VERSION, 32);
+    let connection = Connection::open_in_memory().unwrap();
+    apply_migrations_internal(&connection, 28).unwrap();
+    assert_eq!(classify_schema_version(&connection).unwrap(), 28);
 }
 
 #[test]
@@ -43,7 +45,7 @@ fn v28_catalog_matches_the_applied_receipt_schema() {
 }
 
 #[test]
-fn production_store_open_migrates_v28_to_v30() {
+fn production_store_open_migrates_v28_to_v34() {
     let directory = tempfile::tempdir().unwrap();
     let created = directory.path().join("created-v28.sqlite");
     let connection = Connection::open(&created).unwrap();
@@ -60,8 +62,8 @@ fn production_store_open_migrates_v28_to_v30() {
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&migrated).unwrap());
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&migrated).unwrap());
     let connection = Connection::open(&migrated).unwrap();
-    assert_eq!(current_schema_marker(&connection), 32);
-    assert!(v32_matches(&connection, 32).unwrap());
+    assert_eq!(current_schema_marker(&connection), 34);
+    assert!(v34_matches(&connection, 34).unwrap());
 }
 
 #[test]

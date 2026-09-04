@@ -26,4 +26,8 @@ fn post_dispatch_stream_persistence_failure_is_uncertain() {
         ProviderCoordinatorOutcome::Uncertain
     );
     assert_eq!(provider.dispatched(), 1);
+    assert_eq!(
+        *provider.cancelled.lock().unwrap(),
+        vec![ProviderStreamId::from_bytes([12; 16])]
+    );
 }

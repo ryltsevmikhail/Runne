@@ -17,7 +17,7 @@ use runne_secure_store::{
 
 use super::{DaemonProviderCredentialEnrollmentControl, ProtectedEnrollmentSessionFacts};
 
-struct NoReadback;
+pub(super) struct NoReadback;
 
 impl ProviderCredentialReadback for NoReadback {
     fn readback_exact_version(
@@ -134,7 +134,9 @@ fn protected_request_admission_begin_and_exact_replay_return_one_safe_projection
         authenticator.issue_request(binding, 1).unwrap(),
     )
     .encode_frame();
-    assert!(!session.accept_request(&request, now).unwrap().is_empty());
+    let (kind, admission) = session.accept_initial_request(&request, now).unwrap();
+    assert_eq!(kind, super::InitialCredentialExchange::Intent);
+    assert!(!admission.is_empty());
     assert_eq!(
         session.accept_request(&request, now),
         Err(ProviderCredentialEnrollmentHostError::AccessDenied)
@@ -149,11 +151,49 @@ fn protected_request_admission_begin_and_exact_replay_return_one_safe_projection
         .unwrap();
     let replay = lifecycle.decode_daemon_snapshot(&replay_frame, 1).unwrap();
     assert_eq!(first.state(), ProviderCredentialOperationStateV2::Prepared);
+    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+    {
+        assert_eq!(
+            session.encode_terminal_snapshot(first.clone()),
+            Err(ProviderCredentialEnrollmentHostError::InvariantViolation)
+        );
+        let after_rejection = session
+            .begin(&lifecycle.encode_desktop_begin(&command, 3).unwrap(), now)
+            .unwrap();
+        assert_eq!(
+            lifecycle
+                .decode_daemon_snapshot(&after_rejection, 2)
+                .unwrap(),
+            first
+        );
+    }
     assert_eq!(first.operation_handle(), replay.operation_handle());
     assert_eq!(first.broker_rendezvous_id(), replay.broker_rendezvous_id());
     let handoff = session.take_bound_broker_handoff().unwrap();
     assert!(handoff.matches_safe_operation_for_test(&first, &control.handles));
     assert!(session.take_bound_broker_handoff().is_err());
+    assert!(session.require_durable_terminal().is_err());
+    #[cfg(feature = "desktop-protected")]
+    assert!(
+        crate::protected_activation::require_shutdown_terminal(Some(&session), true).is_err(),
+        "cached terminal marker must not authorize shutdown before durable terminal"
+    );
+    let operation = control.handles.resolve(first.operation_handle()).unwrap();
+    runne_provider::ProviderCredentialEnrollmentStore::cancel_before_claim(
+        control.store.as_ref(),
+        runne_provider::ClosePreparedCredentialOperation::new(
+            operation,
+            runne_provider::CredentialOperationState::Cancelled,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(!session.begun_is_terminal());
+    assert_eq!(session.require_durable_terminal(), Ok(()));
+    #[cfg(feature = "desktop-protected")]
+    assert!(crate::protected_activation::require_shutdown_terminal(Some(&session), false).is_err());
+    #[cfg(feature = "desktop-protected")]
+    assert!(crate::protected_activation::require_shutdown_terminal(Some(&session), true).is_ok());
 }
 
 fn control() -> (

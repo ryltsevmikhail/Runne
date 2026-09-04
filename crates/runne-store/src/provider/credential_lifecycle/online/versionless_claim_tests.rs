@@ -9,8 +9,8 @@ use super::online_claim_test_support::seal_claim;
 use super::online_test_support::{digest, issue_ticket, qualified_release, store, ticket};
 
 #[test]
-fn every_versionless_action_can_win_the_durable_claim_cas() {
-    for (id, _action, sql_action, phase) in [
+fn versionless_claim_requires_legacy_binding_but_accepts_bound_migration() {
+    for (id, action, sql_action, phase) in [
         (
             41,
             CredentialOperationAction::LegacySourceCleanup,
@@ -35,8 +35,14 @@ fn every_versionless_action_can_win_the_durable_claim_cas() {
         let receipt = issue_ticket(
             &store,
             ticket(id, 1, id.wrapping_add(1), id.wrapping_add(2)),
-        )
-        .unwrap();
+        );
+        if action == CredentialOperationAction::LegacySourceCleanup {
+            assert_eq!(receipt, Err(runne_provider::CredentialLifecycleError::Conflict));
+            assert_eq!(store.load_operation(CredentialOperationId::from_bytes([id; 16]).unwrap())
+                .unwrap().state(), CredentialOperationState::Prepared);
+            continue;
+        }
+        let receipt = receipt.unwrap();
         let claim = ClaimCredentialOperation::new(
             receipt,
             digest(id.wrapping_add(1)),

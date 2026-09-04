@@ -23,7 +23,8 @@ use super::{
 mod protected_session;
 #[cfg(any(test, feature = "desktop-protected"))]
 pub(crate) use protected_session::{
-    DaemonProtectedCredentialEnrollmentSession, ProtectedEnrollmentSessionFacts,
+    DaemonProtectedCredentialEnrollmentSession, InitialCredentialExchange,
+    ProtectedEnrollmentSessionFacts,
 };
 
 /// Daemon-owned online-enrollment authorities paired to the canonical store.

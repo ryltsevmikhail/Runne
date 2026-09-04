@@ -135,6 +135,11 @@ impl CredentialServiceCore {
             return CredentialServiceReply::Rejected(error);
         }
         match execute_read(backend, CredentialRuntimeReadEffect::Metadata(&version)) {
+            Some(CredentialRuntimeReadObservation::LegacyMetadata(
+                CredentialBackendResult::Observed(source_revision),
+            )) if source_revision != [0; 16] => {
+                CredentialServiceReply::LegacyMetadata { source_revision }
+            }
             Some(CredentialRuntimeReadObservation::Metadata(result)) => metadata_reply(&result),
             _ => CredentialServiceReply::Rejected(CredentialServiceDisposition::Unavailable),
         }

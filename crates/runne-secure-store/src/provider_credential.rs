@@ -21,6 +21,17 @@ include!("provider_credential/codec_helpers.rs");
 include!("provider_credential/store.rs");
 include!("provider_credential/versioned.rs");
 mod broker;
+#[cfg(target_os = "macos")]
+pub use broker::legacy_presence;
+#[cfg(any(test, feature = "provider-credential-broker-writer"))]
+#[allow(
+    clippy::redundant_pub_crate,
+    reason = "keep native selection crate-private if parent visibility changes"
+)]
+pub(crate) mod source_cleanup;
+#[cfg(test)]
+#[path = "provider_credential/source_cleanup_tests.rs"]
+mod source_cleanup_tests;
 #[cfg(feature = "provider-credential-broker-writer")]
 pub use broker::{
     BrokeredCreateInput, BrokeredDeleteInput, BrokeredLegacySourceDeleteInput,
@@ -31,10 +42,10 @@ pub use broker::{
 };
 pub use broker::{
     CredentialReadbackObservation, ExactAbsenceReadback, ExactVersionReadback,
-    NativeProviderCredentialReaderParts, NativeProviderCredentialReaders,
-    ProviderCredentialDispatchMaterializer, ProviderCredentialDispatchRead,
-    ProviderCredentialReadback, ProviderCredentialVerificationMaterializer,
-    ProviderCredentialVerificationReadback,
+    NativeLegacySourceReadback, NativeProviderCredentialReaderParts,
+    NativeProviderCredentialReaders, ProviderCredentialDispatchMaterializer,
+    ProviderCredentialDispatchRead, ProviderCredentialReadback,
+    ProviderCredentialVerificationMaterializer, ProviderCredentialVerificationReadback,
 };
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
 pub mod source_update;

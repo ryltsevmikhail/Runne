@@ -49,6 +49,15 @@ mod enrollment_launch_v3_tests;
 include!("protected_activation/root_handle_control.rs");
 include!("protected_activation/credential_enrollment_control.rs");
 include!("protected_activation/credential_enrollment_lifecycle.rs");
+mod credential_cleanup_recovery;
+mod credential_discovery;
+mod credential_round;
+pub use credential_cleanup_recovery::{
+    ProtectedCredentialRecoveryBootstrap, ProtectedCredentialRecoveryCodec,
+    ProtectedCredentialRecoveryContext, ProtectedCredentialRecoveryOffer,
+};
+pub use credential_discovery::ProtectedCredentialDiscoveryCodec;
+pub use credential_round::{ProtectedCredentialRoundBrokerFacts, ProtectedCredentialRoundCodec};
 include!("protected_activation_parts/port_17.rs");
 include!("protected_activation_parts/port_18.rs");
 include!("protected_activation_parts/port_19.rs");

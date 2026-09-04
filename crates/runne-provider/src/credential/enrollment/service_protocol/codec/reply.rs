@@ -103,6 +103,13 @@ fn encode_body(
     value: CredentialServiceReply,
 ) -> Result<(), CredentialEnrollmentError> {
     match value {
+        CredentialServiceReply::LegacyMetadata { source_revision } => {
+            if source_revision == [0; 16] {
+                return Err(CredentialEnrollmentError::InvalidFrame);
+            }
+            out.push(17);
+            out.extend_from_slice(&source_revision);
+        }
         CredentialServiceReply::RegistrationChallenge {
             epoch: value,
             nonce,
@@ -134,6 +141,13 @@ fn decode_body(
     at: &mut usize,
 ) -> Result<CredentialServiceReply, CredentialEnrollmentError> {
     match byte(bytes, at)? {
+        17 => {
+            let source_revision = take(bytes, at)?;
+            if source_revision == [0; 16] {
+                return Err(CredentialEnrollmentError::InvalidFrame);
+            }
+            Ok(CredentialServiceReply::LegacyMetadata { source_revision })
+        }
         11 => Ok(CredentialServiceReply::RegistrationChallenge {
             epoch: take_epoch(bytes, at)?,
             nonce: take(bytes, at)?,
@@ -174,6 +188,7 @@ fn reply_allowed(kind: CredentialServiceRequestKind, value: &CredentialServiceRe
             ) | (
                 CredentialServiceRequestKind::MetadataReadback,
                 CredentialServiceReply::Metadata { .. }
+                    | CredentialServiceReply::LegacyMetadata { .. }
             ) | (
                 CredentialServiceRequestKind::PointOfUseRead,
                 CredentialServiceReply::Material(_)

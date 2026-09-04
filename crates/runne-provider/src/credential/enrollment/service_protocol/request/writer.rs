@@ -7,12 +7,35 @@ pub struct CredentialWriterConsumeRequest {
     binding: CredentialRuntimeMutationBinding,
     grant: CredentialMutationGrant,
     material: Option<CredentialMaterial>,
+    source_revision: Option<[u8; 16]>,
 }
 
 /// Service-ingress writer value; it does not claim client authorization.
 pub struct CredentialWriterIngressRequest(CredentialWriterConsumeRequest);
 
 impl CredentialWriterConsumeRequest {
+    pub(crate) fn from_authenticated_legacy_parts(
+        binding: CredentialRuntimeMutationBinding,
+        grant: CredentialMutationGrant,
+        source: super::super::CredentialLegacySourceMaterial,
+    ) -> Result<Self, CredentialEnrollmentError> {
+        let (material, revision) = source.into_parts();
+        if !binding.grant_digest.ct_matches(grant.digest()) {
+            return Err(CredentialEnrollmentError::InvalidEvidence);
+        }
+        let request = Self {
+            binding,
+            grant,
+            material: Some(material),
+            source_revision: Some(revision),
+        };
+        request.validate_material()?;
+        Ok(request)
+    }
+
+    pub(crate) const fn source_revision(&self) -> Option<[u8; 16]> {
+        self.source_revision
+    }
     pub(crate) fn from_authenticated_parts(
         binding: CredentialRuntimeMutationBinding,
         grant: CredentialMutationGrant,
@@ -25,6 +48,7 @@ impl CredentialWriterConsumeRequest {
             binding,
             grant,
             material: Some(material),
+            source_revision: None,
         };
         request.validate_material()?;
         Ok(request)
@@ -40,6 +64,7 @@ impl CredentialWriterConsumeRequest {
             binding,
             grant,
             material: None,
+            source_revision: None,
         };
         request.validate_material()?;
         Ok(request)
@@ -57,11 +82,19 @@ impl CredentialWriterConsumeRequest {
     }
     fn validate_material(&self) -> Result<(), CredentialEnrollmentError> {
         let valid = match self.binding.command.action() {
-            CredentialOperationAction::Pair | CredentialOperationAction::MigrateLegacy => {
+            CredentialOperationAction::Pair => {
+                self.material.is_some() && self.source_revision.is_none()
+            }
+            CredentialOperationAction::MigrateLegacy => {
                 self.material.is_some()
+                    && self
+                        .source_revision
+                        .is_some_and(|revision| revision != [0; 16])
             }
             CredentialOperationAction::Revoke
-            | CredentialOperationAction::RetiredVersionCleanup => self.material.is_none(),
+            | CredentialOperationAction::RetiredVersionCleanup => {
+                self.material.is_none() && self.source_revision.is_none()
+            }
             CredentialOperationAction::LegacySourceCleanup
             | CredentialOperationAction::WriterIdentityMigrationEffect
             | CredentialOperationAction::WriterIdentityMigrationVerify => false,
@@ -86,6 +119,7 @@ impl CredentialWriterIngressRequest {
         binding: CredentialRuntimeMutationBinding,
         grant: CredentialMutationGrant,
         material: Option<CredentialMaterial>,
+        source_revision: Option<[u8; 16]>,
     ) -> Result<Self, CredentialEnrollmentError> {
         if !binding.grant_digest.ct_matches(grant.digest()) {
             return Err(CredentialEnrollmentError::InvalidFrame);
@@ -94,6 +128,7 @@ impl CredentialWriterIngressRequest {
             binding,
             grant,
             material,
+            source_revision,
         };
         request
             .validate_material()
@@ -108,11 +143,13 @@ impl CredentialWriterIngressRequest {
         CredentialRuntimeMutationAdmission,
         CredentialMutationGrant,
         Option<CredentialMaterial>,
+        Option<[u8; 16]>,
     ) {
         (
             CredentialRuntimeMutationAdmission(self.0.binding),
             self.0.grant,
             self.0.material,
+            self.0.source_revision,
         )
     }
 }

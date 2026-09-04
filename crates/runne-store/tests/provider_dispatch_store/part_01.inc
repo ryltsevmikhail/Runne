@@ -234,23 +234,17 @@ fn legacy_caller_selected_claim_is_typed_and_leaves_no_effect_rows() {
 
 #[test]
 fn dispatch_lifecycle_replays_exactly_and_reopens_incomplete_as_uncertain() {
-    let (database, store, launch) = fresh_store("lifecycle");
-    store.persist_prepared(&launch, &prepared(1)).unwrap();
-    let dispatch_claim = issue_dispatch(&database, 1);
+    let (database, store, _launch) = fresh_store("lifecycle");
+    let dispatch_claim = stream_dispatch(&database, 1);
 
     let streaming = MarkProviderStreaming {
         attempt_id: dispatch_claim.attempt_id,
         fencing_token: dispatch_claim.fencing_token,
         stream_id: ProviderStreamId::from_bytes([10; 16]),
     };
-    assert_eq!(
-        store.mark_streaming(&streaming).unwrap(),
-        ProviderDispatchState::Streaming
-    );
-    assert_eq!(
-        store.mark_streaming(&streaming).unwrap(),
-        ProviderDispatchState::Streaming
-    );
+    // Exact coordinator replay is asserted by stream_dispatch; clockless publication is denied.
+    assert_eq!(store.mark_streaming(&streaming), Err(ProviderStoreError::StaleFencingToken));
+    assert_eq!(store.get_dispatch(dispatch_claim.attempt_id).unwrap().unwrap().state, ProviderDispatchState::Streaming);
     drop(store);
 
     let reopened = database.dispatch();

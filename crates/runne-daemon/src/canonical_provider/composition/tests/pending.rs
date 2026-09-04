@@ -9,15 +9,14 @@ use runne_provider::{
     StreamCursor, StreamError, TextProviderProfile,
 };
 use runne_runtime::provider_execution::{ProviderEventJournalContext, RuntimeProviderExecution};
-use runne_store::provider::{
-    MarkProviderStreaming, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
-};
+use runne_store::provider::PreparedProviderRecord;
 
 use super::super::DaemonCanonicalProviderService;
 
 pub(super) async fn create(
     service: &DaemonCanonicalProviderService,
     started: TextGenerationReceipt,
+    credential_connection: runne_store::schema::ManagedConnection,
 ) -> runne_provider::DispatchAttemptId {
     let call = ProviderCall::new(
         ProviderCallId::from_bytes([1; 16]),
@@ -44,43 +43,33 @@ pub(super) async fn create(
         .dispatch_store
         .persist_prepared(&service.launch_capability, &record)
         .unwrap();
-    let ProviderAuthorityIssueOutcome::Winner(admitted) = service
-        .execution_store
-        .issue(
-            &service.launch_capability,
-            &ProviderAuthorityIssueRequest {
-                provider_id: call.model_ref().provider_id().clone(),
-                principal_id: "local-owner".into(),
-                conversation_id: started.conversation_id,
-                taskrun_id: started.taskrun_id,
-                execution_attempt_id: started.attempt_id,
-                prepared: ContractPreparedProviderRecord {
-                    call_id: record.call_id,
-                    call_digest_version: record.call_digest_version,
-                    prepared_digest: record.prepared_digest,
-                    render_digest: record.render_digest,
-                    profile_digest: record.profile_digest,
-                },
-                pricing_revision_digest: service.profile.pricing_revision_digest(),
-                requested_input_tokens: 512,
-                requested_output_tokens: 1_024,
-                max_cost_micros: 50_000,
-                currency: "USD".into(),
-                provider_idempotency_key: "fixture-pending-recovery".into(),
-            },
-        )
-        .unwrap()
-    else {
-        panic!("fixture admission must win");
+    let request = ProviderAuthorityIssueRequest {
+        provider_id: call.model_ref().provider_id().clone(),
+        principal_id: "local-owner".into(),
+        conversation_id: started.conversation_id,
+        taskrun_id: started.taskrun_id,
+        execution_attempt_id: started.attempt_id,
+        prepared: ContractPreparedProviderRecord {
+            call_id: record.call_id,
+            call_digest_version: record.call_digest_version,
+            prepared_digest: record.prepared_digest,
+            render_digest: record.render_digest,
+            profile_digest: record.profile_digest,
+        },
+        pricing_revision_digest: service.profile.pricing_revision_digest(),
+        requested_input_tokens: 512,
+        requested_output_tokens: 1_024,
+        max_cost_micros: 50_000,
+        currency: "USD".into(),
+        provider_idempotency_key: "fixture-pending-recovery".into(),
     };
-    service
-        .dispatch_store
-        .mark_streaming(&MarkProviderStreaming {
-            attempt_id: admitted.claim().attempt_id,
-            fencing_token: admitted.claim().fencing_token,
-            stream_id: ProviderStreamId::from_bytes([3; 16]),
-        })
-        .unwrap();
+    let claim = super::online_dispatch::start(
+        service,
+        credential_connection,
+        call,
+        &request,
+        Some(ProviderStreamId::from_bytes([3; 16])),
+    );
     let matcher = ProhibitedContentCredentialMatcher::new(service.prohibited_content.as_ref());
     let redaction = ProviderEventRedactionBoundary::new(
         service.tail_store.as_ref(),
@@ -98,8 +87,8 @@ pub(super) async fn create(
         .preflight_existing_active_key(service.runtime_authority_id, service.database_generation)
         .unwrap();
     let context = ProviderEventJournalContext {
-        attempt_id: admitted.claim().attempt_id,
-        fencing_token: admitted.claim().fencing_token,
+        attempt_id: claim.attempt_id,
+        fencing_token: claim.fencing_token,
         call_digest_version: record.call_digest_version,
         profile_digest: record.profile_digest,
         runtime_generation: service.runtime_generation,

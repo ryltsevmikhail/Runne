@@ -28,6 +28,7 @@ use crate::provider::{
 };
 
 mod forged_evidence;
+mod inflight_revoke;
 mod runtime_launch_capability;
 
 struct Ready;

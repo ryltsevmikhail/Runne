@@ -47,6 +47,7 @@ pub(super) fn v30_predecessor_matches_with(
         insert_trigger,
         v24_head_active_lifecycle_trigger(),
         false,
+        &CredentialSchemaExtensions::default(),
     )
 }
 
@@ -55,7 +56,7 @@ pub(super) fn v30_predecessor_matches_with_v32(
     insert_trigger: &str,
     head_trigger: &str,
 ) -> SqliteResult<bool> {
-    v30_predecessor_matches_with_successors(connection, insert_trigger, head_trigger, true)
+    v30_predecessor_matches_with_successors(connection, insert_trigger, head_trigger, true, &CredentialSchemaExtensions::default())
 }
 
 fn v30_predecessor_matches_with_successors(
@@ -63,19 +64,22 @@ fn v30_predecessor_matches_with_successors(
     insert_trigger: &str,
     head_trigger: &str,
     uses_v32_operation_indexes: bool,
+    extensions: &CredentialSchemaExtensions<'_>,
 ) -> SqliteResult<bool> {
     if !v30_v26_base_matches_with(
         connection,
         insert_trigger,
         head_trigger,
         uses_v32_operation_indexes,
-    )? || !v29_catalog_matches_with_credential_operation_indexes(
+        extensions,
+    )? || !v29_catalog_matches_with_extensions(
         connection,
         if uses_v32_operation_indexes {
             v32_operation_index_names()
         } else {
             &["provider_credential_one_non_terminal_operation"]
         },
+        extensions,
     )? {
         return Ok(false);
     }
@@ -108,9 +112,10 @@ fn v30_v26_base_matches_with(
     insert_trigger: &str,
     head_trigger: &str,
     uses_v32_operation_indexes: bool,
+    extensions: &CredentialSchemaExtensions<'_>,
 ) -> SqliteResult<bool> {
     if !v18_global_trigger_matches(connection)?
-        || !v30_trigger_catalog_matches_with(connection, insert_trigger, head_trigger)?
+        || !v30_trigger_catalog_matches_with(connection, insert_trigger, head_trigger, extensions)?
     {
         return Ok(false);
     }
@@ -203,7 +208,9 @@ fn v30_v26_base_matches_with(
         }
     }
     for (name, source) in V24_TRIGGERS {
-        let expected = if name == "provider_credential_operation_insert_prepared" {
+        let expected = if let Some((_, replacement)) = extensions.replacements.iter().find(|(n, _)| *n == name) {
+            (*replacement).to_owned()
+        } else if name == "provider_credential_operation_insert_prepared" {
             insert_trigger.to_owned()
         } else if name == "provider_credential_head_active_lifecycle" {
             head_trigger.to_owned()
@@ -236,6 +243,7 @@ fn v30_trigger_catalog_matches_with(
     connection: &Connection,
     insert_trigger: &str,
     head_trigger: &str,
+    extensions: &CredentialSchemaExtensions<'_>,
 ) -> SqliteResult<bool> {
     let additional = V27_TRIGGERS
         .map(|name| (name, v27_trigger_source(name)))
@@ -243,17 +251,18 @@ fn v30_trigger_catalog_matches_with(
         .chain(V28_TRIGGERS.map(|name| (name, v28_trigger_source(name))))
         .chain(V29_TRIGGERS.map(|name| (name, v29_trigger_source(name))))
         .chain(V30_TRIGGERS.map(|name| (name, v30_trigger_source(name))))
+        .chain(extensions.triggers.iter().copied())
+        .map(|(name, source)| (name, extensions.replacements.iter().find(|(n, _)| *n == name).map_or(source, |(_, replacement)| *replacement)))
         .collect::<Vec<_>>();
+    let mut replacements = vec![
+        ("provider_credential_operation_insert_prepared", insert_trigger),
+        ("provider_credential_head_active_lifecycle", head_trigger),
+    ];
+    replacements.extend_from_slice(extensions.replacements);
     v26_trigger_catalog::matches_with_replacements(
         connection,
         &additional,
-        &[
-            (
-                "provider_credential_operation_insert_prepared",
-                insert_trigger,
-            ),
-            ("provider_credential_head_active_lifecycle", head_trigger),
-        ],
+        &replacements,
     )
 }
 

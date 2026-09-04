@@ -6,6 +6,13 @@ mod command_codec;
 #[cfg(test)]
 #[path = "protocol/command_tests.rs"]
 mod command_tests;
+#[cfg(test)]
+#[path = "protocol/exact_legacy_cleanup_tests.rs"]
+mod exact_legacy_cleanup_tests;
+mod legacy_source_binding;
+#[cfg(test)]
+#[path = "protocol/legacy_source_binding_tests.rs"]
+mod legacy_source_binding_tests;
 #[allow(
     dead_code,
     reason = "sealed credential relay stays crate-private until the native Pair writer consumes it"

@@ -1,7 +1,7 @@
 #[test]
 fn new_issue_after_rotation_gets_new_attempt_and_fence() {
     let (database, old_request, _record) = setup("recovery-new-issue-rotation", 14);
-    let old_claim = issue_winner(&database, &old_request);
+    let old_claim = online_claim(&database, &old_request, 14);
     let terminal = terminal_request_for_claim(&database, &old_claim, 14);
     let execution = database.execution();
     execution.commit_terminal(&terminal).unwrap();

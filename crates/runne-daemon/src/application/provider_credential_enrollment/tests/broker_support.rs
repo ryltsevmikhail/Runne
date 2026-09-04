@@ -21,6 +21,7 @@ use super::super::broker::writer_session_test_support::writer_session_claims;
 use super::super::broker::{CredentialBrokerChannel, ProviderCredentialBroker};
 
 pub(crate) struct Fixture {
+    pub(crate) enrollment_authority: runne_provider::CredentialEnrollmentStoreAuthority,
     pub(crate) broker: ProviderCredentialBroker,
     pub(crate) measurements: Arc<runne_provider::CredentialEnrollmentMeasurementAuthority>,
     pub(crate) store: runne_store::provider::SqliteProviderCredentialLifecycleStore,
@@ -38,7 +39,7 @@ pub(crate) fn fixture() -> Fixture {
         runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_authorities(
             &directory.path().join("broker.sqlite"),
             lifecycle,
-            enrollment,
+            enrollment.clone(),
         )
         .unwrap();
     let provider = ProviderId::new("openai").unwrap();
@@ -77,6 +78,7 @@ pub(crate) fn fixture() -> Fixture {
         BeginCredentialOperationOutcome::ExactReplay(_) => panic!("first begin must win"),
     };
     Fixture {
+        enrollment_authority: enrollment,
         broker: ProviderCredentialBroker::new(measurements.clone()),
         measurements,
         store,

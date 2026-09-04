@@ -267,6 +267,7 @@ include!("broker_transfer_kill_wire.rs");
 include!("broker_transfer_evidence.rs");
 include!("broker_handoff_context.rs");
 include!("broker_handoff_control.rs");
+include!("broker_recovery_transfer.rs");
 
 #[cfg(test)]
 #[path = "broker_handoff_tests.rs"]

@@ -1,4 +1,35 @@
 #[test]
+#[cfg(target_os = "macos")]
+fn native_confirmation_uses_renewed_v3_owned_session_without_compatibility_projection() {
+    let (mut activation, keys, _, _, request, ticket) = v3_activation_with_tickets();
+    let next = ticket.verify_exact_at(&request, 100, &keys).unwrap().next_owned_launch();
+    let ProtectedProcessActivation::V3 { owned, .. } = &mut activation else { panic!("V3 fixture") };
+    *owned = next;
+    let confirmation = activation.native_confirmation([31; 32], [31; 32]).unwrap();
+    assert_eq!(confirmation.session, id(23));
+    assert_eq!(confirmation.daemon, id(12));
+    assert_eq!(confirmation.launch_authority, id(1));
+    assert_eq!(confirmation.desktop_host, id(2));
+    assert_eq!(confirmation.generation, 1);
+    assert!(activation.compatibility_owned().is_none());
+}
+
+#[test]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+fn native_confirmation_preserves_v2_and_rejects_unbound_v1() {
+    let (request, ready, _) = v2_launch_fixture();
+    let v1 = DesktopReady::V1(ready.compatibility_ready().clone())
+        .into_process_activation(DesktopLaunchRequest::V1(request.compatibility_request().clone())).unwrap();
+    assert!(v1.native_confirmation([31; 32], [31; 32]).is_err());
+    let v2 = DesktopReady::V2(ready).into_process_activation(DesktopLaunchRequest::V2(request)).unwrap();
+    let confirmation = v2.native_confirmation([31; 32], [31; 32]).unwrap();
+    assert_eq!(confirmation.session, id(13));
+    assert_eq!(confirmation.daemon, id(12));
+    assert_eq!(confirmation.process_start_before, [31; 32]);
+    assert_eq!(confirmation.process_start_after, [31; 32]);
+}
+
+#[test]
 fn installed_enrollment_confirmation_requires_a_ready_supervisor() {
     let fixture = crate::tests::OwnerPrivateBundledRuntimeFixture::new();
     let spec = ProtectedBundledRuntimeLaunchSpec::new(fixture.daemon(), &fixture.runtime_root())

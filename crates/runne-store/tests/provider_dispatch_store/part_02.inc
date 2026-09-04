@@ -1,16 +1,8 @@
 
 #[test]
 fn settlement_is_idempotent_and_conflicting_settlement_preserves_original() {
-    let (database, store, launch) = fresh_store("settlement");
-    store.persist_prepared(&launch, &prepared(1)).unwrap();
-    let dispatch_claim = issue_dispatch(&database, 1);
-    store
-        .mark_streaming(&MarkProviderStreaming {
-            attempt_id: dispatch_claim.attempt_id,
-            fencing_token: dispatch_claim.fencing_token,
-            stream_id: ProviderStreamId::from_bytes([10; 16]),
-        })
-        .unwrap();
+    let (database, store, _launch) = fresh_store("settlement");
+    let dispatch_claim = stream_dispatch(&database, 1);
     let settlement = SettleProviderDispatch {
         attempt_id: dispatch_claim.attempt_id,
         fencing_token: dispatch_claim.fencing_token,
@@ -75,16 +67,8 @@ fn settlement_is_idempotent_and_conflicting_settlement_preserves_original() {
 
 #[test]
 fn terminal_settlement_and_uncertainty_race_has_one_authoritative_winner() {
-    let (database, first, launch) = fresh_store("terminal-race");
-    first.persist_prepared(&launch, &prepared(1)).unwrap();
-    let dispatch_claim = issue_dispatch(&database, 1);
-    first
-        .mark_streaming(&MarkProviderStreaming {
-            attempt_id: dispatch_claim.attempt_id,
-            fencing_token: dispatch_claim.fencing_token,
-            stream_id: ProviderStreamId::from_bytes([10; 16]),
-        })
-        .unwrap();
+    let (database, first, _launch) = fresh_store("terminal-race");
+    let dispatch_claim = stream_dispatch(&database, 1);
     let settlement = SettleProviderDispatch {
         attempt_id: dispatch_claim.attempt_id,
         fencing_token: dispatch_claim.fencing_token,
@@ -128,16 +112,8 @@ fn terminal_settlement_and_uncertainty_race_has_one_authoritative_winner() {
 
 #[test]
 fn repository_port_commits_terminal_settlement_after_stream_binding() {
-    let (database, store, launch) = fresh_store("settlement-port");
-    store.persist_prepared(&launch, &prepared(1)).unwrap();
-    let dispatch_claim = issue_dispatch(&database, 1);
-    store
-        .mark_streaming(&MarkProviderStreaming {
-            attempt_id: dispatch_claim.attempt_id,
-            fencing_token: dispatch_claim.fencing_token,
-            stream_id: ProviderStreamId::from_bytes([10; 16]),
-        })
-        .unwrap();
+    let (database, store, _launch) = fresh_store("settlement-port");
+    let dispatch_claim = stream_dispatch(&database, 1);
 
     ProviderDispatchRepository::mark_terminal_pending(
         &store,
@@ -184,16 +160,8 @@ fn settlement_before_stream_binding_fails_without_terminal_mutation() {
 
 #[test]
 fn settlement_before_terminal_evidence_preserves_streaming_state() {
-    let (database, store, launch) = fresh_store("settlement-before-terminal");
-    store.persist_prepared(&launch, &prepared(1)).unwrap();
-    let dispatch_claim = issue_dispatch(&database, 1);
-    store
-        .mark_streaming(&MarkProviderStreaming {
-            attempt_id: dispatch_claim.attempt_id,
-            fencing_token: dispatch_claim.fencing_token,
-            stream_id: ProviderStreamId::from_bytes([10; 16]),
-        })
-        .unwrap();
+    let (database, store, _launch) = fresh_store("settlement-before-terminal");
+    let dispatch_claim = stream_dispatch(&database, 1);
     let settlement = SettleProviderDispatch {
         attempt_id: dispatch_claim.attempt_id,
         fencing_token: dispatch_claim.fencing_token,

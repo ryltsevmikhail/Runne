@@ -114,6 +114,14 @@ pub trait ProviderExecutionStore: Send + Sync {
         request: &ProviderPollRequest,
     ) -> Result<(), ProviderExecutionError>;
 
+    /// Rechecks an existing exact poll and current authority without mutation.
+    fn revalidate_provider_poll(
+        &self,
+        _request: &ProviderPollRequest,
+    ) -> Result<(), ProviderExecutionError> {
+        Err(ProviderExecutionError::StoreUnavailable)
+    }
+
     /// Commits one encrypted event before the next adapter poll.
     fn append_encrypted_event(
         &self,

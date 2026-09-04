@@ -18,6 +18,7 @@ runne-provider = { path = "../runne-provider" }
 runne-secure-store = { path = "../runne-secure-store", default-features = false }
 runne-tools = { path = "../runne-tools" }
 hex = "=0.4.3"
+futures-timer = "=3.0.4"
 serde_json = "=1.0.151"
 sha2 = { workspace = true }
 ring = { workspace = true }
@@ -28,6 +29,7 @@ tokio-util = { version = "=0.7.14", features = ["rt"] }
 zeroize.workspace = true
 
 [dev-dependencies]
+futures = "0.3"
 runne-api = { path = "../runne-api", features = ["test-support"] }
 runne-opencode-adapter-sqlite = { path = "../runne-opencode-adapter-sqlite" }
 runne-opencode-compat = { path = "../runne-opencode-compat" }

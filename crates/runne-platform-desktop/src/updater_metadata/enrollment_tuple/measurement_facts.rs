@@ -7,11 +7,9 @@ pub struct VerifiedInstalledEnrollmentMeasurementFacts {
     daemon: [u8; 32],
     credential_service: Option<[u8; 32]>,
     #[cfg(target_os = "macos")]
-    runtime_credential_service:
-        Option<runne_macos_xpc::CredentialServiceEndpointConfiguration>,
+    runtime_credential_service: Option<runne_macos_xpc::CredentialServiceEndpointConfiguration>,
     #[cfg(target_os = "macos")]
-    writer_credential_service:
-        Option<runne_macos_xpc::CredentialServiceEndpointConfiguration>,
+    writer_credential_service: Option<runne_macos_xpc::CredentialServiceEndpointConfiguration>,
     contract: [u8; 32],
     desktop_start: [u8; 32],
     release: [u8; 32],
@@ -30,11 +28,23 @@ impl VerifiedInstalledEnrollmentMeasurementFacts {
         let decode = |digest: &str| hex::decode(digest).ok()?.try_into().ok();
         let admission = value.admission.as_ref()?;
         let profile = value.profile_directory.as_ref()?;
-        let (metadata, _) = crate::updater_installed_metadata::InstalledUpdateMetadataJournal::new(
-            profile.join("updates/installed-metadata.json"),
-        )
-        .read()
-        .ok()??;
+        let (metadata, metadata_binding) =
+            crate::updater_installed_metadata::InstalledUpdateMetadataJournal::new(
+                profile.join("updates/installed-metadata.json"),
+            )
+            .read()
+            .ok()??;
+        let record = crate::UpdateJournal::new(profile.join("updates/install-state.json"))
+            .read()
+            .ok()??;
+        if record.state != crate::UpdateInstallState::Committed
+            || record.legacy_unbound
+            || record.metadata_sha256.as_deref() != Some(metadata_binding.as_str())
+            || record.version != metadata.targets.target.version
+            || metadata.targets.version != admission.installed_generation
+        {
+            return None;
+        }
         let encoded = serde_json::to_vec(&metadata).ok()?;
         let length = u32::try_from(encoded.len()).ok()?;
         let mut release_frame = Vec::with_capacity(12 + encoded.len());
@@ -47,31 +57,38 @@ impl VerifiedInstalledEnrollmentMeasurementFacts {
             daemon: decode(&measured.daemon_sha256)?,
             credential_service: admission.credential_service_sha256,
             #[cfg(target_os = "macos")]
-            runtime_credential_service: admission
-                .runtime_credential_service_configuration()
-                .ok(),
+            runtime_credential_service: admission.runtime_credential_service_configuration().ok(),
             #[cfg(target_os = "macos")]
-            writer_credential_service:
-                admission.writer_credential_service_configuration().ok(),
+            writer_credential_service: admission.writer_credential_service_configuration().ok(),
             contract: decode(&measured.contract_sha256)?,
             desktop_start: value.peer.as_ref()?.process_start_digest(),
             release: admission.release_tuple_sha256,
             candidate_source: admission.candidate_source_sha256?,
             target_manifest: admission.target_manifest_sha256?,
-            qualification: admission.qualification.retained_qualification_binding_digest()?,
+            qualification: admission
+                .qualification
+                .retained_qualification_binding_digest()?,
             installed_generation: admission.installed_generation,
             release_frame,
         })
     }
 
     #[must_use]
-    pub const fn desktop(&self) -> [u8; 32] { self.desktop }
+    pub const fn desktop(&self) -> [u8; 32] {
+        self.desktop
+    }
     #[must_use]
-    pub const fn writer(&self) -> [u8; 32] { self.writer }
+    pub const fn writer(&self) -> [u8; 32] {
+        self.writer
+    }
     #[must_use]
-    pub const fn daemon(&self) -> [u8; 32] { self.daemon }
+    pub const fn daemon(&self) -> [u8; 32] {
+        self.daemon
+    }
     #[must_use]
-    pub const fn credential_service(&self) -> Option<[u8; 32]> { self.credential_service }
+    pub const fn credential_service(&self) -> Option<[u8; 32]> {
+        self.credential_service
+    }
     #[cfg(target_os = "macos")]
     #[must_use]
     pub fn runtime_credential_service_configuration(
@@ -87,19 +104,33 @@ impl VerifiedInstalledEnrollmentMeasurementFacts {
         self.writer_credential_service.clone()
     }
     #[must_use]
-    pub const fn contract(&self) -> [u8; 32] { self.contract }
+    pub const fn contract(&self) -> [u8; 32] {
+        self.contract
+    }
     #[must_use]
-    pub const fn desktop_start(&self) -> [u8; 32] { self.desktop_start }
+    pub const fn desktop_start(&self) -> [u8; 32] {
+        self.desktop_start
+    }
     #[must_use]
-    pub const fn release(&self) -> [u8; 32] { self.release }
+    pub const fn release(&self) -> [u8; 32] {
+        self.release
+    }
     #[must_use]
-    pub const fn candidate_source(&self) -> [u8; 32] { self.candidate_source }
+    pub const fn candidate_source(&self) -> [u8; 32] {
+        self.candidate_source
+    }
     #[must_use]
-    pub const fn target_manifest(&self) -> [u8; 32] { self.target_manifest }
+    pub const fn target_manifest(&self) -> [u8; 32] {
+        self.target_manifest
+    }
     #[must_use]
-    pub const fn qualification(&self) -> [u8; 32] { self.qualification }
+    pub const fn qualification(&self) -> [u8; 32] {
+        self.qualification
+    }
     #[must_use]
-    pub const fn installed_generation(&self) -> u64 { self.installed_generation }
+    pub const fn installed_generation(&self) -> u64 {
+        self.installed_generation
+    }
 
     pub fn write_signed_release_metadata(
         &self,

@@ -40,6 +40,24 @@ impl PartialEq for ClaimOperationAdmission {
 impl Eq for ClaimOperationAdmission {}
 
 impl CredentialEnrollmentStoreAuthority {
+    /// Checks recovery session/release against the sealed live claim measurements.
+    pub fn validate_cleanup_claim_context(
+        &self,
+        claim: &ClaimCredentialOperation,
+        release: CredentialBindingDigest,
+        session: CredentialBindingDigest,
+    ) -> Result<(), CredentialEnrollmentError> {
+        self.validate_claim_operation(claim)?;
+        if claim
+            .admission()
+            .is_some_and(|admission| admission.binding.matches_recovery_context(release, session))
+        {
+            Ok(())
+        } else {
+            Err(CredentialEnrollmentError::InvalidEvidence)
+        }
+    }
+
     /// Returns the canonical claim digest only for this authority pair's sealed admission.
     pub fn validate_claim_operation(
         &self,

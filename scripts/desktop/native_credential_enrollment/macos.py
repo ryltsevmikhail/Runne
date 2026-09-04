@@ -172,9 +172,13 @@ def _native_store_errors(value: object) -> list[str]:
 def _artifact_scan_errors(value: object) -> list[str]:
     if not isinstance(value, dict) or set(value) != {"files_scanned", "sensitive_value_matches"}:
         return ["artifact scan fields are not exact"]
-    if not isinstance(value.get("files_scanned"), int) or value["files_scanned"] <= 0:
+    if type(value.get("files_scanned")) is not int or value["files_scanned"] <= 0:
         return ["artifact scan did not inspect files"]
-    return [] if value.get("sensitive_value_matches") == 0 else ["artifact scan found sensitive values"]
+    return [] if _zero_count(value.get("sensitive_value_matches")) else ["artifact scan found sensitive values or invalid count"]
+
+
+def _zero_count(value: object) -> bool:
+    return type(value) is int and value == 0
 
 
 def _selector_errors(value: object) -> list[str]:
@@ -190,9 +194,9 @@ def _selector_errors(value: object) -> list[str]:
         if set(receipt) != allowed:
             return [f"selector {name} fields are not exact"]
     local, remote = value["local_verify_no_network"], value["remote_verify_after_local"]
-    if local.get("status") != "verified" or local.get("network_attempts") != 0:
+    if local.get("status") != "verified" or not _zero_count(local.get("network_attempts")):
         return ["local verification must be verified without network"]
-    if remote.get("local_verification") != "verified" or remote.get("retry_count") != 0:
+    if remote.get("local_verification") != "verified" or not _zero_count(remote.get("retry_count")):
         return ["remote verification lacks current local success or has retries"]
     return []
 

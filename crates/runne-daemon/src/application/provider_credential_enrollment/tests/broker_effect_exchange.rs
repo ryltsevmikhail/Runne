@@ -65,7 +65,7 @@ fn broker_effect_exchange_requires_the_claim_binding_before_possible_effect() {
         .unwrap(),
     ));
 
-    let claim = fixture
+    let mut claim = fixture
         .broker
         .claim_ticket_from_channel(
             receipt,
@@ -77,6 +77,15 @@ fn broker_effect_exchange_requires_the_claim_binding_before_possible_effect() {
             &mut channel,
         )
         .unwrap();
+    assert!(claim.take_secret_relay().unwrap().is_some());
+    let sent = channel.frames.len();
+    assert!(
+        fixture
+            .broker
+            .release_control_only_effect(&claim, operation_id, &fixture.store, &mut channel)
+            .is_err()
+    );
+    assert_eq!(channel.frames.len(), sent);
     fixture
         .broker
         .release_claimed_effect_to_channel(&claim, &mut channel)

@@ -22,7 +22,7 @@ async fn reopen_with_pending_outbox_changes_only_lifecycle_columns() {
     let harness = Harness::new().await;
     let service = harness.compose().await;
     let (begin, started) = harness.begin();
-    super::super::pending::create(&service, started.clone()).await;
+    super::super::pending::create(&service, started.clone(), harness.writer_connection()).await;
     let before = snapshot(&harness);
     service.recover_pending().await.unwrap();
     let after = snapshot(&harness);

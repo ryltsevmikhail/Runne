@@ -235,3 +235,16 @@ fn partition_rejects_an_unexpected_opaque_acl() {
         Err(KeychainAclError::AccessDenied)
     );
 }
+
+#[test]
+fn opaque_any_authorization_is_not_accepted_as_a_default_owner() {
+    let current = std::env::current_exe().unwrap();
+    let exact = ExactKeychainAccess::new(&current, &current).unwrap();
+    repurpose_empty_owner_acl(&exact.creation_access, unsafe {
+        kSecACLAuthorizationAny
+    });
+    assert_eq!(
+        verify_decrypt_access(&exact.creation_access),
+        Err(KeychainAclError::AccessDenied),
+    );
+}

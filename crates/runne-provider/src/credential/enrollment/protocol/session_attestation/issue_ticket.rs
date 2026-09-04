@@ -18,6 +18,9 @@ pub use scope::{
 
 const DOMAIN: &[u8] = b"GOCODE_CREDENTIAL_ISSUE_TICKET_SESSION_V1\0";
 
+#[path = "legacy_read_verifier.rs"]
+mod legacy_read_verifier;
+
 /// One prefetched broker ticket retained for a later authenticated claim.
 ///
 /// ```compile_fail

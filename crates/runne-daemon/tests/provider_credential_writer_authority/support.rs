@@ -70,13 +70,14 @@ impl InnerContext {
     pub(super) fn writer(&self) -> PathBuf {
         self.root.join("Runne.app/Contents/MacOS/runne")
     }
-    pub(super) fn supervisor(&self) -> Result<ProtectedBundledRuntimeSupervisor, &'static str> {
+    pub(super) fn supervisor(
+        &self,
+    ) -> Result<super::scoped_cleanup::ScopedSupervisor, &'static str> {
         let spec = ProtectedBundledRuntimeLaunchSpec::new(&self.daemon, &self.runtime)
             .map_err(|_| "launch-spec")?
             .with_provider_activation(ProviderActivationBindingV1::openai_responses_text_v1());
-        Ok(ProtectedBundledRuntimeSupervisor::new(
-            DevelopmentBundledRuntimeLauncher::new(),
-            spec,
+        Ok(super::scoped_cleanup::ScopedSupervisor::new(
+            ProtectedBundledRuntimeSupervisor::new(DevelopmentBundledRuntimeLauncher::new(), spec),
         ))
     }
 

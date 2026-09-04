@@ -9,7 +9,7 @@ use runne_api::{
     ProviderCredentialOperationStateV2, ProviderCredentialProviderV2, ProviderReadinessStatusV1,
 };
 use runne_platform_desktop::{
-    ConfirmedInstalledNativeEnrollment, CredentialWriterHandoff, CredentialWriterHandoffMode,
+    ConfirmedInstalledNativeEnrollment, CredentialWriterHandoffMode,
     NativeProtectedCredentialEnrollmentBegin, PreparedProtectedCredentialEnrollment,
     ProtectedBundledRuntimeSupervisor,
 };
@@ -187,7 +187,7 @@ async fn enter_v3(
     context: &super::support::InnerContext,
 ) -> Result<
     (
-        ProtectedBundledRuntimeSupervisor,
+        super::scoped_cleanup::ScopedSupervisor,
         ConfirmedInstalledNativeEnrollment,
     ),
     &'static str,
@@ -246,10 +246,10 @@ fn begin_pair(
 }
 
 fn writer_claim(
-    supervisor: &mut ProtectedBundledRuntimeSupervisor,
+    supervisor: &mut super::scoped_cleanup::ScopedSupervisor,
     confirmed: &ConfirmedInstalledNativeEnrollment,
     enrollment: &mut PreparedProtectedCredentialEnrollment,
-) -> Result<CredentialWriterHandoff, &'static str> {
+) -> Result<super::scoped_cleanup::ScopedHandoff, &'static str> {
     let handoff = supervisor
         .run_credential_writer_handoff(confirmed, CredentialWriterHandoffMode::Pair)
         .inspect_err(|error| {

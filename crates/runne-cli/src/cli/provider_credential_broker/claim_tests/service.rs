@@ -1,12 +1,12 @@
 use runne_provider::{
-    ClaimedWriterAuthorization, CredentialMaterial,
+    ClaimedWriterAuthorization,
     CredentialBindingDigest, CredentialMutationGrant, CredentialRuntimeMutationPlan,
     CredentialServiceCorrelation, CredentialServiceDeadline, CredentialServiceEpoch,
     CredentialServiceProtocolCodec, CredentialServiceRequestSequence,
     CredentialWriterAuthorityPair,
 };
 use runne_secure_store::{
-    BrokeredLegacySourceDeleteInput, BrokeredMigrateLegacyInput,
+    BrokeredLegacySourceDeleteInput,
     BrokeredProviderCredentialLegacySource, SecureStoreError,
 };
 use std::sync::{
@@ -165,8 +165,8 @@ struct UnusedLegacySource;
 impl BrokeredProviderCredentialLegacySource for UnusedLegacySource {
     fn load_exact(
         &self,
-        _input: &BrokeredMigrateLegacyInput,
-    ) -> Result<CredentialMaterial, SecureStoreError> {
+        _read: runne_provider::AuthorizedCredentialLegacyRead,
+    ) -> Result<runne_provider::CredentialLegacySourceMaterial, SecureStoreError> {
         Err(SecureStoreError::ProviderCredentialOperationFailed)
     }
 
@@ -189,8 +189,8 @@ struct RecordingDeleteSource(Arc<AtomicUsize>);
 impl BrokeredProviderCredentialLegacySource for RecordingDeleteSource {
     fn load_exact(
         &self,
-        _input: &BrokeredMigrateLegacyInput,
-    ) -> Result<CredentialMaterial, SecureStoreError> {
+        _read: runne_provider::AuthorizedCredentialLegacyRead,
+    ) -> Result<runne_provider::CredentialLegacySourceMaterial, SecureStoreError> {
         Err(SecureStoreError::ProviderCredentialOperationFailed)
     }
 

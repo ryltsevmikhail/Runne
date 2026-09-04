@@ -24,7 +24,14 @@ pub mod reaper_registry;
 #[cfg(test)]
 #[path = "prepared/reaper_registry_tests.rs"]
 mod reaper_registry_tests;
+mod recovery;
 mod runner;
+pub async fn reconcile_startup(
+    lifecycle: &crate::RuntimeLifecycleManager,
+    updates: &crate::UpdateStatusStore,
+) -> Result<(), ()> {
+    recovery::startup::reconcile(lifecycle, updates).await
+}
 pub use reaper_registry::{
     CredentialWriterReaperLastError, CredentialWriterReaperSnapshot, CredentialWriterReaperState,
 };
@@ -36,9 +43,7 @@ pub use runner::ProtectedWriterReaperRegistry;
 pub(super) struct PreparedCredentialEnrollmentExchange {
     window: String,
     request: CredentialIntentIpc,
-    runtime_lease: NativeCredentialEnrollmentLease,
-    updater_lease: NativeInstalledEnrollmentLease,
-    installed: ConfirmedInstalledNativeEnrollment,
+    resources: std::sync::Arc<recovery::RecoveryResources>,
     intent: Option<NativeCredentialIntent>,
     intent_session: [u8; 32],
     _expires: Instant,
@@ -89,9 +94,11 @@ impl PreparedCredentialEnrollmentExchange {
         Ok(Self {
             window: confirmation.window,
             request: confirmation.request,
-            runtime_lease: confirmation.runtime_lease,
-            updater_lease: confirmation.updater_lease,
-            installed: confirmation.installed,
+            resources: std::sync::Arc::new(recovery::RecoveryResources {
+                runtime: std::sync::Arc::new(confirmation.runtime_lease),
+                updater: std::sync::Arc::new(confirmation.updater_lease),
+                installed: confirmation.installed,
+            }),
             intent: Some(intent),
             intent_session,
             _expires: expires,

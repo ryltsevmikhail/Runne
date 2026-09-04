@@ -1,4 +1,6 @@
 use runne_domain::id::{CommandId, IdempotencyKey};
+#[path = "legacy_cleanup_binding_tests.rs"]
+mod cleanup_binding;
 use runne_provider::{
     BeginCredentialOperation, BindCredentialReadback, ClaimCredentialOperation,
     CompleteCredentialOperation, CredentialFence, CredentialInstallationOwnerId,

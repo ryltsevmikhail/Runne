@@ -68,6 +68,12 @@ impl<S: ProviderExecutionStore + ProviderTerminalPersistence + ?Sized> ProviderE
     ) -> Result<(), ProviderExecutionError> {
         self.inner.begin_provider_poll(request)
     }
+    fn revalidate_provider_poll(
+        &self,
+        request: &ProviderPollRequest,
+    ) -> Result<(), ProviderExecutionError> {
+        self.inner.revalidate_provider_poll(request)
+    }
     fn append_encrypted_event(
         &self,
         request: &ProviderJournalAppendRequest,
