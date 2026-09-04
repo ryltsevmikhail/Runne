@@ -122,6 +122,7 @@ if gate_enabled local-structural; then
         scripts.desktop.tests.test_legacy_cleanup_schema \
         scripts.desktop.tests.test_legacy_cleanup_cli \
         scripts.desktop.tests.test_legacy_cleanup_scenario_runner \
+        scripts.desktop.tests.test_legacy_evidence_reference \
         -v
 fi
 
