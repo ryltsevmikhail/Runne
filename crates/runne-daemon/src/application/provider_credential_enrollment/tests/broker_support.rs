@@ -31,6 +31,21 @@ pub(crate) struct Fixture {
 }
 
 pub(crate) fn fixture() -> Fixture {
+    fixture_with_action(CredentialOperationAction::Pair, "broker-ticket")
+}
+
+/// Fixture for one claimed migrate operation: the same begin shape as Pair
+/// (allocated version, no target) but no secret offer, so the claimed effect
+/// carries no secret relay.
+pub(crate) fn migrate_fixture() -> Fixture {
+    fixture_with_action(CredentialOperationAction::MigrateLegacy, "broker-migrate")
+}
+
+fn fixture_with_action(action: CredentialOperationAction, idempotency: &str) -> Fixture {
+    assert!(matches!(
+        action,
+        CredentialOperationAction::Pair | CredentialOperationAction::MigrateLegacy
+    ));
     let directory = tempfile::tempdir().unwrap();
     let (lifecycle, _) = CredentialAuthorityPair::new().split();
     let (enrollment, measurements) = CredentialEnrollmentAuthorityPair::new().split();
@@ -53,27 +68,30 @@ pub(crate) fn fixture() -> Fixture {
         .unwrap()
         .as_secs()
         + 600;
-    let operation = match store
-        .begin(
-            BeginCredentialOperation::new(
-                CommandId::from_bytes([1; 16]),
-                IdempotencyKey::new("broker-ticket").unwrap(),
-                CredentialOperationId::from_bytes([2; 16]).unwrap(),
-                runne_provider::CredentialInstallationOwnerId::from_bytes([3; 32]).unwrap(),
-                provider.clone(),
-                CredentialOperationAction::Pair,
-                Some(runne_provider::CredentialVersionRef::new(provider, 1).unwrap()),
-                None,
-                CredentialLifecycleRevision::new(1).unwrap(),
-                CredentialFence::new(1).unwrap(),
-                runne_provider::CredentialBindingDigest::from_measured([4; 32]).unwrap(),
-                expiration,
-            )
-            .unwrap()
-            .with_qualified_release_tuple(qualified),
-        )
-        .unwrap()
-    {
+    let input = BeginCredentialOperation::new(
+        CommandId::from_bytes([1; 16]),
+        IdempotencyKey::new(idempotency).unwrap(),
+        CredentialOperationId::from_bytes([2; 16]).unwrap(),
+        runne_provider::CredentialInstallationOwnerId::from_bytes([3; 32]).unwrap(),
+        provider.clone(),
+        action,
+        Some(runne_provider::CredentialVersionRef::new(provider, 1).unwrap()),
+        None,
+        CredentialLifecycleRevision::new(1).unwrap(),
+        CredentialFence::new(1).unwrap(),
+        runne_provider::CredentialBindingDigest::from_measured([4; 32]).unwrap(),
+        expiration,
+    )
+    .unwrap()
+    .with_qualified_release_tuple(qualified);
+    let input = match action {
+        CredentialOperationAction::MigrateLegacy => {
+            let authorization = enrollment.issue_legacy_import_authorization(&input).unwrap();
+            input.with_legacy_import_authorization(authorization).unwrap()
+        }
+        _ => input,
+    };
+    let operation = match store.begin(input).unwrap() {
         BeginCredentialOperationOutcome::FreshWinner(value) => value,
         BeginCredentialOperationOutcome::ExactReplay(_) => panic!("first begin must win"),
     };

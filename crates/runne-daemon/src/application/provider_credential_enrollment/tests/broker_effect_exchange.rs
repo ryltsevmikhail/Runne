@@ -195,3 +195,89 @@ fn broker_effect_exchange_rejects_a_substituted_binding_without_state_transition
         CredentialOperationState::Claimed
     );
 }
+
+#[test]
+fn control_only_release_accepts_a_claimed_migrate_legacy_without_relay() {
+    let fixture = super::broker_support::migrate_fixture();
+    let context = issue_context(&fixture);
+    let mut channel = RecordingChannel::default();
+    let receipt = fixture
+        .broker
+        .issue_ticket(
+            fixture.operation.clone(),
+            fixture.continuation,
+            &context,
+            60,
+            &fixture.store,
+            &mut channel,
+        )
+        .unwrap();
+    let CredentialBrokerFrame::IssueTicket {
+        operation_id,
+        attempt,
+        ticket,
+        ..
+    } = CredentialBrokerFrameCodec::decode(&channel.frames.pop().unwrap()).unwrap()
+    else {
+        panic!("broker must issue a ticket frame");
+    };
+    let draft = ClaimCredentialOperation::new(
+        receipt.clone(),
+        ticket.binding_digest(),
+        fixture.continuation,
+        ticket.binding_digest(),
+        7,
+        8,
+    )
+    .unwrap();
+    let evidence = claim_measurements(&fixture.measurements, &draft);
+    let binding = fixture
+        .measurements
+        .measure_claim_operation(&evidence, &draft)
+        .unwrap();
+    channel.queue_received(Zeroizing::new(
+        CredentialBrokerFrameCodec::encode(CredentialBrokerFrame::Claim {
+            operation_id,
+            attempt,
+            ticket,
+            binding,
+            secret_offer: None,
+        })
+        .unwrap(),
+    ));
+    channel.queue_received(Zeroizing::new(
+        CredentialBrokerFrameCodec::encode(CredentialBrokerFrame::NativeEffectObserved {
+            operation_id,
+            binding,
+        })
+        .unwrap(),
+    ));
+
+    let mut claim = fixture
+        .broker
+        .claim_ticket_from_channel(
+            receipt,
+            fixture.continuation,
+            7,
+            8,
+            evidence,
+            &fixture.store,
+            &mut channel,
+        )
+        .unwrap();
+    assert!(claim.take_secret_relay().unwrap().is_none());
+    fixture
+        .broker
+        .release_control_only_effect(&claim, operation_id, &fixture.store, &mut channel)
+        .unwrap();
+    assert!(matches!(
+        CredentialBrokerFrameCodec::decode(channel.frames.last().unwrap()).unwrap(),
+        CredentialBrokerFrame::NativeEffectRelease {
+            operation_id: released_operation,
+            attempt: released_attempt,
+            binding: released_binding,
+        } if released_operation == operation_id
+            && released_attempt == attempt
+            && released_binding == binding
+    ));
+}

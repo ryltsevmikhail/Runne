@@ -5,8 +5,9 @@ use super::{
 };
 
 impl ProtectedBundledRuntimeSupervisor {
-    /// Receives Revoke terminal evidence without sending a secret-relay acknowledgement.
-    /// Caller retains exclusive leases and non-cancellable writer cleanup ownership.
+    /// Receives Revoke and MigrateLegacy terminal evidence without a secret-relay
+    /// acknowledgement. Caller retains exclusive leases and non-cancellable writer
+    /// cleanup ownership.
     ///
     /// # Errors
     /// Rejects Pair, consumed enrollment, changed launch or invalid terminal evidence.
@@ -23,8 +24,11 @@ pub(super) async fn receive<R: super::RejoinRegistration>(
     enrollment: PreparedProtectedCredentialEnrollment,
     registration: R,
 ) -> Result<PreparedProtectedCredentialEnrollment, ProtectedBundledRuntimeError> {
-    if enrollment.snapshot.operation_kind() != runne_api::ProviderCredentialOperationKindV2::Revoke
-        || enrollment.relay.is_some()
+    if !matches!(
+        enrollment.snapshot.operation_kind(),
+        runne_api::ProviderCredentialOperationKindV2::Revoke
+            | runne_api::ProviderCredentialOperationKindV2::MigrateLegacy
+    ) || enrollment.relay.is_some()
         || enrollment.relay_taken
         || enrollment.terminal
     {
@@ -87,7 +91,31 @@ mod tests {
     async fn revoke_reads_sequence_two_terminal_without_relay_ack() {
         for (kind, consumed, sequence, terminal_kind, terminal_provider, accepted) in [
             (Kind::Revoke, false, 2, Kind::Revoke, Provider::OpenAi, true),
+            (
+                Kind::MigrateLegacy,
+                false,
+                2,
+                Kind::MigrateLegacy,
+                Provider::OpenAi,
+                true,
+            ),
             (Kind::Pair, false, 2, Kind::Revoke, Provider::OpenAi, false),
+            (
+                Kind::Pair,
+                false,
+                2,
+                Kind::MigrateLegacy,
+                Provider::OpenAi,
+                false,
+            ),
+            (
+                Kind::MigrateLegacy,
+                false,
+                2,
+                Kind::Revoke,
+                Provider::OpenAi,
+                false,
+            ),
             (Kind::Revoke, true, 2, Kind::Revoke, Provider::OpenAi, false),
             (
                 Kind::Revoke,

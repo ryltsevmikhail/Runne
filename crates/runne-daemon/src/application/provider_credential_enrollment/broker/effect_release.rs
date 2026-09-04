@@ -28,6 +28,7 @@ impl ProviderCredentialBroker {
                 operation.action(),
                 CredentialOperationAction::Revoke
                     | CredentialOperationAction::RetiredVersionCleanup
+                    | CredentialOperationAction::MigrateLegacy
                     | CredentialOperationAction::LegacySourceCleanup
             )
         {
