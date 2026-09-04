@@ -35,7 +35,12 @@ pub(super) fn spawn_bounded_drain(
                         overflow.store(true, Ordering::SeqCst);
                     }
                 }
-                Err(_) => break,
+                // A mid-stream read error means the collected bytes are not
+                // the complete sink output; fail the collection closed.
+                Err(_) => {
+                    overflow.store(true, Ordering::SeqCst);
+                    break;
+                }
             }
         }
         collected
@@ -64,26 +69,37 @@ pub(super) fn bounded_wait(child: &mut Child) -> Result<std::process::ExitStatus
 
 /// Reads one regular log sink under an exact byte bound. A missing sink is an
 /// empty observation; anything oversized, unreadable or non-regular fails.
+/// The opened file descriptor is re-verified by device/inode so a swap between
+/// the pre-check and the open cannot substitute another file's bytes.
 pub(super) fn read_bounded_sink(
     path: &std::path::Path,
     limit: u64,
 ) -> Result<Vec<u8>, &'static str> {
+    use std::os::unix::fs::MetadataExt as _;
     match std::fs::symlink_metadata(path) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Ok(metadata) if metadata.file_type().is_file() => {}
-        Ok(_) => return Err("legacy service sink is not a regular file"),
-        Err(_) => return Err("legacy service sink is unreadable"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Ok(metadata) if metadata.file_type().is_file() => {
+            let mut bytes = Vec::new();
+            let file =
+                std::fs::File::open(path).map_err(|_| "legacy service sink is unreadable")?;
+            let opened = file
+                .metadata()
+                .map_err(|_| "legacy service sink is unreadable")?;
+            let same_file = opened.ino() == metadata.ino() && opened.dev() == metadata.dev();
+            if !opened.is_file() || !same_file {
+                return Err("legacy service sink is not a regular file");
+            }
+            file.take(limit + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|_| "legacy service sink is unreadable")?;
+            if bytes.len() as u64 > limit {
+                return Err("legacy service sink exceeded the collection bound");
+            }
+            Ok(bytes)
+        }
+        Ok(_) => Err("legacy service sink is not a regular file"),
+        Err(_) => Err("legacy service sink is unreadable"),
     }
-    let mut bytes = Vec::new();
-    std::fs::File::open(path)
-        .map_err(|_| "legacy service sink is unreadable")?
-        .take(limit + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| "legacy service sink is unreadable")?;
-    if bytes.len() as u64 > limit {
-        return Err("legacy service sink exceeded the collection bound");
-    }
-    Ok(bytes)
 }
 
 #[cfg(test)]

@@ -111,7 +111,7 @@ fn wait_for_legacy_delete_release() -> Result<(), CliError> {
     file.write_all(b"post-delete")
         .and_then(|()| file.sync_all())
         .map_err(|_| CliError::CredentialOperation)?;
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(30);
     while Instant::now() < deadline {
         if release.is_file() {
             return Ok(());

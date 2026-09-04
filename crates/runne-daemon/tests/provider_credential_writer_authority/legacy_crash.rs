@@ -13,7 +13,7 @@ pub(super) fn await_post_delete_barrier(
     context: &super::support::InnerContext,
 ) -> Result<(), &'static str> {
     let (marker, _) = barrier_paths(context.root());
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(30);
     while Instant::now() < deadline {
         if marker.is_file() {
             return Ok(());

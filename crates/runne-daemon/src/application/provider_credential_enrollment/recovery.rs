@@ -115,16 +115,18 @@ where
             .store
             .complete_with_receipt(completion)
             .map_err(map_store)?;
-        // A verified legacy cleanup is permanently retired from the recovery
-        // queue once its completion receipt is durable; the consumed linkage,
-        // receipt and active destination remain intact.
-        if completed.action() == runne_provider::CredentialOperationAction::LegacySourceCleanup {
-            let tombstone = runne_provider::TombstoneCredentialOperation::new(
+        // Best-effort retirement marker for a verified legacy cleanup. The
+        // receipt, consumed linkage and active destination are already durable
+        // at this point, and COMPLETED stays an accepted terminal form, so a
+        // lost race or a transient store failure here must not turn the
+        // finished operation into a reported error.
+        if completed.action() == runne_provider::CredentialOperationAction::LegacySourceCleanup
+            && let Ok(tombstone) = runne_provider::TombstoneCredentialOperation::new(
                 completed.operation_id(),
                 CredentialOperationState::Completed,
             )
-            .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?;
-            self.store.tombstone(tombstone).map_err(map_store)?;
+        {
+            let _ = self.store.tombstone(tombstone);
         }
         Ok(())
     }
