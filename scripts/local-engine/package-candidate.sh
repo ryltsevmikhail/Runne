@@ -43,14 +43,17 @@ cargo test -p runne-platform-desktop --test local_model_source
 echo "== [4/5] hashing artifacts"
 : > "$OUT/MANIFEST.txt"
 {
-  echo "local-engine Phase 1 candidate"
-  echo "target: $TARGET_TRIPLE"
-  echo "built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "# local-engine Phase 1 candidate"
+  echo "# target: $TARGET_TRIPLE"
+  echo "# built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 } >> "$OUT/MANIFEST.txt"
 for f in "$OUT"/binaries/*; do
   hash=$(sha256sum "$f" | awk '{print $1}')
   echo "sha256:$hash  $(basename "$f")" >> "$OUT/MANIFEST.txt"
 done
 
-echo "== [5/5] candidate assembled: $OUT"
+echo "== [5/5] verifying the assembled candidate"
+python3 "$SCRIPT_DIR/verify-candidate.py" --candidate "$OUT" --target-triple "$TARGET_TRIPLE"
+
+echo "candidate assembled: $OUT"
 cat "$OUT/MANIFEST.txt"
