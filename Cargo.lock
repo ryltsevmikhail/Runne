@@ -4175,6 +4175,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "runne-local-model"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_json_canonicalizer",
+ "sha2",
+]
+
+[[package]]
 name = "runne-local-store"
 version = "0.0.3"
 dependencies = [
@@ -4237,6 +4247,17 @@ name = "runne-mcp"
 version = "0.1.0"
 dependencies = [
  "runne-tools",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "runne-model-store"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "runne-local-model",
+ "rusqlite",
  "serde_json",
  "sha2",
 ]
@@ -4321,8 +4342,10 @@ dependencies = [
  "reqwest 0.12.28",
  "ring",
  "runne-api",
+ "runne-local-model",
  "runne-macos-process-identity",
  "runne-macos-xpc",
+ "runne-model-store",
  "runne-platform-ports",
  "runne-provider",
  "runne-runtime-client",
@@ -4784,6 +4807,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6518fc26bced4d53678a22d6e423e9d8716377def84545fe328236e3af070e7f"
 
 [[package]]
+name = "ryu-js"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04d056b875a9d2e6cb9a61d127afee9ac5999b9f87bcb32079d1318e505be714"
+
+[[package]]
 name = "same-file"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4988,7 +5017,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3a60f3fda61525e439ef6d67422118f11e986566997d9021c56867ad814a0aa"
 dependencies = [
- "ryu-js",
+ "ryu-js 0.2.2",
  "serde",
  "serde_json",
 ]
@@ -5004,6 +5033,17 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "serde_json_canonicalizer"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe52319a927259afbfa5180c5157cd8167edfd3e8c254f9558c7fef44c5649f2"
+dependencies = [
+ "ryu-js 1.0.3",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
