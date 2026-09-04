@@ -4022,6 +4022,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "runne-daemon-local-engine-effect"
+version = "0.1.0"
+dependencies = [
+ "runne-provider",
+ "runne-store",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "runne-daemon-loopback-fixture"
 version = "0.1.0"
 dependencies = [
