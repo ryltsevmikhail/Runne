@@ -165,7 +165,14 @@ fn session_recovery_bad_ack_and_expiry_never_publish_endpoint() {
             }
             assert!(
                 session
-                    .accept_cleanup_recovery(&ack, if expire { now + 31 } else { now })
+                    .accept_cleanup_recovery(
+                        &ack,
+                        if expire {
+                            now + super::CLEANUP_RECOVERY_TTL_SECONDS + 1
+                        } else {
+                            now
+                        },
+                    )
                     .is_err()
             );
             assert!(session.take_bound_broker_handoff().is_err());
@@ -173,6 +180,11 @@ fn session_recovery_bad_ack_and_expiry_never_publish_endpoint() {
             assert!(session.recovery.ready.is_none());
         });
     }
+}
+
+#[test]
+fn cleanup_recovery_lease_remains_short_lived_but_covers_native_handoff() {
+    assert_eq!(super::CLEANUP_RECOVERY_TTL_SECONDS, 120);
 }
 
 #[test]
