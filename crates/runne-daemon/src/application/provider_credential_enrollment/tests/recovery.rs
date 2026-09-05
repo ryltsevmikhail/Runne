@@ -8,6 +8,27 @@ pub(super) mod fixture;
 use fixture::{FailurePoint, Fixture, StatefulReader};
 
 #[test]
+fn enrollment_recovery_revoke_completes_against_the_already_fenced_head() {
+    let fixture = Fixture::new(CredentialOperationAction::Revoke, FailurePoint::None);
+    let reader = StatefulReader::new(&fixture);
+    let gateway = CredentialEnrollmentRecoveryGateway::new(&fixture, &reader);
+
+    gateway.reconcile_online(100).unwrap();
+
+    assert_eq!(fixture.state(), CredentialOperationState::Completed);
+    assert_eq!(
+        fixture.events(),
+        ["reconcile", "mark", "readback", "bind", "complete"]
+    );
+    let receipt = fixture.receipt().unwrap();
+    assert_eq!(receipt.action(), CredentialOperationAction::Revoke);
+    assert_eq!(receipt.lifecycle_revision().get(), 2);
+    assert_eq!(receipt.fence().get(), 2);
+    assert_eq!(receipt.readiness_revision().get(), 2);
+    assert!(receipt.active_version().is_none());
+}
+
+#[test]
 fn enrollment_recovery_legacy_cleanup_accepts_newer_head_after_rotation() {
     let fixture = Fixture::legacy_cleanup_after_rotation();
     let reader = StatefulReader::new(&fixture);

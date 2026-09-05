@@ -2,17 +2,18 @@ use std::sync::Mutex;
 
 use runne_domain::id::{CommandId, IdempotencyKey};
 use runne_provider::{
-    BindCredentialReadback, CompleteCredentialOperation, CredentialBindingDigest,
-    CredentialCompletionReceipt, CredentialEnrollmentAuthorityPair, CredentialFence,
-    CredentialInstallationOwnerId, CredentialLifecycleError, CredentialLifecycleRevision,
-    CredentialLifecycleSnapshot, CredentialNativeEffectDisposition, CredentialOperationAction,
-    CredentialOperationId, CredentialOperationSnapshot, CredentialOperationState,
-    CredentialReadinessRevision, CredentialRecoveryWork, CredentialTerminalDisposition,
-    CredentialTicketAttempt, CredentialVersionRef, ProviderId,
+    BindCredentialReadback, CredentialBindingDigest, CredentialCompletionReceipt,
+    CredentialEnrollmentAuthorityPair, CredentialFence, CredentialInstallationOwnerId,
+    CredentialLifecycleError, CredentialLifecycleRevision, CredentialLifecycleSnapshot,
+    CredentialNativeEffectDisposition, CredentialOperationAction, CredentialOperationId,
+    CredentialOperationSnapshot, CredentialOperationState, CredentialReadinessRevision,
+    CredentialRecoveryWork, CredentialTerminalDisposition, CredentialTicketAttempt,
+    CredentialVersionRef, ProviderId,
 };
 
 mod legacy;
 mod reader;
+mod receipt;
 mod store;
 
 pub(in super::super) use reader::StatefulReader;
@@ -50,7 +51,7 @@ impl Fixture {
         Self::new(action, FailurePoint::None)
     }
 
-    fn new(action: CredentialOperationAction, failure: FailurePoint) -> Self {
+    pub(super) fn new(action: CredentialOperationAction, failure: FailurePoint) -> Self {
         let base = if action == CredentialOperationAction::LegacySourceCleanup {
             2
         } else {
@@ -60,8 +61,13 @@ impl Fixture {
         let provider = provider();
         let operation_id = operation();
         let attempt = CredentialTicketAttempt::new(1).unwrap();
-        let target = matches!(action, CredentialOperationAction::RetiredVersionCleanup)
-            .then(|| CredentialVersionRef::new(provider.clone(), 1).unwrap());
+        let target = match action {
+            CredentialOperationAction::Revoke
+            | CredentialOperationAction::RetiredVersionCleanup => {
+                Some(CredentialVersionRef::new(provider.clone(), 1).unwrap())
+            }
+            _ => None,
+        };
         let mut metadata = authority
             .hydrate_persisted_credential_operation_metadata(
                 CommandId::from_bytes([1; 16]),
@@ -78,7 +84,8 @@ impl Fixture {
             .unwrap()
             .with_claim(digest(4), digest(5));
         let command_target = match action {
-            CredentialOperationAction::RetiredVersionCleanup => {
+            CredentialOperationAction::Revoke
+            | CredentialOperationAction::RetiredVersionCleanup => {
                 runne_provider::CredentialBrokerTarget::Version(target.clone().unwrap())
             }
             CredentialOperationAction::LegacySourceCleanup => {
@@ -134,16 +141,18 @@ impl Fixture {
             binding,
         )
         .unwrap();
+        let fenced_revoke = action == CredentialOperationAction::Revoke;
         let lifecycle = CredentialLifecycleSnapshot::new(
             provider.clone(),
-            Some(CredentialVersionRef::new(provider.clone(), 2).unwrap()),
-            revision(base),
-            fence(base),
-            readiness(base),
+            (!fenced_revoke).then(|| CredentialVersionRef::new(provider.clone(), 2).unwrap()),
+            revision(base + u64::from(fenced_revoke)),
+            fence(base + u64::from(fenced_revoke)),
+            readiness(base + u64::from(fenced_revoke)),
             3,
         )
         .unwrap();
-        let successor = if action == CredentialOperationAction::LegacySourceCleanup {
+        let successor = if action == CredentialOperationAction::LegacySourceCleanup || fenced_revoke
+        {
             lifecycle.clone()
         } else {
             CredentialLifecycleSnapshot::new(
@@ -234,41 +243,6 @@ impl Fixture {
 
     pub(super) fn lifecycle(&self) -> CredentialLifecycleSnapshot {
         self.lifecycle.clone()
-    }
-
-    pub(super) fn receipt_for(
-        &self,
-        input: &CompleteCredentialOperation,
-    ) -> CredentialCompletionReceipt {
-        let operation = self.operation.lock().unwrap();
-        self.authority
-            .hydrate_persisted_credential_completion_receipt(
-                operation.operation_id(),
-                operation.installation_owner_id(),
-                operation.provider().clone(),
-                operation.action(),
-                operation
-                    .allocated_credential_version()
-                    .or(operation.target_credential_version())
-                    .cloned(),
-                operation.lifecycle_revision(),
-                operation.fence(),
-                operation.metadata().claimed_ticket_attempt().unwrap(),
-                operation
-                    .metadata()
-                    .migration()
-                    .map(|value| value.binding_digest()),
-                operation
-                    .metadata()
-                    .qualified_release_tuple_digest()
-                    .unwrap(),
-                input.readback().disposition(),
-                input.readback().observation_digest(),
-                input
-                    .readiness_observation()
-                    .map(runne_provider::CredentialReadinessObservation::observation_id),
-                self.successor.clone(),
-            )
     }
 }
 

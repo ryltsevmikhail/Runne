@@ -167,10 +167,15 @@ pub(super) fn completion(
     now_high_water: i64,
 ) -> Result<CompleteCredentialOperation, ProviderCredentialEnrollmentHostError> {
     let legacy_cleanup = operation.action() == CredentialOperationAction::LegacySourceCleanup;
+    let fenced_revoke = operation.action() == CredentialOperationAction::Revoke;
     let head_matches = if legacy_cleanup {
         operation.metadata().legacy_cleanup_binding().is_some()
             && lifecycle.lifecycle_revision().get() >= operation.lifecycle_revision().get()
             && lifecycle.fence().get() >= operation.fence().get()
+    } else if fenced_revoke {
+        lifecycle.lifecycle_revision() == next_lifecycle(operation.lifecycle_revision())?
+            && lifecycle.fence() == next_fence(operation.fence())?
+            && lifecycle.active_version().is_none()
     } else {
         lifecycle.lifecycle_revision() == operation.lifecycle_revision()
             && lifecycle.fence() == operation.fence()
@@ -191,8 +196,16 @@ pub(super) fn completion(
         )
         .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation);
     }
-    let successor_lifecycle = next_lifecycle(operation.lifecycle_revision())?;
-    let successor_readiness = next_readiness(lifecycle.readiness_revision())?;
+    let successor_lifecycle = if fenced_revoke {
+        lifecycle.lifecycle_revision()
+    } else {
+        next_lifecycle(operation.lifecycle_revision())?
+    };
+    let successor_readiness = if fenced_revoke {
+        lifecycle.readiness_revision()
+    } else {
+        next_readiness(lifecycle.readiness_revision())?
+    };
     let (disposition, active) = match operation.action() {
         CredentialOperationAction::Pair | CredentialOperationAction::MigrateLegacy => {
             let version = operation
@@ -257,6 +270,18 @@ fn next_readiness(
     value: CredentialReadinessRevision,
 ) -> Result<CredentialReadinessRevision, ProviderCredentialEnrollmentHostError> {
     CredentialReadinessRevision::new(
+        value
+            .get()
+            .checked_add(1)
+            .ok_or(ProviderCredentialEnrollmentHostError::InvariantViolation)?,
+    )
+    .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)
+}
+
+fn next_fence(
+    value: runne_provider::CredentialFence,
+) -> Result<runne_provider::CredentialFence, ProviderCredentialEnrollmentHostError> {
+    runne_provider::CredentialFence::new(
         value
             .get()
             .checked_add(1)
