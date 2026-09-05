@@ -46,7 +46,7 @@ pub(super) fn v30_predecessor_matches_with(
         connection,
         insert_trigger,
         v24_head_active_lifecycle_trigger(),
-        false,
+        &["provider_credential_one_non_terminal_operation"],
         &CredentialSchemaExtensions::default(),
     )
 }
@@ -56,29 +56,31 @@ pub(super) fn v30_predecessor_matches_with_v32(
     insert_trigger: &str,
     head_trigger: &str,
 ) -> SqliteResult<bool> {
-    v30_predecessor_matches_with_successors(connection, insert_trigger, head_trigger, true, &CredentialSchemaExtensions::default())
+    v30_predecessor_matches_with_successors(
+        connection,
+        insert_trigger,
+        head_trigger,
+        v32_operation_index_names(),
+        &CredentialSchemaExtensions::default(),
+    )
 }
 
 fn v30_predecessor_matches_with_successors(
     connection: &Connection,
     insert_trigger: &str,
     head_trigger: &str,
-    uses_v32_operation_indexes: bool,
+    operation_indexes: &[&str],
     extensions: &CredentialSchemaExtensions<'_>,
 ) -> SqliteResult<bool> {
     if !v30_v26_base_matches_with(
         connection,
         insert_trigger,
         head_trigger,
-        uses_v32_operation_indexes,
+        operation_indexes,
         extensions,
     )? || !v29_catalog_matches_with_extensions(
         connection,
-        if uses_v32_operation_indexes {
-            v32_operation_index_names()
-        } else {
-            &["provider_credential_one_non_terminal_operation"]
-        },
+        operation_indexes,
         extensions,
     )? {
         return Ok(false);
@@ -111,7 +113,7 @@ fn v30_v26_base_matches_with(
     connection: &Connection,
     insert_trigger: &str,
     head_trigger: &str,
-    uses_v32_operation_indexes: bool,
+    operation_indexes: &[&str],
     extensions: &CredentialSchemaExtensions<'_>,
 ) -> SqliteResult<bool> {
     if !v18_global_trigger_matches(connection)?
@@ -125,8 +127,10 @@ fn v30_v26_base_matches_with(
     if !v14
         || !provider_schema::v15_base_matches(connection, v14)?
         || !v28_operation_table_matches(connection)?
-        || !(if uses_v32_operation_indexes {
+        || !(if operation_indexes == v32_operation_index_names() {
             v32_operation_indexes_match(connection)?
+        } else if operation_indexes == v35_operation_index_names() {
+            v35_operation_indexes_match(connection)?
         } else {
             v24_index_matches(connection, "provider_credential_one_non_terminal_operation")?
         })
@@ -171,10 +175,10 @@ fn v30_v26_base_matches_with(
         }
     }
     if !v22_process_registry_matches(connection)?
-        || !(if uses_v32_operation_indexes {
+        || !(if operation_indexes == v32_operation_index_names() {
             inherited_indexes_match_with_v32_operation_indexes(connection)?
         } else {
-            inherited_indexes_match(connection)?
+            inherited_indexes_match_with_operation_indexes(connection, operation_indexes)?
         })
     {
         return Ok(false);

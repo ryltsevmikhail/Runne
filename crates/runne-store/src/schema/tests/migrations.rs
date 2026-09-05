@@ -122,7 +122,7 @@ fn schema_v6_adds_migration_tables_with_cycle_lineage_atomically() {
     let conn = Connection::open_in_memory().unwrap();
     apply_migrations(&conn).unwrap();
 
-    assert_eq!(CURRENT_SCHEMA_VERSION, 34);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 35);
     for table in [
         "migration_plans",
         "migration_transitions",

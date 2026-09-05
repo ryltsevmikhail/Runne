@@ -34,7 +34,7 @@ impl ObserveNativeEffect {
     }
 }
 
-/// Exact-absence proof for a failed create or import operation.
+/// Exact-absence proof for a failed create/import or superseded cleanup attempt.
 #[derive(Debug, PartialEq, Eq)]
 pub struct FailCredentialOperation {
     operation_id: CredentialOperationId,

@@ -58,6 +58,15 @@ fn credential_enrollment_transition_requires_exact_post_claim_evidence() {
     );
     assert!(
         transition(
+            Action::RetiredVersionCleanup,
+            State::NativeEffectObserved,
+            State::Failed,
+            Evidence::ExactAbsenceReadback(digest)
+        )
+        .is_ok()
+    );
+    assert!(
+        transition(
             Action::Revoke,
             State::Claimed,
             State::NativeEffectObserved,

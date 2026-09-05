@@ -16,24 +16,54 @@ fn revoke_allows_preexisting_retired_cleanup_to_delete_every_native_version() {
         revoke_after_rotation(revoke, active, 51, "revoke-after-rotation", 52),
     )
     .unwrap();
+    complete_revoke(&store, revoke);
 
-    let receipt = issue_ticket(&store, ticket(50, 1, 53, 54)).unwrap();
-    ProviderCredentialEnrollmentStore::claim(
+    let cleanup = prepare_retired_cleanup(&store, &retired);
+    ProviderCredentialEnrollmentStore::complete(
         &store,
+        cleanup_after_revoke_completion(cleanup),
+    )
+    .unwrap();
+
+    assert_eq!(version_state(&store, 1), "DELETED");
+    assert_eq!(version_state(&store, 2), "DELETED");
+    let head = ProviderCredentialEnrollmentStore::lifecycle_snapshot(&store, &provider()).unwrap();
+    assert!(head.active_version().is_none());
+    assert_eq!(head.lifecycle_revision().get(), 5);
+    assert_eq!(head.fence().get(), 5);
+}
+
+fn complete_revoke(
+    store: &super::SqliteProviderCredentialLifecycleStore,
+    revoke: runne_provider::CredentialOperationId,
+) {
+    let receipt = issue_ticket(
+        store,
+        runne_provider::IssueCredentialTicketDigest::new(
+            revoke,
+            digest(53),
+            digest(54),
+            100,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    ProviderCredentialEnrollmentStore::claim(
+        store,
         seal_claim(
-            &store,
+            store,
             ClaimCredentialOperation::new(receipt, digest(53), digest(54), digest(55), 1, 1)
                 .unwrap(),
         ),
     )
     .unwrap();
     ProviderCredentialEnrollmentStore::mark_native_effect_observed(
-        &store,
+        store,
         ObserveNativeEffect::new(revoke, CredentialNativeEffectDisposition::PossibleEffect),
     )
     .unwrap();
     ProviderCredentialEnrollmentStore::bind_readback(
-        &store,
+        store,
         BindCredentialReadback::new(
             revoke,
             CredentialReadbackDisposition::ExactAbsence,
@@ -55,7 +85,7 @@ fn revoke_allows_preexisting_retired_cleanup_to_delete_every_native_version() {
     )
     .unwrap();
     ProviderCredentialEnrollmentStore::complete(
-        &store,
+        store,
         CompleteCredentialOperation::new(
             revoke,
             BindCredentialReadback::new(
@@ -71,20 +101,6 @@ fn revoke_allows_preexisting_retired_cleanup_to_delete_every_native_version() {
         .with_readiness_observation(readiness),
     )
     .unwrap();
-
-    let cleanup = prepare_retired_cleanup(&store, &retired);
-    ProviderCredentialEnrollmentStore::complete(
-        &store,
-        cleanup_after_revoke_completion(cleanup),
-    )
-    .unwrap();
-
-    assert_eq!(version_state(&store, 1), "DELETED");
-    assert_eq!(version_state(&store, 2), "DELETED");
-    let head = ProviderCredentialEnrollmentStore::lifecycle_snapshot(&store, &provider()).unwrap();
-    assert!(head.active_version().is_none());
-    assert_eq!(head.lifecycle_revision().get(), 5);
-    assert_eq!(head.fence().get(), 5);
 }
 
 #[test]

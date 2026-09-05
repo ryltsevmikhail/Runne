@@ -94,6 +94,51 @@ pub(super) fn bind(
     if operation.state() != CredentialOperationState::NativeEffectObserved {
         return Err(CredentialLifecycleError::LifecycleClosed);
     }
+    let head = load_head(&transaction, operation.provider())?
+        .ok_or(CredentialLifecycleError::CorruptState)?;
+    if operation.action() == runne_provider::CredentialOperationAction::RetiredVersionCleanup
+        && input.disposition() == runne_provider::CredentialReadbackDisposition::ExactAbsence
+        && super::retired_cleanup::revoke_advanced_head(&transaction, &operation, &head)?
+    {
+        let command = store
+            .enrollment_authority
+            .issue_transition_command(
+                operation.action(),
+                operation.state(),
+                CredentialOperationState::Failed,
+                runne_provider::CredentialTransitionEvidence::ExactAbsenceReadback(
+                    input.observation_digest(),
+                ),
+            )
+            .map_err(|_| CredentialLifecycleError::Conflict)?;
+        store
+            .enrollment_authority
+            .validate_transition_command(&command)
+            .map_err(|_| CredentialLifecycleError::Conflict)?;
+        let now = (store.now)();
+        let changed = transaction.execute(
+            "UPDATE provider_credential_operations
+             SET state='FAILED', readback_observation_digest=?1,
+                 terminal_disposition='FAILED_WITH_VERIFIED_ABSENCE', updated_at=?2
+             WHERE operation_id=?3 AND state='NATIVE_EFFECT_OBSERVED'",
+            params![
+                input.observation_digest().as_bytes().as_slice(),
+                now,
+                input.operation_id().as_bytes().as_slice()
+            ],
+        ).map_err(map_sql)?;
+        if changed != 1 {
+            return Err(CredentialLifecycleError::Conflict);
+        }
+        super::retired_cleanup::create_next(&transaction, &operation, now)?;
+        let result = snapshot(
+            &transaction,
+            input.operation_id(),
+            &store.enrollment_authority,
+        )?;
+        transaction.commit().map_err(map_sql)?;
+        return Ok(result);
+    }
     let command = store
         .enrollment_authority
         .issue_transition_command(

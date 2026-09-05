@@ -91,9 +91,14 @@ pub(super) fn complete(
             super::compatibility_mirror::delete(&transaction, target)?;
         }
         CredentialOperationAction::RetiredVersionCleanup => {
-            if head.hard_fenced
-                || head.lifecycle != input.expected_lifecycle_revision().get() as i64
-                || head.fence != input.expected_prior_fence().get() as i64
+            let exact_head = !head.hard_fenced
+                && head.lifecycle == input.expected_lifecycle_revision().get() as i64
+                && head.fence == input.expected_prior_fence().get() as i64;
+            if !exact_head
+                || super::retired_cleanup::revoke_in_progress(
+                    &transaction,
+                    operation.provider(),
+                )?
             {
                 return Err(CredentialLifecycleError::Conflict);
             }

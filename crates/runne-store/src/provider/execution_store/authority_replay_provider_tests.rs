@@ -233,6 +233,7 @@ pub(super) fn upgraded_v25_for_provider(
              ALTER TABLE provider_credential_verification_observations DROP COLUMN release_tuple_digest;
              DROP TRIGGER provider_credential_head_active_lifecycle;
              DROP TRIGGER provider_credential_operation_insert_prepared;
+             DROP INDEX provider_credential_one_pending_retired_version_cleanup;
              DROP INDEX provider_credential_one_pending_legacy_source_cleanup;
              DROP INDEX provider_credential_one_non_terminal_operation;
              CREATE UNIQUE INDEX provider_credential_one_non_terminal_operation ON provider_credential_operations(provider_id) WHERE state NOT IN ('COMPLETED', 'FAILED', 'EXPIRED', 'CANCELLED', 'TOMBSTONED');

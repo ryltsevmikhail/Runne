@@ -186,7 +186,9 @@ fn allows_evidence(
         | (CredentialOperationState::NativeEffectObserved, CredentialOperationState::Failed) => {
             matches!(
                 action,
-                CredentialOperationAction::Pair | CredentialOperationAction::MigrateLegacy
+                CredentialOperationAction::Pair
+                    | CredentialOperationAction::MigrateLegacy
+                    | CredentialOperationAction::RetiredVersionCleanup
             ) && matches!(
                 evidence,
                 CredentialTransitionEvidence::ExactAbsenceReadback(_)

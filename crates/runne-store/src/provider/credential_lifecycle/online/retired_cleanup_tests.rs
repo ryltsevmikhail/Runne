@@ -17,6 +17,7 @@ include!("recovery_ledger_tests.rs");
 include!("recovery_admission_tests.rs");
 include!("recovery_claim_tests.rs");
 include!("revoked_retired_cleanup_tests.rs");
+include!("claimed_cleanup_revoke_tests.rs");
 
 #[test]
 fn rotation_creates_one_durable_retired_cleanup_without_test_insertion() {

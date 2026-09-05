@@ -256,7 +256,9 @@ fn readback_for(
         if matches!(
             (action, state),
             (
-                CredentialOperationAction::Pair | CredentialOperationAction::MigrateLegacy,
+                CredentialOperationAction::Pair
+                    | CredentialOperationAction::MigrateLegacy
+                    | CredentialOperationAction::RetiredVersionCleanup,
                 CredentialOperationState::Failed | CredentialOperationState::Tombstoned
             )
         ) {

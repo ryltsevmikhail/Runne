@@ -43,7 +43,7 @@ fn v33_family_matches(connection: &Connection, version: i64, cleanup_completion:
             connection,
             &v32_insert_trigger(),
             &v32_head_active_lifecycle_trigger(),
-            true,
+            v32_operation_index_names(),
             &extensions,
         )?
         || !v30_columns_match(connection)?

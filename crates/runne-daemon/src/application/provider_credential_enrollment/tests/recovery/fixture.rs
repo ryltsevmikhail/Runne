@@ -43,6 +43,20 @@ impl Fixture {
         Self::new(CredentialOperationAction::RetiredVersionCleanup, failure)
     }
 
+    pub(in super::super) fn retired_cleanup_after_revoke() -> Self {
+        let mut fixture = Self::retired_cleanup(FailurePoint::None);
+        fixture.lifecycle = CredentialLifecycleSnapshot::new(
+            provider(),
+            None,
+            revision(2),
+            fence(2),
+            readiness(2),
+            3,
+        )
+        .unwrap();
+        fixture
+    }
+
     pub(super) fn legacy_cleanup(failure: FailurePoint) -> Self {
         Self::new(CredentialOperationAction::LegacySourceCleanup, failure)
     }
@@ -226,6 +240,9 @@ impl Fixture {
         }
         if state == CredentialOperationState::Completed {
             metadata = metadata.with_terminal(CredentialTerminalDisposition::Completed);
+        } else if state == CredentialOperationState::Failed {
+            metadata =
+                metadata.with_terminal(CredentialTerminalDisposition::FailedWithVerifiedAbsence);
         }
         let next = CredentialOperationSnapshot::new(
             current.operation_id(),

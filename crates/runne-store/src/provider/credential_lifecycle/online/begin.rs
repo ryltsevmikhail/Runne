@@ -136,6 +136,7 @@ pub(super) fn begin(
             input.provider_id(),
             effective_now,
         )?;
+        super::retired_cleanup::ensure_revoke_overlap_safe(&transaction, input.provider_id())?;
     }
     let duplicate: Option<i64> = transaction.query_row("SELECT 1 FROM provider_credential_operations WHERE operation_id=?1 OR command_id=?2 OR idempotency_key=?3", params![input.operation_id().as_bytes().as_slice(), input.command_id().as_bytes().as_slice(), input.idempotency_key().as_str()], |row| row.get(0)).optional().map_err(map_sql)?;
     if duplicate.is_some() {

@@ -71,6 +71,19 @@ fn enrollment_recovery_retired_cleanup_completes_after_exact_absence() {
 }
 
 #[test]
+fn enrollment_recovery_supersedes_retired_cleanup_after_revoke_fence() {
+    let fixture = Fixture::retired_cleanup_after_revoke();
+    let reader = StatefulReader::new(&fixture);
+    let gateway = CredentialEnrollmentRecoveryGateway::new(&fixture, &reader);
+
+    gateway.reconcile_online(100).unwrap();
+
+    assert_eq!(fixture.state(), CredentialOperationState::Failed);
+    assert_eq!(fixture.events(), ["reconcile", "mark", "readback", "bind"]);
+    assert!(fixture.receipt().is_none());
+}
+
+#[test]
 fn enrollment_recovery_legacy_cleanup_preserves_v28_head_without_readiness_observation() {
     let fixture = Fixture::legacy_cleanup(FailurePoint::None);
     let reader = StatefulReader::new(&fixture);

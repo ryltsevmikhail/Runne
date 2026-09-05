@@ -126,11 +126,43 @@ pub(super) fn supersede_prepared(
     }
 }
 
+pub(super) fn ensure_revoke_overlap_safe(
+    transaction: &Transaction<'_>,
+    provider: &runne_provider::ProviderId,
+) -> Result<(), CredentialLifecycleError> {
+    let state: Option<String> = transaction
+        .query_row(
+            "SELECT state FROM provider_credential_operations
+             WHERE provider_id=?1 AND action='RETIRED_VERSION_CLEANUP'
+               AND state NOT IN ('COMPLETED', 'FAILED', 'EXPIRED', 'CANCELLED', 'TOMBSTONED')",
+            [provider.as_str()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(map_sql)?;
+    match state.as_deref() {
+        None | Some("CLAIMED" | "NATIVE_EFFECT_OBSERVED") => Ok(()),
+        Some(_) => Err(CredentialLifecycleError::Conflict),
+    }
+}
+
 pub(super) fn create_next(
     transaction: &Transaction<'_>,
     parent: &CredentialOperationSnapshot,
     now: i64,
 ) -> Result<(), CredentialLifecycleError> {
+    let pending: bool = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM provider_credential_operations
+             WHERE provider_id=?1 AND action='RETIRED_VERSION_CLEANUP'
+               AND state NOT IN ('COMPLETED', 'FAILED', 'EXPIRED', 'CANCELLED', 'TOMBSTONED'))",
+            [parent.provider().as_str()],
+            |row| row.get(0),
+        )
+        .map_err(map_sql)?;
+    if pending {
+        return Ok(());
+    }
     let retired: Option<(i64, Vec<u8>)> = transaction
         .query_row(
             "SELECT credential_version, ref_digest FROM provider_credential_versions
@@ -154,6 +186,49 @@ pub(super) fn create_next(
         return Err(CredentialLifecycleError::CorruptState);
     }
     create(transaction, parent, &retired, now)
+}
+
+pub(super) fn revoke_advanced_head(
+    transaction: &Transaction<'_>,
+    operation: &CredentialOperationSnapshot,
+    head: &super::rows::Head,
+) -> Result<bool, CredentialLifecycleError> {
+    let expected_lifecycle = i64::try_from(operation.lifecycle_revision().get())
+        .map_err(|_| CredentialLifecycleError::CorruptState)?;
+    let expected_fence =
+        i64::try_from(operation.fence().get()).map_err(|_| CredentialLifecycleError::CorruptState)?;
+    let advanced = head.lifecycle == expected_lifecycle + 1
+        && head.fence == expected_fence + 1
+        && head.active.is_none()
+        && !head.hard_fenced;
+    if !advanced {
+        return Ok(false);
+    }
+    transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM provider_credential_operations
+             WHERE provider_id=?1 AND action='REVOKE'
+               AND state NOT IN ('EXPIRED', 'CANCELLED', 'TOMBSTONED')
+               AND expected_lifecycle_revision=?2 AND expected_credential_fence=?3)",
+            params![operation.provider().as_str(), expected_lifecycle, expected_fence],
+            |row| row.get(0),
+        )
+        .map_err(map_sql)
+}
+
+pub(super) fn revoke_in_progress(
+    transaction: &Transaction<'_>,
+    provider: &runne_provider::ProviderId,
+) -> Result<bool, CredentialLifecycleError> {
+    transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM provider_credential_operations
+             WHERE provider_id=?1 AND action='REVOKE'
+               AND state NOT IN ('COMPLETED', 'FAILED', 'EXPIRED', 'CANCELLED', 'TOMBSTONED'))",
+            [provider.as_str()],
+            |row| row.get(0),
+        )
+        .map_err(map_sql)
 }
 
 fn binding(
