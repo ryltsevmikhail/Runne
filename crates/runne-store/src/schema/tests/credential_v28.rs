@@ -45,7 +45,7 @@ fn v28_catalog_matches_the_applied_receipt_schema() {
 }
 
 #[test]
-fn production_store_open_migrates_v28_to_v35() {
+fn production_store_open_migrates_v28_to_v36() {
     let directory = tempfile::tempdir().unwrap();
     let created = directory.path().join("created-v28.sqlite");
     let connection = Connection::open(&created).unwrap();
@@ -62,8 +62,8 @@ fn production_store_open_migrates_v28_to_v35() {
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&migrated).unwrap());
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&migrated).unwrap());
     let connection = Connection::open(&migrated).unwrap();
-    assert_eq!(current_schema_marker(&connection), 35);
-    assert!(v35_matches(&connection, 35).unwrap());
+    assert_eq!(current_schema_marker(&connection), 36);
+    assert!(v36_matches(&connection, 36).unwrap());
 }
 
 #[test]

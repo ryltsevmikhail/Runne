@@ -28,7 +28,25 @@ fn v35_operation_indexes_match(connection: &Connection) -> SqliteResult<bool> {
 }
 
 pub(super) fn v35_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    let triggers = V33_TRIGGERS.map(|name| (name, v33_trigger_source(name)));
+    if version != 35 || !v35_catalog_matches(connection, &[])? {
+        return Ok(false);
+    }
+    let marker: (i64, i64, i64, i64) = connection.query_row(
+        "SELECT COALESCE(MAX(version), 0), COALESCE(MIN(version), 0), COUNT(*), COALESCE(SUM(version), 0) FROM schema_version",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    )?;
+    Ok(matches!(marker, (35, 1, 34, 611) | (35, 1, 35, 630)))
+}
+
+fn v35_catalog_matches(
+    connection: &Connection,
+    additional_triggers: &[(&str, &str)],
+) -> SqliteResult<bool> {
+    let mut triggers = V33_TRIGGERS
+        .map(|name| (name, v33_trigger_source(name)))
+        .to_vec();
+    triggers.extend_from_slice(additional_triggers);
     let attachment = v34_attachment_trigger();
     let ticket = v33_ticket_trigger();
     let completion = v34_completion_trigger();
@@ -45,8 +63,7 @@ pub(super) fn v35_matches(connection: &Connection, version: i64) -> SqliteResult
         triggers: &triggers,
         replacements: &replacements,
     };
-    if version != 35
-        || !v30_predecessor_matches_with_successors(
+    if !v30_predecessor_matches_with_successors(
             connection,
             &v32_insert_trigger(),
             &v32_head_active_lifecycle_trigger(),
@@ -67,10 +84,5 @@ pub(super) fn v35_matches(connection: &Connection, version: i64) -> SqliteResult
     {
         return Ok(false);
     }
-    let marker: (i64, i64, i64, i64) = connection.query_row(
-        "SELECT COALESCE(MAX(version), 0), COALESCE(MIN(version), 0), COUNT(*), COALESCE(SUM(version), 0) FROM schema_version",
-        [],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-    )?;
-    Ok(matches!(marker, (35, 1, 34, 611) | (35, 1, 35, 630)))
+    Ok(true)
 }

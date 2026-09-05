@@ -232,6 +232,7 @@ pub(super) fn upgraded_v25_for_provider(
              ALTER TABLE provider_credential_verification_observations DROP COLUMN readiness_revision;
              ALTER TABLE provider_credential_verification_observations DROP COLUMN release_tuple_digest;
              DROP TRIGGER provider_credential_head_active_lifecycle;
+             DROP TRIGGER provider_credential_revoke_irreversible;
              DROP TRIGGER provider_credential_operation_insert_prepared;
              DROP INDEX provider_credential_one_pending_retired_version_cleanup;
              DROP INDEX provider_credential_one_pending_legacy_source_cleanup;
