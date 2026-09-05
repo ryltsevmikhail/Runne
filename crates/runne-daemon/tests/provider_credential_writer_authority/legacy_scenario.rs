@@ -203,7 +203,10 @@ pub(super) fn seed_legacy_source(context: &InnerContext) -> Result<(), &'static 
             &exact,
             scenario_revision()?,
         )
-        .map_err(|_| "seed-generation-zero")?;
+        .map_err(|error| {
+            eprintln!("SEED ERROR: {error:?}");
+            "seed-generation-zero"
+        })?;
     assert_seeded_item_is_visible();
     Ok(())
 }

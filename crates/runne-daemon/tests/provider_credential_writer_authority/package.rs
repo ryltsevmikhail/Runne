@@ -141,6 +141,15 @@ impl LocalPackage {
     }
 }
 
+/// Prints the swallowed build output once so a package staging failure is
+/// diagnosable from the scenario log alone.
+fn build_failed(output: &std::process::Output, error: &'static str) -> &'static str {
+    eprintln!("LEGACY BUILD FAILURE ({error}):");
+    eprintln!("{}", String::from_utf8_lossy(&output.stdout));
+    eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+    error
+}
+
 fn build_credential_service(repository: &Path) -> Result<PathBuf, &'static str> {
     let target = repository.join("target/slice-e-real-process-build");
     let output = Command::new("cargo")
@@ -160,7 +169,7 @@ fn build_credential_service(repository: &Path) -> Result<PathBuf, &'static str> 
         .output()
         .map_err(|_| "service-build-command")?;
     if !output.status.success() {
-        return Err("service-build-status");
+        return Err(build_failed(&output, "service-build-status"));
     }
     let binary = target.join("debug/runne-credential-service");
     binary
@@ -198,7 +207,7 @@ fn build_runne(
         .output()
         .map_err(|_| "runne-build-command")?;
     if !output.status.success() {
-        return Err("runne-build-status");
+        return Err(build_failed(&output, "runne-build-status"));
     }
     let binary = target.join("debug/runne");
     binary
@@ -241,7 +250,7 @@ fn build_runned(
         .output()
         .map_err(|_| "runned-build-command")?;
     if !output.status.success() {
-        return Err("runned-build-status");
+        return Err(build_failed(&output, "runned-build-status"));
     }
     let binary = target.join(if release {
         "release/runned"

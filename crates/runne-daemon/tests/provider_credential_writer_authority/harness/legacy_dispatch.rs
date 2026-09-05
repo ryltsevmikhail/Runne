@@ -88,7 +88,7 @@ fn run_outer(
         false,
         super::super::package::PackageMode::CredentialService,
     )
-    .map_err(|_| "legacy local package")?;
+    .inspect_err(|stage| eprintln!("LEGACY PACKAGE STAGE: {stage}"))?;
     let mut service = super::super::service_process::TemporaryCredentialService::bootstrap(
         keychain.root(),
         keychain.home(),
@@ -181,6 +181,10 @@ fn collect_child_and_service_sinks(
         return Err("legacy child output exceeded the collection bound");
     }
     if !status.success() {
+        // The child's own failure report is the only diagnosable artifact of a
+        // failed scenario; print its bounded tail before failing closed.
+        eprintln!("LEGACY CHILD STDERR TAIL:");
+        eprintln!("{}", String::from_utf8_lossy(&child_stderr));
         return Err("legacy child process failed");
     }
     if [
