@@ -14,6 +14,7 @@ local-native-enrollment-test = [
     "runne-api/test-support",
     "runne-native-enrollment-authority/local-native-enrollment-test",
     "runne-secure-store/local-native-enrollment-test",
+    "runne-secure-store/test-support",
 ]
 persistent-reference-probe = [
     "local-native-enrollment-test",

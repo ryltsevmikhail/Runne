@@ -45,16 +45,56 @@ fn inner(
     }
 }
 
-/// Seeds the generation-0 legacy source, then drives the production daemon
-/// MigrateLegacy transcript to its durable cutover.
+/// The fixture-only legacy seed mode selector for the staged writer binary.
+pub(super) const LEGACY_SEED_MODE: &str = "__slice-e-legacy-seed-v1";
+
+/// The staged writer (whose signed identity alone is in the item's exact ACL)
+/// seeds the generation-0 legacy source; this untrusted scenario process only
+/// proves that direct seeding and reads are denied for it. Then the production
+/// daemon MigrateLegacy transcript runs to its durable cutover.
 pub(super) fn import_stage(context: &InnerContext) -> Result<(), &'static str> {
-    seed_legacy_source(context)?;
+    assert_untrusted_child_is_denied(context)?;
+    assert_seeded_item_is_visible();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|_| "tokio-runtime")?;
     runtime.block_on(migrate_transcript(context))?;
     assert_durable_migrate_state(context)
+}
+
+/// Negative control: this packaged scenario process is not the staged writer,
+/// so the exact ACL must deny both direct seeding and direct reads.
+fn assert_untrusted_child_is_denied(context: &InnerContext) -> Result<(), &'static str> {
+    use runne_secure_store::{
+        NativeProviderCredentialStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
+        ProviderCredentialMaterial, ProviderCredentialStore,
+    };
+    let store = NativeProviderCredentialStore::new();
+    let access = ProviderCredentialAccessPolicy::new(&context.writer(), context.daemon())
+        .map_err(|_| "seed-access-policy")?;
+    let exact =
+        runne_macos_keychain_acl::ExactKeychainAccess::new(&context.writer(), context.daemon())
+            .map_err(|_| "seed-exact-access")?;
+    let material = ProviderCredentialMaterial::new(super::audit::secret_canary(context.root()))
+        .map_err(|_| "seed-material")?;
+    let seed_attempt = store.seed_generation_zero_source_scenario(
+        ProviderCredentialId::OpenAi,
+        &material,
+        &access,
+        &exact,
+        scenario_revision()?,
+    );
+    match &seed_attempt {
+        Err(runne_secure_store::SecureStoreError::CredentialAccessDenied) => {}
+        _ => return Err("seed-negative-denial-missing"),
+    }
+    let read_attempt = store.load_provider_credential(ProviderCredentialId::OpenAi, &access);
+    assert!(
+        read_attempt.is_err(),
+        "untrusted scenario process must not read the legacy source"
+    );
+    Ok(())
 }
 
 async fn migrate_transcript(context: &InnerContext) -> Result<(), &'static str> {
@@ -178,35 +218,6 @@ fn assert_durable_migrate_state(context: &InnerContext) -> Result<(), &'static s
     {
         return Err("durable-cutover-linkage");
     }
-    assert_seeded_item_is_visible();
-    Ok(())
-}
-
-pub(super) fn seed_legacy_source(context: &InnerContext) -> Result<(), &'static str> {
-    use runne_secure_store::{
-        NativeProviderCredentialStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
-        ProviderCredentialMaterial,
-    };
-    let store = NativeProviderCredentialStore::new();
-    let access = ProviderCredentialAccessPolicy::new(&context.writer(), context.daemon())
-        .map_err(|_| "seed-access-policy")?;
-    let exact =
-        runne_macos_keychain_acl::ExactKeychainAccess::new(&context.writer(), context.daemon())
-            .map_err(|_| "seed-exact-access")?;
-    let material = ProviderCredentialMaterial::new(super::audit::secret_canary(context.root()))
-        .map_err(|_| "seed-material")?;
-    store
-        .seed_generation_zero_source_scenario(
-            ProviderCredentialId::OpenAi,
-            &material,
-            &access,
-            &exact,
-            scenario_revision()?,
-        )
-        .map_err(|error| {
-            eprintln!("SEED ERROR: {error:?}");
-            "seed-generation-zero"
-        })?;
     assert_seeded_item_is_visible();
     Ok(())
 }

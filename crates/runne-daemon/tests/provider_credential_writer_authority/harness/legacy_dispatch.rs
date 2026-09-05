@@ -1,26 +1,22 @@
-use std::ffi::OsString;
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::super::legacy_evidence::{
-    LEGACY_CLEANUP_CANDIDATE_ENV, LEGACY_CLEANUP_EVIDENCE_ENV, LEGACY_CLEANUP_RUN_ID_ENV,
-    LEGACY_CLEANUP_TUPLE_ENV, LEGACY_SCENARIO_NAMES, LegacyCleanupEvidence, LegacyEvidenceBindings,
+    LEGACY_SCENARIO_NAMES, LegacyCleanupEvidence, LegacyEvidenceBindings,
 };
 
+#[path = "legacy_plan.rs"]
+mod legacy_plan;
+
+pub(super) use legacy_plan::{legacy_child_plan, legacy_preflight};
 #[path = "legacy_sinks.rs"]
 mod legacy_sinks;
 
 use legacy_sinks::{MAX_SERVICE_LOG_BYTES, bounded_wait, read_bounded_sink, spawn_bounded_drain};
 
-const ISOLATED_ENV: &str = "RUNNE_LEGACY_CLEANUP_ISOLATED";
 const SERVICE_STDOUT: &str = "credential-service.stdout";
 const SERVICE_STDERR: &str = "credential-service.stderr";
-
-pub(super) struct LegacyChildPlan {
-    pub(super) args: Vec<&'static str>,
-    pub(super) environment: Vec<(&'static str, OsString)>,
-}
 
 pub(super) fn dispatch(
     selector: &'static str,
@@ -34,7 +30,7 @@ pub(super) fn dispatch(
         return;
     }
     let bindings = LegacyEvidenceBindings::from_environment()
-        .and_then(legacy_preflight_from_environment)
+        .and_then(legacy_plan::legacy_preflight_from_environment)
         .unwrap_or_else(|stage| panic!("{stage}"));
     let _lock = super::PROCESS_LOCK
         .lock()
@@ -99,7 +95,55 @@ fn run_outer(
     let secret = super::super::audit::secret_canary(keychain.root());
     let patterns = super::super::audit::sensitive_patterns(&secret);
     let fragment = keychain.root().join("legacy-evidence-fragment.json");
-    let plan = legacy_child_plan(selector, scenario, fragment.clone(), bindings);
+    // The staged writer — the one trusted app in the seeded item's exact ACL —
+    // creates the generation-0 legacy item before the scenario child starts.
+    // The scenario process itself must stay denied that creation (negative
+    // control inside the child). All spawn arguments are fixture-internal
+    // constants; no shell is involved.
+    let mut seed_writer = Command::new(package.writer())
+        .arg(super::super::legacy_scenario::LEGACY_SEED_MODE)
+        .env_clear()
+        .env("HOME", keychain.home())
+        .env("RUNNE_CI_MACOS_KEYCHAIN", keychain.path())
+        .env("RUNNE_LOCAL_NATIVE_ENROLLMENT_TEST", "1")
+        .env(
+            super::INNER_CASE,
+            super::super::legacy_scenario::LEGACY_SEED_MODE,
+        )
+        .env("RUNNE_SLICE_E_FIXTURE_ROOT", keychain.root())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| "legacy seed writer launch")?;
+    {
+        let mut stdin = seed_writer.stdin.take().ok_or("legacy seed stdin")?;
+        use std::io::Write as _;
+        stdin
+            .write_all(&secret)
+            .map_err(|_| "legacy seed stdin write")?;
+    }
+    let mut seed_stderr = String::new();
+    if let Some(mut stderr) = seed_writer.stderr.take() {
+        use std::io::Read as _;
+        stderr
+            .read_to_string(&mut seed_stderr)
+            .map_err(|_| "legacy seed stderr read")?;
+    }
+    let seed_status = seed_writer.wait().map_err(|_| "legacy seed wait")?;
+    if !seed_status.success() {
+        // The closed failure stage names the exact failing fixture step; the
+        // marker is non-secret and bounded by the seed child itself.
+        use std::os::unix::process::ExitStatusExt as _;
+        eprintln!(
+            "LEGACY SEED WRITER FAILED: code={:?} signal={:?} stderr tail: {}",
+            seed_status.code(),
+            seed_status.signal(),
+            seed_stderr
+        );
+        return Err("legacy seed writer failed");
+    }
+    let plan = legacy_plan::legacy_child_plan(selector, scenario, fragment.clone(), bindings);
     let mut child = Command::new(package.desktop())
         .args(&plan.args)
         .env_clear()
@@ -202,58 +246,4 @@ fn collect_child_and_service_sinks(
         return Err("legacy child output contains sensitive material");
     }
     LegacyCleanupEvidence::read_fragment(fragment, scenario, bindings)
-}
-
-pub(super) fn legacy_preflight(
-    isolated: &str,
-    candidate: String,
-    tuple: String,
-    run_id: String,
-    final_path: std::path::PathBuf,
-) -> Result<LegacyEvidenceBindings, &'static str> {
-    if isolated != "1" {
-        return Err("legacy cleanup isolated host opt-in is required");
-    }
-    LegacyEvidenceBindings::from_values(candidate, tuple, run_id, final_path)
-}
-
-fn legacy_preflight_from_environment(
-    bindings: LegacyEvidenceBindings,
-) -> Result<LegacyEvidenceBindings, &'static str> {
-    if std::env::var(ISOLATED_ENV).as_deref() != Ok("1") {
-        return Err("legacy cleanup isolated host opt-in is required");
-    }
-    Ok(bindings)
-}
-
-pub(super) fn legacy_child_plan(
-    selector: &'static str,
-    _scenario: &'static str,
-    child_path: std::path::PathBuf,
-    bindings: &LegacyEvidenceBindings,
-) -> LegacyChildPlan {
-    LegacyChildPlan {
-        args: vec![
-            "--ignored",
-            "--exact",
-            selector,
-            "--nocapture",
-            "--test-threads=1",
-        ],
-        environment: vec![
-            (
-                LEGACY_CLEANUP_CANDIDATE_ENV,
-                OsString::from(bindings.candidate_sha256()),
-            ),
-            (LEGACY_CLEANUP_EVIDENCE_ENV, child_path.into_os_string()),
-            (
-                LEGACY_CLEANUP_RUN_ID_ENV,
-                OsString::from(bindings.workflow_run_id()),
-            ),
-            (
-                LEGACY_CLEANUP_TUPLE_ENV,
-                OsString::from(bindings.tuple_sha256()),
-            ),
-        ],
-    }
 }
