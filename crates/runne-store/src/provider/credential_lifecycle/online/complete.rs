@@ -132,6 +132,12 @@ pub(super) fn complete(
     {
         super::retired_cleanup::create(&transaction, &operation, retired, (store.now)())?;
     }
+    if matches!(
+        operation.action(),
+        CredentialOperationAction::Revoke | CredentialOperationAction::RetiredVersionCleanup
+    ) {
+        super::retired_cleanup::create_next(&transaction, &operation, (store.now)())?;
+    }
     transaction.commit().map_err(map_sql)?;
     Ok(result)
 }

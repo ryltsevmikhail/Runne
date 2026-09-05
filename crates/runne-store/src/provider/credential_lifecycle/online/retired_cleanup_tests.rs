@@ -16,6 +16,7 @@ use super::online_test_support::{
 include!("recovery_ledger_tests.rs");
 include!("recovery_admission_tests.rs");
 include!("recovery_claim_tests.rs");
+include!("revoked_retired_cleanup_tests.rs");
 
 #[test]
 fn rotation_creates_one_durable_retired_cleanup_without_test_insertion() {
@@ -179,7 +180,7 @@ fn prepare_retired_cleanup(
 ) -> runne_provider::CredentialOperationId {
     let bytes: Vec<u8> = store.connection.lock().unwrap().query_row(
         "SELECT operation_id FROM provider_credential_operations
-         WHERE action='RETIRED_VERSION_CLEANUP' AND target_ref_digest=?1",
+         WHERE action='RETIRED_VERSION_CLEANUP' AND target_ref_digest=?1 AND state='PREPARED'",
         [retired.ref_digest().as_slice()], |row| row.get(0),
     ).unwrap();
     let cleanup = runne_provider::CredentialOperationId::from_bytes(bytes.try_into().unwrap())

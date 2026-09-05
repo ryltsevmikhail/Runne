@@ -130,6 +130,13 @@ pub(super) fn begin(
     {
         return Err(CredentialLifecycleError::Conflict);
     }
+    if input.action() == CredentialOperationAction::Revoke {
+        super::retired_cleanup::supersede_prepared(
+            &transaction,
+            input.provider_id(),
+            effective_now,
+        )?;
+    }
     let duplicate: Option<i64> = transaction.query_row("SELECT 1 FROM provider_credential_operations WHERE operation_id=?1 OR command_id=?2 OR idempotency_key=?3", params![input.operation_id().as_bytes().as_slice(), input.command_id().as_bytes().as_slice(), input.idempotency_key().as_str()], |row| row.get(0)).optional().map_err(map_sql)?;
     if duplicate.is_some() {
         return Err(CredentialLifecycleError::Conflict);
