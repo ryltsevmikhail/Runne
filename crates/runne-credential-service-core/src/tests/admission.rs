@@ -245,7 +245,7 @@ fn native_backend_results_map_to_the_closed_writer_reply_vocabulary() {
     }
 }
 
-fn registered_core() -> CredentialServiceCore {
+pub(super) fn registered_core() -> CredentialServiceCore {
     let mut core = CredentialServiceCore::with_test_epoch(EPOCH).unwrap();
     register(
         &mut core,
