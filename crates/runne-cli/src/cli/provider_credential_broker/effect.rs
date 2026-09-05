@@ -71,16 +71,20 @@ pub fn execute_pair_effect(authority: AuthorizedPairWriterControl) -> Result<(),
 }
 
 #[cfg(feature = "local-native-enrollment-test")]
-fn pause_after_legacy_source_delete(
+fn pause_after_native_delete(
     result: &Result<(), CliError>,
-    legacy_source_cleanup: bool,
+    action: CredentialOperationAction,
 ) -> Result<(), CliError> {
-    if result.is_ok()
-        && legacy_source_cleanup
-        && runne_api::test_support::local_native_enrollment_case()
-            .is_some_and(runne_api::test_support::LocalNativeEnrollmentCase::crashes_after_legacy_source_delete)
-    {
-        wait_for_legacy_delete_release()?;
+    let case = runne_api::test_support::local_native_enrollment_case();
+    let barrier = match (case, action) {
+        (Some(case), CredentialOperationAction::LegacySourceCleanup)
+            if case.crashes_after_legacy_source_delete() => Some("legacy-source-delete"),
+        (Some(case), CredentialOperationAction::RetiredVersionCleanup)
+            if case.crashes_after_retired_version_delete() => Some("retired-version-delete"),
+        _ => None,
+    };
+    if result.is_ok() && let Some(barrier) = barrier {
+        wait_for_delete_release(barrier)?;
         // This is the exact retained writer process. It runs after the
         // authenticated native deletion and before the durable observation frame.
         nix::sys::signal::raise(nix::sys::signal::Signal::SIGKILL)
@@ -90,7 +94,7 @@ fn pause_after_legacy_source_delete(
 }
 
 #[cfg(feature = "local-native-enrollment-test")]
-fn wait_for_legacy_delete_release() -> Result<(), CliError> {
+fn wait_for_delete_release(name: &str) -> Result<(), CliError> {
     use std::io::Write as _;
     use std::os::unix::fs::PermissionsExt as _;
     use std::time::{Duration, Instant};
@@ -99,8 +103,8 @@ fn wait_for_legacy_delete_release() -> Result<(), CliError> {
         std::env::var_os("RUNNE_SLICE_E_FIXTURE_ROOT").ok_or(CliError::CredentialOperation)?,
     )
     .map_err(|_| CliError::CredentialOperation)?;
-    let marker = root.join("legacy-source-delete.marker");
-    let release = root.join("legacy-source-delete.release");
+    let marker = root.join(format!("{name}.marker"));
+    let release = root.join(format!("{name}.release"));
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -134,7 +138,7 @@ pub fn execute_non_pair_effect(authority: AuthorizedWriterControl) -> Result<(),
         service_handoff,
     } = authority.into_effect_parts();
     #[cfg(feature = "local-native-enrollment-test")]
-    let legacy_source_cleanup = matches!(&effect_kind, NonPairWriterEffectKind::DeleteLegacySource);
+    let fault_action = command.action();
     let result = match (effect_route, effect_kind) {
         (NativeProviderCredentialEffectRoute::Legacy(writer), effect_kind) => match effect_kind {
             NonPairWriterEffectKind::Delete => {
@@ -210,7 +214,7 @@ pub fn execute_non_pair_effect(authority: AuthorizedWriterControl) -> Result<(),
         }
     };
     #[cfg(feature = "local-native-enrollment-test")]
-    pause_after_legacy_source_delete(&result, legacy_source_cleanup)?;
+    pause_after_native_delete(&result, fault_action)?;
     control.write_frame(CredentialBrokerFrame::NativeEffectObserved {
         operation_id: command.operation_id(),
         binding,

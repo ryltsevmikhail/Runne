@@ -40,6 +40,10 @@ mod process_faults;
 mod release_fault_support;
 #[path = "provider_credential_writer_authority/release_faults.rs"]
 mod release_faults;
+#[path = "provider_credential_writer_authority/revocation.rs"]
+mod revocation;
+#[path = "provider_credential_writer_authority/revocation_state.rs"]
+mod revocation_state;
 #[path = "provider_credential_writer_authority/scoped_cleanup.rs"]
 mod scoped_cleanup;
 #[path = "provider_credential_writer_authority/service_process.rs"]
@@ -105,4 +109,9 @@ fn writer_death_readback_recovers_without_replaying_effect() {
 #[test]
 fn real_process_sinks_and_receipts_contain_no_sensitive_material() {
     leakage::run();
+}
+
+#[test]
+fn revoke_partial_native_delete_recovers_without_restoring_old_versions() {
+    revocation::run();
 }
