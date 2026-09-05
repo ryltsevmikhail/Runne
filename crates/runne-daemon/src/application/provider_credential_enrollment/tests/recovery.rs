@@ -29,6 +29,44 @@ fn enrollment_recovery_revoke_completes_against_the_already_fenced_head() {
 }
 
 #[test]
+fn enrollment_recovery_revoke_failures_never_publish_downstream_completion() {
+    for (failure, state, events) in [
+        (
+            FailurePoint::Mark,
+            CredentialOperationState::Claimed,
+            &["reconcile", "mark"][..],
+        ),
+        (
+            FailurePoint::Readback,
+            CredentialOperationState::NativeEffectObserved,
+            &["reconcile", "mark", "readback"][..],
+        ),
+        (
+            FailurePoint::Bind,
+            CredentialOperationState::NativeEffectObserved,
+            &["reconcile", "mark", "readback", "bind"][..],
+        ),
+        (
+            FailurePoint::Complete,
+            CredentialOperationState::ReadbackVerified,
+            &["reconcile", "mark", "readback", "bind", "complete"][..],
+        ),
+    ] {
+        let fixture = Fixture::new(CredentialOperationAction::Revoke, failure);
+        let reader = StatefulReader::new(&fixture);
+        let gateway = CredentialEnrollmentRecoveryGateway::new(&fixture, &reader);
+
+        assert_eq!(
+            gateway.reconcile_online(100),
+            Err(ProviderCredentialEnrollmentHostError::Unavailable)
+        );
+        assert_eq!(fixture.state(), state);
+        assert_eq!(fixture.events(), events);
+        assert!(fixture.receipt().is_none());
+    }
+}
+
+#[test]
 fn enrollment_recovery_legacy_cleanup_accepts_newer_head_after_rotation() {
     let fixture = Fixture::legacy_cleanup_after_rotation();
     let reader = StatefulReader::new(&fixture);

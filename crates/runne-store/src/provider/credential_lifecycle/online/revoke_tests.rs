@@ -1,6 +1,7 @@
 use runne_provider::{
     BindCredentialReadback, ClaimCredentialOperation, ClosePreparedCredentialOperation,
-    CompleteCredentialOperation, CredentialFence, CredentialLifecycleRevision,
+    CompleteCredentialOperation, BeginCredentialOperationOutcome, CredentialFence,
+    CredentialLifecycleError, CredentialLifecycleRevision,
     CredentialNativeEffectDisposition, CredentialOperationState, CredentialReadbackDisposition,
     CredentialReadinessDisposition, CredentialReadinessObservation, CredentialReadinessRevision,
     CredentialVersionRef, CredentialVersionState, ObserveNativeEffect, ProviderCredentialEnrollmentStore,
@@ -70,6 +71,44 @@ fn credential_online_revoke_fence_survives_reopen_before_native_deletion() {
         .unwrap();
     assert_eq!(pending.state(), runne_provider::CredentialOperationState::Prepared);
     assert_eq!(pending.target_credential_version(), before.active_version());
+}
+
+#[test]
+fn credential_online_revoke_exact_replay_never_advances_the_committed_fence_twice() {
+    let store = store();
+    complete_pair(&store, 10, "paired-before-replay");
+    assert!(matches!(
+        ProviderCredentialEnrollmentStore::begin(
+            &store,
+            revoke(20, "revoke-replay", 2, 2),
+        )
+        .unwrap(),
+        BeginCredentialOperationOutcome::FreshWinner(_)
+    ));
+    let once = ProviderCredentialEnrollmentStore::lifecycle_snapshot(&store, &provider()).unwrap();
+    assert!(matches!(
+        ProviderCredentialEnrollmentStore::begin(
+            &store,
+            revoke(20, "revoke-replay", 2, 2),
+        )
+        .unwrap(),
+        BeginCredentialOperationOutcome::ExactReplay(_)
+    ));
+    let replayed =
+        ProviderCredentialEnrollmentStore::lifecycle_snapshot(&store, &provider()).unwrap();
+
+    assert_eq!(replayed, once);
+    assert_eq!(
+        ProviderCredentialEnrollmentStore::begin(
+            &store,
+            revoke(21, "distinct-revoke-after-fence", 2, 2),
+        ),
+        Err(CredentialLifecycleError::Conflict)
+    );
+    assert_eq!(
+        ProviderCredentialEnrollmentStore::lifecycle_snapshot(&store, &provider()).unwrap(),
+        once
+    );
 }
 
 #[test]
