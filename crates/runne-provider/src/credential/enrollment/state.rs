@@ -182,6 +182,12 @@ fn allows_evidence(
     evidence: CredentialTransitionEvidence,
 ) -> bool {
     match (from, to) {
+        (
+            CredentialOperationState::Prepared,
+            CredentialOperationState::Failed
+            | CredentialOperationState::Expired
+            | CredentialOperationState::Cancelled,
+        ) if action == CredentialOperationAction::Revoke => false,
         (CredentialOperationState::Claimed, CredentialOperationState::Failed)
         | (CredentialOperationState::NativeEffectObserved, CredentialOperationState::Failed) => {
             matches!(

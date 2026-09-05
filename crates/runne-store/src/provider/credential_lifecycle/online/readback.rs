@@ -182,7 +182,9 @@ pub(super) fn close(
         input.operation_id(),
         &store.enrollment_authority,
     )?;
-    if operation.state() != CredentialOperationState::Prepared {
+    if operation.state() != CredentialOperationState::Prepared
+        || operation.action() == runne_provider::CredentialOperationAction::Revoke
+    {
         return Err(CredentialLifecycleError::LifecycleClosed);
     }
     let terminal = if target == CredentialOperationState::Cancelled {
