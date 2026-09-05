@@ -116,7 +116,7 @@ fn begin_recovers_then_returns_the_exact_idempotent_prepared_projection() {
         ));
     }
     let begin = super::super::begin::ProviderCredentialEnrollmentBegin::new(
-        ProviderCredentialAdmission::new(verifier, measurements),
+        ProviderCredentialAdmission::new(verifier.clone(), measurements.clone()),
         handles.duplicate(),
         &store,
         &reader,
@@ -165,15 +165,34 @@ fn begin_recovers_then_returns_the_exact_idempotent_prepared_projection() {
         .unwrap();
     assert_eq!(handoff.rendezvous_facts(), transition_facts);
     assert!(!rendezvous.has_live(operation.operation_id(), 100));
-    let consumed_replay = begin
+    let detached_replay = begin
         .admit(&authority, &proof, &context, &command, 100)
         .unwrap();
-    assert_eq!(consumed_replay.operation_handle(), first.operation_handle());
+    assert_eq!(detached_replay.operation_handle(), first.operation_handle());
     assert_eq!(
-        consumed_replay.state(),
+        detached_replay.state(),
+        ProviderCredentialOperationStateV2::Prepared
+    );
+    assert_eq!(detached_replay.broker_rendezvous_id(), None);
+    let restarted = super::super::begin::ProviderCredentialEnrollmentBegin::new(
+        ProviderCredentialAdmission::new(verifier, measurements),
+        handles.duplicate(),
+        &store,
+        &reader,
+        super::super::broker::pending::PendingBrokerRendezvousRegistry::new(handles.duplicate()),
+    );
+    let restarted_replay = restarted
+        .admit(&authority, &proof, &context, &command, 100)
+        .unwrap();
+    assert_eq!(
+        restarted_replay.operation_handle(),
+        first.operation_handle()
+    );
+    assert_eq!(
+        restarted_replay.state(),
         ProviderCredentialOperationStateV2::Expired
     );
-    assert_eq!(consumed_replay.broker_rendezvous_id(), None);
+    assert_eq!(restarted_replay.broker_rendezvous_id(), None);
     assert!(matches!(
         rendezvous.begin_endpoint_handoff(
             first.broker_rendezvous_id().unwrap(),
@@ -222,11 +241,10 @@ fn begin_recovers_then_returns_the_exact_idempotent_prepared_projection() {
             registry.begin_endpoint_handoff(rendezvous_id, &operation, candidate, &proof, now),
             Err(ProviderCredentialEnrollmentHostError::AccessDenied)
         ));
-        assert!(!registry.has_live(operation.operation_id(), 100));
-        assert!(matches!(
-            registry.begin_endpoint_handoff(rendezvous_id, &operation, &authority, &proof, 100),
-            Err(ProviderCredentialEnrollmentHostError::AccessDenied)
-        ));
+        assert!(registry.has_live(operation.operation_id(), 100));
+        registry
+            .begin_endpoint_handoff(rendezvous_id, &operation, &authority, &proof, 100)
+            .unwrap();
     }
     let substituted = CredentialOperationSnapshot::new(
         CredentialOperationId::from_bytes([9; 16]).unwrap(),
@@ -249,5 +267,8 @@ fn begin_recovers_then_returns_the_exact_idempotent_prepared_projection() {
         registry.begin_endpoint_handoff(rendezvous_id, &substituted, &authority, &proof, 100),
         Err(ProviderCredentialEnrollmentHostError::AccessDenied)
     ));
-    assert!(!registry.has_live(operation.operation_id(), 100));
+    assert!(registry.has_live(operation.operation_id(), 100));
+    registry
+        .begin_endpoint_handoff(rendezvous_id, &operation, &authority, &proof, 100)
+        .unwrap();
 }

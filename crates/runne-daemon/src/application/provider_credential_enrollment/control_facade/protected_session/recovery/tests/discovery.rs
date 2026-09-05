@@ -19,17 +19,17 @@ fn discovery_returns_only_same_owner_prepared_cleanup_without_admission() {
                 control.store.load_operation(operation).unwrap().state(),
                 runne_provider::CredentialOperationState::Prepared
             );
-            control
-                .store
-                .cancel_before_claim(
+            assert!(matches!(
+                control.store.cancel_before_claim(
                     runne_provider::ClosePreparedCredentialOperation::new(
                         operation,
                         runne_provider::CredentialOperationState::Cancelled,
                     )
                     .unwrap(),
-                )
-                .unwrap();
-            assert!(session.discover_cleanup().unwrap().is_empty());
+                ),
+                Err(runne_provider::CredentialLifecycleError::LifecycleClosed)
+            ));
+            assert_eq!(session.discover_cleanup().unwrap(), expected);
         });
     }
 }

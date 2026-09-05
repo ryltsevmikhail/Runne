@@ -105,6 +105,9 @@ impl DaemonProtectedCredentialEnrollmentSession {
             self.control.store.as_ref(),
             channel,
         )?;
+        self.control
+            .rendezvous
+            .release_detached_after_claim(claimed.operation_id());
         if let (Some(service), Some(service_command)) = (service, service_command) {
             let handoff = service.arm_mutation(service_command)?;
             channel.send_service_handoff(handoff)?;

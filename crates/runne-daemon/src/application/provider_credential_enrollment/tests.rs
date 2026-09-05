@@ -142,6 +142,8 @@ mod begin_admission;
 pub(crate) mod begin_admission_support;
 #[path = "tests/begin_race.rs"]
 mod begin_race;
+#[path = "tests/begin_revoke_restart.rs"]
+mod begin_revoke_restart;
 mod broker;
 #[path = "tests/broker_effect_exchange.rs"]
 mod broker_effect_exchange;

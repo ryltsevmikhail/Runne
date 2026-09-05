@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex},
 };
 
@@ -19,6 +19,7 @@ use super::super::{
 #[cfg(unix)]
 pub(crate) mod recovery;
 mod reservation;
+pub(in crate::application::provider_credential_enrollment) use reservation::PendingBrokerAdmissionGate;
 pub(in crate::application::provider_credential_enrollment::broker) use reservation::PendingBrokerRendezvousBinding;
 use reservation::ReservedTransitionRendezvous;
 
@@ -31,6 +32,8 @@ use super::rendezvous::DaemonOwnedUnixBrokerRendezvous;
 pub(crate) struct PendingBrokerRendezvousRegistry {
     entries: Arc<Mutex<BTreeMap<CredentialOperationId, PendingEntry>>>,
     #[cfg(unix)]
+    detached: Arc<Mutex<BTreeSet<CredentialOperationId>>>,
+    #[cfg(unix)]
     reserved: Arc<Mutex<Option<ReservedTransitionRendezvous>>>,
     handles: ProviderCredentialOperationHandleIssuer,
 }
@@ -39,6 +42,8 @@ impl Clone for PendingBrokerRendezvousRegistry {
     fn clone(&self) -> Self {
         Self {
             entries: Arc::clone(&self.entries),
+            #[cfg(unix)]
+            detached: Arc::clone(&self.detached),
             #[cfg(unix)]
             reserved: Arc::clone(&self.reserved),
             handles: self.handles.duplicate(),
@@ -79,6 +84,8 @@ impl PendingBrokerRendezvousRegistry {
     pub(crate) fn new(handles: ProviderCredentialOperationHandleIssuer) -> Self {
         Self {
             entries: Arc::new(Mutex::new(BTreeMap::new())),
+            #[cfg(unix)]
+            detached: Arc::new(Mutex::new(BTreeSet::new())),
             #[cfg(unix)]
             reserved: Arc::new(Mutex::new(None)),
             handles,
@@ -124,7 +131,7 @@ impl PendingBrokerRendezvousRegistry {
         entries.contains_key(&operation_id)
     }
 
-    /// Removes before validation so failures cannot retain or replay writer authority.
+    /// Validates under lock before consuming the exact one-shot authority.
     #[cfg(unix)]
     pub(crate) fn begin_endpoint_handoff(
         &self,
@@ -135,26 +142,49 @@ impl PendingBrokerRendezvousRegistry {
         now_high_water: i64,
     ) -> Result<PendingBrokerEndpointHandoff, ProviderCredentialEnrollmentHostError> {
         let operation_id = self.handles.resolve_broker_rendezvous_id(rendezvous_id)?;
-        let entry = self
+        let mut entries = self
             .entries
             .lock()
-            .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?
-            .remove(&operation_id)
-            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
+            .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
         if operation_id != operation.operation_id() {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
-        let current =
-            PendingBrokerRendezvousBinding::new(operation, authority, proof, now_high_water)?;
+        let current = PendingBrokerRendezvousBinding::for_handoff(
+            operation,
+            authority,
+            proof,
+            now_high_water,
+        )?;
+        let entry = entries
+            .get(&operation_id)
+            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
         if entry.binding != current || !entry.authority_witness.matches_authority(authority) {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
+        let mut detached = self
+            .detached
+            .lock()
+            .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
+        if !detached.insert(operation_id) {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        let entry = entries
+            .remove(&operation_id)
+            .ok_or(ProviderCredentialEnrollmentHostError::InvariantViolation)?;
         Ok(PendingBrokerEndpointHandoff {
             binding: entry.binding,
             authority_witness: entry.authority_witness,
             broker_transfer: entry.broker_transfer,
             rendezvous: entry.rendezvous,
         })
+    }
+
+    /// Clears the process-local handoff tombstone only after durable claim.
+    #[cfg(unix)]
+    pub(crate) fn release_detached_after_claim(&self, operation_id: CredentialOperationId) {
+        if let Ok(mut detached) = self.detached.lock() {
+            detached.remove(&operation_id);
+        }
     }
 }
 
