@@ -26,6 +26,9 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
             ("static assertion missing", 8, "delete", None),
             ("static assertion production edge", 8, "kind", None),
             ("static assertion floating", 8, "req", "^1"),
+            ("AST parser missing", 9, "delete", None),
+            ("AST parser production edge", 9, "kind", None),
+            ("AST parser feature drift", 9, "features", ["full"]),
         ):
             with self.subTest(label=label):
                 packages = self.packages()
@@ -70,46 +73,6 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
                 source.write_text(forbidden, encoding="utf-8")
                 self.assertNotEqual(
                     [], architecture.find_native_qualification_violations(root), forbidden
-                )
-
-    def test_rejects_reusable_or_raw_pending_ticket_carrier_surfaces(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            source = root / "crates/runne-native-qualification/src/model.rs"
-            source.parent.mkdir(parents=True)
-            baseline = """pub struct PendingQualificationFault { bytes: Vec<u8> }
-impl PendingQualificationFault {
-    pub fn from_admitted_frame(bytes: Vec<u8>) -> Result<Self, ()> { todo!() }
-    pub fn verify_and_consume(self, verifier: &mut crate::QualificationFaultVerifier, context: &QualificationFaultContext, now_unix_seconds: u64) -> Result<(), ()> { todo!() }
-    pub fn encode_relay(self, codec: &crate::QualificationFaultRelayCodecV1, binding: &runne_api::QualificationFaultRelayBindingV1) -> Result<Vec<u8>, ()> { todo!() }
-}
-"""
-            source.write_text(baseline, encoding="utf-8")
-            self.assertEqual([], architecture.find_native_qualification_violations(root))
-            for forbidden in (
-                "impl PendingQualificationFault { pub fn ticket(&self) -> &[u8] { &self.bytes } }",
-                "impl self::PendingQualificationFault { pub fn ticket(&self) -> &[u8] { &self.bytes } }",
-                "impl PendingQualificationFault { pub unsafe fn ticket(&self) -> &[u8] { &self.bytes } }",
-                "impl PendingQualificationFault { pub(crate) fn ticket(&self) -> &[u8] { &self.bytes } }",
-                "#[derive(Clone)] pub struct PendingQualificationFault { bytes: Vec<u8> }",
-                "impl AsRef<[u8]> for PendingQualificationFault { fn as_ref(&self) -> &[u8] { &self.bytes } }",
-                "impl std::ops::Deref for PendingQualificationFault { type Target = [u8]; fn deref(&self) -> &[u8] { &self.bytes } }",
-                "impl std::borrow::Borrow<[u8]> for PendingQualificationFault { fn borrow(&self) -> &[u8] { &self.bytes } }",
-                "impl Into<Vec<u8>> for PendingQualificationFault { fn into(self) -> Vec<u8> { self.bytes } }",
-                "impl serde::Serialize for PendingQualificationFault { fn serialize<S>(&self, _: S) -> Result<S::Ok, S::Error> where S: serde::Serializer { todo!() } }",
-                "impl PendingQualificationFault { const MASK: &'static str = \"}\"; pub fn ticket(&self) -> &[u8] { &self.bytes } }",
-                "impl PendingQualificationFault { const MASK: &'static str = r#\"}\"#; pub fn ticket(&self) -> &[u8] { &self.bytes } }",
-                "impl PendingQualificationFault { /* nested /* } */ comment */ pub fn ticket(&self) -> &[u8] { &self.bytes } }",
-            ):
-                source.write_text(baseline + forbidden, encoding="utf-8")
-                self.assertNotEqual(
-                    [], architecture.find_native_qualification_violations(root), forbidden
-                )
-            for consuming in ("verify_and_consume", "encode_relay"):
-                mutated = baseline.replace(f"{consuming}(self,", f"{consuming}(&self,")
-                source.write_text(mutated, encoding="utf-8")
-                self.assertNotEqual(
-                    [], architecture.find_native_qualification_violations(root), consuming
                 )
 
     def test_rejects_manual_reusable_proof_trait_implementations(self):
@@ -230,6 +193,9 @@ impl PendingQualificationFault {
                 features=["draft202012"], defaults=False,
             ),
             cls.dependency("static_assertions", "=1.1.0", kind="dev"),
+            cls.dependency(
+                "syn", "^2", kind="dev", features=["extra-traits", "full"],
+            ),
         ]
         return [
             {

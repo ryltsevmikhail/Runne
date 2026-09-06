@@ -17,6 +17,7 @@ NATIVE_QUALIFICATION_EXACT_DEPENDENCIES = {
     ("normal", "sha2"): ("=0.10.8", (), True),
     ("dev", "jsonschema"): ("=0.18.0", ("draft202012",), False),
     ("dev", "static_assertions"): ("=1.1.0", (), True),
+    ("dev", "syn"): ("^2", ("extra-traits", "full"), True),
 }
 NATIVE_QUALIFICATION_FORBIDDEN_SOURCE = re.compile(
     r"\b(?:std::env|std::fs|std::path|SigningKey|File::|OpenOptions|dyn\s+Fn|impl\s+Fn)\b"
@@ -218,12 +219,10 @@ def find_native_qualification_violations(root: Path) -> list[str]:
     if not source_root.exists():
         return []
     violations = []
-    crate_text = []
     for path in sorted(source_root.rglob("*.rs")):
         if "tests" in path.relative_to(source_root).parts:
             continue
         text = path.read_text(encoding="utf-8")
-        crate_text.append(text)
         if NATIVE_QUALIFICATION_FORBIDDEN_SOURCE.search(text):
             violations.append(f"{path.relative_to(root).as_posix()} has forbidden authority surface")
         match = NATIVE_QUALIFICATION_PROOF.search(text)
@@ -234,9 +233,4 @@ def find_native_qualification_violations(root: Path) -> list[str]:
         manually_reusable = NATIVE_QUALIFICATION_FORBIDDEN_PROOF_IMPL.search(text)
         if derived_reusable or manually_reusable:
             violations.append(f"{path.relative_to(root).as_posix()} makes verified fault reusable")
-    combined = "\n".join(crate_text)
-    if not native_qualification_pending_surface_is_closed(combined):
-        violations.append(
-            f"crates/{NATIVE_QUALIFICATION_PACKAGE}/src exposes pending fault bytes"
-        )
     return violations
