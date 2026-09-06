@@ -6,8 +6,7 @@ use std::time::Duration;
 use block2::RcBlock;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{
-    NSAlert, NSAlertFirstButtonReturn, NSAlertSecondButtonReturn, NSModalResponseAbort,
-    NSSecureTextField, NSWindow,
+    NSAlert, NSAlertFirstButtonReturn, NSAlertSecondButtonReturn, NSSecureTextField, NSWindow,
 };
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use runne_platform_desktop::{
@@ -19,6 +18,7 @@ use tauri::{AppHandle, Manager, WebviewWindow};
 
 use super::OneShotPromptResult;
 
+mod cleanup;
 mod native;
 mod state;
 
@@ -98,40 +98,51 @@ fn schedule_sheet(
 ) -> Result<(), SecureCredentialPromptError> {
     app.run_on_main_thread(move || {
         if winner.is_claimed() || !matches!(window.is_focused(), Ok(true)) {
-            finish(
+            finish_terminal(
+                id,
                 &winner,
                 &sender,
+                &cleanup,
                 Err(SecureCredentialPromptError::Unavailable),
             );
             return;
         }
         let Some(mtm) = MainThreadMarker::new() else {
-            finish(
+            finish_terminal(
+                id,
                 &winner,
                 &sender,
+                &cleanup,
                 Err(SecureCredentialPromptError::Unavailable),
             );
             return;
         };
         let Some(parent) = native::retain_tauri_window(mtm, &window) else {
-            finish(
+            finish_terminal(
+                id,
                 &winner,
                 &sender,
+                &cleanup,
                 Err(SecureCredentialPromptError::Unavailable),
             );
             return;
         };
         if parent.attachedSheet().is_some() {
-            finish(
+            finish_terminal(
+                id,
                 &winner,
                 &sender,
+                &cleanup,
                 Err(SecureCredentialPromptError::Unavailable),
             );
             return;
         }
         show_sheet(&parent, id, request, winner, sender, cleanup);
     })
-    .map_err(|_| SecureCredentialPromptError::Unavailable)
+    .map_err(|_| {
+        cleanup::finish(id);
+        SecureCredentialPromptError::Unavailable
+    })
 }
 
 fn show_sheet(
@@ -161,19 +172,13 @@ fn show_sheet(
     if let Some(field) = field.as_ref() {
         sheet.setInitialFirstResponder(Some(field));
     }
-    if !state::insert(
-        id,
-        state::PromptUiState {
-            sheet,
-            field: field.clone(),
-        },
-    ) {
-        if let Some(field) = field.as_deref() {
-            clear_field(field);
-        }
-        finish(
+    if let Err(prompt) = state::insert(id, state::PromptUiState::native(sheet, field.clone())) {
+        cleanup::finish_unregistered(prompt);
+        finish_terminal(
+            id,
             &winner,
             &sender,
+            &cleanup,
             Err(SecureCredentialPromptError::Unavailable),
         );
         return;
@@ -181,12 +186,7 @@ fn show_sheet(
 
     let completion = RcBlock::new(move |response| {
         let result = completion_result(response, field.as_deref(), request.action());
-        if let Some(field) = field.as_deref() {
-            clear_field(field);
-        }
-        state::remove(id);
-        let _ = cleanup.send(());
-        finish(&winner, &sender, result);
+        finish_terminal(id, &winner, &sender, &cleanup, result);
     });
     alert.beginSheetModalForWindow_completionHandler(parent, Some(&completion));
 }
@@ -218,10 +218,6 @@ fn copy_secret(
     SecureCredentialMaterial::from_zeroizing(bytes)
 }
 
-fn clear_field(field: &NSSecureTextField) {
-    field.setStringValue(&NSString::new());
-}
-
 fn finish(
     winner: &OneShotPromptResult,
     sender: &mpsc::SyncSender<PromptResult>,
@@ -234,18 +230,25 @@ fn finish(
 
 fn request_timeout_cleanup(app: &AppHandle, id: u64, cleanup: mpsc::Sender<()>) {
     let _ = app.run_on_main_thread(move || {
-        if let Some(prompt) = state::remove(id) {
-            if let Some(field) = prompt.field.as_deref() {
-                clear_field(field);
-            }
-            if let Some(parent) = prompt.sheet.sheetParent() {
-                parent.endSheet_returnCode(&prompt.sheet, NSModalResponseAbort);
-            } else {
-                prompt.sheet.orderOut(None);
-            }
-        }
-        let _ = cleanup.send(());
+        finish_timeout_on_main(id, &cleanup);
     });
+}
+
+fn finish_terminal(
+    id: u64,
+    winner: &OneShotPromptResult,
+    sender: &mpsc::SyncSender<PromptResult>,
+    cleanup_sender: &mpsc::Sender<()>,
+    result: PromptResult,
+) {
+    cleanup::finish(id);
+    let _ = cleanup_sender.send(());
+    finish(winner, sender, result);
+}
+
+fn finish_timeout_on_main(id: u64, cleanup_sender: &mpsc::Sender<()>) {
+    cleanup::finish(id);
+    let _ = cleanup_sender.send(());
 }
 
 fn prompt_description(request: SecureCredentialPromptRequest) -> String {

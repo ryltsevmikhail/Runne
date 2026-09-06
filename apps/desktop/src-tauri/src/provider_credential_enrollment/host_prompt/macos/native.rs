@@ -6,7 +6,7 @@ use std::ptr;
 
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2_app_kit::NSWindow;
+use objc2_app_kit::{NSModalResponseAbort, NSSecureTextField, NSWindow};
 use objc2_foundation::{
     NSRange, NSString, NSStringEncodingConversionOptions, NSUTF8StringEncoding,
 };
@@ -23,6 +23,18 @@ pub(super) fn retain_tauri_window(
     // MainThreadMarker proves the caller is on AppKit's main thread; retaining
     // the object makes its lifetime independent from the Tauri handle borrow.
     unsafe { Retained::retain(raw) }
+}
+
+pub(super) fn clear_secure_field(field: &NSSecureTextField) {
+    field.setStringValue(&NSString::new());
+}
+
+pub(super) fn close_sheet(sheet: &NSWindow) {
+    if let Some(parent) = sheet.sheetParent() {
+        parent.endSheet_returnCode(sheet, NSModalResponseAbort);
+    } else {
+        sheet.orderOut(None);
+    }
 }
 
 /// Copies `NSString` UTF-8 bytes directly into zeroizing storage.
