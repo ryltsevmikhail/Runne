@@ -14,6 +14,7 @@ NATIVE_QUALIFICATION_EXACT_DEPENDENCIES = {
     ("normal", "serde_json"): ("=1.0.151", (), True),
     ("normal", "sha2"): ("=0.10.8", (), True),
     ("dev", "jsonschema"): ("=0.18.0", ("draft202012",), False),
+    ("dev", "static_assertions"): ("=1.1.0", (), True),
 }
 NATIVE_QUALIFICATION_FORBIDDEN_SOURCE = re.compile(
     r"\b(?:std::env|std::fs|std::path|SigningKey|File::|OpenOptions|dyn\s+Fn|impl\s+Fn)\b"

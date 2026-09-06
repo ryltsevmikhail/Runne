@@ -17,6 +17,9 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
             ("feature", 4, "features", ["raw_value"]),
             ("target", 5, "target", 'cfg(target_os = "macos")'),
             ("path", 2, "path", "/tmp/hex"),
+            ("static assertion missing", 7, "delete", None),
+            ("static assertion production edge", 7, "kind", None),
+            ("static assertion floating", 7, "req", "^1"),
         ):
             with self.subTest(label=label):
                 package = self.package()
@@ -90,6 +93,7 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
                 "jsonschema", "=0.18.0", kind="dev",
                 features=["draft202012"], defaults=False,
             ),
+            cls.dependency("static_assertions", "=1.1.0", kind="dev"),
         ]
         return {
             "name": architecture.NATIVE_QUALIFICATION_PACKAGE,
