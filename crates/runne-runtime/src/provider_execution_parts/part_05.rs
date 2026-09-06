@@ -57,21 +57,11 @@ where
                     priced.currency().to_owned(),
                 )
             }
-            TerminalUsageEvidence::Unavailable => {
-                let usage = ProviderUsage::new(
-                    pricing_binding.reserved_input_tokens(),
-                    pricing_binding.reserved_output_tokens(),
-                    0,
-                    0,
-                )
-                .map_err(|_| RuntimeProviderExecutionError::PricingUnavailable)?;
-                (
-                    usage,
-                    true,
-                    pricing_binding.reserved_cost_micros(),
-                    pricing_binding.currency().to_owned(),
-                )
-            }
+            TerminalUsageEvidence::Unavailable => price_unavailable_usage(
+                self.pricing,
+                &pricing_binding,
+                &context.profile_digest,
+            )?,
         };
         let terminal = self
             .store

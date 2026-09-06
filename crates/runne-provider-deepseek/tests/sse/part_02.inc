@@ -28,6 +28,16 @@ fn identities_indexes_wrappers_and_remote_sequence_fail_closed() {
 }
 
 #[test]
+fn stored_provider_response_is_rejected() {
+    let stored = String::from_utf8(successful_sse()).unwrap().replacen(
+        "\"object\":\"response\"",
+        "\"object\":\"response\",\"store\":true",
+        1,
+    );
+    assert!(decode(stored.as_bytes()).is_err());
+}
+
+#[test]
 fn unsupported_events_output_and_annotations_fail_closed() {
     let unsupported = [
         event(

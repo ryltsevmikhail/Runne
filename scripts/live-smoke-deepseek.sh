@@ -103,7 +103,7 @@ trap cleanup EXIT
 run_checked() {
   local label="$1"
   shift
-  echo "--- $label ---"
+  echo "--- $label ---" >&2
   "$@" 2>&1 | tee -a "$SMOKE_LOG"
 }
 
