@@ -17,6 +17,18 @@ pub fn collect_sealed_aliases(file: &syn::File) -> HashSet<String> {
     collect_aliases_from(file, &[EXPECTATION, VERIFIED])
 }
 
+pub fn collect_macro_aliases(file: &syn::File) -> HashSet<String> {
+    collect_aliases_from(
+        file,
+        &[
+            FACTS,
+            EXPECTATION,
+            VERIFIED,
+            "PendingQualificationAdmission",
+        ],
+    )
+}
+
 fn collect_aliases_from(file: &syn::File, roots: &[&str]) -> HashSet<String> {
     let mut aliases: HashSet<_> = roots.iter().map(|name| (*name).to_owned()).collect();
     loop {

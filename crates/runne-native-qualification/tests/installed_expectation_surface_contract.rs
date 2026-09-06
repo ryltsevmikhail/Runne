@@ -9,6 +9,8 @@ mod installed_surface_consumers;
 mod installed_surface_daemon;
 #[path = "support/installed_surface_expected.rs"]
 mod installed_surface_expected;
+#[path = "support/installed_surface_macros.rs"]
+mod installed_surface_macros;
 #[path = "support/installed_surface_syntax.rs"]
 mod installed_surface_syntax;
 
@@ -151,6 +153,37 @@ fn adversarial_alias_generic_trait_and_wrapper_escapes_are_rejected() {
             !audit_sources(&[(installed_surface_daemon::DAEMON_SOURCE, &mutation,)])
                 .violations
                 .is_empty()
+        );
+    }
+}
+
+#[test]
+fn adversarial_macro_definitions_and_invocations_cannot_generate_authority_surfaces() {
+    let baseline = baseline();
+    let mutations = [
+        format!(
+            "{baseline}\nmacro_rules! forge {{ () => {{ impl VerifiedQualificationAdmission {{ pub fn admission(&self) -> &runne_native_qualification::PendingQualificationAdmission {{ &self._admission }} }} }} }} forge!();"
+        ),
+        format!(
+            "{baseline}\nmacro_rules! relay {{ ($carrier:ty) => {{ fn encode(_: $carrier) -> Vec<u8> {{ todo!() }} }} }} relay!(VerifiedQualificationAdmission);"
+        ),
+        format!(
+            "{baseline}\nmod nested {{ macro_rules! build {{ () => {{ fn construct(_: PendingQualificationAdmission) -> VerifiedQualificationAdmission {{ todo!() }} }} }} build!(); }}"
+        ),
+        format!(
+            "{baseline}\ncrate::authority::generate!(VerifiedInstalledEnrollmentMeasurementFacts);"
+        ),
+        format!(
+            "{baseline}\nmod nested {{ pub mod authority {{ macro_rules! generate {{ ($type:ty) => {{ fn encode(_: $type) -> Vec<u8> {{ todo!() }} }} }} pub(crate) use generate; }} }} nested::authority::generate!(VerifiedQualificationAdmission);"
+        ),
+        format!("{baseline}\nuse crate::VerifiedQualificationAdmission as Gate; authority!(Gate);"),
+    ];
+    for mutation in mutations {
+        assert!(
+            !audit_sources(&[(installed_surface_daemon::DAEMON_SOURCE, &mutation)])
+                .violations
+                .is_empty(),
+            "macro authority surface escaped recursive audit"
         );
     }
 }

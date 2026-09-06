@@ -12,11 +12,12 @@ use crate::installed_surface_daemon::{
 use crate::installed_surface_expected::{
     exact_reviewed_facts_method, exact_test_only_qualification_facts,
 };
+use crate::installed_surface_macros::mentions_authority;
 use crate::installed_surface_syntax::{
-    EXPECTATION, FACTS, VERIFIED, collect_aliases, collect_sealed_aliases, exact_factory,
-    exact_reviewed_reexport, exact_test_support_only, exact_verification, fields_mention,
-    generics_mention, impl_member_mentions, node_mentions_trait, path_mentions, sealed_struct,
-    signature_mentions, type_mentions, type_name, use_leaves,
+    EXPECTATION, FACTS, VERIFIED, collect_aliases, collect_macro_aliases, collect_sealed_aliases,
+    exact_factory, exact_reviewed_reexport, exact_test_support_only, exact_verification,
+    fields_mention, generics_mention, impl_member_mentions, node_mentions_trait, path_mentions,
+    sealed_struct, signature_mentions, type_mentions, type_name, use_leaves,
 };
 
 #[derive(Default)]
@@ -36,6 +37,7 @@ struct SourceAudit<'a> {
     source: &'a str,
     aliases: HashSet<String>,
     sealed_aliases: HashSet<String>,
+    macro_aliases: HashSet<String>,
     audit: &'a mut Audit,
 }
 
@@ -169,6 +171,13 @@ impl<'ast> Visit<'ast> for SourceAudit<'_> {
         }
         visit::visit_item_use(self, item);
     }
+
+    fn visit_item_macro(&mut self, item: &'ast syn::ItemMacro) {
+        if mentions_authority(item, &self.macro_aliases) {
+            self.reject("macro definition or invocation mentions a sealed installed type");
+        }
+        visit::visit_item_macro(self, item);
+    }
 }
 
 impl SourceAudit<'_> {
@@ -236,10 +245,12 @@ pub fn audit_sources(sources: &[(&str, &str)]) -> Audit {
         let file = syn::parse_file(source).unwrap();
         let aliases = collect_aliases(&file);
         let sealed_aliases = collect_sealed_aliases(&file);
+        let macro_aliases = collect_macro_aliases(&file);
         SourceAudit {
             source: path,
             aliases,
             sealed_aliases,
+            macro_aliases,
             audit: &mut audit,
         }
         .visit_file(&file);
