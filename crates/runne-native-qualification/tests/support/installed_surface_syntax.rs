@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 
-use syn::visit::Visit;
-use syn::{Fields, ImplItem, Item, Type, UseTree, Visibility};
+use syn::parse::Parser;
+use syn::visit::{self, Visit};
+use syn::{Fields, ImplItem, Type, UseTree, Visibility};
 
 pub const FACTS: &str = "VerifiedInstalledEnrollmentMeasurementFacts";
 pub const EXPECTATION: &str = "QualificationRuntimeInstalledExpectation";
@@ -20,19 +21,45 @@ fn collect_aliases_from(file: &syn::File, roots: &[&str]) -> HashSet<String> {
     let mut aliases: HashSet<_> = roots.iter().map(|name| (*name).to_owned()).collect();
     loop {
         let before = aliases.len();
-        for item in &file.items {
-            match item {
-                Item::Use(item) => collect_use_aliases(&item.tree, false, &mut aliases),
-                Item::Type(item) if type_mentions(&item.ty, &aliases) => {
-                    aliases.insert(item.ident.to_string());
-                }
-                _ => {}
-            }
+        AliasCollector {
+            aliases: &mut aliases,
         }
+        .visit_file(file);
         if aliases.len() == before {
             return aliases;
         }
     }
+}
+
+struct AliasCollector<'a> {
+    aliases: &'a mut HashSet<String>,
+}
+
+impl<'ast> Visit<'ast> for AliasCollector<'_> {
+    fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
+        collect_use_aliases(&item.tree, false, self.aliases);
+        visit::visit_item_use(self, item);
+    }
+
+    fn visit_item_type(&mut self, item: &'ast syn::ItemType) {
+        if type_mentions(&item.ty, self.aliases) {
+            self.aliases.insert(item.ident.to_string());
+        }
+        visit::visit_item_type(self, item);
+    }
+}
+
+fn meta_contains_derive(meta: &syn::Meta) -> bool {
+    if meta.path().is_ident("derive") {
+        return true;
+    }
+    let syn::Meta::List(list) = meta else {
+        return false;
+    };
+    let parser = syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated;
+    parser
+        .parse2(list.tokens.clone())
+        .is_ok_and(|nested| nested.iter().any(meta_contains_derive))
 }
 
 fn collect_use_aliases(tree: &UseTree, inherited: bool, aliases: &mut HashSet<String>) {
@@ -67,20 +94,7 @@ pub fn sealed_struct(item: &syn::ItemStruct) -> bool {
 }
 
 fn has_forbidden_derive(attrs: &[syn::Attribute]) -> bool {
-    let mut forbidden = false;
-    for attr in attrs.iter().filter(|attr| attr.path().is_ident("derive")) {
-        attr.parse_nested_meta(|meta| {
-            forbidden |= meta.path.segments.last().is_some_and(|segment| {
-                matches!(
-                    segment.ident.to_string().as_str(),
-                    "Clone" | "Copy" | "Debug" | "Serialize" | "Deserialize"
-                )
-            });
-            Ok(())
-        })
-        .unwrap();
-    }
-    forbidden
+    attrs.iter().any(|attr| meta_contains_derive(&attr.meta))
 }
 
 pub fn type_name(ty: &Type, aliases: &HashSet<String>) -> Option<String> {
@@ -164,6 +178,7 @@ pub fn path_mentions(value: &syn::Path, aliases: &HashSet<String>) -> bool {
 pub fn impl_member_mentions(value: &ImplItem, aliases: &HashSet<String>) -> bool {
     matches!(value, ImplItem::Fn(item) if signature_mentions(&item.sig, aliases))
         || matches!(value, ImplItem::Type(item) if type_mentions(&item.ty, aliases))
+        || matches!(value, ImplItem::Const(item) if type_mentions(&item.ty, aliases))
 }
 
 struct NameVisitor<'a> {
@@ -229,23 +244,4 @@ pub fn exact_facts_reexport(source: &str, leaf: &[String]) -> bool {
         ]
         .iter()
         .any(|(path, module)| source == *path && leaf.iter().any(|part| part == module))
-}
-
-pub fn exact_facts_consumer(source: &str) -> bool {
-    [
-        "runne-daemon/src/protected_activation/enrollment_control_transition.rs",
-        "runne-daemon/src/protected_activation/control_v3/runtime.rs",
-        "runne-daemon/src/protected_activation/control_v3/initial_exchange/connected_tests.rs",
-        "runne-daemon/src/protected_activation/credential_service_registration.rs",
-        "runne-daemon/src/protected_activation/enrollment_transition_v2_v3.rs",
-        "runne-daemon/src/application/provider_credential_enrollment/broker/unix.rs",
-        "runne-daemon/src/application/provider_credential_enrollment/control_facade/protected_session.rs",
-        "runne-daemon/src/application/provider_credential_enrollment/control_facade/protected_session/claim_runtime.rs",
-        "runne-daemon/src/application/provider_credential_enrollment/control_facade.rs",
-        "runne-platform-desktop/src/updater_metadata/enrollment_tuple/daemon_peer.rs",
-        "runne-platform-desktop/src/updater_metadata/enrollment_tuple/daemon_peer/round.rs",
-        "runne-platform-desktop/src/updater_metadata/enrollment_tuple/measurement_facts/qualification_admission.rs",
-        "runne-platform-desktop/src/protected_runtime/test_enrollment_fixture.rs",
-    ]
-    .contains(&source)
 }

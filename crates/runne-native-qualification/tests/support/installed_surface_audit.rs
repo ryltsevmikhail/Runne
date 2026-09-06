@@ -3,12 +3,15 @@ use std::collections::HashSet;
 use syn::visit::{self, Visit};
 use syn::{ImplItem, ItemUse, Visibility};
 
+use crate::installed_surface_consumers::{
+    exact_reviewed_consumer_method, exact_reviewed_consumer_struct,
+};
 use crate::installed_surface_expected::exact_reviewed_facts_method;
 use crate::installed_surface_syntax::{
     EXPECTATION, FACTS, VERIFIED, collect_aliases, collect_sealed_aliases, exact_factory,
-    exact_facts_consumer, exact_facts_reexport, exact_verification, fields_mention,
-    generics_mention, impl_member_mentions, node_mentions_trait, path_mentions, sealed_struct,
-    signature_mentions, type_mentions, type_name, use_leaves,
+    exact_facts_reexport, exact_verification, fields_mention, generics_mention,
+    impl_member_mentions, node_mentions_trait, path_mentions, sealed_struct, signature_mentions,
+    type_mentions, type_name, use_leaves,
 };
 
 #[derive(Default)]
@@ -47,10 +50,15 @@ impl<'ast> Visit<'ast> for SourceAudit<'_> {
             if !matches!(item.vis, Visibility::Inherited) || !sealed_struct(item) {
                 self.reject("verified admission is reusable or externally constructible");
             }
-        } else if matches!(item.vis, Visibility::Public(_))
-            && self.fields_or_generics_escape(&item.fields, &item.generics)
-        {
-            self.reject("public generic or field wrapper escapes a sealed type");
+        } else {
+            let sealed = fields_mention(&item.fields, &self.sealed_aliases)
+                || generics_mention(&item.generics, &self.sealed_aliases);
+            let public_facts = matches!(item.vis, Visibility::Public(_))
+                && (fields_mention(&item.fields, &self.aliases)
+                    || generics_mention(&item.generics, &self.aliases));
+            if sealed || (public_facts && !exact_reviewed_consumer_struct(self.source, item)) {
+                self.reject("public generic or field wrapper escapes a sealed type");
+            }
         }
         visit::visit_item_struct(self, item);
     }
@@ -67,38 +75,50 @@ impl<'ast> Visit<'ast> for SourceAudit<'_> {
             self.audit_facts_impl(item);
             return;
         }
-        if self.type_escapes(&item.self_ty)
-            || self.generics_escape(&item.generics)
+        if type_mentions(&item.self_ty, &self.aliases)
+            || generics_mention(&item.generics, &self.aliases)
             || item
                 .trait_
                 .as_ref()
-                .is_some_and(|(_, path, _)| self.path_escapes(path))
-            || item
-                .items
-                .iter()
-                .any(|member| self.impl_member_escapes(member))
+                .is_some_and(|(_, path, _)| path_mentions(path, &self.aliases))
         {
             self.reject("wrapper or trait impl mentions a sealed installed type");
+        }
+        for member in &item.items {
+            if impl_member_mentions(member, &self.sealed_aliases) {
+                self.reject("impl member escapes a sealed installed token");
+            } else if impl_member_mentions(member, &self.aliases) {
+                match member {
+                    ImplItem::Fn(method)
+                        if !matches!(method.vis, Visibility::Public(_))
+                            || exact_reviewed_consumer_method(self.source, method) => {}
+                    _ => self.reject("unreviewed public installed-facts consumer method"),
+                }
+            }
         }
         visit::visit_item_impl(self, item);
     }
 
     fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
-        if self.signature_escapes(&item.sig) {
+        if signature_mentions(&item.sig, &self.sealed_aliases)
+            || (matches!(item.vis, Visibility::Public(_))
+                && signature_mentions(&item.sig, &self.aliases))
+        {
             self.reject("free function mentions a sealed installed type");
         }
         visit::visit_item_fn(self, item);
     }
 
     fn visit_item_type(&mut self, item: &'ast syn::ItemType) {
-        if self.type_escapes(&item.ty) || self.generics_escape(&item.generics) {
+        if type_mentions(&item.ty, &self.aliases) || generics_mention(&item.generics, &self.aliases)
+        {
             self.reject("type or generic alias mentions a sealed installed type");
         }
         visit::visit_item_type(self, item);
     }
 
     fn visit_item_trait(&mut self, item: &'ast syn::ItemTrait) {
-        if self.trait_escapes(item) {
+        if node_mentions_trait(item, &self.aliases) {
             self.reject("trait or associated type mentions a sealed installed type");
         }
         visit::visit_item_trait(self, item);
@@ -120,48 +140,6 @@ impl<'ast> Visit<'ast> for SourceAudit<'_> {
 }
 
 impl SourceAudit<'_> {
-    fn facts_are_allowed(&self) -> bool {
-        exact_facts_consumer(self.source)
-    }
-
-    fn type_escapes(&self, value: &syn::Type) -> bool {
-        type_mentions(value, &self.sealed_aliases)
-            || (!self.facts_are_allowed() && type_mentions(value, &self.aliases))
-    }
-
-    fn generics_escape(&self, value: &syn::Generics) -> bool {
-        generics_mention(value, &self.sealed_aliases)
-            || (!self.facts_are_allowed() && generics_mention(value, &self.aliases))
-    }
-
-    fn path_escapes(&self, value: &syn::Path) -> bool {
-        path_mentions(value, &self.sealed_aliases)
-            || (!self.facts_are_allowed() && path_mentions(value, &self.aliases))
-    }
-
-    fn fields_or_generics_escape(&self, fields: &syn::Fields, generics: &syn::Generics) -> bool {
-        fields_mention(fields, &self.sealed_aliases)
-            || generics_mention(generics, &self.sealed_aliases)
-            || (!self.facts_are_allowed()
-                && (fields_mention(fields, &self.aliases)
-                    || generics_mention(generics, &self.aliases)))
-    }
-
-    fn signature_escapes(&self, value: &syn::Signature) -> bool {
-        signature_mentions(value, &self.sealed_aliases)
-            || (!self.facts_are_allowed() && signature_mentions(value, &self.aliases))
-    }
-
-    fn impl_member_escapes(&self, value: &ImplItem) -> bool {
-        impl_member_mentions(value, &self.sealed_aliases)
-            || (!self.facts_are_allowed() && impl_member_mentions(value, &self.aliases))
-    }
-
-    fn trait_escapes(&self, value: &syn::ItemTrait) -> bool {
-        node_mentions_trait(value, &self.sealed_aliases)
-            || (!self.facts_are_allowed() && node_mentions_trait(value, &self.aliases))
-    }
-
     fn audit_facts_impl(&mut self, item: &syn::ItemImpl) {
         if item.trait_.is_some() || generics_mention(&item.generics, &self.aliases) {
             self.reject("installed facts gain a trait or generic authority surface");

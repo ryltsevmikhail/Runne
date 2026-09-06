@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 
 #[path = "support/installed_surface_audit.rs"]
 mod installed_surface_audit;
+#[path = "support/installed_surface_consumers.rs"]
+mod installed_surface_consumers;
 #[path = "support/installed_surface_expected.rs"]
 mod installed_surface_expected;
 #[path = "support/installed_surface_syntax.rs"]
@@ -87,6 +89,23 @@ fn adversarial_alias_generic_trait_and_wrapper_escapes_are_rejected() {
             "pub struct VerifiedInstalledEnrollmentMeasurementFacts",
             "#[derive(Clone)] pub struct VerifiedInstalledEnrollmentMeasurementFacts",
         ),
+        baseline.replace(
+            "struct QualificationRuntimeInstalledExpectation",
+            "#[derive(Default)] struct QualificationRuntimeInstalledExpectation",
+        ),
+        baseline.replace(
+            "struct VerifiedQualificationAdmission",
+            "#[cfg_attr(test, derive(Default))] struct VerifiedQualificationAdmission",
+        ),
+        format!(
+            "{baseline}\npub mod nested {{ use super::QualificationRuntimeInstalledExpectation as Gate; pub struct Leak(pub Gate); }}"
+        ),
+        format!(
+            "{baseline}\npub mod outer {{ pub mod inner {{ use super::super::VerifiedQualificationAdmission as Gate; pub trait Leak {{ type Output: Into<Gate>; }} }} }}"
+        ),
+        format!(
+            "{baseline}\npub mod nested {{ use super::QualificationRuntimeInstalledExpectation as Gate; pub use Gate as PublicGate; }}"
+        ),
     ] {
         assert!(
             !audit_sources(&[("mutation.rs", &mutation)])
@@ -94,6 +113,19 @@ fn adversarial_alias_generic_trait_and_wrapper_escapes_are_rejected() {
                 .is_empty()
         );
     }
+}
+
+#[test]
+fn reviewed_consumer_path_does_not_exempt_a_new_escape() {
+    let source = format!(
+        "{}\npub fn leak(_: VerifiedInstalledEnrollmentMeasurementFacts) {{}}",
+        baseline()
+    );
+    let audit = audit_sources(&[(
+        "runne-daemon/src/application/provider_credential_enrollment/control_facade/protected_session/claim_runtime.rs",
+        &source,
+    )]);
+    assert!(!audit.violations.is_empty());
 }
 
 fn baseline() -> String {
