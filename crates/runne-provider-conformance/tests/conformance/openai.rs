@@ -40,7 +40,7 @@ fn profile_renderer_route_stream_and_auth_failure_conform() {
     let response = runne_provider_openai::OpenAiTransportResponse::sse(split_bytes(
         &successful_sse(
             runne_provider_openai::OPENAI_REQUEST_MODEL,
-            runne_provider_openai::OPENAI_SERVICE_TIER,
+            Some(runne_provider_openai::OPENAI_SERVICE_TIER),
         ),
         7,
     ))

@@ -19,18 +19,27 @@ pub fn event(sequence: u64, value: Value) -> String {
     )
 }
 
-pub fn response(model: &str, tier: &str, status: &str, output: Value, usage: Value) -> Value {
-    json!({
+pub fn response(
+    model: &str,
+    tier: Option<&str>,
+    status: &str,
+    output: Value,
+    usage: Value,
+) -> Value {
+    let mut response = json!({
         "id": RESPONSE_ID,
         "model": model,
         "object": "response",
-        "service_tier": tier,
         "status": status,
         "output": output,
         "usage": usage,
         "error": Value::Null,
         "incomplete_details": Value::Null
-    })
+    });
+    if let Some(tier) = tier {
+        response["service_tier"] = json!(tier);
+    }
+    response
 }
 
 fn added_item() -> Value {
@@ -41,7 +50,7 @@ fn completed_item(text: &str) -> Value {
     json!({"id": ITEM_ID, "type": "message", "status": "completed", "role": "assistant", "content": [{"type": "output_text", "text": text, "annotations": []}]})
 }
 
-pub fn successful_sse(model: &str, tier: &str) -> Vec<u8> {
+pub fn successful_sse(model: &str, tier: Option<&str>) -> Vec<u8> {
     let text = "hello world";
     let mut body = String::new();
     body.push_str(&event(0, json!({"type": "response.created", "response": response(model, tier, "in_progress", json!([]), Value::Null)})));

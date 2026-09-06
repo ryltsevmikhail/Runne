@@ -27,10 +27,17 @@ fn profile_renderer_route_stream_and_auth_failure_conform() {
         profile.path(),
         prepared.rendered_bytes(),
     );
+    let rendered: serde_json::Value = serde_json::from_slice(prepared.rendered_bytes()).unwrap();
+    for unsupported in ["service_tier", "background", "store"] {
+        assert!(
+            rendered.get(unsupported).is_none(),
+            "rendered {unsupported}"
+        );
+    }
     let policy = runne_provider_deepseek::DeepSeekTransportPolicy::for_profile(&profile).unwrap();
     assert_eq!(
         (policy.method(), policy.origin(), policy.path()),
-        ("POST", "https://api.deepseek.com", "/v1/responses")
+        ("POST", "https://api.deepseek.com", "/responses")
     );
     assert!(
         !policy.follows_redirects()
@@ -38,10 +45,7 @@ fn profile_renderer_route_stream_and_auth_failure_conform() {
             && !policy.automatically_retries()
     );
     let response = runne_provider_deepseek::DeepSeekTransportResponse::sse(split_bytes(
-        &successful_sse(
-            runne_provider_deepseek::DEEPSEEK_REQUEST_MODEL,
-            runne_provider_deepseek::DEEPSEEK_SERVICE_TIER,
-        ),
+        &successful_sse(runne_provider_deepseek::DEEPSEEK_REQUEST_MODEL, None),
         7,
     ))
     .unwrap();
