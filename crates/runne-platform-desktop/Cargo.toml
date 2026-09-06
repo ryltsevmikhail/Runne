@@ -14,6 +14,7 @@ test-support = [
     "runne-macos-process-identity/test-support",
     "runne-macos-xpc/test-support",
     "runne-runtime-client/test-support",
+    "runne-native-qualification/test-support",
 ]
 
 [dependencies]

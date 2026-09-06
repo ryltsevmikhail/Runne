@@ -7,7 +7,7 @@ publish = false
 
 [features]
 default = []
-test-support = ["runne-platform-desktop?/test-support", "runne-secure-store/test-support", "runne-provider/test-support", "dep:reqwest"]
+test-support = ["runne-platform-desktop?/test-support", "runne-native-qualification/test-support", "runne-secure-store/test-support", "runne-provider/test-support", "dep:reqwest"]
 desktop-protected = ["dep:runne-platform-desktop", "runne-platform-desktop/protected-channel-integration", "dep:nix"]
 persistent-reference-probe = [
     "test-support",

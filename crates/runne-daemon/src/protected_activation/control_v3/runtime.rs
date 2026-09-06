@@ -67,6 +67,11 @@ pub(crate) struct V3EnrollmentDispatch {
         crate::protected_activation::enrollment_control_transition::DaemonEnrollmentRendezvous,
     pub(super) installed_facts:
         Option<runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts>,
+    #[cfg(test)]
+    pub(super) qualification_verifier:
+        Option<runne_native_qualification::QualificationAdmissionVerifier>,
+    #[cfg(test)]
+    pub(super) qualification_verified: Option<Arc<std::sync::atomic::AtomicUsize>>,
 }
 
 impl V3EnrollmentDispatch {
@@ -87,7 +92,22 @@ impl V3EnrollmentDispatch {
             control,
             rendezvous,
             installed_facts,
+            #[cfg(test)]
+            qualification_verifier: None,
+            #[cfg(test)]
+            qualification_verified: None,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_test_qualification(
+        mut self,
+        verifier: runne_native_qualification::QualificationAdmissionVerifier,
+        verified: Arc<std::sync::atomic::AtomicUsize>,
+    ) -> Self {
+        self.qualification_verifier = Some(verifier);
+        self.qualification_verified = Some(verified);
+        self
     }
 }
 

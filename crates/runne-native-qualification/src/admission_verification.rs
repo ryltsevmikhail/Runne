@@ -54,8 +54,10 @@ impl QualificationAdmissionVerifier {
         Ok(())
     }
 
-    #[cfg(test)]
-    pub(crate) fn for_test(
+    #[cfg(any(test, feature = "test-support"))]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn test_only_from_verifying_keys(
         context_key: ed25519_dalek::VerifyingKey,
         fault_key: ed25519_dalek::VerifyingKey,
     ) -> Self {

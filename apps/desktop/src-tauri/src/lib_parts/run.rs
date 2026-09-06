@@ -122,11 +122,11 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         },
     };
     #[cfg(target_os = "macos")]
-    let qualification_faults =
-        crate::bundled_runtime::qualification_ticket::admit_inherited_qualification_ticket(
+    let qualification_admission =
+        crate::bundled_runtime::qualification_ticket::admit_inherited_qualification_admission(
             monitor
                 .as_deref()
-                .map(BundledRuntimeController::qualification_ticket_admission),
+                .map(BundledRuntimeController::qualification_admission),
         )?;
     let notification_core = Arc::clone(&core);
     let notification_state = Arc::new(crate::notifications::NotificationState::default());
@@ -144,7 +144,7 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(ConversationSubscriptionManager::new());
     app.manage(TaskRunSubscriptionManager::new());
     #[cfg(target_os = "macos")]
-    app.manage(qualification_faults);
+    app.manage(qualification_admission);
     app.manage(lifecycle);
     if let Some(controller) = monitor.take() {
         controller.spawn_monitor(app.handle().clone());

@@ -88,7 +88,8 @@ impl V3EnrollmentRuntime {
             .control
             .start_protected_session(keys, owned, rendezvous, installed)
             .map_err(runtime::map_enrollment_error)?;
-        initial_exchange::run(channel, &mut session, &live, sessions, keys, owned)?;
+        let request = channel.read_control_frame()?;
+        initial_exchange::run(channel, &mut session, &live, sessions, request)?;
         let terminal = session.begun_is_terminal();
         let broker = runtime::bind_broker(keys, owned, &mut session)?;
         self.session = Some(session);

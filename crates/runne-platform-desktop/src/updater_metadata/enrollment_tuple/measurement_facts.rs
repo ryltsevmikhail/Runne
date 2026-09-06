@@ -3,16 +3,11 @@ use super::VerifiedDaemonNativeEnrollmentPrepare;
 #[cfg(target_os = "macos")]
 #[path = "measurement_facts/qualification_admission.rs"]
 mod qualification_admission;
+#[cfg(target_os = "macos")]
+pub use qualification_admission::QualificationAdmissionError;
 
 #[cfg(target_os = "macos")]
-#[expect(dead_code, reason = "Task 2C consumes the verified admission")]
-struct QualificationAdmissionVerifier {
-    inner: runne_native_qualification::QualificationAdmissionVerifier,
-}
-
-#[cfg(target_os = "macos")]
-#[expect(dead_code, reason = "Task 2C consumes the verified admission")]
-struct VerifiedQualificationAdmission {
+pub struct VerifiedQualificationAdmission {
     _private: (),
 }
 
@@ -31,6 +26,8 @@ pub struct VerifiedInstalledEnrollmentMeasurementFacts {
     release: [u8; 32],
     raw_v3_tuple: Option<[u8; 32]>,
     qualification_candidate_v3: Option<runne_api::SignedInstalledReleaseCandidateV3>,
+    #[cfg(feature = "test-support")]
+    qualification_test_expectation: Option<([u8; 32], [u8; 32])>,
     candidate_source: [u8; 32],
     target_manifest: [u8; 32],
     qualification: [u8; 32],
@@ -39,30 +36,6 @@ pub struct VerifiedInstalledEnrollmentMeasurementFacts {
 }
 
 impl VerifiedInstalledEnrollmentMeasurementFacts {
-    #[cfg(feature = "test-support")]
-    pub(crate) const fn for_connected_relay_test(release: [u8; 32]) -> Self {
-        Self {
-            desktop: [1; 32],
-            writer: [2; 32],
-            daemon: [3; 32],
-            credential_service: None,
-            #[cfg(target_os = "macos")]
-            runtime_credential_service: None,
-            #[cfg(target_os = "macos")]
-            writer_credential_service: None,
-            contract: [4; 32],
-            desktop_start: [5; 32],
-            release,
-            raw_v3_tuple: None,
-            qualification_candidate_v3: None,
-            candidate_source: [6; 32],
-            target_manifest: [7; 32],
-            qualification: [8; 32],
-            installed_generation: 1,
-            release_frame: Vec::new(),
-        }
-    }
-
     pub(in crate::updater_metadata) fn from_revalidated(
         value: &VerifiedDaemonNativeEnrollmentPrepare,
     ) -> Option<Self> {
@@ -107,6 +80,8 @@ impl VerifiedInstalledEnrollmentMeasurementFacts {
             release: admission.release_tuple_sha256,
             raw_v3_tuple: admission.raw_v3_tuple_sha256,
             qualification_candidate_v3: admission.qualification_candidate_v3.clone(),
+            #[cfg(feature = "test-support")]
+            qualification_test_expectation: None,
             candidate_source: admission.candidate_source_sha256?,
             target_manifest: admission.target_manifest_sha256?,
             qualification: admission

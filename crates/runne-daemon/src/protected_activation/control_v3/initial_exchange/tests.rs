@@ -5,7 +5,36 @@ use runne_api::{QualificationFaultRelayBindingV1, QualificationFaultRelayDirecti
 use runne_native_qualification::{PendingQualificationFault, QualificationFaultRelayCodecV1};
 
 use super::super::super::ProtectedActivationChannel;
-use super::read_initial_request;
+use super::{InitialQualificationFrame, read_initial_qualification};
+
+fn read_initial_request(
+    channel: &mut ProtectedActivationChannel,
+    keys: &runne_api::ProtectedActivationKeys,
+    owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
+) -> Result<zeroize::Zeroizing<Vec<u8>>, runne_api::LaunchAuthorityError> {
+    let installed = runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts::
+        test_only_qualification_facts(
+            *owned.enrollment_binding().release_tuple_digest(),
+            *owned.enrollment_binding().qualification_binding_digest(),
+            [0xaa; 32],
+            [0xbb; 32],
+        );
+    let mut verifier =
+        runne_native_qualification::QualificationAdmissionVerifier::from_compiled_policy();
+    match read_initial_qualification(
+        channel,
+        keys,
+        owned,
+        &installed,
+        &mut verifier,
+        1_800_000_000,
+    )? {
+        InitialQualificationFrame::Legacy(frame) => Ok(frame),
+        InitialQualificationFrame::Verified(_) => {
+            Err(runne_api::LaunchAuthorityError::OwnershipMismatch)
+        }
+    }
+}
 
 const TICKET: &[u8] = br#"{"schema_version":"runne/macos-xpc-dpk-fault-ticket/v1","ticket_id":"1111111111111111111111111111111111111111111111111111111111111111","selector":"kill_desktop_process","process_role":"desktop","candidate_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","release_tuple_v3_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","source_revision":"cccccccccccccccccccccccccccccccccccccccc","workflow_run_id":"run-42","namespace_sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","issued_at":1800000000,"expires_at":1800000600,"nonce":"IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI","signature":{"algorithm":"ed25519","key_id":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","value":"MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMw"}}"#;
 

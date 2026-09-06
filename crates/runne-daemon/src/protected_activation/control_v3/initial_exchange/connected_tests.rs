@@ -1,9 +1,11 @@
 use std::io::{Read as _, Write as _};
 use std::os::unix::net::UnixStream;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use ed25519_dalek::SigningKey;
 use runne_api::{
     ApiPrincipalId, BeginProviderCredentialEnrollment, DaemonInstanceId, EventLogLineageId,
     ProviderCredentialEnrollmentActionV2, ProviderCredentialProviderV2, RuntimeSessionBinding,
@@ -11,7 +13,7 @@ use runne_api::{
 };
 use runne_application::local_session::LocalSessionService;
 use runne_domain::event::Sensitivity;
-use runne_native_qualification::PendingQualificationFault;
+use runne_native_qualification::QualificationAdmissionVerifier;
 use runne_provider::{CredentialAuthorityPair, CredentialEnrollmentAuthorityPair};
 use runne_secure_store::{
     CredentialReadbackObservation, ExactAbsenceReadback, ExactVersionReadback,
@@ -24,7 +26,6 @@ use crate::protected_activation::{
     ProtectedActivationChannel, enrollment_control_transition::DaemonEnrollmentRendezvous,
 };
 
-const TICKET: &[u8] = br#"{"schema_version":"runne/macos-xpc-dpk-fault-ticket/v1","ticket_id":"1111111111111111111111111111111111111111111111111111111111111111","selector":"kill_desktop_process","process_role":"desktop","candidate_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","release_tuple_v3_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","source_revision":"cccccccccccccccccccccccccccccccccccccccc","workflow_run_id":"run-42","namespace_sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","issued_at":1800000000,"expires_at":1800000600,"nonce":"IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI","signature":{"algorithm":"ed25519","key_id":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","value":"MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMw"}}"#;
 const TEST_TIMEOUT: Duration = Duration::from_secs(2);
 
 struct BoundedThread<T> {
@@ -69,6 +70,9 @@ impl ProviderCredentialReadback for NoReadback {
 
 #[test]
 fn connected_supervisor_relay_closes_before_request_and_cannot_cross_session() {
+    let context_key = SigningKey::from_bytes(&[7; 32]);
+    let fault_key = SigningKey::from_bytes(&[9; 32]);
+    let verified = Arc::new(AtomicUsize::new(0));
     let fixture = runne_platform_desktop::test_only_connected_ready_v3_enrollment_supervisor();
     let (mut supervisor, desktop_peer, keys, owned, installed) = fixture.into_parts();
     let first_session = *owned.session_id();
@@ -80,10 +84,20 @@ fn connected_supervisor_relay_closes_before_request_and_cannot_cross_session() {
         owned.clone(),
         installed,
         Arc::clone(&control),
+        QualificationAdmissionVerifier::test_only_from_verifying_keys(
+            context_key.verifying_key(),
+            fault_key.verifying_key(),
+        ),
+        Arc::clone(&verified),
     );
     let proxy = BoundedThread::spawn(move || {
         let mut desktop_peer = desktop_peer;
-        let relay = crate::protected_activation::enrollment_v3_tests::read_frame(&mut desktop_peer);
+        let context =
+            crate::protected_activation::enrollment_v3_tests::read_frame(&mut desktop_peer);
+        let fault = crate::protected_activation::enrollment_v3_tests::read_frame(&mut desktop_peer);
+        assert_eq!(&context[4..12], b"RNQCTX1\0");
+        assert_eq!(&fault[4..12], b"RNQFRLY1");
+        let relay = [context, fault].concat();
         proxy_daemon.write_all(&relay).unwrap();
         desktop_peer
             .set_read_timeout(Some(Duration::from_millis(100)))
@@ -102,14 +116,21 @@ fn connected_supervisor_relay_closes_before_request_and_cannot_cross_session() {
         supervisor
             .begin_protected_credential_enrollment_with_qualification(
                 begin,
-                Some(PendingQualificationFault::from_admitted_frame(TICKET.to_vec()).unwrap()),
+                Some(super::qualification_admission_tests::support::admission(
+                    &context_key,
+                    &fault_key,
+                )),
             )
             .is_err()
     );
     assert!(started.elapsed() < TEST_TIMEOUT);
     let relay = proxy.wait("relay proxy/daemon close");
-    assert_eq!(&relay[4..12], b"RNQFRLY1");
     assert!(daemon.wait("first daemon close").is_err());
+    assert_eq!(
+        verified.load(Ordering::SeqCst),
+        2,
+        "registration must complete before combined verification"
+    );
     assert_zero_operations(database.path().join("relay-control.sqlite3"));
     let cleanup = BoundedThread::spawn(move || {
         let stopped = supervisor.stop();
@@ -133,10 +154,20 @@ fn connected_supervisor_relay_closes_before_request_and_cannot_cross_session() {
         next_owned,
         next_installed,
         control,
+        QualificationAdmissionVerifier::test_only_from_verifying_keys(
+            context_key.verifying_key(),
+            fault_key.verifying_key(),
+        ),
+        Arc::clone(&verified),
     );
     old_sender.write_all(&relay).unwrap();
     drop(old_sender);
     assert!(next_daemon.wait("second daemon close").is_err());
+    assert_eq!(
+        verified.load(Ordering::SeqCst),
+        2,
+        "cross-session relay verified"
+    );
     assert_zero_operations(database.path().join("relay-control.sqlite3"));
     drop(unused_peer);
     let cleanup = BoundedThread::spawn(move || next_supervisor.stop());
@@ -152,6 +183,8 @@ fn spawn_daemon(
     owned: runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
     installed: runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts,
     control: Arc<DaemonProviderCredentialEnrollmentControl>,
+    verifier: QualificationAdmissionVerifier,
+    verified: Arc<AtomicUsize>,
 ) -> BoundedThread<Result<(), runne_api::LaunchAuthorityError>> {
     let sessions = sessions_for(&owned);
     let channel = ProtectedActivationChannel::new(channel).unwrap();
@@ -167,7 +200,8 @@ fn spawn_daemon(
                 Some(control),
                 DaemonEnrollmentRendezvous::for_test(),
                 Some(installed),
-            ),
+            )
+            .with_test_qualification(verifier, verified),
         )
     })
 }

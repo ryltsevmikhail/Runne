@@ -48,7 +48,7 @@ fn verify(
 }
 
 fn verifier() -> QualificationAdmissionVerifier {
-    QualificationAdmissionVerifier::for_test(
+    QualificationAdmissionVerifier::test_only_from_verifying_keys(
         SigningKey::from_bytes(&[9; 32]).verifying_key(),
         SigningKey::from_bytes(&[7; 32]).verifying_key(),
     )
@@ -144,7 +144,7 @@ fn combined_verifier_rejects_unavailable_colliding_or_invalid_authorities_and_ti
     let key = SigningKey::from_bytes(&[7; 32]).verifying_key();
     assert!(
         verify(
-            &mut QualificationAdmissionVerifier::for_test(key, key),
+            &mut QualificationAdmissionVerifier::test_only_from_verifying_keys(key, key),
             signed_pair(|_| {}, |_| {}),
             expected(),
             NOW,

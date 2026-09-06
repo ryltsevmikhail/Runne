@@ -27,7 +27,8 @@ mod enrollment_desktop_peer_claim;
 #[path = "enrollment_tuple/daemon_installed.rs"]
 mod enrollment_daemon_installed;
 pub use enrollment_daemon_installed::{
-    VerifiedDaemonNativeEnrollmentPrepare, VerifiedInstalledEnrollmentMeasurementFacts,
+    QualificationAdmissionError, VerifiedDaemonNativeEnrollmentPrepare,
+    VerifiedInstalledEnrollmentMeasurementFacts, VerifiedQualificationAdmission,
 };
 #[path = "enrollment_tuple/daemon_peer.rs"]
 mod enrollment_daemon_peer;

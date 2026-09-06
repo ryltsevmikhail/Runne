@@ -187,10 +187,10 @@ impl crate::RuntimeLifecycleManager {
 }
 
 impl BundledRuntimeController {
-    pub(crate) const fn qualification_ticket_admission(
+    pub(crate) const fn qualification_admission(
         &self,
-    ) -> qualification_ticket::ProtectedQualificationTicketAdmission<'_> {
-        qualification_ticket::ProtectedQualificationTicketAdmission::from_protected_discovery(self)
+    ) -> qualification_ticket::ProtectedQualificationAdmission<'_> {
+        qualification_ticket::ProtectedQualificationAdmission::from_protected_discovery(self)
     }
 }
 

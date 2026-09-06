@@ -8,7 +8,10 @@ use std::path::PathBuf;
 use super::{NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleAdmission};
 
 mod measurement_facts;
-pub use measurement_facts::VerifiedInstalledEnrollmentMeasurementFacts;
+pub use measurement_facts::{
+    QualificationAdmissionError, VerifiedInstalledEnrollmentMeasurementFacts,
+    VerifiedQualificationAdmission,
+};
 
 /// Opaque evidence bound to one exact daemon prepare claim.
 ///

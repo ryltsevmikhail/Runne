@@ -70,19 +70,9 @@ pub(crate) fn run_control_loop_v3(
     )
 }
 
-/// The V3 transcript continuation for a channel that is already entered.
-///
-/// The same-process enrollment transition tail-calls this variant after its
-/// in-place upgrade; calling `enter_control_loop` twice would re-run the entry
-/// handshake on an already-authenticated channel.
-///
-/// Broker handoff offers consume the transition rendezvous exactly once, in
-/// fixed purpose order. Once a renewal rotates the local session, a failed
-/// channel write terminates this loop; callers must terminate the daemon
-/// rather than retrying on another path. After the kill-capability
-/// acknowledgement the retained kill authority terminates the exact writer on
-/// any later loop failure. V1/V2 frames decode as neither V3 message and fail
-/// closed.
+/// Continues V3 on an entered channel. Same-process upgrades avoid re-entry;
+/// broker offers consume rendezvous in order. Retained kill authority terminates
+/// the writer on later failure; V1/V2 frames fail closed.
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 pub(crate) fn run_control_loop_v3_entered(
     mut channel: ProtectedActivationChannel,
@@ -91,20 +81,24 @@ pub(crate) fn run_control_loop_v3_entered(
     local_session_service: Arc<Mutex<LocalSessionService>>,
     session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
     ticket_clock: TicketClock,
-    #[cfg(unix)] enrollment: V3EnrollmentDispatch,
+    #[cfg(unix)] mut enrollment: V3EnrollmentDispatch,
 ) -> Result<(), LaunchAuthorityError> {
     #[cfg(unix)]
-    let mut runtime = if let Some(control) = enrollment.control {
+    let mut runtime = if let Some(control) = enrollment.control.take() {
         let live =
             live_session::LiveEnrollmentSession::capture(&local_session_service, &owned_launch)?;
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        let round = enrollment.round_profile.map(|profile| round::RoundContext {
-            profile,
-            control: Arc::clone(&control),
-            previous: owned_launch.clone(),
-        });
+        let round = enrollment
+            .round_profile
+            .take()
+            .map(|profile| round::RoundContext {
+                profile,
+                control: Arc::clone(&control),
+                previous: owned_launch.clone(),
+            });
         let installed_facts = enrollment
             .installed_facts
+            .take()
             .ok_or(LaunchAuthorityError::OwnershipMismatch)?;
         #[cfg(target_os = "macos")]
         let credential_service_configuration =
@@ -123,6 +117,17 @@ pub(crate) fn run_control_loop_v3_entered(
             .map(|session| control.install_credential_service_session(session))
             .transpose()
             .map_err(runtime::map_enrollment_error)?;
+        #[cfg(target_os = "macos")]
+        let initial_request = initial_exchange::read_admitted_initial_request(
+            &mut channel,
+            &keys,
+            &owned_launch,
+            &installed_facts,
+            &mut enrollment,
+            &ticket_clock,
+        )?;
+        #[cfg(not(target_os = "macos"))]
+        let initial_request = channel.read_control_frame()?;
         let owned_rendezvous = enrollment.rendezvous.into_owned()?;
         let mut enrollment = control
             .start_protected_session(&keys, &owned_launch, owned_rendezvous, installed_facts)
@@ -132,8 +137,7 @@ pub(crate) fn run_control_loop_v3_entered(
             &mut enrollment,
             &live,
             &local_session_service,
-            &keys,
-            &owned_launch,
+            initial_request,
         )?;
         let terminal = enrollment.begun_is_terminal();
         let broker = runtime::bind_broker(&keys, &owned_launch, &mut enrollment)?;

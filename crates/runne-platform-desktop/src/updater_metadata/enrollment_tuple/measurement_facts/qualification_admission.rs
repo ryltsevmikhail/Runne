@@ -1,7 +1,4 @@
-use super::{
-    QualificationAdmissionVerifier, VerifiedInstalledEnrollmentMeasurementFacts,
-    VerifiedQualificationAdmission,
-};
+use super::{VerifiedInstalledEnrollmentMeasurementFacts, VerifiedQualificationAdmission};
 
 struct QualificationRuntimeInstalledExpectation {
     candidate_sha256: [u8; 32],
@@ -17,24 +14,13 @@ enum InstalledExpectationError {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct QualificationAdmissionError;
-
-impl QualificationAdmissionVerifier {
-    #[expect(dead_code, reason = "Task 2C owns the first production call")]
-    fn from_compiled_policy() -> Self {
-        Self {
-            inner: runne_native_qualification::QualificationAdmissionVerifier::from_compiled_policy(
-            ),
-        }
-    }
-}
+pub struct QualificationAdmissionError;
 
 impl VerifiedInstalledEnrollmentMeasurementFacts {
-    #[expect(dead_code, reason = "Task 2C owns the first production call")]
-    fn verify_qualification_admission(
+    pub fn verify_qualification_admission(
         &self,
         owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
-        verifier: &mut QualificationAdmissionVerifier,
+        verifier: &mut runne_native_qualification::QualificationAdmissionVerifier,
         admission: runne_native_qualification::PendingQualificationAdmission,
         now_unix_seconds: u64,
     ) -> Result<VerifiedQualificationAdmission, QualificationAdmissionError> {
@@ -42,7 +28,6 @@ impl VerifiedInstalledEnrollmentMeasurementFacts {
             .qualification_runtime_installed_expectation(owned)
             .map_err(|_| QualificationAdmissionError)?;
         verifier
-            .inner
             .verify_and_consume(
                 admission,
                 expected.candidate_sha256,
@@ -57,6 +42,21 @@ impl VerifiedInstalledEnrollmentMeasurementFacts {
         &self,
         owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
     ) -> Result<QualificationRuntimeInstalledExpectation, InstalledExpectationError> {
+        #[cfg(feature = "test-support")]
+        if let Some((candidate_sha256, raw_v3_tuple_sha256)) = self.qualification_test_expectation {
+            let binding = owned.enrollment_binding();
+            if self.release != *binding.release_tuple_digest()
+                || self.qualification != *binding.qualification_binding_digest()
+                || candidate_sha256 == [0; 32]
+                || raw_v3_tuple_sha256 == [0; 32]
+            {
+                return Err(InstalledExpectationError::SessionMismatch);
+            }
+            return Ok(QualificationRuntimeInstalledExpectation {
+                candidate_sha256,
+                raw_v3_tuple_sha256,
+            });
+        }
         let candidate = self
             .qualification_candidate_v3
             .as_ref()
@@ -88,6 +88,38 @@ impl VerifiedInstalledEnrollmentMeasurementFacts {
             candidate_sha256: self.candidate_source,
             raw_v3_tuple_sha256,
         })
+    }
+}
+
+#[cfg(feature = "test-support")]
+impl VerifiedInstalledEnrollmentMeasurementFacts {
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn test_only_qualification_facts(
+        release: [u8; 32],
+        qualification: [u8; 32],
+        candidate: [u8; 32],
+        raw_v3_tuple: [u8; 32],
+    ) -> Self {
+        Self {
+            desktop: [1; 32],
+            writer: [2; 32],
+            daemon: [3; 32],
+            credential_service: None,
+            runtime_credential_service: None,
+            writer_credential_service: None,
+            contract: [4; 32],
+            desktop_start: [5; 32],
+            release,
+            raw_v3_tuple: None,
+            qualification_candidate_v3: None,
+            qualification_test_expectation: Some((candidate, raw_v3_tuple)),
+            candidate_source: [6; 32],
+            target_manifest: [7; 32],
+            qualification,
+            installed_generation: 1,
+            release_frame: Vec::new(),
+        }
     }
 }
 
@@ -139,6 +171,8 @@ mod tests {
             release: admission.release_tuple_sha256,
             raw_v3_tuple: admission.raw_v3_tuple_sha256,
             qualification_candidate_v3: admission.qualification_candidate_v3.clone(),
+            #[cfg(feature = "test-support")]
+            qualification_test_expectation: None,
             candidate_source: admission.candidate_source_sha256.unwrap(),
             target_manifest: admission.target_manifest_sha256.unwrap(),
             qualification: admission

@@ -204,10 +204,10 @@ impl PreparedCredentialEnrollmentExchange {
         let begin =
             NativeProtectedCredentialEnrollmentBegin::new(command, self.native_confirmation)
                 .map_err(|_| PreparedCredentialEnrollmentError)?;
-        let qualification_fault = self.qualification_fault.take();
+        let qualification_admission = self.qualification_admission.take().map(|pending| *pending);
         let supervisor = self.resources.runtime.supervisor_handle();
         let (enrollment, retained_handoff) = begin_then_handoff(
-            || begin_protected_with_qualification(&supervisor, begin, qualification_fault),
+            || begin_protected_with_qualification(&supervisor, begin, qualification_admission),
             |enrollment| enrollment.snapshot().broker_rendezvous_id().is_some(),
             |_| pair_handoff(self, &supervisor, &reaper_operation, &reapers),
         )?;

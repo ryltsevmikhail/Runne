@@ -195,6 +195,9 @@ impl Audit {
         for member in &item.items {
             match member {
                 ImplItem::Fn(method) if is_public(&method.vis) => {
+                    if test_support_only(&method.attrs) {
+                        continue;
+                    }
                     if guarded_owner {
                         self.inspect_guarded_method(owner.as_deref().unwrap(), method, source);
                     } else if signature_mentions(&method.sig) {
@@ -253,6 +256,31 @@ impl Audit {
             }
         }
     }
+}
+
+fn test_support_only(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|attribute| {
+        if !attribute.path().is_ident("cfg") {
+            return false;
+        }
+        let mut test = false;
+        let mut feature = false;
+        let parsed = attribute.parse_nested_meta(|meta| {
+            if meta.path.is_ident("any") {
+                meta.parse_nested_meta(|nested| {
+                    if nested.path.is_ident("test") {
+                        test = true;
+                    } else if nested.path.is_ident("feature") {
+                        let value: syn::LitStr = nested.value()?.parse()?;
+                        feature = value.value() == "test-support";
+                    }
+                    Ok(())
+                })?;
+            }
+            Ok(())
+        });
+        parsed.is_ok() && test && feature
+    })
 }
 
 fn signatures_match(actual: &syn::Signature, expected: &syn::Signature) -> bool {

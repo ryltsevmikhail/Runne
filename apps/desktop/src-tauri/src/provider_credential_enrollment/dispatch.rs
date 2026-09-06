@@ -225,12 +225,12 @@ async fn dispatch_pair_inner(
                 updater: updater_lease,
                 intent_session: None,
             })?;
-            let qualification_fault = qualification_app
-                .state::<crate::bundled_runtime::qualification_ticket::QualificationFaultHostState>(
+            let qualification_admission = qualification_app
+                .state::<crate::bundled_runtime::qualification_ticket::QualificationAdmissionHostState>(
                 )
                 .take_pending_for_relay()
                 .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))?;
-            exchange.retain_qualification_fault(qualification_fault);
+            exchange.retain_qualification_admission(qualification_admission);
             let recovery = tauri::async_runtime::spawn_blocking(move || {
                 exchange.run(&owner_intents, work_reapers)
             })

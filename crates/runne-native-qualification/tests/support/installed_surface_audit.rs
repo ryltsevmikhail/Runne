@@ -6,12 +6,14 @@ use syn::{ImplItem, ItemUse, Visibility};
 use crate::installed_surface_consumers::{
     exact_reviewed_consumer_method, exact_reviewed_consumer_struct,
 };
-use crate::installed_surface_expected::exact_reviewed_facts_method;
+use crate::installed_surface_expected::{
+    exact_reviewed_facts_method, exact_test_only_qualification_facts,
+};
 use crate::installed_surface_syntax::{
     EXPECTATION, FACTS, VERIFIED, collect_aliases, collect_sealed_aliases, exact_factory,
-    exact_facts_reexport, exact_verification, fields_mention, generics_mention,
-    impl_member_mentions, node_mentions_trait, path_mentions, sealed_struct, signature_mentions,
-    type_mentions, type_name, use_leaves,
+    exact_reviewed_reexport, exact_test_support_only, exact_verification, fields_mention,
+    generics_mention, impl_member_mentions, node_mentions_trait, path_mentions, sealed_struct,
+    signature_mentions, type_mentions, type_name, use_leaves,
 };
 
 #[derive(Default)]
@@ -47,7 +49,7 @@ impl<'ast> Visit<'ast> for SourceAudit<'_> {
             }
         } else if name == VERIFIED {
             self.audit.verified += 1;
-            if !matches!(item.vis, Visibility::Inherited) || !sealed_struct(item) {
+            if !matches!(item.vis, Visibility::Public(_)) || !sealed_struct(item) {
                 self.reject("verified admission is reusable or externally constructible");
             }
         } else {
@@ -135,7 +137,7 @@ impl<'ast> Visit<'ast> for SourceAudit<'_> {
         if !matches!(item.vis, Visibility::Inherited) {
             for leaf in use_leaves(&item.tree) {
                 let sensitive = leaf.last().is_some_and(|name| self.aliases.contains(name));
-                if sensitive && exact_facts_reexport(self.source, &leaf) {
+                if sensitive && exact_reviewed_reexport(self.source, &leaf) {
                     self.audit.facts_reexports += 1;
                 } else if sensitive || leaf.last().is_some_and(|name| name == "*") {
                     self.reject("reexport, rename, or glob escapes a sealed installed type");
@@ -148,6 +150,17 @@ impl<'ast> Visit<'ast> for SourceAudit<'_> {
 
 impl SourceAudit<'_> {
     fn audit_facts_impl(&mut self, item: &syn::ItemImpl) {
+        if exact_test_support_only(&item.attrs) {
+            if item.trait_.is_none()
+                && item.items.len() == 1
+                && matches!(&item.items[0], ImplItem::Fn(method)
+                    if exact_test_only_qualification_facts(method))
+            {
+                return;
+            }
+            self.reject("test-only installed-facts seam is not exact");
+            return;
+        }
         if item.trait_.is_some() || generics_mention(&item.generics, &self.aliases) {
             self.reject("installed facts gain a trait or generic authority surface");
         }
@@ -163,7 +176,7 @@ impl SourceAudit<'_> {
                     }
                 }
                 ImplItem::Fn(method) if method.sig.ident == "verify_qualification_admission" => {
-                    if matches!(method.vis, Visibility::Inherited)
+                    if matches!(method.vis, Visibility::Public(_))
                         && exact_verification(&method.sig)
                     {
                         self.audit.verification += 1;

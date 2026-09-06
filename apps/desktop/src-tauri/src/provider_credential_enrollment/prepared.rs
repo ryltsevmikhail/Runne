@@ -10,7 +10,7 @@ use runne_api::{
     ProviderCredentialEnrollmentActionV2, ProviderCredentialProviderV2,
     ProviderCredentialVerificationKindV2,
 };
-use runne_native_qualification::PendingQualificationFault;
+use runne_native_qualification::PendingQualificationAdmission;
 use runne_platform_desktop::{
     ConfirmedInstalledNativeEnrollment, SecureCredentialMaterial, SecureCredentialPromptDisposition,
 };
@@ -51,7 +51,7 @@ pub(super) struct PreparedCredentialEnrollmentExchange {
     material: Option<SecureCredentialMaterial>,
     _renderer_binding: [u8; 32],
     native_confirmation: [u8; 32],
-    qualification_fault: Option<PendingQualificationFault>,
+    qualification_admission: Option<Box<PendingQualificationAdmission>>,
 }
 /// Trusted native inputs retained outside the renderer boundary.
 pub(super) struct NativeEnrollmentConfirmation {
@@ -107,15 +107,15 @@ impl PreparedCredentialEnrollmentExchange {
             material,
             _renderer_binding: renderer_binding,
             native_confirmation,
-            qualification_fault: None,
+            qualification_admission: None,
         })
     }
 
-    pub(super) fn retain_qualification_fault(
+    pub(super) fn retain_qualification_admission(
         &mut self,
-        pending: Option<PendingQualificationFault>,
+        pending: Option<PendingQualificationAdmission>,
     ) {
-        self.qualification_fault = pending;
+        self.qualification_admission = pending.map(Box::new);
     }
 }
 
@@ -124,7 +124,7 @@ fn begin_protected_with_qualification(
         std::sync::Mutex<runne_platform_desktop::ProtectedBundledRuntimeSupervisor>,
     >,
     begin: runne_platform_desktop::NativeProtectedCredentialEnrollmentBegin,
-    pending: Option<PendingQualificationFault>,
+    pending: Option<PendingQualificationAdmission>,
 ) -> Result<
     runne_platform_desktop::PreparedProtectedCredentialEnrollment,
     PreparedCredentialEnrollmentError,

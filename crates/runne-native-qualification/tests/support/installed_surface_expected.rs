@@ -3,9 +3,6 @@ pub fn exact_reviewed_facts_method(method: &syn::ImplItemFn) -> bool {
         "from_revalidated" => {
             "pub(in crate::updater_metadata) fn from_revalidated(value: &VerifiedDaemonNativeEnrollmentPrepare) -> Option<Self> {}"
         }
-        "for_connected_relay_test" => {
-            "pub(crate) const fn for_connected_relay_test(release: [u8; 32]) -> Self {}"
-        }
         "desktop" => "pub const fn desktop(&self) -> [u8; 32] {}",
         "writer" => "pub const fn writer(&self) -> [u8; 32] {}",
         "daemon" => "pub const fn daemon(&self) -> [u8; 32] {}",
@@ -29,6 +26,13 @@ pub fn exact_reviewed_facts_method(method: &syn::ImplItemFn) -> bool {
         _ => return false,
     };
     exact_method(method, expected)
+}
+
+pub fn exact_test_only_qualification_facts(method: &syn::ImplItemFn) -> bool {
+    exact_method(
+        method,
+        "pub const fn test_only_qualification_facts(release: [u8; 32], qualification: [u8; 32], candidate: [u8; 32], raw_v3_tuple: [u8; 32]) -> Self {}",
+    )
 }
 
 fn exact_method(actual: &syn::ImplItemFn, expected: &str) -> bool {

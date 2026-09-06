@@ -63,6 +63,23 @@ fn production_context_authorities_have_no_raw_or_reusable_escape_surface() {
 }
 
 #[test]
+fn verifier_key_injection_is_visible_only_to_the_exact_test_support_cfg() {
+    let signature = "pub fn test_only_from_verifying_keys(context_key: VerifyingKey, fault_key: VerifyingKey) -> Self { todo!() }";
+    let unguarded = BASELINE.replace(
+        "pub fn from_compiled_policy() -> Self { todo!() }",
+        &format!("pub fn from_compiled_policy() -> Self {{ todo!() }} {signature}"),
+    );
+    assert!(!audit_sources(&[("unguarded.rs", &unguarded)]).is_empty());
+    let guarded = BASELINE.replace(
+        "pub fn from_compiled_policy() -> Self { todo!() }",
+        &format!(
+            "pub fn from_compiled_policy() -> Self {{ todo!() }} #[cfg(any(test, feature = \"test-support\"))] {signature}"
+        ),
+    );
+    assert!(audit_sources(&[("guarded.rs", &guarded)]).is_empty());
+}
+
+#[test]
 fn surface_auditor_rejects_alias_trait_wrapper_getter_and_borrowed_mutations() {
     let baseline = audit_sources(&[("baseline.rs", BASELINE)]);
     assert!(baseline.is_empty(), "{baseline:#?}");

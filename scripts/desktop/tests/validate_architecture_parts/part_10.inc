@@ -63,6 +63,8 @@ const RAW: &str = r#"extern crate std as platform;"#;
             "crates/runne-platform-desktop/src/protected_runtime/qualification_relay_tests.rs",
             "crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/tests.rs",
             "crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/connected_tests.rs",
+            "crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/qualification_admission_tests.rs",
+            "crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/qualification_admission_tests/support.rs",
         )
         for relative in known_tests:
             with self.subTest(relative=relative):

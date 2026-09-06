@@ -59,10 +59,13 @@ NATIVE_QUALIFICATION_ADMISSION_ALLOWED = {
     Path("crates/runne-platform-desktop/src/updater_metadata/enrollment_tuple/measurement_facts.rs"),
     Path("crates/runne-platform-desktop/src/updater_metadata/enrollment_tuple/measurement_facts/qualification_admission.rs"),
     Path("crates/runne-daemon/src/protected_activation/control_v3.rs"),
+    Path("crates/runne-daemon/src/protected_activation/control_v3/runtime.rs"),
     Path("crates/runne-daemon/src/protected_activation/control_v3/round.rs"),
     Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange.rs"),
     Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/tests.rs"),
     Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/connected_tests.rs"),
+    Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/qualification_admission_tests.rs"),
+    Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/qualification_admission_tests/support.rs"),
 }
 NATIVE_QUALIFICATION_ADMISSION_TOKEN = re.compile(
     r"runne_native_qualification|PendingQualificationFault|QualificationFaultHostState|"

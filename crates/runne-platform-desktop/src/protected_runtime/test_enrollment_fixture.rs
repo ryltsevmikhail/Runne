@@ -169,9 +169,13 @@ fn ready_v3_parts(
         credential_service_rejoin: None,
     };
     let _ = std::fs::remove_dir(root);
-    let installed = crate::updater_metadata::VerifiedInstalledEnrollmentMeasurementFacts::for_connected_relay_test(
-        *owned.enrollment_binding().release_tuple_digest(),
-    );
+    let installed = crate::updater_metadata::VerifiedInstalledEnrollmentMeasurementFacts::
+        test_only_qualification_facts(
+            *owned.enrollment_binding().release_tuple_digest(),
+            *owned.enrollment_binding().qualification_binding_digest(),
+            [0xaa; 32],
+            [0xbb; 32],
+        );
     (supervisor, peer, keys, owned, installed)
 }
 

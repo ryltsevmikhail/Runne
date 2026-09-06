@@ -11,27 +11,27 @@ use std::time::{Duration, Instant};
 use nix::fcntl::{FcntlArg, FdFlag, OFlag, fcntl};
 use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
 use nix::sys::socket::{UnixAddr, getpeername};
-use runne_native_qualification::{MAX_FAULT_TICKET_BYTES, PendingQualificationFault};
+use runne_native_qualification::{MAX_ADMISSION_BUNDLE_BYTES, PendingQualificationAdmission};
 
-pub(super) const QUALIFICATION_TICKET_DESCRIPTOR: RawFd = 198;
-const QUALIFICATION_TICKET_TIMEOUT: Duration = Duration::from_secs(5);
+pub(super) const QUALIFICATION_ADMISSION_DESCRIPTOR: RawFd = 198;
+const QUALIFICATION_ADMISSION_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Closed setup failure with no descriptor, path, or input detail.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct QualificationTicketAdmissionError;
+pub struct QualificationAdmissionHostError;
 
-impl std::fmt::Display for QualificationTicketAdmissionError {
+impl std::fmt::Display for QualificationAdmissionHostError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("qualification fault ticket admission rejected")
+        formatter.write_str("qualification admission bundle rejected")
     }
 }
 
-impl std::error::Error for QualificationTicketAdmissionError {}
+impl std::error::Error for QualificationAdmissionHostError {}
 /// Unforgeable native proof that protected bundled discovery succeeded.
-pub struct ProtectedQualificationTicketAdmission<'owner> {
+pub struct ProtectedQualificationAdmission<'owner> {
     _owner: PhantomData<&'owner super::BundledRuntimeController>,
 }
-impl<'owner> ProtectedQualificationTicketAdmission<'owner> {
+impl<'owner> ProtectedQualificationAdmission<'owner> {
     pub(super) const fn from_protected_discovery(
         _owner: &'owner super::BundledRuntimeController,
     ) -> Self {
@@ -40,16 +40,16 @@ impl<'owner> ProtectedQualificationTicketAdmission<'owner> {
         }
     }
 }
-struct InheritedQualificationTicketSlot {
+struct InheritedQualificationAdmissionSlot {
     descriptor: Option<RawFd>,
 }
 
-impl InheritedQualificationTicketSlot {
-    fn inspect() -> Result<Self, QualificationTicketAdmissionError> {
-        Self::inspect_at(QUALIFICATION_TICKET_DESCRIPTOR)
+impl InheritedQualificationAdmissionSlot {
+    fn inspect() -> Result<Self, QualificationAdmissionHostError> {
+        Self::inspect_at(QUALIFICATION_ADMISSION_DESCRIPTOR)
     }
 
-    fn inspect_at(descriptor: RawFd) -> Result<Self, QualificationTicketAdmissionError> {
+    fn inspect_at(descriptor: RawFd) -> Result<Self, QualificationAdmissionHostError> {
         match std::fs::metadata(descriptor_path(descriptor)) {
             Ok(_) => Ok(Self {
                 descriptor: Some(descriptor),
@@ -60,7 +60,7 @@ impl InheritedQualificationTicketSlot {
             {
                 Ok(Self { descriptor: None })
             }
-            Err(_) => Err(QualificationTicketAdmissionError),
+            Err(_) => Err(QualificationAdmissionHostError),
         }
     }
 
@@ -71,21 +71,21 @@ impl InheritedQualificationTicketSlot {
     fn adopt_channel(
         mut self,
         timeout: Duration,
-    ) -> Result<AdoptedQualificationTicket, QualificationTicketAdmissionError> {
+    ) -> Result<AdoptedQualificationAdmission, QualificationAdmissionHostError> {
         let descriptor = self
             .descriptor
             .take()
-            .ok_or(QualificationTicketAdmissionError)?;
+            .ok_or(QualificationAdmissionHostError)?;
         let opened = OpenOptions::new()
             .read(true)
             .open(descriptor_path(descriptor));
         let closed = nix::unistd::close(OwnedRawDescriptor(descriptor));
-        let file = opened.map_err(|_| QualificationTicketAdmissionError)?;
-        closed.map_err(|_| QualificationTicketAdmissionError)?;
+        let file = opened.map_err(|_| QualificationAdmissionHostError)?;
+        closed.map_err(|_| QualificationAdmissionHostError)?;
         validate_channel(&file)?;
         require_cloexec(&file)?;
         require_nonblocking(&file)?;
-        Ok(AdoptedQualificationTicket {
+        Ok(AdoptedQualificationAdmission {
             file,
             deadline: Instant::now() + timeout,
         })
@@ -95,12 +95,12 @@ impl InheritedQualificationTicketSlot {
     fn adopt_channel_for_test(
         self,
         timeout: Duration,
-    ) -> Result<AdoptedQualificationTicket, QualificationTicketAdmissionError> {
+    ) -> Result<AdoptedQualificationAdmission, QualificationAdmissionHostError> {
         self.adopt_channel(timeout)
     }
 }
 
-impl Drop for InheritedQualificationTicketSlot {
+impl Drop for InheritedQualificationAdmissionSlot {
     fn drop(&mut self) {
         if let Some(descriptor) = self.descriptor.take() {
             let _ = nix::unistd::close(OwnedRawDescriptor(descriptor));
@@ -116,66 +116,65 @@ impl IntoRawFd for OwnedRawDescriptor {
     }
 }
 
-struct AdoptedQualificationTicket {
+struct AdoptedQualificationAdmission {
     file: File,
     deadline: Instant,
 }
 
-impl AdoptedQualificationTicket {
+impl AdoptedQualificationAdmission {
     fn read_pending(
         mut self,
-    ) -> Result<PendingQualificationFault, QualificationTicketAdmissionError> {
-        let mut bytes = Vec::with_capacity(MAX_FAULT_TICKET_BYTES);
+    ) -> Result<PendingQualificationAdmission, QualificationAdmissionHostError> {
+        let mut bytes = Vec::with_capacity(MAX_ADMISSION_BUNDLE_BYTES);
         let mut chunk = [0_u8; 1024];
         loop {
             let remaining = self
                 .deadline
                 .checked_duration_since(Instant::now())
-                .ok_or(QualificationTicketAdmissionError)?;
+                .ok_or(QualificationAdmissionHostError)?;
             let timeout = PollTimeout::try_from(remaining).unwrap_or(PollTimeout::MAX);
             let mut descriptors = [PollFd::new(
                 self.file.as_fd(),
                 PollFlags::POLLIN | PollFlags::POLLHUP,
             )];
-            if poll(&mut descriptors, timeout).map_err(|_| QualificationTicketAdmissionError)? == 0
-            {
-                return Err(QualificationTicketAdmissionError);
+            if poll(&mut descriptors, timeout).map_err(|_| QualificationAdmissionHostError)? == 0 {
+                return Err(QualificationAdmissionHostError);
             }
             let events = descriptors[0].revents().unwrap_or(PollFlags::POLLNVAL);
             if events.intersects(PollFlags::POLLERR | PollFlags::POLLNVAL) {
-                return Err(QualificationTicketAdmissionError);
+                return Err(QualificationAdmissionHostError);
             }
-            let limit = (MAX_FAULT_TICKET_BYTES + 1 - bytes.len()).min(chunk.len());
+            let limit = (MAX_ADMISSION_BUNDLE_BYTES + 1 - bytes.len()).min(chunk.len());
             match self.file.read(&mut chunk[..limit]) {
                 Ok(0) => break,
                 Ok(count) => {
                     bytes.extend_from_slice(&chunk[..count]);
-                    if bytes.len() > MAX_FAULT_TICKET_BYTES {
-                        return Err(QualificationTicketAdmissionError);
+                    if bytes.len() > MAX_ADMISSION_BUNDLE_BYTES {
+                        return Err(QualificationAdmissionHostError);
                     }
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
-                Err(_) => return Err(QualificationTicketAdmissionError),
+                Err(_) => return Err(QualificationAdmissionHostError),
             }
         }
-        PendingQualificationFault::from_admitted_frame(bytes)
-            .map_err(|_| QualificationTicketAdmissionError)
+        PendingQualificationAdmission::from_admitted_bundle(bytes)
+            .map_err(|_| QualificationAdmissionHostError)
     }
 }
 
-/// Native host state containing at most one move-only pending ticket.
-pub struct QualificationFaultHostState {
-    pending: Mutex<Option<PendingQualificationFault>>,
+/// Native host state containing at most one move-only pending admission.
+pub struct QualificationAdmissionHostState {
+    pending: Mutex<Option<PendingQualificationAdmission>>,
 }
 
-impl QualificationFaultHostState {
+impl QualificationAdmissionHostState {
     fn admit(
-        slot: InheritedQualificationTicketSlot,
-        protected_installed_admission: Option<ProtectedQualificationTicketAdmission<'_>>,
+        slot: InheritedQualificationAdmissionSlot,
+        protected_installed_admission: Option<ProtectedQualificationAdmission<'_>>,
         timeout: Duration,
-    ) -> Result<Self, QualificationTicketAdmissionError> {
+    ) -> Result<Self, QualificationAdmissionHostError> {
         let pending = if slot.is_present() {
-            protected_installed_admission.ok_or(QualificationTicketAdmissionError)?;
+            protected_installed_admission.ok_or(QualificationAdmissionHostError)?;
             Some(slot.adopt_channel(timeout)?.read_pending()?)
         } else {
             None
@@ -187,20 +186,20 @@ impl QualificationFaultHostState {
 
     pub(crate) fn take_pending_for_relay(
         &self,
-    ) -> Result<Option<PendingQualificationFault>, QualificationTicketAdmissionError> {
+    ) -> Result<Option<PendingQualificationAdmission>, QualificationAdmissionHostError> {
         Ok(self
             .pending
             .lock()
-            .map_err(|_| QualificationTicketAdmissionError)?
+            .map_err(|_| QualificationAdmissionHostError)?
             .take())
     }
 
     #[cfg(test)]
     fn admit_for_test(
-        slot: InheritedQualificationTicketSlot,
-        protected_installed_admission: Option<ProtectedQualificationTicketAdmission<'_>>,
+        slot: InheritedQualificationAdmissionSlot,
+        protected_installed_admission: Option<ProtectedQualificationAdmission<'_>>,
         timeout: Duration,
-    ) -> Result<Self, QualificationTicketAdmissionError> {
+    ) -> Result<Self, QualificationAdmissionHostError> {
         Self::admit(slot, protected_installed_admission, timeout)
     }
 
@@ -209,19 +208,19 @@ impl QualificationFaultHostState {
         self.pending.lock().is_ok_and(|pending| pending.is_some())
     }
 }
-pub fn admit_inherited_qualification_ticket(
-    protected_installed_admission: Option<ProtectedQualificationTicketAdmission<'_>>,
-) -> Result<QualificationFaultHostState, QualificationTicketAdmissionError> {
-    QualificationFaultHostState::admit(
-        InheritedQualificationTicketSlot::inspect()?,
+pub fn admit_inherited_qualification_admission(
+    protected_installed_admission: Option<ProtectedQualificationAdmission<'_>>,
+) -> Result<QualificationAdmissionHostState, QualificationAdmissionHostError> {
+    QualificationAdmissionHostState::admit(
+        InheritedQualificationAdmissionSlot::inspect()?,
         protected_installed_admission,
-        QUALIFICATION_TICKET_TIMEOUT,
+        QUALIFICATION_ADMISSION_TIMEOUT,
     )
 }
 
 #[cfg(test)]
-const fn protected_admission_for_test() -> ProtectedQualificationTicketAdmission<'static> {
-    ProtectedQualificationTicketAdmission {
+const fn protected_admission_for_test() -> ProtectedQualificationAdmission<'static> {
+    ProtectedQualificationAdmission {
         _owner: PhantomData,
     }
 }
@@ -230,16 +229,16 @@ fn descriptor_path(descriptor: RawFd) -> String {
     format!("/dev/fd/{descriptor}")
 }
 
-fn validate_channel(file: &File) -> Result<(), QualificationTicketAdmissionError> {
+fn validate_channel(file: &File) -> Result<(), QualificationAdmissionHostError> {
     let file_type = file
         .metadata()
-        .map_err(|_| QualificationTicketAdmissionError)?
+        .map_err(|_| QualificationAdmissionHostError)?
         .file_type();
     let flags = OFlag::from_bits_retain(
-        fcntl(file, FcntlArg::F_GETFL).map_err(|_| QualificationTicketAdmissionError)?,
+        fcntl(file, FcntlArg::F_GETFL).map_err(|_| QualificationAdmissionHostError)?,
     );
     if flags & OFlag::O_ACCMODE == OFlag::O_WRONLY {
-        return Err(QualificationTicketAdmissionError);
+        return Err(QualificationAdmissionHostError);
     }
     if file_type.is_fifo() && flags & OFlag::O_ACCMODE == OFlag::O_RDONLY {
         return Ok(());
@@ -247,42 +246,42 @@ fn validate_channel(file: &File) -> Result<(), QualificationTicketAdmissionError
     if file_type.is_socket() && getpeername::<UnixAddr>(file.as_raw_fd()).is_ok() {
         return Ok(());
     }
-    Err(QualificationTicketAdmissionError)
+    Err(QualificationAdmissionHostError)
 }
 
-fn require_cloexec(file: &File) -> Result<(), QualificationTicketAdmissionError> {
+fn require_cloexec(file: &File) -> Result<(), QualificationAdmissionHostError> {
     let flags = FdFlag::from_bits_retain(
-        fcntl(file, FcntlArg::F_GETFD).map_err(|_| QualificationTicketAdmissionError)?,
+        fcntl(file, FcntlArg::F_GETFD).map_err(|_| QualificationAdmissionHostError)?,
     ) | FdFlag::FD_CLOEXEC;
-    fcntl(file, FcntlArg::F_SETFD(flags)).map_err(|_| QualificationTicketAdmissionError)?;
+    fcntl(file, FcntlArg::F_SETFD(flags)).map_err(|_| QualificationAdmissionHostError)?;
     let observed = FdFlag::from_bits_retain(
-        fcntl(file, FcntlArg::F_GETFD).map_err(|_| QualificationTicketAdmissionError)?,
+        fcntl(file, FcntlArg::F_GETFD).map_err(|_| QualificationAdmissionHostError)?,
     );
     observed
         .contains(FdFlag::FD_CLOEXEC)
         .then_some(())
-        .ok_or(QualificationTicketAdmissionError)
+        .ok_or(QualificationAdmissionHostError)
 }
 
-fn require_nonblocking(file: &File) -> Result<(), QualificationTicketAdmissionError> {
+fn require_nonblocking(file: &File) -> Result<(), QualificationAdmissionHostError> {
     let flags = OFlag::from_bits_retain(
-        fcntl(file, FcntlArg::F_GETFL).map_err(|_| QualificationTicketAdmissionError)?,
+        fcntl(file, FcntlArg::F_GETFL).map_err(|_| QualificationAdmissionHostError)?,
     ) | OFlag::O_NONBLOCK;
-    fcntl(file, FcntlArg::F_SETFL(flags)).map_err(|_| QualificationTicketAdmissionError)?;
+    fcntl(file, FcntlArg::F_SETFL(flags)).map_err(|_| QualificationAdmissionHostError)?;
     let observed = OFlag::from_bits_retain(
-        fcntl(file, FcntlArg::F_GETFL).map_err(|_| QualificationTicketAdmissionError)?,
+        fcntl(file, FcntlArg::F_GETFL).map_err(|_| QualificationAdmissionHostError)?,
     );
     observed
         .contains(OFlag::O_NONBLOCK)
         .then_some(())
-        .ok_or(QualificationTicketAdmissionError)
+        .ok_or(QualificationAdmissionHostError)
 }
 
 #[cfg(test)]
-fn inspect_qualification_ticket_at_for_test(
+fn inspect_qualification_admission_at_for_test(
     descriptor: RawFd,
-) -> Result<InheritedQualificationTicketSlot, QualificationTicketAdmissionError> {
-    InheritedQualificationTicketSlot::inspect_at(descriptor)
+) -> Result<InheritedQualificationAdmissionSlot, QualificationAdmissionHostError> {
+    InheritedQualificationAdmissionSlot::inspect_at(descriptor)
 }
 
 #[cfg(test)]

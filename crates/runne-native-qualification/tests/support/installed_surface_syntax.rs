@@ -93,6 +93,22 @@ pub fn sealed_struct(item: &syn::ItemStruct) -> bool {
         && !has_forbidden_derive(&item.attrs)
 }
 
+pub fn exact_test_support_only(attrs: &[syn::Attribute]) -> bool {
+    attrs.len() == 1
+        && attrs[0].path().is_ident("cfg")
+        && attrs[0]
+            .parse_args::<syn::Meta>()
+            .is_ok_and(|meta| match meta {
+                syn::Meta::NameValue(value) => {
+                    value.path.is_ident("feature")
+                        && matches!(value.value, syn::Expr::Lit(ref expression)
+                            if matches!(expression.lit, syn::Lit::Str(ref value)
+                                if value.value() == "test-support"))
+                }
+                _ => false,
+            })
+}
+
 fn has_forbidden_derive(attrs: &[syn::Attribute]) -> bool {
     attrs.iter().any(|attr| meta_contains_derive(&attr.meta))
 }
@@ -115,7 +131,7 @@ pub fn exact_factory(sig: &syn::Signature) -> bool {
 pub fn exact_verification(sig: &syn::Signature) -> bool {
     exact_signature(
         sig,
-        "fn verify_qualification_admission(&self, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3, verifier: &mut QualificationAdmissionVerifier, admission: runne_native_qualification::PendingQualificationAdmission, now_unix_seconds: u64) -> Result<VerifiedQualificationAdmission, QualificationAdmissionError> {}",
+        "fn verify_qualification_admission(&self, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3, verifier: &mut runne_native_qualification::QualificationAdmissionVerifier, admission: runne_native_qualification::PendingQualificationAdmission, now_unix_seconds: u64) -> Result<VerifiedQualificationAdmission, QualificationAdmissionError> {}",
     )
 }
 
@@ -229,8 +245,9 @@ fn collect_use_leaves(tree: &UseTree, prefix: &mut Vec<String>, leaves: &mut Vec
     }
 }
 
-pub fn exact_facts_reexport(source: &str, leaf: &[String]) -> bool {
-    leaf.last().is_some_and(|name| name == FACTS)
+pub fn exact_reviewed_reexport(source: &str, leaf: &[String]) -> bool {
+    leaf.last()
+        .is_some_and(|name| name == FACTS || name == VERIFIED)
         && [
             (
                 "runne-platform-desktop/src/updater_metadata/enrollment_tuple/daemon_installed.rs",
