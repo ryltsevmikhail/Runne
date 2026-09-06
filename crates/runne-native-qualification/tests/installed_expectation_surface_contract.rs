@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 mod installed_surface_audit;
 #[path = "support/installed_surface_consumers.rs"]
 mod installed_surface_consumers;
+#[path = "support/installed_surface_daemon.rs"]
+mod installed_surface_daemon;
 #[path = "support/installed_surface_expected.rs"]
 mod installed_surface_expected;
 #[path = "support/installed_surface_syntax.rs"]
@@ -36,8 +38,14 @@ fn production_installed_authority_surface_is_recursively_sealed() {
     let audit = audit_sources(&borrowed);
     assert_eq!((audit.facts, audit.expectation, audit.verified), (1, 1, 1));
     assert_eq!(
-        (audit.factory, audit.verification, audit.facts_reexports),
-        (1, 1, 6),
+        (
+            audit.factory,
+            audit.verification,
+            audit.retention,
+            audit.initial_result,
+            audit.facts_reexports,
+        ),
+        (1, 1, 1, 1, 3),
         "{:#?}",
         audit.violations,
     );
@@ -48,7 +56,7 @@ fn production_installed_authority_surface_is_recursively_sealed() {
 fn adversarial_alias_generic_trait_and_wrapper_escapes_are_rejected() {
     let baseline = baseline();
     assert!(
-        audit_sources(&[("baseline.rs", &baseline)])
+        audit_sources(&[(installed_surface_daemon::DAEMON_SOURCE, &baseline)])
             .violations
             .is_empty()
     );
@@ -97,9 +105,23 @@ fn adversarial_alias_generic_trait_and_wrapper_escapes_are_rejected() {
             "#[derive(Default)] struct QualificationRuntimeInstalledExpectation",
         ),
         baseline.replace(
-            "pub struct VerifiedQualificationAdmission",
-            "#[cfg_attr(test, derive(Default))] pub struct VerifiedQualificationAdmission",
+            "struct VerifiedQualificationAdmission",
+            "#[cfg_attr(test, derive(Default))] struct VerifiedQualificationAdmission",
         ),
+        baseline.replace(
+            "_admission: runne_native_qualification::PendingQualificationAdmission",
+            "pub _admission: runne_native_qualification::PendingQualificationAdmission",
+        ),
+        format!(
+            "{baseline}\nimpl VerifiedQualificationAdmission {{ pub fn from_admission(admission: runne_native_qualification::PendingQualificationAdmission) -> Self {{ Self {{ _admission: admission }} }} }}"
+        ),
+        format!(
+            "{baseline}\nimpl VerifiedQualificationAdmission {{ pub fn admission(&self) -> &runne_native_qualification::PendingQualificationAdmission {{ &self._admission }} }}"
+        ),
+        format!(
+            "{baseline}\nfn encode_downstream(_: VerifiedQualificationAdmission) -> Vec<u8> {{ todo!() }}"
+        ),
+        format!("{baseline}\ntype CarrierAlias = VerifiedQualificationAdmission;"),
         format!(
             "{baseline}\npub mod nested {{ use super::QualificationRuntimeInstalledExpectation as Gate; pub struct Leak(pub Gate); }}"
         ),
@@ -119,11 +141,14 @@ fn adversarial_alias_generic_trait_and_wrapper_escapes_are_rejected() {
             "{baseline}\nuse crate::VerifiedQualificationAdmission as Gate; unsafe extern \"Rust\" {{ fn forge_alias() -> Gate; }}"
         ),
         format!(
+            "{baseline}\nfn pair_marker_with_carrier(_: QualificationAdmissionError, _: runne_native_qualification::PendingQualificationAdmission) -> VerifiedQualificationAdmission {{ todo!() }}"
+        ),
+        format!(
             "{baseline}\nunsafe extern \"Rust\" {{ fn consume_facts(_: *const VerifiedInstalledEnrollmentMeasurementFacts); }}"
         ),
     ] {
         assert!(
-            !audit_sources(&[("mutation.rs", &mutation)])
+            !audit_sources(&[(installed_surface_daemon::DAEMON_SOURCE, &mutation,)])
                 .violations
                 .is_empty()
         );
@@ -144,7 +169,7 @@ fn reviewed_consumer_path_does_not_exempt_a_new_escape() {
 }
 
 fn baseline() -> String {
-    "pub struct VerifiedInstalledEnrollmentMeasurementFacts { candidate: [u8; 32] }\nstruct QualificationRuntimeInstalledExpectation { candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32] }\npub struct VerifiedQualificationAdmission { private: () }\nstruct InstalledExpectationError; struct QualificationAdmissionError;\nimpl VerifiedInstalledEnrollmentMeasurementFacts { fn qualification_runtime_installed_expectation(&self, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3) -> Result<QualificationRuntimeInstalledExpectation, InstalledExpectationError> { todo!() } pub fn verify_qualification_admission(&self, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3, verifier: &mut runne_native_qualification::QualificationAdmissionVerifier, admission: runne_native_qualification::PendingQualificationAdmission, now_unix_seconds: u64) -> Result<VerifiedQualificationAdmission, QualificationAdmissionError> { todo!() } }".into()
+    "pub struct VerifiedInstalledEnrollmentMeasurementFacts { candidate: [u8; 32] }\nstruct QualificationRuntimeInstalledExpectation { candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32] }\n#[cfg(target_os = \"macos\")] struct VerifiedQualificationAdmission { _admission: runne_native_qualification::PendingQualificationAdmission }\n#[cfg(target_os = \"macos\")] enum InitialQualificationFrame { Legacy(Zeroizing<Vec<u8>>), Verified(VerifiedQualificationAdmission), }\nstruct InstalledExpectationError; struct QualificationAdmissionError; struct LaunchAuthorityError;\nimpl VerifiedInstalledEnrollmentMeasurementFacts { fn qualification_runtime_installed_expectation(&self, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3) -> Result<QualificationRuntimeInstalledExpectation, InstalledExpectationError> { todo!() } pub fn verify_qualification_admission(&self, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3, verifier: &mut runne_native_qualification::QualificationAdmissionVerifier, admission: &runne_native_qualification::PendingQualificationAdmission, now_unix_seconds: u64) -> Result<(), QualificationAdmissionError> { todo!() } }\n#[cfg(target_os = \"macos\")] fn verify_and_retain_qualification_admission(installed: &runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3, verifier: &mut runne_native_qualification::QualificationAdmissionVerifier, admission: runne_native_qualification::PendingQualificationAdmission, now_unix_seconds: u64) -> Result<VerifiedQualificationAdmission, LaunchAuthorityError> { todo!() }".into()
 }
 
 fn collect(root: &Path, paths: &mut Vec<PathBuf>) {

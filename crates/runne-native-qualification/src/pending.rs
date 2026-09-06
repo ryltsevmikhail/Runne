@@ -10,8 +10,13 @@ pub struct PendingQualificationFault {
 }
 
 impl PendingQualificationFault {
-    pub(crate) fn into_admitted_bytes(self) -> Vec<u8> {
-        self.bytes
+    pub(crate) fn verify_borrowed(
+        &self,
+        verifier: &mut crate::QualificationFaultVerifier,
+        context: &QualificationFaultContext,
+        now_unix_seconds: u64,
+    ) -> Result<VerifiedQualificationFault, QualificationFaultError> {
+        verifier.verify_and_consume(&self.bytes, context, now_unix_seconds)
     }
 
     pub(crate) fn matches_sha256(&self, expected: &[u8; 32]) -> bool {

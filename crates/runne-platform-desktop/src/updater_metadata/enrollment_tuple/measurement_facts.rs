@@ -6,11 +6,6 @@ mod qualification_admission;
 #[cfg(target_os = "macos")]
 pub use qualification_admission::QualificationAdmissionError;
 
-#[cfg(target_os = "macos")]
-pub struct VerifiedQualificationAdmission {
-    _private: (),
-}
-
 /// Constructor-sealed installed artifacts and peer facts retained after revalidation.
 pub struct VerifiedInstalledEnrollmentMeasurementFacts {
     desktop: [u8; 32],

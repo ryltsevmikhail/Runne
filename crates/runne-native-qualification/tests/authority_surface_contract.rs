@@ -16,7 +16,7 @@ const BASELINE: &str = r"
 pub struct QualificationAdmissionVerifier { context: QualificationRunContextVerifier }
 impl QualificationAdmissionVerifier {
   pub fn from_compiled_policy() -> Self { todo!() }
-  pub fn verify_and_consume(&mut self, admission: PendingQualificationAdmission, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<(), QualificationAdmissionVerificationError> { todo!() }
+  pub fn verify_exact_borrowed(&mut self, admission: &PendingQualificationAdmission, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<(), QualificationAdmissionVerificationError> { todo!() }
 }
 /// Verified context.
 pub struct VerifiedQualificationRunContext { id: [u8; 32] }
@@ -97,7 +97,14 @@ fn surface_auditor_rejects_alias_trait_wrapper_getter_and_borrowed_mutations() {
             "impl PendingQualificationAdmission {",
             "impl PendingQualificationAdmission { pub fn bytes(&self) -> &[u8] { &self.inner }",
         ),
-        BASELINE.replace("verify_and_consume(&mut self", "verify_and_consume(&self"),
+        BASELINE.replace(
+            "verify_exact_borrowed(&mut self",
+            "verify_exact_borrowed(&self",
+        ),
+        BASELINE.replace(
+            "admission: &PendingQualificationAdmission",
+            "admission: PendingQualificationAdmission",
+        ),
         format!("{BASELINE}\npub use crate::VerifiedQualificationRunContext as ContextLeak;"),
         format!("{BASELINE}\npub use crate::QualificationRunContextVerifier as VerifierLeak;"),
         format!("{BASELINE}\npub use crate::PendingQualificationAdmission as AdmissionLeak;"),

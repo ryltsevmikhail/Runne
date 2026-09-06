@@ -3,7 +3,7 @@ use crate::pending_surface_audit::audit_sources;
 pub const BASELINE: &str = r"
 pub struct PendingQualificationFault { bytes: Vec<u8>, expires_at: u64 }
 impl PendingQualificationFault {
-    pub(crate) fn into_admitted_bytes(self) -> Vec<u8> { self.bytes }
+    pub(crate) fn verify_borrowed(&self, verifier: &mut crate::QualificationFaultVerifier, context: &QualificationFaultContext, now_unix_seconds: u64) -> Result<VerifiedQualificationFault, QualificationFaultError> { todo!() }
     pub(crate) fn matches_sha256(&self, expected: &[u8; 32]) -> bool { todo!() }
     pub(crate) const fn expires_no_earlier_than(&self, expires_at: u64) -> bool { todo!() }
     pub fn from_admitted_frame(bytes: Vec<u8>) -> Result<Self, QualificationFaultError> { todo!() }

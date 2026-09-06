@@ -13,7 +13,7 @@ pub fn expected_methods() -> Vec<(&'static str, &'static str)> {
     [
         (
             "QualificationAdmissionVerifier",
-            &["from_compiled_policy", "verify_and_consume"][..],
+            &["from_compiled_policy", "verify_exact_borrowed"][..],
         ),
         (
             "VerifiedQualificationRunContext",
@@ -48,8 +48,8 @@ pub fn expected_signature(owner: &str, method: &str) -> Option<syn::Signature> {
             "QualificationAdmissionVerifier" | "QualificationRunContextVerifier",
             "from_compiled_policy",
         ) => "pub fn from_compiled_policy() -> Self {}",
-        ("QualificationAdmissionVerifier", "verify_and_consume") => {
-            "pub fn verify_and_consume(&mut self, admission: PendingQualificationAdmission, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<(), QualificationAdmissionVerificationError> {}"
+        ("QualificationAdmissionVerifier", "verify_exact_borrowed") => {
+            "pub fn verify_exact_borrowed(&mut self, admission: &PendingQualificationAdmission, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<(), QualificationAdmissionVerificationError> {}"
         }
         ("VerifiedQualificationRunContext", "context_id") => {
             "pub const fn context_id(&self) -> [u8; 32] {}"

@@ -6,8 +6,25 @@ pub struct PendingQualificationRunContext {
 }
 
 impl PendingQualificationRunContext {
-    pub(crate) fn into_admitted_bytes(self) -> Vec<u8> {
-        self.bytes
+    pub(crate) fn verify_installed_borrowed(
+        &self,
+        verifier: &mut crate::QualificationRunContextVerifier,
+        candidate_sha256: [u8; 32],
+        raw_v3_tuple_sha256: [u8; 32],
+        now_unix_seconds: u64,
+    ) -> Result<
+        (
+            crate::VerifiedQualificationRunContext,
+            crate::QualificationFaultContext,
+        ),
+        crate::QualificationRunContextError,
+    > {
+        verifier.verify_installed_and_consume(
+            &self.bytes,
+            candidate_sha256,
+            raw_v3_tuple_sha256,
+            now_unix_seconds,
+        )
     }
 
     pub(crate) fn from_admitted_frame(

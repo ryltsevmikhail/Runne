@@ -98,7 +98,7 @@ pub fn exact_admission_impl(item: &syn::ItemImpl, source: &str) -> bool {
     )
     .expect("valid retained admission signature");
     let verification = syn::parse_str::<syn::ImplItemFn>(
-        "pub(crate) fn into_verification_members(self) -> (PendingQualificationRunContext, PendingQualificationFault) {}",
+        "pub(crate) fn verify_exact_borrowed(&self, context_verifier: &mut crate::QualificationRunContextVerifier, fault_verifier: &mut crate::QualificationFaultVerifier, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<(), crate::QualificationAdmissionVerificationError> {}",
     )
     .expect("valid admission verification signature");
     source == "admission.rs"
@@ -156,9 +156,10 @@ pub fn exact_admission_relay_method(
         "pub(crate) fn matches_fault(&self, fault: &crate::PendingQualificationFault) -> bool {}",
     )
     .expect("valid reviewed admission relation");
-    let admitted_bytes =
-        syn::parse_str::<syn::ImplItemFn>("pub(crate) fn into_admitted_bytes(self) -> Vec<u8> {}")
-            .expect("valid reviewed admitted bytes consumption");
+    let context_verification = syn::parse_str::<syn::ImplItemFn>(
+        "pub(crate) fn verify_installed_borrowed(&self, verifier: &mut crate::QualificationRunContextVerifier, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<(crate::VerifiedQualificationRunContext, crate::QualificationFaultContext), crate::QualificationRunContextError> {}",
+    )
+    .expect("valid reviewed context verification");
     owner.trait_.is_none()
         && ((source == "admission_relay_codec.rs" && owner_is_codec)
             || (source == "pending_context.rs" && owner_is_context))
@@ -169,7 +170,7 @@ pub fn exact_admission_relay_method(
         && (signatures_match(&method.sig, &encode.sig)
             || signatures_match(&method.sig, &decode.sig)
             || signatures_match(&method.sig, &relation.sig)
-            || signatures_match(&method.sig, &admitted_bytes.sig))
+            || signatures_match(&method.sig, &context_verification.sig))
 }
 
 pub fn exact_combined_verification_method(
@@ -178,7 +179,7 @@ pub fn exact_combined_verification_method(
     source: &str,
 ) -> bool {
     let expected = syn::parse_str::<syn::ImplItemFn>(
-        "pub fn verify_and_consume(&mut self, admission: PendingQualificationAdmission, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<(), QualificationAdmissionVerificationError> {}",
+        "pub fn verify_exact_borrowed(&mut self, admission: &PendingQualificationAdmission, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<(), QualificationAdmissionVerificationError> {}",
     )
     .expect("valid combined verification signature");
     source == "admission_verification.rs"

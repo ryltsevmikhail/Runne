@@ -20,15 +20,15 @@ impl QualificationAdmissionVerifier {
         }
     }
 
-    /// Authenticates and consumes a pair against caller-owned installed facts.
+    /// Authenticates a borrowed pair and consumes verifier replay state.
     ///
     /// # Errors
     ///
     /// Rejects unavailable authorities, invalid signatures, time, replay, any
     /// installed-fact mismatch, or any context-to-ticket assertion mismatch.
-    pub fn verify_and_consume(
+    pub fn verify_exact_borrowed(
         &mut self,
-        admission: PendingQualificationAdmission,
+        admission: &PendingQualificationAdmission,
         candidate_sha256: [u8; 32],
         raw_v3_tuple_sha256: [u8; 32],
         now_unix_seconds: u64,
@@ -36,22 +36,13 @@ impl QualificationAdmissionVerifier {
         if candidate_sha256 == [0; 32] || raw_v3_tuple_sha256 == [0; 32] {
             return Err(QualificationAdmissionVerificationError);
         }
-        let (context, fault) = admission.into_verification_members();
-        let (_context, expected) = self
-            .context
-            .verify_installed_and_consume(
-                &context.into_admitted_bytes(),
-                candidate_sha256,
-                raw_v3_tuple_sha256,
-                now_unix_seconds,
-            )
-            .map_err(|_| QualificationAdmissionVerificationError)?;
-        let fault = self
-            .fault
-            .verify_and_consume(&fault.into_admitted_bytes(), &expected, now_unix_seconds)
-            .map_err(|_| QualificationAdmissionVerificationError)?;
-        let _ = fault;
-        Ok(())
+        admission.verify_exact_borrowed(
+            &mut self.context,
+            &mut self.fault,
+            candidate_sha256,
+            raw_v3_tuple_sha256,
+            now_unix_seconds,
+        )
     }
 
     #[cfg(any(test, feature = "test-support"))]

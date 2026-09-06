@@ -128,8 +128,7 @@ pub use updater_metadata::{
     UpdateSignatureV2, UpdateSnapshotRoleV2, UpdateTargetV2, UpdateTargetV2Binding,
     UpdateTargetsRoleV2, UpdateTimestampRoleV2, UpdateTrustRootV2, UpdateV2VerificationError,
     VerifiedDaemonNativeEnrollmentPrepare, VerifiedInstalledEnrollmentMeasurementFacts,
-    VerifiedMacOsWriterLaunch, VerifiedQualificationAdmission,
-    VerifiedSignedNativeEnrollmentTupleV3, VerifiedUpdateV2,
+    VerifiedMacOsWriterLaunch, VerifiedSignedNativeEnrollmentTupleV3, VerifiedUpdateV2,
     evaluate_native_enrollment_tuple_v3_update, update_metadata_signing_bytes, verify_update_v2,
 };
 pub use updater_trust::{UpdateTrustError, UpdateTrustJournal, UpdateTrustState};

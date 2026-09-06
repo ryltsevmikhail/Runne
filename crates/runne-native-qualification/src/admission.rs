@@ -115,10 +115,29 @@ impl PendingQualificationAdmission {
         Ok(Self { context, fault })
     }
 
-    pub(crate) fn into_verification_members(
-        self,
-    ) -> (PendingQualificationRunContext, PendingQualificationFault) {
-        (self.context, self.fault)
+    pub(crate) fn verify_exact_borrowed(
+        &self,
+        context_verifier: &mut crate::QualificationRunContextVerifier,
+        fault_verifier: &mut crate::QualificationFaultVerifier,
+        candidate_sha256: [u8; 32],
+        raw_v3_tuple_sha256: [u8; 32],
+        now_unix_seconds: u64,
+    ) -> Result<(), crate::QualificationAdmissionVerificationError> {
+        let (_context, expected) = self
+            .context
+            .verify_installed_borrowed(
+                context_verifier,
+                candidate_sha256,
+                raw_v3_tuple_sha256,
+                now_unix_seconds,
+            )
+            .map_err(|_| crate::QualificationAdmissionVerificationError)?;
+        let fault = self
+            .fault
+            .verify_borrowed(fault_verifier, &expected, now_unix_seconds)
+            .map_err(|_| crate::QualificationAdmissionVerificationError)?;
+        let _ = fault;
+        Ok(())
     }
 }
 

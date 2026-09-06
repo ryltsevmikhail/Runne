@@ -6,6 +6,9 @@ use syn::{ImplItem, ItemUse, Visibility};
 use crate::installed_surface_consumers::{
     exact_reviewed_consumer_method, exact_reviewed_consumer_struct,
 };
+use crate::installed_surface_daemon::{
+    exact_daemon_carrier, exact_initial_result, exact_retention_helper,
+};
 use crate::installed_surface_expected::{
     exact_reviewed_facts_method, exact_test_only_qualification_facts,
 };
@@ -23,6 +26,8 @@ pub struct Audit {
     pub verified: usize,
     pub factory: usize,
     pub verification: usize,
+    pub retention: usize,
+    pub initial_result: usize,
     pub facts_reexports: usize,
     pub violations: Vec<String>,
 }
@@ -49,7 +54,7 @@ impl<'ast> Visit<'ast> for SourceAudit<'_> {
             }
         } else if name == VERIFIED {
             self.audit.verified += 1;
-            if !matches!(item.vis, Visibility::Public(_)) || !sealed_struct(item) {
+            if !exact_daemon_carrier(self.source, item) {
                 self.reject("verified admission is reusable or externally constructible");
             }
         } else {
@@ -102,13 +107,31 @@ impl<'ast> Visit<'ast> for SourceAudit<'_> {
     }
 
     fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
-        if signature_mentions(&item.sig, &self.sealed_aliases)
+        if exact_retention_helper(self.source, item) {
+            self.audit.retention += 1;
+        } else if signature_mentions(&item.sig, &self.sealed_aliases)
             || (matches!(item.vis, Visibility::Public(_))
                 && signature_mentions(&item.sig, &self.aliases))
         {
             self.reject("free function mentions a sealed installed type");
         }
         visit::visit_item_fn(self, item);
+    }
+
+    fn visit_item_enum(&mut self, item: &'ast syn::ItemEnum) {
+        let carries_sealed = item
+            .variants
+            .iter()
+            .flat_map(|variant| variant.fields.iter())
+            .any(|field| type_mentions(&field.ty, &self.sealed_aliases));
+        if carries_sealed {
+            if exact_initial_result(self.source, item) {
+                self.audit.initial_result += 1;
+            } else {
+                self.reject("enum escapes a sealed installed token");
+            }
+        }
+        visit::visit_item_enum(self, item);
     }
 
     fn visit_foreign_item_fn(&mut self, item: &'ast syn::ForeignItemFn) {

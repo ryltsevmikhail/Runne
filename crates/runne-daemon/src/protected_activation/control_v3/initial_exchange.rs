@@ -14,8 +14,9 @@ use runne_api::{
 use runne_application::local_session::LocalSessionService;
 #[cfg(target_os = "macos")]
 use runne_native_qualification::{
-    QualificationAdmissionRelayCodecV1, QualificationAdmissionVerifier,
-    QualificationFaultRelayCodecV1, QualificationRunContextRelayCodecV1,
+    PendingQualificationAdmission, QualificationAdmissionRelayCodecV1,
+    QualificationAdmissionVerifier, QualificationFaultRelayCodecV1,
+    QualificationRunContextRelayCodecV1,
 };
 use std::sync::Mutex;
 use zeroize::Zeroizing;
@@ -60,9 +61,30 @@ pub(super) fn run(
 }
 
 #[cfg(target_os = "macos")]
-pub(super) enum InitialQualificationFrame {
+struct VerifiedQualificationAdmission {
+    _admission: PendingQualificationAdmission,
+}
+
+#[cfg(target_os = "macos")]
+enum InitialQualificationFrame {
     Legacy(Zeroizing<Vec<u8>>),
-    Verified(runne_platform_desktop::VerifiedQualificationAdmission),
+    Verified(VerifiedQualificationAdmission),
+}
+
+#[cfg(target_os = "macos")]
+fn verify_and_retain_qualification_admission(
+    installed: &runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts,
+    owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
+    verifier: &mut runne_native_qualification::QualificationAdmissionVerifier,
+    admission: runne_native_qualification::PendingQualificationAdmission,
+    now_unix_seconds: u64,
+) -> Result<VerifiedQualificationAdmission, LaunchAuthorityError> {
+    installed
+        .verify_qualification_admission(owned, verifier, &admission, now_unix_seconds)
+        .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
+    Ok(VerifiedQualificationAdmission {
+        _admission: admission,
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -132,7 +154,7 @@ pub(super) fn read_admitted_initial_request(
 }
 
 #[cfg(target_os = "macos")]
-pub(super) fn read_initial_qualification(
+fn read_initial_qualification(
     channel: &mut ProtectedActivationChannel,
     keys: &ProtectedActivationKeys,
     owned: &ProtectedCredentialEnrollmentOwnedLaunchV3,
@@ -172,8 +194,12 @@ pub(super) fn read_initial_qualification(
     let admission = QualificationAdmissionRelayCodecV1::from_protected_activation(keys)
         .decode_transcript(&transcript, &context_binding, &fault_binding)
         .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
-    installed
-        .verify_qualification_admission(owned, verifier, admission, now_unix_seconds)
-        .map(InitialQualificationFrame::Verified)
-        .map_err(|_| LaunchAuthorityError::OwnershipMismatch)
+    verify_and_retain_qualification_admission(
+        installed,
+        owned,
+        verifier,
+        admission,
+        now_unix_seconds,
+    )
+    .map(InitialQualificationFrame::Verified)
 }

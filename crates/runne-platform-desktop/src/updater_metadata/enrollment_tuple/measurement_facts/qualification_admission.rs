@@ -1,4 +1,4 @@
-use super::{VerifiedInstalledEnrollmentMeasurementFacts, VerifiedQualificationAdmission};
+use super::VerifiedInstalledEnrollmentMeasurementFacts;
 
 struct QualificationRuntimeInstalledExpectation {
     candidate_sha256: [u8; 32],
@@ -21,21 +21,21 @@ impl VerifiedInstalledEnrollmentMeasurementFacts {
         &self,
         owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
         verifier: &mut runne_native_qualification::QualificationAdmissionVerifier,
-        admission: runne_native_qualification::PendingQualificationAdmission,
+        admission: &runne_native_qualification::PendingQualificationAdmission,
         now_unix_seconds: u64,
-    ) -> Result<VerifiedQualificationAdmission, QualificationAdmissionError> {
+    ) -> Result<(), QualificationAdmissionError> {
         let expected = self
             .qualification_runtime_installed_expectation(owned)
             .map_err(|_| QualificationAdmissionError)?;
         verifier
-            .verify_and_consume(
+            .verify_exact_borrowed(
                 admission,
                 expected.candidate_sha256,
                 expected.raw_v3_tuple_sha256,
                 now_unix_seconds,
             )
             .map_err(|_| QualificationAdmissionError)?;
-        Ok(VerifiedQualificationAdmission { _private: () })
+        Ok(())
     }
 
     fn qualification_runtime_installed_expectation(

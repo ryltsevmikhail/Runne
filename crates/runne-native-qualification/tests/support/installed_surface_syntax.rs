@@ -131,7 +131,7 @@ pub fn exact_factory(sig: &syn::Signature) -> bool {
 pub fn exact_verification(sig: &syn::Signature) -> bool {
     exact_signature(
         sig,
-        "fn verify_qualification_admission(&self, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3, verifier: &mut runne_native_qualification::QualificationAdmissionVerifier, admission: runne_native_qualification::PendingQualificationAdmission, now_unix_seconds: u64) -> Result<VerifiedQualificationAdmission, QualificationAdmissionError> {}",
+        "fn verify_qualification_admission(&self, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3, verifier: &mut runne_native_qualification::QualificationAdmissionVerifier, admission: &runne_native_qualification::PendingQualificationAdmission, now_unix_seconds: u64) -> Result<(), QualificationAdmissionError> {}",
     )
 }
 
@@ -246,8 +246,7 @@ fn collect_use_leaves(tree: &UseTree, prefix: &mut Vec<String>, leaves: &mut Vec
 }
 
 pub fn exact_reviewed_reexport(source: &str, leaf: &[String]) -> bool {
-    leaf.last()
-        .is_some_and(|name| name == FACTS || name == VERIFIED)
+    leaf.last().is_some_and(|name| name == FACTS)
         && [
             (
                 "runne-platform-desktop/src/updater_metadata/enrollment_tuple/daemon_installed.rs",

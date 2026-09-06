@@ -235,7 +235,7 @@ fn audit_method(method: &ImplItemFn, source: &str, audit: &mut Audit<'_>) {
     *audit.methods.entry(name.clone()).or_default() += 1;
     let restricted = matches!(
         name.as_str(),
-        "matches_sha256" | "expires_no_earlier_than" | "into_admitted_bytes"
+        "matches_sha256" | "expires_no_earlier_than" | "verify_borrowed"
     );
     let exact_visibility = if restricted {
         matches!(method.vis, Visibility::Restricted(_))
@@ -271,7 +271,7 @@ fn expected_signatures() -> BTreeMap<String, syn::Signature> {
     [
         "pub(crate) fn matches_sha256(&self, expected: &[u8; 32]) -> bool {}",
         "pub(crate) const fn expires_no_earlier_than(&self, expires_at: u64) -> bool {}",
-        "pub(crate) fn into_admitted_bytes(self) -> Vec<u8> {}",
+        "pub(crate) fn verify_borrowed(&self, verifier: &mut crate::QualificationFaultVerifier, context: &QualificationFaultContext, now_unix_seconds: u64) -> Result<VerifiedQualificationFault, QualificationFaultError> {}",
         "pub fn from_admitted_frame(bytes: Vec<u8>) -> Result<Self, QualificationFaultError> {}",
         "pub fn verify_and_consume(self, verifier: &mut crate::QualificationFaultVerifier, context: &QualificationFaultContext, now_unix_seconds: u64) -> Result<VerifiedQualificationFault, QualificationFaultError> {}",
         "pub fn encode_relay(self, codec: &crate::QualificationFaultRelayCodecV1, binding: &runne_api::QualificationFaultRelayBindingV1) -> Result<Vec<u8>, crate::QualificationFaultRelayError> {}",

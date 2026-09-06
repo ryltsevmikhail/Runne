@@ -40,11 +40,11 @@ const fn expected() -> InstalledFacts {
 
 fn verify(
     verifier: &mut QualificationAdmissionVerifier,
-    admission: PendingQualificationAdmission,
+    admission: &PendingQualificationAdmission,
     installed: InstalledFacts,
     now: u64,
 ) -> Result<(), QualificationAdmissionVerificationError> {
-    verifier.verify_and_consume(admission, installed.candidate, installed.raw_tuple, now)
+    verifier.verify_exact_borrowed(admission, installed.candidate, installed.raw_tuple, now)
 }
 
 fn verifier() -> QualificationAdmissionVerifier {
@@ -55,11 +55,21 @@ fn verifier() -> QualificationAdmissionVerifier {
 }
 
 #[test]
+fn successful_combined_verification_borrows_and_preserves_the_exact_admission() {
+    let admission = signed_pair(|_| {}, |_| {});
+    let mut verifier = verifier();
+    verifier
+        .verify_exact_borrowed(&admission, expected().candidate, expected().raw_tuple, NOW)
+        .expect("valid pair");
+    assert!(std::mem::size_of_val(&admission) > 0);
+}
+
+#[test]
 fn correctly_signed_pair_is_accepted_once_without_authority() {
     let mut verifier = verifier();
-    verify(&mut verifier, signed_pair(|_| {}, |_| {}), expected(), NOW).expect("valid pair");
+    verify(&mut verifier, &signed_pair(|_| {}, |_| {}), expected(), NOW).expect("valid pair");
     assert!(
-        verify(&mut verifier, signed_pair(|_| {}, |_| {}), expected(), NOW,).is_err(),
+        verify(&mut verifier, &signed_pair(|_| {}, |_| {}), expected(), NOW,).is_err(),
         "context and ticket identities are single-use"
     );
 }
@@ -69,12 +79,12 @@ fn installed_expectation_rejects_zero_and_crossed_candidate_or_raw_tuple() {
     let pair = || signed_pair(|_| {}, |_| {});
     assert!(
         verifier()
-            .verify_and_consume(pair(), [0; 32], [2; 32], NOW)
+            .verify_exact_borrowed(&pair(), [0; 32], [2; 32], NOW)
             .is_err()
     );
     assert!(
         verifier()
-            .verify_and_consume(pair(), [1; 32], [0; 32], NOW)
+            .verify_exact_borrowed(&pair(), [1; 32], [0; 32], NOW)
             .is_err()
     );
     for crossed in [
@@ -87,7 +97,7 @@ fn installed_expectation_rejects_zero_and_crossed_candidate_or_raw_tuple() {
             raw_tuple: [0xbc; 32],
         },
     ] {
-        assert!(verify(&mut verifier(), pair(), crossed, NOW).is_err());
+        assert!(verify(&mut verifier(), &pair(), crossed, NOW).is_err());
     }
 }
 
@@ -97,7 +107,7 @@ fn qualified_release_binding_cannot_substitute_for_raw_tuple() {
         |context| context["release_tuple_v3_sha256"] = json!("ee".repeat(32)),
         |_| {},
     );
-    assert!(verify(&mut verifier(), pair, expected(), NOW).is_err());
+    assert!(verify(&mut verifier(), &pair, expected(), NOW).is_err());
 }
 
 #[test]
@@ -113,7 +123,7 @@ fn context_is_the_only_authority_for_every_ticket_assertion() {
     for (field, replacement) in cases {
         let pair = signed_pair(|_| {}, |ticket| ticket[field] = replacement);
         assert!(
-            verify(&mut verifier(), pair, expected(), NOW).is_err(),
+            verify(&mut verifier(), &pair, expected(), NOW).is_err(),
             "ticket {field} escaped context binding"
         );
     }
@@ -125,7 +135,7 @@ fn context_is_the_only_authority_for_every_ticket_assertion() {
         },
     );
     assert!(
-        verify(&mut verifier(), role_pair, expected(), NOW).is_err(),
+        verify(&mut verifier(), &role_pair, expected(), NOW).is_err(),
         "a different valid selector/role pair escaped context binding"
     );
 }
@@ -135,7 +145,7 @@ fn combined_verifier_rejects_unavailable_colliding_or_invalid_authorities_and_ti
     assert!(
         verify(
             &mut QualificationAdmissionVerifier::from_compiled_policy(),
-            signed_pair(|_| {}, |_| {}),
+            &signed_pair(|_| {}, |_| {}),
             expected(),
             NOW,
         )
@@ -145,7 +155,7 @@ fn combined_verifier_rejects_unavailable_colliding_or_invalid_authorities_and_ti
     assert!(
         verify(
             &mut QualificationAdmissionVerifier::test_only_from_verifying_keys(key, key),
-            signed_pair(|_| {}, |_| {}),
+            &signed_pair(|_| {}, |_| {}),
             expected(),
             NOW,
         )
@@ -154,7 +164,7 @@ fn combined_verifier_rejects_unavailable_colliding_or_invalid_authorities_and_ti
     assert!(
         verify(
             &mut verifier(),
-            signed_pair(|context| context["issued_at"] = json!(NOW + 1), |_| {}),
+            &signed_pair(|context| context["issued_at"] = json!(NOW + 1), |_| {}),
             expected(),
             NOW,
         )
@@ -163,7 +173,7 @@ fn combined_verifier_rejects_unavailable_colliding_or_invalid_authorities_and_ti
     assert!(
         verify(
             &mut verifier(),
-            signed_pair(|_| {}, |ticket| ticket["issued_at"] = json!(NOW + 1)),
+            &signed_pair(|_| {}, |ticket| ticket["issued_at"] = json!(NOW + 1)),
             expected(),
             NOW,
         )
@@ -186,7 +196,7 @@ fn combined_verifier_rejects_each_invalid_signature_and_stale_member() {
         &ticket,
     ))
     .unwrap();
-    assert!(verify(&mut verifier(), foreign_context, expected(), NOW).is_err());
+    assert!(verify(&mut verifier(), &foreign_context, expected(), NOW).is_err());
 
     let foreign_ticket = sign(&unsigned_ticket(), &SigningKey::from_bytes(&[8; 32]));
     let context = sign_run_context(
@@ -198,7 +208,7 @@ fn combined_verifier_rejects_each_invalid_signature_and_stale_member() {
         &foreign_ticket,
     ))
     .unwrap();
-    assert!(verify(&mut verifier(), foreign_ticket, expected(), NOW).is_err());
+    assert!(verify(&mut verifier(), &foreign_ticket, expected(), NOW).is_err());
 
     let stale = signed_pair(
         |context| {
@@ -207,7 +217,7 @@ fn combined_verifier_rejects_each_invalid_signature_and_stale_member() {
         },
         |_| {},
     );
-    assert!(verify(&mut verifier(), stale, expected(), NOW).is_err());
+    assert!(verify(&mut verifier(), &stale, expected(), NOW).is_err());
 }
 
 #[test]
@@ -227,7 +237,7 @@ fn ticket_replay_fails_even_under_a_fresh_valid_context_identity() {
             &context, &ticket,
         ))
         .unwrap();
-        let result = verify(&mut verifier, pair, expected(), NOW);
+        let result = verify(&mut verifier, &pair, expected(), NOW);
         assert_eq!(result.is_ok(), index == 0);
     }
 }
