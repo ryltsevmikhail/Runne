@@ -1,0 +1,14 @@
+{
+  "schema_version": "runne.benchmark.outcome/1",
+  "case_id": "bugfix-01",
+  "technical_outcome": "Verified",
+  "acceptance": "Accepted",
+  "manual_override": true,
+  "execution_status": "completed",
+  "verifier_result": "failed",
+  "effect_state": "confirmed",
+  "recovery_state": "clean",
+  "evidence_complete": true,
+  "timing": {"task_seconds": 100, "review_minutes": 2, "recovery_minutes": 0},
+  "cost": {"currency": "USD", "model_compute_micros": 100, "human_review_micros": 50, "recovery_micros": 0}
+}
