@@ -72,7 +72,7 @@ class XpcPreflightTests(unittest.TestCase):
 
     def test_cli_preflight_is_deterministic_and_never_executes_native_commands(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             tuples, run = root / "tuples.json", root / "run.json"
             tuples.write_text(json.dumps(_expected()))
             run.write_text(json.dumps(context()))

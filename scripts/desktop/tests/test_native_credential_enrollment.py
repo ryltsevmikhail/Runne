@@ -226,7 +226,7 @@ class NativeCredentialEnrollmentEvidenceTests(unittest.TestCase):
 
     def test_cli_requires_expected_tuples_and_rejects_duplicate_keys(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             for value in evidence()["rows"]:
                 root.joinpath(f"macos-13-{value['architecture']}.json").write_text(
                     json.dumps(value), encoding="utf-8"
@@ -283,7 +283,7 @@ class NativeCredentialEnrollmentEvidenceTests(unittest.TestCase):
 
     def test_evidence_directory_requires_exact_apple_silicon_row(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             (root / "macos-13-arm64.json").write_text(json.dumps(evidence()["rows"][0]), encoding="utf-8")
             self.assertEqual(validate_evidence(root, "macos", expected_tuples()), [])
             (root / "macos-13-x86_64.json").write_text(json.dumps(row("x86_64", "run-x86")), encoding="utf-8")

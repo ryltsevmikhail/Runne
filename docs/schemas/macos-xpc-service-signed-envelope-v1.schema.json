@@ -7,8 +7,8 @@
   "required": ["schema_version", "source_revision", "workflow_run_id", "namespace_sha256", "signer_key_id", "row_sha256", "expected_tuples_sha256", "started_at", "finished_at", "cleanup_verified", "signature"],
   "properties": {
     "schema_version": {"const": "macos-xpc-service-signed-envelope.v1"},
-    "source_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
-    "workflow_run_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,128}$"},
+    "source_revision": {"type": "string", "pattern": "^[0-9a-f]{40}(?![\\s\\S])"},
+    "workflow_run_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,128}(?![\\s\\S])"},
     "namespace_sha256": {"$ref": "#/$defs/sha256"},
     "signer_key_id": {"$ref": "#/$defs/sha256"},
     "row_sha256": {"$ref": "#/$defs/sha256"},
@@ -21,12 +21,12 @@
       "required": ["algorithm", "value"],
       "properties": {
         "algorithm": {"const": "ed25519"},
-        "value": {"type": "string", "pattern": "^[A-Za-z0-9_-]{86}==$"}
+        "value": {"type": "string", "pattern": "^[A-Za-z0-9_-]{85}[AQgw]==(?![\\s\\S])"}
       }
     }
   },
   "$defs": {
-    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "time": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"}
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}(?![\\s\\S])"},
+    "time": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z(?![\\s\\S])"}
   }
 }
