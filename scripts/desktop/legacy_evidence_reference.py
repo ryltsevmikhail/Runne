@@ -3,8 +3,11 @@
 The qualification workflow invokes the runner-owned wrapper at
 ``/opt/gocode/sourcecraft/bin/sourcecraft-native-package-evidence-enforce``;
 this candidate-checkout module is never an active trust boundary. It documents
-the exact checks the wrapper must add for ``legacy-source-cleanup-evidence.v1``
-on top of the structural validation already performed in-checkout: the
+historical checks for a future versioned migration profile using
+``legacy-source-cleanup-evidence.v1``. D1.1a does not require or accept positive
+legacy qualification: import is unsupported without historical provenance.
+The retained contract describes checks
+beyond structural validation in-checkout: the
 signature over the envelope bytes, the repository, workflow, protected ref and
 candidate binding, and the runner identity attestation.
 """

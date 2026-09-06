@@ -2,7 +2,9 @@
 
 Expected identities must come from protected candidate/run context, not from
 the supplied document. Signature verification and native execution are separate
-mandatory gates. This module deliberately does not produce qualified receipts.
+requirements of a future versioned migration profile. D1.1a legacy import is
+unsupported; no positive legacy gate is required. This module deliberately
+does not produce qualified receipts.
 """
 from __future__ import annotations
 

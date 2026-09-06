@@ -3,9 +3,7 @@ use runne_api::{
     ProviderCredentialEnrollmentHostError, ProviderCredentialRequestAuthorityPair,
     ProviderCredentialRequestAuthorityVerifier,
 };
-use runne_provider::{
-    BeginCredentialOperation, CredentialEnrollmentAuthorityPair, CredentialOperationAction,
-};
+use runne_provider::{BeginCredentialOperation, CredentialEnrollmentAuthorityPair};
 
 use super::super::ProviderCredentialAdmission;
 use super::begin_admission_support::{begin, context, lifecycle_snapshot};
@@ -158,7 +156,7 @@ fn daemon_begin_keeps_bridge_seconds_proof_expiry_unchanged() {
 }
 
 #[test]
-fn daemon_migrate_legacy_requires_and_mints_the_store_paired_authorization() {
+fn daemon_migrate_legacy_is_unsupported_even_with_store_paired_authority() {
     let (issuer, verifier) = ProviderCredentialRequestAuthorityPair::new().split();
     let authority = issuer
         .issue_base([1; 32], [2; 32], [3; 32], 1, [4; 32], 1, [5; 32])
@@ -189,15 +187,19 @@ fn daemon_migrate_legacy_requires_and_mints_the_store_paired_authorization() {
         Err(ProviderCredentialEnrollmentHostError::Unsupported)
     );
 
-    let input = ProviderCredentialAdmission::with_legacy_import_authority(
+    let admission = ProviderCredentialAdmission::with_legacy_import_authority(
         verifier,
         measurements,
         legacy_authority,
-    )
-    .begin_input(&authority, &proof, &command, &context, lifecycle_snapshot())
-    .unwrap();
-    assert_eq!(input.action(), CredentialOperationAction::MigrateLegacy);
-    assert!(input.legacy_import_authorization().is_some());
+    );
+    assert_eq!(
+        admission.require_begin_command(&authority, &proof, &command, &context),
+        Err(ProviderCredentialEnrollmentHostError::Unsupported)
+    );
+    assert_eq!(
+        admission.begin_input(&authority, &proof, &command, &context, lifecycle_snapshot()),
+        Err(ProviderCredentialEnrollmentHostError::Unsupported)
+    );
 }
 
 fn admission(verifier: ProviderCredentialRequestAuthorityVerifier) -> ProviderCredentialAdmission {

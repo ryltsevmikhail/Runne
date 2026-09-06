@@ -134,12 +134,6 @@ impl LocalPackage {
         &self.desktop
     }
 
-    /// The staged writer binary: the one trusted app in a seeded item's
-    /// exact ACL, so the fixture-only legacy seed mode runs from here.
-    pub(super) fn writer(&self) -> PathBuf {
-        self.application.join("Contents/MacOS/runne")
-    }
-
     pub(super) fn credential_service(&self) -> PathBuf {
         self.application.join(
             "Contents/Library/Helpers/RunneCredentialService.app/Contents/MacOS/runne-credential-service",

@@ -99,6 +99,11 @@ impl ProviderCredentialAdmission {
         {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
+        // ADR-0031: no supported historical source exists in D1.1a. Reject
+        // before recovery, store lookup/allocation, or writer admission.
+        if command.action() == runne_api::ProviderCredentialEnrollmentActionV2::MigrateLegacy {
+            return Err(ProviderCredentialEnrollmentHostError::Unsupported);
+        }
         Ok(())
     }
 

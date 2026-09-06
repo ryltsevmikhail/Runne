@@ -45,13 +45,8 @@ fn inner(
     }
 }
 
-/// The fixture-only legacy seed mode selector for the staged writer binary.
-pub(super) const LEGACY_SEED_MODE: &str = "__slice-e-legacy-seed-v1";
-
-/// The staged writer (whose signed identity alone is in the item's exact ACL)
-/// seeds the generation-0 legacy source; this untrusted scenario process only
-/// proves that direct seeding and reads are denied for it. Then the production
-/// daemon MigrateLegacy transcript runs to its durable cutover.
+/// Reserved transcript for a future versioned profile with a real historical
+/// source. D1.1a dispatch rejects before native setup; no seed producer exists.
 pub(super) fn import_stage(context: &InnerContext) -> Result<(), &'static str> {
     assert_untrusted_child_is_denied(context)?;
     assert_seeded_item_is_visible();

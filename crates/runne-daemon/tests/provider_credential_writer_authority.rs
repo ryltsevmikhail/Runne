@@ -48,8 +48,8 @@ mod service_process;
 mod support;
 
 #[test]
-#[ignore = "real native scenario; isolated disposable macOS host only"]
-fn legacy_cleanup_scenario_chain_completes_import_cutover_delete_crash_and_tombstone() {
+#[should_panic(expected = "legacy import unsupported: no supported historical source profile")]
+fn legacy_import_is_unsupported_before_native_fixture_setup() {
     legacy_scenario::run();
 }
 

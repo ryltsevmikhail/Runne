@@ -25,6 +25,7 @@ pub(super) fn dispatch(
         &str,
     ) -> Result<LegacyCleanupEvidence, &'static str>,
 ) {
+    require_supported_legacy_profile().expect("legacy scenario compatibility disposition");
     if std::env::var_os(super::INNER_CASE).as_deref() == Some(selector.as_ref()) {
         run_inner(selector, inner);
         return;
@@ -51,6 +52,12 @@ pub(super) fn dispatch(
             bindings.workflow_run_id(),
         )
         .unwrap_or_else(|stage| panic!("{stage}"));
+}
+
+// Keep the transcript code for a future versioned migration profile, but no
+// environment binding or signed probe can enable it in this release.
+fn require_supported_legacy_profile() -> Result<(), &'static str> {
+    Err("legacy import unsupported: no supported historical source profile")
 }
 
 fn run_inner(
@@ -95,54 +102,8 @@ fn run_outer(
     let secret = super::super::audit::secret_canary(keychain.root());
     let patterns = super::super::audit::sensitive_patterns(&secret);
     let fragment = keychain.root().join("legacy-evidence-fragment.json");
-    // The staged writer — the one trusted app in the seeded item's exact ACL —
-    // creates the generation-0 legacy item before the scenario child starts.
-    // The scenario process itself must stay denied that creation (negative
-    // control inside the child). All spawn arguments are fixture-internal
-    // constants; no shell is involved.
-    let mut seed_writer = Command::new(package.writer())
-        .arg(super::super::legacy_scenario::LEGACY_SEED_MODE)
-        .env_clear()
-        .env("HOME", keychain.home())
-        .env("RUNNE_CI_MACOS_KEYCHAIN", keychain.path())
-        .env("RUNNE_LOCAL_NATIVE_ENROLLMENT_TEST", "1")
-        .env(
-            super::INNER_CASE,
-            super::super::legacy_scenario::LEGACY_SEED_MODE,
-        )
-        .env("RUNNE_SLICE_E_FIXTURE_ROOT", keychain.root())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|_| "legacy seed writer launch")?;
-    {
-        let mut stdin = seed_writer.stdin.take().ok_or("legacy seed stdin")?;
-        use std::io::Write as _;
-        stdin
-            .write_all(&secret)
-            .map_err(|_| "legacy seed stdin write")?;
-    }
-    let mut seed_stderr = String::new();
-    if let Some(mut stderr) = seed_writer.stderr.take() {
-        use std::io::Read as _;
-        stderr
-            .read_to_string(&mut seed_stderr)
-            .map_err(|_| "legacy seed stderr read")?;
-    }
-    let seed_status = seed_writer.wait().map_err(|_| "legacy seed wait")?;
-    if !seed_status.success() {
-        // The closed failure stage names the exact failing fixture step; the
-        // marker is non-secret and bounded by the seed child itself.
-        use std::os::unix::process::ExitStatusExt as _;
-        eprintln!(
-            "LEGACY SEED WRITER FAILED: code={:?} signal={:?} stderr tail: {}",
-            seed_status.code(),
-            seed_status.signal(),
-            seed_stderr
-        );
-        return Err("legacy seed writer failed");
-    }
+    // A future migration profile must provision a real historical source.
+    // D1.1a dispatch is disabled; this harness never mints a legacy item.
     let plan = legacy_plan::legacy_child_plan(selector, scenario, fragment.clone(), bindings);
     let mut child = Command::new(package.desktop())
         .args(&plan.args)
@@ -225,10 +186,7 @@ fn collect_child_and_service_sinks(
         return Err("legacy child output exceeded the collection bound");
     }
     if !status.success() {
-        // The child's own failure report is the only diagnosable artifact of a
-        // failed scenario; print its bounded tail before failing closed.
-        eprintln!("LEGACY CHILD STDERR TAIL:");
-        eprintln!("{}", String::from_utf8_lossy(&child_stderr));
+        // Never print a sink before its leak audit, including failing children.
         return Err("legacy child process failed");
     }
     if [

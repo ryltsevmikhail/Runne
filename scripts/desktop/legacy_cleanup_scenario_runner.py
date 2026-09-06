@@ -1,33 +1,13 @@
-"""Preflight and evidence gates for the dedicated legacy cleanup scenario.
+"""Historical legacy evidence preflight and structural validation utilities.
 
-This module never executes native work itself. The isolated disposable host
-runs the pinned in-repo scenario invocation (see the Rust
-``legacy_cleanup_scenario_chain`` test) and then asks this module to check the
-host preconditions and to structurally validate the produced evidence
-envelope. Both modes are fail-closed and never report qualification:
-signature verification and protected enforcement remain separate gates.
-
-Pinned scenario invocation (run from the candidate checkout, darwin arm64
-disposable user only; identical to the desktop-qualification task):
-
-    RUNNE_LEGACY_CLEANUP_ISOLATED=1 \
-    RUNNE_LEGACY_CLEANUP_CANDIDATE="$CANDIDATE_DIGEST" \
-    RUNNE_LEGACY_CLEANUP_TUPLE="$TUPLE_DIGEST" \
-    RUNNE_LEGACY_CLEANUP_RUN_ID="$SOURCECRAFT_RUN_ID" \
-    RUNNE_LEGACY_CLEANUP_EVIDENCE="$EVIDENCE_PATH" \
-    cargo test -p runne-daemon \
-        --test provider_credential_writer_authority \
-        --features test-support,desktop-protected \
-        --locked -- --ignored --exact \
-        legacy_cleanup_scenario_chain_completes_import_cutover_delete_crash_and_tombstone
-
-The scenario reads its binding from ``RUNNE_LEGACY_CLEANUP_CANDIDATE``,
-``RUNNE_LEGACY_CLEANUP_TUPLE``, ``RUNNE_LEGACY_CLEANUP_RUN_ID`` and writes the
-envelope to ``RUNNE_LEGACY_CLEANUP_EVIDENCE``.
-The native outer harness additionally requires ``RUNNE_LEGACY_CLEANUP_ISOLATED=1``.
-Set it only on the confirmed disposable macOS login/VM after ``check-host
---isolated-host`` succeeds. This explicit opt-in is not proof of isolation or
-qualification; runner-owned enforcement must establish those separately.
+ADR-0031: D1.1a has no supported historical file-Keychain source.
+The positive legacy_cleanup_scenario_chain dispatch is disabled before native
+setup. There is no current native invocation or required legacy CI job.
+RUNNE_LEGACY_CLEANUP_EVIDENCE belongs to the retained historical envelope
+contract; validating such an envelope never enables import or qualifies D1.1a.
+Host checks remain reusable diagnostics, not a supported migration admission.
+A future versioned migration profile requires real source provenance and
+independent signed isolated native qualification.
 """
 from __future__ import annotations
 
