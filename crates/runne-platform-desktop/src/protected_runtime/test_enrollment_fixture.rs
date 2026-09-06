@@ -2,6 +2,38 @@
 #[doc(hidden)]
 pub struct TestOnlyReadyV3EnrollmentSupervisor(ProtectedBundledRuntimeSupervisor, u64);
 
+/// Test-only connected endpoints for one real supervisor and V3 daemon loop.
+#[doc(hidden)]
+pub struct TestOnlyConnectedReadyV3EnrollmentSupervisor {
+    supervisor: ProtectedBundledRuntimeSupervisor,
+    daemon_channel: std::os::unix::net::UnixStream,
+    keys: runne_api::ProtectedActivationKeys,
+    owned: runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
+    installed: crate::VerifiedInstalledEnrollmentMeasurementFacts,
+}
+
+impl TestOnlyConnectedReadyV3EnrollmentSupervisor {
+    #[doc(hidden)]
+    #[must_use]
+    pub fn into_parts(
+        self,
+    ) -> (
+        ProtectedBundledRuntimeSupervisor,
+        std::os::unix::net::UnixStream,
+        runne_api::ProtectedActivationKeys,
+        runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
+        crate::VerifiedInstalledEnrollmentMeasurementFacts,
+    ) {
+        (
+            self.supervisor,
+            self.daemon_channel,
+            self.keys,
+            self.owned,
+            self.installed,
+        )
+    }
+}
+
 impl TestOnlyReadyV3EnrollmentSupervisor {
     #[must_use]
     pub const fn credential_service_parent_expiry(&self) -> u64 { self.1 }
@@ -29,6 +61,44 @@ impl TestOnlyReadyV3EnrollmentSupervisor {
 #[doc(hidden)]
 #[must_use]
 pub fn test_only_ready_v3_enrollment_supervisor() -> TestOnlyReadyV3EnrollmentSupervisor {
+    let (supervisor, peer, _, _, _) = ready_v3_parts(test_id(13), false);
+    drop(peer);
+    TestOnlyReadyV3EnrollmentSupervisor(
+        supervisor,
+        credential_service_session::bounded_session_expiry_unix_millis(
+            credential_service_session::unix_millis().expect("clock"),
+        )
+        .expect("expiry"),
+    )
+}
+
+/// Builds a real Ready-V3 supervisor whose channel remains connected to a
+/// daemon-side endpoint. No native service or credential mutation is involved.
+#[doc(hidden)]
+#[must_use]
+pub fn test_only_connected_ready_v3_enrollment_supervisor(
+) -> TestOnlyConnectedReadyV3EnrollmentSupervisor {
+    let (supervisor, daemon_channel, keys, owned, installed) =
+        ready_v3_parts(*uuid::Uuid::now_v7().as_bytes(), true);
+    TestOnlyConnectedReadyV3EnrollmentSupervisor {
+        supervisor,
+        daemon_channel,
+        keys,
+        owned,
+        installed,
+    }
+}
+
+fn ready_v3_parts(
+    session_id: [u8; 16],
+    with_broker_facts: bool,
+) -> (
+    ProtectedBundledRuntimeSupervisor,
+    std::os::unix::net::UnixStream,
+    runne_api::ProtectedActivationKeys,
+    runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
+    crate::VerifiedInstalledEnrollmentMeasurementFacts,
+) {
     let profile = expected_profile().expect("protected profile");
     let request = ProtectedLaunchRequestV1::new(
         test_id(1),
@@ -62,7 +132,7 @@ pub fn test_only_ready_v3_enrollment_supervisor() -> TestOnlyReadyV3EnrollmentSu
     ).expect("stable");
     let mut ready_v1 = ProtectedReadyV1::new(
         test_id(1), test_id(2), request.executable().clone(), profile, stable, test_id(12), 1,
-        test_id(13), "https://127.0.0.1:43123", sha2::Sha256::digest([15; 32]).into(),
+        session_id, "https://127.0.0.1:43123", sha2::Sha256::digest([15; 32]).into(),
         vec![15; 32], PROTECTED_RUNTIME_CAPABILITIES.iter().map(|value| (*value).to_owned()).collect(),
     ).expect("ready");
     ready_v1.sign(&keys);
@@ -74,15 +144,18 @@ pub fn test_only_ready_v3_enrollment_supervisor() -> TestOnlyReadyV3EnrollmentSu
     let desktop = DesktopLaunchRequest::V3(launch);
     let decoded = desktop.decode_ready(&ready.encode_frame().expect("ready frame"), &keys)
         .expect("decode ready");
+    let owned = ready.owned_launch();
     let activation = decoded.into_process_activation(desktop).expect("activation");
     let child = std::process::Command::new("/bin/sleep").arg("30").spawn().expect("child");
     let (channel, peer) = std::os::unix::net::UnixStream::pair().expect("channel");
-    drop(peer);
+    channel.set_read_timeout(Some(std::time::Duration::from_secs(2))).expect("timeout");
     let process = ProtectedBundledRuntimeProcess {
-        child, channel, keys, activation, runtime_profile: None, renewal_sequence: 0,
+        child, channel, keys: keys.clone(), activation, runtime_profile: None, renewal_sequence: 0,
         #[cfg(feature = "protected-channel-integration")]
         root_control_sequence: 0,
-        graceful_requested: false, graceful_acknowledged: false, enrollment_broker_facts: None,
+        graceful_requested: false, graceful_acknowledged: false,
+        enrollment_broker_facts: with_broker_facts
+            .then(|| EnrollmentBrokerFacts::new([31; 32], [32; 32])),
         captured_stdout: None, captured_stderr: None,
     };
     let root = std::env::temp_dir().join(format!("runne-v3-test-{}", uuid::Uuid::now_v7()));
@@ -96,10 +169,10 @@ pub fn test_only_ready_v3_enrollment_supervisor() -> TestOnlyReadyV3EnrollmentSu
         credential_service_rejoin: None,
     };
     let _ = std::fs::remove_dir(root);
-    TestOnlyReadyV3EnrollmentSupervisor(supervisor,
-        credential_service_session::bounded_session_expiry_unix_millis(
-            credential_service_session::unix_millis().expect("clock"),
-        ).expect("expiry"))
+    let installed = crate::updater_metadata::VerifiedInstalledEnrollmentMeasurementFacts::for_connected_relay_test(
+        *owned.enrollment_binding().release_tuple_digest(),
+    );
+    (supervisor, peer, keys, owned, installed)
 }
 
 /// Builds the same concrete supervisor type in its genuine pre-V3 Absent state.

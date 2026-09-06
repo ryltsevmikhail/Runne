@@ -56,6 +56,17 @@ NATIVE_QUALIFICATION_ADMISSION_ALLOWED = {
     Path("crates/runne-platform-desktop/src/protected_runtime/qualification_relay_tests.rs"),
     Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange.rs"),
     Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/tests.rs"),
+    Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/connected_tests.rs"),
+}
+NATIVE_QUALIFICATION_DELIVERY_PRODUCTION = {
+    Path("apps/desktop/src-tauri/src/provider_credential_enrollment/dispatch.rs"),
+    Path("apps/desktop/src-tauri/src/provider_credential_enrollment/prepared.rs"),
+    Path("apps/desktop/src-tauri/src/provider_credential_enrollment/prepared/runner.rs"),
+    Path("crates/runne-platform-desktop/src/protected_runtime.rs"),
+    Path("crates/runne-platform-desktop/src/protected_runtime/qualification_relay.rs"),
+    Path("crates/runne-daemon/src/protected_activation/control_v3.rs"),
+    Path("crates/runne-daemon/src/protected_activation/control_v3/round.rs"),
+    Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange.rs"),
 }
 NATIVE_QUALIFICATION_ADMISSION_TOKEN = re.compile(
     r"runne_native_qualification|PendingQualificationFault|QualificationFaultHostState|"
@@ -74,6 +85,14 @@ NATIVE_QUALIFICATION_ADMISSION_FORBIDDEN_SETUP = re.compile(
     r"[^;{}]*(?:std::env|args_os|std::fs|File::|rusqlite|sqlite3)|"
     r"(?:std::env|args_os|std::fs|File::|rusqlite|sqlite3)[^;{}]*"
     r"(?:qualification_ticket|qualification_faults|QualificationFaultHostState))"
+)
+NATIVE_QUALIFICATION_DELIVERY_FORBIDDEN = re.compile(
+    r"#\s*\[\s*tauri::command\s*\]|std::env::(?:var|args|args_os)\s*\(|"
+    r"std::fs::(?:read|read_to_string|write|copy|rename|remove\w*)\s*\(|"
+    r"File::(?:open|create)\s*\(|rusqlite|sqlite3|reqwest|TcpStream|UdpSocket|"
+    r"pub(?:\([^)]*\))?\s+(?:const\s+)?fn\s+(?:bytes|as_bytes|serialize|"
+    r"(?:qualification|ticket)\w*(?:bytes|serialize)|"
+    r"clone_\w*(?:qualification|ticket)|(?:qualification|ticket)\w*_clone)\s*\("
 )
 
 
@@ -209,6 +228,13 @@ def find_native_qualification_admission_surface_violations(root: Path) -> list[s
                 continue
             relative = path.relative_to(root)
             text = path.read_text(encoding="utf-8")
+            if (
+                relative in NATIVE_QUALIFICATION_DELIVERY_PRODUCTION
+                and NATIVE_QUALIFICATION_DELIVERY_FORBIDDEN.search(text)
+            ):
+                violations.append(
+                    f"{relative.as_posix()} exposes forbidden qualification transport"
+                )
             if (
                 relative not in NATIVE_QUALIFICATION_ADMISSION_ALLOWED
                 and NATIVE_QUALIFICATION_ADMISSION_TOKEN.search(text)

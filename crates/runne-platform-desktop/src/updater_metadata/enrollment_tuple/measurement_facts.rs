@@ -21,6 +21,28 @@ pub struct VerifiedInstalledEnrollmentMeasurementFacts {
 }
 
 impl VerifiedInstalledEnrollmentMeasurementFacts {
+    #[cfg(feature = "test-support")]
+    pub(crate) const fn for_connected_relay_test(release: [u8; 32]) -> Self {
+        Self {
+            desktop: [1; 32],
+            writer: [2; 32],
+            daemon: [3; 32],
+            credential_service: None,
+            #[cfg(target_os = "macos")]
+            runtime_credential_service: None,
+            #[cfg(target_os = "macos")]
+            writer_credential_service: None,
+            contract: [4; 32],
+            desktop_start: [5; 32],
+            release,
+            candidate_source: [6; 32],
+            target_manifest: [7; 32],
+            qualification: [8; 32],
+            installed_generation: 1,
+            release_frame: Vec::new(),
+        }
+    }
+
     pub(in crate::updater_metadata) fn from_revalidated(
         value: &VerifiedDaemonNativeEnrollmentPrepare,
     ) -> Option<Self> {

@@ -205,6 +205,47 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
                     )
                     path.write_text(baseline, encoding="utf-8")
 
+    def test_every_delivery_file_rejects_alternate_input_and_reusable_raw_surfaces(self):
+        dispatch = "apps/desktop/src-tauri/src/provider_credential_enrollment/dispatch.rs"
+        prepared = "apps/desktop/src-tauri/src/provider_credential_enrollment/prepared.rs"
+        runner = "apps/desktop/src-tauri/src/provider_credential_enrollment/prepared/runner.rs"
+        relay = "crates/runne-platform-desktop/src/protected_runtime/qualification_relay.rs"
+        platform = "crates/runne-platform-desktop/src/protected_runtime.rs"
+        initial = "crates/runne-daemon/src/protected_activation/control_v3/initial_exchange.rs"
+        control = "crates/runne-daemon/src/protected_activation/control_v3.rs"
+        round_path = "crates/runne-daemon/src/protected_activation/control_v3/round.rs"
+        cases = (
+            (dispatch, "use runne_native_qualification as q; std::env::var(\"TICKET\");"),
+            (prepared, "std::fs::read(\"ticket\");"),
+            (prepared, "File::open(\"ticket\");"),
+            (prepared, "rusqlite::Connection::open(\"ticket.sqlite3\");"),
+            (runner, "std::fs::read(\"ticket\");"),
+            (runner, "File::create(\"ticket\");"),
+            (runner, "rusqlite::Connection::open(\"ticket.sqlite3\");"),
+            (relay, "std::env::var(\"TICKET\");"),
+            (relay, "std::env::args_os();"),
+            (relay, "std::fs::read(\"ticket\");"),
+            (platform, "pub const fn qualification_ticket_bytes(&self) -> &[u8] { &[] }"),
+            (initial, "std::fs::read(\"ticket\");"),
+            (control, "pub fn clone_qualification_ticket(&self) {}"),
+            (round_path, "std::env::var(\"TICKET\");"),
+        )
+        self.assertEqual(
+            {Path(relative) for relative, _ in cases},
+            architecture.NATIVE_QUALIFICATION_DELIVERY_PRODUCTION,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for relative, payload in cases:
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(payload, encoding="utf-8")
+                self.assertNotEqual(
+                    [], architecture.find_native_qualification_admission_surface_violations(root),
+                    relative,
+                )
+                path.unlink()
+
     @classmethod
     def packages(cls):
         rows = [

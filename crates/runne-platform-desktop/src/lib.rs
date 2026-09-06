@@ -58,7 +58,8 @@ pub use protected_runtime::{
 #[cfg(all(feature = "test-support", unix))]
 #[doc(hidden)]
 pub use protected_runtime::{
-    TestOnlyReadyV3EnrollmentSupervisor, test_only_absent_enrollment_supervisor,
+    TestOnlyConnectedReadyV3EnrollmentSupervisor, TestOnlyReadyV3EnrollmentSupervisor,
+    test_only_absent_enrollment_supervisor, test_only_connected_ready_v3_enrollment_supervisor,
     test_only_ready_v3_enrollment_supervisor,
 };
 #[cfg(target_os = "linux")]
