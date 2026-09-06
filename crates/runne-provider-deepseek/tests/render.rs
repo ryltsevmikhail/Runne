@@ -68,7 +68,16 @@ fn renderer_emits_exact_literal_credential_free_golden_bytes() {
     );
     let lower = String::from_utf8_lossy(prepared.rendered_bytes()).to_ascii_lowercase();
     let value: Value = serde_json::from_slice(prepared.rendered_bytes()).unwrap();
-    assert_eq!(value["service_tier"], "default");
+    for unsupported in ["service_tier", "background", "store"] {
+        assert!(
+            value.get(unsupported).is_none(),
+            "sent unsupported {unsupported}"
+        );
+    }
+    assert_eq!(value["model"], "deepseek-v4-flash");
+    assert_eq!(value["reasoning"]["effort"], "none");
+    assert_eq!(value["tools"], json!([]));
+    assert_eq!(value["tool_choice"], "none");
     for forbidden in [
         "authorization",
         "bearer",

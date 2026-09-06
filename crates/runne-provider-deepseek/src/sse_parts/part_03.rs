@@ -130,7 +130,6 @@ pub fn validate_remote_rejection(body: &[u8]) -> Result<(), DeepSeekStreamError>
 fn validate_response_guards(response: &Map<String, Value>) -> Result<(), DeepSeekStreamError> {
     if response.get("object").and_then(Value::as_str) != Some("response")
         || response.get("model").and_then(Value::as_str) != Some(DEEPSEEK_REQUEST_MODEL)
-        || response.get("service_tier").and_then(Value::as_str) != Some(DEEPSEEK_SERVICE_TIER)
     {
         return Err(DeepSeekStreamError::CorrelationMismatch);
     }

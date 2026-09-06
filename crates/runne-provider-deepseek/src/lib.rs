@@ -14,8 +14,7 @@ mod transport;
 pub use credential::{DeepSeekCredentialError, DeepSeekCredentialMaterializer};
 pub use profile::{
     DEEPSEEK_MODEL_ID, DEEPSEEK_MODEL_REVISION, DEEPSEEK_REQUEST_MODEL,
-    DEEPSEEK_RESPONSES_PROFILE_ID, DEEPSEEK_SERVICE_TIER, DeepSeekProfileError,
-    DeepSeekResponsesTextProfile,
+    DEEPSEEK_RESPONSES_PROFILE_ID, DeepSeekProfileError, DeepSeekResponsesTextProfile,
 };
 pub use render::{DeepSeekRenderError, DeepSeekResponsesTextRenderer};
 pub use response_decode::decode_transport_response;

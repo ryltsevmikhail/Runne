@@ -4,24 +4,11 @@ fn identities_indexes_wrappers_and_remote_sequence_fail_closed() {
     let valid = String::from_utf8(successful_sse()).expect("fixture");
     let mutations = [
         valid.replacen(RESPONSE_ID, "resp_wrong", 1),
-        valid.replacen(DEEPSEEK_REQUEST_MODEL, "deepseek-chat-v4", 1),
+        valid.replacen(DEEPSEEK_REQUEST_MODEL, "deepseek-v4-pro", 1),
         valid.replacen(&format!("\"model\":\"{DEEPSEEK_REQUEST_MODEL}\","), "", 1),
         valid.replacen(
             &format!("\"model\":\"{DEEPSEEK_REQUEST_MODEL}\""),
             "\"model\":null",
-            1,
-        ),
-        valid.replacen(DEEPSEEK_SERVICE_TIER, "auto", 1),
-        valid.replacen(DEEPSEEK_SERVICE_TIER, "priority", 1),
-        valid.replacen(DEEPSEEK_SERVICE_TIER, "flex", 1),
-        valid.replacen(
-            &format!("\"service_tier\":\"{DEEPSEEK_SERVICE_TIER}\""),
-            "\"service_tier\":null",
-            1,
-        ),
-        valid.replacen(
-            &format!("\"service_tier\":\"{DEEPSEEK_SERVICE_TIER}\","),
-            "",
             1,
         ),
         valid.replacen(ITEM_ID, "msg_wrong", 1),

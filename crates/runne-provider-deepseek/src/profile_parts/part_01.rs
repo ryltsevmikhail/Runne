@@ -7,27 +7,29 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 /// Exact immutable `DeepSeek` Responses text profile identity.
-pub const DEEPSEEK_RESPONSES_PROFILE_ID: &str = "gocode-deepseek-responses-text/1";
+pub const DEEPSEEK_RESPONSES_PROFILE_ID: &str = "runne-deepseek-responses-text/1";
 /// Exact provider request model snapshot.
-pub const DEEPSEEK_REQUEST_MODEL: &str = "deepseek-chat";
-/// Exact Standard processing tier requested and required in response evidence.
-pub const DEEPSEEK_SERVICE_TIER: &str = "default";
+pub const DEEPSEEK_REQUEST_MODEL: &str = "deepseek-v4-flash";
 /// Provider-neutral model family bound into `ModelRef`.
-pub const DEEPSEEK_MODEL_ID: &str = "deepseek-chat";
+pub const DEEPSEEK_MODEL_ID: &str = "deepseek-v4-flash";
 /// Provider-neutral immutable model revision bound into `ModelRef`.
-pub const DEEPSEEK_MODEL_REVISION: &str = "2026-08-16";
+pub const DEEPSEEK_MODEL_REVISION: &str = "DeepSeek-V4-Flash-0731";
 
 const PROFILE_SCHEMA_VERSION: u64 = 1;
 const PROFILE_REVISION: u64 = 1;
 const PROVIDER_ID: &str = "deepseek";
 const ORIGIN: &str = "https://api.deepseek.com";
-const PATH: &str = "/v1/responses";
-const PRICING_REVISION: &str = "deepseek-chat-base-2026-08-16/1";
+const PATH: &str = "/responses";
+const PRICING_REVISION: &str = "deepseek-v4-flash-0731-peak-offpeak-2026-08-16/1";
+const PRICING_EFFECTIVE_FROM: i64 = 1_786_896_000;
 const PRICING_CURRENCY: &str = "USD";
 const PRICING_UNIT_TOKENS: u64 = 1_000_000;
-const INPUT_MICROS: u64 = 270_000;
-const CACHED_INPUT_MICROS: u64 = 28_000;
-const OUTPUT_MICROS: u64 = 1_100_000;
+const PEAK_INPUT_MICROS: u64 = 440_000;
+const PEAK_CACHED_INPUT_MICROS: u64 = 14_000;
+const PEAK_OUTPUT_MICROS: u64 = 1_320_000;
+const OFF_PEAK_INPUT_MICROS: u64 = 220_000;
+const OFF_PEAK_CACHED_INPUT_MICROS: u64 = 7_000;
+const OFF_PEAK_OUTPUT_MICROS: u64 = 660_000;
 const LONG_CONTEXT_THRESHOLD_TOKENS: u64 = 1_000_000;
 const MAX_INPUT_ENTRIES: usize = 64;
 const MAX_INPUT_ENTRY_BYTES: usize = 65_536;
@@ -37,8 +39,8 @@ const MAX_REQUEST_BYTES: usize = 524_288;
 const MAX_PROFILE_BYTES: usize = 16 * 1024;
 const PRICING_DIGEST_DOMAIN: &[u8] = b"GOCODE_DEEPSEEK_RESPONSES_TEXT_PRICING_V1\0";
 const PROFILE_SOURCE_DIGEST: [u8; 32] = [
-    0x25, 0x67, 0x0f, 0xfe, 0x78, 0xdb, 0xc7, 0xef, 0x4d, 0xb8, 0x91, 0x13, 0x56, 0xd9, 0xeb, 0x4e,
-    0x27, 0x41, 0x67, 0xff, 0x9e, 0xed, 0x0a, 0x7c, 0xc9, 0xb5, 0xe6, 0x6e, 0x40, 0x85, 0xd8, 0x53,
+    0x80, 0x45, 0x11, 0x6b, 0xaa, 0xf2, 0x04, 0x41, 0x63, 0x53, 0x38, 0xad, 0x3c, 0x8e, 0x6a, 0x3b,
+    0xf2, 0x5f, 0x4c, 0x21, 0xb2, 0xa4, 0x71, 0xd7, 0x89, 0x62, 0x62, 0x2a, 0x74, 0x79, 0x8f, 0xe1,
 ];
 
 /// Exact-profile validation or pricing failure.
@@ -84,11 +86,17 @@ struct ModelProfile {
 #[serde(deny_unknown_fields)]
 struct PricingProfile {
     revision: String,
+    effective_from_unix_seconds: i64,
     currency: String,
     unit_tokens: u64,
-    input_micros: u64,
-    cached_input_micros: u64,
-    output_micros: u64,
+    peak_input_micros: u64,
+    peak_cached_input_micros: u64,
+    peak_output_micros: u64,
+    off_peak_input_micros: u64,
+    off_peak_cached_input_micros: u64,
+    off_peak_output_micros: u64,
+    peak_iso_weekdays: Vec<u8>,
+    peak_windows_utc: Vec<[u16; 2]>,
     long_context_threshold_tokens: u64,
     long_context_enabled: bool,
 }
@@ -96,12 +104,9 @@ struct PricingProfile {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RequestProfile {
-    service_tier: String,
     reasoning_effort: String,
     tools: Vec<Value>,
     tool_choice: String,
-    background: bool,
-    store: bool,
     stream: bool,
 }
 

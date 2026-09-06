@@ -54,12 +54,6 @@ impl DeepSeekResponsesTextProfile {
         &self.raw.model.request_id
     }
 
-    /// Returns the exact Standard processing tier.
-    #[must_use]
-    pub fn service_tier(&self) -> &str {
-        &self.raw.request.service_tier
-    }
-
     /// Returns the provider-neutral model identity.
     #[must_use]
     pub fn model_id(&self) -> &str {
@@ -150,17 +144,17 @@ impl DeepSeekResponsesTextProfile {
             .ok_or(DeepSeekProfileError::PricingOverflow)?;
         let input = prorated_micros(
             uncached,
-            self.raw.pricing.input_micros,
+            self.raw.pricing.peak_input_micros,
             self.raw.pricing.unit_tokens,
         )?;
         let cached = prorated_micros(
             usage.cached_input_tokens(),
-            self.raw.pricing.cached_input_micros,
+            self.raw.pricing.peak_cached_input_micros,
             self.raw.pricing.unit_tokens,
         )?;
         let output = prorated_micros(
             usage.output_tokens(),
-            self.raw.pricing.output_micros,
+            self.raw.pricing.peak_output_micros,
             self.raw.pricing.unit_tokens,
         )?;
         input
@@ -206,21 +200,24 @@ fn validate_exact(profile: &RawProfile) -> Result<(), DeepSeekProfileError> {
         && profile.model.revision == DEEPSEEK_MODEL_REVISION
         && profile.model.aliases.is_empty()
         && profile.pricing.revision == PRICING_REVISION
+        && profile.pricing.effective_from_unix_seconds == PRICING_EFFECTIVE_FROM
         && profile.pricing.currency == PRICING_CURRENCY
         && profile.pricing.unit_tokens == PRICING_UNIT_TOKENS
-        && profile.pricing.input_micros == INPUT_MICROS
-        && profile.pricing.cached_input_micros == CACHED_INPUT_MICROS
-        && profile.pricing.output_micros == OUTPUT_MICROS
+        && profile.pricing.peak_input_micros == PEAK_INPUT_MICROS
+        && profile.pricing.peak_cached_input_micros == PEAK_CACHED_INPUT_MICROS
+        && profile.pricing.peak_output_micros == PEAK_OUTPUT_MICROS
+        && profile.pricing.off_peak_input_micros == OFF_PEAK_INPUT_MICROS
+        && profile.pricing.off_peak_cached_input_micros == OFF_PEAK_CACHED_INPUT_MICROS
+        && profile.pricing.off_peak_output_micros == OFF_PEAK_OUTPUT_MICROS
+        && profile.pricing.peak_iso_weekdays == [1, 2, 3, 4, 5]
+        && profile.pricing.peak_windows_utc == [[60, 240], [360, 600]]
         && profile.pricing.long_context_threshold_tokens == LONG_CONTEXT_THRESHOLD_TOKENS
         && !profile.pricing.long_context_enabled
         && profile.capabilities == ["streaming"]
         && profile.developer_prompt.is_null()
-        && profile.request.service_tier == DEEPSEEK_SERVICE_TIER
         && profile.request.reasoning_effort == "none"
         && profile.request.tools.is_empty()
         && profile.request.tool_choice == "none"
-        && !profile.request.background
-        && !profile.request.store
         && profile.request.stream
         && profile.limits.max_input_entries == MAX_INPUT_ENTRIES
         && profile.limits.max_input_entry_bytes == MAX_INPUT_ENTRY_BYTES

@@ -2,8 +2,7 @@ use jsonschema::{Draft, JSONSchema};
 use runne_provider::{ProviderTerminalPricing, ProviderTerminalPricingError, ProviderUsage};
 use runne_provider_deepseek::{
     DEEPSEEK_MODEL_ID, DEEPSEEK_MODEL_REVISION, DEEPSEEK_REQUEST_MODEL,
-    DEEPSEEK_RESPONSES_PROFILE_ID, DEEPSEEK_SERVICE_TIER, DeepSeekProfileError,
-    DeepSeekResponsesTextProfile,
+    DEEPSEEK_RESPONSES_PROFILE_ID, DeepSeekProfileError, DeepSeekResponsesTextProfile,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -48,38 +47,39 @@ fn exact_profile_schema_digest_identity_and_pricing_are_stable() {
     assert_eq!(
         source_digest,
         [
-            0x25, 0x67, 0x0f, 0xfe, 0x78, 0xdb, 0xc7, 0xef, 0x4d, 0xb8, 0x91, 0x13, 0x56, 0xd9,
-            0xeb, 0x4e, 0x27, 0x41, 0x67, 0xff, 0x9e, 0xed, 0x0a, 0x7c, 0xc9, 0xb5, 0xe6, 0x6e,
-            0x40, 0x85, 0xd8, 0x53,
+            0x80, 0x45, 0x11, 0x6b, 0xaa, 0xf2, 0x04, 0x41, 0x63, 0x53, 0x38, 0xad, 0x3c, 0x8e,
+            0x6a, 0x3b, 0xf2, 0x5f, 0x4c, 0x21, 0xb2, 0xa4, 0x71, 0xd7, 0x89, 0x62, 0x62, 0x2a,
+            0x74, 0x79, 0x8f, 0xe1,
         ]
     );
     assert_eq!(profile.profile_digest(), source_digest);
     assert_eq!(
         PROFILE_DIGEST.as_bytes(),
-        b"sha256:25670ffe78dbc7ef4db8911356d9eb4e274167ff9eed0a7cc9b5e66e4085d853"
+        b"sha256:8045116baaf20441635338ad3c8e6a3bf25f4c21b2a471d78962622a74798fe1\n"
     );
-    assert_eq!(profile.profile_id(), "gocode-deepseek-responses-text/1");
+    assert_eq!(profile.profile_id(), "runne-deepseek-responses-text/1");
     assert_eq!(profile.profile_id(), DEEPSEEK_RESPONSES_PROFILE_ID);
     assert_eq!(profile.provider_id(), "deepseek");
     assert_eq!(profile.origin(), "https://api.deepseek.com");
-    assert_eq!(profile.path(), "/v1/responses");
+    assert_eq!(profile.path(), "/responses");
     assert_eq!(profile.request_model(), DEEPSEEK_REQUEST_MODEL);
-    assert_eq!(profile.service_tier(), DEEPSEEK_SERVICE_TIER);
+    assert_eq!(profile.request_model(), "deepseek-v4-flash");
     assert_eq!(profile.model_id(), DEEPSEEK_MODEL_ID);
     assert_eq!(profile.model_revision(), DEEPSEEK_MODEL_REVISION);
+    assert_eq!(profile.model_revision(), "DeepSeek-V4-Flash-0731");
     assert_eq!(profile.currency(), "USD");
     assert_eq!(profile.max_input_entries(), 64);
     assert_eq!(profile.max_input_bytes(), 262_144);
     assert_eq!(profile.max_output_tokens(), 16_384);
     assert_eq!(profile.max_request_bytes(), 524_288);
-    assert_eq!(PROFILE_DIGEST.len(), 71);
+    assert_eq!(PROFILE_DIGEST.len(), 72);
     assert_eq!(
         hex::encode(profile.pricing_revision_digest()),
-        "750211a8205b6b97356780d69809301c7a89d204ab271a81caf71ddf2885bd35"
+        "4cac30226671d1b4a9f118077d811b7007d3a79f48582ffd5f6ffcb45c304b21"
     );
 
     let usage = ProviderUsage::new(10, 2, 3, 0).unwrap();
-    assert_eq!(profile.price_usage_micros(usage).unwrap(), 6);
+    assert_eq!(profile.price_usage_micros(usage).unwrap(), 8);
     let priced = profile
         .price_terminal_usage(
             &profile.pricing_revision_digest(),
@@ -87,7 +87,7 @@ fn exact_profile_schema_digest_identity_and_pricing_are_stable() {
             usage,
         )
         .unwrap();
-    assert_eq!(priced.charge_micros(), 6);
+    assert_eq!(priced.charge_micros(), 8);
     assert_eq!(priced.currency(), "USD");
     assert_eq!(
         profile.price_terminal_usage(&[3; 32], &profile.profile_digest(), usage),
@@ -107,7 +107,7 @@ fn exact_profile_schema_digest_identity_and_pricing_are_stable() {
 fn aliases_endpoint_model_pricing_and_request_policy_are_exact() {
     let original = parse_profile_value();
     let mutations: Vec<ProfileMutation> = vec![
-        Box::new(|value| value["profile_id"] = json!("runne-deepseek-responses-text/1")),
+        Box::new(|value| value["profile_id"] = json!("gocode-deepseek-responses-text/1")),
         Box::new(|value| value["profile_revision"] = json!(2)),
         Box::new(|value| value["provider_id"] = json!("openai-compatible")),
         Box::new(|value| value["origin"] = json!("https://proxy.example")),
@@ -123,18 +123,12 @@ fn aliases_endpoint_model_pricing_and_request_policy_are_exact() {
         Box::new(|value| value["pricing"]["long_context_enabled"] = json!(true)),
         Box::new(|value| value["capabilities"] = json!(["streaming", "tools"])),
         Box::new(|value| value["developer_prompt"] = json!("hidden")),
-        Box::new(|value| value["request"]["service_tier"] = json!("auto")),
-        Box::new(|value| {
-            value["request"]
-                .as_object_mut()
-                .expect("request object")
-                .remove("service_tier");
-        }),
+        Box::new(|value| value["request"]["service_tier"] = json!("default")),
         Box::new(|value| value["request"]["reasoning_effort"] = json!("low")),
         Box::new(|value| value["request"]["tools"] = json!([{"type": "web_search"}])),
         Box::new(|value| value["request"]["tool_choice"] = json!("auto")),
-        Box::new(|value| value["request"]["background"] = json!(true)),
-        Box::new(|value| value["request"]["store"] = json!(true)),
+        Box::new(|value| value["request"]["background"] = json!(false)),
+        Box::new(|value| value["request"]["store"] = json!(false)),
         Box::new(|value| value["request"]["stream"] = json!(false)),
         Box::new(|value| value["limits"]["max_input_entries"] = json!(65)),
         Box::new(|value| value["limits"]["max_input_bytes"] = json!(262_145)),
