@@ -5,9 +5,7 @@ use std::time::Duration;
 
 use block2::RcBlock;
 use objc2::MainThreadMarker;
-use objc2_app_kit::{
-    NSAlert, NSAlertFirstButtonReturn, NSAlertSecondButtonReturn, NSSecureTextField, NSWindow,
-};
+use objc2_app_kit::{NSAlert, NSSecureTextField, NSWindow};
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use runne_platform_desktop::{
     CredentialPromptAction, CredentialPromptProvider, MAX_CREDENTIAL_BYTES,
@@ -20,7 +18,11 @@ use super::OneShotPromptResult;
 
 mod cleanup;
 mod native;
+mod routes;
 mod state;
+
+#[cfg(test)]
+mod route_tests;
 
 type PromptResult = Result<SecureCredentialPromptDisposition, SecureCredentialPromptError>;
 
@@ -33,6 +35,7 @@ pub struct MacOsHostCredentialPrompt {
 
 impl MacOsHostCredentialPrompt {
     pub(crate) const MAX_TIMEOUT: Duration = Duration::from_secs(30);
+    const CLEANUP_GRACE: Duration = Duration::from_millis(250);
 
     pub(crate) fn new(
         window: WebviewWindow,
@@ -56,34 +59,23 @@ impl SecureCredentialPromptPort for MacOsHostCredentialPrompt {
             return Err(SecureCredentialPromptError::Unavailable);
         }
         let id = state::allocate_id().ok_or(SecureCredentialPromptError::Unavailable)?;
-        let winner = Arc::new(OneShotPromptResult::new());
         let (result_sender, result_receiver) = mpsc::sync_channel(1);
-        let (cleanup_sender, cleanup_receiver) = mpsc::channel();
+        let terminal =
+            routes::PromptTerminal::new(Arc::new(OneShotPromptResult::new()), result_sender);
         schedule_sheet(
             &self.app,
             self.window.clone(),
             id,
             request,
-            Arc::clone(&winner),
-            result_sender,
-            cleanup_sender.clone(),
+            terminal,
+            self.timeout,
         )?;
-        match result_receiver.recv_timeout(self.timeout) {
-            Ok(result) => result,
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                Err(SecureCredentialPromptError::Unavailable)
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) if winner.claim() => {
-                request_timeout_cleanup(&self.app, id, cleanup_sender);
-                cleanup_receiver
-                    .recv()
-                    .map_err(|_| SecureCredentialPromptError::Unavailable)?;
-                Ok(SecureCredentialPromptDisposition::TimedOut)
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => result_receiver
-                .recv()
-                .map_err(|_| SecureCredentialPromptError::Unavailable)?,
-        }
+        routes::wait_for_result(
+            &result_receiver,
+            self.timeout + Self::CLEANUP_GRACE,
+            id,
+            |task| self.app.run_on_main_thread(task).map_err(|_| ()),
+        )
     }
 }
 
@@ -92,66 +84,37 @@ fn schedule_sheet(
     window: WebviewWindow,
     id: u64,
     request: SecureCredentialPromptRequest,
-    winner: Arc<OneShotPromptResult>,
-    sender: mpsc::SyncSender<PromptResult>,
-    cleanup: mpsc::Sender<()>,
+    terminal: routes::PromptTerminal,
+    timeout: Duration,
 ) -> Result<(), SecureCredentialPromptError> {
     app.run_on_main_thread(move || {
-        if winner.is_claimed() || !matches!(window.is_focused(), Ok(true)) {
-            finish_terminal(
-                id,
-                &winner,
-                &sender,
-                &cleanup,
-                Err(SecureCredentialPromptError::Unavailable),
-            );
+        if !matches!(window.is_focused(), Ok(true)) {
+            terminal.finish_registered(id, Err(SecureCredentialPromptError::Unavailable));
             return;
         }
         let Some(mtm) = MainThreadMarker::new() else {
-            finish_terminal(
-                id,
-                &winner,
-                &sender,
-                &cleanup,
-                Err(SecureCredentialPromptError::Unavailable),
-            );
+            terminal.finish_registered(id, Err(SecureCredentialPromptError::Unavailable));
             return;
         };
         let Some(parent) = native::retain_tauri_window(mtm, &window) else {
-            finish_terminal(
-                id,
-                &winner,
-                &sender,
-                &cleanup,
-                Err(SecureCredentialPromptError::Unavailable),
-            );
+            terminal.finish_registered(id, Err(SecureCredentialPromptError::Unavailable));
             return;
         };
         if parent.attachedSheet().is_some() {
-            finish_terminal(
-                id,
-                &winner,
-                &sender,
-                &cleanup,
-                Err(SecureCredentialPromptError::Unavailable),
-            );
+            terminal.finish_registered(id, Err(SecureCredentialPromptError::Unavailable));
             return;
         }
-        show_sheet(&parent, id, request, winner, sender, cleanup);
+        show_sheet(&parent, id, request, terminal, timeout);
     })
-    .map_err(|_| {
-        cleanup::finish(id);
-        SecureCredentialPromptError::Unavailable
-    })
+    .map_err(|_| SecureCredentialPromptError::Unavailable)
 }
 
 fn show_sheet(
     parent: &NSWindow,
     id: u64,
     request: SecureCredentialPromptRequest,
-    winner: Arc<OneShotPromptResult>,
-    sender: mpsc::SyncSender<PromptResult>,
-    cleanup: mpsc::Sender<()>,
+    terminal: routes::PromptTerminal,
+    timeout: Duration,
 ) {
     let mtm = MainThreadMarker::new().expect("scheduled on the AppKit main thread");
     let alert = NSAlert::new(mtm);
@@ -172,42 +135,41 @@ fn show_sheet(
     if let Some(field) = field.as_ref() {
         sheet.setInitialFirstResponder(Some(field));
     }
-    if let Err(prompt) = state::insert(id, state::PromptUiState::native(sheet, field.clone())) {
-        cleanup::finish_unregistered(prompt);
-        finish_terminal(
-            id,
-            &winner,
-            &sender,
-            &cleanup,
-            Err(SecureCredentialPromptError::Unavailable),
-        );
+    let prompt = state::PromptUiState::native(sheet, field.clone());
+    if !routes::register_or_finish(id, prompt, &terminal) {
+        return;
+    }
+    if !routes::arm_timeout(id, timeout, &terminal, native::schedule_timeout) {
         return;
     }
 
     let completion = RcBlock::new(move |response| {
-        let result = completion_result(response, field.as_deref(), request.action());
-        finish_terminal(id, &winner, &sender, &cleanup, result);
+        routes::complete_response(
+            id,
+            response,
+            request.action(),
+            || {
+                let field = field
+                    .as_deref()
+                    .ok_or(SecureCredentialPromptError::Unavailable)?;
+                copy_secret(field)
+            },
+            &terminal,
+        );
     });
     alert.beginSheetModalForWindow_completionHandler(parent, Some(&completion));
 }
 
+#[cfg(test)]
 pub(super) fn completion_result(
     response: isize,
     field: Option<&NSSecureTextField>,
     action: CredentialPromptAction,
 ) -> PromptResult {
-    if response == NSAlertSecondButtonReturn {
-        return Ok(SecureCredentialPromptDisposition::Cancelled);
-    }
-    if response != NSAlertFirstButtonReturn {
-        return Err(SecureCredentialPromptError::Unavailable);
-    }
-    if action.requires_secret() {
+    routes::resolve_response(response, action, || {
         let field = field.ok_or(SecureCredentialPromptError::Unavailable)?;
-        copy_secret(field).map(SecureCredentialPromptDisposition::Submitted)
-    } else {
-        Ok(SecureCredentialPromptDisposition::Confirmed)
-    }
+        copy_secret(field)
+    })
 }
 
 fn copy_secret(
@@ -216,39 +178,6 @@ fn copy_secret(
     let bytes = native::copy_utf8(&field.stringValue(), MAX_CREDENTIAL_BYTES)
         .map_err(|()| SecureCredentialPromptError::Rejected)?;
     SecureCredentialMaterial::from_zeroizing(bytes)
-}
-
-fn finish(
-    winner: &OneShotPromptResult,
-    sender: &mpsc::SyncSender<PromptResult>,
-    result: PromptResult,
-) {
-    if winner.claim() {
-        let _ = sender.send(result);
-    }
-}
-
-fn request_timeout_cleanup(app: &AppHandle, id: u64, cleanup: mpsc::Sender<()>) {
-    let _ = app.run_on_main_thread(move || {
-        finish_timeout_on_main(id, &cleanup);
-    });
-}
-
-fn finish_terminal(
-    id: u64,
-    winner: &OneShotPromptResult,
-    sender: &mpsc::SyncSender<PromptResult>,
-    cleanup_sender: &mpsc::Sender<()>,
-    result: PromptResult,
-) {
-    cleanup::finish(id);
-    let _ = cleanup_sender.send(());
-    finish(winner, sender, result);
-}
-
-fn finish_timeout_on_main(id: u64, cleanup_sender: &mpsc::Sender<()>) {
-    cleanup::finish(id);
-    let _ = cleanup_sender.send(());
 }
 
 fn prompt_description(request: SecureCredentialPromptRequest) -> String {

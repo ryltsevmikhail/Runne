@@ -19,11 +19,29 @@ pub(super) enum PromptUiState {
     Native {
         sheet: Retained<NSWindow>,
         field: Option<Retained<NSSecureTextField>>,
+        phase: PromptPhase,
     },
     #[cfg(test)]
     Observed {
         observer: CleanupObserver,
         has_field: bool,
+        phase: PromptPhase,
+        on_clear: Option<Box<dyn FnOnce()>>,
+    },
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum PromptPhase {
+    Active,
+    Cleaning,
+}
+
+pub(super) enum PromptFieldOwner {
+    Native(Retained<NSSecureTextField>),
+    #[cfg(test)]
+    Observed {
+        observer: CleanupObserver,
+        on_clear: Option<Box<dyn FnOnce()>>,
     },
 }
 
@@ -32,7 +50,11 @@ impl PromptUiState {
         sheet: Retained<NSWindow>,
         field: Option<Retained<NSSecureTextField>>,
     ) -> Self {
-        Self::Native { sheet, field }
+        Self::Native {
+            sheet,
+            field,
+            phase: PromptPhase::Active,
+        }
     }
 
     #[cfg(test)]
@@ -40,6 +62,57 @@ impl PromptUiState {
         Self::Observed {
             observer,
             has_field,
+            phase: PromptPhase::Active,
+            on_clear: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn observed_reentrant(
+        observer: CleanupObserver,
+        on_clear: impl FnOnce() + 'static,
+    ) -> Self {
+        Self::Observed {
+            observer,
+            has_field: true,
+            phase: PromptPhase::Active,
+            on_clear: Some(Box::new(on_clear)),
+        }
+    }
+
+    pub(super) fn begin_cleanup(&mut self) -> Result<Option<PromptFieldOwner>, ()> {
+        match self {
+            Self::Native { field, phase, .. } => {
+                if *phase == PromptPhase::Cleaning {
+                    return Err(());
+                }
+                *phase = PromptPhase::Cleaning;
+                Ok(field.take().map(PromptFieldOwner::Native))
+            }
+            #[cfg(test)]
+            Self::Observed {
+                observer,
+                has_field,
+                phase,
+                on_clear,
+            } => {
+                if *phase == PromptPhase::Cleaning {
+                    return Err(());
+                }
+                *phase = PromptPhase::Cleaning;
+                Ok(has_field.then(|| PromptFieldOwner::Observed {
+                    observer: observer.clone(),
+                    on_clear: on_clear.take(),
+                }))
+            }
+        }
+    }
+
+    fn is_cleaning(&self) -> bool {
+        match self {
+            Self::Native { phase, .. } => *phase == PromptPhase::Cleaning,
+            #[cfg(test)]
+            Self::Observed { phase, .. } => *phase == PromptPhase::Cleaning,
         }
     }
 }
@@ -62,6 +135,20 @@ pub(super) fn insert(id: u64, state: PromptUiState) -> Result<(), PromptUiState>
     })
 }
 
-pub(super) fn with_prompts<T>(operation: impl FnOnce(&mut HashMap<u64, PromptUiState>) -> T) -> T {
-    PROMPTS.with_borrow_mut(operation)
+pub(super) fn begin_cleanup(id: u64) -> Result<Option<PromptFieldOwner>, ()> {
+    PROMPTS.with_borrow_mut(|prompts| prompts.get_mut(&id).ok_or(())?.begin_cleanup())
+}
+
+pub(super) fn remove_cleaning(id: u64) -> Option<PromptUiState> {
+    PROMPTS.with_borrow_mut(|prompts| {
+        if !prompts.get(&id).is_some_and(PromptUiState::is_cleaning) {
+            return None;
+        }
+        prompts.remove(&id)
+    })
+}
+
+#[cfg(test)]
+pub(super) fn contains(id: u64) -> bool {
+    PROMPTS.with_borrow(|prompts| prompts.contains_key(&id))
 }

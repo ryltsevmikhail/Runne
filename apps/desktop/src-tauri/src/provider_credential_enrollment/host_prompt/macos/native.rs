@@ -3,7 +3,9 @@
 #![allow(unsafe_code)]
 
 use std::ptr;
+use std::time::Duration;
 
+use dispatch2::{DispatchQueue, DispatchTime};
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2_app_kit::{NSModalResponseAbort, NSSecureTextField, NSWindow};
@@ -35,6 +37,14 @@ pub(super) fn close_sheet(sheet: &NSWindow) {
     } else {
         sheet.orderOut(None);
     }
+}
+
+pub(super) fn schedule_timeout(
+    delay: Duration,
+    work: impl FnOnce() + Send + 'static,
+) -> Result<(), ()> {
+    let when = DispatchTime::try_from(delay)?;
+    DispatchQueue::main().after(when, work).map_err(|_| ())
 }
 
 /// Copies `NSString` UTF-8 bytes directly into zeroizing storage.
