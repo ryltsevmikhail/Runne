@@ -54,7 +54,8 @@ impl QualificationAdmissionRelayCodecV1 {
     /// # Errors
     ///
     /// Rejects mixed bindings or activations, missing/extra/reordered members,
-    /// malformed outer lengths, inner authentication failure, and trailing data.
+    /// malformed outer lengths, inner authentication failure, mismatched ticket
+    /// digest or expiry order, and trailing data.
     pub fn decode_transcript(
         &self,
         bytes: &[u8],
@@ -76,12 +77,7 @@ impl QualificationAdmissionRelayCodecV1 {
             .decode(fault_frame, fault_binding)
             .map_err(|_| QualificationAdmissionRelayError)?
             .ok_or(QualificationAdmissionRelayError)?;
-        if !context.matches_fault(&fault) {
-            return Err(QualificationAdmissionRelayError);
-        }
-        Ok(PendingQualificationAdmission::from_relay_members(
-            context, fault,
-        ))
+        PendingQualificationAdmission::from_relay_members(context, fault)
     }
 }
 

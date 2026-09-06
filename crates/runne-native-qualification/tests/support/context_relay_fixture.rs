@@ -46,6 +46,10 @@ struct SignatureFixture {
 }
 
 pub fn ticket(id: u8) -> Vec<u8> {
+    ticket_with_times(id, 1_800_000_000, 1_800_000_600)
+}
+
+pub fn ticket_with_times(id: u8, issued_at: u64, expires_at: u64) -> Vec<u8> {
     serde_json::to_vec(&TicketFixture {
         schema_version: "runne/macos-xpc-dpk-fault-ticket/v1",
         ticket_id: format!("{id:02x}").repeat(32),
@@ -56,8 +60,8 @@ pub fn ticket(id: u8) -> Vec<u8> {
         source_revision: "cc".repeat(20),
         workflow_run_id: "run-42",
         namespace_sha256: "dd".repeat(32),
-        issued_at: 1_800_000_000,
-        expires_at: 1_800_000_600,
+        issued_at,
+        expires_at,
         nonce: URL_SAFE_NO_PAD.encode([id; 32]),
         signature: signature(),
     })
@@ -65,6 +69,10 @@ pub fn ticket(id: u8) -> Vec<u8> {
 }
 
 pub fn context(ticket: &[u8], id: u8) -> Vec<u8> {
+    context_with_times(ticket, id, 1_800_000_000, 1_800_000_300)
+}
+
+pub fn context_with_times(ticket: &[u8], id: u8, issued_at: u64, expires_at: u64) -> Vec<u8> {
     serde_json::to_vec(&RunContextFixture {
         schema_version: "runne/macos-xpc-dpk-run-context/v1",
         context_id: format!("{id:02x}").repeat(32),
@@ -77,8 +85,8 @@ pub fn context(ticket: &[u8], id: u8) -> Vec<u8> {
         workflow_run_id: "run-42",
         namespace_sha256: "dd".repeat(32),
         ticket_sha256: hex::encode(Sha256::digest(ticket)),
-        issued_at: 1_800_000_000,
-        expires_at: 1_800_000_300,
+        issued_at,
+        expires_at,
         nonce: URL_SAFE_NO_PAD.encode([id; 32]),
         signature: signature(),
     })

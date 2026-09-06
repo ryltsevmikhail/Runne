@@ -114,6 +114,13 @@ fn reusable_raw_and_borrowed_mutations_are_rejected() {
             ),
         ),
         (
+            "public expiry predicate",
+            BASELINE.replace(
+                "pub(crate) const fn expires_no_earlier_than",
+                "pub const fn expires_no_earlier_than",
+            ),
+        ),
+        (
             "qualified getter",
             appended(
                 "impl self::PendingQualificationFault { pub fn ticket(&self) -> &[u8] { &self.bytes } }",

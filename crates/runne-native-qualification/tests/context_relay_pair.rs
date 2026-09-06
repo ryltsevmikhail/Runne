@@ -2,12 +2,16 @@
 mod fixture;
 
 use runne_api::{
-    LaunchSecret, QualificationFaultRelayBindingV1, QualificationFaultRelayDirectionV1,
-    QualificationRunContextRelayBindingV1, QualificationRunContextRelayDirectionV1,
+    LaunchSecret, QualificationFaultRelayAuthenticator, QualificationFaultRelayBindingV1,
+    QualificationFaultRelayDirectionV1, QualificationFaultRelayTicketBindingV1,
+    QualificationRunContextRelayAuthenticator, QualificationRunContextRelayBindingV1,
+    QualificationRunContextRelayContentBindingV1, QualificationRunContextRelayDirectionV1,
 };
 use runne_native_qualification::{
     PendingQualificationAdmission, QualificationAdmissionRelayCodecV1,
+    QualificationFaultRelayCodecV1, QualificationRunContextRelayCodecV1,
 };
+use sha2::{Digest as _, Sha256};
 
 const fn session(byte: u8) -> [u8; 16] {
     [
@@ -70,6 +74,70 @@ fn exact_fault() -> QualificationFaultRelayBindingV1 {
         QualificationFaultRelayDirectionV1::DesktopToRuntime,
         8,
     )
+}
+
+fn authenticated_context_frame(
+    keys: &runne_api::ProtectedActivationKeys,
+    binding: &QualificationRunContextRelayBindingV1,
+    context: &[u8],
+) -> Vec<u8> {
+    let mac_content = QualificationRunContextRelayContentBindingV1::new(
+        u32::try_from(context.len()).unwrap(),
+        Sha256::digest(context).into(),
+    )
+    .unwrap();
+    let mut frame = Vec::new();
+    frame.extend_from_slice(b"RNQCTX1\0");
+    frame.push(1);
+    frame.push(binding.direction().wire_tag());
+    frame.extend_from_slice(&binding.protected_session_id());
+    frame.extend_from_slice(&binding.release_tuple_v3_sha256());
+    frame.extend_from_slice(&binding.launch_generation().to_be_bytes());
+    frame.extend_from_slice(&binding.sequence().to_be_bytes());
+    frame.extend_from_slice(&u32::try_from(context.len()).unwrap().to_be_bytes());
+    frame.extend_from_slice(context);
+    frame.extend_from_slice(
+        &QualificationRunContextRelayAuthenticator::from_protected_activation(keys)
+            .authenticate(binding, &mac_content),
+    );
+    frame
+}
+
+fn authenticated_fault_frame(
+    keys: &runne_api::ProtectedActivationKeys,
+    binding: &QualificationFaultRelayBindingV1,
+    ticket: &[u8],
+) -> Vec<u8> {
+    let mac_content = QualificationFaultRelayTicketBindingV1::present(
+        u32::try_from(ticket.len()).unwrap(),
+        Sha256::digest(ticket).into(),
+    )
+    .unwrap();
+    let mut frame = Vec::new();
+    frame.extend_from_slice(b"RNQFRLY1");
+    frame.push(1);
+    frame.push(binding.direction().wire_tag());
+    frame.extend_from_slice(&binding.protected_session_id());
+    frame.extend_from_slice(&binding.release_tuple_v3_sha256());
+    frame.extend_from_slice(&binding.launch_generation().to_be_bytes());
+    frame.extend_from_slice(&binding.sequence().to_be_bytes());
+    frame.push(1);
+    frame.extend_from_slice(&u32::try_from(ticket.len()).unwrap().to_be_bytes());
+    frame.extend_from_slice(ticket);
+    frame.extend_from_slice(
+        &QualificationFaultRelayAuthenticator::from_protected_activation(keys)
+            .authenticate(binding, &mac_content),
+    );
+    frame
+}
+
+fn relay_transcript(context_frame: &[u8], fault_frame: &[u8]) -> Vec<u8> {
+    let mut transcript = Vec::new();
+    for frame in [context_frame, fault_frame] {
+        transcript.extend_from_slice(&u32::try_from(frame.len()).unwrap().to_be_bytes());
+        transcript.extend_from_slice(frame);
+    }
+    transcript
 }
 
 #[test]
@@ -199,5 +267,33 @@ fn independently_authenticated_members_cannot_cross_admission_digest_binding() {
         codec
             .decode_transcript(&crossed, &exact_context, &exact_fault)
             .is_err()
+    );
+}
+
+#[test]
+fn independently_authenticated_members_reject_context_later_than_ticket() {
+    let keys = LaunchSecret::from_bytes([7; 32]).unwrap().derive_keys();
+    let context_binding = context_binding(1, 2, 3, 4);
+    let fault_binding = exact_fault();
+    let ticket = fixture::ticket_with_times(0x11, 1_800_000_000, 1_800_000_300);
+    let context = fixture::context_with_times(&ticket, 0x11, 1_800_000_000, 1_800_000_600);
+    let context_frame = authenticated_context_frame(&keys, &context_binding, &context);
+    let fault_frame = authenticated_fault_frame(&keys, &fault_binding, &ticket);
+
+    QualificationRunContextRelayCodecV1::from_protected_activation(&keys)
+        .decode(&context_frame, &context_binding)
+        .expect("context has a valid individual time shape and HMAC");
+    assert!(
+        QualificationFaultRelayCodecV1::from_protected_activation(&keys)
+            .decode(&fault_frame, &fault_binding)
+            .expect("ticket has a valid individual time shape and HMAC")
+            .is_some()
+    );
+    let transcript = relay_transcript(&context_frame, &fault_frame);
+    assert!(
+        QualificationAdmissionRelayCodecV1::from_protected_activation(&keys)
+            .decode_transcript(&transcript, &context_binding, &fault_binding)
+            .is_err(),
+        "combined admission must enforce context expiry no later than ticket expiry"
     );
 }

@@ -2,6 +2,7 @@
 pub struct PendingQualificationRunContext {
     bytes: Vec<u8>,
     ticket_sha256: [u8; 32],
+    expires_at: u64,
 }
 
 impl PendingQualificationRunContext {
@@ -16,11 +17,12 @@ impl PendingQualificationRunContext {
         Ok(Self {
             bytes,
             ticket_sha256: shape.ticket_sha256,
+            expires_at: context.expires_at,
         })
     }
 
     pub(crate) fn matches_fault(&self, fault: &crate::PendingQualificationFault) -> bool {
-        fault.matches_sha256(&self.ticket_sha256)
+        fault.matches_sha256(&self.ticket_sha256) && fault.expires_no_earlier_than(self.expires_at)
     }
 
     pub(crate) fn encode_relay(

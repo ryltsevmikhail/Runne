@@ -94,7 +94,7 @@ pub fn exact_admission_impl(item: &syn::ItemImpl, source: &str) -> bool {
     )
     .expect("valid admission relay signature");
     let retained = syn::parse_str::<syn::ImplItemFn>(
-        "pub(crate) const fn from_relay_members(context: PendingQualificationRunContext, fault: PendingQualificationFault) -> Self {}",
+        "pub(crate) fn from_relay_members(context: PendingQualificationRunContext, fault: PendingQualificationFault) -> Result<Self, QualificationAdmissionRelayError> {}",
     )
     .expect("valid retained admission signature");
     source == "admission.rs"

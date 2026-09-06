@@ -105,11 +105,14 @@ impl PendingQualificationAdmission {
         codec.encode(self.context, self.fault, context_binding, fault_binding)
     }
 
-    pub(crate) const fn from_relay_members(
+    pub(crate) fn from_relay_members(
         context: PendingQualificationRunContext,
         fault: PendingQualificationFault,
-    ) -> Self {
-        Self { context, fault }
+    ) -> Result<Self, QualificationAdmissionRelayError> {
+        if !context.matches_fault(&fault) {
+            return Err(QualificationAdmissionRelayError);
+        }
+        Ok(Self { context, fault })
     }
 }
 
