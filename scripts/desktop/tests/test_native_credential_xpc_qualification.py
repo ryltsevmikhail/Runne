@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from scripts.desktop.native_credential_enrollment import macos
+from scripts.desktop.native_credential_enrollment.macos_bindings import DEPLOYMENT, canonical_digest
 from scripts.desktop.native_credential_enrollment_probe import validate_evidence
 
 
@@ -27,6 +28,12 @@ def _row() -> dict[str, object]:
         "protocol_sha256": _digest("protocol"),
         "contract_sha256": _digest("contract"),
         "candidate_sha256": _digest("candidate"),
+        "release_tuple_v3_sha256": _digest("release-tuple-v3"),
+        "deployment_sha256": canonical_digest(DEPLOYMENT),
+        "desktop_code_identity_sha256": _digest("desktop-code-identity"),
+        "writer_code_identity_sha256": _digest("writer-code-identity"),
+        "daemon_code_identity_sha256": _digest("daemon-code-identity"),
+        "service_code_identity_sha256": _digest("service-code-identity"),
     }
     selectors = {name: {"status": "verified"} for name in macos.REQUIRED_SELECTORS}
     selectors["local_verify_no_network"] = {"status": "verified", "network_attempts": 0}
@@ -38,6 +45,7 @@ def _row() -> dict[str, object]:
         "architecture": "arm64",
         "os_version": "14.6",
         "disposition": "verified",
+        "deployment": copy.deepcopy(DEPLOYMENT),
         "tuple": {**tuple_values, "tuple_sha256": macos.tuple_digest(tuple_values)},
         "signing": {
             "profile": "developer_id", "notarized": True, "ad_hoc": False,

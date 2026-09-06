@@ -118,6 +118,14 @@ if gate_enabled local-structural; then
         -v
     "$trusted_python" -m unittest scripts.tests.test_verify_test_inventory -v
     "$trusted_python" -m unittest \
+        scripts.desktop.tests.test_native_credential_enrollment \
+        scripts.desktop.tests.test_native_credential_xpc_qualification \
+        scripts.desktop.tests.test_native_credential_counter_types \
+        scripts.desktop.tests.test_native_credential_xpc_hardening \
+        scripts.desktop.tests.test_native_credential_xpc_preflight \
+        scripts.desktop.tests.test_native_credential_xpc_schema \
+        -v
+    "$trusted_python" -m unittest \
         scripts.desktop.tests.test_legacy_cleanup_evidence \
         scripts.desktop.tests.test_legacy_cleanup_schema \
         scripts.desktop.tests.test_legacy_cleanup_cli \

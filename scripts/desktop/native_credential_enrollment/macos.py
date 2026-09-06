@@ -8,7 +8,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping
+
+from .evidence_io import shape_errors
+from .macos_bindings import ADDITIONAL_SELECTORS, DEPLOYMENT, canonical_digest, deployment_errors
 
 ARCHITECTURES = frozenset({"arm64"})
 REQUIRED_SELECTORS = frozenset({
@@ -26,7 +30,7 @@ REQUIRED_SELECTORS = frozenset({
     "kill_after_reply", "kill_before_lifecycle_cas", "kill_after_lifecycle_cas",
     "stored_attributes_verified", "service_restart_persistence",
     "duplicate_version_denied", "account_only_mismatch_denied",
-})
+}) | ADDITIONAL_SELECTORS
 BASE_TUPLE_FIELDS = (
     "desktop_sha256", "writer_sha256", "daemon_sha256", "contract_sha256",
     "candidate_sha256",
@@ -35,10 +39,13 @@ TUPLE_FIELDS = (
     "desktop_sha256", "writer_sha256", "daemon_sha256", "service_sha256",
     "launch_agent_plist_sha256", "entitlements_sha256", "provisioning_sha256",
     "protocol_sha256", "contract_sha256", "candidate_sha256",
+    "release_tuple_v3_sha256", "deployment_sha256",
+    "desktop_code_identity_sha256", "writer_code_identity_sha256",
+    "daemon_code_identity_sha256", "service_code_identity_sha256",
 )
 ROW_FIELDS = {
     "platform", "architecture", "os_version", "disposition", "tuple", "signing",
-    "runner", "native_store", "artifact_scan", "selectors",
+    "runner", "native_store", "artifact_scan", "selectors", "deployment",
 }
 TEAM_ID = "758F9Z45SR"
 APPLICATION_IDENTIFIERS = {
@@ -63,7 +70,9 @@ FORBIDDEN_FIELD_PARTS = (
     "credential", "secret", "ticket", "material", "native_handle", "nativehandle",
     "native_path", "nativepath", "raw_path",
 )
-SAFE_FIELD_NAMES = frozenset({"credential_manager"})
+SAFE_FIELD_NAMES = frozenset({"credential_manager"}) | frozenset(
+    name.replace("-", "_") for name in DEPLOYMENT["mach_services"]
+)
 
 
 def tuple_digest(values: Mapping[str, object], fields: tuple[str, ...] = TUPLE_FIELDS) -> str:
@@ -77,18 +86,21 @@ def validate_row(row: object) -> list[str]:
     """Returns redacted structural errors for one independently-run macOS row."""
     if not isinstance(row, dict):
         return ["row is not an object"]
+    if errors := shape_errors(row):
+        return errors
     errors: list[str] = []
     if set(row) != ROW_FIELDS:
         errors.append("row fields are not exact")
     if row.get("platform") != "macos":
         errors.append("row platform is not macos")
-    if row.get("architecture") not in ARCHITECTURES:
+    if row.get("architecture") != "arm64":
         errors.append("row architecture is not admitted")
     if not _macos_13_or_newer(row.get("os_version")):
         errors.append("row macOS version is not admitted")
     if row.get("disposition") != "verified":
         errors.append("row disposition is not verified")
     errors.extend(_tuple_errors(row.get("tuple")))
+    errors.extend(deployment_errors(row.get("deployment"), row.get("tuple")))
     errors.extend(_signing_errors(row.get("signing")))
     errors.extend(_runner_errors(row.get("runner")))
     errors.extend(_native_store_errors(row.get("native_store")))
@@ -106,7 +118,7 @@ def validate_expected_tuples(value: object, rows: list[object]) -> list[str]:
     for architecture in ARCHITECTURES:
         errors.extend(_tuple_errors(value[architecture]))
     for row in rows:
-        if not isinstance(row, dict) or row.get("architecture") not in ARCHITECTURES:
+        if not isinstance(row, dict) or row.get("architecture") != "arm64":
             continue
         if row.get("tuple") != value[row["architecture"]]:
             errors.append(f"row tuple does not match expected {row['architecture']} tuple")
@@ -120,6 +132,11 @@ def _tuple_errors(value: object) -> list[str]:
         return ["release tuple fields are not exact"]
     if any(not _sha256(value.get(field)) for field in TUPLE_FIELDS):
         return ["release tuple digest is invalid"]
+    for suffix in ("sha256", "code_identity_sha256"):
+        if len({value[f"{role}_{suffix}"] for role in ("desktop", "writer", "daemon", "service")}) != 4:
+            return ["release role identities must be distinct"]
+    if value["deployment_sha256"] != canonical_digest(DEPLOYMENT):
+        return ["release tuple deployment digest is not the admitted profile"]
     return [] if value.get("tuple_sha256") == tuple_digest(value) else ["release tuple binding mismatches"]
 
 
@@ -153,7 +170,7 @@ def _runner_errors(value: object) -> list[str]:
         "isolated_disposable_user", "icloud_data_present", "user_keychain_data_present",
     }:
         return ["runner evidence fields are not exact"]
-    if not isinstance(value.get("workflow_run_id"), str) or not value["workflow_run_id"]:
+    if not isinstance(value.get("workflow_run_id"), str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", value["workflow_run_id"]):
         return ["runner workflow identity is missing"]
     required = value.get("freshness_verified") is True and value.get("isolated_disposable_user") is True
     empty = value.get("icloud_data_present") is False and value.get("user_keychain_data_present") is False
@@ -172,7 +189,7 @@ def _native_store_errors(value: object) -> list[str]:
 def _artifact_scan_errors(value: object) -> list[str]:
     if not isinstance(value, dict) or set(value) != {"files_scanned", "sensitive_value_matches"}:
         return ["artifact scan fields are not exact"]
-    if type(value.get("files_scanned")) is not int or value["files_scanned"] <= 0:
+    if type(value.get("files_scanned")) is not int or not 0 < value["files_scanned"] <= 1000000:
         return ["artifact scan did not inspect files"]
     return [] if _zero_count(value.get("sensitive_value_matches")) else ["artifact scan found sensitive values or invalid count"]
 
@@ -186,7 +203,7 @@ def _selector_errors(value: object) -> list[str]:
         return ["lifecycle selector set is incomplete"]
     for name, receipt in value.items():
         expected_statuses = {"verified", "unsupported"} if name == "remote_verify_after_local" else {"verified"}
-        if not isinstance(receipt, dict) or receipt.get("status") not in expected_statuses:
+        if not isinstance(receipt, dict) or not isinstance(receipt.get("status"), str) or receipt["status"] not in expected_statuses:
             return [f"selector {name} has an invalid status"]
         allowed = {"status", "network_attempts"} if name == "local_verify_no_network" else {
             "status", "local_verification", "retry_count"
@@ -208,7 +225,8 @@ def _forbidden_field_errors(value: object, path: str = "") -> list[str]:
             name = str(key).lower().replace("-", "_")
             if name not in SAFE_FIELD_NAMES and any(part in name for part in FORBIDDEN_FIELD_PARTS):
                 errors.append(f"forbidden sensitive field at {path or 'row'}")
-            errors.extend(_forbidden_field_errors(item, f"{path}.{key}" if path else str(key)))
+            safe = key if key in ROW_FIELDS | REQUIRED_SELECTORS else "redacted"
+            errors.extend(_forbidden_field_errors(item, f"{path}.{safe}" if path else safe))
         return errors
     if isinstance(value, list):
         return [error for item in value for error in _forbidden_field_errors(item, path)]
@@ -220,9 +238,4 @@ def _sha256(value: object) -> bool:
 
 
 def _macos_13_or_newer(value: object) -> bool:
-    if not isinstance(value, str):
-        return False
-    try:
-        return int(value.split(".", 1)[0]) >= 13
-    except ValueError:
-        return False
+    return isinstance(value, str) and re.fullmatch(r"(1[3-9]|[2-9][0-9])(?:\.[0-9]{1,3}){0,2}", value) is not None

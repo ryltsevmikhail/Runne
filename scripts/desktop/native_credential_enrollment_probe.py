@@ -9,8 +9,10 @@ from pathlib import Path
 
 if __package__:
     from .native_credential_enrollment import linux, macos, windows
+    from .native_credential_enrollment.evidence_io import load_json as _load_json, shape_errors
 else:
     from native_credential_enrollment import linux, macos, windows
+    from native_credential_enrollment.evidence_io import load_json as _load_json, shape_errors
 
 SCHEMA_VERSION = "native-credential-enrollment-evidence.v1"
 MACOS_ROWS = {"macos-13-arm64.json": "arm64"}
@@ -29,6 +31,10 @@ def validate_evidence(
         return _directory_errors(value, platform, expected_tuples)
     if not isinstance(value, dict):
         return ["evidence is not an object"]
+    if errors := shape_errors(value):
+        return errors
+    if set(value) != {"schema_version", "platform", "rows"}:
+        return ["evidence document fields are not exact"]
     if value.get("schema_version") != SCHEMA_VERSION or value.get("platform") != platform:
         return ["evidence identity is invalid"]
     rows = value.get("rows")
@@ -48,7 +54,8 @@ def _directory_errors(root: Path, platform: str, expected_tuples: object | None)
     errors: list[str] = []
     for path in root.glob("macos-*.json"):
         if path.name not in MACOS_ROWS:
-            errors.append(f"unexpected macOS evidence row {path.name}")
+            errors.append("unexpected macOS evidence row")
+            break
     for filename, architecture in MACOS_ROWS.items():
         path = root / filename
         try:
@@ -108,6 +115,8 @@ def _rows_errors(rows: list[object], platform: str, expected_tuples: object | No
     if len(rows) != expected_count:
         return [f"{platform} evidence must contain exactly {expected_count} independent rows"]
     errors = [error for row in rows for error in validator(row)]
+    if errors:
+        return errors
     dimensions = [
         (row.get("architecture") if platform == "macos" else row.get("package_format"))
         for row in rows if isinstance(row, dict)
@@ -129,17 +138,6 @@ def _rows_errors(rows: list[object], platform: str, expected_tuples: object | No
     elif expected_tuples is not None:
         errors.append("expected tuples are only supported for macOS")
     return errors
-
-
-def _load_json(path: Path) -> object:
-    def unique(pairs: list[tuple[str, object]]) -> dict[str, object]:
-        result: dict[str, object] = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError("duplicate JSON key")
-            result[key] = value
-        return result
-    return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique)
 
 
 def main(argv: list[str] | None = None) -> int:

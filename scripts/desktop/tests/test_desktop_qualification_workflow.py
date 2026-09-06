@@ -8,6 +8,19 @@ README = ROOT / ".sourcecraft/README.md"
 
 
 class DesktopQualificationWorkflowTest(unittest.TestCase):
+    def test_xpc_evidence_tests_run_only_in_structural_job(self):
+        qualification = self._qualification()
+        structural = qualification[qualification.index("- name: qualification-structural"):
+                                    qualification.index("- name: qualification-native-linux")]
+        for name in ("test_native_credential_xpc_hardening", "test_native_credential_xpc_preflight",
+                     "test_native_credential_xpc_qualification", "test_native_credential_enrollment",
+                     "test_native_credential_counter_types", "test_native_credential_xpc_schema"):
+            self.assertIn(name, structural)
+        self.assertIn("scripts/requirements-schema-tests.txt", structural)
+        self.assertNotIn("native_credential_xpc_preflight.py", qualification)
+        local = (ROOT / "scripts/ci-local-inputs.sh").read_text()
+        self.assertIn("test_native_credential_xpc_hardening", local)
+
     def _qualification(self) -> str:
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("  desktop-qualification:", workflow)
