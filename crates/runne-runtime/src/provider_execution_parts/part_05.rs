@@ -258,7 +258,6 @@ fn terminal_application_key(attempt_id: DispatchAttemptId) -> String {
     }
     key
 }
-
 #[allow(clippy::too_many_arguments)]
 fn settlement_digest(
     context: &ProviderEventJournalContext,

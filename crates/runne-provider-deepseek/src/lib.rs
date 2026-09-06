@@ -57,7 +57,7 @@ impl runne_provider::TextProviderProfile for DeepSeekResponsesTextProfile {
         &self,
         usage: runne_provider::ProviderUsage,
     ) -> Result<u64, runne_provider::ProviderTerminalPricingError> {
-        DeepSeekResponsesTextProfile::price_usage_micros(self, usage).map_err(|error| match error {
+        Self::price_usage_micros(self, usage).map_err(|error| match error {
             DeepSeekProfileError::PricingOverflow => {
                 runne_provider::ProviderTerminalPricingError::InvalidQuote
             }
