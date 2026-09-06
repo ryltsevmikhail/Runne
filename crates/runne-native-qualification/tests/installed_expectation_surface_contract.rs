@@ -106,6 +106,18 @@ fn adversarial_alias_generic_trait_and_wrapper_escapes_are_rejected() {
         format!(
             "{baseline}\npub mod nested {{ use super::QualificationRuntimeInstalledExpectation as Gate; pub use Gate as PublicGate; }}"
         ),
+        format!(
+            "{baseline}\nunsafe extern \"Rust\" {{ fn forge() -> VerifiedQualificationAdmission; }}"
+        ),
+        format!(
+            "{baseline}\nunsafe extern \"Rust\" {{ fn consume(_: QualificationRuntimeInstalledExpectation); }}"
+        ),
+        format!(
+            "{baseline}\nuse crate::VerifiedQualificationAdmission as Gate; unsafe extern \"Rust\" {{ fn forge_alias() -> Gate; }}"
+        ),
+        format!(
+            "{baseline}\nunsafe extern \"Rust\" {{ fn consume_facts(_: *const VerifiedInstalledEnrollmentMeasurementFacts); }}"
+        ),
     ] {
         assert!(
             !audit_sources(&[("mutation.rs", &mutation)])

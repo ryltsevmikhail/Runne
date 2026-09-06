@@ -109,6 +109,13 @@ impl<'ast> Visit<'ast> for SourceAudit<'_> {
         visit::visit_item_fn(self, item);
     }
 
+    fn visit_foreign_item_fn(&mut self, item: &'ast syn::ForeignItemFn) {
+        if signature_mentions(&item.sig, &self.aliases) {
+            self.reject("foreign function mentions a sealed installed type");
+        }
+        visit::visit_foreign_item_fn(self, item);
+    }
+
     fn visit_item_type(&mut self, item: &'ast syn::ItemType) {
         if type_mentions(&item.ty, &self.aliases) || generics_mention(&item.generics, &self.aliases)
         {
