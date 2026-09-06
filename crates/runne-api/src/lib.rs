@@ -15,6 +15,9 @@ pub mod editor;
 /// Runtime host port contracts.
 pub mod host_port;
 /// Local runtime-session binding contracts.
+pub mod local_engine;
+#[cfg(test)]
+mod local_engine_tests;
 pub mod local_session;
 /// Closed runtime operational telemetry wire contracts.
 pub mod operational_telemetry;

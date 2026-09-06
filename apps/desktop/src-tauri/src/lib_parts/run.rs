@@ -92,6 +92,9 @@ fn handle_window_event(window: &tauri::Window, event: &WindowEvent) {
 
 fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let profile_directory = app.path().app_data_dir()?;
+    app.manage(crate::LocalModelState::new(
+        profile_directory.join("local-engine").join("models"),
+    ));
     std::fs::create_dir_all(&profile_directory)?;
     let profile_lock = ProfileLock::acquire(&profile_directory.join("profile.lock"))?;
     let runtime_mode = select_runtime_mode(std::env::args_os().skip(1))?;
@@ -228,6 +231,10 @@ pub fn run() {
             set_shortcuts,
             get_device_status,
             get_provider_status,
+            local_model_stage,
+            local_model_admit,
+            local_model_list,
+            local_model_discard,
             get_provider_credential_enrollment_status,
             request_provider_credential_intent,
             get_update_status,

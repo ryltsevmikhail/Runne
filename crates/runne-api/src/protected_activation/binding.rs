@@ -20,6 +20,10 @@ impl ProviderActivationBindingV1 {
                 DEEPSEEK_RESPONSES_TEXT_PROVIDER_PROFILE_ID,
                 DEEPSEEK_RESPONSES_TEXT_PROVIDER_PROFILE_DIGEST,
             ),
+            ProviderActivationModeV1::LocalEngineTextV1 => (
+                LOCAL_ENGINE_TEXT_PROVIDER_PROFILE_ID,
+                LOCAL_ENGINE_TEXT_PROVIDER_PROFILE_DIGEST,
+            ),
         };
         if !valid_text(&profile_id, MAX_PROFILE_ID_BYTES)
             || profile_id != expected.0

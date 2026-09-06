@@ -9,7 +9,10 @@ where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<T, DaemonError>>,
 {
-    if activation.requires_openai_execution() || activation.requires_deepseek_execution() {
+    if activation.requires_openai_execution()
+        || activation.requires_deepseek_execution()
+        || activation.requires_local_engine_execution()
+    {
         compose().await.map(Some)
     } else {
         Ok(None)

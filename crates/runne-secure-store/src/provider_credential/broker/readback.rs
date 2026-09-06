@@ -210,6 +210,7 @@ impl LegacyCredentialSourceReadback for crate::NativeProviderCredentialStore {
         let provider = match provider.as_str() {
             "openai" => ProviderCredentialId::OpenAi,
             "deepseek" => ProviderCredentialId::DeepSeek,
+            "local-engine" => ProviderCredentialId::LocalEngine,
             _ => return Err(BrokerError::Unsupported.into()),
         };
         #[cfg(target_os = "macos")]
