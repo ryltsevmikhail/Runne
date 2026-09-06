@@ -33,14 +33,14 @@ pub struct MacOsHostCredentialPrompt {
 }
 
 impl MacOsHostCredentialPrompt {
-    pub(crate) const MAX_TIMEOUT: Duration = Duration::from_secs(30);
-    const CLEANUP_GRACE: Duration = Duration::from_millis(250);
+    pub(crate) const MAX_INTERACTION_TIMEOUT: Duration = Duration::from_secs(30);
+    const TERMINAL_DELIVERY_GRACE: Duration = Duration::from_millis(250);
 
     pub(crate) fn new(
         window: WebviewWindow,
         timeout: Duration,
     ) -> Result<Self, SecureCredentialPromptError> {
-        if timeout.is_zero() || timeout > Self::MAX_TIMEOUT {
+        if timeout.is_zero() || timeout > Self::MAX_INTERACTION_TIMEOUT {
             return Err(SecureCredentialPromptError::Rejected);
         }
         Ok(Self { window, timeout })
@@ -65,7 +65,7 @@ impl SecureCredentialPromptPort for MacOsHostCredentialPrompt {
         );
         routes::wait_for_result(
             &result_receiver,
-            self.timeout + Self::CLEANUP_GRACE,
+            self.timeout + Self::TERMINAL_DELIVERY_GRACE,
             id,
             &terminal,
             native::schedule_main,
@@ -80,7 +80,7 @@ fn schedule_sheet(
     terminal: routes::PromptTerminal,
     timeout: Duration,
 ) {
-    native::run_on_main_thread_sync(move || {
+    native::schedule_main(move || {
         if !matches!(window.is_focused(), Ok(true)) {
             terminal.finish_registered(id, Err(SecureCredentialPromptError::Unavailable));
             return;

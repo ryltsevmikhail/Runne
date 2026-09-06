@@ -223,6 +223,22 @@ class CredentialSecretSurfaceValidatorTests(unittest.TestCase):
         )
         self.assert_rejected("TASK3_PROMPT_CLEANUP_ROUTE")
 
+    def test_task3_terminal_cannot_publish_before_cleanup_acknowledgement(self) -> None:
+        self.mutate(
+            "apps/desktop/src-tauri/src/provider_credential_enrollment/host_prompt/macos/routes.rs",
+            "            let _ = cleanup_receiver.recv();",
+            "            drop(cleanup_receiver);",
+        )
+        self.assert_rejected("TASK3_PROMPT_CLEANUP_ROUTE")
+
+    def test_task3_late_setup_cancellation_cannot_be_removed(self) -> None:
+        self.mutate(
+            "apps/desktop/src-tauri/src/provider_credential_enrollment/host_prompt/macos/routes.rs",
+            "terminal.cancel_pending(Err(SecureCredentialPromptError::Unavailable))",
+            "false",
+        )
+        self.assert_rejected("TASK3_PROMPT_CLEANUP_ROUTE")
+
     def test_task4_call_state_and_frame_bound_cannot_be_removed(self) -> None:
         self.mutate(
             "crates/runne-macos-xpc/src/client/native/exchange.rs",

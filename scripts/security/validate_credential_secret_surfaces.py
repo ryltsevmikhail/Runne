@@ -10,6 +10,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from credential_secret_dispatch_rules import validate_provider_dispatch
+
 
 @dataclass(frozen=True)
 class Finding:
@@ -175,14 +177,15 @@ class Validator:
         routes = self.require(
             "apps/desktop/src-tauri/src/provider_credential_enrollment/host_prompt/macos/routes.rs",
             "TASK3_PROMPT_CLEANUP_ROUTE", "cleanup::finish_unregistered(prompt);",
+            "terminal.cancel_pending(Err(SecureCredentialPromptError::Unavailable))",
             "fallback.finish_registered(id, Err(SecureCredentialPromptError::Unavailable));",
             "let _ = cleanup_receiver.recv();", "receiver\n                .recv()",
         )
-        if routes.count("cleanup::finish(id);") != 1:
-            self.fail("TASK3_PROMPT_CLEANUP_ROUTE", "apps/desktop/src-tauri/src/provider_credential_enrollment/host_prompt/macos/routes.rs", "not every registered terminal route cleans up")
+        if routes.count("cleanup::finish(id);") != 2:
+            self.fail("TASK3_PROMPT_CLEANUP_ROUTE", "apps/desktop/src-tauri/src/provider_credential_enrollment/host_prompt/macos/routes.rs", "registered and late-setup terminal routes must clean up")
         self.require(
             "apps/desktop/src-tauri/src/provider_credential_enrollment/host_prompt/macos.rs",
-            "TASK3_PROMPT_SYNCHRONIZED_TERMINAL", "native::run_on_main_thread_sync",
+            "TASK3_PROMPT_SYNCHRONIZED_TERMINAL", "native::schedule_main(move || {",
             "&terminal,", "native::schedule_main",
         )
         cleanup = self.require(
@@ -210,39 +213,13 @@ class Validator:
             "TASK4_PRODUCTION_EXCHANGE", "native::request_data(request)", "native::copy_reply", "exchange::exchange(Arc::clone(&self.connection)",
         )
 
-    def validate_provider_dispatch(self) -> None:
-        self.require(
-            "crates/runne-secure-store/src/provider_credential/policy.rs",
-            "PROVIDER_DISPATCH_ZEROIZING_TRANSFER", "pub fn from_zeroizing(",
-            "pub fn into_zeroizing(",
-        )
-        self.require(
-            "crates/runne-daemon/src/protected_activation/credential_service_gateway.rs",
-            "PROVIDER_DISPATCH_ZEROIZING_TRANSFER",
-            "ProviderCredentialMaterial::from_zeroizing(material.into_zeroizing())",
-        )
-        for path in (
-            "crates/runne-daemon-openai-effect/src/client.rs",
-            "crates/runne-daemon-deepseek-effect/src/client.rs",
-        ):
-            self.require(path, "PROVIDER_DISPATCH_ZEROIZING_TRANSFER", ".map(ProviderCredentialMaterial::into_zeroizing)")
-        for path in (
-            "crates/runne-daemon-openai-effect/src/bounds.rs",
-            "crates/runne-daemon-deepseek-effect/src/bounds.rs",
-        ):
-            self.require(
-                path, "PROVIDER_AUTHORIZATION_OWNER", "struct AuthorizationOwner",
-                "wire: Zeroizing<Vec<u8>>", "header.set_sensitive(true);",
-                "impl Drop for AuthorizationOwner",
-            )
-
     def run(self) -> list[Finding]:
         self.validate_surfaces()
         self.validate_secret_types()
         self.validate_task2()
         self.validate_task3()
         self.validate_task4()
-        self.validate_provider_dispatch()
+        validate_provider_dispatch(self, brace_body)
         return self.findings
 
 

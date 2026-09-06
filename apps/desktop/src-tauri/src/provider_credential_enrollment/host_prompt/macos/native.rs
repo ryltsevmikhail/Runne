@@ -47,10 +47,6 @@ pub(super) fn schedule_timeout(
     DispatchQueue::main().after(when, work).map_err(|_| ())
 }
 
-pub(super) fn run_on_main_thread_sync(work: impl FnOnce() + Send) {
-    DispatchQueue::main().exec_sync(work);
-}
-
 pub(super) fn schedule_main(work: impl FnOnce() + Send + 'static) {
     DispatchQueue::main().exec_async(work);
 }

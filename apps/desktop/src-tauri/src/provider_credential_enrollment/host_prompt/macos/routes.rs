@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
@@ -14,27 +15,76 @@ use crate::provider_credential_enrollment::host_prompt::OneShotPromptResult;
 
 pub(super) type MainTask = Box<dyn FnOnce() + Send + 'static>;
 
+const SETUP_PENDING: u8 = 0;
+const PROMPT_REGISTERED: u8 = 1;
+const SETUP_CANCELLED: u8 = 2;
+
 #[derive(Clone)]
 pub(super) struct PromptTerminal {
     winner: Arc<OneShotPromptResult>,
     sender: mpsc::SyncSender<PromptResult>,
+    lifecycle: Arc<AtomicU8>,
 }
 
 impl PromptTerminal {
-    pub(super) const fn new(
+    pub(super) fn new(
         winner: Arc<OneShotPromptResult>,
         sender: mpsc::SyncSender<PromptResult>,
     ) -> Self {
-        Self { winner, sender }
+        Self {
+            winner,
+            sender,
+            lifecycle: Arc::new(AtomicU8::new(SETUP_PENDING)),
+        }
+    }
+
+    fn register(&self) -> bool {
+        self.lifecycle
+            .compare_exchange(
+                SETUP_PENDING,
+                PROMPT_REGISTERED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+
+    fn cancel_pending(&self, result: PromptResult) -> bool {
+        if self
+            .lifecycle
+            .compare_exchange(
+                SETUP_PENDING,
+                SETUP_CANCELLED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_err()
+        {
+            return false;
+        }
+        let claimed = self.winner.claim();
+        self.publish_claimed(claimed, result);
+        claimed
+    }
+
+    fn close_registration(&self) {
+        let _ = self.lifecycle.compare_exchange(
+            SETUP_PENDING,
+            SETUP_CANCELLED,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
     }
 
     pub(super) fn finish_registered(&self, id: u64, result: PromptResult) {
+        self.close_registration();
         let claimed = self.winner.claim();
         cleanup::finish(id);
         self.publish_claimed(claimed, result);
     }
 
     fn finish_unregistered(&self, prompt: PromptUiState, result: PromptResult) {
+        self.close_registration();
         let claimed = self.winner.claim();
         cleanup::finish_unregistered(prompt);
         self.publish_claimed(claimed, result);
@@ -53,7 +103,13 @@ pub(super) fn register_or_finish(
     terminal: &PromptTerminal,
 ) -> bool {
     match state::insert(id, prompt) {
-        Ok(()) => true,
+        Ok(()) => {
+            if !terminal.register() {
+                cleanup::finish(id);
+                return false;
+            }
+            true
+        }
         Err(candidate) => {
             terminal.finish_unregistered(candidate, Err(SecureCredentialPromptError::Unavailable));
             false
@@ -117,6 +173,9 @@ pub(super) fn wait_for_result(
     match receiver.recv_timeout(bound) {
         Ok(result) => result,
         Err(mpsc::RecvTimeoutError::Disconnected | mpsc::RecvTimeoutError::Timeout) => {
+            if terminal.cancel_pending(Err(SecureCredentialPromptError::Unavailable)) {
+                return Err(SecureCredentialPromptError::Unavailable);
+            }
             let fallback = terminal.clone();
             let (cleanup_sender, cleanup_receiver) = mpsc::sync_channel(1);
             schedule_abort(Box::new(move || {

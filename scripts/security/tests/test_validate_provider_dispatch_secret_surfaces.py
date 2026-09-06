@@ -97,6 +97,46 @@ class ProviderDispatchSecretSurfaceValidatorTests(unittest.TestCase):
                 self.mutate(path, "header.set_sensitive(true);", "let _ = &header;")
                 self.assert_rejected("PROVIDER_AUTHORIZATION_OWNER")
 
+    def test_authorization_owner_additive_debug_is_rejected(self) -> None:
+        for path in (
+            "crates/runne-daemon-openai-effect/src/bounds.rs",
+            "crates/runne-daemon-deepseek-effect/src/bounds.rs",
+        ):
+            with self.subTest(path=path):
+                self.reset_fixture()
+                self.mutate(
+                    path,
+                    "struct AuthorizationOwner {",
+                    "#[derive(Debug)]\nstruct AuthorizationOwner {",
+                )
+                self.assert_rejected("PROVIDER_AUTHORIZATION_OWNER")
+
+    def test_provider_materializer_additive_plaintext_copy_is_rejected(self) -> None:
+        for path in (
+            "crates/runne-daemon-openai-effect/src/client.rs",
+            "crates/runne-daemon-deepseek-effect/src/client.rs",
+        ):
+            with self.subTest(path=path):
+                self.reset_fixture()
+                self.mutate(
+                    path,
+                    ".map(ProviderCredentialMaterial::into_zeroizing)",
+                    ".map(ProviderCredentialMaterial::into_zeroizing)\n"
+                    "                    .map(|bytes| { let _copy = bytes.to_vec(); bytes })",
+                )
+                self.assert_rejected("PROVIDER_DISPATCH_ZEROIZING_TRANSFER")
+
+    def test_provider_material_debug_surface_is_rejected(self) -> None:
+        path = "crates/runne-secure-store/src/provider_credential/policy.rs"
+        self.mutate(
+            path,
+            "impl ProviderCredentialMaterial {",
+            "impl std::fmt::Debug for ProviderCredentialMaterial {\n"
+            "    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { todo!() }\n"
+            "}\nimpl ProviderCredentialMaterial {",
+        )
+        self.assert_rejected("SECRET_TYPE_TRAITS")
+
 
 if __name__ == "__main__":
     unittest.main()
