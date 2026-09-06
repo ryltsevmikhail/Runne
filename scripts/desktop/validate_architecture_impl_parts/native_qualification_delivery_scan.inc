@@ -6,19 +6,23 @@ NATIVE_QUALIFICATION_NON_DELIVERY_OWNERS = {
     Path("apps/desktop/src-tauri/src/bundled_runtime.rs"),
     Path("apps/desktop/src-tauri/src/lib_parts/run.rs"),
 }
+NATIVE_QUALIFICATION_TEST_ONLY_PATHS = frozenset({
+    Path("apps/desktop/src-tauri/src/qualification_ticket_tests.rs"),
+    Path("crates/runne-platform-desktop/src/protected_runtime/qualification_relay_tests.rs"),
+    Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/tests.rs"),
+    Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/connected_tests.rs"),
+})
+if not NATIVE_QUALIFICATION_TEST_ONLY_PATHS <= NATIVE_QUALIFICATION_ADMISSION_ALLOWED:
+    raise RuntimeError("native qualification test-only path is absent from the admission allowlist")
 NATIVE_QUALIFICATION_FORBIDDEN_IMPORT_ROOTS = {"rusqlite", "sqlite3", "reqwest"}
 NATIVE_QUALIFICATION_FORBIDDEN_STD_BRANCHES = {"env", "fs", "path"}
-
-
-def _native_qualification_test_path(relative: Path) -> bool:
-    return relative.name == "tests.rs" or relative.stem.endswith("_tests")
 
 
 def _native_qualification_delivery_path(relative: Path) -> bool:
     return (
         relative in NATIVE_QUALIFICATION_ADMISSION_ALLOWED
         and relative not in NATIVE_QUALIFICATION_NON_DELIVERY_OWNERS
-        and not _native_qualification_test_path(relative)
+        and relative not in NATIVE_QUALIFICATION_TEST_ONLY_PATHS
     )
 
 

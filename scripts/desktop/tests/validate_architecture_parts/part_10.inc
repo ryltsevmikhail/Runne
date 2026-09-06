@@ -43,7 +43,7 @@ const RAW: &str = r#"extern crate std as platform;"#;
 
     def test_newly_allowed_production_file_is_automatically_scanned(self):
         relative = Path(
-            "crates/runne-daemon/src/protected_activation/control_v3/new_delivery.rs"
+            "crates/runne-daemon/src/protected_activation/control_v3/new_delivery_tests.rs"
         )
         architecture.NATIVE_QUALIFICATION_ADMISSION_ALLOWED.add(relative)
         try:
@@ -56,3 +56,17 @@ const RAW: &str = r#"extern crate std as platform;"#;
             )
         finally:
             architecture.NATIVE_QUALIFICATION_ADMISSION_ALLOWED.remove(relative)
+
+    def test_exact_known_test_files_remain_excluded(self):
+        known_tests = (
+            "apps/desktop/src-tauri/src/qualification_ticket_tests.rs",
+            "crates/runne-platform-desktop/src/protected_runtime/qualification_relay_tests.rs",
+            "crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/tests.rs",
+            "crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/connected_tests.rs",
+        )
+        for relative in known_tests:
+            with self.subTest(relative=relative):
+                self.assertEqual(
+                    [],
+                    self.violations("use std::env; env::var(\"TICKET\");", Path(relative)),
+                )
