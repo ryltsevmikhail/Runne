@@ -92,14 +92,28 @@ fn pending_host_slot_is_consumed_once_and_unprovisioned_policy_stays_inert() {
     .expect("context");
     let mut verifier = QualificationFaultVerifier::from_compiled_policy();
     assert!(matches!(
-        host.verify_pending(&mut verifier, &context, 1_800_000_000),
+        host.take_pending_for_relay()
+            .unwrap()
+            .expect("pending ticket")
+            .verify_and_consume(&mut verifier, &context, 1_800_000_000),
         Err(QualificationFaultError::PolicyUnavailable)
     ));
-    assert!(
-        host.verify_pending(&mut verifier, &context, 1_800_000_000)
-            .expect("consumed slot")
-            .is_none()
-    );
+    assert!(host.take_pending_for_relay().unwrap().is_none());
+}
+
+#[test]
+fn pending_host_slot_moves_to_relay_only_once() {
+    let _guard = lock_tests();
+    let (descriptor, _writer) = pipe_with(FRAME, false);
+    let slot = inspect_qualification_ticket_at_for_test(descriptor).expect("present");
+    let host = QualificationFaultHostState::admit_for_test(
+        slot,
+        Some(protected_admission_for_test()),
+        Duration::from_secs(1),
+    )
+    .expect("pending host");
+    assert!(host.take_pending_for_relay().unwrap().is_some());
+    assert!(host.take_pending_for_relay().unwrap().is_none());
 }
 
 #[test]

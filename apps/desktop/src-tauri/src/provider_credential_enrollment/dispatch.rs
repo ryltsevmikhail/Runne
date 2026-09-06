@@ -12,7 +12,7 @@ use crate::RuntimeLifecycleManager;
 use crate::provider_credential_enrollment::{CredentialIntentProjection, CredentialIntentRegistry};
 use crate::updater_status::UpdateStatusStore;
 use runne_platform_desktop::SecureCredentialPromptDisposition;
-use tauri::{AppHandle, WebviewWindow};
+use tauri::{AppHandle, Manager as _, WebviewWindow};
 
 use super::CredentialIntentIpc;
 #[path = "dispatch/post_fence.rs"]
@@ -140,7 +140,7 @@ impl PostFenceEnrollmentDependencies for LivePostFenceAdmission<'_> {
 #[cfg(target_os = "macos")]
 #[allow(clippy::significant_drop_tightening)]
 async fn dispatch_pair_inner(
-    _app: &AppHandle,
+    app: &AppHandle,
     window: WebviewWindow,
     lifecycle: &RuntimeLifecycleManager,
     updater: &UpdateStatusStore,
@@ -204,6 +204,7 @@ async fn dispatch_pair_inner(
     let intents = intents.clone();
     let owner_intents = intents.clone();
     let work_reapers = writer_reapers;
+    let qualification_app = app.clone();
     let (result, _owner_completion) = spawn_pre_fence_enrollment_owner(
         move || async move {
             let confirmed = runtime_lease
@@ -214,7 +215,7 @@ async fn dispatch_pair_inner(
                 .register_credential_service_session(&confirmed)
                 .await
                 .map_err(|_| DispatchFailure::Closed("provider_credential_service_unavailable"))?;
-            let exchange = run_post_fence_branches(LivePostFenceAdmission {
+            let mut exchange = run_post_fence_branches(LivePostFenceAdmission {
                 intents: &owner_intents,
                 disposition,
                 window: window_label,
@@ -224,6 +225,12 @@ async fn dispatch_pair_inner(
                 updater: updater_lease,
                 intent_session: None,
             })?;
+            let qualification_fault = qualification_app
+                .state::<crate::bundled_runtime::qualification_ticket::QualificationFaultHostState>(
+                )
+                .take_pending_for_relay()
+                .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))?;
+            exchange.retain_qualification_fault(qualification_fault);
             let recovery = tauri::async_runtime::spawn_blocking(move || {
                 exchange.run(&owner_intents, work_reapers)
             })

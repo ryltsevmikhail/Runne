@@ -10,6 +10,7 @@ use runne_api::{
     ProviderCredentialEnrollmentActionV2, ProviderCredentialProviderV2,
     ProviderCredentialVerificationKindV2,
 };
+use runne_native_qualification::PendingQualificationFault;
 use runne_platform_desktop::{
     ConfirmedInstalledNativeEnrollment, SecureCredentialMaterial, SecureCredentialPromptDisposition,
 };
@@ -50,6 +51,7 @@ pub(super) struct PreparedCredentialEnrollmentExchange {
     material: Option<SecureCredentialMaterial>,
     _renderer_binding: [u8; 32],
     native_confirmation: [u8; 32],
+    qualification_fault: Option<PendingQualificationFault>,
 }
 /// Trusted native inputs retained outside the renderer boundary.
 pub(super) struct NativeEnrollmentConfirmation {
@@ -105,8 +107,33 @@ impl PreparedCredentialEnrollmentExchange {
             material,
             _renderer_binding: renderer_binding,
             native_confirmation,
+            qualification_fault: None,
         })
     }
+
+    pub(super) fn retain_qualification_fault(
+        &mut self,
+        pending: Option<PendingQualificationFault>,
+    ) {
+        self.qualification_fault = pending;
+    }
+}
+
+fn begin_protected_with_qualification(
+    supervisor: &std::sync::Arc<
+        std::sync::Mutex<runne_platform_desktop::ProtectedBundledRuntimeSupervisor>,
+    >,
+    begin: runne_platform_desktop::NativeProtectedCredentialEnrollmentBegin,
+    pending: Option<PendingQualificationFault>,
+) -> Result<
+    runne_platform_desktop::PreparedProtectedCredentialEnrollment,
+    PreparedCredentialEnrollmentError,
+> {
+    supervisor
+        .lock()
+        .map_err(|_| PreparedCredentialEnrollmentError)?
+        .begin_protected_credential_enrollment_with_qualification(begin, pending)
+        .map_err(|_| PreparedCredentialEnrollmentError)
 }
 
 fn issue_pending_intent(

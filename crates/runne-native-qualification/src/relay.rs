@@ -39,6 +39,13 @@ impl QualificationFaultRelayCodecV1 {
         }
     }
 
+    /// Routing hint for one length-prefixed protected-channel frame.
+    /// Authentication and exact binding checks remain mandatory after this hint.
+    #[must_use]
+    pub fn recognizes_frame(frame: &[u8]) -> bool {
+        frame.get(4..12) == Some(MAGIC.as_slice())
+    }
+
     /// Encodes an explicit canonical absence.
     ///
     /// # Errors

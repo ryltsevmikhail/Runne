@@ -127,7 +127,14 @@ pub(crate) fn run_control_loop_v3_entered(
         let mut enrollment = control
             .start_protected_session(&keys, &owned_launch, owned_rendezvous, installed_facts)
             .map_err(runtime::map_enrollment_error)?;
-        initial_exchange::run(&mut channel, &mut enrollment, &live, &local_session_service)?;
+        initial_exchange::run(
+            &mut channel,
+            &mut enrollment,
+            &live,
+            &local_session_service,
+            &keys,
+            &owned_launch,
+        )?;
         let terminal = enrollment.begun_is_terminal();
         let broker = runtime::bind_broker(&keys, &owned_launch, &mut enrollment)?;
         V3EnrollmentRuntime {

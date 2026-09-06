@@ -261,3 +261,27 @@ fn unknown_magic_and_ticket_byte_changes_cannot_reuse_authentication() {
     unknown[..8].copy_from_slice(b"UNKNOWN!");
     assert!(codec.decode(&unknown, &exact).is_err());
 }
+
+#[test]
+fn outer_channel_recognition_is_exact_and_never_authentication() {
+    let relay = codec(7);
+    let exact = binding(
+        1,
+        2,
+        3,
+        QualificationFaultRelayDirectionV1::DesktopToRuntime,
+        1,
+    );
+    let payload = pending(0x11).encode_relay(&relay, &exact).unwrap();
+    let mut frame = Vec::with_capacity(payload.len() + 4);
+    frame.extend_from_slice(&u32::try_from(payload.len()).unwrap().to_be_bytes());
+    frame.extend_from_slice(&payload);
+    assert!(QualificationFaultRelayCodecV1::recognizes_frame(&frame));
+
+    let mut wrong_magic = frame.clone();
+    wrong_magic[4] ^= 1;
+    assert!(!QualificationFaultRelayCodecV1::recognizes_frame(
+        &wrong_magic
+    ));
+    assert!(!QualificationFaultRelayCodecV1::recognizes_frame(&payload));
+}

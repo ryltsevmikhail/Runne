@@ -35,6 +35,8 @@ mod cleanup_recovery;
 mod control_response;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod credential_discovery;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+mod qualification_relay;
 #[cfg(all(feature = "test-support", target_os = "macos", target_arch = "aarch64"))]
 pub use credential_discovery::{
     test_only_crossed_discovery, test_only_crossed_renewal, test_only_crossed_round,
@@ -62,6 +64,8 @@ mod renewal_interleaved;
 pub use cleanup_recovery::PreparedProtectedCredentialRecovery;
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 include!("protected_runtime/enrollment_lifecycle_tests.rs");
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
+mod qualification_relay_tests;
 include!("protected_runtime/tests.rs");
 #[cfg(test)]
 include!("protected_runtime/native_enrollment_tests.rs");

@@ -102,16 +102,28 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
                         [], architecture.find_native_qualification_violations(root)
                     )
 
-    def test_ticket_admission_dependency_is_target_only_and_desktop_owned(self):
+    def test_ticket_delivery_dependencies_are_target_only_and_exactly_owned(self):
         dependency = {
             "name": "runne-native-qualification", "kind": None, "req": "*",
             "features": [], "uses_default_features": True, "source": None,
             "path": "/repo/crates/runne-native-qualification", "registry": None,
             "target": 'cfg(target_os = "macos")', "rename": None, "optional": False,
         }
-        desktop = {"name": "runne-desktop", "dependencies": [dependency]}
+        owners = [
+            {"name": owner, "dependencies": [dict(dependency)]}
+            for owner in (
+                "runne-desktop", "runne-platform-desktop", "runne-daemon",
+            )
+        ]
+        native_package = {
+            "name": "runne-native-qualification",
+            "manifest_path": "/repo/crates/runne-native-qualification/Cargo.toml",
+            "dependencies": [],
+        }
         self.assertEqual(
-            [], architecture.find_native_qualification_admission_dependency_violations([desktop])
+            [], architecture.find_native_qualification_admission_dependency_violations(
+                owners + [native_package]
+            )
         )
         for label, package, field, value in (
             ("wrong owner", "runne-cli", None, None),
@@ -127,7 +139,9 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
                 row = {"name": package, "dependencies": [mutated]}
                 self.assertNotEqual(
                     [],
-                    architecture.find_native_qualification_admission_dependency_violations([row]),
+                    architecture.find_native_qualification_admission_dependency_violations(
+                        owners + [native_package, row]
+                    ),
                 )
 
     def test_ticket_admission_has_no_renderer_cli_env_argv_or_storage_surface(self):
@@ -139,6 +153,22 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
                 "use runne_native_qualification::PendingQualificationFault;\n",
                 encoding="utf-8",
             )
+            self.assertEqual(
+                [], architecture.find_native_qualification_admission_surface_violations(root)
+            )
+            for relative, payload in (
+                (
+                    "apps/desktop/src-tauri/src/provider_credential_enrollment/dispatch.rs",
+                    "QualificationFaultHostState",
+                ),
+                (
+                    "apps/desktop/src-tauri/src/provider_credential_enrollment/prepared.rs",
+                    "PendingQualificationFault",
+                ),
+            ):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(payload, encoding="utf-8")
             self.assertEqual(
                 [], architecture.find_native_qualification_admission_surface_violations(root)
             )

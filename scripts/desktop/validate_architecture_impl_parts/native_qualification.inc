@@ -6,7 +6,8 @@ NATIVE_QUALIFICATION_DEPENDENCIES = {
     "base64", "ed25519-dalek", "hex", "runne-api", "serde", "serde_json", "sha2",
 }
 ALLOWED_RUST_DEPENDENCIES[NATIVE_QUALIFICATION_PACKAGE] = {"runne-api"}
-ALLOWED_RUST_DEPENDENCIES["runne-desktop"].add(NATIVE_QUALIFICATION_PACKAGE)
+for owner in ("runne-desktop", "runne-platform-desktop"):
+    ALLOWED_RUST_DEPENDENCIES[owner].add(NATIVE_QUALIFICATION_PACKAGE)
 NATIVE_QUALIFICATION_EXACT_DEPENDENCIES = {
     ("normal", "base64"): ("=0.22.1", (), True),
     ("normal", "ed25519-dalek"): ("=2.1.1", (), True),
@@ -37,7 +38,9 @@ NATIVE_QUALIFICATION_FORBIDDEN_PROOF_IMPL = re.compile(
     r"|(?:(?:::)?serde\s*::\s*(?:de\s*::\s*)?)?Deserialize(?:\s*<[^>{}]*>)?"
     r")\s+for\s+(?:::)?(?:[A-Za-z_]\w*\s*::\s*)*VerifiedQualificationFault\b"
 )
-NATIVE_QUALIFICATION_ADMISSION_OWNER = "runne-desktop"
+NATIVE_QUALIFICATION_ADMISSION_OWNERS = {
+    "runne-desktop", "runne-platform-desktop", "runne-daemon",
+}
 NATIVE_QUALIFICATION_ADMISSION_TARGET = 'cfg(target_os = "macos")'
 NATIVE_QUALIFICATION_ADMISSION_SOURCE = Path(
     "apps/desktop/src-tauri/src/qualification_ticket.rs"
@@ -47,6 +50,12 @@ NATIVE_QUALIFICATION_ADMISSION_ALLOWED = {
     Path("apps/desktop/src-tauri/src/qualification_ticket_tests.rs"),
     Path("apps/desktop/src-tauri/src/bundled_runtime.rs"),
     Path("apps/desktop/src-tauri/src/lib_parts/run.rs"),
+    Path("apps/desktop/src-tauri/src/provider_credential_enrollment/dispatch.rs"),
+    Path("apps/desktop/src-tauri/src/provider_credential_enrollment/prepared.rs"),
+    Path("crates/runne-platform-desktop/src/protected_runtime/qualification_relay.rs"),
+    Path("crates/runne-platform-desktop/src/protected_runtime/qualification_relay_tests.rs"),
+    Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange.rs"),
+    Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/tests.rs"),
 }
 NATIVE_QUALIFICATION_ADMISSION_TOKEN = re.compile(
     r"runne_native_qualification|PendingQualificationFault|QualificationFaultHostState|"
@@ -135,22 +144,35 @@ def find_native_qualification_dependency_violations(packages: list[dict]) -> lis
 def find_native_qualification_admission_dependency_violations(
     packages: list[dict],
 ) -> list[str]:
-    """Allow exactly one macOS-only path edge from the native Desktop host."""
+    """Allow only the three exact macOS native delivery owners."""
     observed = []
     for package in packages:
         for dependency in package.get("dependencies", []):
             if dependency.get("name") == NATIVE_QUALIFICATION_PACKAGE:
                 observed.append((package.get("name", ""), dependency))
     violations = []
-    if len(observed) != 1:
-        violations.append("native qualification admission must have exactly one owner")
+    owner_names = [owner for owner, _ in observed]
+    if set(owner_names) != NATIVE_QUALIFICATION_ADMISSION_OWNERS or len(owner_names) != 3:
+        violations.append("native qualification delivery must have exactly three owners")
+    native_packages = [
+        row for row in packages if row.get("name") == NATIVE_QUALIFICATION_PACKAGE
+    ]
+    native_directory = None
+    if len(native_packages) == 1:
+        manifest = native_packages[0].get("manifest_path")
+        if isinstance(manifest, str) and Path(manifest).name == "Cargo.toml":
+            native_directory = Path(manifest).parent.resolve(strict=False)
+    if native_directory is None:
+        violations.append("native qualification package metadata is missing or ambiguous")
     for owner, dependency in observed:
         path = dependency.get("path")
-        canonical_path = isinstance(path, str) and Path(path).as_posix().endswith(
-            f"/crates/{NATIVE_QUALIFICATION_PACKAGE}"
+        canonical_path = (
+            isinstance(path, str)
+            and native_directory is not None
+            and Path(path).resolve(strict=False) == native_directory
         )
         exact = (
-            owner == NATIVE_QUALIFICATION_ADMISSION_OWNER
+            owner in NATIVE_QUALIFICATION_ADMISSION_OWNERS
             and (dependency.get("kind") or "normal") == "normal"
             and dependency.get("req") == "*"
             and dependency.get("target") == NATIVE_QUALIFICATION_ADMISSION_TARGET
@@ -175,6 +197,8 @@ def find_native_qualification_admission_surface_violations(root: Path) -> list[s
         root / "crates/runne-cli/src",
         root / "crates/runne-runtime-client/src",
         root / "crates/runne-api/src",
+        root / "crates/runne-platform-desktop/src",
+        root / "crates/runne-daemon/src",
     )
     violations = []
     for source_root in roots:

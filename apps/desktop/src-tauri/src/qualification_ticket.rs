@@ -11,10 +11,7 @@ use std::time::{Duration, Instant};
 use nix::fcntl::{FcntlArg, FdFlag, OFlag, fcntl};
 use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
 use nix::sys::socket::{UnixAddr, getpeername};
-use runne_native_qualification::{
-    MAX_FAULT_TICKET_BYTES, PendingQualificationFault, QualificationFaultContext,
-    QualificationFaultError, QualificationFaultVerifier, VerifiedQualificationFault,
-};
+use runne_native_qualification::{MAX_FAULT_TICKET_BYTES, PendingQualificationFault};
 
 pub(super) const QUALIFICATION_TICKET_DESCRIPTOR: RawFd = 198;
 const QUALIFICATION_TICKET_TIMEOUT: Duration = Duration::from_secs(5);
@@ -188,21 +185,14 @@ impl QualificationFaultHostState {
         })
     }
 
-    #[allow(dead_code)]
-    pub(super) fn verify_pending(
+    pub(crate) fn take_pending_for_relay(
         &self,
-        verifier: &mut QualificationFaultVerifier,
-        context: &QualificationFaultContext,
-        now_unix_seconds: u64,
-    ) -> Result<Option<VerifiedQualificationFault>, QualificationFaultError> {
-        let pending = self
+    ) -> Result<Option<PendingQualificationFault>, QualificationTicketAdmissionError> {
+        Ok(self
             .pending
             .lock()
-            .map_err(|_| QualificationFaultError::InvalidTicket)?
-            .take();
-        pending
-            .map(|ticket| ticket.verify_and_consume(verifier, context, now_unix_seconds))
-            .transpose()
+            .map_err(|_| QualificationTicketAdmissionError)?
+            .take())
     }
 
     #[cfg(test)]
