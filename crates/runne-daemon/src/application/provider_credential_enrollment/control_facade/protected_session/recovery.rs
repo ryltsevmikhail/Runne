@@ -96,6 +96,10 @@ impl DaemonProtectedCredentialEnrollmentSession {
         frame: &[u8],
         now: u64,
     ) -> Result<Vec<u8>, ProviderCredentialEnrollmentHostError> {
+        #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+        if self.qualification.is_some() {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
         if self.pending.is_some() || self.begun.is_some() || self.recovery.started {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }

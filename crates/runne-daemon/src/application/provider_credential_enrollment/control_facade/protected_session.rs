@@ -24,6 +24,8 @@ mod facts;
 mod initial_request;
 mod intent_exchange;
 pub(crate) use initial_request::InitialCredentialExchange;
+#[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+mod qualification;
 mod recovery;
 pub(crate) use facts::ProtectedEnrollmentSessionFacts;
 use facts::{daemon_binding, session_binding};
@@ -49,6 +51,8 @@ pub(crate) struct DaemonProtectedCredentialEnrollmentSession {
     handoff: Option<crate::application::provider_credential_enrollment::broker::pending::PendingBrokerEndpointHandoff>,
     #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
     installed_facts: Option<runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts>,
+    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+    qualification: Option<crate::protected_activation::control_v3::initial_exchange::VerifiedQualificationAdmission>,
     desktop_sequence: u64,
     daemon_sequence: u64,
 }
@@ -87,6 +91,8 @@ impl DaemonProtectedCredentialEnrollmentSession {
             handoff: None,
             #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
             installed_facts,
+            #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+            qualification: None,
             desktop_sequence: 0,
             daemon_sequence: 0,
         })

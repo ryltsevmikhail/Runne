@@ -35,4 +35,4 @@ use recovery::WriterExitDiagnostic;
 pub(crate) use status::ProviderCredentialEnrollmentStatus;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

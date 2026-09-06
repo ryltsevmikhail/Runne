@@ -168,3 +168,45 @@ fn duplicate_relay_and_dead_channel_never_become_an_initial_request() {
     drop(peer);
     assert!(read_initial_request(&mut channel, &keys, &owned).is_err());
 }
+
+#[test]
+fn qualified_recovery_initial_frame_closes_before_any_admission() {
+    use ed25519_dalek::SigningKey;
+    use std::io::Read as _;
+    use std::sync::{Arc, atomic::AtomicUsize};
+    let (owned, keys, _) = crate::protected_activation::enrollment_v3_tests::owned_and_sessions();
+    let installed = runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts::test_only_qualification_facts(
+        *owned.enrollment_binding().release_tuple_digest(), *owned.enrollment_binding().qualification_binding_digest(), [0xaa; 32], [0xbb; 32],
+    );
+    let context = SigningKey::from_bytes(&[7; 32]);
+    let ticket = SigningKey::from_bytes(&[9; 32]);
+    let verifier =
+        runne_native_qualification::QualificationAdmissionVerifier::test_only_from_verifying_keys(
+            context.verifying_key(),
+            ticket.verifying_key(),
+        );
+    let mut dispatch = super::super::runtime::V3EnrollmentDispatch::new(None,
+        crate::protected_activation::enrollment_control_transition::DaemonEnrollmentRendezvous::for_test(), None,
+    ).with_test_qualification(verifier, Arc::new(|| Ok(1_800_000_000)), Arc::new(AtomicUsize::new(0)));
+    let (mut peer, daemon) = UnixStream::pair().unwrap();
+    peer.write_all(&super::qualification_admission_tests::support::relay(
+        &owned, &keys, &context, &ticket,
+    ))
+    .unwrap();
+    peer.write_all(&outer(b"RNCCRECV")).unwrap();
+    let mut channel = ProtectedActivationChannel::new(daemon).unwrap();
+    assert!(
+        super::read_admitted_initial_request(
+            &mut channel,
+            &keys,
+            &owned,
+            &installed,
+            &mut dispatch
+        )
+        .is_err()
+    );
+    peer.set_nonblocking(true).unwrap();
+    assert!(
+        matches!(peer.read(&mut [0; 1]), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+    );
+}

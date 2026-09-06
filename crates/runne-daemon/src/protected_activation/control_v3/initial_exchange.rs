@@ -26,6 +26,8 @@ mod connected_tests;
 #[cfg(all(test, target_os = "macos"))]
 mod qualification_admission_tests;
 #[cfg(all(test, target_os = "macos"))]
+pub(crate) mod session_test_support;
+#[cfg(all(test, target_os = "macos"))]
 mod tests;
 
 /// Selects an authenticated initial transcript. No recovery-to-intent fallback.
@@ -61,7 +63,7 @@ pub(super) fn run(
 }
 
 #[cfg(target_os = "macos")]
-struct VerifiedQualificationAdmission {
+pub(crate) struct VerifiedQualificationAdmission {
     _admission: PendingQualificationAdmission,
 }
 
@@ -94,7 +96,7 @@ pub(super) fn read_admitted_initial_request(
     owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
     installed: &runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts,
     _enrollment: &mut super::runtime::V3EnrollmentDispatch,
-) -> Result<Zeroizing<Vec<u8>>, LaunchAuthorityError> {
+) -> Result<(Zeroizing<Vec<u8>>, Option<VerifiedQualificationAdmission>), LaunchAuthorityError> {
     #[cfg(test)]
     if let Some(observed) = _enrollment.qualification_verified.as_ref() {
         let _ = observed.compare_exchange(
@@ -137,8 +139,8 @@ pub(super) fn read_admitted_initial_request(
         &mut verifier,
         qualification_clock()?,
     )? {
-        InitialQualificationFrame::Legacy(frame) => Ok(frame),
-        InitialQualificationFrame::Verified(_verified) => {
+        InitialQualificationFrame::Legacy(frame) => Ok((frame, None)),
+        InitialQualificationFrame::Verified(verified) => {
             #[cfg(test)]
             if let Some(observed) = _enrollment.qualification_verified.as_ref() {
                 let _ = observed.compare_exchange(
@@ -148,7 +150,11 @@ pub(super) fn read_admitted_initial_request(
                     std::sync::atomic::Ordering::SeqCst,
                 );
             }
-            Err(LaunchAuthorityError::OwnershipMismatch)
+            let request = channel.read_control_frame()?;
+            if runne_api::ProtectedCredentialRecoveryCodec::recognizes_frame(&request) {
+                return Err(LaunchAuthorityError::OwnershipMismatch);
+            }
+            Ok((request, Some(verified)))
         }
     }
 }

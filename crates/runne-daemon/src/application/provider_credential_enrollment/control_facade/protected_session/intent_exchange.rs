@@ -54,6 +54,12 @@ impl DaemonProtectedCredentialEnrollmentSession {
             .lifecycle
             .decode_desktop_begin(frame, self.desktop_sequence)
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+        if self.qualification.is_some()
+            && command.action() != runne_api::ProviderCredentialEnrollmentActionV2::Pair
+        {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
         self.desktop_sequence = self
             .desktop_sequence
             .checked_add(1)

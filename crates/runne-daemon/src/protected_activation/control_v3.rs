@@ -3,7 +3,7 @@ mod clocks;
 #[cfg(unix)]
 mod discovery;
 #[cfg(unix)]
-mod initial_exchange;
+pub(crate) mod initial_exchange;
 mod live_session;
 mod renewal;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -107,7 +107,7 @@ pub(crate) fn run_control_loop_v3_entered(
             .transpose()
             .map_err(runtime::map_enrollment_error)?;
         #[cfg(target_os = "macos")]
-        let initial_request = initial_exchange::read_admitted_initial_request(
+        let (initial_request, qualification) = initial_exchange::read_admitted_initial_request(
             &mut channel,
             &keys,
             &owned_launch,
@@ -120,6 +120,12 @@ pub(crate) fn run_control_loop_v3_entered(
         let mut enrollment = control
             .start_protected_session(&keys, &owned_launch, owned_rendezvous, installed_facts)
             .map_err(runtime::map_enrollment_error)?;
+        #[cfg(target_os = "macos")]
+        if let Some(qualification) = qualification {
+            enrollment = enrollment
+                .retain_qualification(qualification)
+                .map_err(runtime::map_enrollment_error)?;
+        }
         initial_exchange::run(
             &mut channel,
             &mut enrollment,

@@ -14,6 +14,8 @@ NATIVE_QUALIFICATION_TEST_ONLY_PATHS = frozenset({
     Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/connected_tests/support.rs"),
     Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/qualification_admission_tests.rs"),
     Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/qualification_admission_tests/support.rs"),
+    Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/session_test_support.rs"),
+    Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/connected_tests/metadata_tests.rs"),
 })
 if not NATIVE_QUALIFICATION_TEST_ONLY_PATHS <= NATIVE_QUALIFICATION_ADMISSION_ALLOWED:
     raise RuntimeError("native qualification test-only path is absent from the admission allowlist")

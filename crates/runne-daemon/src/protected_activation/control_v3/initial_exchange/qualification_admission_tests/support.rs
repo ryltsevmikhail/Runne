@@ -155,7 +155,7 @@ pub(super) fn bindings(
     )
 }
 
-pub(super) fn relay(
+pub(in crate::protected_activation::control_v3::initial_exchange) fn relay(
     owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
     keys: &runne_api::ProtectedActivationKeys,
     context_key: &SigningKey,

@@ -7,7 +7,8 @@ use crate::installed_surface_consumers::{
     exact_reviewed_consumer_method, exact_reviewed_consumer_struct,
 };
 use crate::installed_surface_daemon::{
-    exact_daemon_carrier, exact_initial_result, exact_retention_helper,
+    exact_daemon_carrier, exact_initial_read, exact_initial_result, exact_retention_helper,
+    exact_session_carrier, exact_session_transfer,
 };
 use crate::installed_surface_expected::{
     exact_reviewed_facts_method, exact_test_only_qualification_facts,
@@ -65,7 +66,9 @@ impl<'ast> Visit<'ast> for SourceAudit<'_> {
             let public_facts = matches!(item.vis, Visibility::Public(_))
                 && (fields_mention(&item.fields, &self.aliases)
                     || generics_mention(&item.generics, &self.aliases));
-            if sealed || (public_facts && !exact_reviewed_consumer_struct(self.source, item)) {
+            if (sealed && !exact_session_carrier(self.source, item, &self.sealed_aliases))
+                || (public_facts && !exact_reviewed_consumer_struct(self.source, item))
+            {
                 self.reject("public generic or field wrapper escapes a sealed type");
             }
         }
@@ -95,7 +98,10 @@ impl<'ast> Visit<'ast> for SourceAudit<'_> {
         }
         for member in &item.items {
             if impl_member_mentions(member, &self.sealed_aliases) {
-                self.reject("impl member escapes a sealed installed token");
+                if !matches!(member, ImplItem::Fn(method) if exact_session_transfer(self.source, &item.self_ty, method))
+                {
+                    self.reject("impl member escapes a sealed installed token");
+                }
             } else if impl_member_mentions(member, &self.aliases) {
                 match member {
                     ImplItem::Fn(method)
@@ -111,9 +117,10 @@ impl<'ast> Visit<'ast> for SourceAudit<'_> {
     fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
         if exact_retention_helper(self.source, item) {
             self.audit.retention += 1;
-        } else if signature_mentions(&item.sig, &self.sealed_aliases)
-            || (matches!(item.vis, Visibility::Public(_))
-                && signature_mentions(&item.sig, &self.aliases))
+        } else if !exact_initial_read(self.source, item)
+            && (signature_mentions(&item.sig, &self.sealed_aliases)
+                || (matches!(item.vis, Visibility::Public(_))
+                    && signature_mentions(&item.sig, &self.aliases)))
         {
             self.reject("free function mentions a sealed installed type");
         }

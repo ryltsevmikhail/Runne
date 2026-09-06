@@ -73,6 +73,29 @@ pub(super) fn spawn_daemon(
     verifier: QualificationAdmissionVerifier,
     verified: Arc<std::sync::atomic::AtomicUsize>,
 ) -> BoundedThread<Result<(), runne_api::LaunchAuthorityError>> {
+    spawn_daemon_with_rendezvous(
+        channel,
+        keys,
+        owned,
+        installed,
+        control,
+        verifier,
+        verified,
+        DaemonEnrollmentRendezvous::for_test(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn spawn_daemon_with_rendezvous(
+    channel: std::os::unix::net::UnixStream,
+    keys: runne_api::ProtectedActivationKeys,
+    owned: runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
+    installed: runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts,
+    control: Arc<DaemonProviderCredentialEnrollmentControl>,
+    verifier: QualificationAdmissionVerifier,
+    verified: Arc<std::sync::atomic::AtomicUsize>,
+    rendezvous: DaemonEnrollmentRendezvous,
+) -> BoundedThread<Result<(), runne_api::LaunchAuthorityError>> {
     let sessions = sessions_for(&owned);
     let channel = ProtectedActivationChannel::new(channel).unwrap();
     BoundedThread::spawn(move || {
@@ -83,16 +106,8 @@ pub(super) fn spawn_daemon(
             sessions,
             Arc::new(|| Duration::from_secs(1)),
             Arc::new(|| Ok(1_800_000_000_000)),
-            V3EnrollmentDispatch::new(
-                Some(control),
-                DaemonEnrollmentRendezvous::for_test(),
-                Some(installed),
-            )
-            .with_test_qualification(
-                verifier,
-                Arc::new(|| Ok(1_800_000_000)),
-                verified,
-            ),
+            V3EnrollmentDispatch::new(Some(control), rendezvous, Some(installed))
+                .with_test_qualification(verifier, Arc::new(|| Ok(1_800_000_000)), verified),
         )
     })
 }

@@ -2,13 +2,15 @@ use std::io::{Read as _, Write as _};
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use ed25519_dalek::SigningKey;
 use runne_native_qualification::QualificationAdmissionVerifier;
 
 mod support;
 use support::*;
+
+mod metadata_tests;
 
 #[test]
 fn connected_valid_pair_with_extra_frame_closes_before_gcp_and_cannot_cross_session() {
@@ -40,18 +42,12 @@ fn connected_valid_pair_with_extra_frame_closes_before_gcp_and_cannot_cross_sess
         assert_eq!(&context[4..12], b"RNQCTX1\0");
         assert_eq!(&fault[4..12], b"RNQFRLY1");
         let relay = [context, fault].concat();
-        let with_extra = [
-            relay.clone(),
-            super::qualification_admission_tests::support::outer(b"GCPCECTLextra-request"),
-        ]
-        .concat();
+        let with_extra = [relay.clone(), relay.clone()].concat();
         proxy_daemon.write_all(&with_extra).unwrap();
-        desktop_peer
-            .set_read_timeout(Some(Duration::from_millis(100)))
-            .unwrap();
-        assert!(
-            matches!(desktop_peer.read(&mut [0; 1]), Err(error) if matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut))
-        );
+        let initial =
+            crate::protected_activation::enrollment_v3_tests::read_frame(&mut desktop_peer);
+        assert_eq!(&initial[4..12], b"GCPCECTL");
+        // The duplicate qualification envelope precedes the real ordinary request.
         assert_eq!(proxy_daemon.read(&mut [0; 1]).unwrap(), 0);
         relay
     });

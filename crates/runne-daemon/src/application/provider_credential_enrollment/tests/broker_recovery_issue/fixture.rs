@@ -23,7 +23,18 @@ pub(super) fn recovery_fixture() -> (Fixture, AcceptedCredentialCleanupRecovery)
 }
 
 pub(crate) fn prepared_cleanup_fixture() -> Fixture {
-    let mut f = fixture();
+    let mut f = completed_pair_fixture();
+    let version = f.operation.allocated_credential_version().unwrap().clone();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    prepare_revoke(&mut f, version, now);
+    f
+}
+
+pub(crate) fn completed_pair_fixture() -> Fixture {
+    let f = fixture();
     let mut channel = RecordingChannel::default();
     let context = issue_context(&f);
     let receipt = f
@@ -109,6 +120,10 @@ pub(crate) fn prepared_cleanup_fixture() -> Fixture {
             .with_readiness_observation(readiness),
         )
         .unwrap();
+    f
+}
+
+fn prepare_revoke(f: &mut Fixture, version: CredentialVersionRef, now: i64) {
     let revoke = CredentialOperationId::from_bytes([42; 16]).unwrap();
     f.store
         .begin(
@@ -138,5 +153,4 @@ pub(crate) fn prepared_cleanup_fixture() -> Fixture {
         .unwrap();
     f.operation = f.store.load_operation(revoke).unwrap();
     f.continuation = digest(45);
-    f
 }

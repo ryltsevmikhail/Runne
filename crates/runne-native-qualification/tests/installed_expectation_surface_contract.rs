@@ -16,6 +16,9 @@ mod installed_surface_syntax;
 
 use installed_surface_audit::audit_sources;
 
+#[path = "support/installed_transfer_tests.rs"]
+mod installed_transfer_tests;
+
 #[test]
 fn production_installed_authority_surface_is_recursively_sealed() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -107,8 +110,8 @@ fn adversarial_alias_generic_trait_and_wrapper_escapes_are_rejected() {
             "#[derive(Default)] struct QualificationRuntimeInstalledExpectation",
         ),
         baseline.replace(
-            "struct VerifiedQualificationAdmission",
-            "#[cfg_attr(test, derive(Default))] struct VerifiedQualificationAdmission",
+            "pub(crate) struct VerifiedQualificationAdmission",
+            "#[cfg_attr(test, derive(Default))] pub(crate) struct VerifiedQualificationAdmission",
         ),
         baseline.replace(
             "_admission: runne_native_qualification::PendingQualificationAdmission",
@@ -202,6 +205,13 @@ fn reviewed_consumer_path_does_not_exempt_a_new_escape() {
 }
 
 fn baseline() -> String {
+    initial_baseline().replace(
+        "struct VerifiedQualificationAdmission",
+        "pub(crate) struct VerifiedQualificationAdmission",
+    )
+}
+
+fn initial_baseline() -> String {
     "pub struct VerifiedInstalledEnrollmentMeasurementFacts { candidate: [u8; 32] }\nstruct QualificationRuntimeInstalledExpectation { candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32] }\n#[cfg(target_os = \"macos\")] struct VerifiedQualificationAdmission { _admission: runne_native_qualification::PendingQualificationAdmission }\n#[cfg(target_os = \"macos\")] enum InitialQualificationFrame { Legacy(Zeroizing<Vec<u8>>), Verified(VerifiedQualificationAdmission), }\nstruct InstalledExpectationError; struct QualificationAdmissionError; struct LaunchAuthorityError;\nimpl VerifiedInstalledEnrollmentMeasurementFacts { fn qualification_runtime_installed_expectation(&self, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3) -> Result<QualificationRuntimeInstalledExpectation, InstalledExpectationError> { todo!() } pub fn verify_qualification_admission(&self, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3, verifier: &mut runne_native_qualification::QualificationAdmissionVerifier, admission: &runne_native_qualification::PendingQualificationAdmission, now_unix_seconds: u64) -> Result<(), QualificationAdmissionError> { todo!() } }\n#[cfg(target_os = \"macos\")] fn verify_and_retain_qualification_admission(installed: &runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3, verifier: &mut runne_native_qualification::QualificationAdmissionVerifier, admission: runne_native_qualification::PendingQualificationAdmission, now_unix_seconds: u64) -> Result<VerifiedQualificationAdmission, LaunchAuthorityError> { todo!() }".into()
 }
 

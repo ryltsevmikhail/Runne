@@ -11,7 +11,7 @@ use runne_native_qualification::{
 use super::{
     BundledRuntimeLifecycleState, NativeProtectedCredentialEnrollmentBegin,
     PreparedProtectedCredentialEnrollment, ProtectedBundledRuntimeError,
-    ProtectedBundledRuntimeProcess, ProtectedBundledRuntimeSupervisor, read_frame,
+    ProtectedBundledRuntimeProcess, ProtectedBundledRuntimeSupervisor,
 };
 
 impl ProtectedBundledRuntimeSupervisor {
@@ -20,8 +20,7 @@ impl ProtectedBundledRuntimeSupervisor {
     ///
     /// # Errors
     ///
-    /// A present carrier is rejected after authenticated delivery until the
-    /// independent runner-context admission slice exists.
+    /// Rejects invalid state, relay delivery failure, or denied enrollment metadata.
     pub fn begin_protected_credential_enrollment_with_qualification(
         &mut self,
         request: NativeProtectedCredentialEnrollmentBegin,
@@ -66,16 +65,13 @@ impl ProtectedBundledRuntimeProcess {
             1,
         )
         .map_err(ProtectedBundledRuntimeError::from)?;
-        if write_initial_qualification_relay(
+        write_initial_qualification_relay(
             &mut self.channel,
             &self.keys,
             context_binding,
             fault_binding,
             Some(qualification_admission),
-        )? {
-            let _closed = read_frame(&mut self.channel)?;
-            return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
-        }
+        )?;
         self.begin_protected_credential_enrollment(request)
     }
 }

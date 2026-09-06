@@ -13,6 +13,17 @@ pub struct TestOnlyConnectedReadyV3EnrollmentSupervisor {
 }
 
 impl TestOnlyConnectedReadyV3EnrollmentSupervisor {
+    /// Binds the connected fixture to the daemon's actual preparatory endpoint.
+    ///
+    /// # Panics
+    /// Panics if the Ready fixture no longer owns its process.
+    #[must_use]
+    pub const fn with_broker_facts(mut self, binding: [u8; 32], publication: [u8; 32]) -> Self {
+        self.supervisor.process.as_mut().expect("ready process").enrollment_broker_facts =
+            Some(EnrollmentBrokerFacts::new(binding, publication));
+        self
+    }
+
     #[doc(hidden)]
     #[must_use]
     pub fn into_parts(

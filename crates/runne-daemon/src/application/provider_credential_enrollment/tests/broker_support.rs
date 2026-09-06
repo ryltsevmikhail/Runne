@@ -22,12 +22,12 @@ use super::super::broker::{CredentialBrokerChannel, ProviderCredentialBroker};
 
 pub(crate) struct Fixture {
     pub(crate) enrollment_authority: runne_provider::CredentialEnrollmentStoreAuthority,
-    pub(crate) broker: ProviderCredentialBroker,
+    pub(in crate::application::provider_credential_enrollment) broker: ProviderCredentialBroker,
     pub(crate) measurements: Arc<runne_provider::CredentialEnrollmentMeasurementAuthority>,
     pub(crate) store: runne_store::provider::SqliteProviderCredentialLifecycleStore,
     pub(crate) operation: runne_provider::CredentialOperationSnapshot,
     pub(crate) continuation: runne_provider::CredentialBindingDigest,
-    _directory: tempfile::TempDir,
+    pub(crate) _directory: tempfile::TempDir,
 }
 
 pub(crate) fn fixture() -> Fixture {
