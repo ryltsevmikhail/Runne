@@ -1,280 +1,284 @@
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicUsize, Ordering},
-};
+use std::future::{Future, poll_fn};
+use std::sync::{Arc, atomic::Ordering};
+use std::task::Poll;
+use std::time::{Duration, Instant};
 
-use tokio::sync::oneshot;
+use runne_platform_ports::credential_service::{
+    CredentialServiceCallContext, CredentialServiceCancellation,
+};
 use zeroize::Zeroizing;
 
 use crate::CredentialServiceXpcError;
-use crate::client::native::call_state::{ConnectionInvalidator, NativeCallState, UnknownTerminal};
-use crate::frame::{FrameDropWitness, NativeReplyFrame, NativeRequestFrame};
+use crate::client::native::exchange::{self, ConnectionEvent};
 
-const CANARY: &str = "runne-d1-1c-xpc-canary-c824d9";
-#[derive(Default)]
-struct InvalidationWitness(AtomicUsize);
+mod support;
+use support::{CANARY, Counts, TestConnection, assert_unknown, await_call, context, spawn_call};
 
-impl ConnectionInvalidator for InvalidationWitness {
-    fn invalidate(&self) {
-        self.0.fetch_add(1, Ordering::AcqRel);
-    }
-}
-struct CallFixture {
-    call: NativeCallState,
-    reply: crate::client::native::call_state::NativeReplyHandle,
-    receiver: oneshot::Receiver<Result<NativeReplyFrame, CredentialServiceXpcError>>,
-    request_drops: Arc<AtomicUsize>,
-    terminal_events: Arc<AtomicUsize>,
-    invalidations: Arc<InvalidationWitness>,
-}
-
-fn call_fixture() -> CallFixture {
-    call_fixture_with(Arc::new(InvalidationWitness::default()))
-}
-
-fn call_fixture_with(invalidations: Arc<InvalidationWitness>) -> CallFixture {
-    let request_drops = Arc::new(AtomicUsize::new(0));
-    let terminal_events = Arc::new(AtomicUsize::new(0));
-    let invalidator: Arc<dyn ConnectionInvalidator> = invalidations.clone();
-    let request = NativeRequestFrame::new_observed(
-        Zeroizing::new(CANARY.as_bytes().to_vec()),
-        FrameDropWitness::new(Arc::clone(&request_drops)),
-    )
-    .unwrap();
-    let (sender, receiver) = oneshot::channel();
-    let call =
-        NativeCallState::new_observed(request, sender, &invalidator, Arc::clone(&terminal_events));
-    let reply = call.reply_handle();
-    CallFixture {
-        call,
-        reply,
-        receiver,
-        request_drops,
-        terminal_events,
-        invalidations,
-    }
-}
-
-fn observed_reply(drops: Arc<AtomicUsize>) -> NativeReplyFrame {
-    NativeReplyFrame::new_observed(
-        Zeroizing::new(CANARY.as_bytes().to_vec()),
-        FrameDropWitness::new(drops),
-    )
-    .unwrap()
-}
-
-#[test]
-fn successful_reply_releases_each_repository_frame_once() {
-    let mut fixture = call_fixture();
-    let reply_drops = Arc::new(AtomicUsize::new(0));
-
-    fixture
-        .reply
-        .deliver(Ok(observed_reply(Arc::clone(&reply_drops))));
-    let reply = fixture.receiver.try_recv().unwrap().unwrap();
-    fixture.call.accept_reply();
-
-    assert_eq!(fixture.terminal_events.load(Ordering::Acquire), 1);
-    assert_eq!(fixture.request_drops.load(Ordering::Acquire), 1);
-    assert_eq!(reply_drops.load(Ordering::Acquire), 0);
-    assert_eq!(fixture.invalidations.0.load(Ordering::Acquire), 0);
+#[tokio::test]
+async fn success_accepts_reply_and_avoids_invalidation() {
+    let connection = TestConnection::new();
+    let counts = Counts::default();
+    let call = spawn_call(
+        Arc::clone(&connection),
+        context(Duration::from_secs(1), CredentialServiceCancellation::new()),
+        &counts,
+    );
+    connection.wait_for_dispatches(1).await;
+    connection.callback().valid_reply(counts.reply());
+    let reply = await_call(call).await.unwrap();
     drop(reply);
-    assert_eq!(reply_drops.load(Ordering::Acquire), 1);
-    drop(fixture.call);
-    assert_eq!(fixture.invalidations.0.load(Ordering::Acquire), 0);
+
+    assert_eq!(counts.request_drops.load(Ordering::Acquire), 1);
+    assert_eq!(counts.reply_drops.load(Ordering::Acquire), 1);
+    assert_eq!(counts.terminals.load(Ordering::Acquire), 1);
+    assert_eq!(connection.invalidations.load(Ordering::Acquire), 0);
 }
 
-#[test]
-fn every_outcome_unknown_terminal_releases_request_and_late_reply_once() {
-    for terminal in [
-        UnknownTerminal::Timeout,
-        UnknownTerminal::Cancelled,
-        UnknownTerminal::Interrupted,
-        UnknownTerminal::Invalidated,
-        UnknownTerminal::DispatchError,
-        UnknownTerminal::MalformedReply,
-    ] {
-        let mut fixture = call_fixture();
-        let reply_drops = Arc::new(AtomicUsize::new(0));
-
-        let callback_terminal = matches!(
-            terminal,
-            UnknownTerminal::DispatchError | UnknownTerminal::MalformedReply
-        );
-        if callback_terminal {
-            fixture.reply.deliver_unknown(terminal);
-        } else {
-            fixture.call.close_unknown(terminal);
-        }
-        if callback_terminal {
-            assert!(matches!(
-                fixture.receiver.try_recv().unwrap(),
-                Err(CredentialServiceXpcError::OutcomeUnknown)
-            ));
-        }
-        fixture
-            .reply
-            .deliver(Ok(observed_reply(Arc::clone(&reply_drops))));
-
-        assert_eq!(fixture.terminal_events.load(Ordering::Acquire), 1);
-        assert_eq!(fixture.request_drops.load(Ordering::Acquire), 1);
-        assert_eq!(reply_drops.load(Ordering::Acquire), 1);
-        assert_eq!(fixture.invalidations.0.load(Ordering::Acquire), 1);
+async fn run_timeout_or_cancel(cancel: bool) {
+    let connection = TestConnection::new();
+    let counts = Counts::default();
+    let cancellation = CredentialServiceCancellation::new();
+    let call = spawn_call(
+        Arc::clone(&connection),
+        context(
+            if cancel {
+                Duration::from_secs(1)
+            } else {
+                Duration::from_millis(30)
+            },
+            cancellation.clone(),
+        ),
+        &counts,
+    );
+    connection.wait_for_dispatches(1).await;
+    let callback = connection.callback();
+    if cancel {
+        cancellation.cancel();
     }
+    assert_unknown(&await_call(call).await);
+    callback.valid_reply(counts.reply());
+    assert_eq!(counts.request_drops.load(Ordering::Acquire), 1);
+    assert_eq!(counts.reply_drops.load(Ordering::Acquire), 1);
+    assert_eq!(counts.terminals.load(Ordering::Acquire), 1);
+    assert_eq!(connection.invalidations.load(Ordering::Acquire), 1);
 }
 
-#[test]
-fn receiver_close_drops_reply_and_fails_connection_closed() {
-    let fixture = call_fixture();
-    let reply_drops = Arc::new(AtomicUsize::new(0));
-    drop(fixture.receiver);
-
-    fixture
-        .reply
-        .deliver(Ok(observed_reply(Arc::clone(&reply_drops))));
-
-    assert_eq!(fixture.terminal_events.load(Ordering::Acquire), 1);
-    assert_eq!(fixture.request_drops.load(Ordering::Acquire), 1);
-    assert_eq!(reply_drops.load(Ordering::Acquire), 1);
-    assert_eq!(fixture.invalidations.0.load(Ordering::Acquire), 1);
+#[tokio::test]
+async fn timeout_after_dispatch_is_outcome_unknown() {
+    run_timeout_or_cancel(false).await;
 }
 
-#[test]
-fn timeout_after_reply_is_queued_invalidates_fail_closed() {
-    let fixture = call_fixture();
-    let reply_drops = Arc::new(AtomicUsize::new(0));
-    fixture
-        .reply
-        .deliver(Ok(observed_reply(Arc::clone(&reply_drops))));
-    fixture.call.close_unknown(UnknownTerminal::Timeout);
-    assert_eq!(fixture.invalidations.0.load(Ordering::Acquire), 1);
-    drop(fixture.receiver);
-    drop(fixture.call);
-
-    assert_eq!(fixture.terminal_events.load(Ordering::Acquire), 1);
-    assert_eq!(fixture.request_drops.load(Ordering::Acquire), 1);
-    assert_eq!(reply_drops.load(Ordering::Acquire), 1);
-    assert_eq!(fixture.invalidations.0.load(Ordering::Acquire), 1);
+#[tokio::test]
+async fn cancellation_after_dispatch_is_outcome_unknown() {
+    run_timeout_or_cancel(true).await;
 }
 
-#[test]
-fn dropping_dispatched_call_is_single_terminal_and_fail_closed() {
-    let fixture = call_fixture();
-    let reply_drops = Arc::new(AtomicUsize::new(0));
-    let reply = fixture.reply;
-    let request_drops = Arc::clone(&fixture.request_drops);
-    let terminal_events = Arc::clone(&fixture.terminal_events);
-    let invalidations = Arc::clone(&fixture.invalidations);
-    drop(fixture.call);
-
-    reply.deliver(Ok(observed_reply(Arc::clone(&reply_drops))));
-
-    assert_eq!(terminal_events.load(Ordering::Acquire), 1);
-    assert_eq!(request_drops.load(Ordering::Acquire), 1);
-    assert_eq!(reply_drops.load(Ordering::Acquire), 1);
-    assert_eq!(invalidations.0.load(Ordering::Acquire), 1);
+async fn run_connection_event(event: ConnectionEvent) {
+    let connection = TestConnection::new();
+    let counts = Counts::default();
+    let call = spawn_call(
+        Arc::clone(&connection),
+        context(Duration::from_secs(1), CredentialServiceCancellation::new()),
+        &counts,
+    );
+    connection.wait_for_dispatches(1).await;
+    let callback = connection.callback();
+    connection.signal(event);
+    assert_unknown(&await_call(call).await);
+    callback.valid_reply(counts.reply());
+    assert_eq!(counts.request_drops.load(Ordering::Acquire), 1);
+    assert_eq!(counts.reply_drops.load(Ordering::Acquire), 1);
+    assert_eq!(counts.terminals.load(Ordering::Acquire), 1);
+    assert_eq!(connection.invalidations.load(Ordering::Acquire), 1);
 }
 
-#[test]
-fn invalidating_one_call_fails_concurrent_calls_closed_without_double_terminal() {
-    let connection = Arc::new(InvalidationWitness::default());
-    let first = call_fixture_with(Arc::clone(&connection));
-    let second = call_fixture_with(connection);
+#[tokio::test]
+async fn interruption_broadcast_is_outcome_unknown() {
+    run_connection_event(ConnectionEvent::Interrupted).await;
+}
 
-    // NativeClient broadcasts the shared connection event to both dispatched calls.
-    first.call.close_unknown(UnknownTerminal::Timeout);
-    second.call.close_unknown(UnknownTerminal::Invalidated);
-    second.call.close_unknown(UnknownTerminal::Interrupted);
+#[tokio::test]
+async fn invalidation_broadcast_is_outcome_unknown() {
+    run_connection_event(ConnectionEvent::Invalidated).await;
+}
 
-    assert_eq!(first.terminal_events.load(Ordering::Acquire), 1);
-    assert_eq!(second.terminal_events.load(Ordering::Acquire), 1);
+enum CallbackFailure {
+    Dispatch,
+    Proxy,
+    Malformed,
+    Sender,
+}
+
+async fn run_callback_failure(failure: CallbackFailure) {
+    let connection = TestConnection::new();
+    let counts = Counts::default();
+    connection
+        .broadcast_invalidation
+        .store(false, Ordering::Release);
+    connection.dispatch_error.store(
+        matches!(failure, CallbackFailure::Dispatch),
+        Ordering::Release,
+    );
+    let call = spawn_call(
+        Arc::clone(&connection),
+        context(Duration::from_secs(1), CredentialServiceCancellation::new()),
+        &counts,
+    );
+    connection.wait_for_dispatches(1).await;
+    if !matches!(failure, CallbackFailure::Dispatch) {
+        let callback = connection.callback();
+        match failure {
+            CallbackFailure::Proxy => callback.proxy_error(),
+            CallbackFailure::Malformed => {
+                callback.native_reply(Err(CredentialServiceXpcError::InvalidReply));
+            }
+            CallbackFailure::Sender => callback.simulate_sender_loss(),
+            CallbackFailure::Dispatch => unreachable!(),
+        }
+    }
+    assert_unknown(&await_call(call).await);
+    assert_eq!(counts.request_drops.load(Ordering::Acquire), 1);
+    assert_eq!(counts.terminals.load(Ordering::Acquire), 1);
+    assert_eq!(connection.invalidations.load(Ordering::Acquire), 1);
+}
+
+#[tokio::test]
+async fn objective_c_dispatch_exception_equivalent_is_outcome_unknown() {
+    run_callback_failure(CallbackFailure::Dispatch).await;
+}
+
+#[tokio::test]
+async fn proxy_error_callback_is_outcome_unknown() {
+    run_callback_failure(CallbackFailure::Proxy).await;
+}
+
+#[tokio::test]
+async fn malformed_reply_callback_collapses_to_outcome_unknown() {
+    run_callback_failure(CallbackFailure::Malformed).await;
+}
+
+#[tokio::test]
+async fn sender_loss_reaches_receiver_close_outcome_unknown() {
+    run_callback_failure(CallbackFailure::Sender).await;
+}
+
+#[tokio::test]
+async fn dropped_exchange_future_releases_request_and_late_reply() {
+    let connection = TestConnection::new();
+    let counts = Counts::default();
+    let call = spawn_call(
+        Arc::clone(&connection),
+        context(Duration::from_secs(1), CredentialServiceCancellation::new()),
+        &counts,
+    );
+    connection.wait_for_dispatches(1).await;
+    let callback = connection.callback();
+    call.abort();
+    assert!(call.await.is_err());
+    callback.valid_reply(counts.reply());
+
+    assert_eq!(counts.request_drops.load(Ordering::Acquire), 1);
+    assert_eq!(counts.reply_drops.load(Ordering::Acquire), 1);
+    assert_eq!(counts.terminals.load(Ordering::Acquire), 1);
+    assert_eq!(connection.invalidations.load(Ordering::Acquire), 1);
+}
+
+async fn run_queued_reply_race(timeout: bool) {
+    let connection = TestConnection::new();
+    let counts = Counts::default();
+    let deadline = Instant::now() + Duration::from_millis(20);
+    let future = exchange::exchange_observed(
+        Arc::clone(&connection),
+        Zeroizing::new(CANARY.as_bytes().to_vec()),
+        CredentialServiceCallContext::new(deadline, CredentialServiceCancellation::new()),
+        counts.witnesses(),
+    );
+    let mut future = Box::pin(future);
+    poll_fn(|cx| match future.as_mut().poll(cx) {
+        Poll::Pending => Poll::Ready(()),
+        Poll::Ready(_) => panic!("call must remain dispatched"),
+    })
+    .await;
+    connection.callback().valid_reply(counts.reply());
+    if timeout {
+        tokio::time::sleep_until(deadline.into()).await;
+        assert_unknown(&future.await);
+    } else {
+        drop(future);
+    }
+    assert_eq!(counts.request_drops.load(Ordering::Acquire), 1);
+    assert_eq!(counts.reply_drops.load(Ordering::Acquire), 1);
+    assert_eq!(counts.terminals.load(Ordering::Acquire), 1);
+    assert_eq!(connection.invalidations.load(Ordering::Acquire), 1);
+}
+
+#[tokio::test]
+async fn queued_reply_racing_timeout_invalidates_fail_closed() {
+    run_queued_reply_race(true).await;
+}
+
+#[tokio::test]
+async fn queued_reply_racing_future_drop_invalidates_fail_closed() {
+    run_queued_reply_race(false).await;
+}
+
+#[tokio::test]
+async fn one_invalidation_broadcast_closes_both_concurrent_exchanges() {
+    let connection = TestConnection::new();
+    let first = Counts::default();
+    let second = Counts::default();
+    let first_call = spawn_call(
+        Arc::clone(&connection),
+        context(
+            Duration::from_millis(30),
+            CredentialServiceCancellation::new(),
+        ),
+        &first,
+    );
+    let second_call = spawn_call(
+        Arc::clone(&connection),
+        context(Duration::from_secs(1), CredentialServiceCancellation::new()),
+        &second,
+    );
+    connection.wait_for_dispatches(2).await;
+    assert_unknown(&await_call(first_call).await);
+    assert_unknown(&await_call(second_call).await);
+
     assert_eq!(first.request_drops.load(Ordering::Acquire), 1);
     assert_eq!(second.request_drops.load(Ordering::Acquire), 1);
-    assert_eq!(first.invalidations.0.load(Ordering::Acquire), 2);
-    assert_eq!(second.invalidations.0.load(Ordering::Acquire), 2);
+    assert_eq!(first.terminals.load(Ordering::Acquire), 1);
+    assert_eq!(second.terminals.load(Ordering::Acquire), 1);
+    assert_eq!(connection.invalidations.load(Ordering::Acquire), 1);
 }
 
-#[test]
-fn malformed_frames_and_errors_are_bounded_and_closed() {
-    let empty = objc2_foundation::NSData::from_vec(Vec::new());
-    let oversized = objc2_foundation::NSData::from_vec(
-        CANARY
-            .as_bytes()
-            .iter()
-            .copied()
-            .cycle()
-            .take(runne_platform_ports::credential_service::MAX_CREDENTIAL_SERVICE_FRAME_BYTES + 1)
-            .collect(),
-    );
-    let request_error = |result| match result {
-        Err(error) => error,
-        Ok(_) => panic!("malformed request frame must be rejected"),
-    };
-    let reply_error = |result| match result {
-        Err(error) => error,
-        Ok(_) => panic!("malformed reply frame must be rejected"),
-    };
-    let errors = [
-        request_error(crate::frame::native::copy_request(&empty)),
-        reply_error(crate::frame::native::copy_reply(&empty)),
-        request_error(crate::frame::native::copy_request(&oversized)),
-        reply_error(crate::frame::native::copy_reply(&oversized)),
-    ];
-
-    for error in errors {
-        assert_eq!(
-            error.to_string(),
-            "credential service native transport failed"
-        );
-        assert!(!format!("{error:?}").contains(CANARY));
-        assert!(!error.to_string().contains(CANARY));
-    }
-}
-
-struct ReentrantInvalidator {
-    count: AtomicUsize,
-    reply: Mutex<Option<crate::client::native::call_state::NativeReplyHandle>>,
-}
-
-impl ConnectionInvalidator for ReentrantInvalidator {
-    fn invalidate(&self) {
-        self.count.fetch_add(1, Ordering::AcqRel);
-        let reply = self
-            .reply
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take();
-        if let Some(reply) = reply {
-            reply.deliver_unknown(UnknownTerminal::Invalidated);
+#[tokio::test]
+async fn predispatch_cancel_and_expiry_remain_definitive_without_invalidation() {
+    for cancelled in [false, true] {
+        let connection = TestConnection::new();
+        let counts = Counts::default();
+        let cancellation = CredentialServiceCancellation::new();
+        if cancelled {
+            cancellation.cancel();
         }
+        let deadline = if cancelled {
+            Instant::now() + Duration::from_secs(1)
+        } else {
+            Instant::now()
+                .checked_sub(Duration::from_millis(1))
+                .unwrap()
+        };
+        let result = exchange::exchange_observed(
+            Arc::clone(&connection),
+            Zeroizing::new(CANARY.as_bytes().to_vec()),
+            CredentialServiceCallContext::new(deadline, cancellation),
+            counts.witnesses(),
+        )
+        .await;
+        assert!(matches!(
+            result,
+            Err(CredentialServiceXpcError::Cancelled | CredentialServiceXpcError::TimedOut)
+        ));
+        assert_eq!(connection.dispatch_count(), 0);
+        assert_eq!(connection.invalidations.load(Ordering::Acquire), 0);
     }
-}
-
-#[test]
-fn connection_invalidation_can_reenter_without_deadlock_or_double_terminal() {
-    let request_drops = Arc::new(AtomicUsize::new(0));
-    let terminal_events = Arc::new(AtomicUsize::new(0));
-    let invalidations = Arc::new(ReentrantInvalidator {
-        count: AtomicUsize::new(0),
-        reply: Mutex::new(None),
-    });
-    let invalidator: Arc<dyn ConnectionInvalidator> = invalidations.clone();
-    let request = NativeRequestFrame::new_observed(
-        Zeroizing::new(CANARY.as_bytes().to_vec()),
-        FrameDropWitness::new(Arc::clone(&request_drops)),
-    )
-    .unwrap();
-    let (sender, _receiver) = oneshot::channel();
-    let call =
-        NativeCallState::new_observed(request, sender, &invalidator, Arc::clone(&terminal_events));
-    *invalidations
-        .reply
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(call.reply_handle());
-
-    call.close_unknown(UnknownTerminal::Timeout);
-
-    assert_eq!(terminal_events.load(Ordering::Acquire), 1);
-    assert_eq!(request_drops.load(Ordering::Acquire), 1);
-    assert_eq!(invalidations.count.load(Ordering::Acquire), 1);
 }

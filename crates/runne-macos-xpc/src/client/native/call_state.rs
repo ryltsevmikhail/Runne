@@ -193,6 +193,7 @@ impl Drop for NativeCallState {
     }
 }
 
+#[derive(Clone)]
 pub struct NativeReplyHandle {
     shared: Arc<SharedCallState>,
 }
@@ -207,5 +208,10 @@ impl NativeReplyHandle {
         let _ = terminal;
         self.shared
             .finish(Some(Err(CredentialServiceXpcError::OutcomeUnknown)), true);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn simulate_sender_loss(&self) {
+        self.shared.finish(None, false);
     }
 }

@@ -6,6 +6,7 @@ use zeroize::Zeroizing;
 use crate::CredentialServiceXpcError;
 
 #[cfg(test)]
+#[derive(Clone)]
 pub(crate) struct FrameDropWitness(std::sync::Arc<std::sync::atomic::AtomicUsize>);
 
 #[cfg(test)]
