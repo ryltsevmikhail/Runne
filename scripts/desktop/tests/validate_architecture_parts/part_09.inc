@@ -1,7 +1,10 @@
 class NativeQualificationBoundaryTest(unittest.TestCase):
     def test_native_qualification_crate_has_a_closed_dependency_set(self):
         self.assertEqual(
-            {"base64", "ed25519-dalek", "hex", "serde", "serde_json", "sha2"},
+            {
+                "base64", "ed25519-dalek", "hex", "runne-api", "serde",
+                "serde_json", "sha2",
+            },
             architecture.NATIVE_QUALIFICATION_DEPENDENCIES,
         )
         self.assertEqual(
@@ -13,13 +16,16 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
             ("missing", 0, "delete", None),
             ("extra", 0, "name", "rand"),
             ("floating", 1, "req", "^2"),
-            ("defaults", 6, "uses_default_features", True),
-            ("feature", 4, "features", ["raw_value"]),
-            ("target", 5, "target", 'cfg(target_os = "macos")'),
+            ("defaults", 7, "uses_default_features", True),
+            ("feature", 5, "features", ["raw_value"]),
+            ("target", 6, "target", 'cfg(target_os = "macos")'),
             ("path", 2, "path", "/tmp/hex"),
-            ("static assertion missing", 7, "delete", None),
-            ("static assertion production edge", 7, "kind", None),
-            ("static assertion floating", 7, "req", "^1"),
+            ("API edge missing", 3, "delete", None),
+            ("API edge registry", 3, "source", architecture.CARGO_REGISTRY_SOURCE),
+            ("API edge renamed", 3, "rename", "api"),
+            ("static assertion missing", 8, "delete", None),
+            ("static assertion production edge", 8, "kind", None),
+            ("static assertion floating", 8, "req", "^1"),
         ):
             with self.subTest(label=label):
                 package = self.package()
@@ -49,6 +55,26 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
                 "#[derive(Clone)] pub struct VerifiedQualificationFault;",
             ):
                 source.write_text(forbidden, encoding="utf-8")
+                self.assertNotEqual(
+                    [], architecture.find_native_qualification_violations(root), forbidden
+                )
+
+    def test_rejects_reusable_or_raw_pending_ticket_carrier_surfaces(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "crates/runne-native-qualification/src/model.rs"
+            source.parent.mkdir(parents=True)
+            baseline = "pub struct PendingQualificationFault { bytes: Vec<u8> }\n"
+            source.write_text(baseline, encoding="utf-8")
+            self.assertEqual([], architecture.find_native_qualification_violations(root))
+            for forbidden in (
+                "impl PendingQualificationFault { pub fn bytes(&self) -> &[u8] { &self.bytes } }",
+                "impl PendingQualificationFault { pub fn as_relay_bytes(&self) -> &[u8] { &self.bytes } }",
+                "impl PendingQualificationFault { pub fn into_bytes(self) -> Vec<u8> { self.bytes } }",
+                "#[derive(Clone)] pub struct PendingQualificationFault { bytes: Vec<u8> }",
+                "impl serde::Serialize for PendingQualificationFault { fn serialize<S>(&self, _: S) -> Result<S::Ok, S::Error> where S: serde::Serializer { todo!() } }",
+            ):
+                source.write_text(baseline + forbidden, encoding="utf-8")
                 self.assertNotEqual(
                     [], architecture.find_native_qualification_violations(root), forbidden
                 )
@@ -159,6 +185,10 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
             cls.dependency("base64", "=0.22.1"),
             cls.dependency("ed25519-dalek", "=2.1.1"),
             cls.dependency("hex", "^0.4"),
+            cls.dependency(
+                "runne-api", "*", source=None,
+                path="/repo/crates/runne-api",
+            ),
             cls.dependency("serde", "=1.0.229", features=["derive"]),
             cls.dependency("serde_json", "=1.0.151"),
             cls.dependency("sha2", "=0.10.8"),
@@ -175,10 +205,13 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
         }
 
     @staticmethod
-    def dependency(name, req, *, kind=None, features=None, defaults=True):
+    def dependency(
+        name, req, *, kind=None, features=None, defaults=True,
+        source=architecture.CARGO_REGISTRY_SOURCE, path=None,
+    ):
         return {
             "name": name, "kind": kind, "req": req, "features": features or [],
-            "uses_default_features": defaults, "source": architecture.CARGO_REGISTRY_SOURCE,
-            "path": None, "registry": None, "target": None, "rename": None,
+            "uses_default_features": defaults, "source": source,
+            "path": path, "registry": None, "target": None, "rename": None,
             "optional": False,
         }

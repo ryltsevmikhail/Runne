@@ -192,6 +192,20 @@ impl PendingQualificationFault {
     ) -> Result<VerifiedQualificationFault, QualificationFaultError> {
         verifier.verify_and_consume(&self.bytes, context, now_unix_seconds)
     }
+
+    /// Consumes this carrier into the sole authenticated relay encoding path.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed relay rejection if the retained ticket cannot be
+    /// represented by the exact bounded relay contract.
+    pub fn encode_relay(
+        self,
+        codec: &crate::QualificationFaultRelayCodecV1,
+        binding: &runne_api::QualificationFaultRelayBindingV1,
+    ) -> Result<Vec<u8>, crate::QualificationFaultRelayError> {
+        codec.encode_ticket(binding, &self.bytes)
+    }
 }
 
 /// Opaque single-use authority produced only after complete ticket verification.

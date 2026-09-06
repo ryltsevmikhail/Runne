@@ -3,14 +3,15 @@ from __future__ import annotations
 
 NATIVE_QUALIFICATION_PACKAGE = "runne-native-qualification"
 NATIVE_QUALIFICATION_DEPENDENCIES = {
-    "base64", "ed25519-dalek", "hex", "serde", "serde_json", "sha2",
+    "base64", "ed25519-dalek", "hex", "runne-api", "serde", "serde_json", "sha2",
 }
-ALLOWED_RUST_DEPENDENCIES[NATIVE_QUALIFICATION_PACKAGE] = set()
+ALLOWED_RUST_DEPENDENCIES[NATIVE_QUALIFICATION_PACKAGE] = {"runne-api"}
 ALLOWED_RUST_DEPENDENCIES["runne-desktop"].add(NATIVE_QUALIFICATION_PACKAGE)
 NATIVE_QUALIFICATION_EXACT_DEPENDENCIES = {
     ("normal", "base64"): ("=0.22.1", (), True),
     ("normal", "ed25519-dalek"): ("=2.1.1", (), True),
     ("normal", "hex"): ("^0.4", (), True),
+    ("normal", "runne-api"): ("*", (), True),
     ("normal", "serde"): ("=1.0.229", ("derive",), True),
     ("normal", "serde_json"): ("=1.0.151", (), True),
     ("normal", "sha2"): ("=0.10.8", (), True),
@@ -34,6 +35,21 @@ NATIVE_QUALIFICATION_FORBIDDEN_PROOF_IMPL = re.compile(
     r"|(?:(?:::)?serde\s*::\s*(?:ser\s*::\s*)?)?Serialize"
     r"|(?:(?:::)?serde\s*::\s*(?:de\s*::\s*)?)?Deserialize(?:\s*<[^>{}]*>)?"
     r")\s+for\s+(?:::)?(?:[A-Za-z_]\w*\s*::\s*)*VerifiedQualificationFault\b"
+)
+NATIVE_QUALIFICATION_PENDING = re.compile(
+    r"(?s)(?P<attributes>(?:\s*#\[[^]]+\]\s*)*)pub\s+struct\s+PendingQualificationFault\b"
+)
+NATIVE_QUALIFICATION_FORBIDDEN_PENDING_IMPL = re.compile(
+    r"\bimpl(?:\s*<[^>{}]*>)?\s+"
+    r"(?:"
+    r"(?:(?:::)?(?:std|core)\s*::\s*clone\s*::\s*)?Clone"
+    r"|(?:(?:::)?(?:std|core)\s*::\s*marker\s*::\s*)?Copy"
+    r"|(?:(?:::)?serde\s*::\s*(?:ser\s*::\s*)?)?Serialize"
+    r"|(?:(?:::)?serde\s*::\s*(?:de\s*::\s*)?)?Deserialize(?:\s*<[^>{}]*>)?"
+    r")\s+for\s+(?:::)?(?:[A-Za-z_]\w*\s*::\s*)*PendingQualificationFault\b"
+)
+NATIVE_QUALIFICATION_RAW_CARRIER = re.compile(
+    r"pub\s+fn\s+(?:bytes|as_(?:relay_)?bytes|into_(?:relay_)?bytes)\s*\("
 )
 NATIVE_QUALIFICATION_ADMISSION_OWNER = "runne-desktop"
 NATIVE_QUALIFICATION_ADMISSION_TARGET = 'cfg(target_os = "macos")'
@@ -93,9 +109,17 @@ def find_native_qualification_dependency_violations(packages: list[dict]) -> lis
             tuple(sorted(dependency.get("features", []))),
             dependency.get("uses_default_features", True),
         )
-        registry_only = (
+        path = dependency.get("path")
+        source_is_exact = (
+            dependency.get("source") is None
+            and isinstance(path, str)
+            and Path(path).as_posix().endswith("/crates/runne-api")
+        ) if name == "runne-api" else (
             dependency.get("source") == CARGO_REGISTRY_SOURCE
-            and dependency.get("path") is None
+            and path is None
+        )
+        exact_source = (
+            source_is_exact
             and dependency.get("registry") is None
             and dependency.get("target") is None
             and dependency.get("rename") is None
@@ -103,7 +127,7 @@ def find_native_qualification_dependency_violations(packages: list[dict]) -> lis
         )
         if expected is None:
             violations.append(f"{NATIVE_QUALIFICATION_PACKAGE} -> {name} ({kind}) is forbidden")
-        elif key in observed or shape != expected or not registry_only:
+        elif key in observed or shape != expected or not exact_source:
             violations.append(
                 f"{NATIVE_QUALIFICATION_PACKAGE} -> {name} ({kind}) has forbidden shape"
             )
@@ -214,4 +238,14 @@ def find_native_qualification_violations(root: Path) -> list[str]:
         manually_reusable = NATIVE_QUALIFICATION_FORBIDDEN_PROOF_IMPL.search(text)
         if derived_reusable or manually_reusable:
             violations.append(f"{path.relative_to(root).as_posix()} makes verified fault reusable")
+        pending_reusable = any(
+            any(
+                name in pending.group("attributes")
+                for name in ("Clone", "Copy", "Serialize", "Deserialize")
+            )
+            for pending in NATIVE_QUALIFICATION_PENDING.finditer(text)
+        )
+        pending_impl = NATIVE_QUALIFICATION_FORBIDDEN_PENDING_IMPL.search(text)
+        if pending_reusable or pending_impl or NATIVE_QUALIFICATION_RAW_CARRIER.search(text):
+            violations.append(f"{path.relative_to(root).as_posix()} exposes pending fault bytes")
     return violations
