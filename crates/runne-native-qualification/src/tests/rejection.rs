@@ -1,6 +1,6 @@
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::{Signer as _, SigningKey};
-use serde_json::json;
+use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
 use super::{NOW, context, sign, unsigned_ticket};
@@ -106,6 +106,57 @@ fn duplicate_keys_noncanonical_wire_and_oversize_fail_before_signature() {
             .expect_err("oversize must fail"),
         QualificationFaultError::InvalidTicket
     );
+}
+
+#[test]
+fn pending_admission_rejects_semantically_invalid_ticket_shapes() {
+    let key = SigningKey::from_bytes(&[7; 32]);
+    let base = super::unsigned_ticket();
+    let cases: &[(&str, &str, Value)] = &[
+        ("selector", "selector", json!("unknown")),
+        ("role mismatch", "process_role", json!("writer")),
+        ("ticket id", "ticket_id", json!("11")),
+        ("candidate digest", "candidate_sha256", json!("aa")),
+        ("tuple digest", "release_tuple_v3_sha256", json!("bb")),
+        ("source revision", "source_revision", json!("cc")),
+        ("namespace digest", "namespace_sha256", json!("dd")),
+        ("workflow run", "workflow_run_id", json!("bad/run")),
+        ("nonce", "nonce", json!("not+base64/")),
+        ("zero lifetime", "expires_at", json!(NOW)),
+        ("overlong lifetime", "expires_at", json!(NOW + 901)),
+        (
+            "unsafe issued time",
+            "issued_at",
+            json!(9_007_199_254_740_992_u64),
+        ),
+    ];
+    for (label, field, replacement) in cases {
+        let mut ticket = base.clone();
+        ticket[*field] = replacement.clone();
+        let bytes = super::sign(&ticket, &key);
+        assert_eq!(
+            crate::PendingQualificationFault::from_admitted_frame(bytes).err(),
+            Some(QualificationFaultError::InvalidTicket),
+            "{label}"
+        );
+    }
+
+    let signed = super::sign(&base, &key);
+    let signed: Value = serde_json::from_slice(&signed).expect("ticket");
+    for (label, field, replacement) in [
+        ("algorithm", "algorithm", json!("rsa")),
+        ("key id", "key_id", json!("ee")),
+        ("signature", "value", json!("not+base64/")),
+    ] {
+        let mut ticket = signed.clone();
+        ticket["signature"][field] = replacement;
+        let bytes = crate::wire::test_canonical_ticket(&ticket).expect("canonical shape");
+        assert_eq!(
+            crate::PendingQualificationFault::from_admitted_frame(bytes).err(),
+            Some(QualificationFaultError::InvalidTicket),
+            "{label}"
+        );
+    }
 }
 
 #[test]

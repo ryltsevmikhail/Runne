@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use super::{
     QUALIFICATION_TICKET_DESCRIPTOR, QualificationFaultHostState,
-    inspect_qualification_ticket_at_for_test,
+    inspect_qualification_ticket_at_for_test, protected_admission_for_test,
 };
 use nix::fcntl::{FcntlArg, FdFlag, OFlag, fcntl};
 use runne_native_qualification::{
@@ -13,7 +13,7 @@ use runne_native_qualification::{
     QualificationFaultVerifier, QualificationProcessRole,
 };
 
-const FRAME: &[u8] = br#"{"schema_version":"runne/macos-xpc-dpk-fault-ticket/v1","ticket_id":"11","selector":"kill_desktop_process","process_role":"desktop","candidate_sha256":"aa","release_tuple_v3_sha256":"bb","source_revision":"cc","workflow_run_id":"run-42","namespace_sha256":"dd","issued_at":1800000000,"expires_at":1800000600,"nonce":"x","signature":{"algorithm":"ed25519","key_id":"ee","value":"y"}}"#;
+const FRAME: &[u8] = br#"{"schema_version":"runne/macos-xpc-dpk-fault-ticket/v1","ticket_id":"1111111111111111111111111111111111111111111111111111111111111111","selector":"kill_desktop_process","process_role":"desktop","candidate_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","release_tuple_v3_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","source_revision":"cccccccccccccccccccccccccccccccccccccccc","workflow_run_id":"run-42","namespace_sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","issued_at":1800000000,"expires_at":1800000600,"nonce":"IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI","signature":{"algorithm":"ed25519","key_id":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","value":"MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMw"}}"#;
 static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn pipe_with(bytes: &[u8], keep_open: bool) -> (i32, Option<std::fs::File>) {
@@ -45,7 +45,7 @@ fn missing_ticket_is_inert_and_fixed_slot_does_not_alias_secret_fd() {
     assert_ne!(QUALIFICATION_TICKET_DESCRIPTOR, 3);
     let slot = inspect_qualification_ticket_at_for_test(i32::MAX).expect("inspect absent");
     assert!(!slot.is_present());
-    let host = QualificationFaultHostState::admit_for_test(slot, true, Duration::from_millis(20))
+    let host = QualificationFaultHostState::admit_for_test(slot, None, Duration::from_millis(20))
         .expect("absent is inert");
     assert!(!host.has_pending_for_test());
 }
@@ -59,8 +59,12 @@ fn inspection_does_not_read_and_success_closes_inherited_pipe() {
     let slot = inspect_qualification_ticket_at_for_test(descriptor).expect("inspect present");
     writer.write_all(FRAME).expect("write after inspection");
     drop(writer);
-    let host = QualificationFaultHostState::admit_for_test(slot, true, Duration::from_secs(1))
-        .expect("admit frame");
+    let host = QualificationFaultHostState::admit_for_test(
+        slot,
+        Some(protected_admission_for_test()),
+        Duration::from_secs(1),
+    )
+    .expect("admit frame");
     assert!(descriptor_is_closed(descriptor));
     assert!(host.has_pending_for_test());
 }
@@ -70,8 +74,12 @@ fn pending_host_slot_is_consumed_once_and_unprovisioned_policy_stays_inert() {
     let _guard = lock_tests();
     let (descriptor, _writer) = pipe_with(FRAME, false);
     let slot = inspect_qualification_ticket_at_for_test(descriptor).expect("present");
-    let host = QualificationFaultHostState::admit_for_test(slot, true, Duration::from_secs(1))
-        .expect("pending host");
+    let host = QualificationFaultHostState::admit_for_test(
+        slot,
+        Some(protected_admission_for_test()),
+        Duration::from_secs(1),
+    )
+    .expect("pending host");
     let context = QualificationFaultContext::new(
         QualificationFaultSelector::DesktopProcess,
         QualificationProcessRole::Desktop,
@@ -104,7 +112,7 @@ fn drop_and_provenance_failure_close_inherited_descriptor() {
     let (rejected, _writer) = pipe_with(FRAME, false);
     let slot = inspect_qualification_ticket_at_for_test(rejected).expect("present");
     assert!(
-        QualificationFaultHostState::admit_for_test(slot, false, Duration::from_secs(1)).is_err()
+        QualificationFaultHostState::admit_for_test(slot, None, Duration::from_secs(1)).is_err()
     );
     assert!(descriptor_is_closed(rejected));
 }
@@ -137,8 +145,12 @@ fn rejects_non_channels_and_write_only_pipe_and_closes_them() {
     for descriptor in cases {
         let slot = inspect_qualification_ticket_at_for_test(descriptor).expect("present");
         assert!(
-            QualificationFaultHostState::admit_for_test(slot, true, Duration::from_millis(20))
-                .is_err()
+            QualificationFaultHostState::admit_for_test(
+                slot,
+                Some(protected_admission_for_test()),
+                Duration::from_millis(20),
+            )
+            .is_err()
         );
         assert!(descriptor_is_closed(descriptor));
     }
@@ -153,9 +165,13 @@ fn connected_socket_is_accepted_but_listener_is_rejected() {
     writer.shutdown(std::net::Shutdown::Write).expect("eof");
     let slot = inspect_qualification_ticket_at_for_test(descriptor).expect("present");
     assert!(
-        QualificationFaultHostState::admit_for_test(slot, true, Duration::from_secs(1))
-            .unwrap()
-            .has_pending_for_test()
+        QualificationFaultHostState::admit_for_test(
+            slot,
+            Some(protected_admission_for_test()),
+            Duration::from_secs(1),
+        )
+        .unwrap()
+        .has_pending_for_test()
     );
 
     let directory = tempfile::tempdir().expect("socket directory");
@@ -164,7 +180,12 @@ fn connected_socket_is_accepted_but_listener_is_rejected() {
     let descriptor = high_descriptor(listener);
     let slot = inspect_qualification_ticket_at_for_test(descriptor).expect("present");
     assert!(
-        QualificationFaultHostState::admit_for_test(slot, true, Duration::from_millis(20)).is_err()
+        QualificationFaultHostState::admit_for_test(
+            slot,
+            Some(protected_admission_for_test()),
+            Duration::from_millis(20),
+        )
+        .is_err()
     );
     assert!(descriptor_is_closed(descriptor));
 }
@@ -183,8 +204,12 @@ fn empty_oversized_trailing_and_malformed_frames_are_rejected() {
         let (descriptor, _writer) = pipe_with(bytes, false);
         let slot = inspect_qualification_ticket_at_for_test(descriptor).expect("present");
         assert!(
-            QualificationFaultHostState::admit_for_test(slot, true, Duration::from_secs(1))
-                .is_err()
+            QualificationFaultHostState::admit_for_test(
+                slot,
+                Some(protected_admission_for_test()),
+                Duration::from_secs(1),
+            )
+            .is_err()
         );
         assert!(descriptor_is_closed(descriptor));
     }
@@ -198,8 +223,12 @@ fn partial_and_would_block_inputs_fail_at_one_bounded_deadline() {
         let slot = inspect_qualification_ticket_at_for_test(descriptor).expect("present");
         let started = std::time::Instant::now();
         assert!(
-            QualificationFaultHostState::admit_for_test(slot, true, Duration::from_millis(20))
-                .is_err()
+            QualificationFaultHostState::admit_for_test(
+                slot,
+                Some(protected_admission_for_test()),
+                Duration::from_millis(20),
+            )
+            .is_err()
         );
         assert!(started.elapsed() < Duration::from_secs(1));
         assert!(descriptor_is_closed(descriptor));
@@ -213,6 +242,11 @@ fn descriptor_invalidated_after_inspection_is_rejected() {
     let slot = inspect_qualification_ticket_at_for_test(descriptor).expect("present");
     nix::unistd::close(descriptor).expect("invalidate");
     assert!(
-        QualificationFaultHostState::admit_for_test(slot, true, Duration::from_millis(20)).is_err()
+        QualificationFaultHostState::admit_for_test(
+            slot,
+            Some(protected_admission_for_test()),
+            Duration::from_millis(20),
+        )
+        .is_err()
     );
 }

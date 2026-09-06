@@ -47,14 +47,22 @@ NATIVE_QUALIFICATION_ADMISSION_ALLOWED = {
     Path("apps/desktop/src-tauri/src/lib_parts/run.rs"),
 }
 NATIVE_QUALIFICATION_ADMISSION_TOKEN = re.compile(
-    r"runne_native_qualification|PendingQualificationFault|"
-    r"QUALIFICATION_TICKET_DESCRIPTOR|admit_inherited_qualification_ticket"
+    r"runne_native_qualification|PendingQualificationFault|QualificationFaultHostState|"
+    r"QUALIFICATION_TICKET_DESCRIPTOR|admit_inherited_qualification_ticket|"
+    r"\bqualification_ticket\b"
 )
 NATIVE_QUALIFICATION_ADMISSION_FORBIDDEN_OWNER = re.compile(
     r"#\s*\[\s*tauri::command\s*\]|std::env::(?:var|args|args_os)\s*\(|"
     r"std::fs::(?:read|read_to_string|write|copy|rename|remove\w*)\s*\(|"
     r"File::(?:open|create)\s*\(|profile\.sqlite3|rusqlite|"
-    r"pub\s+fn\s+(?:bytes|as_bytes|serialize)\s*\("
+    r"pub\s+fn\s+(?:bytes|as_bytes|serialize)\s*\(|"
+    r"(?s:fn\s+(?:admit|admit_inherited_qualification_ticket)\b[^;{]*\bbool\b)"
+)
+NATIVE_QUALIFICATION_ADMISSION_FORBIDDEN_SETUP = re.compile(
+    r"(?s:(?:qualification_ticket|qualification_faults|QualificationFaultHostState)"
+    r"[^;{}]*(?:std::env|args_os|std::fs|File::|rusqlite|sqlite3)|"
+    r"(?:std::env|args_os|std::fs|File::|rusqlite|sqlite3)[^;{}]*"
+    r"(?:qualification_ticket|qualification_faults|QualificationFaultHostState))"
 )
 
 
@@ -171,6 +179,17 @@ def find_native_qualification_admission_surface_violations(root: Path) -> list[s
             ):
                 violations.append(
                     f"{relative.as_posix()} exposes forbidden qualification transport"
+                )
+            if (
+                relative
+                in {
+                    Path("apps/desktop/src-tauri/src/bundled_runtime.rs"),
+                    Path("apps/desktop/src-tauri/src/lib_parts/run.rs"),
+                }
+                and NATIVE_QUALIFICATION_ADMISSION_FORBIDDEN_SETUP.search(text)
+            ):
+                violations.append(
+                    f"{relative.as_posix()} acquires qualification input through forbidden setup surface"
                 )
     return violations
 

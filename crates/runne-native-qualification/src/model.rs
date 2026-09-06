@@ -169,9 +169,13 @@ impl PendingQualificationFault {
     ///
     /// # Errors
     ///
-    /// Rejects empty, oversized, malformed, noncanonical, or trailing input.
+    /// Rejects empty, oversized, noncanonical, trailing, or semantically invalid input.
     pub fn from_admitted_frame(bytes: Vec<u8>) -> Result<Self, QualificationFaultError> {
-        crate::wire::decode(&bytes)?;
+        let ticket = crate::wire::decode(&bytes)?;
+        crate::verification::validate_admitted_shape(
+            &ticket,
+            QualificationFaultError::InvalidTicket,
+        )?;
         Ok(Self { bytes })
     }
 

@@ -123,11 +123,23 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
             cases = (
                 ("renderer", "apps/desktop/src/page.ts", "PendingQualificationFault"),
                 ("cli", "crates/runne-cli/src/fault.rs", "runne_native_qualification"),
+                ("module alias", "apps/desktop/src-tauri/src/lib_parts/commands.rs", "use crate::bundled_runtime::qualification_ticket as faults;"),
+                ("host alias", "apps/desktop/src-tauri/src/lib_parts/commands.rs", "use crate::bundled_runtime::qualification_ticket::QualificationFaultHostState as Faults;"),
+                ("state access", "apps/desktop/src-tauri/src/lib_parts/commands.rs", "fn leak(_: tauri::State<'_, QualificationFaultHostState>) {}"),
                 ("tauri", "apps/desktop/src-tauri/src/qualification_ticket.rs", "#[tauri::command]"),
                 ("environment", "apps/desktop/src-tauri/src/qualification_ticket.rs", "std::env::var(\"RUNNE_DPK\")"),
                 ("argv", "apps/desktop/src-tauri/src/qualification_ticket.rs", "std::env::args_os()"),
                 ("file", "apps/desktop/src-tauri/src/qualification_ticket.rs", "std::fs::read(\"ticket\")"),
                 ("sqlite", "apps/desktop/src-tauri/src/qualification_ticket.rs", "profile.sqlite3"),
+                ("run env", "apps/desktop/src-tauri/src/lib_parts/run.rs", "let qualification_faults = std::env::var(\"TICKET\");"),
+                ("run argv", "apps/desktop/src-tauri/src/lib_parts/run.rs", "let qualification_faults =\n std::env::args_os();"),
+                ("run file", "apps/desktop/src-tauri/src/lib_parts/run.rs", "let qualification_ticket = std::fs::read(\"ticket\");"),
+                ("run sqlite", "apps/desktop/src-tauri/src/lib_parts/run.rs", "let qualification_faults = rusqlite::Connection::open(\"ticket.sqlite3\");"),
+                ("bundled env", "apps/desktop/src-tauri/src/bundled_runtime.rs", "let qualification_ticket = std::env::var(\"TICKET\");"),
+                ("bundled argv", "apps/desktop/src-tauri/src/bundled_runtime.rs", "let qualification_faults = std::env::args_os();"),
+                ("bundled file", "apps/desktop/src-tauri/src/bundled_runtime.rs", "let qualification_ticket = std::fs::read(\"ticket\");"),
+                ("bundled sqlite", "apps/desktop/src-tauri/src/bundled_runtime.rs", "let qualification_ticket = rusqlite::Connection::open(\"ticket.sqlite3\");"),
+                ("forgeable bool", "apps/desktop/src-tauri/src/qualification_ticket.rs", "fn admit(bundle_is_protected: bool) {}"),
                 ("raw getter", "apps/desktop/src-tauri/src/qualification_ticket.rs", "pub fn bytes(&self) -> &[u8] { &[] }"),
             )
             for label, relative, payload in cases:

@@ -186,6 +186,14 @@ impl crate::RuntimeLifecycleManager {
     }
 }
 
+impl BundledRuntimeController {
+    pub(crate) const fn qualification_ticket_admission(
+        &self,
+    ) -> qualification_ticket::ProtectedQualificationTicketAdmission<'_> {
+        qualification_ticket::ProtectedQualificationTicketAdmission::from_protected_discovery(self)
+    }
+}
+
 include!("bundled_runtime_parts/connect.rs");
 include!("bundled_runtime_parts/monitor.rs");
 #[path = "bundled_runtime_parts/restart_cleanup.rs"]

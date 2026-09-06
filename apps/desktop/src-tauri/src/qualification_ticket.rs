@@ -2,6 +2,7 @@
 
 use std::fs::{File, OpenOptions};
 use std::io::Read as _;
+use std::marker::PhantomData;
 use std::os::fd::{AsFd as _, AsRawFd as _, IntoRawFd, RawFd};
 use std::os::unix::fs::FileTypeExt as _;
 use std::sync::Mutex;
@@ -29,7 +30,19 @@ impl std::fmt::Display for QualificationTicketAdmissionError {
 }
 
 impl std::error::Error for QualificationTicketAdmissionError {}
-
+/// Unforgeable native proof that protected bundled discovery succeeded.
+pub struct ProtectedQualificationTicketAdmission<'owner> {
+    _owner: PhantomData<&'owner super::BundledRuntimeController>,
+}
+impl<'owner> ProtectedQualificationTicketAdmission<'owner> {
+    pub(super) const fn from_protected_discovery(
+        _owner: &'owner super::BundledRuntimeController,
+    ) -> Self {
+        Self {
+            _owner: PhantomData,
+        }
+    }
+}
 struct InheritedQualificationTicketSlot {
     descriptor: Option<RawFd>,
 }
@@ -161,13 +174,11 @@ pub struct QualificationFaultHostState {
 impl QualificationFaultHostState {
     fn admit(
         slot: InheritedQualificationTicketSlot,
-        protected_installed_admission: bool,
+        protected_installed_admission: Option<ProtectedQualificationTicketAdmission<'_>>,
         timeout: Duration,
     ) -> Result<Self, QualificationTicketAdmissionError> {
         let pending = if slot.is_present() {
-            if !protected_installed_admission {
-                return Err(QualificationTicketAdmissionError);
-            }
+            protected_installed_admission.ok_or(QualificationTicketAdmissionError)?;
             Some(slot.adopt_channel(timeout)?.read_pending()?)
         } else {
             None
@@ -197,7 +208,7 @@ impl QualificationFaultHostState {
     #[cfg(test)]
     fn admit_for_test(
         slot: InheritedQualificationTicketSlot,
-        protected_installed_admission: bool,
+        protected_installed_admission: Option<ProtectedQualificationTicketAdmission<'_>>,
         timeout: Duration,
     ) -> Result<Self, QualificationTicketAdmissionError> {
         Self::admit(slot, protected_installed_admission, timeout)
@@ -208,15 +219,21 @@ impl QualificationFaultHostState {
         self.pending.lock().is_ok_and(|pending| pending.is_some())
     }
 }
-
 pub fn admit_inherited_qualification_ticket(
-    protected_installed_admission: bool,
+    protected_installed_admission: Option<ProtectedQualificationTicketAdmission<'_>>,
 ) -> Result<QualificationFaultHostState, QualificationTicketAdmissionError> {
     QualificationFaultHostState::admit(
         InheritedQualificationTicketSlot::inspect()?,
         protected_installed_admission,
         QUALIFICATION_TICKET_TIMEOUT,
     )
+}
+
+#[cfg(test)]
+const fn protected_admission_for_test() -> ProtectedQualificationTicketAdmission<'static> {
+    ProtectedQualificationTicketAdmission {
+        _owner: PhantomData,
+    }
 }
 
 fn descriptor_path(descriptor: RawFd) -> String {

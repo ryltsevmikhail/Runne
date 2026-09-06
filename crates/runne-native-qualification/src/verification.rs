@@ -77,6 +77,45 @@ fn verify_ticket(
     now: u64,
     policy: &FaultVerificationPolicy,
 ) -> Result<VerifiedQualificationFault, QualificationFaultError> {
+    let shape = validate_admitted_shape(ticket, QualificationFaultError::InvalidTime)?;
+    valid_freshness(ticket.issued_at, ticket.expires_at, now)?;
+    verify_signature(ticket, policy, &shape)?;
+    if shape.selector != context.selector
+        || shape.process_role != context.process_role
+        || shape.candidate_sha256 != context.candidate_sha256
+        || shape.release_tuple_v3_sha256 != context.release_tuple_v3_sha256
+        || shape.source_revision != context.source_revision
+        || ticket.workflow_run_id != context.workflow_run_id
+        || shape.namespace_sha256 != context.namespace_sha256
+    {
+        return Err(QualificationFaultError::ContextMismatch);
+    }
+    Ok(VerifiedQualificationFault {
+        selector: shape.selector,
+        process_role: shape.process_role,
+        ticket_id: shape.ticket_id,
+        nonce: shape.nonce,
+        expires_at: ticket.expires_at,
+    })
+}
+
+pub struct AdmittedFaultTicketShape {
+    selector: QualificationFaultSelector,
+    process_role: QualificationProcessRole,
+    ticket_id: [u8; 32],
+    candidate_sha256: [u8; 32],
+    release_tuple_v3_sha256: [u8; 32],
+    source_revision: [u8; 20],
+    namespace_sha256: [u8; 32],
+    nonce: [u8; 32],
+    key_id: [u8; 32],
+    signature: [u8; 64],
+}
+
+pub fn validate_admitted_shape(
+    ticket: &FaultTicketWire,
+    time_error: QualificationFaultError,
+) -> Result<AdmittedFaultTicketShape, QualificationFaultError> {
     if ticket.schema_version != wire::SCHEMA_VERSION
         || ticket.signature.algorithm != "ed25519"
         || !valid_run_id(&ticket.workflow_run_id)
@@ -90,62 +129,59 @@ fn verify_ticket(
     if selector.process_role() != process_role {
         return Err(QualificationFaultError::InvalidTicket);
     }
-    let ticket_id = decode_hex::<32>(&ticket.ticket_id)?;
-    let candidate_sha256 = decode_hex::<32>(&ticket.candidate_sha256)?;
-    let release_tuple_v3_sha256 = decode_hex::<32>(&ticket.release_tuple_v3_sha256)?;
-    let source_revision = decode_hex::<20>(&ticket.source_revision)?;
-    let namespace_sha256 = decode_hex::<32>(&ticket.namespace_sha256)?;
-    let nonce = decode_base64url::<32>(&ticket.nonce)?;
-    valid_time(ticket.issued_at, ticket.expires_at, now)?;
-    verify_signature(ticket, policy)?;
-    if selector != context.selector
-        || process_role != context.process_role
-        || candidate_sha256 != context.candidate_sha256
-        || release_tuple_v3_sha256 != context.release_tuple_v3_sha256
-        || source_revision != context.source_revision
-        || ticket.workflow_run_id != context.workflow_run_id
-        || namespace_sha256 != context.namespace_sha256
-    {
-        return Err(QualificationFaultError::ContextMismatch);
-    }
-    Ok(VerifiedQualificationFault {
+    valid_time_shape(ticket.issued_at, ticket.expires_at, time_error)?;
+    Ok(AdmittedFaultTicketShape {
         selector,
         process_role,
-        ticket_id,
-        nonce,
-        expires_at: ticket.expires_at,
+        ticket_id: decode_hex::<32>(&ticket.ticket_id)?,
+        candidate_sha256: decode_hex::<32>(&ticket.candidate_sha256)?,
+        release_tuple_v3_sha256: decode_hex::<32>(&ticket.release_tuple_v3_sha256)?,
+        source_revision: decode_hex::<20>(&ticket.source_revision)?,
+        namespace_sha256: decode_hex::<32>(&ticket.namespace_sha256)?,
+        nonce: decode_base64url::<32>(&ticket.nonce)?,
+        key_id: decode_hex::<32>(&ticket.signature.key_id)?,
+        signature: decode_base64url::<64>(&ticket.signature.value)?,
     })
 }
 
 fn verify_signature(
     ticket: &FaultTicketWire,
     policy: &FaultVerificationPolicy,
+    shape: &AdmittedFaultTicketShape,
 ) -> Result<(), QualificationFaultError> {
-    let key_id = decode_hex::<32>(&ticket.signature.key_id)
-        .map_err(|_| QualificationFaultError::InvalidSignature)?;
-    if key_id != policy.key_id {
+    if shape.key_id != policy.key_id {
         return Err(QualificationFaultError::InvalidSignature);
     }
-    let signature = decode_base64url::<64>(&ticket.signature.value)
-        .map_err(|_| QualificationFaultError::InvalidSignature)?;
     policy
         .key
         .verify_strict(
             &wire::signing_payload(ticket)?,
-            &Signature::from_bytes(&signature),
+            &Signature::from_bytes(&shape.signature),
         )
         .map_err(|_| QualificationFaultError::InvalidSignature)
 }
 
-fn valid_time(issued_at: u64, expires_at: u64, now: u64) -> Result<(), QualificationFaultError> {
+fn valid_time_shape(
+    issued_at: u64,
+    expires_at: u64,
+    error: QualificationFaultError,
+) -> Result<(), QualificationFaultError> {
     let lifetime = expires_at.checked_sub(issued_at);
-    if now > MAX_SAFE_JSON_INTEGER
-        || issued_at > MAX_SAFE_JSON_INTEGER
+    if issued_at > MAX_SAFE_JSON_INTEGER
         || expires_at > MAX_SAFE_JSON_INTEGER
-        || issued_at > now
-        || expires_at <= now
         || lifetime.is_none_or(|value| value == 0 || value > MAX_TICKET_LIFETIME_SECONDS)
     {
+        return Err(error);
+    }
+    Ok(())
+}
+
+const fn valid_freshness(
+    issued_at: u64,
+    expires_at: u64,
+    now: u64,
+) -> Result<(), QualificationFaultError> {
+    if now > MAX_SAFE_JSON_INTEGER || issued_at > now || expires_at <= now {
         return Err(QualificationFaultError::InvalidTime);
     }
     Ok(())

@@ -122,8 +122,12 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         },
     };
     #[cfg(target_os = "macos")]
-    let qualification_faults = crate::bundled_runtime::qualification_ticket::
-        admit_inherited_qualification_ticket(monitor.is_some())?;
+    let qualification_faults =
+        crate::bundled_runtime::qualification_ticket::admit_inherited_qualification_ticket(
+            monitor
+                .as_deref()
+                .map(BundledRuntimeController::qualification_ticket_admission),
+        )?;
     let notification_core = Arc::clone(&core);
     let notification_state = Arc::new(crate::notifications::NotificationState::default());
     app.manage(profile_lock);
