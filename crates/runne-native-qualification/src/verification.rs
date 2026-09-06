@@ -87,7 +87,7 @@ fn verify_ticket(
         .ok_or(QualificationFaultError::InvalidTicket)?;
     let process_role = QualificationProcessRole::parse(&ticket.process_role)
         .ok_or(QualificationFaultError::InvalidTicket)?;
-    if selector.expected_role() != process_role {
+    if selector.process_role() != process_role {
         return Err(QualificationFaultError::InvalidTicket);
     }
     let ticket_id = decode_hex::<32>(&ticket.ticket_id)?;

@@ -24,6 +24,15 @@ NATIVE_QUALIFICATION_FORBIDDEN_SOURCE = re.compile(
 NATIVE_QUALIFICATION_PROOF = re.compile(
     r"(?s)(?P<attributes>(?:\s*#\[[^]]+\]\s*)*)pub\s+struct\s+VerifiedQualificationFault\b"
 )
+NATIVE_QUALIFICATION_FORBIDDEN_PROOF_IMPL = re.compile(
+    r"\bimpl(?:\s*<[^>{}]*>)?\s+"
+    r"(?:"
+    r"(?:(?:::)?(?:std|core)\s*::\s*clone\s*::\s*)?Clone"
+    r"|(?:(?:::)?(?:std|core)\s*::\s*marker\s*::\s*)?Copy"
+    r"|(?:(?:::)?serde\s*::\s*(?:ser\s*::\s*)?)?Serialize"
+    r"|(?:(?:::)?serde\s*::\s*(?:de\s*::\s*)?)?Deserialize(?:\s*<[^>{}]*>)?"
+    r")\s+for\s+(?:::)?(?:[A-Za-z_]\w*\s*::\s*)*VerifiedQualificationFault\b"
+)
 
 
 def find_native_qualification_dependency_violations(packages: list[dict]) -> list[str]:
@@ -86,9 +95,11 @@ def find_native_qualification_violations(root: Path) -> list[str]:
         if NATIVE_QUALIFICATION_FORBIDDEN_SOURCE.search(text):
             violations.append(f"{path.relative_to(root).as_posix()} has forbidden authority surface")
         match = NATIVE_QUALIFICATION_PROOF.search(text)
-        if match and any(
+        derived_reusable = match and any(
             name in match.group("attributes")
             for name in ("Clone", "Copy", "Serialize", "Deserialize")
-        ):
+        )
+        manually_reusable = NATIVE_QUALIFICATION_FORBIDDEN_PROOF_IMPL.search(text)
+        if derived_reusable or manually_reusable:
             violations.append(f"{path.relative_to(root).as_posix()} makes verified fault reusable")
     return violations

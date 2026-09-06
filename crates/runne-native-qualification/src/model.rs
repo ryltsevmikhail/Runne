@@ -30,6 +30,50 @@ pub enum QualificationFaultSelector {
 }
 
 impl QualificationFaultSelector {
+    /// Returns the exact canonical selector written into a fault ticket.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::BeforeServiceConsume => "kill_before_service_consume",
+            Self::AfterServiceConsume => "kill_after_service_consume",
+            Self::BeforeNativeEffect => "kill_before_native_effect",
+            Self::AfterNativeEffect => "kill_after_native_effect",
+            Self::BeforeReadback => "kill_before_readback",
+            Self::AfterReadback => "kill_after_readback",
+            Self::BeforeReply => "kill_before_reply",
+            Self::AfterReply => "kill_after_reply",
+            Self::BeforeLifecycleCas => "kill_before_lifecycle_cas",
+            Self::AfterLifecycleCas => "kill_after_lifecycle_cas",
+            Self::DesktopProcess => "kill_desktop_process",
+            Self::WriterProcess => "kill_writer_process",
+            Self::RuntimeProcess => "kill_runtime_process",
+            Self::ServiceLaunchdRestart => "kill_service_launchd_restart",
+            Self::RegistrationAckLoss => "kill_registration_ack_loss",
+        }
+    }
+
+    /// Returns the only process role allowed to consume this selector.
+    #[must_use]
+    pub const fn process_role(self) -> QualificationProcessRole {
+        match self {
+            Self::DesktopProcess => QualificationProcessRole::Desktop,
+            Self::WriterProcess => QualificationProcessRole::Writer,
+            Self::BeforeLifecycleCas | Self::AfterLifecycleCas | Self::RuntimeProcess => {
+                QualificationProcessRole::Runtime
+            }
+            Self::BeforeServiceConsume
+            | Self::AfterServiceConsume
+            | Self::BeforeNativeEffect
+            | Self::AfterNativeEffect
+            | Self::BeforeReadback
+            | Self::AfterReadback
+            | Self::BeforeReply
+            | Self::AfterReply
+            | Self::ServiceLaunchdRestart
+            | Self::RegistrationAckLoss => QualificationProcessRole::Service,
+        }
+    }
+
     pub(super) fn parse(value: &str) -> Option<Self> {
         Some(match value {
             "kill_before_service_consume" => Self::BeforeServiceConsume,
@@ -49,26 +93,6 @@ impl QualificationFaultSelector {
             "kill_registration_ack_loss" => Self::RegistrationAckLoss,
             _ => return None,
         })
-    }
-
-    pub(super) const fn expected_role(self) -> QualificationProcessRole {
-        match self {
-            Self::DesktopProcess => QualificationProcessRole::Desktop,
-            Self::WriterProcess => QualificationProcessRole::Writer,
-            Self::BeforeLifecycleCas | Self::AfterLifecycleCas | Self::RuntimeProcess => {
-                QualificationProcessRole::Runtime
-            }
-            Self::BeforeServiceConsume
-            | Self::AfterServiceConsume
-            | Self::BeforeNativeEffect
-            | Self::AfterNativeEffect
-            | Self::BeforeReadback
-            | Self::AfterReadback
-            | Self::BeforeReply
-            | Self::AfterReply
-            | Self::ServiceLaunchdRestart
-            | Self::RegistrationAckLoss => QualificationProcessRole::Service,
-        }
     }
 }
 

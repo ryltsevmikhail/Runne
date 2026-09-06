@@ -50,6 +50,33 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
                     [], architecture.find_native_qualification_violations(root), forbidden
                 )
 
+    def test_rejects_manual_reusable_proof_trait_implementations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "crates/runne-native-qualification/src/lib.rs"
+            source.parent.mkdir(parents=True)
+            implementations = (
+                "impl Clone for VerifiedQualificationFault { fn clone(&self) -> Self { todo!() } }",
+                "impl ::core::marker::Copy for VerifiedQualificationFault {}",
+                "impl std :: clone :: Clone for VerifiedQualificationFault { fn clone(&self) -> Self { todo!() } }",
+                "impl serde::Serialize for VerifiedQualificationFault { fn serialize<S>(&self, _: S) -> Result<S::Ok, S::Error> where S: serde::Serializer { todo!() } }",
+                "impl serde :: ser :: Serialize for VerifiedQualificationFault { fn serialize<S>(&self, _: S) -> Result<S::Ok, S::Error> where S: serde::Serializer { todo!() } }",
+                "use serde::Serialize; impl Serialize for VerifiedQualificationFault { fn serialize<S>(&self, _: S) -> Result<S::Ok, S::Error> where S: serde::Serializer { todo!() } }",
+                "impl<'de> ::serde::Deserialize<'de> for VerifiedQualificationFault { fn deserialize<D>(_: D) -> Result<Self, D::Error> where D: serde::Deserializer<'de> { todo!() } }",
+                "impl <'de> serde :: de :: Deserialize <'de> for VerifiedQualificationFault { fn deserialize<D>(_: D) -> Result<Self, D::Error> where D: serde::Deserializer<'de> { todo!() } }",
+                "impl Clone for crate :: VerifiedQualificationFault { fn clone(&self) -> Self { todo!() } }",
+                "impl serde::Serialize for crate :: model :: VerifiedQualificationFault { fn serialize<S>(&self, _: S) -> Result<S::Ok, S::Error> where S: serde::Serializer { todo!() } }",
+            )
+            for implementation in implementations:
+                with self.subTest(implementation=implementation):
+                    source.write_text(
+                        "pub struct VerifiedQualificationFault;\n" + implementation,
+                        encoding="utf-8",
+                    )
+                    self.assertNotEqual(
+                        [], architecture.find_native_qualification_violations(root)
+                    )
+
     @classmethod
     def package(cls):
         rows = [

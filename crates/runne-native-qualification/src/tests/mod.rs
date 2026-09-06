@@ -1,4 +1,5 @@
 mod rejection;
+mod selector_parity;
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::{Signer as _, SigningKey};
@@ -134,4 +135,27 @@ fn compiled_policy_is_unavailable_without_build_time_key() {
 fn malformed_compile_time_policy_is_unavailable() {
     assert!(crate::compiled_policy::decode_policy(Some("not+base64/"), Some("00")).is_none());
     assert!(crate::compiled_policy::decode_policy(Some("AAAA"), Some("00")).is_none());
+}
+
+#[test]
+fn canonical_compile_time_policy_decodes_and_rejects_substitutions() {
+    let key = SigningKey::from_bytes(&[7; 32]).verifying_key();
+    let encoded_key = URL_SAFE_NO_PAD.encode(key.as_bytes());
+    let key_id = hex::encode(Sha256::digest(key.as_bytes()));
+    let policy = crate::compiled_policy::decode_policy(Some(&encoded_key), Some(&key_id))
+        .expect("canonical policy");
+    assert_eq!(policy.key.as_bytes(), key.as_bytes());
+    assert_eq!(hex::encode(policy.key_id), key_id);
+
+    let wrong_key_id = "00".repeat(32);
+    assert!(
+        crate::compiled_policy::decode_policy(Some(&encoded_key), Some(&wrong_key_id)).is_none()
+    );
+    assert!(
+        crate::compiled_policy::decode_policy(Some(&encoded_key), Some(&key_id.to_uppercase()))
+            .is_none()
+    );
+    assert!(
+        crate::compiled_policy::decode_policy(Some(&(encoded_key + "=")), Some(&key_id)).is_none()
+    );
 }
