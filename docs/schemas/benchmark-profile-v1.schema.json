@@ -9,7 +9,7 @@
     "schema_version": {"const": "runne.benchmark.profile/1"},
     "contract_id": {"const": "runne-benchmark-v1"},
     "profile_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{2,63}$"},
-    "frozen_at": {"type": "string", "format": "date-time"},
+    "frozen_at": {"type": "string", "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
     "source": {
       "type": "object",
       "additionalProperties": false,

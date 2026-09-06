@@ -9,13 +9,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from .artifacts import artifact_sha256, load_trusted_schema
+from .artifacts import load_trusted_schema
 from .journey import JOURNEYS, validate_journey
 from .validation import (
     ContractError,
     choice as _choice,
     integer as _integer,
     load_verified_json,
+    load_verified_json_with_digest,
     object_exact as _object,
     text as _text,
 )
@@ -244,15 +245,16 @@ def verify_contract(root: pathlib.Path) -> dict[str, Any]:
         load_trusted_schema(schema_path, name)
     journey_digests: dict[str, str] = {}
     for path in sorted((benchmark / "journeys").glob("*.json")):
-        journey = load_verified_json(path)
+        journey, journey_digest = load_verified_json_with_digest(path)
         journey_id = validate_journey(journey, path.name)
         if journey_id in journey_digests:
             raise ContractError("journeys: duplicate journey_id")
-        journey_digests[journey_id] = artifact_sha256(path)
+        journey_digests[journey_id] = journey_digest
     if set(journey_digests) != JOURNEYS:
         raise ContractError("journeys: exact three specs required")
     profile_path = benchmark / "benchmark-profile-v1.json"
-    profile = validate_profile(load_verified_json(profile_path))
+    profile_value, profile_digest = load_verified_json_with_digest(profile_path)
+    profile = validate_profile(profile_value)
     for case in profile.value["cases"]:
         if case["journey_spec_sha256"] != journey_digests[case["journey_id"]]:
             raise ContractError(f"{case['case_id']}: journey digest mismatch")
@@ -273,7 +275,7 @@ def verify_contract(root: pathlib.Path) -> dict[str, Any]:
     cohort = load_verified_json(benchmark / "fixtures/complete-cohort-v1.json")
     outcomes = validate_cohort_envelope(
         cohort,
-        artifact_sha256(profile_path),
+        profile_digest,
     )
     from .aggregate import summarize
 

@@ -4,10 +4,12 @@ import pathlib
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 from scripts.benchmark_v1.contract import (
     ContractError,
     load_verified_json,
+    load_verified_json_with_digest,
     validate_profile,
     verify_contract,
 )
@@ -41,6 +43,25 @@ class BenchmarkV1StrictnessTests(unittest.TestCase):
                 with self.assertRaisesRegex(ContractError, "malformed JSON"):
                     load_verified_json(path, require_sidecar=False)
 
+    def test_deep_json_returns_bounded_contract_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "deep.json"
+            path.write_text("[" * 200_000 + "0" + "]" * 200_000, encoding="utf-8")
+            with self.assertRaisesRegex(ContractError, "malformed JSON"):
+                load_verified_json(path, require_sidecar=False)
+
+    def test_value_and_digest_are_computed_from_one_read(self) -> None:
+        payload = b'{"value":1}\n'
+        path = pathlib.Path("ignored.json")
+        with mock.patch.object(pathlib.Path, "read_bytes", return_value=payload) as read:
+            value, digest = load_verified_json_with_digest(
+                path,
+                require_sidecar=False,
+            )
+        self.assertEqual(value, {"value": 1})
+        self.assertEqual(digest, hashlib.sha256(payload).hexdigest())
+        self.assertEqual(read.call_count, 1)
+
     def test_duplicate_and_unknown_keys_are_not_echoed(self) -> None:
         secret_key = "secret\x1b[31mkey"
         with tempfile.TemporaryDirectory() as directory:
@@ -73,6 +94,19 @@ class BenchmarkV1StrictnessTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ContractError, "trusted schema digest mismatch"):
                 verify_contract(root)
+
+    def test_timestamp_schema_and_verifier_share_canonical_utc_format(self) -> None:
+        schema = load_verified_json(
+            ROOT / "docs/schemas/benchmark-profile-v1.schema.json"
+        )
+        expected = "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        self.assertEqual(schema["properties"]["frozen_at"]["pattern"], expected)
+
+        profile = load_verified_json(PROFILE)
+        validate_profile(profile)
+        profile["frozen_at"] = "2026-09-06T00:00:00.000Z"
+        with self.assertRaisesRegex(ContractError, "invalid format"):
+            validate_profile(profile)
 
     def test_journeys_define_specific_machine_boundaries(self) -> None:
         expected_checks = {

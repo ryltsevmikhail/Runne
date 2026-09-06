@@ -8,10 +8,10 @@ import pathlib
 import sys
 
 from .aggregate import summarize
-from .artifacts import artifact_sha256
 from .contract import (
     ContractError,
     load_verified_json,
+    load_verified_json_with_digest,
     validate_cohort_envelope,
     validate_profile,
     verify_contract,
@@ -32,11 +32,12 @@ def main(argv: list[str] | None = None) -> int:
             result = verify_contract(arguments.root.resolve())
         else:
             profile_path = arguments.profile.resolve()
-            profile = validate_profile(load_verified_json(profile_path))
+            profile_value, profile_digest = load_verified_json_with_digest(profile_path)
+            profile = validate_profile(profile_value)
             cohort = load_verified_json(arguments.outcomes.resolve())
             outcomes = validate_cohort_envelope(
                 cohort,
-                artifact_sha256(profile_path),
+                profile_digest,
             )
             result = summarize(profile, outcomes)
     except ContractError as error:
