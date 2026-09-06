@@ -233,7 +233,9 @@ fn audit_method(method: &ImplItemFn, source: &str, audit: &mut Audit<'_>) {
     }
     let name = ident_name(&method.sig.ident);
     *audit.methods.entry(name.clone()).or_default() += 1;
-    let exact = matches!(method.vis, Visibility::Public(_))
+    let exact_visibility = matches!(method.vis, Visibility::Public(_))
+        || (name == "matches_sha256" && matches!(method.vis, Visibility::Restricted(_)));
+    let exact = exact_visibility
         && !ident_is_raw(&method.sig.ident)
         && method
             .attrs
@@ -260,6 +262,7 @@ fn signatures_match(actual: &syn::Signature, expected: &syn::Signature) -> bool 
 
 fn expected_signatures() -> BTreeMap<String, syn::Signature> {
     [
+        "pub(crate) fn matches_sha256(&self, expected: &[u8; 32]) -> bool {}",
         "pub fn from_admitted_frame(bytes: Vec<u8>) -> Result<Self, QualificationFaultError> {}",
         "pub fn verify_and_consume(self, verifier: &mut crate::QualificationFaultVerifier, context: &QualificationFaultContext, now_unix_seconds: u64) -> Result<VerifiedQualificationFault, QualificationFaultError> {}",
         "pub fn encode_relay(self, codec: &crate::QualificationFaultRelayCodecV1, binding: &runne_api::QualificationFaultRelayBindingV1) -> Result<Vec<u8>, crate::QualificationFaultRelayError> {}",

@@ -1,5 +1,9 @@
 #[path = "support/authority_surface_audit.rs"]
 mod authority_surface_audit;
+#[path = "support/authority_surface_expected.rs"]
+mod authority_surface_expected;
+#[path = "support/authority_surface_types.rs"]
+mod authority_surface_types;
 #[path = "support/authority_use_audit.rs"]
 mod authority_use_audit;
 
@@ -28,14 +32,20 @@ impl QualificationRunContextVerifier {
 /// Pending context.
 pub struct PendingQualificationRunContext { bytes: Vec<u8> }
 /// Ordered output.
-pub struct QualificationAdmissionRelayPair { frames: [Vec<u8>; 2] }
-impl QualificationAdmissionRelayPair { pub fn into_ordered_frames(self) -> [Vec<u8>; 2] { self.frames } }
+pub struct QualificationAdmissionRelayTranscript { bytes: Vec<u8> }
+impl QualificationAdmissionRelayTranscript { pub fn into_bytes(self) -> Vec<u8> { self.bytes } }
 /// Context codec.
 pub struct QualificationRunContextRelayCodecV1 { inner: K }
 impl QualificationRunContextRelayCodecV1 {
   pub fn from_protected_activation(keys: &ProtectedActivationKeys) -> Self { todo!() }
   pub fn recognizes_frame(frame: &[u8]) -> bool { todo!() }
   pub fn decode(&self, frame: &[u8], expected: &QualificationRunContextRelayBindingV1) -> Result<PendingQualificationRunContext, QualificationRunContextRelayError> { todo!() }
+}
+/// Combined codec.
+pub struct QualificationAdmissionRelayCodecV1 { inner: K }
+impl QualificationAdmissionRelayCodecV1 {
+  pub fn from_protected_activation(keys: &ProtectedActivationKeys) -> Self { todo!() }
+  pub fn decode_transcript(&self, bytes: &[u8], context_binding: &QualificationRunContextRelayBindingV1, fault_binding: &QualificationFaultRelayBindingV1) -> Result<PendingQualificationAdmission, QualificationAdmissionRelayError> { todo!() }
 }
 ";
 
@@ -69,19 +79,18 @@ fn surface_auditor_rejects_alias_trait_wrapper_getter_and_borrowed_mutations() {
         format!("{BASELINE}\npub use crate::QualificationRunContextVerifier as VerifierLeak;"),
         format!("{BASELINE}\npub use crate::PendingQualificationAdmission as AdmissionLeak;"),
         format!("{BASELINE}\npub type ContextLeak = PendingQualificationRunContext;"),
-        format!("{BASELINE}\npub struct PairLeak {{ inner: QualificationAdmissionRelayPair }}"),
+        format!(
+            "{BASELINE}\npub struct PairLeak {{ inner: QualificationAdmissionRelayTranscript }}"
+        ),
         BASELINE.replace(
             "pub struct PendingQualificationRunContext",
             "#[derive(Clone)] pub struct PendingQualificationRunContext",
         ),
         BASELINE.replace(
-            "pub struct QualificationAdmissionRelayPair",
-            "#[derive(Debug)] pub struct QualificationAdmissionRelayPair",
+            "pub struct QualificationAdmissionRelayTranscript",
+            "#[derive(Debug)] pub struct QualificationAdmissionRelayTranscript",
         ),
-        BASELINE.replace(
-            "pub fn into_ordered_frames(self)",
-            "pub fn into_ordered_frames(&self)",
-        ),
+        BASELINE.replace("pub fn into_bytes(self)", "pub fn into_bytes(&self)"),
         format!(
             "{BASELINE}\nimpl PendingQualificationRunContext {{ pub fn bytes(&self) -> &[u8] {{ &self.bytes }} }}"
         ),
@@ -130,4 +139,55 @@ fn surface_auditor_rejects_transitive_glob_and_public_module_aliases() {
         })
         .collect::<Vec<_>>();
     assert!(escaped.is_empty(), "mutations escaped audit: {escaped:?}");
+}
+
+#[test]
+fn surface_auditor_recursively_rejects_every_context_relay_escape_shape() {
+    let mutations = [
+        format!("{BASELINE}\npub trait Leak {{ fn take(value: PendingQualificationRunContext); }}"),
+        format!("{BASELINE}\npub trait Leak = Iterator<Item = PendingQualificationRunContext>;"),
+        format!(
+            "{BASELINE}\nunsafe extern \"C\" {{ pub fn leak(value: PendingQualificationRunContext); }}"
+        ),
+        format!(
+            "{BASELINE}\nstruct Owner; impl Owner {{ pub fn leak(&self, value: Option<Box<PendingQualificationRunContext>>) {{}} }}"
+        ),
+        format!(
+            "{BASELINE}\npub union Leak {{ value: std::mem::ManuallyDrop<PendingQualificationRunContext> }}"
+        ),
+        format!(
+            "{BASELINE}\npub struct Leak {{ value: Option<Box<PendingQualificationRunContext>> }}"
+        ),
+        format!("{BASELINE}\npub const LEAK: Option<PendingQualificationRunContext> = None;"),
+        format!("{BASELINE}\npub static LEAK: Option<PendingQualificationRunContext> = None;"),
+        format!(
+            "{BASELINE}\nimpl IntoIterator for QualificationAdmissionRelayTranscript {{ type Item = Vec<u8>; type IntoIter = std::vec::IntoIter<Vec<u8>>; fn into_iter(self) -> Self::IntoIter {{ todo!() }} }}"
+        ),
+        format!(
+            "{BASELINE}\nimpl std::ops::Index<usize> for QualificationAdmissionRelayTranscript {{ type Output = [u8]; fn index(&self, _: usize) -> &Self::Output {{ todo!() }} }}"
+        ),
+        format!(
+            "{BASELINE}\nimpl QualificationAdmissionRelayTranscript {{ pub fn first(&self) -> &[u8] {{ &self.bytes }} }}"
+        ),
+        format!(
+            "{BASELINE}\nimpl QualificationAdmissionRelayTranscript {{ pub fn into_frames(self) -> [Vec<u8>; 2] {{ todo!() }} }}"
+        ),
+        format!("{BASELINE}\npub use crate::pending_context::*;"),
+        format!(
+            "{BASELINE}\npub mod exposed {{ pub use crate::PendingQualificationRunContext as Renamed; }}"
+        ),
+        format!("{BASELINE}\n#[path = \"outside.rs\"] mod substituted;"),
+        BASELINE.replace(
+            "pub struct PendingQualificationRunContext",
+            "pub struct r#PendingQualificationRunContext",
+        ),
+    ];
+    let escaped = mutations
+        .iter()
+        .filter(|mutation| audit_sources(&[("mutation.rs", mutation)]).is_empty())
+        .count();
+    assert_eq!(
+        escaped, 0,
+        "context relay escape mutations must all be rejected"
+    );
 }

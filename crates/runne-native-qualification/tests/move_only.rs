@@ -1,8 +1,8 @@
 use runne_native_qualification::{
     PendingQualificationAdmission, PendingQualificationFault, PendingQualificationRunContext,
-    QualificationAdmissionRelayPair, QualificationFaultRelayCodecV1,
-    QualificationRunContextRelayCodecV1, QualificationRunContextVerifier,
-    VerifiedQualificationFault, VerifiedQualificationRunContext,
+    QualificationAdmissionRelayCodecV1, QualificationAdmissionRelayTranscript,
+    QualificationFaultRelayCodecV1, QualificationRunContextRelayCodecV1,
+    QualificationRunContextVerifier, VerifiedQualificationFault, VerifiedQualificationRunContext,
 };
 
 // This is the authoritative spelling-independent invariant. Any internal
@@ -61,7 +61,15 @@ static_assertions::assert_not_impl_any!(
         serde::Deserialize<'static>
 );
 static_assertions::assert_not_impl_any!(
-    QualificationAdmissionRelayPair:
+    QualificationAdmissionRelayTranscript:
+        Clone,
+        Copy,
+        std::fmt::Debug,
+        serde::Serialize,
+        serde::Deserialize<'static>
+);
+static_assertions::assert_not_impl_any!(
+    QualificationAdmissionRelayCodecV1:
         Clone,
         Copy,
         std::fmt::Debug,

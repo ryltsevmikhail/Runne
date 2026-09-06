@@ -4,8 +4,8 @@ use syn::{ImplItem, Item, Type, UseTree, Visibility};
 
 use crate::pending_surface_aliases::{Alias, ident_name, type_name};
 use crate::pending_surface_allowlist::{
-    exact_admission_impl, exact_admission_reexport, exact_admission_struct, exact_reexport,
-    exact_relay_decode,
+    exact_admission_impl, exact_admission_reexport, exact_admission_relay_method,
+    exact_admission_struct, exact_reexport, exact_relay_decode,
 };
 use crate::pending_surface_types::{
     foreign_mod_contains, path_contains, signature_contains, trait_alias_contains, trait_contains,
@@ -232,6 +232,7 @@ fn audit_impl(
             ImplItem::Fn(method) if signature_contains(&method.sig, family) => {
                 if depth == 0 && exact_relay_decode(item, method, source) {
                     audit.relay_decode += 1;
+                } else if depth == 0 && exact_admission_relay_method(item, method, source) {
                 } else {
                     audit.violations.push(format!(
                         "{source}: associated function carries pending state"

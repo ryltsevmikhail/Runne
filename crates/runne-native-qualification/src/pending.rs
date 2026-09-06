@@ -1,6 +1,7 @@
 use crate::model::{
     QualificationFaultContext, QualificationFaultError, VerifiedQualificationFault,
 };
+use sha2::{Digest as _, Sha256};
 
 /// Opaque canonical ticket retained between native admission and exact use.
 pub struct PendingQualificationFault {
@@ -8,6 +9,10 @@ pub struct PendingQualificationFault {
 }
 
 impl PendingQualificationFault {
+    pub(crate) fn matches_sha256(&self, expected: &[u8; 32]) -> bool {
+        Sha256::digest(&self.bytes).as_slice() == expected
+    }
+
     /// Retains one already-admitted canonical ticket frame without verifying
     /// authority or context.
     ///

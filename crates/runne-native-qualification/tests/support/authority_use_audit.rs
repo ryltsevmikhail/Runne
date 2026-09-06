@@ -4,7 +4,8 @@ const SENSITIVE: &[&str] = &[
     "VerifiedQualificationRunContext",
     "PendingQualificationAdmission",
     "PendingQualificationRunContext",
-    "QualificationAdmissionRelayPair",
+    "QualificationAdmissionRelayTranscript",
+    "QualificationAdmissionRelayCodecV1",
     "QualificationRunContextRelayCodecV1",
     "QualificationRunContextVerifier",
     "PendingQualificationFault",
@@ -82,7 +83,8 @@ fn exact_root_reexport(source: &str, item: &syn::ItemUse) -> bool {
     }
     let allowed = [
         "pub use admission::{PendingQualificationAdmission, QualificationAdmissionError};",
-        "pub use admission_relay::{QualificationAdmissionRelayError, QualificationAdmissionRelayPair};",
+        "pub use admission_relay::{QualificationAdmissionRelayError, QualificationAdmissionRelayTranscript,};",
+        "pub use admission_relay_codec::QualificationAdmissionRelayCodecV1;",
         "pub use context_model::{QualificationRunContextError, QualificationRunContextExpectation, QualificationScenario, VerifiedQualificationRunContext,};",
         "pub use context_verification::QualificationRunContextVerifier;",
         "pub use context_relay::{QualificationRunContextRelayCodecV1, QualificationRunContextRelayError};",

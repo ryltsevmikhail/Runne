@@ -1,6 +1,6 @@
 use std::fmt;
 
-/// Closed rejection while turning one admitted pair into ordered relay frames.
+/// Closed rejection for one exact ordered admission relay transcript.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct QualificationAdmissionRelayError;
 
@@ -12,21 +12,19 @@ impl fmt::Display for QualificationAdmissionRelayError {
 
 impl std::error::Error for QualificationAdmissionRelayError {}
 
-/// Opaque move-only runner-context-then-fault relay output.
-pub struct QualificationAdmissionRelayPair {
-    frames: [Vec<u8>; 2],
+/// Opaque move-only context-then-fault relay transcript.
+pub struct QualificationAdmissionRelayTranscript {
+    bytes: Vec<u8>,
 }
 
-impl QualificationAdmissionRelayPair {
-    pub(crate) const fn new(context: Vec<u8>, fault: Vec<u8>) -> Self {
-        Self {
-            frames: [context, fault],
-        }
+impl QualificationAdmissionRelayTranscript {
+    pub(crate) const fn new(bytes: Vec<u8>) -> Self {
+        Self { bytes }
     }
 
-    /// Consumes the pair into its only exact context-first ordered output.
+    /// Consumes the transcript into its single exact transport byte sequence.
     #[must_use]
-    pub fn into_ordered_frames(self) -> [Vec<u8>; 2] {
-        self.frames
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.bytes
     }
 }

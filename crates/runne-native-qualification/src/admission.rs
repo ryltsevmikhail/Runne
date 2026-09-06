@@ -4,7 +4,8 @@ use sha2::{Digest as _, Sha256};
 
 use crate::{
     MAX_ADMISSION_BUNDLE_BYTES, PendingQualificationFault, PendingQualificationRunContext,
-    QualificationAdmissionRelayError, QualificationAdmissionRelayPair,
+    QualificationAdmissionRelayCodecV1, QualificationAdmissionRelayError,
+    QualificationAdmissionRelayTranscript,
 };
 
 const MAGIC: &[u8; 8] = b"RNQADM1\0";
@@ -89,36 +90,26 @@ impl PendingQualificationAdmission {
         })
     }
 
-    /// Consumes the admitted pair into one exact context-first relay pair.
+    /// Consumes the admitted pair into one exact context-first transcript.
     ///
     /// # Errors
     ///
     /// Rejects mismatched protected sessions, release tuples, generations,
     /// non-Desktop fault direction, or either closed relay encoding failure.
-    pub fn encode_relays(
+    pub fn encode_relay_transcript(
         self,
-        context_codec: &crate::QualificationRunContextRelayCodecV1,
+        codec: &QualificationAdmissionRelayCodecV1,
         context_binding: &runne_api::QualificationRunContextRelayBindingV1,
-        fault_codec: &crate::QualificationFaultRelayCodecV1,
         fault_binding: &runne_api::QualificationFaultRelayBindingV1,
-    ) -> Result<QualificationAdmissionRelayPair, QualificationAdmissionRelayError> {
-        if context_binding.protected_session_id() != fault_binding.protected_session_id()
-            || context_binding.release_tuple_v3_sha256() != fault_binding.release_tuple_v3_sha256()
-            || context_binding.launch_generation() != fault_binding.launch_generation()
-            || fault_binding.direction()
-                != runne_api::QualificationFaultRelayDirectionV1::DesktopToRuntime
-        {
-            return Err(QualificationAdmissionRelayError);
-        }
-        let context = self
-            .context
-            .encode_relay(context_codec, context_binding)
-            .map_err(|_| QualificationAdmissionRelayError)?;
-        let fault = self
-            .fault
-            .encode_relay(fault_codec, fault_binding)
-            .map_err(|_| QualificationAdmissionRelayError)?;
-        Ok(QualificationAdmissionRelayPair::new(context, fault))
+    ) -> Result<QualificationAdmissionRelayTranscript, QualificationAdmissionRelayError> {
+        codec.encode(self.context, self.fault, context_binding, fault_binding)
+    }
+
+    pub(crate) const fn from_relay_members(
+        context: PendingQualificationRunContext,
+        fault: PendingQualificationFault,
+    ) -> Self {
+        Self { context, fault }
     }
 }
 

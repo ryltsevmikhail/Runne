@@ -4,6 +4,7 @@
 
 mod admission;
 mod admission_relay;
+mod admission_relay_codec;
 mod compiled_policy;
 mod context_model;
 mod context_policy;
@@ -18,7 +19,10 @@ mod verification;
 mod wire;
 
 pub use admission::{PendingQualificationAdmission, QualificationAdmissionError};
-pub use admission_relay::{QualificationAdmissionRelayError, QualificationAdmissionRelayPair};
+pub use admission_relay::{
+    QualificationAdmissionRelayError, QualificationAdmissionRelayTranscript,
+};
+pub use admission_relay_codec::QualificationAdmissionRelayCodecV1;
 pub use context_model::{
     QualificationRunContextError, QualificationRunContextExpectation, QualificationScenario,
     VerifiedQualificationRunContext,

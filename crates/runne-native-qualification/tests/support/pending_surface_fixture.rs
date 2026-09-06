@@ -3,6 +3,7 @@ use crate::pending_surface_audit::audit_sources;
 pub const BASELINE: &str = r"
 pub struct PendingQualificationFault { bytes: Vec<u8> }
 impl PendingQualificationFault {
+    pub(crate) fn matches_sha256(&self, expected: &[u8; 32]) -> bool { todo!() }
     pub fn from_admitted_frame(bytes: Vec<u8>) -> Result<Self, QualificationFaultError> { todo!() }
     pub fn verify_and_consume(self, verifier: &mut crate::QualificationFaultVerifier, context: &QualificationFaultContext, now_unix_seconds: u64) -> Result<VerifiedQualificationFault, QualificationFaultError> { todo!() }
     pub fn encode_relay(self, codec: &crate::QualificationFaultRelayCodecV1, binding: &runne_api::QualificationFaultRelayBindingV1) -> Result<Vec<u8>, crate::QualificationFaultRelayError> { todo!() }

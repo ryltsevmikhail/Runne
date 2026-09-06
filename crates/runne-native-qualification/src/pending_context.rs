@@ -1,6 +1,7 @@
 /// Opaque canonical runner context retained after authenticated relay admission.
 pub struct PendingQualificationRunContext {
     bytes: Vec<u8>,
+    ticket_sha256: [u8; 32],
 }
 
 impl PendingQualificationRunContext {
@@ -8,11 +9,18 @@ impl PendingQualificationRunContext {
         bytes: Vec<u8>,
     ) -> Result<Self, crate::QualificationRunContextError> {
         let context = crate::context_wire::decode(&bytes)?;
-        crate::context_verification::validate_admitted_shape(
+        let shape = crate::context_verification::validate_admitted_shape(
             &context,
             crate::QualificationRunContextError::InvalidContext,
         )?;
-        Ok(Self { bytes })
+        Ok(Self {
+            bytes,
+            ticket_sha256: shape.ticket_sha256,
+        })
+    }
+
+    pub(crate) fn matches_fault(&self, fault: &crate::PendingQualificationFault) -> bool {
+        fault.matches_sha256(&self.ticket_sha256)
     }
 
     pub(crate) fn encode_relay(

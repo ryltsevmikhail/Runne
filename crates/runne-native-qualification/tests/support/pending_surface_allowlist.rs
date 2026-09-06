@@ -5,6 +5,7 @@ use crate::pending_surface_aliases::{ident_is_raw, ident_name, type_name};
 const PENDING: &str = "PendingQualificationFault";
 const CODEC: &str = "QualificationFaultRelayCodecV1";
 const ADMISSION: &str = "PendingQualificationAdmission";
+const ADMISSION_CODEC: &str = "QualificationAdmissionRelayCodecV1";
 
 pub fn exact_relay_decode(owner: &syn::ItemImpl, method: &syn::ImplItemFn, source: &str) -> bool {
     let owner_is_codec = type_name(&owner.self_ty).is_some_and(|(name, raw)| {
@@ -89,9 +90,13 @@ pub fn exact_admission_impl(item: &syn::ItemImpl, source: &str) -> bool {
     )
     .expect("valid admission signature");
     let relay = syn::parse_str::<syn::ImplItemFn>(
-        "pub fn encode_relays(self, context_codec: &crate::QualificationRunContextRelayCodecV1, context_binding: &runne_api::QualificationRunContextRelayBindingV1, fault_codec: &crate::QualificationFaultRelayCodecV1, fault_binding: &runne_api::QualificationFaultRelayBindingV1) -> Result<QualificationAdmissionRelayPair, QualificationAdmissionRelayError> {}",
+        "pub fn encode_relay_transcript(self, codec: &QualificationAdmissionRelayCodecV1, context_binding: &runne_api::QualificationRunContextRelayBindingV1, fault_binding: &runne_api::QualificationFaultRelayBindingV1) -> Result<QualificationAdmissionRelayTranscript, QualificationAdmissionRelayError> {}",
     )
     .expect("valid admission relay signature");
+    let retained = syn::parse_str::<syn::ImplItemFn>(
+        "pub(crate) const fn from_relay_members(context: PendingQualificationRunContext, fault: PendingQualificationFault) -> Self {}",
+    )
+    .expect("valid retained admission signature");
     source == "admission.rs"
         && item.trait_.is_none()
         && owner.is_some_and(|(name, raw)| name == ADMISSION && !raw)
@@ -99,13 +104,13 @@ pub fn exact_admission_impl(item: &syn::ItemImpl, source: &str) -> bool {
         && item.attrs.iter().all(|attr| attr.path().is_ident("doc"))
         && item.generics.params.is_empty()
         && item.generics.where_clause.is_none()
-        && matches!(item.items.len(), 1 | 2)
+        && matches!(item.items.len(), 1 | 3)
         && item.items.iter().all(|member| {
             matches!(member, syn::ImplItem::Fn(method)
-            if matches!(method.vis, Visibility::Public(_))
-                && method.attrs.iter().all(|attr| attr.path().is_ident("doc"))
+            if method.attrs.iter().all(|attr| attr.path().is_ident("doc"))
                 && (signatures_match(&method.sig, &constructor.sig)
-                    || signatures_match(&method.sig, &relay.sig)))
+                    || signatures_match(&method.sig, &relay.sig)
+                    || signatures_match(&method.sig, &retained.sig)))
         })
         && item
             .items
@@ -116,6 +121,46 @@ pub fn exact_admission_impl(item: &syn::ItemImpl, source: &str) -> bool {
             })
             .count()
             == 1
+}
+
+pub fn exact_admission_relay_method(
+    owner: &syn::ItemImpl,
+    method: &syn::ImplItemFn,
+    source: &str,
+) -> bool {
+    let owner_type = type_name(&owner.self_ty);
+    let owner_is_codec = owner_type.as_ref().is_some_and(|(name, raw)| {
+        name == ADMISSION_CODEC
+            && !raw
+            && matches!(&*owner.self_ty, Type::Path(path) if path.path.segments.len() == 1)
+    });
+    let owner_is_context = owner_type.as_ref().is_some_and(|(name, raw)| {
+        name == "PendingQualificationRunContext"
+            && !raw
+            && matches!(&*owner.self_ty, Type::Path(path) if path.path.segments.len() == 1)
+    });
+    let encode = syn::parse_str::<syn::ImplItemFn>(
+        "pub(crate) fn encode(&self, context: PendingQualificationRunContext, fault: PendingQualificationFault, context_binding: &QualificationRunContextRelayBindingV1, fault_binding: &QualificationFaultRelayBindingV1) -> Result<QualificationAdmissionRelayTranscript, QualificationAdmissionRelayError> {}",
+    )
+    .expect("valid reviewed admission relay encode");
+    let decode = syn::parse_str::<syn::ImplItemFn>(
+        "pub fn decode_transcript(&self, bytes: &[u8], context_binding: &QualificationRunContextRelayBindingV1, fault_binding: &QualificationFaultRelayBindingV1) -> Result<PendingQualificationAdmission, QualificationAdmissionRelayError> {}",
+    )
+    .expect("valid reviewed admission relay decode");
+    let relation = syn::parse_str::<syn::ImplItemFn>(
+        "pub(crate) fn matches_fault(&self, fault: &crate::PendingQualificationFault) -> bool {}",
+    )
+    .expect("valid reviewed admission relation");
+    owner.trait_.is_none()
+        && ((source == "admission_relay_codec.rs" && owner_is_codec)
+            || (source == "pending_context.rs" && owner_is_context))
+        && owner.generics.params.is_empty()
+        && owner.generics.where_clause.is_none()
+        && owner.attrs.iter().all(|attr| attr.path().is_ident("doc"))
+        && method.attrs.iter().all(|attr| attr.path().is_ident("doc"))
+        && (signatures_match(&method.sig, &encode.sig)
+            || signatures_match(&method.sig, &decode.sig)
+            || signatures_match(&method.sig, &relation.sig))
 }
 
 pub fn exact_admission_reexport(item: &syn::ItemUse, source: &str) -> bool {
