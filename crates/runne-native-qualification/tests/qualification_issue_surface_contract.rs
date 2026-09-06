@@ -1,6 +1,12 @@
 use std::{fs, path::Path};
 use syn::visit::{self, Visit};
 
+#[path = "support/qualification_issue_regressions.rs"]
+mod regressions;
+#[path = "support/qualification_issue_sources.rs"]
+mod source_graph;
+use source_graph::sources;
+
 const MINT: &str = "issue_committed_qualification_receipt";
 const STORE: &str = "runne-store/src/provider/credential_lifecycle/online/qualification_issue.rs";
 const DAEMON: &str = "runne-daemon/src/application/provider_credential_enrollment/control_facade/protected_session/qualification.rs";
@@ -15,6 +21,20 @@ struct Audit<'a> {
 }
 
 impl<'ast> Visit<'ast> for Audit<'_> {
+    fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
+        let previous = std::mem::take(&mut self.method);
+        if matches!(item.vis, syn::Visibility::Public(_)) {
+            let mut sensitive = Sensitive::default();
+            sensitive.visit_return_type(&item.sig.output);
+            if sensitive.0 {
+                self.errors
+                    .push("unreviewed public free qualification factory".into());
+            }
+        }
+        visit::visit_item_fn(self, item);
+        self.method = previous;
+    }
+
     fn visit_item(&mut self, item: &'ast syn::Item) {
         let test = match item {
             syn::Item::Fn(value) => test_only(&value.attrs),
@@ -53,6 +73,22 @@ impl<'ast> Visit<'ast> for Audit<'_> {
             }
         }
         visit::visit_expr_method_call(self, call);
+    }
+
+    fn visit_expr_path(&mut self, path: &'ast syn::ExprPath) {
+        if path
+            .path
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == MINT)
+        {
+            self.mint += 1;
+            if self.source != STORE {
+                self.errors
+                    .push("qualified mint outside trusted committed store".into());
+            }
+        }
+        visit::visit_expr_path(self, path);
     }
 
     fn visit_expr_struct(&mut self, value: &'ast syn::ExprStruct) {
@@ -112,21 +148,6 @@ fn test_only(attrs: &[syn::Attribute]) -> bool {
                 .parse_args::<syn::Path>()
                 .is_ok_and(|path| path.is_ident("test"))
     })
-}
-
-fn sources(root: &Path, files: &mut Vec<std::path::PathBuf>) {
-    for entry in fs::read_dir(root).unwrap() {
-        let path = entry.unwrap().path();
-        if path.is_dir() {
-            if path.file_name().is_some_and(|name| name != "tests") {
-                sources(&path, files);
-            }
-        } else if path.extension().is_some_and(|ext| ext == "rs")
-            && !path.file_name().unwrap().to_string_lossy().contains("test")
-        {
-            files.push(path);
-        }
-    }
 }
 
 #[test]
