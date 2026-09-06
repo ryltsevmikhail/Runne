@@ -65,3 +65,40 @@ fn surface_auditor_rejects_alias_trait_wrapper_getter_and_borrowed_mutations() {
         );
     }
 }
+
+#[test]
+fn surface_auditor_rejects_transitive_glob_and_public_module_aliases() {
+    let mutations = [
+        (
+            "private alias followed by public glob",
+            format!("{BASELINE}\nuse crate::context_model as cm; pub use cm::*;"),
+        ),
+        (
+            "crate-visible alias followed by public glob",
+            format!("{BASELINE}\npub(crate) use crate::context_model as cm; pub use cm::*;"),
+        ),
+        (
+            "public renamed module re-export",
+            format!("{BASELINE}\npub use crate::context_model as cm;"),
+        ),
+        (
+            "nested public renamed module re-export",
+            format!("{BASELINE}\npub mod exposed {{ pub use crate::context_model as renamed; }}"),
+        ),
+        (
+            "public module containing alias-to-glob chain",
+            format!(
+                "{BASELINE}\npub mod exposed {{ use crate::context_model as cm; pub use cm::*; }}"
+            ),
+        ),
+    ];
+    let escaped = mutations
+        .iter()
+        .filter_map(|(label, mutation)| {
+            audit_sources(&[("mutation.rs", mutation)])
+                .is_empty()
+                .then_some(*label)
+        })
+        .collect::<Vec<_>>();
+    assert!(escaped.is_empty(), "mutations escaped audit: {escaped:?}");
+}

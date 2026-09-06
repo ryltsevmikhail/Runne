@@ -20,6 +20,9 @@ pub fn violation(item: &syn::ItemUse, source: &str, depth: usize) -> Option<Stri
         })
     });
     let renamed_authority = carries_authority && entries.iter().any(|entry| entry.contains(" as "));
+    let publicly_visible = matches!(item.vis, Visibility::Public(_));
+    let public_glob = publicly_visible && entries.iter().any(|entry| entry.ends_with("::*"));
+    let public_rename = publicly_visible && entries.iter().any(|entry| entry.contains(" as "));
     let guarded_glob = entries.iter().any(|entry| {
         entry.ends_with("::*")
             && [
@@ -32,10 +35,9 @@ pub fn violation(item: &syn::ItemUse, source: &str, depth: usize) -> Option<Stri
             .iter()
             .any(|module| entry.trim_end_matches("::*").ends_with(module))
     });
-    let public_noncanonical = matches!(item.vis, Visibility::Public(_))
-        && carries_authority
-        && !(depth == 0 && exact_root_reexport(source, item));
-    (renamed_authority || guarded_glob || public_noncanonical)
+    let public_noncanonical =
+        publicly_visible && carries_authority && !(depth == 0 && exact_root_reexport(source, item));
+    (renamed_authority || public_glob || public_rename || guarded_glob || public_noncanonical)
         .then(|| format!("{source}: forbidden authority use/re-export {entries:?}"))
 }
 
