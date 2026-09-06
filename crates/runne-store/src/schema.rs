@@ -200,5 +200,6 @@ mod tests {
     include!("schema/tests/credential_v32.rs");
     include!("schema/tests/credential_v33.rs");
     include!("schema/tests/credential_v35.rs");
+    include!("schema/tests/credential_v35_adversarial.rs");
     include!("schema/tests/frozen_migrations.rs");
 }

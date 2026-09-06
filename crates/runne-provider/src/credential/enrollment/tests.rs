@@ -7,6 +7,7 @@ mod completion_receipt_tests;
 mod hardening_contract_tests;
 mod measurement_tests;
 mod persistence_input_tests;
+mod qualification_fence_boundary_tests;
 mod qualification_fence_contract_tests;
 mod snapshot_contract_tests;
 mod store_contract_tests;

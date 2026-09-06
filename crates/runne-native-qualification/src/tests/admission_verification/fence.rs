@@ -56,6 +56,12 @@ fn facts_are_not_minted_for_any_combined_verification_failure() {
         (
             signed_pair(|_| {}, |_| {}),
             expected().candidate,
+            [0xbc; 32],
+            NOW,
+        ),
+        (
+            signed_pair(|_| {}, |_| {}),
+            expected().candidate,
             expected().raw_tuple,
             NOW + 601,
         ),
@@ -66,4 +72,57 @@ fn facts_are_not_minted_for_any_combined_verification_failure() {
                 .is_err()
         );
     }
+}
+
+#[test]
+fn facts_reject_crossed_selector_and_role_bindings() {
+    let ticket_crossed = signed_pair(
+        |_| {},
+        |ticket| {
+            ticket["selector"] = json!("kill_after_native_effect");
+        },
+    );
+    let context_crossed = signed_pair(
+        |context| {
+            context["selector"] = json!("kill_runtime_process");
+            context["process_role"] = json!("runtime");
+        },
+        |_| {},
+    );
+    for admission in [ticket_crossed, context_crossed] {
+        assert!(
+            verifier()
+                .verify_exact_for_fence_borrowed(
+                    &admission,
+                    expected().candidate,
+                    expected().raw_tuple,
+                    NOW,
+                )
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn facts_are_minted_only_once_for_replayed_admission() {
+    let admission = signed_pair(|_| {}, |_| {});
+    let mut verifier = verifier();
+    verifier
+        .verify_exact_for_fence_borrowed(
+            &admission,
+            expected().candidate,
+            expected().raw_tuple,
+            NOW,
+        )
+        .expect("first exact verification");
+    assert!(
+        verifier
+            .verify_exact_for_fence_borrowed(
+                &admission,
+                expected().candidate,
+                expected().raw_tuple,
+                NOW,
+            )
+            .is_err()
+    );
 }

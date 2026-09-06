@@ -1,5 +1,6 @@
 const V35_TABLE: &str = "provider_qualification_admission_fences";
-const V35_TRIGGERS: [&str; 4] = [
+const V35_TRIGGERS: [&str; 5] = [
+    "provider_qualification_fence_replay_conflict",
     "provider_qualification_fence_insert_guard",
     "provider_qualification_fence_selector_role",
     "provider_qualification_fence_no_update",
@@ -40,7 +41,7 @@ pub(super) fn v35_matches(connection: &Connection, version: i64) -> SqliteResult
         || !v30_columns_match(connection)?
         || !table_sql_matches_migration(connection, V29_TABLE, MIGRATION_V29)?
         || !table_sql_matches_migration(connection, V33_TABLE, MIGRATION_V33)?
-        || !table_sql_matches_migration(connection, V35_TABLE, MIGRATION_V35)?
+        || !v35_table_matches(connection)?
         || !v24_index_matches_with_source(
             connection,
             V33_INDEX,
@@ -57,6 +58,25 @@ pub(super) fn v35_matches(connection: &Connection, version: i64) -> SqliteResult
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     )?;
     Ok(matches!(marker, (35, 1, 34, 611) | (35, 1, 35, 630)))
+}
+
+fn v35_table_matches(connection: &Connection) -> SqliteResult<bool> {
+    let actual: Option<String> = connection
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?1",
+            [V35_TABLE],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let expected = MIGRATION_V35
+        .split(';')
+        .map(str::trim)
+        .find(|sql| sql.starts_with(&format!("CREATE TABLE {V35_TABLE} ")));
+    Ok(actual.is_some_and(|actual| {
+        expected.is_some_and(|expected| {
+            normalize_v24_ddl(&actual) == normalize_v24_ddl(expected)
+        })
+    }))
 }
 
 fn v35_trigger_source(name: &str) -> &'static str {

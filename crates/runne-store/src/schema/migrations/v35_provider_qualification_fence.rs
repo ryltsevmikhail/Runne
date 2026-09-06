@@ -30,6 +30,16 @@ CREATE TABLE provider_qualification_admission_fences (
     UNIQUE(operation_id),
     FOREIGN KEY(operation_id,attempt) REFERENCES provider_credential_ticket_attempts(operation_id,attempt)
 ) STRICT;
+CREATE TRIGGER provider_qualification_fence_replay_conflict BEFORE INSERT ON provider_qualification_admission_fences
+WHEN EXISTS (
+    SELECT 1 FROM provider_qualification_admission_fences AS existing
+    WHERE existing.operation_id=NEW.operation_id
+       OR existing.context_id=NEW.context_id
+       OR existing.context_nonce=NEW.context_nonce
+       OR existing.ticket_id=NEW.ticket_id
+       OR existing.ticket_nonce=NEW.ticket_nonce
+)
+BEGIN SELECT RAISE(ABORT,'qualification fence replay conflict'); END;
 CREATE TRIGGER provider_qualification_fence_insert_guard BEFORE INSERT ON provider_qualification_admission_fences
 WHEN NOT EXISTS (
     SELECT 1 FROM provider_credential_ticket_attempts AS ticket

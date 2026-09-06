@@ -40,6 +40,7 @@ struct V35FenceInsert<'a> {
     operation: u8,
     attempt: i64,
     seed: u8,
+    replay_ids: [[u8; 32]; 4],
     selector: &'a str,
     role: &'a str,
     workflow: &'a str,
@@ -55,6 +56,12 @@ impl V35FenceInsert<'_> {
     fn valid(operation: u8, seed: u8) -> V35FenceInsert<'static> {
         V35FenceInsert {
             operation, attempt: 1, seed,
+            replay_ids: [
+                [seed; 32],
+                [seed.wrapping_add(1); 32],
+                [seed.wrapping_add(2); 32],
+                [seed.wrapping_add(3); 32],
+            ],
             selector: "kill_before_native_effect", role: "service", workflow: "run-42",
             context_times: (100, 180), ticket_times: (100, 185),
             session: [seed.wrapping_add(9); 32], generations: (1, 2, 3),
@@ -64,19 +71,31 @@ impl V35FenceInsert<'_> {
 }
 
 fn insert_v35_fence(connection: &Connection, value: &V35FenceInsert<'_>) -> SqliteResult<usize> {
+    write_v35_fence(connection, value, "INSERT")
+}
+
+fn replace_v35_fence(connection: &Connection, value: &V35FenceInsert<'_>) -> SqliteResult<usize> {
+    write_v35_fence(connection, value, "INSERT OR REPLACE")
+}
+
+fn write_v35_fence(
+    connection: &Connection,
+    value: &V35FenceInsert<'_>,
+    insert: &str,
+) -> SqliteResult<usize> {
     let seed = value.seed;
-    connection.execute(
-        "INSERT INTO provider_qualification_admission_fences
+    connection.execute(&format!(
+        "{insert} INTO provider_qualification_admission_fences
          (operation_id,attempt,context_id,context_nonce,ticket_id,ticket_nonce,ticket_sha256,
           scenario_id,selector,process_role,candidate_sha256,raw_v3_tuple_sha256,source_revision,
           workflow_run_id,namespace_sha256,context_issued_at,context_expires_at,ticket_issued_at,
           ticket_expires_at,protected_session_digest,runtime_authority_id,database_generation,
           launch_generation,supervisor_generation,verified_at,committed_at)
          VALUES (?1,?2,?3,?4,?5,?6,?7,'macos-xpc-dpk-v1',?8,?9,?10,?11,?12,?13,?14,
-                 ?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)",
+                 ?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)"),
         params![
-            [value.operation; 16], value.attempt, [seed; 32], [seed.wrapping_add(1); 32],
-            [seed.wrapping_add(2); 32], [seed.wrapping_add(3); 32],
+            [value.operation; 16], value.attempt, value.replay_ids[0], value.replay_ids[1],
+            value.replay_ids[2], value.replay_ids[3],
             [seed.wrapping_add(4); 32], value.selector, value.role,
             [seed.wrapping_add(5); 32], [seed.wrapping_add(6); 32],
             [seed.wrapping_add(7); 20], value.workflow, [seed.wrapping_add(8); 32],
