@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gocode://schemas/macos-xpc-dpk-run-context-v1",
+  "title": "Runne macOS XPC DPK signed runner context",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "context_id", "scenario_id", "selector", "process_role", "candidate_sha256", "release_tuple_v3_sha256", "source_revision", "workflow_run_id", "namespace_sha256", "ticket_sha256", "issued_at", "expires_at", "nonce", "signature"],
+  "properties": {
+    "schema_version": {"const": "runne/macos-xpc-dpk-run-context/v1"},
+    "context_id": {"$ref": "#/$defs/sha256"},
+    "scenario_id": {"const": "macos-xpc-dpk-v1"},
+    "selector": {"enum": ["kill_before_service_consume", "kill_after_service_consume", "kill_before_native_effect", "kill_after_native_effect", "kill_before_readback", "kill_after_readback", "kill_before_reply", "kill_after_reply", "kill_before_lifecycle_cas", "kill_after_lifecycle_cas", "kill_desktop_process", "kill_writer_process", "kill_runtime_process", "kill_service_launchd_restart", "kill_registration_ack_loss"]},
+    "process_role": {"enum": ["desktop", "writer", "runtime", "service"]},
+    "candidate_sha256": {"$ref": "#/$defs/sha256"},
+    "release_tuple_v3_sha256": {"$ref": "#/$defs/sha256"},
+    "source_revision": {"type": "string", "pattern": "^[0-9a-f]{40}(?![\\s\\S])"},
+    "workflow_run_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,128}(?![\\s\\S])"},
+    "namespace_sha256": {"$ref": "#/$defs/sha256"},
+    "ticket_sha256": {"$ref": "#/$defs/sha256"},
+    "issued_at": {"$ref": "#/$defs/time"},
+    "expires_at": {"$ref": "#/$defs/time"},
+    "nonce": {"type": "string", "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048](?![\\s\\S])"},
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "key_id", "value"],
+      "properties": {
+        "algorithm": {"const": "ed25519"},
+        "key_id": {"$ref": "#/$defs/sha256"},
+        "value": {"type": "string", "pattern": "^[A-Za-z0-9_-]{85}[AQgw](?![\\s\\S])"}
+      }
+    }
+  },
+  "allOf": [
+    {"if": {"properties": {"selector": {"const": "kill_desktop_process"}}}, "then": {"properties": {"process_role": {"const": "desktop"}}}},
+    {"if": {"properties": {"selector": {"const": "kill_writer_process"}}}, "then": {"properties": {"process_role": {"const": "writer"}}}},
+    {"if": {"properties": {"selector": {"enum": ["kill_before_lifecycle_cas", "kill_after_lifecycle_cas", "kill_runtime_process"]}}}, "then": {"properties": {"process_role": {"const": "runtime"}}}},
+    {"if": {"properties": {"selector": {"enum": ["kill_before_service_consume", "kill_after_service_consume", "kill_before_native_effect", "kill_after_native_effect", "kill_before_readback", "kill_after_readback", "kill_before_reply", "kill_after_reply", "kill_service_launchd_restart", "kill_registration_ack_loss"]}}}, "then": {"properties": {"process_role": {"const": "service"}}}}
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}(?![\\s\\S])"},
+    "time": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}
+  }
+}

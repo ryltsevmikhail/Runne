@@ -3,7 +3,10 @@ use std::collections::BTreeSet;
 use syn::{ImplItem, Item, Type, UseTree, Visibility};
 
 use crate::pending_surface_aliases::{Alias, ident_name, type_name};
-use crate::pending_surface_allowlist::{exact_reexport, exact_relay_decode};
+use crate::pending_surface_allowlist::{
+    exact_admission_impl, exact_admission_reexport, exact_admission_struct, exact_reexport,
+    exact_relay_decode,
+};
 use crate::pending_surface_types::{
     foreign_mod_contains, path_contains, signature_contains, trait_alias_contains, trait_contains,
     type_contains,
@@ -117,9 +120,11 @@ fn audit_items(
                     && ident_name(&item.ident) != PENDING
                     && family.contains(&ident_name(&item.ident)) =>
             {
-                audit
-                    .violations
-                    .push(format!("{source}: visible struct wraps pending state"));
+                if !exact_admission_struct(item, source) {
+                    audit
+                        .violations
+                        .push(format!("{source}: visible struct wraps pending state"));
+                }
             }
             Item::Enum(item)
                 if is_visible(&item.vis) && family.contains(&ident_name(&item.ident)) =>
@@ -166,6 +171,7 @@ fn audit_items(
             Item::Use(item) if is_visible(&item.vis) => {
                 if depth == 0 && exact_reexport(item, source) {
                     audit.pending_reexport += 1;
+                } else if depth == 0 && exact_admission_reexport(item, source) {
                 } else if use_mentions(&item.tree, symbols) {
                     audit
                         .violations
@@ -209,6 +215,9 @@ fn audit_impl(
         .as_ref()
         .is_some_and(|(_, path, _)| path_contains(path, family));
     if type_contains(&item.self_ty, family) || trait_contains_pending {
+        if depth == 0 && exact_admission_impl(item, source) {
+            return;
+        }
         let direct_pending = type_name(&item.self_ty).is_some_and(|(name, _)| name == PENDING)
             && matches!(&*item.self_ty, Type::Path(path) if path.path.segments.len() == 1);
         if !(source == "pending.rs" && direct_pending && item.trait_.is_none()) {

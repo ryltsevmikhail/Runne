@@ -1,3 +1,6 @@
+mod admission;
+mod context_rejection;
+mod context_success;
 mod rejection;
 mod selector_parity;
 
@@ -53,6 +56,75 @@ fn sign(value: &Value, key: &SigningKey) -> Vec<u8> {
         }),
     );
     crate::wire::test_canonical_ticket(&value).expect("canonical ticket")
+}
+
+fn unsigned_run_context(ticket_sha256: [u8; 32]) -> Value {
+    json!({
+        "schema_version": "runne/macos-xpc-dpk-run-context/v1",
+        "context_id": "33".repeat(32),
+        "scenario_id": "macos-xpc-dpk-v1",
+        "selector": "kill_before_native_effect",
+        "process_role": "service",
+        "candidate_sha256": "aa".repeat(32),
+        "release_tuple_v3_sha256": "bb".repeat(32),
+        "source_revision": "cc".repeat(20),
+        "workflow_run_id": "run-42",
+        "namespace_sha256": "dd".repeat(32),
+        "ticket_sha256": hex::encode(ticket_sha256),
+        "issued_at": NOW,
+        "expires_at": NOW + 300,
+        "nonce": URL_SAFE_NO_PAD.encode([0x44; 32]),
+    })
+}
+
+fn sign_run_context(value: &Value, key: &SigningKey) -> Vec<u8> {
+    let payload = crate::context_wire::test_signing_payload(value)
+        .expect("canonical unsigned context payload");
+    let signature = key.sign(&payload);
+    let mut value = value.clone();
+    value.as_object_mut().expect("object").insert(
+        "signature".into(),
+        json!({
+            "algorithm": "ed25519",
+            "key_id": hex::encode(Sha256::digest(key.verifying_key().as_bytes())),
+            "value": URL_SAFE_NO_PAD.encode(signature.to_bytes()),
+        }),
+    );
+    crate::context_wire::test_canonical_context(&value).expect("canonical signed context")
+}
+
+fn run_context_expectation(ticket_sha256: [u8; 32]) -> crate::QualificationRunContextExpectation {
+    crate::QualificationRunContextExpectation::new(
+        crate::QualificationScenario::MacosXpcDpkV1,
+        QualificationFaultSelector::BeforeNativeEffect,
+        QualificationProcessRole::Service,
+        [0xaa; 32],
+        [0xbb; 32],
+        [0xcc; 20],
+        "run-42",
+        [0xdd; 32],
+        ticket_sha256,
+    )
+    .expect("valid expected runner context")
+}
+
+fn admission_bundle(context: &[u8], ticket: &[u8]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(17 + context.len() + ticket.len());
+    bytes.extend_from_slice(b"RNQADM1\0");
+    bytes.push(1);
+    bytes.extend_from_slice(
+        &u32::try_from(context.len())
+            .expect("context length")
+            .to_be_bytes(),
+    );
+    bytes.extend_from_slice(
+        &u32::try_from(ticket.len())
+            .expect("ticket length")
+            .to_be_bytes(),
+    );
+    bytes.extend_from_slice(context);
+    bytes.extend_from_slice(ticket);
+    bytes
 }
 
 #[test]

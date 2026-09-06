@@ -6,6 +6,7 @@ use syn::{Fields, ImplItem, ImplItemFn, Item, Visibility};
 
 use crate::pending_public_surface::audit_public_surface;
 use crate::pending_surface_aliases::{collect_aliases, ident_is_raw, ident_name, type_name};
+use crate::pending_surface_allowlist::exact_admission_impl;
 use crate::pending_surface_sources::collect_sources;
 use crate::pending_surface_types::expand_family;
 
@@ -147,6 +148,7 @@ fn audit_items(items: &[Item], source: &str, audit: &mut Audit<'_>) {
                     ));
                 }
             }
+            Item::Impl(item) if exact_admission_impl(item, source) => {}
             Item::Impl(item) => audit_impl(item, source, audit),
             Item::Macro(_) | Item::Verbatim(_) => audit
                 .violations
