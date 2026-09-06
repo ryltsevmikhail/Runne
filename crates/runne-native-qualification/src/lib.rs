@@ -5,6 +5,7 @@
 mod admission;
 mod admission_relay;
 mod admission_relay_codec;
+mod admission_verification;
 mod compiled_policy;
 mod context_model;
 mod context_policy;
@@ -23,6 +24,10 @@ pub use admission_relay::{
     QualificationAdmissionRelayError, QualificationAdmissionRelayTranscript,
 };
 pub use admission_relay_codec::QualificationAdmissionRelayCodecV1;
+pub use admission_verification::{
+    QualificationAdmissionVerificationError, QualificationAdmissionVerifier,
+    QualificationRuntimeInstalledExpectation, VerifiedQualificationAdmission,
+};
 pub use context_model::{
     QualificationRunContextError, QualificationRunContextExpectation, QualificationScenario,
     VerifiedQualificationRunContext,

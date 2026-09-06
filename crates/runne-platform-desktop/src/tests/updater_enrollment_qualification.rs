@@ -1,14 +1,13 @@
 use super::super::{
     MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentQualification,
-    MacOsCodeIdentityExpectationV1, NativeEnrollmentQualificationRowV1, NativeEnrollmentTupleV2,
-    NativeEnrollmentTupleV3, NativeEnrollmentTupleV3CodeIdentities,
-    NativeEnrollmentTupleV3Deployment, NativeEnrollmentTupleV3Digests,
-    NativeEnrollmentTupleV3ProtocolCompatibility, NativeEnrollmentTupleV3ProtocolVersions,
+    NativeEnrollmentQualificationRowV1, NativeEnrollmentTupleV2,
     UpdateMetadataV2, UpdateRootRoleV2, UpdateSignatureV2, UpdateSnapshotRoleV2, UpdateTargetV2,
     UpdateTargetV2Binding, UpdateTargetsRoleV2, UpdateTimestampRoleV2, UpdateTrustRootV2,
     UpdateV2VerificationError, verify_update_v2,
 };
 use ed25519_dalek::{Signer, SigningKey};
+
+use super::updater_enrollment_v3_fixture::macos_tuple_v3;
 
 const TUPLE_DIGEST: &str = "cc15dcd7b26158e7931a2f7cbc01e3243523800209c81b309e738f8b41ea6a2e";
 const BINDING_DIGEST: &str = "2f2e790095684939377ae3e6991bef381ef1bd314f0f33b501c3a6164f228897";
@@ -29,14 +28,14 @@ fn macos_tuple(target: &UpdateTargetV2) -> NativeEnrollmentTupleV2 {
     .unwrap()
 }
 
-fn artifacts(target: &UpdateTargetV2) -> MeasuredNativeEnrollmentArtifactsV1 {
+pub(super) fn artifacts(target: &UpdateTargetV2) -> MeasuredNativeEnrollmentArtifactsV1 {
     MeasuredNativeEnrollmentArtifactsV1::test_only_from_digests(
         "c".repeat(64), "e".repeat(64), "f".repeat(64), target.bundle_sha256.clone(),
     )
     .unwrap()
 }
 
-fn qualified_target(expires_at_unix_seconds: u64) -> UpdateTargetV2 {
+pub(super) fn qualified_target(expires_at_unix_seconds: u64) -> UpdateTargetV2 {
     let mut target = super::updater_enrollment_macos_identity::target();
     let tuple = macos_tuple(&target);
     let qualification = NativeEnrollmentQualificationRowV1::new(
@@ -45,43 +44,6 @@ fn qualified_target(expires_at_unix_seconds: u64) -> UpdateTargetV2 {
     .unwrap();
     target.native_enrollment_tuple = Some(tuple.with_qualification(&target, qualification).unwrap());
     target
-}
-
-fn identity(identifier: &str, cdhash: char) -> MacOsCodeIdentityExpectationV1 {
-    MacOsCodeIdentityExpectationV1::new(
-        identifier,
-        "758F9Z45SR",
-        cdhash.to_string().repeat(40),
-    )
-    .unwrap()
-}
-
-fn macos_tuple_v3(target: &UpdateTargetV2, service_digest: char) -> NativeEnrollmentTupleV3 {
-    NativeEnrollmentTupleV3::new(
-        NativeEnrollmentTupleV3Digests {
-            candidate_sha256: target.release_candidate_sha256.clone(),
-            desktop_sha256: "1".repeat(64),
-            writer_sha256: "2".repeat(64),
-            daemon_sha256: "3".repeat(64),
-            credential_service_sha256: service_digest.to_string().repeat(64),
-            launch_agent_plist_sha256: "5".repeat(64),
-            entitlements_sha256: "6".repeat(64),
-            provisioning_sha256: "7".repeat(64),
-            xpc_protocol_sha256: "8".repeat(64),
-            contract_sha256: target.bundle_sha256.clone(),
-        },
-        NativeEnrollmentTupleV3Deployment::exact(NativeEnrollmentTupleV3ProtocolVersions::new(
-            vec![NativeEnrollmentTupleV3ProtocolCompatibility::new(1, 1, 2, 1, 2, 3, 3)],
-        )),
-        NativeEnrollmentTupleV3CodeIdentities::new(
-            identity("com.runne.desktop", '1'),
-            identity("runne", '2'),
-            identity("runned", '3'),
-            identity("com.runne.credential-service", '4'),
-        ),
-        target,
-    )
-    .unwrap()
 }
 
 #[test]
@@ -106,10 +68,13 @@ fn qualified_v3_admission_requires_the_exact_remeasured_tuple() {
     let verified = super::updater_enrollment_macos_identity::verify_target(&target).unwrap();
 
     let admission = verified.admit_native_enrollment_v3(&measured).unwrap();
+    let raw_tuple = verified.native_enrollment_tuple_v3().unwrap().tuple_digest();
     assert!(matches!(
         admission.qualification(),
         NativeEnrollmentQualification::Qualified(_)
     ));
+    assert_eq!(admission.test_only_raw_v3_tuple_sha256(), Some(raw_tuple));
+    assert_ne!(raw_tuple, admission.test_only_release_tuple_sha256());
     assert_eq!(admission.installed_generation(), 8);
     assert!(
         verified
@@ -154,8 +119,11 @@ fn threshold_verified_macos_tuple_with_exact_signed_qualification_is_qualified()
     assert!(matches!(qualification, NativeEnrollmentQualification::Qualified(_)));
     assert_ne!(tuple, release);
     assert!(qualification.matches_exact(release, binding, 100));
-    assert!(verified.admit_native_enrollment(&artifacts(&target)).unwrap()
-        .qualification().matches_exact(release, binding, 100));
+    let admission = verified
+        .admit_native_enrollment(&artifacts(&target))
+        .unwrap();
+    assert!(admission.qualification().matches_exact(release, binding, 100));
+    assert_eq!(admission.test_only_raw_v3_tuple_sha256(), None);
 }
 
 #[test]

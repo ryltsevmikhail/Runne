@@ -97,6 +97,10 @@ pub fn exact_admission_impl(item: &syn::ItemImpl, source: &str) -> bool {
         "pub(crate) fn from_relay_members(context: PendingQualificationRunContext, fault: PendingQualificationFault) -> Result<Self, QualificationAdmissionRelayError> {}",
     )
     .expect("valid retained admission signature");
+    let verification = syn::parse_str::<syn::ImplItemFn>(
+        "pub(crate) fn into_verification_members(self) -> (PendingQualificationRunContext, PendingQualificationFault) {}",
+    )
+    .expect("valid admission verification signature");
     source == "admission.rs"
         && item.trait_.is_none()
         && owner.is_some_and(|(name, raw)| name == ADMISSION && !raw)
@@ -104,13 +108,14 @@ pub fn exact_admission_impl(item: &syn::ItemImpl, source: &str) -> bool {
         && item.attrs.iter().all(|attr| attr.path().is_ident("doc"))
         && item.generics.params.is_empty()
         && item.generics.where_clause.is_none()
-        && matches!(item.items.len(), 1 | 3)
+        && matches!(item.items.len(), 1 | 3 | 4)
         && item.items.iter().all(|member| {
             matches!(member, syn::ImplItem::Fn(method)
             if method.attrs.iter().all(|attr| attr.path().is_ident("doc"))
                 && (signatures_match(&method.sig, &constructor.sig)
                     || signatures_match(&method.sig, &relay.sig)
-                    || signatures_match(&method.sig, &retained.sig)))
+                    || signatures_match(&method.sig, &retained.sig)
+                    || signatures_match(&method.sig, &verification.sig)))
         })
         && item
             .items
@@ -151,6 +156,9 @@ pub fn exact_admission_relay_method(
         "pub(crate) fn matches_fault(&self, fault: &crate::PendingQualificationFault) -> bool {}",
     )
     .expect("valid reviewed admission relation");
+    let admitted_bytes =
+        syn::parse_str::<syn::ImplItemFn>("pub(crate) fn into_admitted_bytes(self) -> Vec<u8> {}")
+            .expect("valid reviewed admitted bytes consumption");
     owner.trait_.is_none()
         && ((source == "admission_relay_codec.rs" && owner_is_codec)
             || (source == "pending_context.rs" && owner_is_context))
@@ -160,7 +168,26 @@ pub fn exact_admission_relay_method(
         && method.attrs.iter().all(|attr| attr.path().is_ident("doc"))
         && (signatures_match(&method.sig, &encode.sig)
             || signatures_match(&method.sig, &decode.sig)
-            || signatures_match(&method.sig, &relation.sig))
+            || signatures_match(&method.sig, &relation.sig)
+            || signatures_match(&method.sig, &admitted_bytes.sig))
+}
+
+pub fn exact_combined_verification_method(
+    owner: &syn::ItemImpl,
+    method: &syn::ImplItemFn,
+    source: &str,
+) -> bool {
+    let expected = syn::parse_str::<syn::ImplItemFn>(
+        "pub fn verify_and_consume(&mut self, admission: PendingQualificationAdmission, installed: &QualificationRuntimeInstalledExpectation, now_unix_seconds: u64) -> Result<VerifiedQualificationAdmission, QualificationAdmissionVerificationError> {}",
+    )
+    .expect("valid combined verification signature");
+    source == "admission_verification.rs"
+        && owner.trait_.is_none()
+        && type_name(&owner.self_ty)
+            .is_some_and(|(name, raw)| name == "QualificationAdmissionVerifier" && !raw)
+        && owner.generics.params.is_empty()
+        && owner.generics.where_clause.is_none()
+        && signatures_match(&method.sig, &expected.sig)
 }
 
 pub fn exact_admission_reexport(item: &syn::ItemUse, source: &str) -> bool {

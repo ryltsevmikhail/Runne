@@ -27,7 +27,7 @@ impl QualificationFaultVerifier {
         Self::with_policy(compiled_policy::load())
     }
 
-    fn with_policy(policy: Option<FaultVerificationPolicy>) -> Self {
+    pub(crate) fn with_policy(policy: Option<FaultVerificationPolicy>) -> Self {
         Self {
             policy,
             consumed_ticket_ids: HashSet::new(),

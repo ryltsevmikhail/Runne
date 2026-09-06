@@ -165,6 +165,10 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
                     "apps/desktop/src-tauri/src/provider_credential_enrollment/prepared.rs",
                     "PendingQualificationFault",
                 ),
+                (
+                    "crates/runne-platform-desktop/src/updater_metadata/enrollment_tuple/measurement_facts.rs",
+                    "runne_native_qualification::QualificationRuntimeInstalledExpectation",
+                ),
             ):
                 path = root / relative
                 path.parent.mkdir(parents=True, exist_ok=True)

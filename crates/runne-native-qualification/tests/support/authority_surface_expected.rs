@@ -1,4 +1,7 @@
 pub const SENSITIVE: &[&str] = &[
+    "VerifiedQualificationAdmission",
+    "QualificationAdmissionVerifier",
+    "QualificationRuntimeInstalledExpectation",
     "VerifiedQualificationRunContext",
     "PendingQualificationAdmission",
     "QualificationRunContextVerifier",
@@ -10,6 +13,15 @@ pub const SENSITIVE: &[&str] = &[
 
 pub fn expected_methods() -> Vec<(&'static str, &'static str)> {
     [
+        ("VerifiedQualificationAdmission", &[][..]),
+        (
+            "QualificationAdmissionVerifier",
+            &["from_compiled_policy", "verify_and_consume"],
+        ),
+        (
+            "QualificationRuntimeInstalledExpectation",
+            &["from_verified_release_session"],
+        ),
         (
             "VerifiedQualificationRunContext",
             &["context_id", "nonce", "expires_at", "ticket_sha256"][..],
@@ -39,6 +51,16 @@ pub fn expected_methods() -> Vec<(&'static str, &'static str)> {
 
 pub fn expected_signature(owner: &str, method: &str) -> Option<syn::Signature> {
     let source = match (owner, method) {
+        (
+            "QualificationAdmissionVerifier" | "QualificationRunContextVerifier",
+            "from_compiled_policy",
+        ) => "pub fn from_compiled_policy() -> Self {}",
+        ("QualificationAdmissionVerifier", "verify_and_consume") => {
+            "pub fn verify_and_consume(&mut self, admission: PendingQualificationAdmission, installed: &QualificationRuntimeInstalledExpectation, now_unix_seconds: u64) -> Result<VerifiedQualificationAdmission, QualificationAdmissionVerificationError> {}"
+        }
+        ("QualificationRuntimeInstalledExpectation", "from_verified_release_session") => {
+            "pub fn from_verified_release_session(owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3, candidate: &runne_api::SignedInstalledReleaseCandidateV3) -> Option<Self> {}"
+        }
         ("VerifiedQualificationRunContext", "context_id") => {
             "pub const fn context_id(&self) -> [u8; 32] {}"
         }
@@ -54,9 +76,6 @@ pub fn expected_signature(owner: &str, method: &str) -> Option<syn::Signature> {
         }
         ("PendingQualificationAdmission", "encode_relay_transcript") => {
             "pub fn encode_relay_transcript(self, codec: &QualificationAdmissionRelayCodecV1, context_binding: &runne_api::QualificationRunContextRelayBindingV1, fault_binding: &runne_api::QualificationFaultRelayBindingV1) -> Result<QualificationAdmissionRelayTranscript, QualificationAdmissionRelayError> {}"
-        }
-        ("QualificationRunContextVerifier", "from_compiled_policy") => {
-            "pub fn from_compiled_policy() -> Self {}"
         }
         ("QualificationRunContextVerifier", "verify_and_consume") => {
             "pub fn verify_and_consume(&mut self, bytes: &[u8], expected: &QualificationRunContextExpectation, now_unix_seconds: u64) -> Result<VerifiedQualificationRunContext, QualificationRunContextError> {}"

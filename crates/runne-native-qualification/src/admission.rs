@@ -114,6 +114,12 @@ impl PendingQualificationAdmission {
         }
         Ok(Self { context, fault })
     }
+
+    pub(crate) fn into_verification_members(
+        self,
+    ) -> (PendingQualificationRunContext, PendingQualificationFault) {
+        (self.context, self.fault)
+    }
 }
 
 fn read_len(bytes: &[u8], offset: usize) -> Result<usize, QualificationAdmissionError> {

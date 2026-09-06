@@ -9,7 +9,7 @@ use crate::context_model::{
 };
 use crate::context_policy::{self, ContextVerificationPolicy};
 use crate::context_wire::{self, RunContextWire};
-use crate::{QualificationFaultSelector, QualificationProcessRole};
+use crate::{QualificationFaultContext, QualificationFaultSelector, QualificationProcessRole};
 
 const MAX_CONTEXT_LIFETIME_SECONDS: u64 = 15 * 60;
 const MAX_SAFE_JSON_INTEGER: u64 = 9_007_199_254_740_991;
@@ -28,7 +28,7 @@ impl QualificationRunContextVerifier {
         Self::with_policy(context_policy::load())
     }
 
-    fn with_policy(policy: Option<ContextVerificationPolicy>) -> Self {
+    pub(crate) fn with_policy(policy: Option<ContextVerificationPolicy>) -> Self {
         Self {
             policy,
             consumed_context_ids: HashSet::new(),
@@ -54,6 +54,52 @@ impl QualificationRunContextVerifier {
             .ok_or(QualificationRunContextError::PolicyUnavailable)?;
         let context = context_wire::decode(bytes)?;
         let verified = verify_context(&context, expected, now_unix_seconds, policy)?;
+        self.consume_replay(&verified)?;
+        Ok(verified)
+    }
+
+    pub(crate) fn verify_installed_and_consume(
+        &mut self,
+        bytes: &[u8],
+        expected: &crate::QualificationRuntimeInstalledExpectation,
+        now_unix_seconds: u64,
+    ) -> Result<
+        (VerifiedQualificationRunContext, QualificationFaultContext),
+        QualificationRunContextError,
+    > {
+        let policy = self
+            .policy
+            .as_ref()
+            .ok_or(QualificationRunContextError::PolicyUnavailable)?;
+        let context = context_wire::decode(bytes)?;
+        let shape = verify_signed_context(&context, now_unix_seconds, policy)?;
+        if !expected.matches(shape.candidate_sha256, shape.release_tuple_v3_sha256) {
+            return Err(QualificationRunContextError::BindingMismatch);
+        }
+        let verified = VerifiedQualificationRunContext::verified(
+            shape.context_id,
+            shape.nonce,
+            context.expires_at,
+            shape.ticket_sha256,
+        );
+        self.consume_replay(&verified)?;
+        let ticket = QualificationFaultContext::new(
+            shape.selector,
+            shape.process_role,
+            shape.candidate_sha256,
+            shape.release_tuple_v3_sha256,
+            shape.source_revision,
+            &context.workflow_run_id,
+            shape.namespace_sha256,
+        )
+        .map_err(|_| QualificationRunContextError::InvalidContext)?;
+        Ok((verified, ticket))
+    }
+
+    fn consume_replay(
+        &mut self,
+        verified: &VerifiedQualificationRunContext,
+    ) -> Result<(), QualificationRunContextError> {
         if self.consumed_context_ids.contains(&verified.context_id())
             || self.consumed_nonces.contains(&verified.nonce())
         {
@@ -61,7 +107,7 @@ impl QualificationRunContextVerifier {
         }
         self.consumed_context_ids.insert(verified.context_id());
         self.consumed_nonces.insert(verified.nonce());
-        Ok(verified)
+        Ok(())
     }
 
     #[cfg(test)]
@@ -129,18 +175,7 @@ fn verify_context(
     now: u64,
     policy: &ContextVerificationPolicy,
 ) -> Result<VerifiedQualificationRunContext, QualificationRunContextError> {
-    let shape = validate_admitted_shape(context, QualificationRunContextError::InvalidTime)?;
-    valid_freshness(context.issued_at, context.expires_at, now)?;
-    if shape.key_id != policy.key_id {
-        return Err(QualificationRunContextError::InvalidSignature);
-    }
-    policy
-        .key
-        .verify_strict(
-            &context_wire::signing_payload(context)?,
-            &Signature::from_bytes(&shape.signature),
-        )
-        .map_err(|_| QualificationRunContextError::InvalidSignature)?;
+    let shape = verify_signed_context(context, now, policy)?;
     if shape.scenario != expected.scenario
         || shape.selector != expected.selector
         || shape.process_role != expected.process_role
@@ -159,6 +194,26 @@ fn verify_context(
         context.expires_at,
         shape.ticket_sha256,
     ))
+}
+
+fn verify_signed_context(
+    context: &RunContextWire,
+    now: u64,
+    policy: &ContextVerificationPolicy,
+) -> Result<AdmittedRunContextShape, QualificationRunContextError> {
+    let shape = validate_admitted_shape(context, QualificationRunContextError::InvalidTime)?;
+    valid_freshness(context.issued_at, context.expires_at, now)?;
+    if shape.key_id != policy.key_id {
+        return Err(QualificationRunContextError::InvalidSignature);
+    }
+    policy
+        .key
+        .verify_strict(
+            &context_wire::signing_payload(context)?,
+            &Signature::from_bytes(&shape.signature),
+        )
+        .map_err(|_| QualificationRunContextError::InvalidSignature)?;
+    Ok(shape)
 }
 
 fn valid_time_shape(

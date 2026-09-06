@@ -6,6 +6,10 @@ pub struct PendingQualificationRunContext {
 }
 
 impl PendingQualificationRunContext {
+    pub(crate) fn into_admitted_bytes(self) -> Vec<u8> {
+        self.bytes
+    }
+
     pub(crate) fn from_admitted_frame(
         bytes: Vec<u8>,
     ) -> Result<Self, crate::QualificationRunContextError> {

@@ -1,21 +1,21 @@
-use std::fs::File;
-use std::io::Read;
-use std::path::{Path, PathBuf};
-
-use runne_platform_ports::provider_credential_broker::{
-    VerifiedWriterArtifact, VerifiedWriterArtifactError,
-};
-use sha2::{Digest, Sha256};
+use std::path::PathBuf;
 
 use super::{
     MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentQualification, NativeEnrollmentTupleV2,
     UpdateTargetV2, VerifiedMacOsWriterLaunch, VerifiedSignedNativeEnrollmentTupleV3,
     VerifiedUpdateV2, macos_identity, matches_installed,
 };
+use runne_platform_ports::provider_credential_broker::{
+    VerifiedWriterArtifact, VerifiedWriterArtifactError,
+};
 
 #[cfg(target_os = "macos")]
 #[path = "admission/credential_service.rs"]
 mod credential_service;
+
+#[path = "admission/file_measurement.rs"]
+mod file_measurement;
+use file_measurement::measure_regular_file;
 
 /// Non-serializable installed-package admission minted only by `VerifiedUpdateV2`.
 #[derive(Debug, Eq, PartialEq)]
@@ -26,6 +26,8 @@ pub struct NativeEnrollmentTupleAdmission {
     pub(super) daemon_sha256: [u8; 32],
     pub(super) credential_service_sha256: Option<[u8; 32]>,
     pub(super) release_tuple_sha256: [u8; 32],
+    pub(super) raw_v3_tuple_sha256: Option<[u8; 32]>,
+    pub(super) qualification_candidate_v3: Option<runne_api::SignedInstalledReleaseCandidateV3>,
     pub(super) candidate_source_sha256: Option<[u8; 32]>,
     pub(super) target_manifest_sha256: Option<[u8; 32]>,
     pub(super) qualification: NativeEnrollmentQualification,
@@ -91,6 +93,8 @@ impl VerifiedUpdateV2 {
                 || tuple.inner_tuple_digest(),
                 runne_api::SignedInstalledReleaseCandidateV2::release_binding_digest,
             ),
+            raw_v3_tuple_sha256: None,
+            qualification_candidate_v3: None,
             candidate_source_sha256: candidate
                 .map(|value| value.native_enrollment_tuple().candidate_digest()),
             target_manifest_sha256: candidate
@@ -124,6 +128,8 @@ impl VerifiedUpdateV2 {
                 || tuple.tuple_digest(),
                 runne_api::SignedInstalledReleaseCandidateV3::release_binding_digest,
             ),
+            raw_v3_tuple_sha256: Some(tuple.tuple_digest()),
+            qualification_candidate_v3: candidate.cloned(),
             candidate_source_sha256: candidate
                 .map(|value| value.native_enrollment_tuple().candidate_digest()),
             target_manifest_sha256: candidate
@@ -163,6 +169,16 @@ impl VerifiedUpdateV2 {
 }
 
 impl NativeEnrollmentTupleAdmission {
+    #[cfg(test)]
+    pub(crate) const fn test_only_raw_v3_tuple_sha256(&self) -> Option<[u8; 32]> {
+        self.raw_v3_tuple_sha256
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn test_only_release_tuple_sha256(&self) -> [u8; 32] {
+        self.release_tuple_sha256
+    }
+
     #[must_use]
     pub(crate) const fn installed_generation(&self) -> u64 {
         self.installed_generation
@@ -278,22 +294,5 @@ impl NativeEnrollmentTupleAdmission {
             .then_some(())
             .ok_or(VerifiedWriterArtifactError::Rejected)?;
         VerifiedWriterArtifact::new(executable, self.writer_sha256, self.release_tuple_sha256)
-    }
-}
-
-fn measure_regular_file(path: &Path) -> Option<[u8; 32]> {
-    let metadata = std::fs::symlink_metadata(path).ok()?;
-    if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
-        return None;
-    }
-    let mut file = File::open(path).ok()?;
-    let mut hasher = Sha256::new();
-    let mut chunk = [0_u8; 16 * 1024];
-    loop {
-        let read = file.read(&mut chunk).ok()?;
-        if read == 0 {
-            return Some(hasher.finalize().into());
-        }
-        hasher.update(&chunk[..read]);
     }
 }
