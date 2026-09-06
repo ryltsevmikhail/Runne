@@ -12,18 +12,11 @@ use std::path::Path;
 use authority_surface_audit::{audit_crate, audit_sources};
 
 const BASELINE: &str = r"
-/// Opaque verified admission.
-pub struct VerifiedQualificationAdmission { context: VerifiedQualificationRunContext, fault: VerifiedQualificationFault }
 /// Combined verifier.
 pub struct QualificationAdmissionVerifier { context: QualificationRunContextVerifier }
 impl QualificationAdmissionVerifier {
   pub fn from_compiled_policy() -> Self { todo!() }
-  pub fn verify_and_consume(&mut self, admission: PendingQualificationAdmission, installed: &QualificationRuntimeInstalledExpectation, now_unix_seconds: u64) -> Result<VerifiedQualificationAdmission, QualificationAdmissionVerificationError> { todo!() }
-}
-/// Installed expectation.
-pub struct QualificationRuntimeInstalledExpectation { candidate: [u8; 32] }
-impl QualificationRuntimeInstalledExpectation {
-  pub fn from_verified_release_session(owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3, candidate: &runne_api::SignedInstalledReleaseCandidateV3) -> Option<Self> { todo!() }
+  pub fn verify_and_consume(&mut self, admission: PendingQualificationAdmission, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<(), QualificationAdmissionVerificationError> { todo!() }
 }
 /// Verified context.
 pub struct VerifiedQualificationRunContext { id: [u8; 32] }
@@ -74,20 +67,6 @@ fn surface_auditor_rejects_alias_trait_wrapper_getter_and_borrowed_mutations() {
     let baseline = audit_sources(&[("baseline.rs", BASELINE)]);
     assert!(baseline.is_empty(), "{baseline:#?}");
     for mutation in [
-        BASELINE.replace(
-            "pub struct VerifiedQualificationAdmission",
-            "#[derive(Clone)] pub struct VerifiedQualificationAdmission",
-        ),
-        BASELINE.replace(
-            "pub struct QualificationRuntimeInstalledExpectation",
-            "#[derive(Debug)] pub struct QualificationRuntimeInstalledExpectation",
-        ),
-        BASELINE.replace(
-            "impl QualificationRuntimeInstalledExpectation {",
-            "impl QualificationRuntimeInstalledExpectation { pub fn new(candidate: [u8; 32], tuple: [u8; 32]) -> Self { todo!() }",
-        ),
-        format!("{BASELINE}\npub type VerifiedAlias = VerifiedQualificationAdmission;"),
-        format!("{BASELINE}\npub struct Escape {{ value: Option<VerifiedQualificationAdmission> }}"),
         format!("{BASELINE}\ntype Leak = PendingQualificationAdmission;"),
         format!(
             "{BASELINE}\nimpl Clone for VerifiedQualificationRunContext {{ fn clone(&self) -> Self {{ todo!() }} }}"

@@ -169,6 +169,10 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
                     "crates/runne-platform-desktop/src/updater_metadata/enrollment_tuple/measurement_facts.rs",
                     "runne_native_qualification::QualificationRuntimeInstalledExpectation",
                 ),
+                (
+                    "crates/runne-platform-desktop/src/updater_metadata/enrollment_tuple/measurement_facts/qualification_admission.rs",
+                    "runne_native_qualification::PendingQualificationAdmission",
+                ),
             ):
                 path = root / relative
                 path.parent.mkdir(parents=True, exist_ok=True)

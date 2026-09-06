@@ -26,7 +26,6 @@ pub use admission_relay::{
 pub use admission_relay_codec::QualificationAdmissionRelayCodecV1;
 pub use admission_verification::{
     QualificationAdmissionVerificationError, QualificationAdmissionVerifier,
-    QualificationRuntimeInstalledExpectation, VerifiedQualificationAdmission,
 };
 pub use context_model::{
     QualificationRunContextError, QualificationRunContextExpectation, QualificationScenario,

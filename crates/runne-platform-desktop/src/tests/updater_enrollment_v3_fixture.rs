@@ -4,6 +4,19 @@ use super::super::{
     NativeEnrollmentTupleV3Digests, NativeEnrollmentTupleV3ProtocolCompatibility,
     NativeEnrollmentTupleV3ProtocolVersions, UpdateTargetV2,
 };
+use runne_api::{
+    DaemonEnrollmentLaunchPreludeV1, ExecutableIdentityV1, LaunchSecret,
+    PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID, ProtectedCredentialEnrollmentLaunchBindingV1,
+    ProtectedCredentialEnrollmentReadyV3, ProtectedReadyV1, ProtectedRuntimeProfileV1,
+    ProviderActivationBindingV1, ProviderActivationReadinessV1, StableRuntimeBindingV1,
+};
+
+fn id(byte: u8) -> [u8; 16] {
+    let mut value = [byte; 16];
+    value[6] = 0x70;
+    value[8] = 0x80;
+    value
+}
 
 fn identity(identifier: &str, cdhash: char) -> MacOsCodeIdentityExpectationV1 {
     MacOsCodeIdentityExpectationV1::new(
@@ -14,7 +27,7 @@ fn identity(identifier: &str, cdhash: char) -> MacOsCodeIdentityExpectationV1 {
     .unwrap()
 }
 
-pub(super) fn macos_tuple_v3(
+pub fn macos_tuple_v3(
     target: &UpdateTargetV2,
     service_digest: char,
 ) -> NativeEnrollmentTupleV3 {
@@ -43,4 +56,57 @@ pub(super) fn macos_tuple_v3(
         target,
     )
     .unwrap()
+}
+
+pub fn owned(
+    release: [u8; 32],
+    qualification: [u8; 32],
+) -> runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3 {
+    let profile = ProtectedRuntimeProfileV1::new(
+        PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID,
+        1,
+        "fixture",
+        [1; 32],
+        [2; 32],
+    )
+    .unwrap();
+    let ready = ProtectedReadyV1::new(
+        id(1),
+        id(2),
+        ExecutableIdentityV1::new([3; 32], [4; 32], 1).unwrap(),
+        profile,
+        StableRuntimeBindingV1::new(id(10), "owner", id(11), "fixture", [1; 32], [2; 32])
+            .unwrap(),
+        id(12),
+        1,
+        id(13),
+        "https://127.0.0.1",
+        [14; 32],
+        vec![15],
+        vec!["provider.enroll".into()],
+    )
+    .unwrap();
+    let keys = LaunchSecret::from_bytes([3; 32]).unwrap().derive_keys();
+    let prelude = DaemonEnrollmentLaunchPreludeV1::macos_arm64(
+        id(1), id(2), [10; 32], [11; 32], [12; 32], [21; 32], [22; 32], 1, 10, 20,
+    )
+    .unwrap();
+    let binding = ProtectedCredentialEnrollmentLaunchBindingV1::macos_apple_silicon(
+        [21; 32],
+        release,
+        qualification,
+        [22; 32],
+        1,
+        runne_api::CredentialBrokerTransferAuthenticator::from_protected_activation(&keys)
+            .enrollment_launch_commitment(&prelude),
+    )
+    .unwrap();
+    ProtectedCredentialEnrollmentReadyV3::new(
+        ready,
+        ProviderActivationBindingV1::openai_responses_text_v1(),
+        binding,
+        ProviderActivationReadinessV1::CredentialMissing,
+    )
+    .unwrap()
+    .owned_launch()
 }

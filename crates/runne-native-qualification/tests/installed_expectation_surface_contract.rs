@@ -1,171 +1,103 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use syn::visit::{self, Visit};
-use syn::{Fields, ImplItem, Item, Type, Visibility};
+#[path = "support/installed_surface_audit.rs"]
+mod installed_surface_audit;
+#[path = "support/installed_surface_expected.rs"]
+mod installed_surface_expected;
+#[path = "support/installed_surface_syntax.rs"]
+mod installed_surface_syntax;
 
-const FACTS: &str = "VerifiedInstalledEnrollmentMeasurementFacts";
-const EXPECTATION: &str = "QualificationRuntimeInstalledExpectation";
-
-#[derive(Default)]
-struct Audit {
-    facts: usize,
-    mint_methods: usize,
-    mint_calls: usize,
-    violations: Vec<String>,
-    source: String,
-}
-
-impl<'ast> Visit<'ast> for Audit {
-    fn visit_item_struct(&mut self, item: &'ast syn::ItemStruct) {
-        if item.ident == FACTS {
-            self.facts += 1;
-            if !matches!(item.vis, Visibility::Public(_))
-                || !matches!(item.fields, Fields::Named(_))
-                || item
-                    .fields
-                    .iter()
-                    .any(|field| !matches!(field.vis, Visibility::Inherited))
-                || item.attrs.iter().any(|attr| attr.path().is_ident("derive"))
-            {
-                self.violations
-                    .push(format!("{}: unsealed installed facts", self.source));
-            }
-        } else if matches!(item.vis, Visibility::Public(_))
-            && item
-                .fields
-                .iter()
-                .any(|field| mentions(&field.ty, EXPECTATION))
-        {
-            self.violations.push(format!(
-                "{}: public wrapper around installed expectation",
-                self.source
-            ));
-        }
-        visit::visit_item_struct(self, item);
-    }
-
-    fn visit_item_impl(&mut self, item: &'ast syn::ItemImpl) {
-        let owner_is_facts = type_is(&item.self_ty, FACTS);
-        if owner_is_facts && item.trait_.is_some() {
-            self.violations
-                .push(format!("{}: trait impl for installed facts", self.source));
-        }
-        for member in &item.items {
-            if let ImplItem::Fn(method) = member
-                && mentions(&method.sig, EXPECTATION)
-            {
-                if owner_is_facts && exact_mint_signature(&method.sig) {
-                    self.mint_methods += 1;
-                } else {
-                    self.violations.push(format!(
-                        "{}: non-exact expectation method {}",
-                        self.source, method.sig.ident
-                    ));
-                }
-            }
-        }
-        visit::visit_item_impl(self, item);
-    }
-
-    fn visit_item(&mut self, item: &'ast Item) {
-        match item {
-            Item::Fn(value)
-                if matches!(value.vis, Visibility::Public(_))
-                    && mentions(&value.sig, EXPECTATION) =>
-            {
-                self.violations
-                    .push(format!("{}: public free-function escape", self.source));
-            }
-            Item::Type(value) if mentions(&value.ty, EXPECTATION) => self
-                .violations
-                .push(format!("{}: expectation alias", self.source)),
-            Item::Use(value)
-                if matches!(value.vis, Visibility::Public(_))
-                    && format!("{:?}", value.tree).contains(EXPECTATION) =>
-            {
-                self.violations
-                    .push(format!("{}: expectation re-export", self.source));
-            }
-            _ => {}
-        }
-        visit::visit_item(self, item);
-    }
-
-    fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
-        if let syn::Expr::Path(path) = &*call.func
-            && path
-                .path
-                .segments
-                .iter()
-                .any(|segment| segment.ident == EXPECTATION)
-        {
-            let method = path
-                .path
-                .segments
-                .last()
-                .map(|segment| segment.ident.to_string());
-            if self.source.ends_with("measurement_facts.rs")
-                && method.as_deref() == Some("from_verified_release_session")
-            {
-                self.mint_calls += 1;
-            } else {
-                self.violations.push(format!(
-                    "{}: unreviewed expectation construction",
-                    self.source
-                ));
-            }
-        }
-        visit::visit_expr_call(self, call);
-    }
-}
+use installed_surface_audit::audit_sources;
 
 #[test]
-fn installed_expectation_has_one_recursive_sealed_minting_surface() {
+fn production_installed_authority_surface_is_recursively_sealed() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .canonicalize()
         .unwrap();
-    let mut paths = Vec::new();
-    collect(&root, &mut paths);
-    let mut audit = Audit::default();
-    for path in paths {
-        audit.source = path.strip_prefix(&root).unwrap().display().to_string();
-        if audit.source.starts_with("runne-native-qualification/") {
-            continue;
-        }
-        let source = fs::read_to_string(&path).unwrap();
-        if !source.contains(FACTS) && !source.contains(EXPECTATION) {
-            continue;
-        }
-        let parsed =
-            syn::parse_file(&source).unwrap_or_else(|error| panic!("{}: {error}", audit.source));
-        audit.visit_file(&parsed);
-    }
-    assert_eq!(audit.facts, 1, "{:?}", audit.violations);
-    assert_eq!(audit.mint_methods, 1, "{:?}", audit.violations);
-    assert_eq!(audit.mint_calls, 1, "{:?}", audit.violations);
+    let mut sources = Vec::new();
+    collect(&root, &mut sources);
+    let owned: Vec<_> = sources
+        .iter()
+        .map(|path| {
+            (
+                path.strip_prefix(&root).unwrap().display().to_string(),
+                fs::read_to_string(path).unwrap(),
+            )
+        })
+        .collect();
+    let borrowed: Vec<_> = owned
+        .iter()
+        .map(|(path, source)| (path.as_str(), source.as_str()))
+        .collect();
+    let audit = audit_sources(&borrowed);
+    assert_eq!((audit.facts, audit.expectation, audit.verified), (1, 1, 1));
+    assert_eq!(
+        (audit.factory, audit.verification, audit.facts_reexports),
+        (1, 1, 3),
+        "{:#?}",
+        audit.violations,
+    );
     assert!(audit.violations.is_empty(), "{:#?}", audit.violations);
 }
 
-fn exact_mint_signature(actual: &syn::Signature) -> bool {
-    let expected: syn::ImplItemFn = syn::parse_str(
-        "pub fn qualification_runtime_installed_expectation(&self, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3) -> Option<runne_native_qualification::QualificationRuntimeInstalledExpectation> {}",
-    )
-    .unwrap();
-    let mut actual = actual.clone();
-    let mut expected = expected.sig;
-    actual.inputs.pop_punct();
-    expected.inputs.pop_punct();
-    actual == expected
+#[test]
+fn adversarial_alias_generic_trait_and_wrapper_escapes_are_rejected() {
+    let baseline = baseline();
+    assert!(
+        audit_sources(&[("baseline.rs", &baseline)])
+            .violations
+            .is_empty()
+    );
+    for mutation in [
+        format!("{baseline}\npub type Leak<T = QualificationRuntimeInstalledExpectation> = T;"),
+        format!(
+            "{baseline}\npub trait Leak {{ type Output: Into<QualificationRuntimeInstalledExpectation>; }}"
+        ),
+        format!(
+            "{baseline}\nuse crate::QualificationRuntimeInstalledExpectation as Gate; pub fn leak() -> Gate {{ todo!() }}"
+        ),
+        format!("{baseline}\npub struct Wrap<T: Into<VerifiedQualificationAdmission>>(T);"),
+        baseline.replace(
+            "candidate_sha256: [u8; 32]",
+            "pub candidate_sha256: [u8; 32]",
+        ),
+        baseline.replace(
+            "struct QualificationRuntimeInstalledExpectation",
+            "#[derive(Debug)] struct QualificationRuntimeInstalledExpectation",
+        ),
+        format!(
+            "{baseline}\nimpl QualificationRuntimeInstalledExpectation {{ pub fn matches(&self) -> bool {{ true }} }}"
+        ),
+        format!(
+            "{baseline}\npub use crate::QualificationRuntimeInstalledExpectation as PublicGate;"
+        ),
+        format!("{baseline}\npub type FactsAlias = VerifiedInstalledEnrollmentMeasurementFacts;"),
+        format!(
+            "{baseline}\nimpl VerifiedInstalledEnrollmentMeasurementFacts {{ pub fn from_fake() -> Self {{ todo!() }} }}"
+        ),
+        format!(
+            "{baseline}\nimpl VerifiedInstalledEnrollmentMeasurementFacts {{ pub fn is_qualified(&self) -> bool {{ true }} }}"
+        ),
+        format!(
+            "{baseline}\nimpl VerifiedInstalledEnrollmentMeasurementFacts {{ pub fn raw_v3_tuple(&self) -> [u8; 32] {{ [0; 32] }} }}"
+        ),
+        baseline.replace(
+            "pub struct VerifiedInstalledEnrollmentMeasurementFacts",
+            "#[derive(Clone)] pub struct VerifiedInstalledEnrollmentMeasurementFacts",
+        ),
+    ] {
+        assert!(
+            !audit_sources(&[("mutation.rs", &mutation)])
+                .violations
+                .is_empty()
+        );
+    }
 }
 
-fn type_is(value: &Type, name: &str) -> bool {
-    matches!(value, Type::Path(path) if path.path.segments.last().is_some_and(|segment| segment.ident == name))
-}
-
-fn mentions<T: std::fmt::Debug>(value: &T, name: &str) -> bool {
-    format!("{value:?}").contains(name)
+fn baseline() -> String {
+    "pub struct VerifiedInstalledEnrollmentMeasurementFacts { candidate: [u8; 32] }\nstruct QualificationRuntimeInstalledExpectation { candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32] }\nstruct VerifiedQualificationAdmission { private: () }\nstruct QualificationAdmissionVerifier; struct InstalledExpectationError; struct QualificationAdmissionError;\nimpl VerifiedInstalledEnrollmentMeasurementFacts { fn qualification_runtime_installed_expectation(&self, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3) -> Result<QualificationRuntimeInstalledExpectation, InstalledExpectationError> { todo!() } fn verify_qualification_admission(&self, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3, verifier: &mut QualificationAdmissionVerifier, admission: runne_native_qualification::PendingQualificationAdmission, now_unix_seconds: u64) -> Result<VerifiedQualificationAdmission, QualificationAdmissionError> { todo!() } }".into()
 }
 
 fn collect(root: &Path, paths: &mut Vec<PathBuf>) {

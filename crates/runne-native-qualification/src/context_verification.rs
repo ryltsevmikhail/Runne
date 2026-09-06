@@ -61,7 +61,8 @@ impl QualificationRunContextVerifier {
     pub(crate) fn verify_installed_and_consume(
         &mut self,
         bytes: &[u8],
-        expected: &crate::QualificationRuntimeInstalledExpectation,
+        candidate_sha256: [u8; 32],
+        raw_v3_tuple_sha256: [u8; 32],
         now_unix_seconds: u64,
     ) -> Result<
         (VerifiedQualificationRunContext, QualificationFaultContext),
@@ -73,7 +74,9 @@ impl QualificationRunContextVerifier {
             .ok_or(QualificationRunContextError::PolicyUnavailable)?;
         let context = context_wire::decode(bytes)?;
         let shape = verify_signed_context(&context, now_unix_seconds, policy)?;
-        if !expected.matches(shape.candidate_sha256, shape.release_tuple_v3_sha256) {
+        if shape.candidate_sha256 != candidate_sha256
+            || shape.release_tuple_v3_sha256 != raw_v3_tuple_sha256
+        {
             return Err(QualificationRunContextError::BindingMismatch);
         }
         let verified = VerifiedQualificationRunContext::verified(

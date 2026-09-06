@@ -57,6 +57,7 @@ NATIVE_QUALIFICATION_ADMISSION_ALLOWED = {
     Path("crates/runne-platform-desktop/src/protected_runtime/qualification_relay.rs"),
     Path("crates/runne-platform-desktop/src/protected_runtime/qualification_relay_tests.rs"),
     Path("crates/runne-platform-desktop/src/updater_metadata/enrollment_tuple/measurement_facts.rs"),
+    Path("crates/runne-platform-desktop/src/updater_metadata/enrollment_tuple/measurement_facts/qualification_admission.rs"),
     Path("crates/runne-daemon/src/protected_activation/control_v3.rs"),
     Path("crates/runne-daemon/src/protected_activation/control_v3/round.rs"),
     Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange.rs"),

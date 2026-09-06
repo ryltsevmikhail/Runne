@@ -1,0 +1,227 @@
+use std::collections::HashSet;
+
+use syn::visit::{self, Visit};
+use syn::{ImplItem, ItemUse, Visibility};
+
+use crate::installed_surface_expected::exact_reviewed_facts_method;
+use crate::installed_surface_syntax::{
+    EXPECTATION, FACTS, VERIFIED, collect_aliases, collect_sealed_aliases, exact_factory,
+    exact_facts_consumer, exact_facts_reexport, exact_verification, fields_mention,
+    generics_mention, impl_member_mentions, node_mentions_trait, path_mentions, sealed_struct,
+    signature_mentions, type_mentions, type_name, use_leaves,
+};
+
+#[derive(Default)]
+pub struct Audit {
+    pub facts: usize,
+    pub expectation: usize,
+    pub verified: usize,
+    pub factory: usize,
+    pub verification: usize,
+    pub facts_reexports: usize,
+    pub violations: Vec<String>,
+}
+
+struct SourceAudit<'a> {
+    source: &'a str,
+    aliases: HashSet<String>,
+    sealed_aliases: HashSet<String>,
+    audit: &'a mut Audit,
+}
+
+impl<'ast> Visit<'ast> for SourceAudit<'_> {
+    fn visit_item_struct(&mut self, item: &'ast syn::ItemStruct) {
+        let name = item.ident.to_string();
+        if name == FACTS {
+            self.audit.facts += 1;
+            if !matches!(item.vis, Visibility::Public(_)) || !sealed_struct(item) {
+                self.reject("installed facts are not constructor-sealed");
+            }
+        } else if name == EXPECTATION {
+            self.audit.expectation += 1;
+            if !matches!(item.vis, Visibility::Inherited) || !sealed_struct(item) {
+                self.reject("installed expectation is externally constructible");
+            }
+        } else if name == VERIFIED {
+            self.audit.verified += 1;
+            if !matches!(item.vis, Visibility::Inherited) || !sealed_struct(item) {
+                self.reject("verified admission is reusable or externally constructible");
+            }
+        } else if matches!(item.vis, Visibility::Public(_))
+            && self.fields_or_generics_escape(&item.fields, &item.generics)
+        {
+            self.reject("public generic or field wrapper escapes a sealed type");
+        }
+        visit::visit_item_struct(self, item);
+    }
+
+    fn visit_item_impl(&mut self, item: &'ast syn::ItemImpl) {
+        let owner = type_name(&item.self_ty, &self.aliases);
+        if owner.as_deref() == Some(EXPECTATION) || owner.as_deref() == Some(VERIFIED) {
+            if item.trait_.is_some() || !item.items.is_empty() {
+                self.reject("sealed token has an impl, getter, predicate, constructor, or trait");
+            }
+            return;
+        }
+        if owner.as_deref() == Some(FACTS) {
+            self.audit_facts_impl(item);
+            return;
+        }
+        if self.type_escapes(&item.self_ty)
+            || self.generics_escape(&item.generics)
+            || item
+                .trait_
+                .as_ref()
+                .is_some_and(|(_, path, _)| self.path_escapes(path))
+            || item
+                .items
+                .iter()
+                .any(|member| self.impl_member_escapes(member))
+        {
+            self.reject("wrapper or trait impl mentions a sealed installed type");
+        }
+        visit::visit_item_impl(self, item);
+    }
+
+    fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
+        if self.signature_escapes(&item.sig) {
+            self.reject("free function mentions a sealed installed type");
+        }
+        visit::visit_item_fn(self, item);
+    }
+
+    fn visit_item_type(&mut self, item: &'ast syn::ItemType) {
+        if self.type_escapes(&item.ty) || self.generics_escape(&item.generics) {
+            self.reject("type or generic alias mentions a sealed installed type");
+        }
+        visit::visit_item_type(self, item);
+    }
+
+    fn visit_item_trait(&mut self, item: &'ast syn::ItemTrait) {
+        if self.trait_escapes(item) {
+            self.reject("trait or associated type mentions a sealed installed type");
+        }
+        visit::visit_item_trait(self, item);
+    }
+
+    fn visit_item_use(&mut self, item: &'ast ItemUse) {
+        if !matches!(item.vis, Visibility::Inherited) {
+            for leaf in use_leaves(&item.tree) {
+                let sensitive = leaf.last().is_some_and(|name| self.aliases.contains(name));
+                if sensitive && exact_facts_reexport(self.source, &leaf) {
+                    self.audit.facts_reexports += 1;
+                } else if sensitive || leaf.last().is_some_and(|name| name == "*") {
+                    self.reject("reexport, rename, or glob escapes a sealed installed type");
+                }
+            }
+        }
+        visit::visit_item_use(self, item);
+    }
+}
+
+impl SourceAudit<'_> {
+    fn facts_are_allowed(&self) -> bool {
+        exact_facts_consumer(self.source)
+    }
+
+    fn type_escapes(&self, value: &syn::Type) -> bool {
+        type_mentions(value, &self.sealed_aliases)
+            || (!self.facts_are_allowed() && type_mentions(value, &self.aliases))
+    }
+
+    fn generics_escape(&self, value: &syn::Generics) -> bool {
+        generics_mention(value, &self.sealed_aliases)
+            || (!self.facts_are_allowed() && generics_mention(value, &self.aliases))
+    }
+
+    fn path_escapes(&self, value: &syn::Path) -> bool {
+        path_mentions(value, &self.sealed_aliases)
+            || (!self.facts_are_allowed() && path_mentions(value, &self.aliases))
+    }
+
+    fn fields_or_generics_escape(&self, fields: &syn::Fields, generics: &syn::Generics) -> bool {
+        fields_mention(fields, &self.sealed_aliases)
+            || generics_mention(generics, &self.sealed_aliases)
+            || (!self.facts_are_allowed()
+                && (fields_mention(fields, &self.aliases)
+                    || generics_mention(generics, &self.aliases)))
+    }
+
+    fn signature_escapes(&self, value: &syn::Signature) -> bool {
+        signature_mentions(value, &self.sealed_aliases)
+            || (!self.facts_are_allowed() && signature_mentions(value, &self.aliases))
+    }
+
+    fn impl_member_escapes(&self, value: &ImplItem) -> bool {
+        impl_member_mentions(value, &self.sealed_aliases)
+            || (!self.facts_are_allowed() && impl_member_mentions(value, &self.aliases))
+    }
+
+    fn trait_escapes(&self, value: &syn::ItemTrait) -> bool {
+        node_mentions_trait(value, &self.sealed_aliases)
+            || (!self.facts_are_allowed() && node_mentions_trait(value, &self.aliases))
+    }
+
+    fn audit_facts_impl(&mut self, item: &syn::ItemImpl) {
+        if item.trait_.is_some() || generics_mention(&item.generics, &self.aliases) {
+            self.reject("installed facts gain a trait or generic authority surface");
+        }
+        for member in &item.items {
+            match member {
+                ImplItem::Fn(method)
+                    if method.sig.ident == "qualification_runtime_installed_expectation" =>
+                {
+                    if matches!(method.vis, Visibility::Inherited) && exact_factory(&method.sig) {
+                        self.audit.factory += 1;
+                    } else {
+                        self.reject("installed expectation factory is not exact/private");
+                    }
+                }
+                ImplItem::Fn(method) if method.sig.ident == "verify_qualification_admission" => {
+                    if matches!(method.vis, Visibility::Inherited)
+                        && exact_verification(&method.sig)
+                    {
+                        self.audit.verification += 1;
+                    } else {
+                        self.reject("verified admission mint is not exact/private");
+                    }
+                }
+                ImplItem::Fn(method) if exact_reviewed_facts_method(method) => {}
+                ImplItem::Fn(_) => self.reject("unreviewed installed-facts impl surface"),
+                ImplItem::Type(_) | ImplItem::Const(_) => {
+                    self.reject("installed facts gain an associated escape surface");
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn reject(&mut self, message: &str) {
+        self.audit
+            .violations
+            .push(format!("{}: {message}", self.source));
+    }
+}
+
+pub fn audit_sources(sources: &[(&str, &str)]) -> Audit {
+    let mut audit = Audit::default();
+    for (path, source) in sources {
+        if ![FACTS, EXPECTATION, VERIFIED]
+            .iter()
+            .any(|name| source.contains(name))
+        {
+            continue;
+        }
+        let file = syn::parse_file(source).unwrap();
+        let aliases = collect_aliases(&file);
+        let sealed_aliases = collect_sealed_aliases(&file);
+        SourceAudit {
+            source: path,
+            aliases,
+            sealed_aliases,
+            audit: &mut audit,
+        }
+        .visit_file(&file);
+    }
+    audit
+}

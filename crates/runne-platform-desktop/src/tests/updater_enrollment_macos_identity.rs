@@ -7,7 +7,7 @@ use super::super::{
     VerifiedUpdateV2, verify_update_v2,
 };
 
-pub(super) fn target() -> UpdateTargetV2 {
+pub fn target() -> UpdateTargetV2 {
     let mut target = super::updater_enrollment_tuple::target();
     target.platform = "macos".into();
     target.arch = "arm64".into();
@@ -223,7 +223,7 @@ fn tamper(
     tampered
 }
 
-pub(super) fn verify_target(
+pub fn verify_target(
     target: &UpdateTargetV2,
 ) -> Result<VerifiedUpdateV2, super::super::UpdateV2VerificationError> {
     let roots = [

@@ -174,10 +174,9 @@ fn update_journal_rejects_corruption_and_invalid_transition() {
 
 mod updater_enrollment_tuple;
 mod updater_enrollment_tuple_v3;
-mod updater_enrollment_v3_fixture;
+pub mod updater_enrollment_v3_fixture;
 mod updater_enrollment_macos_desktop_identity;
-mod updater_enrollment_macos_identity;
-mod updater_enrollment_qualification;
-mod updater_enrollment_qualification_runtime;
+pub mod updater_enrollment_macos_identity;
+pub mod updater_enrollment_qualification;
 mod updater_v2;
 mod updater_daemon_installed_native;

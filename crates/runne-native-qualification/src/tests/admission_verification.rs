@@ -5,8 +5,8 @@ use sha2::{Digest as _, Sha256};
 
 use super::{NOW, admission_bundle, sign, sign_run_context, unsigned_run_context, unsigned_ticket};
 use crate::{
-    PendingQualificationAdmission, QualificationAdmissionVerifier,
-    QualificationRuntimeInstalledExpectation, VerifiedQualificationAdmission,
+    PendingQualificationAdmission, QualificationAdmissionVerificationError,
+    QualificationAdmissionVerifier,
 };
 
 fn signed_pair(
@@ -25,9 +25,26 @@ fn signed_pair(
         .expect("internally consistent signed pair")
 }
 
-fn expected() -> QualificationRuntimeInstalledExpectation {
-    QualificationRuntimeInstalledExpectation::new([0xaa; 32], [0xbb; 32])
-        .expect("nonzero installed expectation")
+#[derive(Clone, Copy)]
+struct InstalledFacts {
+    candidate: [u8; 32],
+    raw_tuple: [u8; 32],
+}
+
+const fn expected() -> InstalledFacts {
+    InstalledFacts {
+        candidate: [0xaa; 32],
+        raw_tuple: [0xbb; 32],
+    }
+}
+
+fn verify(
+    verifier: &mut QualificationAdmissionVerifier,
+    admission: PendingQualificationAdmission,
+    installed: InstalledFacts,
+    now: u64,
+) -> Result<(), QualificationAdmissionVerificationError> {
+    verifier.verify_and_consume(admission, installed.candidate, installed.raw_tuple, now)
 }
 
 fn verifier() -> QualificationAdmissionVerifier {
@@ -38,33 +55,39 @@ fn verifier() -> QualificationAdmissionVerifier {
 }
 
 #[test]
-fn correctly_signed_pair_is_verified_once_as_an_opaque_admission() {
+fn correctly_signed_pair_is_accepted_once_without_authority() {
     let mut verifier = verifier();
-    let admission_pair: VerifiedQualificationAdmission = verifier
-        .verify_and_consume(signed_pair(|_| {}, |_| {}), &expected(), NOW)
-        .expect("valid pair");
-    let _ = admission_pair;
+    verify(&mut verifier, signed_pair(|_| {}, |_| {}), expected(), NOW).expect("valid pair");
     assert!(
-        verifier
-            .verify_and_consume(signed_pair(|_| {}, |_| {}), &expected(), NOW)
-            .is_err(),
+        verify(&mut verifier, signed_pair(|_| {}, |_| {}), expected(), NOW,).is_err(),
         "context and ticket identities are single-use"
     );
 }
 
 #[test]
 fn installed_expectation_rejects_zero_and_crossed_candidate_or_raw_tuple() {
-    assert!(QualificationRuntimeInstalledExpectation::new([0; 32], [2; 32]).is_err());
-    assert!(QualificationRuntimeInstalledExpectation::new([1; 32], [0; 32]).is_err());
+    let pair = || signed_pair(|_| {}, |_| {});
+    assert!(
+        verifier()
+            .verify_and_consume(pair(), [0; 32], [2; 32], NOW)
+            .is_err()
+    );
+    assert!(
+        verifier()
+            .verify_and_consume(pair(), [1; 32], [0; 32], NOW)
+            .is_err()
+    );
     for crossed in [
-        QualificationRuntimeInstalledExpectation::new([0xab; 32], [0xbb; 32]).unwrap(),
-        QualificationRuntimeInstalledExpectation::new([0xaa; 32], [0xbc; 32]).unwrap(),
+        InstalledFacts {
+            candidate: [0xab; 32],
+            raw_tuple: [0xbb; 32],
+        },
+        InstalledFacts {
+            candidate: [0xaa; 32],
+            raw_tuple: [0xbc; 32],
+        },
     ] {
-        assert!(
-            verifier()
-                .verify_and_consume(signed_pair(|_| {}, |_| {}), &crossed, NOW)
-                .is_err()
-        );
+        assert!(verify(&mut verifier(), pair(), crossed, NOW).is_err());
     }
 }
 
@@ -74,11 +97,7 @@ fn qualified_release_binding_cannot_substitute_for_raw_tuple() {
         |context| context["release_tuple_v3_sha256"] = json!("ee".repeat(32)),
         |_| {},
     );
-    assert!(
-        verifier()
-            .verify_and_consume(pair, &expected(), NOW)
-            .is_err()
-    );
+    assert!(verify(&mut verifier(), pair, expected(), NOW).is_err());
 }
 
 #[test]
@@ -94,9 +113,7 @@ fn context_is_the_only_authority_for_every_ticket_assertion() {
     for (field, replacement) in cases {
         let pair = signed_pair(|_| {}, |ticket| ticket[field] = replacement);
         assert!(
-            verifier()
-                .verify_and_consume(pair, &expected(), NOW)
-                .is_err(),
+            verify(&mut verifier(), pair, expected(), NOW).is_err(),
             "ticket {field} escaped context binding"
         );
     }
@@ -108,9 +125,7 @@ fn context_is_the_only_authority_for_every_ticket_assertion() {
         },
     );
     assert!(
-        verifier()
-            .verify_and_consume(role_pair, &expected(), NOW)
-            .is_err(),
+        verify(&mut verifier(), role_pair, expected(), NOW).is_err(),
         "a different valid selector/role pair escaped context binding"
     );
 }
@@ -118,33 +133,41 @@ fn context_is_the_only_authority_for_every_ticket_assertion() {
 #[test]
 fn combined_verifier_rejects_unavailable_colliding_or_invalid_authorities_and_time() {
     assert!(
-        QualificationAdmissionVerifier::from_compiled_policy()
-            .verify_and_consume(signed_pair(|_| {}, |_| {}), &expected(), NOW)
-            .is_err()
+        verify(
+            &mut QualificationAdmissionVerifier::from_compiled_policy(),
+            signed_pair(|_| {}, |_| {}),
+            expected(),
+            NOW,
+        )
+        .is_err()
     );
     let key = SigningKey::from_bytes(&[7; 32]).verifying_key();
     assert!(
-        QualificationAdmissionVerifier::for_test(key, key)
-            .verify_and_consume(signed_pair(|_| {}, |_| {}), &expected(), NOW)
-            .is_err()
+        verify(
+            &mut QualificationAdmissionVerifier::for_test(key, key),
+            signed_pair(|_| {}, |_| {}),
+            expected(),
+            NOW,
+        )
+        .is_err()
     );
     assert!(
-        verifier()
-            .verify_and_consume(
-                signed_pair(|context| context["issued_at"] = json!(NOW + 1), |_| {}),
-                &expected(),
-                NOW,
-            )
-            .is_err()
+        verify(
+            &mut verifier(),
+            signed_pair(|context| context["issued_at"] = json!(NOW + 1), |_| {}),
+            expected(),
+            NOW,
+        )
+        .is_err()
     );
     assert!(
-        verifier()
-            .verify_and_consume(
-                signed_pair(|_| {}, |ticket| ticket["issued_at"] = json!(NOW + 1)),
-                &expected(),
-                NOW,
-            )
-            .is_err()
+        verify(
+            &mut verifier(),
+            signed_pair(|_| {}, |ticket| ticket["issued_at"] = json!(NOW + 1)),
+            expected(),
+            NOW,
+        )
+        .is_err()
     );
 }
 
@@ -163,11 +186,7 @@ fn combined_verifier_rejects_each_invalid_signature_and_stale_member() {
         &ticket,
     ))
     .unwrap();
-    assert!(
-        verifier()
-            .verify_and_consume(foreign_context, &expected(), NOW)
-            .is_err()
-    );
+    assert!(verify(&mut verifier(), foreign_context, expected(), NOW).is_err());
 
     let foreign_ticket = sign(&unsigned_ticket(), &SigningKey::from_bytes(&[8; 32]));
     let context = sign_run_context(
@@ -179,11 +198,7 @@ fn combined_verifier_rejects_each_invalid_signature_and_stale_member() {
         &foreign_ticket,
     ))
     .unwrap();
-    assert!(
-        verifier()
-            .verify_and_consume(foreign_ticket, &expected(), NOW)
-            .is_err()
-    );
+    assert!(verify(&mut verifier(), foreign_ticket, expected(), NOW).is_err());
 
     let stale = signed_pair(
         |context| {
@@ -192,11 +207,7 @@ fn combined_verifier_rejects_each_invalid_signature_and_stale_member() {
         },
         |_| {},
     );
-    assert!(
-        verifier()
-            .verify_and_consume(stale, &expected(), NOW)
-            .is_err()
-    );
+    assert!(verify(&mut verifier(), stale, expected(), NOW).is_err());
 }
 
 #[test]
@@ -216,7 +227,7 @@ fn ticket_replay_fails_even_under_a_fresh_valid_context_identity() {
             &context, &ticket,
         ))
         .unwrap();
-        let result = verifier.verify_and_consume(pair, &expected(), NOW);
+        let result = verify(&mut verifier, pair, expected(), NOW);
         assert_eq!(result.is_ok(), index == 0);
     }
 }

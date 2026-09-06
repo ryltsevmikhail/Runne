@@ -1,5 +1,21 @@
 use super::VerifiedDaemonNativeEnrollmentPrepare;
 
+#[cfg(target_os = "macos")]
+#[path = "measurement_facts/qualification_admission.rs"]
+mod qualification_admission;
+
+#[cfg(target_os = "macos")]
+#[expect(dead_code, reason = "Task 2C consumes the verified admission")]
+struct QualificationAdmissionVerifier {
+    inner: runne_native_qualification::QualificationAdmissionVerifier,
+}
+
+#[cfg(target_os = "macos")]
+#[expect(dead_code, reason = "Task 2C consumes the verified admission")]
+struct VerifiedQualificationAdmission {
+    _private: (),
+}
+
 /// Constructor-sealed installed artifacts and peer facts retained after revalidation.
 pub struct VerifiedInstalledEnrollmentMeasurementFacts {
     desktop: [u8; 32],
@@ -23,39 +39,6 @@ pub struct VerifiedInstalledEnrollmentMeasurementFacts {
 }
 
 impl VerifiedInstalledEnrollmentMeasurementFacts {
-    #[cfg(all(test, target_os = "macos"))]
-    pub(crate) fn for_qualification_expectation_test(
-        admission: &super::super::NativeEnrollmentTupleAdmission,
-    ) -> Option<Self> {
-        Some(Self {
-            desktop: admission.desktop_sha256,
-            writer: admission.writer_sha256,
-            daemon: admission.daemon_sha256,
-            credential_service: admission.credential_service_sha256,
-            runtime_credential_service: admission.runtime_credential_service_configuration().ok(),
-            writer_credential_service: admission.writer_credential_service_configuration().ok(),
-            contract: [5; 32],
-            desktop_start: [6; 32],
-            release: admission.release_tuple_sha256,
-            raw_v3_tuple: admission.raw_v3_tuple_sha256,
-            qualification_candidate_v3: admission.qualification_candidate_v3.clone(),
-            candidate_source: admission.candidate_source_sha256?,
-            target_manifest: admission.target_manifest_sha256?,
-            qualification: admission
-                .qualification
-                .retained_qualification_binding_digest()?,
-            installed_generation: admission.installed_generation,
-            release_frame: Vec::new(),
-        })
-    }
-
-    #[cfg(all(test, target_os = "macos"))]
-    pub(crate) const fn qualification_session_binding_for_test(
-        &self,
-    ) -> ([u8; 32], [u8; 32]) {
-        (self.release, self.qualification)
-    }
-
     #[cfg(feature = "test-support")]
     pub(crate) const fn for_connected_relay_test(release: [u8; 32]) -> Self {
         Self {
@@ -193,98 +176,10 @@ impl VerifiedInstalledEnrollmentMeasurementFacts {
         self.installed_generation
     }
 
-    #[cfg(target_os = "macos")]
-    #[must_use]
-    pub fn qualification_runtime_installed_expectation(
-        &self,
-        owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
-    ) -> Option<runne_native_qualification::QualificationRuntimeInstalledExpectation> {
-        let binding = owned.enrollment_binding();
-        let candidate = self.qualification_candidate_for_session(
-            *binding.release_tuple_digest(),
-            *binding.qualification_binding_digest(),
-        )?;
-        runne_native_qualification::QualificationRuntimeInstalledExpectation::from_verified_release_session(
-            owned, candidate,
-        )
-    }
-
-    #[cfg(target_os = "macos")]
-    fn qualification_candidate_for_session(
-        &self,
-        release: [u8; 32],
-        qualification: [u8; 32],
-    ) -> Option<&runne_api::SignedInstalledReleaseCandidateV3> {
-        if self.release != release || self.qualification != qualification {
-            return None;
-        }
-        let candidate = self.qualification_candidate_v3.as_ref()?;
-        let tuple = candidate.native_enrollment_tuple();
-        if tuple.candidate_digest() != self.candidate_source
-            || tuple.tuple_digest() != self.raw_v3_tuple?
-        {
-            return None;
-        }
-        Some(candidate)
-    }
-
     pub fn write_signed_release_metadata(
         &self,
         writer: &mut impl std::io::Write,
     ) -> std::io::Result<()> {
         writer.write_all(&self.release_frame)
-    }
-}
-
-#[cfg(all(test, target_os = "macos"))]
-mod qualification_tests {
-    use super::VerifiedInstalledEnrollmentMeasurementFacts;
-
-    const fn facts(
-        candidate: [u8; 32],
-        raw_v3_tuple: Option<[u8; 32]>,
-    ) -> VerifiedInstalledEnrollmentMeasurementFacts {
-        VerifiedInstalledEnrollmentMeasurementFacts {
-            desktop: [1; 32],
-            writer: [2; 32],
-            daemon: [3; 32],
-            credential_service: Some([4; 32]),
-            runtime_credential_service: None,
-            writer_credential_service: None,
-            contract: [5; 32],
-            desktop_start: [6; 32],
-            release: [7; 32],
-            raw_v3_tuple,
-            qualification_candidate_v3: None,
-            candidate_source: candidate,
-            target_manifest: [9; 32],
-            qualification: [10; 32],
-            installed_generation: 1,
-            release_frame: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn missing_or_crossed_v3_facts_fail_before_expectation_mint() {
-        let exact = facts([8; 32], Some([11; 32]));
-        for (release, qualification) in [([12; 32], [10; 32]), ([7; 32], [12; 32])] {
-            assert!(
-                exact
-                    .qualification_candidate_for_session(release, qualification)
-                    .is_none()
-            );
-        }
-        for unavailable in [facts([8; 32], None), facts([0; 32], Some([11; 32]))] {
-            assert!(
-                unavailable
-                    .qualification_candidate_for_session([7; 32], [10; 32])
-                    .is_none()
-            );
-        }
-        assert!(
-            facts([8; 32], Some([0; 32]))
-                .qualification_candidate_for_session([7; 32], [10; 32])
-                .is_none()
-        );
     }
 }

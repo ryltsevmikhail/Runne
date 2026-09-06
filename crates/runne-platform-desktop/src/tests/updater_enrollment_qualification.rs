@@ -28,14 +28,14 @@ fn macos_tuple(target: &UpdateTargetV2) -> NativeEnrollmentTupleV2 {
     .unwrap()
 }
 
-pub(super) fn artifacts(target: &UpdateTargetV2) -> MeasuredNativeEnrollmentArtifactsV1 {
+pub fn artifacts(target: &UpdateTargetV2) -> MeasuredNativeEnrollmentArtifactsV1 {
     MeasuredNativeEnrollmentArtifactsV1::test_only_from_digests(
         "c".repeat(64), "e".repeat(64), "f".repeat(64), target.bundle_sha256.clone(),
     )
     .unwrap()
 }
 
-pub(super) fn qualified_target(expires_at_unix_seconds: u64) -> UpdateTargetV2 {
+pub fn qualified_target(expires_at_unix_seconds: u64) -> UpdateTargetV2 {
     let mut target = super::updater_enrollment_macos_identity::target();
     let tuple = macos_tuple(&target);
     let qualification = NativeEnrollmentQualificationRowV1::new(

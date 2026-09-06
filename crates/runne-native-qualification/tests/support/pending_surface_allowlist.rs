@@ -178,7 +178,7 @@ pub fn exact_combined_verification_method(
     source: &str,
 ) -> bool {
     let expected = syn::parse_str::<syn::ImplItemFn>(
-        "pub fn verify_and_consume(&mut self, admission: PendingQualificationAdmission, installed: &QualificationRuntimeInstalledExpectation, now_unix_seconds: u64) -> Result<VerifiedQualificationAdmission, QualificationAdmissionVerificationError> {}",
+        "pub fn verify_and_consume(&mut self, admission: PendingQualificationAdmission, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<(), QualificationAdmissionVerificationError> {}",
     )
     .expect("valid combined verification signature");
     source == "admission_verification.rs"
