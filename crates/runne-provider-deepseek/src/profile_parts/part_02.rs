@@ -135,32 +135,7 @@ impl DeepSeekResponsesTextProfile {
     /// usage and [`DeepSeekProfileError::PricingOverflow`] when checked
     /// fixed-point arithmetic cannot represent the result.
     pub fn price_usage_micros(&self, usage: ProviderUsage) -> Result<u64, DeepSeekProfileError> {
-        if usage.input_tokens() > self.raw.pricing.long_context_threshold_tokens {
-            return Err(DeepSeekProfileError::UnsupportedPricingTier);
-        }
-        let uncached = usage
-            .input_tokens()
-            .checked_sub(usage.cached_input_tokens())
-            .ok_or(DeepSeekProfileError::PricingOverflow)?;
-        let input = prorated_micros(
-            uncached,
-            self.raw.pricing.peak_input_micros,
-            self.raw.pricing.unit_tokens,
-        )?;
-        let cached = prorated_micros(
-            usage.cached_input_tokens(),
-            self.raw.pricing.peak_cached_input_micros,
-            self.raw.pricing.unit_tokens,
-        )?;
-        let output = prorated_micros(
-            usage.output_tokens(),
-            self.raw.pricing.peak_output_micros,
-            self.raw.pricing.unit_tokens,
-        )?;
-        input
-            .checked_add(cached)
-            .and_then(|subtotal| subtotal.checked_add(output))
-            .ok_or(DeepSeekProfileError::PricingOverflow)
+        self.price_usage_with_rates(usage, PriceRates::peak(&self.raw.pricing))
     }
 }
 
@@ -169,6 +144,7 @@ impl ProviderTerminalPricing for DeepSeekResponsesTextProfile {
         &self,
         pricing_revision_digest: &[u8; 32],
         profile_digest: &[u8; 32],
+        effect_started_at: i64,
         usage: ProviderUsage,
     ) -> Result<ProviderPricedUsage, ProviderTerminalPricingError> {
         if pricing_revision_digest != &self.pricing_revision_digest()
@@ -177,9 +153,11 @@ impl ProviderTerminalPricing for DeepSeekResponsesTextProfile {
             return Err(ProviderTerminalPricingError::Unavailable);
         }
         let charge_micros = self
-            .price_usage_micros(usage)
+            .price_usage_at_micros(effect_started_at, usage)
             .map_err(|error| match error {
-                DeepSeekProfileError::UnsupportedPricingTier | DeepSeekProfileError::InvalidProfile => {
+                DeepSeekProfileError::UnsupportedPricingTier
+                | DeepSeekProfileError::PricingUnavailable
+                | DeepSeekProfileError::InvalidProfile => {
                     ProviderTerminalPricingError::Unavailable
                 }
                 DeepSeekProfileError::PricingOverflow => ProviderTerminalPricingError::InvalidQuote,

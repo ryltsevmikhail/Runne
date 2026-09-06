@@ -15,10 +15,15 @@ impl ProviderTerminalPricing for OpenAiTextProviderProfile {
         &self,
         pricing_revision_digest: &[u8; 32],
         profile_digest: &[u8; 32],
+        effect_started_at: i64,
         usage: ProviderUsage,
     ) -> Result<runne_provider::ProviderPricedUsage, ProviderTerminalPricingError> {
-        self.0
-            .price_terminal_usage(pricing_revision_digest, profile_digest, usage)
+        self.0.price_terminal_usage(
+            pricing_revision_digest,
+            profile_digest,
+            effect_started_at,
+            usage,
+        )
     }
 }
 
@@ -67,6 +72,7 @@ impl TextProviderProfile for OpenAiTextProviderProfile {
             .price_terminal_usage(
                 &self.0.pricing_revision_digest(),
                 &self.0.profile_digest(),
+                0,
                 usage,
             )
             .map(|priced| priced.charge_micros())

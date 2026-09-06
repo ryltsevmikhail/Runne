@@ -231,12 +231,21 @@ impl SqliteProviderExecutionStore {
         if !matches!(attempt.state, 3..=5) {
             return Err(ProviderExecutionError::TerminalConflict);
         }
+        let effect_started_at = connection
+            .query_row(
+                "SELECT effect_started_at FROM provider_effect_starts
+                 WHERE dispatch_attempt_id=?1 AND state=1",
+                [attempt_id.as_bytes().as_slice()],
+                |row| row.get(0),
+            )
+            .map_err(|_| ProviderExecutionError::JournalCorrupt)?;
         ProviderTerminalPricingBinding::with_reservation(
             attempt.pricing_revision_digest,
             attempt.currency,
             attempt.requested_input_tokens,
             attempt.requested_output_tokens,
             attempt.max_cost_micros,
+            effect_started_at,
         )
     }
 

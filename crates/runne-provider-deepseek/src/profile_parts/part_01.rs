@@ -52,6 +52,9 @@ pub enum DeepSeekProfileError {
     /// Usage requires a pricing tier intentionally excluded by this profile.
     #[error("provider usage requires an unsupported pricing tier")]
     UnsupportedPricingTier,
+    /// The pinned pricing snapshot is not effective at the effect timestamp.
+    #[error("provider pricing snapshot is unavailable at effect start")]
+    PricingUnavailable,
     /// Fixed-point pricing arithmetic exceeded its bound.
     #[error("provider pricing arithmetic overflow")]
     PricingOverflow,

@@ -18,10 +18,12 @@ impl ProviderTerminalPricing for FixedPricing {
         &self,
         pricing_revision_digest: &[u8; 32],
         profile_digest: &[u8; 32],
+        effect_started_at: i64,
         usage: ProviderUsage,
     ) -> Result<ProviderPricedUsage, ProviderTerminalPricingError> {
         assert_eq!(pricing_revision_digest, &[3; 32]);
         assert_eq!(profile_digest, &[2; 32]);
+        assert!(effect_started_at > 0);
         assert_eq!(usage, ProviderUsage::new(500, 900, 0, 0).unwrap());
         ProviderPricedUsage::new(40_000, "USD".to_owned())
     }
@@ -34,10 +36,12 @@ impl ProviderTerminalPricing for ZeroInputPricing {
         &self,
         pricing_revision_digest: &[u8; 32],
         profile_digest: &[u8; 32],
+        effect_started_at: i64,
         usage: ProviderUsage,
     ) -> Result<ProviderPricedUsage, ProviderTerminalPricingError> {
         assert_eq!(pricing_revision_digest, &[3; 32]);
         assert_eq!(profile_digest, &[2; 32]);
+        assert!(effect_started_at > 0);
         assert_eq!(usage, ProviderUsage::new(0, 900, 0, 0).unwrap());
         ProviderPricedUsage::new(30_000, "USD".to_owned())
     }

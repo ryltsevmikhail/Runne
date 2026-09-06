@@ -61,6 +61,7 @@ mod sourcecraft_persistence_tests {
             500,
             900,
             50_000,
+            84,
         )
         .unwrap();
         assert_eq!(

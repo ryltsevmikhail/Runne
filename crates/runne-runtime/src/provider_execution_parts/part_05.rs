@@ -43,6 +43,7 @@ where
                     .price_terminal_usage(
                         pricing_binding.pricing_revision_digest(),
                         &context.profile_digest,
+                        pricing_binding.effect_started_at(),
                         usage,
                     )
                     .map_err(|_| RuntimeProviderExecutionError::PricingUnavailable)?;

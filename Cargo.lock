@@ -4407,6 +4407,7 @@ dependencies = [
 name = "runne-provider-deepseek"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "hex",
  "jsonschema",
  "rcgen",

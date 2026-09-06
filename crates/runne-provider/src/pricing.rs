@@ -61,6 +61,7 @@ pub trait ProviderTerminalPricing: Send + Sync {
         &self,
         pricing_revision_digest: &[u8; 32],
         profile_digest: &[u8; 32],
+        effect_started_at: i64,
         usage: ProviderUsage,
     ) -> Result<ProviderPricedUsage, ProviderTerminalPricingError>;
 }

@@ -57,12 +57,15 @@ impl runne_provider::TextProviderProfile for DeepSeekResponsesTextProfile {
         &self,
         usage: runne_provider::ProviderUsage,
     ) -> Result<u64, runne_provider::ProviderTerminalPricingError> {
-        <Self as runne_provider::ProviderTerminalPricing>::price_terminal_usage(
-            self,
-            &self.pricing_revision_digest(),
-            &self.profile_digest(),
-            usage,
-        )
-        .map(|priced| priced.charge_micros())
+        DeepSeekResponsesTextProfile::price_usage_micros(self, usage).map_err(|error| match error {
+            DeepSeekProfileError::PricingOverflow => {
+                runne_provider::ProviderTerminalPricingError::InvalidQuote
+            }
+            DeepSeekProfileError::InvalidProfile
+            | DeepSeekProfileError::UnsupportedPricingTier
+            | DeepSeekProfileError::PricingUnavailable => {
+                runne_provider::ProviderTerminalPricingError::Unavailable
+            }
+        })
     }
 }

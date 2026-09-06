@@ -4,6 +4,7 @@ use super::ProviderAuthorityIssueOutcome;
 use super::authority_test_support::{Fixture, configured_connection};
 use runne_application::provider::ProviderAdmissionError;
 
+mod pricing;
 mod timing;
 
 #[test]

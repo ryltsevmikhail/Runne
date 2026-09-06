@@ -84,22 +84,59 @@ fn exact_profile_schema_digest_identity_and_pricing_are_stable() {
         .price_terminal_usage(
             &profile.pricing_revision_digest(),
             &profile.profile_digest(),
+            1_788_501_600,
             usage,
         )
         .unwrap();
     assert_eq!(priced.charge_micros(), 8);
     assert_eq!(priced.currency(), "USD");
     assert_eq!(
-        profile.price_terminal_usage(&[3; 32], &profile.profile_digest(), usage),
+        profile.price_terminal_usage(&[3; 32], &profile.profile_digest(), 1_788_501_600, usage),
         Err(ProviderTerminalPricingError::Unavailable)
     );
     assert_eq!(
-        profile.price_terminal_usage(&profile.pricing_revision_digest(), &[4; 32], usage),
+        profile.price_terminal_usage(
+            &profile.pricing_revision_digest(),
+            &[4; 32],
+            1_788_501_600,
+            usage,
+        ),
         Err(ProviderTerminalPricingError::Unavailable)
     );
     assert_eq!(
         profile.price_usage_micros(ProviderUsage::new(1_000_001, 1, 0, 0).unwrap()),
         Err(DeepSeekProfileError::UnsupportedPricingTier)
+    );
+}
+
+#[test]
+fn scheduled_pricing_uses_exact_utc_effect_start_boundaries() {
+    let profile = DeepSeekResponsesTextProfile::from_json(PROFILE_BYTES).unwrap();
+    let uncached = ProviderUsage::new(1_000_000, 1_000_000, 0, 0).unwrap();
+    let cached = ProviderUsage::new(1_000_000, 0, 1_000_000, 0).unwrap();
+    let cases = [
+        (1_788_494_399, 1_760_000, 14_000),
+        (1_788_494_400, 880_000, 7_000),
+        (1_788_501_599, 880_000, 7_000),
+        (1_788_501_600, 1_760_000, 14_000),
+        (1_788_515_999, 1_760_000, 14_000),
+        (1_788_516_000, 880_000, 7_000),
+        (1_788_573_600, 880_000, 7_000),
+    ];
+    for (effect_started_at, expected_uncached, expected_cached) in cases {
+        assert_eq!(
+            profile.price_usage_at_micros(effect_started_at, uncached),
+            Ok(expected_uncached)
+        );
+        assert_eq!(
+            profile.price_usage_at_micros(effect_started_at, cached),
+            Ok(expected_cached)
+        );
+    }
+    assert_eq!(profile.price_usage_micros(uncached), Ok(1_760_000));
+    assert_eq!(
+        profile.price_usage_at_micros(1_786_895_999, uncached),
+        Err(DeepSeekProfileError::PricingUnavailable)
     );
 }
 
