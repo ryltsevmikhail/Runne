@@ -1,6 +1,6 @@
 use std::panic::AssertUnwindSafe;
 use std::ptr::NonNull;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
 use block2::{ManualBlockEncoding, RcBlock};
@@ -11,8 +11,12 @@ use runne_platform_ports::credential_service::CredentialServiceCallContext;
 use tokio::sync::{oneshot, watch};
 use zeroize::Zeroizing;
 
-use crate::frame::{NativeReplyFrame, NativeRequestFrame, native};
+use crate::frame::{NativeRequestFrame, native};
 use crate::{CredentialServiceEndpointConfiguration, CredentialServiceXpcError};
+
+pub mod call_state;
+
+use call_state::{ConnectionInvalidator, NativeCallState, ReplyResult, UnknownTerminal};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ConnectionEvent {
@@ -20,9 +24,6 @@ enum ConnectionEvent {
     Interrupted,
     Invalidated,
 }
-
-type ReplyResult = Result<NativeReplyFrame, CredentialServiceXpcError>;
-type ReplySlot = Arc<Mutex<Option<oneshot::Sender<ReplyResult>>>>;
 
 struct ReplyBlockEncoding;
 
@@ -35,8 +36,23 @@ unsafe impl ManualBlockEncoding for ReplyBlockEncoding {
 }
 
 pub(super) struct NativeClient {
-    connection: Retained<NSXPCConnection>,
+    connection: Arc<NativeConnection>,
     events: watch::Sender<ConnectionEvent>,
+}
+
+struct NativeConnection(Retained<NSXPCConnection>);
+
+// SAFETY: Apple documents NSXPCConnection as thread-safe. Keeping the retained
+// connection behind this private wrapper lets callback state hold only a Weak
+// invalidator, avoiding a connection -> reply block -> connection retain cycle.
+#[allow(clippy::non_send_fields_in_send_ty)]
+unsafe impl Send for NativeConnection {}
+unsafe impl Sync for NativeConnection {}
+
+impl ConnectionInvalidator for NativeConnection {
+    fn invalidate(&self) {
+        self.0.invalidate();
+    }
 }
 
 // SAFETY: Apple documents NSXPCConnection as thread-safe. All callbacks carry
@@ -74,7 +90,10 @@ impl NativeClient {
         })));
         connection.setCodeSigningRequirement(&requirement);
         connection.resume();
-        Self { connection, events }
+        Self {
+            connection: Arc::new(NativeConnection(connection)),
+            events,
+        }
     }
 
     pub(super) async fn exchange(
@@ -100,67 +119,86 @@ impl NativeClient {
             }
         }
         let request = NativeRequestFrame::new(bytes)?;
-        let (mut receiver, slot) = self.dispatch(&request, &context)?;
+        let (mut receiver, call) = self.dispatch(request, &context)?;
         let timeout = tokio::time::sleep_until(context.deadline().into());
         tokio::pin!(timeout);
         tokio::select! {
             biased;
             () = &mut timeout => {
-                close_slot(&slot);
+                call.close_unknown(UnknownTerminal::Timeout);
                 Err(CredentialServiceXpcError::OutcomeUnknown)
             }
             () = context.cancellation().cancelled() => {
-                close_slot(&slot);
+                call.close_unknown(UnknownTerminal::Cancelled);
                 Err(CredentialServiceXpcError::OutcomeUnknown)
             }
             changed = events.changed() => {
-                close_slot(&slot);
-                match changed.map(|()| *events.borrow()) {
-                    Ok(ConnectionEvent::Interrupted | ConnectionEvent::Invalidated | ConnectionEvent::Active) | Err(_) => {
-                        Err(CredentialServiceXpcError::OutcomeUnknown)
+                let terminal = match changed.map(|()| *events.borrow()) {
+                    Ok(ConnectionEvent::Interrupted) => UnknownTerminal::Interrupted,
+                    Ok(ConnectionEvent::Invalidated | ConnectionEvent::Active) | Err(_) => {
+                        UnknownTerminal::Invalidated
                     }
-                }
+                };
+                call.close_unknown(terminal);
+                Err(CredentialServiceXpcError::OutcomeUnknown)
             }
-            result = &mut receiver => result.unwrap_or(Err(CredentialServiceXpcError::OutcomeUnknown)),
+            result = &mut receiver => {
+                let result = result.unwrap_or_else(|_| {
+                    call.close_unknown(UnknownTerminal::ReceiverClosed);
+                    Err(CredentialServiceXpcError::OutcomeUnknown)
+                });
+                if result.is_ok() {
+                    call.accept_reply();
+                }
+                result
+            },
         }
     }
 
     fn dispatch(
         &self,
-        request: &NativeRequestFrame,
+        request: NativeRequestFrame,
         context: &CredentialServiceCallContext,
-    ) -> Result<(oneshot::Receiver<ReplyResult>, ReplySlot), CredentialServiceXpcError> {
+    ) -> Result<(oneshot::Receiver<ReplyResult>, NativeCallState), CredentialServiceXpcError> {
         if context.cancellation().is_cancelled() {
             return Err(CredentialServiceXpcError::Cancelled);
         }
         if Instant::now() >= context.deadline() {
             return Err(CredentialServiceXpcError::TimedOut);
         }
-        let data = native::request_data(request);
+        // Foundation makes the sole Rust -> NSData request copy here. Rust owns
+        // `request` in `call` until exactly one terminal transition.
+        let data = native::request_data(&request);
         let (sender, receiver) = oneshot::channel();
-        let slot = Arc::new(Mutex::new(Some(sender)));
-        let error_slot = Arc::clone(&slot);
+        let invalidator: Arc<dyn ConnectionInvalidator> = self.connection.clone();
+        let call = NativeCallState::new(request, sender, &invalidator);
+        let error_reply = call.reply_handle();
         let error = RcBlock::new(move |_error: NonNull<NSError>| {
-            send_once(&error_slot, Err(CredentialServiceXpcError::OutcomeUnknown));
+            error_reply.deliver_unknown(UnknownTerminal::DispatchError);
         });
-        let proxy = self.connection.remoteObjectProxyWithErrorHandler(&error);
-        let reply_slot = Arc::clone(&slot);
+        let proxy = self.connection.0.remoteObjectProxyWithErrorHandler(&error);
+        let reply_handle = call.reply_handle();
         let reply =
             RcBlock::with_encoding::<_, _, _, ReplyBlockEncoding>(move |data: *mut NSData| {
-                let result = NonNull::new(data)
-                    .ok_or(CredentialServiceXpcError::OutcomeUnknown)
-                    .and_then(|data| {
-                        native::copy_reply(unsafe { data.as_ref() })
-                            .map_err(|_| CredentialServiceXpcError::OutcomeUnknown)
-                    });
-                send_once(&reply_slot, result);
+                let Some(data) = NonNull::new(data) else {
+                    reply_handle.deliver_unknown(UnknownTerminal::MalformedReply);
+                    return;
+                };
+                match native::copy_reply(unsafe { data.as_ref() }) {
+                    Ok(reply) => reply_handle.deliver(Ok(reply)),
+                    Err(_) => reply_handle.deliver_unknown(UnknownTerminal::MalformedReply),
+                }
             });
-        objc2::exception::catch(AssertUnwindSafe(|| {
+        if objc2::exception::catch(AssertUnwindSafe(|| {
             // SAFETY: proxy implements the registered one-NSData request/reply protocol.
             let _: () = unsafe { msg_send![&*proxy, exchange: &*data, reply: &*reply] };
         }))
-        .map_err(|_| CredentialServiceXpcError::OutcomeUnknown)?;
-        Ok((receiver, slot))
+        .is_err()
+        {
+            call.close_unknown(UnknownTerminal::DispatchError);
+            return Err(CredentialServiceXpcError::OutcomeUnknown);
+        }
+        Ok((receiver, call))
     }
 }
 
@@ -168,20 +206,4 @@ impl Drop for NativeClient {
     fn drop(&mut self) {
         self.connection.invalidate();
     }
-}
-
-fn send_once(slot: &ReplySlot, result: ReplyResult) {
-    let sender = slot
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .take();
-    if let Some(sender) = sender {
-        let _ = sender.send(result);
-    }
-}
-
-fn close_slot(slot: &ReplySlot) {
-    slot.lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .take();
 }

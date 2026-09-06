@@ -5,9 +5,27 @@ use zeroize::Zeroizing;
 
 use crate::CredentialServiceXpcError;
 
+#[cfg(test)]
+pub(crate) struct FrameDropWitness(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+#[cfg(test)]
+impl FrameDropWitness {
+    pub(crate) fn new(count: std::sync::Arc<std::sync::atomic::AtomicUsize>) -> Self {
+        Self(count)
+    }
+
+    fn record(&self) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+    }
+}
+
 macro_rules! native_frame {
     ($name:ident) => {
-        pub(crate) struct $name(Zeroizing<Vec<u8>>);
+        pub(crate) struct $name {
+            bytes: Option<Zeroizing<Vec<u8>>>,
+            #[cfg(test)]
+            drop_witness: Option<FrameDropWitness>,
+        }
 
         impl $name {
             pub(crate) fn new(
@@ -16,15 +34,39 @@ macro_rules! native_frame {
                 if bytes.is_empty() || bytes.len() > MAX_CREDENTIAL_SERVICE_FRAME_BYTES {
                     return Err(CredentialServiceXpcError::Rejected);
                 }
-                Ok(Self(bytes))
+                Ok(Self {
+                    bytes: Some(bytes),
+                    #[cfg(test)]
+                    drop_witness: None,
+                })
+            }
+
+            #[cfg(test)]
+            pub(crate) fn new_observed(
+                bytes: Zeroizing<Vec<u8>>,
+                drop_witness: FrameDropWitness,
+            ) -> Result<Self, CredentialServiceXpcError> {
+                Self::new(bytes).map(|mut frame| {
+                    frame.drop_witness = Some(drop_witness);
+                    frame
+                })
             }
 
             pub(crate) fn with_bytes<T>(&self, use_bytes: impl FnOnce(&[u8]) -> T) -> T {
-                use_bytes(&self.0)
+                use_bytes(self.bytes.as_deref().expect("native frame bytes are owned"))
             }
 
-            pub(crate) fn into_bytes(self) -> Zeroizing<Vec<u8>> {
-                self.0
+            pub(crate) fn into_bytes(mut self) -> Zeroizing<Vec<u8>> {
+                self.bytes.take().expect("native frame bytes are owned")
+            }
+        }
+
+        #[cfg(test)]
+        impl Drop for $name {
+            fn drop(&mut self) {
+                if let Some(witness) = &self.drop_witness {
+                    witness.record();
+                }
             }
         }
     };
@@ -62,6 +104,8 @@ pub(crate) mod native {
         unsafe { protocol.as_ref() }.expect("credential XPC protocol must be linked")
     }
 
+    /// Makes the sole bounded request copy into Foundation-owned storage.
+    /// Repository code cannot claim that `NSData` storage is wiped on release.
     pub(crate) fn request_data(frame: &NativeRequestFrame) -> Retained<NSData> {
         frame.with_bytes(|bytes| {
             // SAFETY: NSData copies the valid borrowed bytes before this call returns.
@@ -69,6 +113,8 @@ pub(crate) mod native {
         })
     }
 
+    /// Makes the sole bounded reply copy into Foundation-owned storage.
+    /// Repository code cannot claim that `NSData` storage is wiped on release.
     pub(crate) fn reply_data(frame: &NativeReplyFrame) -> Retained<NSData> {
         frame.with_bytes(|bytes| {
             // SAFETY: NSData copies the valid borrowed bytes before this call returns.
