@@ -1,0 +1,9 @@
+{
+  "schema_version": "runne.benchmark.journey/1",
+  "journey_id": "bounded_refactor",
+  "revision": 1,
+  "title": "Bounded refactor",
+  "objective": "Change an internal structure within a declared boundary while preserving observable behavior and passing exact characterization tests.",
+  "scope": {"max_files_changed": 16, "max_changed_lines": 800, "network_allowed": false, "new_dependencies_allowed": false},
+  "verifier_contract": {"kind": "machine", "requires_clean_exit": true, "requires_targeted_tests": true, "requires_diff_check": true}
+}

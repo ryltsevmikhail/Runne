@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://runne.dev/schemas/benchmark-profile-v1.schema.json",
+  "title": "Runne Benchmark Profile V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract_id", "profile_id", "frozen_at", "source", "execution", "sample_size", "eligible_denominator", "stopping_rule", "cases"],
+  "properties": {
+    "schema_version": {"const": "runne.benchmark.profile/1"},
+    "contract_id": {"const": "runne-benchmark-v1"},
+    "profile_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{2,63}$"},
+    "frozen_at": {"type": "string", "format": "date-time"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "revision", "artifact_sha256"],
+      "properties": {
+        "repository": {"type": "string", "pattern": "^https://"},
+        "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "artifact_sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider_id", "provider_profile_sha256", "model_id", "model_revision", "runtime_policy_sha256", "tool_policy_sha256", "environment_sha256"],
+      "properties": {
+        "provider_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+        "provider_profile_sha256": {"$ref": "#/$defs/digest"},
+        "model_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "model_revision": {"type": "string", "minLength": 1, "maxLength": 128},
+        "runtime_policy_sha256": {"$ref": "#/$defs/digest"},
+        "tool_policy_sha256": {"$ref": "#/$defs/digest"},
+        "environment_sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "sample_size": {"const": 12},
+    "eligible_denominator": {"const": 12},
+    "stopping_rule": {"const": "complete_all_eligible_cases"},
+    "cases": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "items": {"$ref": "#/$defs/case"}
+    }
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["case_id", "journey_id", "journey_spec_sha256", "repository_manifest_sha256", "fixture_manifest_sha256", "task_spec_sha256", "verifier_id", "verifier_version", "verifier_sha256", "budgets"],
+      "properties": {
+        "case_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{2,63}$"},
+        "journey_id": {"enum": ["pr_ready_bug_fix", "dependency_security_upgrade", "bounded_refactor"]},
+        "journey_spec_sha256": {"$ref": "#/$defs/digest"},
+        "repository_manifest_sha256": {"$ref": "#/$defs/digest"},
+        "fixture_manifest_sha256": {"$ref": "#/$defs/digest"},
+        "task_spec_sha256": {"$ref": "#/$defs/digest"},
+        "verifier_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{2,63}$"},
+        "verifier_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "verifier_sha256": {"$ref": "#/$defs/digest"},
+        "budgets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["wall_seconds", "input_tokens", "output_tokens", "cost_micros"],
+          "properties": {
+            "wall_seconds": {"type": "integer", "minimum": 1, "maximum": 7200},
+            "input_tokens": {"type": "integer", "minimum": 1, "maximum": 1000000},
+            "output_tokens": {"type": "integer", "minimum": 1, "maximum": 1000000},
+            "cost_micros": {"type": "integer", "minimum": 1, "maximum": 1000000000}
+          }
+        }
+      }
+    }
+  }
+}
