@@ -99,7 +99,7 @@ fn v16_fixture(
          DROP TABLE IF EXISTS process_registry;
          DROP INDEX IF EXISTS idx_approvals_pending;
          DROP TABLE IF EXISTS approvals;
-         DROP TABLE IF EXISTS credential_cleanup_recovery_attempts;
+         DROP TABLE IF EXISTS provider_qualification_admission_fences; DROP TABLE IF EXISTS credential_cleanup_recovery_attempts;
          DROP TABLE IF EXISTS provider_online_credential_effect_bindings;
          DROP TABLE IF EXISTS provider_online_dispatch_claim_providers;
          DROP TABLE IF EXISTS provider_online_dispatch_issuance_evidence;

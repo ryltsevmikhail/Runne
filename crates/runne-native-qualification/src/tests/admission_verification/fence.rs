@@ -3,6 +3,33 @@ use serde_json::json;
 use super::{NOW, expected, signed_pair, verifier};
 
 #[test]
+fn fingerprint_binds_signed_context_identity_and_intervals() {
+    let fingerprint = |admission| {
+        verifier()
+            .verify_exact_for_fence_borrowed(
+                &admission,
+                expected().candidate,
+                expected().raw_tuple,
+                NOW,
+            )
+            .unwrap()
+            .fingerprint()
+    };
+    let baseline = fingerprint(signed_pair(|_| {}, |_| {}));
+    assert_eq!(baseline, fingerprint(signed_pair(|_| {}, |_| {})));
+    for (field, replacement) in [
+        ("context_id", json!("55".repeat(32))),
+        ("expires_at", json!(NOW + 299)),
+        ("issued_at", json!(NOW - 1)),
+    ] {
+        assert_ne!(
+            baseline,
+            fingerprint(signed_pair(|context| context[field] = replacement, |_| {}))
+        );
+    }
+}
+
+#[test]
 fn verification_mints_one_complete_combined_fact_set() {
     let admission = signed_pair(|_| {}, |_| {});
     let facts = verifier()

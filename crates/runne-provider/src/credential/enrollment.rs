@@ -2,6 +2,7 @@ mod authority;
 mod binding;
 mod completion_receipt;
 mod identity;
+mod measured_qualification;
 mod metadata;
 mod operation;
 mod operation_metadata;
@@ -43,6 +44,7 @@ pub use identity::{
     CredentialLifecycleRevision, CredentialOperationId, CredentialTicketAttempt,
     RawCredentialTicket,
 };
+pub use measured_qualification::{MeasuredQualificationAdmission, QualificationSessionBinding};
 pub use metadata::{
     CredentialNativeEffectDisposition, CredentialReadbackDisposition,
     CredentialReadinessDisposition, CredentialReadinessObservation, CredentialReadinessRevision,

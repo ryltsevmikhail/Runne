@@ -29,10 +29,10 @@ impl DaemonProtectedCredentialEnrollmentSession {
     pub(super) fn take_ticket_authority(
         &mut self,
     ) -> Result<CredentialTicketAuthority, ProviderCredentialEnrollmentHostError> {
-        // The retained pair cannot select ordinary issue_ticket_attempt/send_issue.
-        // Task 2C-c must atomically issue the qualified attempt and fence first.
+        // The sticky snapshot survives carrier consumption and every failed issue.
+        // Qualified sessions cannot select ordinary issue_ticket_attempt/send_issue.
         #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
-        if self.qualification.is_some() {
+        if self.qualification_snapshot.is_some() {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
         if self.recovery.started {

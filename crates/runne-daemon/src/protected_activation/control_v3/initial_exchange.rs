@@ -65,7 +65,12 @@ pub(super) fn run(
 #[cfg(target_os = "macos")]
 pub(crate) struct VerifiedQualificationAdmission {
     _admission: PendingQualificationAdmission,
+    owned: Box<runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3>,
 }
+
+#[cfg(target_os = "macos")]
+#[path = "initial_exchange/qualification_fence.rs"]
+mod qualification_fence;
 
 #[cfg(target_os = "macos")]
 enum InitialQualificationFrame {
@@ -86,6 +91,7 @@ fn verify_and_retain_qualification_admission(
         .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
     Ok(VerifiedQualificationAdmission {
         _admission: admission,
+        owned: Box::new(owned.clone()),
     })
 }
 

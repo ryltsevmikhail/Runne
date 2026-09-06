@@ -17,17 +17,56 @@ pub fn exact_daemon_carrier(source: &str, item: &syn::ItemStruct) -> bool {
         && item.attrs == expected.attrs
         && item.generics.params.is_empty()
         && item.generics.where_clause.is_none()
-        && fields.named.len() == 1
+        && fields.named.len() == 2
         && fields.named.iter().all(|field| {
-            field
-                .ident
-                .as_ref()
-                .is_some_and(|name| name == "_admission")
-                && matches!(field.vis, Visibility::Inherited)
-                && matches!(&field.ty, syn::Type::Path(path)
-                    if path.path.segments.last().is_some_and(|part|
-                        part.ident == "PendingQualificationAdmission"))
+            matches!(field.vis, Visibility::Inherited) && match field.ident.as_ref().map(ToString::to_string).as_deref() {
+                Some("_admission") => matches!(&field.ty, syn::Type::Path(path)
+                    if path.path.segments.last().is_some_and(|part| part.ident == "PendingQualificationAdmission")),
+                Some("owned") => field.ty == syn::parse_str::<syn::Type>("Box<runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3>").unwrap(),
+                _ => false,
+            }
         })
+}
+
+pub fn exact_fence_wrapper(source: &str, item: &syn::ItemStruct) -> bool {
+    if source != TRANSFER_SOURCE {
+        return false;
+    }
+    let expected = match item.ident.to_string().as_str() {
+        "CommittedQualification" => {
+            "struct CommittedQualification { admission: VerifiedQualificationAdmission, receipt: ProviderQualificationAdmissionFenceReceipt, issued: IssuedCredentialTicketAttempt, fingerprint: [u8; 32], continuation: CredentialBindingDigest, }"
+        }
+        "FencedQualificationAdmission" => {
+            "pub(super) struct FencedQualificationAdmission { _admission: VerifiedQualificationAdmission, _receipt: runne_provider::ProviderQualificationAdmissionFenceReceipt, }"
+        }
+        _ => return false,
+    };
+    let expected: syn::ItemStruct = syn::parse_str(expected).unwrap();
+    item.vis == expected.vis
+        && item.fields == expected.fields
+        && item.generics == expected.generics
+        && item.attrs.iter().all(|attr| attr.path().is_ident("doc"))
+}
+
+pub fn exact_fence_reverification(source: &str, item: &syn::ItemImpl) -> bool {
+    if source
+        != "runne-daemon/src/protected_activation/control_v3/initial_exchange/qualification_fence.rs"
+        || item.trait_.is_some()
+        || !item.generics.params.is_empty()
+        || item.items.len() != 2
+    {
+        return false;
+    }
+    item.items.iter().all(|member| {
+        let syn::ImplItem::Fn(method) = member else { return false; };
+        let expected = match method.sig.ident.to_string().as_str() {
+            "retained_owned" => "pub(crate) fn retained_owned(&self) -> &ProtectedCredentialEnrollmentOwnedLaunchV3 {}",
+            "reverify_for_fence" => "pub(crate) fn reverify_for_fence(&self, installed: &runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts, current: &ProtectedCredentialEnrollmentOwnedLaunchV3, verifier: &mut runne_native_qualification::QualificationAdmissionVerifier, now_unix_seconds: u64) -> Result<runne_native_qualification::VerifiedQualificationFenceFacts, Error> {}",
+            _ => return false,
+        };
+        let expected: syn::ImplItemFn = syn::parse_str(expected).unwrap();
+        method.vis == expected.vis && signatures_match(&method.sig, &expected.sig)
+    })
 }
 
 pub fn exact_initial_read(source: &str, item: &syn::ItemFn) -> bool {

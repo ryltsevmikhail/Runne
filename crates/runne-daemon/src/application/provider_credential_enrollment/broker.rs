@@ -17,6 +17,8 @@ pub(crate) mod issue;
 pub(super) mod pending;
 #[cfg(all(unix, feature = "desktop-protected"))]
 mod pending_writer;
+#[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+mod qualified_issue;
 #[cfg(unix)]
 pub(crate) mod rendezvous;
 #[cfg(all(unix, feature = "desktop-protected"))]

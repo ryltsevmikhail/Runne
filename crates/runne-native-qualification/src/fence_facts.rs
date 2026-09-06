@@ -25,6 +25,51 @@ pub struct VerifiedQualificationFenceFacts {
 }
 
 impl VerifiedQualificationFenceFacts {
+    /// Domain-separated digest of every signed native fact, with bounded string framing.
+    #[must_use]
+    pub fn fingerprint(&self) -> [u8; 32] {
+        use sha2::{Digest as _, Sha256};
+        let mut digest = Sha256::new();
+        digest.update(b"runne/qualification-fence-facts/v1\0");
+        for value in [
+            self.context_id,
+            self.context_nonce,
+            self.ticket_id,
+            self.ticket_nonce,
+            self.ticket_sha256,
+            self.candidate_sha256,
+            self.raw_v3_tuple_sha256,
+            self.namespace_sha256,
+        ] {
+            digest.update(value);
+        }
+        digest.update(self.source_revision);
+        let role = match self.process_role {
+            QualificationProcessRole::Desktop => "desktop",
+            QualificationProcessRole::Writer => "writer",
+            QualificationProcessRole::Runtime => "runtime",
+            QualificationProcessRole::Service => "service",
+        };
+        for value in [
+            self.scenario.as_str(),
+            self.selector.as_str(),
+            role,
+            &self.workflow_run_id,
+        ] {
+            digest.update((value.len() as u64).to_be_bytes());
+            digest.update(value.as_bytes());
+        }
+        for value in [
+            self.context_issued_at,
+            self.context_expires_at,
+            self.ticket_issued_at,
+            self.ticket_expires_at,
+        ] {
+            digest.update(value.to_be_bytes());
+        }
+        digest.finalize().into()
+    }
+
     // By-value inputs intentionally consume both split verification authorities.
     #[allow(clippy::needless_pass_by_value)]
     pub(crate) fn verified(

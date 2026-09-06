@@ -32,6 +32,10 @@ same-file = "1"
 runne-windows-native-handle = { path = "../runne-windows-native-handle" }
 
 [dev-dependencies]
+base64.workspace = true
+ed25519-dalek.workspace = true
+hex.workspace = true
+runne-native-qualification = { path = "../runne-native-qualification", features = ["test-support"] }
 runne-api = { path = "../runne-api", features = ["test-support"] }
 runne-runtime = { path = "../runne-runtime", features = ["provider-terminal-test-support"] }
 runne-security = { path = "../runne-security" }

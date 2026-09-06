@@ -181,6 +181,11 @@ fn unreachable_qualification_ticket() -> IssueCredentialTicketDigest {
     .unwrap()
 }
 
-fn unreachable_qualification_fence() -> super::super::ProviderQualificationAdmissionFence {
-    super::qualification_fence_contract_tests::valid_input()
+fn unreachable_qualification_fence() -> super::super::MeasuredQualificationAdmission {
+    let (_, measurements) = super::super::CredentialEnrollmentAuthorityPair::new().split();
+    measurements.test_only_measure_qualification(
+        super::qualification_fence_contract_tests::valid_input(),
+        super::super::CredentialBindingDigest::from_measured([3; 32]).unwrap(),
+        [4; 32],
+    )
 }

@@ -21,6 +21,11 @@ pub(crate) struct MacOsCredentialBrokerChannel {
 }
 
 impl MacOsCredentialBrokerChannel {
+    pub(crate) fn installed_measurements(
+        &self,
+    ) -> &runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts {
+        &self.installed
+    }
     pub(crate) fn observe_daemon_start() -> Result<[u8; 32], runne_api::LaunchAuthorityError> {
         runne_platform_desktop::provider_credential_broker::observe_current_process_start()
             .map_err(|_| runne_api::LaunchAuthorityError::InvalidContract)

@@ -11,6 +11,9 @@ use runne_secure_store::{
 use std::sync::Arc;
 
 struct NoReadback;
+pub(crate) fn owned_for_test() -> runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3 {
+    crate::protected_activation::enrollment_v3_tests::owned_and_sessions().0
+}
 impl ProviderCredentialReadback for NoReadback {
     fn readback_exact_version(
         &self,
@@ -56,12 +59,16 @@ pub(crate) fn session_with_active(
             context_key.verifying_key(),
             fault_key.verifying_key(),
         );
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     let admission = super::verify_and_retain_qualification_admission(
         &installed,
         &owned,
         &mut verifier,
-        super::qualification_admission_tests::support::admission(&context_key, &fault_key),
-        1_800_000_000,
+        super::qualification_admission_tests::support::admission_at(&context_key, &fault_key, now),
+        now,
     )
     .unwrap();
     let mut directory = tempfile::tempdir().unwrap();

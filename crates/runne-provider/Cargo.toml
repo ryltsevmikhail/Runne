@@ -8,6 +8,7 @@ rust-version.workspace = true
 test-support = []
 
 [dependencies]
+runne-native-qualification = { path = "../runne-native-qualification" }
 runne-domain = { path = "../runne-domain" }
 rand = "0.8"
 ring.workspace = true

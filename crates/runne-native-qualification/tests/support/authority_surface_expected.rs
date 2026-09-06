@@ -24,6 +24,7 @@ pub fn expected_methods() -> Vec<(&'static str, &'static str)> {
             "VerifiedQualificationFenceFacts",
             &[
                 "context_id",
+                "fingerprint",
                 "context_nonce",
                 "ticket_id",
                 "ticket_nonce",
@@ -132,6 +133,7 @@ fn parse_signature(source: &str) -> Option<syn::Signature> {
 
 fn fence_facts_signature(method: &str) -> Option<&'static str> {
     Some(match method {
+        "fingerprint" => "pub fn fingerprint(&self) -> [u8; 32] {}",
         "context_id" => "pub const fn context_id(&self) -> [u8; 32] {}",
         "context_nonce" => "pub const fn context_nonce(&self) -> [u8; 32] {}",
         "ticket_id" => "pub const fn ticket_id(&self) -> [u8; 32] {}",

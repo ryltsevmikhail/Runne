@@ -4,7 +4,7 @@ use crate::protected_activation::control_v3::initial_exchange::session_test_supp
 };
 use runne_api::{ProviderCredentialEnrollmentActionV2 as Action, ProviderCredentialProviderV2};
 
-fn request(
+pub(super) fn request(
     session: &DaemonProtectedCredentialEnrollmentSession,
     keys: &ProtectedActivationKeys,
     command: &BeginProviderCredentialEnrollment,
@@ -43,7 +43,7 @@ fn request(
     .encode_frame()
 }
 
-fn command(action: Action) -> BeginProviderCredentialEnrollment {
+pub(super) fn command(action: Action) -> BeginProviderCredentialEnrollment {
     command_at_revision(action, 1)
 }
 
@@ -59,7 +59,7 @@ fn command_at_revision(action: Action, revision: u64) -> BeginProviderCredential
     .unwrap()
 }
 
-fn now() -> u64 {
+pub(super) fn now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -68,7 +68,7 @@ fn now() -> u64 {
         .unwrap()
 }
 
-fn rows(database: &tempfile::TempDir, table: &str) -> i64 {
+pub(super) fn rows(database: &tempfile::TempDir, table: &str) -> i64 {
     rusqlite::Connection::open(database.path().join("broker.sqlite"))
         .unwrap()
         .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {

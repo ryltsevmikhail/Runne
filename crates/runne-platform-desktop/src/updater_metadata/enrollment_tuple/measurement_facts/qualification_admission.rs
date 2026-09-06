@@ -17,6 +17,18 @@ enum InstalledExpectationError {
 pub struct QualificationAdmissionError;
 
 impl VerifiedInstalledEnrollmentMeasurementFacts {
+    pub fn verify_qualification_for_fence(
+        &self, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
+        verifier: &mut runne_native_qualification::QualificationAdmissionVerifier,
+        admission: &runne_native_qualification::PendingQualificationAdmission,
+        now_unix_seconds: u64,
+    ) -> Result<runne_native_qualification::VerifiedQualificationFenceFacts, QualificationAdmissionError> {
+        let expected = self.qualification_runtime_installed_expectation(owned)
+            .map_err(|_| QualificationAdmissionError)?;
+        verifier.verify_exact_for_fence_borrowed(admission, expected.candidate_sha256,
+            expected.raw_v3_tuple_sha256, now_unix_seconds).map_err(|_| QualificationAdmissionError)
+    }
+
     pub fn verify_qualification_admission(
         &self,
         owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,

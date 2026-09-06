@@ -77,6 +77,13 @@ impl ProviderCredentialEnrollmentStore for SqliteProviderCredentialLifecycleStor
     > {
         claim::issue_ticket(self, input)
     }
+    fn issue_ticket_attempt_with_qualification_fence(
+        &self, ticket: runne_provider::IssueCredentialTicketDigest,
+        admission: runne_provider::MeasuredQualificationAdmission,
+    ) -> Result<(runne_provider::IssuedCredentialTicketAttempt,
+        runne_provider::ProviderQualificationAdmissionFenceReceipt), runne_provider::CredentialLifecycleError> {
+        qualification_issue::issue(self, ticket, admission)
+    }
     fn begin_admission_snapshot(
         &self,
         provider: &runne_provider::ProviderId,

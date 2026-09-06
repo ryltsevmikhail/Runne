@@ -53,6 +53,10 @@ pub(crate) struct DaemonProtectedCredentialEnrollmentSession {
     installed_facts: Option<runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts>,
     #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
     qualification: Option<crate::protected_activation::control_v3::initial_exchange::VerifiedQualificationAdmission>,
+    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+    qualification_snapshot: Option<ProtectedEnrollmentSessionFacts>,
+    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+    qualification_fenced: Option<qualification::FencedQualificationAdmission>,
     desktop_sequence: u64,
     daemon_sequence: u64,
 }
@@ -93,6 +97,10 @@ impl DaemonProtectedCredentialEnrollmentSession {
             installed_facts,
             #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
             qualification: None,
+            #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+            qualification_snapshot: None,
+            #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+            qualification_fenced: None,
             desktop_sequence: 0,
             daemon_sequence: 0,
         })

@@ -7,6 +7,7 @@ const SESSION_DOMAIN: &[u8] = b"gocode/provider-credential-enrollment/session/v1
 const DAEMON_DOMAIN: &[u8] = b"gocode/provider-credential-enrollment/daemon/v1\0";
 
 /// Exact non-secret V3 and native-release facts admitted before any begin.
+#[derive(Clone, Eq, PartialEq)]
 pub(crate) struct ProtectedEnrollmentSessionFacts {
     pub(super) launch_authority: [u8; 16],
     pub(super) session: [u8; 16],

@@ -4,6 +4,8 @@ mod attachment;
 mod begin;
 #[path = "online/claim.rs"]
 mod claim;
+#[path = "online/qualification_issue.rs"]
+mod qualification_issue;
 #[path = "online/compatibility_mirror.rs"]
 mod compatibility_mirror;
 #[path = "online/complete.rs"]
@@ -40,6 +42,16 @@ mod verification;
 mod verification_context;
 
 use runne_provider::ProviderCredentialEnrollmentStore;
+
+#[cfg(test)]
+#[path = "online/qualification_tests.rs"]
+mod qualification_tests;
+#[cfg(test)]
+#[path = "online/qualification_fixture.rs"]
+mod qualification_fixture;
+#[cfg(test)]
+#[path = "online/qualification_crash_tests.rs"]
+mod qualification_crash_tests;
 
 include!("online/store_port.rs");
 

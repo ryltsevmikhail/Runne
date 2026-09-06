@@ -73,6 +73,14 @@ pub(in crate::protected_activation::control_v3::initial_exchange) fn admission(
     context_key: &SigningKey,
     fault_key: &SigningKey,
 ) -> PendingQualificationAdmission {
+    admission_at(context_key, fault_key, NOW)
+}
+
+pub(in crate::protected_activation::control_v3::initial_exchange) fn admission_at(
+    context_key: &SigningKey,
+    fault_key: &SigningKey,
+    now: u64,
+) -> PendingQualificationAdmission {
     let mut ticket = Ticket {
         schema_version: "runne/macos-xpc-dpk-fault-ticket/v1",
         ticket_id: "11".repeat(32),
@@ -83,8 +91,8 @@ pub(in crate::protected_activation::control_v3::initial_exchange) fn admission(
         source_revision: "cc".repeat(20),
         workflow_run_id: "run-42",
         namespace_sha256: "dd".repeat(32),
-        issued_at: NOW,
-        expires_at: NOW + 600,
+        issued_at: now,
+        expires_at: now + 600,
         nonce: URL_SAFE_NO_PAD.encode([0x22; 32]),
         signature: None,
     };
@@ -106,8 +114,8 @@ pub(in crate::protected_activation::control_v3::initial_exchange) fn admission(
         workflow_run_id: "run-42",
         namespace_sha256: "dd".repeat(32),
         ticket_sha256: hex::encode(Sha256::digest(&ticket)),
-        issued_at: NOW,
-        expires_at: NOW + 300,
+        issued_at: now,
+        expires_at: now + 300,
         nonce: URL_SAFE_NO_PAD.encode([0x44; 32]),
         signature: None,
     };

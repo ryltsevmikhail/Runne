@@ -120,3 +120,21 @@ fn qualification_receipt_enforces_commit_temporal_boundaries() {
     }
     assert!(CredentialTicketAttempt::new(0).is_err());
 }
+
+#[test]
+fn measured_qualification_rejects_foreign_authority_and_wrong_continuation() {
+    let (store, measurements) = CredentialEnrollmentAuthorityPair::new().split();
+    let (foreign, _) = CredentialEnrollmentAuthorityPair::new().split();
+    let input = super::qualification_fence_contract_tests::valid_input();
+    let continuation = CredentialBindingDigest::from_measured([21; 32]).unwrap();
+    let measured = measurements.test_only_measure_qualification(input, continuation, [22; 32]);
+    assert!(store.validate_measured_qualification(&measured).is_ok());
+    assert_eq!(
+        foreign.validate_measured_qualification(&measured),
+        Err(CredentialEnrollmentError::InvalidEvidence)
+    );
+    assert_eq!(measured.continuation_binding_digest(), continuation);
+    assert_eq!(measured.fingerprint(), [22; 32]);
+    static_assertions::assert_not_impl_any!(super::super::MeasuredQualificationAdmission:
+        Clone, Copy, std::fmt::Debug, serde::Serialize, serde::Deserialize<'static>);
+}

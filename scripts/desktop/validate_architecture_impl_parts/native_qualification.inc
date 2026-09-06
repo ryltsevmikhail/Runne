@@ -1,6 +1,5 @@
 """Closed dependency and source boundary for native qualification admission."""
 from __future__ import annotations
-
 NATIVE_QUALIFICATION_PACKAGE = "runne-native-qualification"
 NATIVE_QUALIFICATION_DEPENDENCIES = {
     "base64", "ed25519-dalek", "hex", "runne-api", "serde", "serde_json", "sha2",
@@ -46,6 +45,9 @@ NATIVE_QUALIFICATION_ADMISSION_SOURCE = Path(
     "apps/desktop/src-tauri/src/qualification_ticket.rs"
 )
 NATIVE_QUALIFICATION_ADMISSION_ALLOWED = {
+    Path("crates/runne-provider/src/credential/enrollment/authority/qualification.rs"),
+    Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/qualification_fence.rs"),
+    Path("crates/runne-daemon/src/application/provider_credential_enrollment/control_facade/protected_session/qualification/atomic_tests.rs"),
     NATIVE_QUALIFICATION_ADMISSION_SOURCE,
     Path("apps/desktop/src-tauri/src/qualification_ticket_tests.rs"),
     Path("apps/desktop/src-tauri/src/bundled_runtime.rs"),
@@ -171,15 +173,15 @@ def find_native_qualification_dependency_violations(packages: list[dict]) -> lis
 def find_native_qualification_admission_dependency_violations(
     packages: list[dict],
 ) -> list[str]:
-    """Allow only the three exact macOS native delivery owners."""
+    """Allow exact macOS delivery, provider facts, and store test-only edges."""
     observed = []
     for package in packages:
         for dependency in package.get("dependencies", []):
             if dependency.get("name") == NATIVE_QUALIFICATION_PACKAGE:
                 observed.append((package.get("name", ""), dependency))
     violations = []
-    owner_names = [owner for owner, _ in observed]
-    if set(owner_names) != NATIVE_QUALIFICATION_ADMISSION_OWNERS or len(owner_names) != 3:
+    owner_names = [owner for owner, _ in observed if owner not in {"runne-provider", "runne-store"}]
+    if set(owner_names) != NATIVE_QUALIFICATION_ADMISSION_OWNERS or len(owner_names) != 3 or len({(owner, dep.get("kind")) for owner, dep in observed}) != len(observed):
         violations.append("native qualification delivery must have exactly three owners")
     native_packages = [
         row for row in packages if row.get("name") == NATIVE_QUALIFICATION_PACKAGE
@@ -192,6 +194,8 @@ def find_native_qualification_admission_dependency_violations(
     if native_directory is None:
         violations.append("native qualification package metadata is missing or ambiguous")
     for owner, dependency in observed:
+        facts_edge = owner == "runne-provider"
+        fixture_edge = owner == "runne-store"
         path = dependency.get("path")
         canonical_path = (
             isinstance(path, str)
@@ -199,15 +203,15 @@ def find_native_qualification_admission_dependency_violations(
             and Path(path).resolve(strict=False) == native_directory
         )
         exact = (
-            owner in NATIVE_QUALIFICATION_ADMISSION_OWNERS
-            and (dependency.get("kind") or "normal") == "normal"
+            (owner in NATIVE_QUALIFICATION_ADMISSION_OWNERS or facts_edge or fixture_edge)
+            and (dependency.get("kind") or "normal") == ("dev" if fixture_edge else "normal")
             and dependency.get("req") == "*"
-            and dependency.get("target") == NATIVE_QUALIFICATION_ADMISSION_TARGET
+            and dependency.get("target") == (None if facts_edge or fixture_edge else NATIVE_QUALIFICATION_ADMISSION_TARGET)
             and dependency.get("source") is None
             and canonical_path
             and dependency.get("registry") is None
             and dependency.get("rename") is None
-            and dependency.get("features", []) == []
+            and dependency.get("features", []) == (["test-support"] if fixture_edge else [])
             and dependency.get("uses_default_features", True) is True
             and dependency.get("optional", False) is False
         )
@@ -226,6 +230,7 @@ def find_native_qualification_admission_surface_violations(root: Path) -> list[s
         root / "crates/runne-api/src",
         root / "crates/runne-platform-desktop/src",
         root / "crates/runne-daemon/src",
+        root / "crates/runne-provider/src",
     )
     violations = []
     for source_root in roots:
@@ -236,6 +241,10 @@ def find_native_qualification_admission_surface_violations(root: Path) -> list[s
                 continue
             relative = path.relative_to(root)
             text = path.read_text(encoding="utf-8")
+            if "runne-provider" in relative.parts and re.search(
+                r"PendingQualification|Qualification\w*Verifier|Qualification\w*Relay|RawQualification", text
+            ):
+                violations.append(f"{relative.as_posix()} exceeds provider facts-only native edge")
             if native_qualification_delivery_forbidden(relative, text):
                 violations.append(
                     f"{relative.as_posix()} exposes forbidden qualification transport"

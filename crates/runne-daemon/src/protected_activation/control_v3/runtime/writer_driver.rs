@@ -60,6 +60,13 @@ impl V3EnrollmentRuntime {
             .as_mut()
             .ok_or(runne_api::LaunchAuthorityError::InvalidContract)?;
         let pending = live.with_current(sessions, || {
+            session
+                .fence_qualification_before_delivery(
+                    owned,
+                    broker_channel.installed_measurements(),
+                    continuation,
+                )
+                .map_err(map_enrollment_error)?;
             if let Some(service) = self.credential_service.as_ref() {
                 session
                     .claim_writer_with_service(measurements, continuation, broker_channel, service)

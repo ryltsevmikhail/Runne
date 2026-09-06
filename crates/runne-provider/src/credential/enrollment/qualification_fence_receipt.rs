@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use super::{
-    CredentialBindingDigest, CredentialOperationId, CredentialTicketAttempt,
-    authority::EnrollmentAuthoritySeal,
-};
 #[cfg(test)]
-use super::{CredentialEnrollmentError, ProviderQualificationAdmissionFence};
+use super::ProviderQualificationAdmissionFence;
+use super::{
+    CredentialBindingDigest, CredentialEnrollmentError, CredentialOperationId,
+    CredentialTicketAttempt, authority::EnrollmentAuthoritySeal,
+};
 
 /// Store-sealed proof that one exact replay fence committed with a real ticket attempt.
 pub struct ProviderQualificationAdmissionFenceReceipt {
@@ -19,10 +19,46 @@ pub struct ProviderQualificationAdmissionFenceReceipt {
     supervisor_generation: u64,
     effective_expires_at: i64,
     committed_at: i64,
+    fingerprint: [u8; 32],
+    continuation: CredentialBindingDigest,
 }
 
 #[allow(missing_docs)]
 impl ProviderQualificationAdmissionFenceReceipt {
+    pub(crate) fn committed(
+        seal: Arc<EnrollmentAuthoritySeal>,
+        admission: super::MeasuredQualificationAdmission,
+        issued: &super::IssuedCredentialTicketAttempt,
+    ) -> Result<Self, CredentialEnrollmentError> {
+        let input = admission.metadata();
+        let committed_at = issued.issued_at_high_water();
+        let effective = input
+            .effective_expires_at()
+            .min(issued.expires_at_high_water());
+        if !admission.belongs_to(&seal)
+            || !issued.belongs_to(&seal)
+            || input.operation_id() != issued.operation().operation_id()
+            || committed_at < input.verified_at()
+            || committed_at >= effective
+        {
+            return Err(CredentialEnrollmentError::InvalidEvidence);
+        }
+        Ok(Self {
+            seal,
+            operation_id: input.operation_id(),
+            ticket_attempt: issued.ticket_attempt(),
+            protected_session_digest: input.protected_session_digest(),
+            runtime_authority_id: input.runtime_authority_id(),
+            database_generation: input.database_generation(),
+            launch_generation: input.launch_generation(),
+            supervisor_generation: input.supervisor_generation(),
+            effective_expires_at: effective,
+            committed_at,
+            fingerprint: admission.fingerprint(),
+            continuation: admission.continuation_binding_digest(),
+        })
+    }
+
     #[cfg(test)]
     pub(crate) fn issue(
         seal: Arc<EnrollmentAuthoritySeal>,
@@ -46,6 +82,8 @@ impl ProviderQualificationAdmissionFenceReceipt {
             supervisor_generation: input.supervisor_generation(),
             effective_expires_at: effective,
             committed_at,
+            fingerprint: [0; 32],
+            continuation: input.protected_session_digest(),
         })
     }
 
@@ -75,6 +113,12 @@ impl ProviderQualificationAdmissionFenceReceipt {
     }
     pub const fn committed_at(&self) -> i64 {
         self.committed_at
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+    pub const fn continuation_binding_digest(&self) -> CredentialBindingDigest {
+        self.continuation
     }
     pub(crate) fn belongs_to(&self, seal: &Arc<EnrollmentAuthoritySeal>) -> bool {
         Arc::ptr_eq(&self.seal, seal)

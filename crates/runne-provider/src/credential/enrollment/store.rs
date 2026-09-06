@@ -106,7 +106,7 @@ pub trait ProviderCredentialEnrollmentStore: Send + Sync {
     fn issue_ticket_attempt_with_qualification_fence(
         &self,
         _ticket: IssueCredentialTicketDigest,
-        _fence: super::ProviderQualificationAdmissionFence,
+        _fence: super::MeasuredQualificationAdmission,
     ) -> Result<
         (
             IssuedCredentialTicketAttempt,
