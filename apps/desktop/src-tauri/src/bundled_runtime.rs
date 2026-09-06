@@ -8,6 +8,10 @@
 //! the one-time protected profile directly to `AppCore`, monitors only the
 //! proven-owned child, and maps every failure to a closed renderer-safe code.
 
+#[cfg(target_os = "macos")]
+#[path = "qualification_ticket.rs"]
+pub mod qualification_ticket;
+
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};

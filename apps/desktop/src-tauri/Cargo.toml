@@ -34,9 +34,11 @@ zeroize.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "=0.6.2"
+nix = { version = "=0.31.3", default-features = false, features = ["fs", "poll", "socket"] }
 objc2 = "=0.6.4"
 objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSAlert", "NSApplication", "NSButton", "NSControl", "NSResponder", "NSSecureTextField", "NSTextField", "NSView", "NSWindow", "block2"] }
 objc2-foundation = { version = "=0.3.2", features = ["NSRange", "NSString"] }
+runne-native-qualification = { path = "../../../crates/runne-native-qualification" }
 
 [dev-dependencies]
 tempfile = "=3.27.0"

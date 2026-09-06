@@ -7,8 +7,8 @@ use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
 use crate::{
-    QualificationFaultContext, QualificationFaultSelector, QualificationFaultVerifier,
-    QualificationProcessRole,
+    PendingQualificationFault, QualificationFaultContext, QualificationFaultSelector,
+    QualificationFaultVerifier, QualificationProcessRole,
 };
 
 const NOW: u64 = 1_800_000_000;
@@ -89,6 +89,43 @@ fn valid_ticket_is_verified_once_and_yields_move_only_binding() {
             .expect_err("replay must fail"),
         crate::QualificationFaultError::Replay
     );
+}
+
+#[test]
+fn pending_admitted_frame_has_a_consuming_exact_verification_path() {
+    let key = SigningKey::from_bytes(&[7; 32]);
+    let pending = PendingQualificationFault::from_admitted_frame(sign(&unsigned_ticket(), &key))
+        .expect("canonical admitted frame");
+    let mut verifier = QualificationFaultVerifier::for_test(key.verifying_key());
+    let fault = pending
+        .verify_and_consume(
+            &mut verifier,
+            &context(
+                QualificationFaultSelector::BeforeNativeEffect,
+                QualificationProcessRole::Service,
+            ),
+            NOW,
+        )
+        .expect("exact pending ticket");
+    assert_eq!(fault.ticket_id(), [0x11; 32]);
+}
+
+#[test]
+fn pending_frame_remains_inert_without_compiled_policy() {
+    let key = SigningKey::from_bytes(&[7; 32]);
+    let pending = PendingQualificationFault::from_admitted_frame(sign(&unsigned_ticket(), &key))
+        .expect("canonical admitted frame");
+    let error = pending
+        .verify_and_consume(
+            &mut QualificationFaultVerifier::from_compiled_policy(),
+            &context(
+                QualificationFaultSelector::BeforeNativeEffect,
+                QualificationProcessRole::Service,
+            ),
+            NOW,
+        )
+        .expect_err("unprovisioned pending ticket stays inert");
+    assert_eq!(error, crate::QualificationFaultError::PolicyUnavailable);
 }
 
 #[test]

@@ -121,6 +121,9 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             }
         },
     };
+    #[cfg(target_os = "macos")]
+    let qualification_faults = crate::bundled_runtime::qualification_ticket::
+        admit_inherited_qualification_ticket(monitor.is_some())?;
     let notification_core = Arc::clone(&core);
     let notification_state = Arc::new(crate::notifications::NotificationState::default());
     app.manage(profile_lock);
@@ -136,6 +139,8 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .forward(app.handle(), std::env::args_os().skip(1));
     app.manage(ConversationSubscriptionManager::new());
     app.manage(TaskRunSubscriptionManager::new());
+    #[cfg(target_os = "macos")]
+    app.manage(qualification_faults);
     app.manage(lifecycle);
     if let Some(controller) = monitor.take() {
         controller.spawn_monitor(app.handle().clone());

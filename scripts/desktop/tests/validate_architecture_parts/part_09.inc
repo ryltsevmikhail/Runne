@@ -80,6 +80,67 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
                         [], architecture.find_native_qualification_violations(root)
                     )
 
+    def test_ticket_admission_dependency_is_target_only_and_desktop_owned(self):
+        dependency = {
+            "name": "runne-native-qualification", "kind": None, "req": "*",
+            "features": [], "uses_default_features": True, "source": None,
+            "path": "/repo/crates/runne-native-qualification", "registry": None,
+            "target": 'cfg(target_os = "macos")', "rename": None, "optional": False,
+        }
+        desktop = {"name": "runne-desktop", "dependencies": [dependency]}
+        self.assertEqual(
+            [], architecture.find_native_qualification_admission_dependency_violations([desktop])
+        )
+        for label, package, field, value in (
+            ("wrong owner", "runne-cli", None, None),
+            ("not target scoped", "runne-desktop", "target", None),
+            ("renamed", "runne-desktop", "rename", "faults"),
+            ("features", "runne-desktop", "features", ["test-support"]),
+            ("optional", "runne-desktop", "optional", True),
+        ):
+            with self.subTest(label=label):
+                mutated = dict(dependency)
+                if field:
+                    mutated[field] = value
+                row = {"name": package, "dependencies": [mutated]}
+                self.assertNotEqual(
+                    [],
+                    architecture.find_native_qualification_admission_dependency_violations([row]),
+                )
+
+    def test_ticket_admission_has_no_renderer_cli_env_argv_or_storage_surface(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            owner = root / "apps/desktop/src-tauri/src/qualification_ticket.rs"
+            owner.parent.mkdir(parents=True)
+            owner.write_text(
+                "use runne_native_qualification::PendingQualificationFault;\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                [], architecture.find_native_qualification_admission_surface_violations(root)
+            )
+            cases = (
+                ("renderer", "apps/desktop/src/page.ts", "PendingQualificationFault"),
+                ("cli", "crates/runne-cli/src/fault.rs", "runne_native_qualification"),
+                ("tauri", "apps/desktop/src-tauri/src/qualification_ticket.rs", "#[tauri::command]"),
+                ("environment", "apps/desktop/src-tauri/src/qualification_ticket.rs", "std::env::var(\"RUNNE_DPK\")"),
+                ("argv", "apps/desktop/src-tauri/src/qualification_ticket.rs", "std::env::args_os()"),
+                ("file", "apps/desktop/src-tauri/src/qualification_ticket.rs", "std::fs::read(\"ticket\")"),
+                ("sqlite", "apps/desktop/src-tauri/src/qualification_ticket.rs", "profile.sqlite3"),
+                ("raw getter", "apps/desktop/src-tauri/src/qualification_ticket.rs", "pub fn bytes(&self) -> &[u8] { &[] }"),
+            )
+            for label, relative, payload in cases:
+                with self.subTest(label=label):
+                    path = root / relative
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    baseline = path.read_text(encoding="utf-8") if path.exists() else ""
+                    path.write_text(baseline + payload, encoding="utf-8")
+                    self.assertNotEqual(
+                        [], architecture.find_native_qualification_admission_surface_violations(root)
+                    )
+                    path.write_text(baseline, encoding="utf-8")
+
     @classmethod
     def package(cls):
         rows = [

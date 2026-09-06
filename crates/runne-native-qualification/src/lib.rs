@@ -8,8 +8,8 @@ mod verification;
 mod wire;
 
 pub use model::{
-    QualificationFaultContext, QualificationFaultError, QualificationFaultSelector,
-    QualificationProcessRole, VerifiedQualificationFault,
+    PendingQualificationFault, QualificationFaultContext, QualificationFaultError,
+    QualificationFaultSelector, QualificationProcessRole, VerifiedQualificationFault,
 };
 pub use verification::QualificationFaultVerifier;
 

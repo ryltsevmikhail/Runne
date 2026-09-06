@@ -4083,6 +4083,7 @@ version = "0.0.3"
 dependencies = [
  "block2",
  "hex",
+ "nix 0.31.3",
  "notify-rust",
  "objc2",
  "objc2-app-kit",
@@ -4091,6 +4092,7 @@ dependencies = [
  "runne-api",
  "runne-app-core",
  "runne-macos-xpc",
+ "runne-native-qualification",
  "runne-platform-desktop",
  "serde",
  "serde_json",

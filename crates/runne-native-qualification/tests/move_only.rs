@@ -1,9 +1,16 @@
-use runne_native_qualification::VerifiedQualificationFault;
+use runne_native_qualification::{PendingQualificationFault, VerifiedQualificationFault};
 
 // This is the authoritative spelling-independent invariant. Any internal
 // implementation of one of these traits makes this test target fail to build.
 static_assertions::assert_not_impl_any!(
     VerifiedQualificationFault:
+        Clone,
+        Copy,
+        serde::Serialize,
+        serde::Deserialize<'static>
+);
+static_assertions::assert_not_impl_any!(
+    PendingQualificationFault:
         Clone,
         Copy,
         serde::Serialize,

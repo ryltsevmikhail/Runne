@@ -158,6 +158,38 @@ pub fn valid_run_id(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
 }
 
+/// Opaque canonical ticket retained between native admission and exact use.
+pub struct PendingQualificationFault {
+    bytes: Vec<u8>,
+}
+
+impl PendingQualificationFault {
+    /// Retains one already-admitted canonical ticket frame without verifying
+    /// authority or context.
+    ///
+    /// # Errors
+    ///
+    /// Rejects empty, oversized, malformed, noncanonical, or trailing input.
+    pub fn from_admitted_frame(bytes: Vec<u8>) -> Result<Self, QualificationFaultError> {
+        crate::wire::decode(&bytes)?;
+        Ok(Self { bytes })
+    }
+
+    /// Consumes this pending frame through the exact verifier and context.
+    ///
+    /// # Errors
+    ///
+    /// Returns the verifier's closed rejection without exposing retained bytes.
+    pub fn verify_and_consume(
+        self,
+        verifier: &mut crate::QualificationFaultVerifier,
+        context: &QualificationFaultContext,
+        now_unix_seconds: u64,
+    ) -> Result<VerifiedQualificationFault, QualificationFaultError> {
+        verifier.verify_and_consume(&self.bytes, context, now_unix_seconds)
+    }
+}
+
 /// Opaque single-use authority produced only after complete ticket verification.
 pub struct VerifiedQualificationFault {
     pub(super) selector: QualificationFaultSelector,
