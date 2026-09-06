@@ -245,11 +245,7 @@ impl ProviderCredentialDispatchMaterializer for CredentialServiceRuntimeGateway 
             let _ = self.rejoin.queue(epoch);
         }
         let material = result.map_err(map_host_error)?;
-        let mut converted = Err(SecureStoreError::InvalidProviderCredential);
-        material.consume(|bytes| {
-            converted = ProviderCredentialMaterial::new(bytes.to_vec());
-        });
-        converted
+        ProviderCredentialMaterial::from_zeroizing(material.into_zeroizing())
     }
 }
 

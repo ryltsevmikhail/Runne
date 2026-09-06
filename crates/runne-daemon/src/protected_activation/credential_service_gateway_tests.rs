@@ -36,7 +36,10 @@ async fn service_gateway_fails_closed_before_authenticated_registration() {
     .unwrap();
 
     assert_eq!(
-        gateway.materialize_active(read).unwrap_err(),
+        gateway
+            .materialize_active(read)
+            .err()
+            .expect("gateway read rejected"),
         SecureStoreError::Unavailable
     );
 }

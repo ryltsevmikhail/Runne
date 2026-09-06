@@ -138,7 +138,8 @@ fn source_revision_v2_roundtrips_and_v1_is_unavailable() {
         StoredProviderCredential::decode(&legacy)
             .unwrap()
             .into_source()
-            .unwrap_err(),
+            .err()
+            .expect("legacy source has no revision"),
         SecureStoreError::ProviderCredentialSourceRevisionUnavailable
     );
     drop(current);

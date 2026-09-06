@@ -19,7 +19,8 @@
         assert_eq!(
             store
                 .load_provider_credential(ProviderCredentialId::OpenAi, &current_policy)
-                .unwrap_err(),
+                .err()
+                .expect("incomplete migration rejected"),
             SecureStoreError::CredentialMigrationIncomplete
         );
         assert_eq!(

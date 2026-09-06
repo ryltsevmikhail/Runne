@@ -111,15 +111,22 @@ pub(super) fn wait_for_result(
     receiver: &mpsc::Receiver<PromptResult>,
     bound: Duration,
     id: u64,
-    schedule_abort: impl FnOnce(MainTask) -> Result<(), ()>,
+    terminal: &PromptTerminal,
+    schedule_abort: impl FnOnce(MainTask),
 ) -> PromptResult {
     match receiver.recv_timeout(bound) {
         Ok(result) => result,
         Err(mpsc::RecvTimeoutError::Disconnected | mpsc::RecvTimeoutError::Timeout) => {
-            let _ = schedule_abort(Box::new(move || {
-                cleanup::finish(id);
+            let fallback = terminal.clone();
+            let (cleanup_sender, cleanup_receiver) = mpsc::sync_channel(1);
+            schedule_abort(Box::new(move || {
+                fallback.finish_registered(id, Err(SecureCredentialPromptError::Unavailable));
+                let _ = cleanup_sender.send(());
             }));
-            Err(SecureCredentialPromptError::Unavailable)
+            let _ = cleanup_receiver.recv();
+            receiver
+                .recv()
+                .unwrap_or(Err(SecureCredentialPromptError::Unavailable))
         }
     }
 }

@@ -170,13 +170,7 @@ fn opaque_version_operations_never_expose_secret_bytes() {
     let active = lifecycle.issue_dispatch(lease);
     let loaded = fixture.load_version(&active, &executable.access).unwrap();
     assert_eq!(loaded.with_bytes(<[u8]>::to_vec), secret);
-    for rendered in [
-        format!("{reference:?}"),
-        format!("{material:?}"),
-        format!("{loaded:?}"),
-    ] {
-        assert!(!rendered.contains("opaque-fixture-secret-62cf"));
-    }
+    assert!(!format!("{reference:?}").contains("opaque-fixture-secret-62cf"));
     let proof = fixture
         .delete_version(lifecycle.issue_gc(reference.clone()))
         .unwrap();
@@ -194,7 +188,8 @@ fn opaque_version_operations_never_expose_secret_bytes() {
     assert_eq!(
         fixture
             .load_version(&active, &executable.access)
-            .unwrap_err(),
+            .err()
+            .expect("deleted version stays absent"),
         SecureStoreError::ProviderCredentialNotFound
     );
     drop(executable);
@@ -219,7 +214,8 @@ fn foreign_capabilities_cannot_load_or_delete_native_version() {
     assert_eq!(
         fixture
             .load_version(&foreign.issue_dispatch(lease), &executable.access)
-            .unwrap_err(),
+            .err()
+            .expect("foreign dispatch rejected"),
         SecureStoreError::CredentialAccessDenied
     );
     assert_eq!(

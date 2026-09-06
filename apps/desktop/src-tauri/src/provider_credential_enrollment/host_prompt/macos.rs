@@ -12,7 +12,7 @@ use runne_platform_desktop::{
     SecureCredentialMaterial, SecureCredentialPromptDisposition, SecureCredentialPromptError,
     SecureCredentialPromptPort, SecureCredentialPromptRequest,
 };
-use tauri::{AppHandle, Manager, WebviewWindow};
+use tauri::WebviewWindow;
 
 use super::OneShotPromptResult;
 
@@ -28,7 +28,6 @@ type PromptResult = Result<SecureCredentialPromptDisposition, SecureCredentialPr
 
 /// Native prompt owner bound to one exact Tauri webview window.
 pub struct MacOsHostCredentialPrompt {
-    app: AppHandle,
     window: WebviewWindow,
     timeout: Duration,
 }
@@ -44,12 +43,7 @@ impl MacOsHostCredentialPrompt {
         if timeout.is_zero() || timeout > Self::MAX_TIMEOUT {
             return Err(SecureCredentialPromptError::Rejected);
         }
-        let app = window.app_handle().clone();
-        Ok(Self {
-            app,
-            window,
-            timeout,
-        })
+        Ok(Self { window, timeout })
     }
 }
 
@@ -63,31 +57,30 @@ impl SecureCredentialPromptPort for MacOsHostCredentialPrompt {
         let terminal =
             routes::PromptTerminal::new(Arc::new(OneShotPromptResult::new()), result_sender);
         schedule_sheet(
-            &self.app,
             self.window.clone(),
             id,
             request,
-            terminal,
+            terminal.clone(),
             self.timeout,
-        )?;
+        );
         routes::wait_for_result(
             &result_receiver,
             self.timeout + Self::CLEANUP_GRACE,
             id,
-            |task| self.app.run_on_main_thread(task).map_err(|_| ()),
+            &terminal,
+            native::schedule_main,
         )
     }
 }
 
 fn schedule_sheet(
-    app: &AppHandle,
     window: WebviewWindow,
     id: u64,
     request: SecureCredentialPromptRequest,
     terminal: routes::PromptTerminal,
     timeout: Duration,
-) -> Result<(), SecureCredentialPromptError> {
-    app.run_on_main_thread(move || {
+) {
+    native::run_on_main_thread_sync(move || {
         if !matches!(window.is_focused(), Ok(true)) {
             terminal.finish_registered(id, Err(SecureCredentialPromptError::Unavailable));
             return;
@@ -105,8 +98,7 @@ fn schedule_sheet(
             return;
         }
         show_sheet(&parent, id, request, terminal, timeout);
-    })
-    .map_err(|_| SecureCredentialPromptError::Unavailable)
+    });
 }
 
 fn show_sheet(

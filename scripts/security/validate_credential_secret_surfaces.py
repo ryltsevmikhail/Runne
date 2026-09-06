@@ -118,6 +118,8 @@ class Validator:
             ("crates/runne-provider/src/credential/enrollment/service_protocol/types.rs", "CredentialMutationGrant", {"generate", "digest"}),
             ("crates/runne-platform-ports/src/provider_credential_prompt.rs", "SecureCredentialMaterial", {"new", "from_zeroizing", "into_pipe_bytes"}),
             ("crates/runne-platform-ports/src/provider_credential_prompt.rs", "CredentialPipeBytes", {"into_zeroizing"}),
+            ("crates/runne-secure-store/src/provider_credential/policy.rs", "ProviderCredentialSource", {"new", "material", "revision", "into_material"}),
+            ("crates/runne-secure-store/src/provider_credential/policy.rs", "ProviderCredentialMaterial", {"new", "from_zeroizing", "with_bytes", "into_zeroizing"}),
         )
         for path, name, allowed_public in specs:
             source = self.read(path)
@@ -172,10 +174,17 @@ class Validator:
         )
         routes = self.require(
             "apps/desktop/src-tauri/src/provider_credential_enrollment/host_prompt/macos/routes.rs",
-            "TASK3_PROMPT_CLEANUP_ROUTE", "cleanup::finish_unregistered(prompt);", "cleanup::finish(id);\n            }",
+            "TASK3_PROMPT_CLEANUP_ROUTE", "cleanup::finish_unregistered(prompt);",
+            "fallback.finish_registered(id, Err(SecureCredentialPromptError::Unavailable));",
+            "let _ = cleanup_receiver.recv();", "receiver\n                .recv()",
         )
-        if routes.count("cleanup::finish(id);") != 2:
+        if routes.count("cleanup::finish(id);") != 1:
             self.fail("TASK3_PROMPT_CLEANUP_ROUTE", "apps/desktop/src-tauri/src/provider_credential_enrollment/host_prompt/macos/routes.rs", "not every registered terminal route cleans up")
+        self.require(
+            "apps/desktop/src-tauri/src/provider_credential_enrollment/host_prompt/macos.rs",
+            "TASK3_PROMPT_SYNCHRONIZED_TERMINAL", "native::run_on_main_thread_sync",
+            "&terminal,", "native::schedule_main",
+        )
         cleanup = self.require(
             "apps/desktop/src-tauri/src/provider_credential_enrollment/host_prompt/macos/cleanup.rs",
             "TASK3_PROMPT_CLEANUP_ORDER", "field.clear_and_release();", "state::remove_cleaning(id)", "prompt.close_sheet();",
@@ -201,12 +210,39 @@ class Validator:
             "TASK4_PRODUCTION_EXCHANGE", "native::request_data(request)", "native::copy_reply", "exchange::exchange(Arc::clone(&self.connection)",
         )
 
+    def validate_provider_dispatch(self) -> None:
+        self.require(
+            "crates/runne-secure-store/src/provider_credential/policy.rs",
+            "PROVIDER_DISPATCH_ZEROIZING_TRANSFER", "pub fn from_zeroizing(",
+            "pub fn into_zeroizing(",
+        )
+        self.require(
+            "crates/runne-daemon/src/protected_activation/credential_service_gateway.rs",
+            "PROVIDER_DISPATCH_ZEROIZING_TRANSFER",
+            "ProviderCredentialMaterial::from_zeroizing(material.into_zeroizing())",
+        )
+        for path in (
+            "crates/runne-daemon-openai-effect/src/client.rs",
+            "crates/runne-daemon-deepseek-effect/src/client.rs",
+        ):
+            self.require(path, "PROVIDER_DISPATCH_ZEROIZING_TRANSFER", ".map(ProviderCredentialMaterial::into_zeroizing)")
+        for path in (
+            "crates/runne-daemon-openai-effect/src/bounds.rs",
+            "crates/runne-daemon-deepseek-effect/src/bounds.rs",
+        ):
+            self.require(
+                path, "PROVIDER_AUTHORIZATION_OWNER", "struct AuthorizationOwner",
+                "wire: Zeroizing<Vec<u8>>", "header.set_sensitive(true);",
+                "impl Drop for AuthorizationOwner",
+            )
+
     def run(self) -> list[Finding]:
         self.validate_surfaces()
         self.validate_secret_types()
         self.validate_task2()
         self.validate_task3()
         self.validate_task4()
+        self.validate_provider_dispatch()
         return self.findings
 
 

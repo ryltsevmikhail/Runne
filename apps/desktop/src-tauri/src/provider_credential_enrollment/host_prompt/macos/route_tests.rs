@@ -13,6 +13,8 @@ use super::routes::{self, MainTask, PromptTerminal};
 use super::state::{self, PromptUiState};
 use crate::provider_credential_enrollment::host_prompt::OneShotPromptResult;
 
+mod wait_tests;
+
 const EXPECTED_CLEANUP: [CleanupEvent; 4] = [
     CleanupEvent::FieldCleared,
     CleanupEvent::FieldReleased,
@@ -182,24 +184,6 @@ fn window_loss_cleans_registered_prompt_and_returns_once() {
 
     assert!(matches!(
         one_result(&receiver),
-        Err(SecureCredentialPromptError::Unavailable)
-    ));
-    assert_cleaned(id, &observer);
-}
-
-#[test]
-fn disconnected_result_route_enqueues_main_thread_cleanup_without_waiting() {
-    let (id, observer) = registered_prompt();
-    let (sender, receiver) = mpsc::sync_channel(1);
-    drop(sender);
-
-    let result = routes::wait_for_result(&receiver, Duration::from_millis(1), id, |task| {
-        task();
-        Ok(())
-    });
-
-    assert!(matches!(
-        result,
         Err(SecureCredentialPromptError::Unavailable)
     ));
     assert_cleaned(id, &observer);

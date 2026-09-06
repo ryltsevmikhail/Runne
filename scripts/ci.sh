@@ -144,6 +144,7 @@ if [ "$MODE" = "pinned" ]; then
         scripts.desktop.tests.test_legacy_cleanup_scenario_runner \
         scripts.desktop.tests.test_legacy_evidence_reference \
         scripts.security.tests.test_validate_credential_secret_surfaces \
+        scripts.security.tests.test_validate_provider_dispatch_secret_surfaces \
         -v
 
     echo "--- credential secret surfaces ---"

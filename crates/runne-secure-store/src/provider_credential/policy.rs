@@ -100,16 +100,6 @@ impl ProviderCredentialSource {
     }
 }
 
-impl fmt::Debug for ProviderCredentialSource {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("ProviderCredentialSource")
-            .field("material", &"<redacted>")
-            .field("revision", &"<opaque>")
-            .finish()
-    }
-}
-
 impl fmt::Display for ProviderCredentialStatus {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
@@ -133,7 +123,16 @@ impl ProviderCredentialMaterial {
     /// Returns [`SecureStoreError::InvalidProviderCredential`] for an empty,
     /// oversized, NUL-containing or multi-line value.
     pub fn new(bytes: Vec<u8>) -> Result<Self, SecureStoreError> {
-        let bytes = Zeroizing::new(bytes);
+        Self::from_zeroizing(Zeroizing::new(bytes))
+    }
+
+    /// Validates and takes an existing zeroizing allocation without copying.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SecureStoreError::InvalidProviderCredential`] for an empty,
+    /// oversized, NUL-containing or multi-line value.
+    pub fn from_zeroizing(bytes: Zeroizing<Vec<u8>>) -> Result<Self, SecureStoreError> {
         if bytes.is_empty()
             || bytes.len() > MAX_PROVIDER_CREDENTIAL_BYTES
             || bytes.iter().any(|byte| matches!(byte, 0 | b'\r' | b'\n'))
@@ -148,19 +147,12 @@ impl ProviderCredentialMaterial {
         operation(&self.bytes)
     }
 
-    #[cfg(feature = "provider-credential-broker-writer")]
-    pub(crate) fn into_bytes(mut self) -> Vec<u8> {
+    /// Transfers the credential allocation to the point-of-use owner.
+    #[must_use]
+    pub fn into_zeroizing(mut self) -> Zeroizing<Vec<u8>> {
         std::mem::take(&mut self.bytes)
     }
-}
 
-impl fmt::Debug for ProviderCredentialMaterial {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("ProviderCredentialMaterial")
-            .field("bytes", &"<redacted>")
-            .finish()
-    }
 }
 
 /// Exact canonical writer and reader executable identities for one item ACL.

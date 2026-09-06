@@ -34,6 +34,12 @@ GUARDED_PATHS = (
     "crates/runne-macos-xpc/src/client/native.rs",
     "crates/runne-macos-xpc/src/client/native/call_state.rs",
     "crates/runne-macos-xpc/src/client/native/exchange.rs",
+    "crates/runne-secure-store/src/provider_credential/policy.rs",
+    "crates/runne-daemon/src/protected_activation/credential_service_gateway.rs",
+    "crates/runne-daemon-openai-effect/src/client.rs",
+    "crates/runne-daemon-openai-effect/src/bounds.rs",
+    "crates/runne-daemon-deepseek-effect/src/client.rs",
+    "crates/runne-daemon-deepseek-effect/src/bounds.rs",
 )
 
 
@@ -212,8 +218,8 @@ class CredentialSecretSurfaceValidatorTests(unittest.TestCase):
     def test_task3_prompt_cleanup_route_cannot_be_removed(self) -> None:
         self.mutate(
             "apps/desktop/src-tauri/src/provider_credential_enrollment/host_prompt/macos/routes.rs",
-            "        cleanup::finish(id);",
-            "        let _ = id;",
+            "fallback.finish_registered(id, Err(SecureCredentialPromptError::Unavailable));",
+            "cleanup::finish(id);",
         )
         self.assert_rejected("TASK3_PROMPT_CLEANUP_ROUTE")
 
