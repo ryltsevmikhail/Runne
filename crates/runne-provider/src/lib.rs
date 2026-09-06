@@ -255,6 +255,7 @@ pub use credential::{
     ObservedInstallMeasurement, PROVIDER_CREDENTIAL_BROKER_MODE_V1, PendingCredentialIssueTicketV1,
     PendingCredentialSecretOpening, PendingCredentialWriterClaim, PrepareCredentialVersion,
     ProtectedSessionId, ProviderCredentialEnrollmentStore, ProviderCredentialVersionStore,
+    ProviderQualificationAdmissionFence, ProviderQualificationAdmissionFenceReceipt,
     RawCredentialTicket, ReaderExecutableIdentity, ReconcileCredentialVersions,
     ReleaseManifestDigest, RevokeCredentialVersion, SealedCredentialEnvelope,
     SignedCredentialWriterSessionAttestationV1, TombstoneCredentialOperation, TransitionCommand,

@@ -76,6 +76,7 @@ impl QualificationRunContextExpectation {
 pub struct VerifiedQualificationRunContext {
     context_id: [u8; 32],
     nonce: [u8; 32],
+    issued_at: u64,
     expires_at: u64,
     ticket_sha256: [u8; 32],
 }
@@ -84,12 +85,14 @@ impl VerifiedQualificationRunContext {
     pub(super) const fn verified(
         context_id: [u8; 32],
         nonce: [u8; 32],
+        issued_at: u64,
         expires_at: u64,
         ticket_sha256: [u8; 32],
     ) -> Self {
         Self {
             context_id,
             nonce,
+            issued_at,
             expires_at,
             ticket_sha256,
         }
@@ -113,6 +116,10 @@ impl VerifiedQualificationRunContext {
     #[must_use]
     pub const fn ticket_sha256(&self) -> [u8; 32] {
         self.ticket_sha256
+    }
+
+    pub(crate) const fn issued_at(&self) -> u64 {
+        self.issued_at
     }
 }
 

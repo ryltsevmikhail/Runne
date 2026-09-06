@@ -101,6 +101,22 @@ pub trait ProviderCredentialEnrollmentStore: Send + Sync {
         input: IssueCredentialTicketDigest,
     ) -> Result<IssuedCredentialTicketAttempt, CredentialLifecycleError>;
 
+    /// Atomically issues one real ticket attempt and consumes one qualification fence.
+    /// Stores must opt in explicitly; ordinary implementations remain closed.
+    fn issue_ticket_attempt_with_qualification_fence(
+        &self,
+        _ticket: IssueCredentialTicketDigest,
+        _fence: super::ProviderQualificationAdmissionFence,
+    ) -> Result<
+        (
+            IssuedCredentialTicketAttempt,
+            super::ProviderQualificationAdmissionFenceReceipt,
+        ),
+        CredentialLifecycleError,
+    > {
+        Err(CredentialLifecycleError::LifecycleClosed)
+    }
+
     /// Creates or loads the initial persisted provider authority snapshot.
     fn begin_admission_snapshot(
         &self,

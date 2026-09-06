@@ -67,6 +67,7 @@ visit_node!(syn::ItemTrait, visit_item_trait);
 visit_node!(syn::ItemTraitAlias, visit_item_trait_alias);
 visit_node!(syn::ItemForeignMod, visit_item_foreign_mod);
 visit_node!(syn::Path, visit_path);
+visit_node!(syn::Generics, visit_generics);
 
 pub struct SensitiveVisitor(bool);
 

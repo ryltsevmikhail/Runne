@@ -45,6 +45,32 @@ impl QualificationAdmissionVerifier {
         )
     }
 
+    /// Authenticates one pair and returns its complete durable-fence facts.
+    ///
+    /// # Errors
+    ///
+    /// Rejects the same unavailable authority, signature, freshness, replay,
+    /// installed-fact and cross-member mismatches as initial admission.
+    pub fn verify_exact_for_fence_borrowed(
+        &mut self,
+        admission: &PendingQualificationAdmission,
+        candidate_sha256: [u8; 32],
+        raw_v3_tuple_sha256: [u8; 32],
+        now_unix_seconds: u64,
+    ) -> Result<crate::VerifiedQualificationFenceFacts, QualificationAdmissionVerificationError>
+    {
+        if candidate_sha256 == [0; 32] || raw_v3_tuple_sha256 == [0; 32] {
+            return Err(QualificationAdmissionVerificationError);
+        }
+        admission.verify_exact_for_fence_borrowed(
+            &mut self.context,
+            &mut self.fault,
+            candidate_sha256,
+            raw_v3_tuple_sha256,
+            now_unix_seconds,
+        )
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     #[doc(hidden)]
     #[must_use]

@@ -95,6 +95,7 @@ fn verify_ticket(
         process_role: shape.process_role,
         ticket_id: shape.ticket_id,
         nonce: shape.nonce,
+        issued_at: ticket.issued_at,
         expires_at: ticket.expires_at,
     })
 }

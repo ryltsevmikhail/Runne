@@ -82,6 +82,7 @@ impl QualificationRunContextVerifier {
         let verified = VerifiedQualificationRunContext::verified(
             shape.context_id,
             shape.nonce,
+            context.issued_at,
             context.expires_at,
             shape.ticket_sha256,
         );
@@ -194,6 +195,7 @@ fn verify_context(
     Ok(VerifiedQualificationRunContext::verified(
         shape.context_id,
         shape.nonce,
+        context.issued_at,
         context.expires_at,
         shape.ticket_sha256,
     ))

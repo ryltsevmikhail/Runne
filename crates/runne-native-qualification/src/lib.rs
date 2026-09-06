@@ -12,6 +12,7 @@ mod context_policy;
 mod context_relay;
 mod context_verification;
 mod context_wire;
+mod fence_facts;
 mod model;
 mod pending;
 mod pending_context;
@@ -33,6 +34,7 @@ pub use context_model::{
 };
 pub use context_relay::{QualificationRunContextRelayCodecV1, QualificationRunContextRelayError};
 pub use context_verification::QualificationRunContextVerifier;
+pub use fence_facts::VerifiedQualificationFenceFacts;
 pub use model::{
     QualificationFaultContext, QualificationFaultError, QualificationFaultSelector,
     QualificationProcessRole, VerifiedQualificationFault,

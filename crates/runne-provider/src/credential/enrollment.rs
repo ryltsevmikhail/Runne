@@ -7,6 +7,8 @@ mod operation;
 mod operation_metadata;
 mod projection;
 mod protocol;
+mod qualification_fence;
+mod qualification_fence_receipt;
 mod qualified_release;
 mod recovery_admission;
 mod service_protocol;
@@ -78,6 +80,8 @@ pub use protocol::{
 #[cfg(feature = "test-support")]
 #[doc(hidden)]
 pub use protocol::{SealedPairFixture, sealed_pair_for_test};
+pub use qualification_fence::ProviderQualificationAdmissionFence;
+pub use qualification_fence_receipt::ProviderQualificationAdmissionFenceReceipt;
 pub use qualified_release::CredentialQualifiedReleaseTuple;
 pub use recovery_admission::{AcceptedCredentialCleanupRecovery, CredentialCleanupRecoveryRequest};
 pub use service_protocol::{

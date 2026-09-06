@@ -100,18 +100,20 @@ impl Audit {
             Item::Impl(value) => self.inspect_impl(value, source),
             Item::Struct(value)
                 if is_public(&value.vis)
-                    && value.fields.iter().any(|field| type_mentions(&field.ty)) =>
+                    && (value.fields.iter().any(|field| type_mentions(&field.ty))
+                        || node_mentions(&value.generics)) =>
             {
                 self.violations
                     .push(format!("{source}: public wrapper around guarded authority"));
             }
             Item::Enum(value)
                 if is_public(&value.vis)
-                    && value
+                    && (value
                         .variants
                         .iter()
                         .flat_map(|variant| variant.fields.iter())
-                        .any(|field| type_mentions(&field.ty)) =>
+                        .any(|field| type_mentions(&field.ty))
+                        || node_mentions(&value.generics)) =>
             {
                 self.violations
                     .push(format!("{source}: public enum wraps guarded authority"));

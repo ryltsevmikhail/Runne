@@ -22,3 +22,4 @@ serde_jcs = "0.2"
 [dev-dependencies]
 futures = "0.3"
 runne-api = { path = "../runne-api" }
+static_assertions = "=1.1.0"

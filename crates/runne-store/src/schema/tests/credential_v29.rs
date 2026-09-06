@@ -38,7 +38,7 @@ fn v29_catalog_preserves_the_append_only_attachment_boundary() {
 }
 
 #[test]
-fn production_store_open_creates_and_reopens_v34() {
+fn production_store_open_creates_and_reopens_v35() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("created-v29.sqlite");
 
@@ -46,5 +46,5 @@ fn production_store_open_creates_and_reopens_v34() {
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&path).unwrap());
 
     let connection = Connection::open(path).unwrap();
-    assert!(v34_matches(&connection, 34).unwrap());
+    assert!(v35_matches(&connection, 35).unwrap());
 }

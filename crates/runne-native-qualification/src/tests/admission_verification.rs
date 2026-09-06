@@ -54,6 +54,8 @@ fn verifier() -> QualificationAdmissionVerifier {
     )
 }
 
+mod fence;
+
 #[test]
 fn successful_combined_verification_borrows_and_preserves_the_exact_admission() {
     let admission = signed_pair(|_| {}, |_| {});

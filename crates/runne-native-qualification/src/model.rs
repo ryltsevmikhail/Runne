@@ -110,6 +110,7 @@ impl QualificationProcessRole {
 
 /// Exact non-secret execution context against which a ticket is bound.
 pub struct QualificationFaultContext {
+    pub(super) scenario: crate::QualificationScenario,
     pub(super) selector: QualificationFaultSelector,
     pub(super) process_role: QualificationProcessRole,
     pub(super) candidate_sha256: [u8; 32],
@@ -139,6 +140,7 @@ impl QualificationFaultContext {
             return Err(QualificationFaultError::InvalidContext);
         }
         Ok(Self {
+            scenario: crate::QualificationScenario::MacosXpcDpkV1,
             selector,
             process_role,
             candidate_sha256,
@@ -164,6 +166,7 @@ pub struct VerifiedQualificationFault {
     pub(super) process_role: QualificationProcessRole,
     pub(super) ticket_id: [u8; 32],
     pub(super) nonce: [u8; 32],
+    pub(super) issued_at: u64,
     pub(super) expires_at: u64,
 }
 
@@ -191,6 +194,10 @@ impl VerifiedQualificationFault {
     #[must_use]
     pub const fn expires_at(&self) -> u64 {
         self.expires_at
+    }
+
+    pub(crate) const fn issued_at(&self) -> u64 {
+        self.issued_at
     }
 }
 

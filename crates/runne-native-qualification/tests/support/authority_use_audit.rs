@@ -2,6 +2,7 @@ use syn::{UseTree, Visibility};
 
 const SENSITIVE: &[&str] = &[
     "QualificationAdmissionVerifier",
+    "VerifiedQualificationFenceFacts",
     "VerifiedQualificationRunContext",
     "PendingQualificationAdmission",
     "PendingQualificationRunContext",
@@ -35,6 +36,7 @@ pub fn violation(item: &syn::ItemUse, source: &str, depth: usize) -> Option<Stri
                 "admission_verification",
                 "context_model",
                 "context_verification",
+                "fence_facts",
                 "model",
                 "pending",
                 "pending_context",
@@ -86,6 +88,7 @@ fn exact_root_reexport(source: &str, item: &syn::ItemUse) -> bool {
     let allowed = [
         "pub use admission::{PendingQualificationAdmission, QualificationAdmissionError};",
         "pub use admission_verification::{QualificationAdmissionVerificationError, QualificationAdmissionVerifier,};",
+        "pub use fence_facts::VerifiedQualificationFenceFacts;",
         "pub use admission_relay::{QualificationAdmissionRelayError, QualificationAdmissionRelayTranscript,};",
         "pub use admission_relay_codec::QualificationAdmissionRelayCodecV1;",
         "pub use context_model::{QualificationRunContextError, QualificationRunContextExpectation, QualificationScenario, VerifiedQualificationRunContext,};",

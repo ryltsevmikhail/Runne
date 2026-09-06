@@ -4417,6 +4417,7 @@ dependencies = [
  "serde_jcs",
  "serde_json",
  "sha2",
+ "static_assertions",
  "subtle",
  "thiserror 2.0.18",
  "zeroize",

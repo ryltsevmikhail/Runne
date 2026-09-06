@@ -63,6 +63,30 @@ fn production_context_authorities_have_no_raw_or_reusable_escape_surface() {
 }
 
 #[test]
+fn surface_auditor_rejects_every_combined_fence_facts_escape_shape() {
+    let mutations = [
+        "pub type Leak = VerifiedQualificationFenceFacts;",
+        "pub struct Leak { value: VerifiedQualificationFenceFacts }",
+        "pub trait Leak { fn take(value: VerifiedQualificationFenceFacts); }",
+        "pub fn leak<T: Into<VerifiedQualificationFenceFacts>>(value: T) {}",
+        "unsafe extern \"C\" { pub fn leak(value: VerifiedQualificationFenceFacts); }",
+        "leak_fence_facts!(VerifiedQualificationFenceFacts);",
+        "impl VerifiedQualificationFenceFacts { pub fn encode(self) -> Vec<u8> { vec![] } }",
+        "pub fn perform_effect(value: VerifiedQualificationFenceFacts) {}",
+        "pub use crate::VerifiedQualificationFenceFacts as FenceLeak;",
+        "pub struct Leak<T = VerifiedQualificationFenceFacts> { value: T }",
+    ];
+    let escaped = mutations
+        .iter()
+        .filter(|mutation| audit_sources(&[("mutation.rs", mutation)]).is_empty())
+        .count();
+    assert_eq!(
+        escaped, 0,
+        "combined fence facts escape mutations must fail"
+    );
+}
+
+#[test]
 fn verifier_key_injection_is_visible_only_to_the_exact_test_support_cfg() {
     let signature = "pub fn test_only_from_verifying_keys(context_key: VerifyingKey, fault_key: VerifyingKey) -> Self { todo!() }";
     let unguarded = BASELINE.replace(

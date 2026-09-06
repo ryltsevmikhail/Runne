@@ -1,13 +1,13 @@
 #[test]
-fn v34_preserves_v33_admission_and_rejects_old_completion_guard_after_upgrade() {
+fn v35_preserves_v33_admission_and_rejects_old_completion_guard_after_upgrade() {
     let connection = Connection::open_in_memory().unwrap();
     apply_migrations_internal(&connection, 33).unwrap();
     assert!(v33_matches(&connection, 33).unwrap());
     apply_migrations(&connection).unwrap();
-    assert!(v34_matches(&connection, 34).unwrap());
+    assert!(v35_matches(&connection, 35).unwrap());
     connection.execute_batch("DROP TRIGGER provider_credential_completion_receipt_insert").unwrap();
     connection.execute_batch(v28_trigger_source("provider_credential_completion_receipt_insert")).unwrap();
-    assert!(!v34_matches(&connection, 34).unwrap());
+    assert!(!v35_matches(&connection, 35).unwrap());
     assert!(apply_migrations(&connection).is_err());
 }
 
@@ -51,9 +51,9 @@ fn v33_upgrade_is_idempotent_and_preserves_v32_exact_catalog() {
     assert!(apply_migrations(&connection).is_err());
     connection.execute_batch("DROP TABLE unexpected_recovery").unwrap();
     apply_migrations(&connection).unwrap();
-    assert!(v34_matches(&connection, 34).unwrap());
+    assert!(v35_matches(&connection, 35).unwrap());
     apply_migrations(&connection).unwrap();
-    assert!(v34_matches(&connection, 34).unwrap());
+    assert!(v35_matches(&connection, 35).unwrap());
 }
 
 #[test]
@@ -66,9 +66,9 @@ fn v33_rejects_replaced_trigger_and_extra_catalog_object() {
     ] {
         let connection = Connection::open_in_memory().unwrap();
         apply_migrations(&connection).unwrap();
-        assert!(v34_matches(&connection, 34).unwrap());
+        assert!(v35_matches(&connection, 35).unwrap());
         connection.execute_batch(mutation).unwrap();
-        assert!(!v34_matches(&connection, 34).unwrap(), "{mutation}");
+        assert!(!v35_matches(&connection, 35).unwrap(), "{mutation}");
         assert!(apply_migrations(&connection).is_err(), "{mutation}");
     }
 }

@@ -220,6 +220,7 @@ pub(super) fn upgraded_v25_for_provider(
     connection
         .execute_batch(
             "DROP TRIGGER provider_credential_ticket_insert_issued;
+             DROP TABLE provider_qualification_admission_fences;
              DROP TABLE credential_cleanup_recovery_attempts;
              DROP TRIGGER provider_credential_attachment_insert;
              DROP TRIGGER provider_credential_attachment_immutable;

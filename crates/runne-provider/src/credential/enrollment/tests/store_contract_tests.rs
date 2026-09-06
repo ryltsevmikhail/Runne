@@ -161,3 +161,26 @@ fn credential_enrollment_store_exposes_the_approved_task_three_port() {
 
     accepts_store(&PublicEnrollmentStore);
 }
+
+#[test]
+fn ordinary_enrollment_store_fails_closed_for_qualification_fencing() {
+    let error = PublicEnrollmentStore.issue_ticket_attempt_with_qualification_fence(
+        unreachable_qualification_ticket(),
+        unreachable_qualification_fence(),
+    );
+    assert_eq!(error.err(), Some(CredentialLifecycleError::LifecycleClosed));
+}
+
+fn unreachable_qualification_ticket() -> IssueCredentialTicketDigest {
+    IssueCredentialTicketDigest::new(
+        CredentialOperationId::from_bytes([1; 16]).unwrap(),
+        super::super::CredentialBindingDigest::from_measured([2; 32]).unwrap(),
+        super::super::CredentialBindingDigest::from_measured([3; 32]).unwrap(),
+        1,
+    )
+    .unwrap()
+}
+
+fn unreachable_qualification_fence() -> super::super::ProviderQualificationAdmissionFence {
+    super::qualification_fence_contract_tests::valid_input()
+}

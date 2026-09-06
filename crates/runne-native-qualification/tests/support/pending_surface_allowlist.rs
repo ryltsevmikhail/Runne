@@ -101,6 +101,10 @@ pub fn exact_admission_impl(item: &syn::ItemImpl, source: &str) -> bool {
         "pub(crate) fn verify_exact_borrowed(&self, context_verifier: &mut crate::QualificationRunContextVerifier, fault_verifier: &mut crate::QualificationFaultVerifier, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<(), crate::QualificationAdmissionVerificationError> {}",
     )
     .expect("valid admission verification signature");
+    let fence_verification = syn::parse_str::<syn::ImplItemFn>(
+        "pub(crate) fn verify_exact_for_fence_borrowed(&self, context_verifier: &mut crate::QualificationRunContextVerifier, fault_verifier: &mut crate::QualificationFaultVerifier, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<crate::VerifiedQualificationFenceFacts, crate::QualificationAdmissionVerificationError,> {}",
+    )
+    .expect("valid admission fence verification signature");
     source == "admission.rs"
         && item.trait_.is_none()
         && owner.is_some_and(|(name, raw)| name == ADMISSION && !raw)
@@ -108,14 +112,15 @@ pub fn exact_admission_impl(item: &syn::ItemImpl, source: &str) -> bool {
         && item.attrs.iter().all(|attr| attr.path().is_ident("doc"))
         && item.generics.params.is_empty()
         && item.generics.where_clause.is_none()
-        && matches!(item.items.len(), 1 | 3 | 4)
+        && matches!(item.items.len(), 1 | 3 | 4 | 5)
         && item.items.iter().all(|member| {
             matches!(member, syn::ImplItem::Fn(method)
             if method.attrs.iter().all(|attr| attr.path().is_ident("doc"))
                 && (signatures_match(&method.sig, &constructor.sig)
                     || signatures_match(&method.sig, &relay.sig)
                     || signatures_match(&method.sig, &retained.sig)
-                    || signatures_match(&method.sig, &verification.sig)))
+                    || signatures_match(&method.sig, &verification.sig)
+                    || signatures_match(&method.sig, &fence_verification.sig)))
         })
         && item
             .items
@@ -178,17 +183,22 @@ pub fn exact_combined_verification_method(
     method: &syn::ImplItemFn,
     source: &str,
 ) -> bool {
-    let expected = syn::parse_str::<syn::ImplItemFn>(
+    let admission = syn::parse_str::<syn::ImplItemFn>(
         "pub fn verify_exact_borrowed(&mut self, admission: &PendingQualificationAdmission, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<(), QualificationAdmissionVerificationError> {}",
     )
     .expect("valid combined verification signature");
+    let fence = syn::parse_str::<syn::ImplItemFn>(
+        "pub fn verify_exact_for_fence_borrowed(&mut self, admission: &PendingQualificationAdmission, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<crate::VerifiedQualificationFenceFacts, QualificationAdmissionVerificationError> {}",
+    )
+    .expect("valid combined fence verification signature");
     source == "admission_verification.rs"
         && owner.trait_.is_none()
         && type_name(&owner.self_ty)
             .is_some_and(|(name, raw)| name == "QualificationAdmissionVerifier" && !raw)
         && owner.generics.params.is_empty()
         && owner.generics.where_clause.is_none()
-        && signatures_match(&method.sig, &expected.sig)
+        && (signatures_match(&method.sig, &admission.sig)
+            || signatures_match(&method.sig, &fence.sig))
 }
 
 pub fn exact_admission_reexport(item: &syn::ItemUse, source: &str) -> bool {

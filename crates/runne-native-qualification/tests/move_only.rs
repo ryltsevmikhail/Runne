@@ -2,11 +2,21 @@ use runne_native_qualification::{
     PendingQualificationAdmission, PendingQualificationFault, PendingQualificationRunContext,
     QualificationAdmissionRelayCodecV1, QualificationAdmissionRelayTranscript,
     QualificationFaultRelayCodecV1, QualificationRunContextRelayCodecV1,
-    QualificationRunContextVerifier, VerifiedQualificationFault, VerifiedQualificationRunContext,
+    QualificationRunContextVerifier, VerifiedQualificationFault, VerifiedQualificationFenceFacts,
+    VerifiedQualificationRunContext,
 };
 
 // This is the authoritative spelling-independent invariant. Any internal
 // implementation of one of these traits makes this test target fail to build.
+static_assertions::assert_not_impl_any!(
+    VerifiedQualificationFenceFacts:
+        Clone,
+        Copy,
+        std::fmt::Debug,
+        Default,
+        serde::Serialize,
+        serde::Deserialize<'static>
+);
 static_assertions::assert_not_impl_any!(
     VerifiedQualificationFault:
         Clone,
