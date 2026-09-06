@@ -17,9 +17,13 @@ def _pairs_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     value: dict[str, Any] = {}
     for key, item in pairs:
         if key in value:
-            raise ContractError(f"duplicate JSON key: {key[:64]}")
+            raise ContractError("duplicate JSON key")
         value[key] = item
     return value
+
+
+def _reject_constant(_value: str) -> None:
+    raise ValueError("non-finite JSON constant")
 
 
 def load_verified_json(path: pathlib.Path, *, require_sidecar: bool = True) -> Any:
@@ -39,10 +43,14 @@ def load_verified_json(path: pathlib.Path, *, require_sidecar: bool = True) -> A
         if fields != [actual, path.name]:
             raise ContractError(f"digest mismatch: {path.name}")
     try:
-        return json.loads(payload, object_pairs_hook=_pairs_without_duplicates)
+        return json.loads(
+            payload,
+            object_pairs_hook=_pairs_without_duplicates,
+            parse_constant=_reject_constant,
+        )
     except ContractError:
         raise
-    except (UnicodeError, json.JSONDecodeError) as error:
+    except (UnicodeError, ValueError) as error:
         raise ContractError(f"malformed JSON: {path.name}") from error
 
 
@@ -54,7 +62,7 @@ def object_exact(value: Any, path: str, required: set[str]) -> dict[str, Any]:
     if missing:
         raise ContractError(f"{path}: missing field {sorted(missing)[0]}")
     if unknown:
-        raise ContractError(f"{path}: unknown field {sorted(unknown)[0]}")
+        raise ContractError(f"{path}: unknown field")
     return value
 
 

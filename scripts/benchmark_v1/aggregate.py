@@ -21,7 +21,7 @@ def summarize(profile: BenchmarkProfile, outcomes: list[dict[str, Any]]) -> dict
         raise ContractError("$.outcomes: array required")
     validated: dict[str, dict[str, Any]] = {}
     for value in outcomes:
-        outcome = validate_outcome(value, profile.case_ids)
+        outcome = validate_outcome(value, profile)
         case_id = outcome["case_id"]
         if case_id in validated:
             raise ContractError("$.outcomes: duplicate outcome")

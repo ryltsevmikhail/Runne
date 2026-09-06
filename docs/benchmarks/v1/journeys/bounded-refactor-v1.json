@@ -5,5 +5,8 @@
   "title": "Bounded refactor",
   "objective": "Change an internal structure within a declared boundary while preserving observable behavior and passing exact characterization tests.",
   "scope": {"max_files_changed": 16, "max_changed_lines": 800, "network_allowed": false, "new_dependencies_allowed": false},
-  "verifier_contract": {"kind": "machine", "requires_clean_exit": true, "requires_targeted_tests": true, "requires_diff_check": true}
+  "verifier_contract": {"kind": "machine", "requires_clean_exit": true, "requires_targeted_tests": true, "requires_diff_check": true},
+  "required_checks": ["characterization_before", "characterization_after", "observable_behavior_equivalent", "required_tests_pass", "diff_within_scope"],
+  "success_conditions": ["all_required_checks_pass", "process_exit_zero", "diff_within_declared_scope", "no_unresolved_effect"],
+  "failure_conditions": ["required_check_failed", "process_exit_nonzero", "scope_exceeded", "effect_or_recovery_failed"]
 }

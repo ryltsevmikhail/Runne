@@ -67,6 +67,7 @@ class BenchmarkV1ContractTests(unittest.TestCase):
             validate_profile(invalid_time)
 
     def test_four_outcomes_are_derived_and_declared_value_must_match(self) -> None:
+        profile = validate_profile(load_verified_json(PROFILE_PATH))
         expected = {
             "outcome-verified-v1.json": "Verified",
             "outcome-unverified-v1.json": "Unverified",
@@ -75,22 +76,30 @@ class BenchmarkV1ContractTests(unittest.TestCase):
         }
         for name, outcome in expected.items():
             value = fixture(name)
-            self.assertEqual(derive_outcome(value), outcome, name)
             self.assertEqual(
-                validate_outcome(value, {value["case_id"]})["technical_outcome"],
+                derive_outcome(value, profile.case_budgets[value["case_id"]]),
+                outcome,
+                name,
+            )
+            self.assertEqual(
+                validate_outcome(value, profile)["technical_outcome"],
                 outcome,
             )
 
         malformed = fixture("outcome-malformed-v1.json")
         with self.assertRaisesRegex(ContractError, "declared outcome"):
-            validate_outcome(malformed, {malformed["case_id"]})
+            validate_outcome(malformed, profile)
 
     def test_manual_override_never_derives_verified(self) -> None:
+        profile = validate_profile(load_verified_json(PROFILE_PATH))
         value = fixture("outcome-verified-v1.json")
         value["manual_override"] = True
         value["technical_outcome"] = "Unverified"
 
-        self.assertEqual(derive_outcome(value), "Unverified")
+        self.assertEqual(
+            derive_outcome(value, profile.case_budgets[value["case_id"]]),
+            "Unverified",
+        )
 
     def test_complete_cohort_summary_is_exact_and_order_independent(self) -> None:
         profile = validate_profile(load_verified_json(PROFILE_PATH))

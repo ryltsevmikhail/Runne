@@ -10,5 +10,6 @@
   "recovery_state": "clean",
   "evidence_complete": true,
   "timing": {"task_seconds": 150, "review_minutes": 3, "recovery_minutes": 0},
+  "usage": {"input_tokens": 1200, "output_tokens": 120},
   "cost": {"currency": "USD", "model_compute_micros": 120, "human_review_micros": 60, "recovery_micros": 0}
 }

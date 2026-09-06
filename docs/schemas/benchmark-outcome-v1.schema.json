@@ -4,7 +4,7 @@
   "title": "Runne Benchmark Outcome V1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "case_id", "technical_outcome", "acceptance", "manual_override", "execution_status", "verifier_result", "effect_state", "recovery_state", "evidence_complete", "timing", "cost"],
+  "required": ["schema_version", "case_id", "technical_outcome", "acceptance", "manual_override", "execution_status", "verifier_result", "effect_state", "recovery_state", "evidence_complete", "timing", "usage", "cost"],
   "properties": {
     "schema_version": {"const": "runne.benchmark.outcome/1"},
     "case_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{2,63}$"},
@@ -24,6 +24,15 @@
         "task_seconds": {"type": "integer", "minimum": 0, "maximum": 86400},
         "review_minutes": {"type": "integer", "minimum": 0, "maximum": 1440},
         "recovery_minutes": {"type": "integer", "minimum": 0, "maximum": 1440}
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_tokens", "output_tokens"],
+      "properties": {
+        "input_tokens": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "output_tokens": {"type": "integer", "minimum": 0, "maximum": 1000000}
       }
     },
     "cost": {

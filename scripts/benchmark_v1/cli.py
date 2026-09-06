@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import pathlib
 import sys
 
 from .aggregate import summarize
+from .artifacts import artifact_sha256
 from .contract import (
     ContractError,
     load_verified_json,
@@ -36,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
             cohort = load_verified_json(arguments.outcomes.resolve())
             outcomes = validate_cohort_envelope(
                 cohort,
-                hashlib.sha256(profile_path.read_bytes()).hexdigest(),
+                artifact_sha256(profile_path),
             )
             result = summarize(profile, outcomes)
     except ContractError as error:
