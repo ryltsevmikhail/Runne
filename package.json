@@ -21,7 +21,8 @@
     "site:dev": "pnpm --filter @runne/site dev",
     "site:build": "pnpm --filter @runne/site build",
     "site:check": "pnpm --filter @runne/site check",
-    "typecheck": "pnpm --filter @runne/desktop typecheck && pnpm --filter @runne/product typecheck"
+    "typecheck": "pnpm --filter @runne/desktop typecheck && pnpm --filter @runne/product typecheck",
+    "validate:benchmark-v1": "python3 -m unittest scripts.tests.test_benchmark_v1 -v && python3 scripts/verify-benchmark-v1.py verify-contract && python3 scripts/verify-benchmark-v1.py summarize --profile docs/benchmarks/v1/benchmark-profile-v1.json --outcomes docs/benchmarks/v1/fixtures/complete-cohort-v1.json"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
