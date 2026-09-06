@@ -154,12 +154,12 @@ impl V3EnrollmentRuntime {
             let expiry = now
                 .checked_add(5_000)
                 .ok_or(runne_api::LaunchAuthorityError::InvalidContract)?;
-            let binding = gateway
+            let prepared = gateway
                 .prepare_rejoin_binding(request, owned, expiry)
                 .map_err(map_enrollment_error)?;
             let frame =
                 runne_api::CredentialServiceSessionAuthenticator::from_protected_activation(keys)
-                    .require_rejoin(binding.clone())
+                    .require_rejoin(prepared.binding.clone())
                     .into_control_frame();
             protected.write_control_frame(&frame)?;
             let configuration = self
@@ -169,7 +169,7 @@ impl V3EnrollmentRuntime {
             let rejoined = crate::protected_activation::credential_service_registration::receive_rejoin_registration(
                 protected,
                 keys,
-                &binding,
+                &prepared,
                 configuration,
                 unix_now_millis()?,
             )?;

@@ -1,9 +1,8 @@
-//! Dedicated legacy import/cutover/delete/crash native scenario.
+//! Dormant historical legacy import/cutover/delete/crash transcript.
 //!
-//! The scenario runs only under the disposable Keychain rig on an isolated
-//! darwin arm64 host through the pinned `--ignored` invocation. Every stage
-//! either executes the real production path or fails closed with a named
-//! error, so a green result is impossible without the real chain.
+//! These retained stages are not a runnable positive native chain. The current
+//! entry test verifies that historical legacy scenario identifiers are rejected
+//! as Unsupported before allocating lifecycle or writer authority.
 
 use super::legacy_evidence::{
     LEGACY_CLEANUP_CANDIDATE_ENV, LEGACY_CLEANUP_EVIDENCE_ENV, LEGACY_CLEANUP_RUN_ID_ENV,

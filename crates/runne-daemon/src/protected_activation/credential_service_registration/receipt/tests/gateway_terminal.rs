@@ -14,6 +14,7 @@ use std::sync::{
 async fn gateway_readback_rejoin_reaches_desktop_terminal_without_self_wait() {
     for tamper in [false, true] {
         let fixture = runne_platform_desktop::test_only_ready_v3_enrollment_supervisor();
+        let parent_expiry = fixture.credential_service_parent_expiry();
         let owned = fixture.owned_launch().unwrap();
         let (desktop, peer) = UnixStream::pair().unwrap();
         desktop
@@ -55,7 +56,7 @@ async fn gateway_readback_rejoin_reaches_desktop_terminal_without_self_wait() {
                     else {
                         return Ok(());
                     };
-                    let registered = register(&mut peer, &keys, &owned);
+                    let registered = register(&mut peer, &keys, &owned, parent_expiry);
                     gateway
                         .complete_rejoin(request, registered.is_ok())
                         .map_err(|_| LaunchAuthorityError::InvalidContract)?;
@@ -83,6 +84,7 @@ fn register(
     peer: &mut ProtectedActivationChannel,
     keys: &ProtectedActivationKeys,
     owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
+    parent_expiry: u64,
 ) -> Result<(), LaunchAuthorityError> {
     let started = now()?;
     let enrollment = owned.enrollment_binding();
@@ -107,7 +109,7 @@ fn register(
     let received = receive(
         peer,
         keys,
-        &ExpectedCredentialServiceRegistration::from_rejoin(&binding),
+        &ExpectedCredentialServiceRegistration::from_rejoin(&binding, parent_expiry),
         started,
         interleaved::receive,
         now,

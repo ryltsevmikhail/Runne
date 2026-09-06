@@ -8,6 +8,7 @@ use runne_api::{
 async fn crossed_broker_offer_waits_for_verified_registration_without_replay() {
     for tamper_ack in [false, true] {
         let fixture = runne_platform_desktop::test_only_ready_v3_enrollment_supervisor();
+        let parent_expiry = fixture.credential_service_parent_expiry();
         let owned = fixture.owned_launch().unwrap();
         let (desktop, peer) = UnixStream::pair().unwrap();
         desktop
@@ -40,7 +41,7 @@ async fn crossed_broker_offer_waits_for_verified_registration_without_replay() {
             let received = receive(
                 &mut peer,
                 &keys,
-                &ExpectedCredentialServiceRegistration::from_rejoin(&binding),
+                &ExpectedCredentialServiceRegistration::from_rejoin(&binding, parent_expiry),
                 started,
                 interleaved::receive,
                 now,

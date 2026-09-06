@@ -1,6 +1,7 @@
 use super::*;
 use std::io::Read;
 use std::os::unix::net::UnixStream;
+use std::time::Duration;
 
 fn registered(
     process: &ProtectedBundledRuntimeProcess,
@@ -67,6 +68,7 @@ fn registered(
         .unwrap();
     let acknowledgement = authenticator.registration_ack(verified, 0).unwrap();
     RegisteredCredentialServiceSession {
+        exchange_deadline: (mutation == "exchange_deadline").then_some(0),
         claim,
         acknowledgement,
         configuration: None,
@@ -83,6 +85,7 @@ fn confirmation_rejects_stale_registration_before_writing_to_current_daemon() {
         "owner",
         "release",
         "expiry",
+        "exchange_deadline",
         "keys",
         "ack_keys",
     ] {

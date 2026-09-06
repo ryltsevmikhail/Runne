@@ -1,8 +1,11 @@
 /// Opaque test-only owner of a real Ready-V3 supervisor state.
 #[doc(hidden)]
-pub struct TestOnlyReadyV3EnrollmentSupervisor(ProtectedBundledRuntimeSupervisor);
+pub struct TestOnlyReadyV3EnrollmentSupervisor(ProtectedBundledRuntimeSupervisor, u64);
 
 impl TestOnlyReadyV3EnrollmentSupervisor {
+    #[must_use]
+    pub const fn credential_service_parent_expiry(&self) -> u64 { self.1 }
+
     #[must_use]
     pub fn owned_launch(&self) -> Option<runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3> {
         match &self.0.process.as_ref()?.activation {
@@ -93,7 +96,10 @@ pub fn test_only_ready_v3_enrollment_supervisor() -> TestOnlyReadyV3EnrollmentSu
         credential_service_rejoin: None,
     };
     let _ = std::fs::remove_dir(root);
-    TestOnlyReadyV3EnrollmentSupervisor(supervisor)
+    TestOnlyReadyV3EnrollmentSupervisor(supervisor,
+        credential_service_session::bounded_session_expiry_unix_millis(
+            credential_service_session::unix_millis().expect("clock"),
+        ).expect("expiry"))
 }
 
 /// Builds the same concrete supervisor type in its genuine pre-V3 Absent state.
@@ -109,7 +115,10 @@ pub fn test_only_absent_enrollment_supervisor() -> TestOnlyReadyV3EnrollmentSupe
         spec,
     );
     let _ = std::fs::remove_dir(root);
-    TestOnlyReadyV3EnrollmentSupervisor(supervisor)
+    TestOnlyReadyV3EnrollmentSupervisor(supervisor,
+        credential_service_session::bounded_session_expiry_unix_millis(
+            credential_service_session::unix_millis().expect("clock"),
+        ).expect("expiry"))
 }
 
 const fn test_id(byte: u8) -> [u8; 16] {

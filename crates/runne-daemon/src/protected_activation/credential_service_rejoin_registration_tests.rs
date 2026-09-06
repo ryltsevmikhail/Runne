@@ -7,6 +7,9 @@ use super::credential_service_registration::{
     ExpectedCredentialServiceRegistration, accept_registration_frames,
 };
 
+#[path = "credential_service_rejoin_registration_tests/lifetime.rs"]
+mod lifetime;
+
 #[test]
 fn rejoin_registration_accepts_fresh_challenge_epoch_but_requires_attempt_and_expiry() {
     let keys = LaunchSecret::from_bytes([7; 32]).unwrap().derive_keys();
@@ -20,10 +23,10 @@ fn rejoin_registration_accepts_fresh_challenge_epoch_but_requires_attempt_and_ex
         [3; 32],
         [4; 32],
         2,
-        30_100,
+        5_100,
     )
     .unwrap();
-    let expected = ExpectedCredentialServiceRegistration::from_rejoin(&requested);
+    let expected = ExpectedCredentialServiceRegistration::from_rejoin(&requested, 480_100);
     let exact = CredentialServiceRegistrationBinding::new(
         [9; 16],
         uuid(1),
@@ -35,11 +38,16 @@ fn rejoin_registration_accepts_fresh_challenge_epoch_but_requires_attempt_and_ex
         [4; 32],
         [6; 16],
         2,
-        30_100,
+        480_100,
     )
     .unwrap();
     let (claim, acknowledgement) = registration_frames(&keys, &exact);
-    assert!(accept_registration_frames(&keys, &expected, &claim, &acknowledgement, 99).is_ok());
+    for now in [99, 5_099, 5_100, 480_099] {
+        assert_eq!(
+            accept_registration_frames(&keys, &expected, &claim, &acknowledgement, now).is_ok(),
+            now < 5_100
+        );
+    }
 
     let fresh_epoch = CredentialServiceRegistrationBinding::new(
         [8; 16],
@@ -52,13 +60,13 @@ fn rejoin_registration_accepts_fresh_challenge_epoch_but_requires_attempt_and_ex
         [4; 32],
         [7; 16],
         2,
-        30_100,
+        480_100,
     )
     .unwrap();
     let (claim, acknowledgement) = registration_frames(&keys, &fresh_epoch);
     assert!(accept_registration_frames(&keys, &expected, &claim, &acknowledgement, 99).is_ok());
 
-    for (join_attempt, expiry) in [(3, 30_100), (2, 30_101)] {
+    for (join_attempt, expiry) in [(3, 480_100), (2, 480_101), (2, 5_100)] {
         let wrong = CredentialServiceRegistrationBinding::new(
             [8; 16],
             uuid(1),

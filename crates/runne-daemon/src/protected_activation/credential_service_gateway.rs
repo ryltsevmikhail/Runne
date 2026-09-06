@@ -157,13 +157,15 @@ impl CredentialServiceRuntimeGateway {
         self.rejoin.complete(request, succeeded)
     }
 
-    pub(crate) fn prepare_rejoin_binding(
+    pub(super) fn prepare_rejoin_binding(
         &self,
         request: CredentialServiceRejoinRequest,
         owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
         expires_at_unix_millis: u64,
-    ) -> Result<runne_api::CredentialServiceRejoinBinding, ProviderCredentialEnrollmentHostError>
-    {
+    ) -> Result<
+        super::credential_service_registration::PreparedCredentialServiceRejoin,
+        ProviderCredentialEnrollmentHostError,
+    > {
         self.session
             .lock()
             .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?

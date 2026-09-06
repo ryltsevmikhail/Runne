@@ -9,6 +9,8 @@ use super::ProtectedActivationChannel;
 
 mod interleaved;
 mod receipt;
+mod rejoin;
+pub(super) use rejoin::{PreparedCredentialServiceRejoin, receive_rejoin_registration};
 mod runtime_io;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,6 +29,7 @@ pub(super) struct ExpectedCredentialServiceRegistration {
     release_binding: [u8; 32],
     join_attempt: u64,
     exact_expiry: Option<u64>,
+    receipt_deadline: Option<u64>,
 }
 
 impl ExpectedCredentialServiceRegistration {
@@ -45,6 +48,7 @@ impl ExpectedCredentialServiceRegistration {
             release_binding: *enrollment.release_tuple_digest(),
             join_attempt: 1,
             exact_expiry: None,
+            receipt_deadline: None,
         }
     }
 
@@ -60,10 +64,14 @@ impl ExpectedCredentialServiceRegistration {
             release_binding: *binding.release_binding(),
             join_attempt: binding.join_attempt(),
             exact_expiry: None,
+            receipt_deadline: None,
         }
     }
 
-    pub(super) fn from_rejoin(binding: &CredentialServiceRejoinBinding) -> Self {
+    pub(super) fn from_rejoin(
+        binding: &CredentialServiceRejoinBinding,
+        parent_expiry: u64,
+    ) -> Self {
         Self {
             protected_session_id: binding.protected_session_id(),
             daemon_authority_generation: binding.daemon_authority_generation(),
@@ -73,7 +81,8 @@ impl ExpectedCredentialServiceRegistration {
             installation_owner: binding.installation_owner(),
             release_binding: binding.release_binding(),
             join_attempt: binding.join_attempt(),
-            exact_expiry: Some(binding.expires_at_unix_millis()),
+            exact_expiry: Some(parent_expiry),
+            receipt_deadline: Some(binding.expires_at_unix_millis()),
         }
     }
 
@@ -150,38 +159,6 @@ impl CredentialServiceRuntimeSession {
     pub(super) fn take_missing_epoch(&mut self) -> Option<runne_provider::CredentialServiceEpoch> {
         self.missing_epoch.take()
     }
-
-    pub(super) fn prepare_rejoin_binding(
-        &self,
-        epoch: CredentialServiceEpoch,
-        owned: &ProtectedCredentialEnrollmentOwnedLaunchV3,
-        expires_at_unix_millis: u64,
-    ) -> Result<CredentialServiceRejoinBinding, LaunchAuthorityError> {
-        let enrollment = owned.enrollment_binding();
-        if owned.launch_generation() != self.binding.runtime_generation()
-            || enrollment.desktop_supervisor_generation() != self.binding.supervisor_generation()
-            || enrollment.installation_identity_digest() != self.binding.installation_owner()
-            || enrollment.release_tuple_digest() != self.binding.release_binding()
-        {
-            return Err(LaunchAuthorityError::OwnershipMismatch);
-        }
-        CredentialServiceRejoinBinding::new(
-            epoch.as_bytes(),
-            *owned.session_id(),
-            owned.launch_generation(),
-            owned.launch_generation(),
-            enrollment.desktop_supervisor_generation(),
-            self.binding.installed_generation(),
-            *self.binding.installation_owner(),
-            *self.binding.release_binding(),
-            self.binding
-                .join_attempt()
-                .checked_add(1)
-                .ok_or(LaunchAuthorityError::InvalidContract)?,
-            expires_at_unix_millis,
-        )
-        .map_err(|_| LaunchAuthorityError::InvalidContract)
-    }
 }
 
 pub(super) fn accept_registration_frames(
@@ -195,7 +172,11 @@ pub(super) fn accept_registration_frames(
     let verified = authenticator
         .decode_and_verify_registration(claim_frame)
         .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
-    if !expected.matches(verified.binding()) {
+    if !expected.matches(verified.binding())
+        || expected.receipt_deadline.is_some_and(|deadline| {
+            now_unix_millis >= deadline || deadline > verified.binding().expires_at_unix_millis()
+        })
+    {
         return Err(LaunchAuthorityError::OwnershipMismatch);
     }
     let binding = verified.binding().clone();
@@ -248,33 +229,6 @@ pub(super) fn receive_required_registration(
 pub(super) struct RejoinedCredentialService {
     pub(super) session: CredentialServiceRuntimeSession,
     pub(super) deferred: Option<zeroize::Zeroizing<Vec<u8>>>,
-}
-
-pub(super) fn receive_rejoin_registration(
-    channel: &mut ProtectedActivationChannel,
-    keys: &ProtectedActivationKeys,
-    binding: &CredentialServiceRejoinBinding,
-    configuration: runne_macos_xpc::CredentialServiceEndpointConfiguration,
-    now_unix_millis: u64,
-) -> Result<RejoinedCredentialService, LaunchAuthorityError> {
-    let received = receipt::receive(
-        channel,
-        keys,
-        &ExpectedCredentialServiceRegistration::from_rejoin(binding),
-        now_unix_millis,
-        interleaved::receive,
-        receipt::now,
-    )?;
-    let mut session = received.session;
-    session.client = Some(
-        runne_macos_xpc::CredentialServiceRuntimeXpcClient::connect(configuration.clone())
-            .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)?,
-    );
-    session.configuration = Some(configuration);
-    Ok(RejoinedCredentialService {
-        session,
-        deferred: received.deferred,
-    })
 }
 
 pub(super) fn registration_payload(frame: &[u8]) -> Result<&[u8], LaunchAuthorityError> {

@@ -21,6 +21,7 @@ struct WireService {
     supervisor: std::sync::Weak<Mutex<ProtectedBundledRuntimeSupervisor>>,
     owned: ProtectedCredentialEnrollmentOwnedLaunchV3,
     tamper: bool,
+    parent_expiry: u64,
 }
 
 impl WireService {
@@ -81,7 +82,7 @@ impl CredentialServiceDesktopPort for WireService {
                         || binding.release_binding() != enrollment.release_tuple_digest()
                         || binding.installed_generation() != 1 || binding.join_attempt() != 2
                         || binding.service_epoch() != &[21; 16] || binding.challenge_nonce() != &[22; 16]
-                        || binding.expires_at_unix_millis().saturating_sub(now) > 5_000
+                        || binding.expires_at_unix_millis() != self.parent_expiry
                     { return Err(runne_api::CredentialServiceRegistrationError::BindingMismatch); }
                     Ok(())
                 })
@@ -221,6 +222,7 @@ pub(in crate::protected_runtime) fn prepare(
     ),
     ProtectedBundledRuntimeError,
 > {
+    let parent_expiry = fixture.credential_service_parent_expiry();
     let mut supervisor = fixture.into_supervisor();
     let process = supervisor
         .process
@@ -236,12 +238,13 @@ pub(in crate::protected_runtime) fn prepare(
     facts.terminal_session = Some(*owned.session_id());
     process.enrollment_broker_facts = Some(facts);
     process.channel = channel;
-    supervisor.credential_service_rejoin = Some(test_rejoin_context());
+    supervisor.credential_service_rejoin = Some(test_rejoin_context(parent_expiry));
     let supervisor = Arc::new(Mutex::new(supervisor));
     let registration = WireRegistration(WireService {
         supervisor: Arc::downgrade(&supervisor),
         owned,
         tamper: tamper_ack,
+        parent_expiry,
     });
     Ok((supervisor, registration))
 }

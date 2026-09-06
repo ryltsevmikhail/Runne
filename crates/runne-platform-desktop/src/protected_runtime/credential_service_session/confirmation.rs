@@ -30,6 +30,12 @@ impl ProtectedBundledRuntimeProcess {
         // current launch, authenticator and expiry before any protected-channel write.
         let binding = binding.clone();
         let now = unix_millis().map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        if registered
+            .exchange_deadline
+            .is_some_and(|deadline| now >= deadline)
+        {
+            return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
+        }
         let authenticator =
             CredentialServiceSessionAuthenticator::from_protected_activation(&self.keys);
         let claim = zeroize::Zeroizing::new(registered.claim.into_bytes());

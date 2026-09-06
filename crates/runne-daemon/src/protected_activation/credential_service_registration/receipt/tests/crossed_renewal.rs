@@ -8,6 +8,7 @@ use runne_api::{
 async fn crossed_renewal_queues_one_new_session_only_after_verified_registration() {
     for tamper_ack in [false, true] {
         let fixture = runne_platform_desktop::test_only_ready_v3_enrollment_supervisor();
+        let parent_expiry = fixture.credential_service_parent_expiry();
         let owned = fixture.owned_launch().unwrap();
         let next = *uuid::Uuid::now_v7().as_bytes();
         let (desktop, peer) = UnixStream::pair().unwrap();
@@ -41,7 +42,7 @@ async fn crossed_renewal_queues_one_new_session_only_after_verified_registration
             let received = receive(
                 &mut peer,
                 &keys,
-                &ExpectedCredentialServiceRegistration::from_rejoin(&binding),
+                &ExpectedCredentialServiceRegistration::from_rejoin(&binding, parent_expiry),
                 started,
                 interleaved::receive,
                 now,

@@ -15,6 +15,8 @@ pub struct CredentialServiceRejoinContext {
     configuration: runne_macos_xpc::CredentialServiceEndpointConfiguration,
     installed_generation: u64,
     join_attempt: u64,
+    // Retain the authenticated parent-bounded lifetime; restart never renews it.
+    parent_expiry: u64,
 }
 
 impl CredentialServiceRejoinContext {
@@ -29,6 +31,7 @@ impl CredentialServiceRejoinContext {
                 .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?,
             installed_generation: binding.installed_generation(),
             join_attempt: binding.join_attempt(),
+            parent_expiry: binding.expires_at_unix_millis(),
         })
     }
 
@@ -53,6 +56,7 @@ impl CredentialServiceRejoinContext {
             && binding.installation_owner() == *enrollment.installation_identity_digest()
             && binding.release_binding() == *enrollment.release_tuple_digest()
             && binding.join_attempt() == next_attempt
+            && binding.expires_at_unix_millis() <= self.parent_expiry
             && binding.expires_at_unix_millis() > now
             && binding.expires_at_unix_millis().saturating_sub(now) <= REJOIN_MAX_LIFETIME_MILLIS
     }
@@ -146,8 +150,11 @@ impl ProtectedBundledRuntimeSupervisor {
         if !context.matches(required.binding(), process, now) {
             return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
         }
-        let facts = CredentialServiceRegistrationFacts::from_rejoin(required.binding())
-            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let facts = CredentialServiceRegistrationFacts::from_rejoin(
+            required.binding(),
+            context.parent_expiry,
+        )
+        .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
         let configuration = context.configuration.clone();
         Ok(PreparedCredentialServiceRejoin {
             configuration,
@@ -172,7 +179,9 @@ impl ProtectedBundledRuntimeSupervisor {
 }
 
 #[cfg(feature = "test-support")]
-pub(in crate::protected_runtime) fn test_rejoin_context() -> CredentialServiceRejoinContext {
+pub(in crate::protected_runtime) fn test_rejoin_context(
+    parent_expiry: u64,
+) -> CredentialServiceRejoinContext {
     use runne_macos_xpc::{
         CredentialServiceEndpointConfiguration, CredentialServiceEndpointRole,
         CredentialServicePeerRequirement,
@@ -193,14 +202,19 @@ pub(in crate::protected_runtime) fn test_rejoin_context() -> CredentialServiceRe
         .unwrap(),
         installed_generation: 1,
         join_attempt: 1,
+        parent_expiry,
     }
 }
 
 impl CredentialServiceRegistrationFacts {
     fn from_rejoin(
         binding: &CredentialServiceRejoinBinding,
+        parent_expiry: u64,
     ) -> Result<Self, CredentialServiceSessionRegistrationError> {
-        Self::new(
+        if binding.expires_at_unix_millis() > parent_expiry {
+            return Err(CredentialServiceSessionRegistrationError::InvalidFacts);
+        }
+        let mut facts = Self::new(
             binding.protected_session_id(),
             binding.daemon_authority_generation(),
             binding.runtime_generation(),
@@ -209,8 +223,10 @@ impl CredentialServiceRegistrationFacts {
             binding.installation_owner(),
             binding.release_binding(),
             binding.join_attempt(),
-            binding.expires_at_unix_millis(),
-        )
+            parent_expiry,
+        )?;
+        facts.exchange_deadline = Some(binding.expires_at_unix_millis());
+        Ok(facts)
     }
 }
 
@@ -235,7 +251,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rejoin_facts_use_fresh_service_challenge_and_exact_daemon_expiry() {
+    fn rejoin_facts_preserve_parent_expiry_beyond_exchange_deadline() {
         let binding = CredentialServiceRejoinBinding::new(
             [9; 16],
             [1, 1, 1, 1, 1, 1, 0x70, 1, 0x80, 1, 1, 1, 1, 1, 1, 1],
@@ -249,11 +265,14 @@ mod tests {
             10_000,
         )
         .unwrap();
-        let facts = CredentialServiceRegistrationFacts::from_rejoin(&binding).unwrap();
+        let facts = CredentialServiceRegistrationFacts::from_rejoin(&binding, 480_100).unwrap();
+
+        assert_eq!(facts.exchange_deadline, Some(10_000));
+        assert!(CredentialServiceRegistrationFacts::from_rejoin(&binding, 9_999).is_err());
 
         let accepted = facts.binding([9; 16], [8; 16]).unwrap();
         assert_eq!(accepted.service_epoch(), &[9; 16]);
-        assert_eq!(accepted.expires_at_unix_millis(), 10_000);
+        assert_eq!(accepted.expires_at_unix_millis(), 480_100);
         assert_eq!(
             facts.binding([10; 16], [8; 16]).unwrap().service_epoch(),
             &[10; 16]

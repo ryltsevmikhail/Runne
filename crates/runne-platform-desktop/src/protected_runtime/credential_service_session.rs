@@ -1,4 +1,4 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{
     ConfirmedInstalledNativeEnrollment, ProtectedBundledRuntimeError,
@@ -9,8 +9,6 @@ use runne_api::{
     CredentialServiceRegistrationBinding, CredentialServiceRegistrationRequest,
     CredentialServiceSessionAuthenticator,
 };
-
-const REGISTRATION_TIMEOUT: Duration = Duration::from_secs(5);
 
 mod confirmation;
 #[cfg(all(test, feature = "test-support"))]
@@ -40,6 +38,7 @@ pub(super) struct CredentialServiceRegistrationFacts {
     release_binding: [u8; 32],
     join_attempt: u64,
     expires_at_unix_millis: u64,
+    exchange_deadline: Option<u64>,
 }
 
 pub struct PreparedCredentialServiceSessionRegistration {
@@ -51,6 +50,7 @@ pub struct PreparedCredentialServiceSessionRegistration {
 
 /// Service-verified registration evidence awaiting delivery to the exact daemon.
 pub struct RegisteredCredentialServiceSession {
+    exchange_deadline: Option<u64>,
     claim: CredentialServiceRegistrationRequest,
     acknowledgement: CredentialServiceRegistrationAck,
     configuration: Option<runne_macos_xpc::CredentialServiceEndpointConfiguration>,
@@ -226,6 +226,7 @@ impl CredentialServiceRegistrationFacts {
             release_binding,
             join_attempt,
             expires_at_unix_millis,
+            exchange_deadline: None,
         })
     }
 

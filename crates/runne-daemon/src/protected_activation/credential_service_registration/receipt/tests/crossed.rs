@@ -68,6 +68,7 @@ async fn crossed_discovery_rejects_foreign_or_expired_rejoin_without_registratio
 async fn desktop_reader_and_daemon_receipt_complete_crossed_discovery_without_replay() {
     for tamper_ack in [false, true] {
         let fixture = runne_platform_desktop::test_only_ready_v3_enrollment_supervisor();
+        let parent_expiry = fixture.credential_service_parent_expiry();
         let owned = fixture.owned_launch().unwrap();
         let (desktop, peer) = UnixStream::pair().unwrap();
         desktop
@@ -100,7 +101,7 @@ async fn desktop_reader_and_daemon_receipt_complete_crossed_discovery_without_re
             let received = receive(
                 &mut peer,
                 &keys,
-                &ExpectedCredentialServiceRegistration::from_rejoin(&binding),
+                &ExpectedCredentialServiceRegistration::from_rejoin(&binding, parent_expiry),
                 started,
                 interleaved::receive,
                 now,
