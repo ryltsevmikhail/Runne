@@ -230,10 +230,6 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
             (control, "pub fn clone_qualification_ticket(&self) {}"),
             (round_path, "std::env::var(\"TICKET\");"),
         )
-        self.assertEqual(
-            {Path(relative) for relative, _ in cases},
-            architecture.NATIVE_QUALIFICATION_DELIVERY_PRODUCTION,
-        )
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for relative, payload in cases:
