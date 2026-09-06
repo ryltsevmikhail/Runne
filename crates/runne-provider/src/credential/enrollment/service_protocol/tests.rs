@@ -9,6 +9,7 @@ mod constants;
 mod legacy_read;
 mod legacy_wire;
 mod read_support;
+mod secret_lifetime;
 mod support;
 mod writer;
 use read_support::{encoded_read, read_requests};

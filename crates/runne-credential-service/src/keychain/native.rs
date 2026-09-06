@@ -132,7 +132,8 @@ fn decode_record(
 ) -> Result<super::CredentialStoredRecord, CredentialKeychainStatus> {
     let material = data_attribute(attributes, unsafe { kSecValueData })?
         .ok_or(CredentialKeychainStatus::AccessDenied)?;
-    let material = runne_provider::CredentialMaterial::from_bytes(material.bytes().to_vec())
+    let material = Zeroizing::new(material.bytes().to_vec());
+    let material = runne_provider::CredentialMaterial::from_zeroizing(material)
         .map_err(|_| CredentialKeychainStatus::AccessDenied)?;
     let source_revision = data_attribute(attributes, unsafe { kSecAttrGeneric })?
         .map(|data| {
@@ -146,6 +147,20 @@ fn decode_record(
         material,
         source_revision,
     })
+}
+
+#[cfg(test)]
+impl super::KeychainBackend {
+    pub(crate) fn decode_record_fixture_debug(material: &[u8]) -> Result<(), String> {
+        let mut attributes = CFMutableDictionary::from_CFType_pairs(&[]);
+        let data = CFData::from_arc(Arc::new(Zeroizing::new(material.to_vec())));
+        unsafe {
+            attributes.add(&kSecValueData.to_void(), &data.to_void());
+        }
+        decode_record(&attributes.to_immutable())
+            .map(|_| ())
+            .map_err(|error| format!("{error:?}"))
+    }
 }
 
 fn data_attribute(

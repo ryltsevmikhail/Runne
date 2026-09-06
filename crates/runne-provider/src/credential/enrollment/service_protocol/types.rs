@@ -189,16 +189,16 @@ impl CredentialMutationGrant {
 /// Bounded, zeroizing credential material carried only on writer/read-use paths.
 ///
 /// ```compile_fail
-/// fn needs_clone<T: Clone>() {}
-/// needs_clone::<runne_provider::CredentialMaterial>();
+/// let material = runne_provider::CredentialMaterial::from_bytes(vec![1]).unwrap();
+/// let _duplicate = material.clone();
 /// ```
 /// ```compile_fail
-/// fn needs_debug<T: core::fmt::Debug>() {}
-/// needs_debug::<runne_provider::CredentialMaterial>();
+/// let material = runne_provider::CredentialMaterial::from_bytes(vec![1]).unwrap();
+/// let _text = format!("{material:?}");
 /// ```
 /// ```compile_fail
-/// fn needs_serialize<T: serde::Serialize>() {}
-/// needs_serialize::<runne_provider::CredentialMaterial>();
+/// let material = runne_provider::CredentialMaterial::from_bytes(vec![1]).unwrap();
+/// let _json = serde_json::to_string(&material).unwrap();
 /// ```
 /// ```compile_fail
 /// fn needs_deserialize<T: serde::Deserialize<'static>>() {}
@@ -213,13 +213,16 @@ impl CredentialMaterial {
     pub fn from_bytes(value: Vec<u8>) -> Result<Self, CredentialEnrollmentError> {
         Self::from_zeroizing(Zeroizing::new(value))
     }
-    pub(crate) fn from_zeroizing(
-        value: Zeroizing<Vec<u8>>,
-    ) -> Result<Self, CredentialEnrollmentError> {
+    /// Validates and takes ownership of an already-zeroizing material allocation.
+    pub fn from_zeroizing(value: Zeroizing<Vec<u8>>) -> Result<Self, CredentialEnrollmentError> {
         if value.is_empty() || value.len() > Self::MAX_BYTES {
             return Err(CredentialEnrollmentError::InvalidInput);
         }
         Ok(Self(value))
+    }
+    /// Moves the zeroizing allocation to the next secret owner without copying it.
+    pub fn into_zeroizing(self) -> Zeroizing<Vec<u8>> {
+        self.0
     }
     /// Consumes plaintext only inside the provider-effect callback.
     pub fn consume(self, callback: impl FnOnce(&[u8])) {
@@ -228,8 +231,8 @@ impl CredentialMaterial {
     pub(super) fn wire_bytes(&self) -> &[u8] {
         self.0.as_slice()
     }
-    pub(super) fn from_wire(value: Vec<u8>) -> Result<Self, CredentialEnrollmentError> {
-        Self::from_bytes(value).map_err(|_| CredentialEnrollmentError::InvalidFrame)
+    pub(super) fn from_wire(value: Zeroizing<Vec<u8>>) -> Result<Self, CredentialEnrollmentError> {
+        Self::from_zeroizing(value).map_err(|_| CredentialEnrollmentError::InvalidFrame)
     }
 }
 
