@@ -51,7 +51,7 @@
     },
     {
       "path": "openapi.json",
-      "sha256": "0d907676d163c04fc90a47201cad0a8e0e2e656e6173667a6a177a31ca779b4d"
+      "sha256": "4dd75f21dcd392fe5705a0cc69ff176bafaaa00cc921b1a796eb2ba938f87968"
     },
     {
       "path": "schemas/approval-v1.schema.json",
@@ -79,7 +79,7 @@
     },
     {
       "path": "schemas/provider-credentials-v1.schema.json",
-      "sha256": "ff0a9e3840d286943a3a0f396258d9e27b4c01c774cf94f739983480092df09b"
+      "sha256": "6182b358bfcc84c40f9af6081071fc1818b08f0062b5406f1ebb143b5073e016"
     },
     {
       "path": "schemas/replay-v1.schema.json",

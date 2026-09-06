@@ -63,31 +63,14 @@ impl SecureCredentialMaterial {
     }
 }
 
-impl fmt::Debug for SecureCredentialMaterial {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("SecureCredentialMaterial(<redacted>)")
-    }
-}
-
 /// Transfer-only credential bytes. They are zeroed if the writer pipe closes.
 pub struct CredentialPipeBytes(Zeroizing<Vec<u8>>);
 
 impl CredentialPipeBytes {
-    #[must_use]
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.0
-    }
-
     /// Moves the host-owned bytes into the authenticated sealing boundary.
     #[must_use]
     pub fn into_zeroizing(self) -> Zeroizing<Vec<u8>> {
         self.0
-    }
-}
-
-impl fmt::Debug for CredentialPipeBytes {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("CredentialPipeBytes(<redacted>)")
     }
 }
 
@@ -196,10 +179,10 @@ mod tests {
             b"a\rb".to_vec(),
             b"a\0b".to_vec(),
         ] {
-            assert_eq!(
-                SecureCredentialMaterial::new(material).unwrap_err(),
-                SecureCredentialPromptError::Rejected
-            );
+            assert!(matches!(
+                SecureCredentialMaterial::new(material),
+                Err(SecureCredentialPromptError::Rejected)
+            ));
         }
         assert!(SecureCredentialMaterial::new(b"correct horse battery staple".to_vec()).is_ok());
     }

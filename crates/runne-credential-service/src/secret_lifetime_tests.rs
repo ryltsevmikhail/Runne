@@ -6,6 +6,8 @@ use zeroize::Zeroizing;
 
 use crate::service_backend::ServiceBackend;
 
+mod process_canary;
+
 const CANARY: &str = "runne-d1-1c-service-canary-4f7d2a";
 
 #[cfg(target_os = "macos")]

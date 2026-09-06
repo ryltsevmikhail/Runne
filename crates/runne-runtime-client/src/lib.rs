@@ -42,10 +42,7 @@ pub use canonical::{
 };
 pub use canonical::{CommandReconciliationDisposition, CommandReconciliationRequest};
 pub use canonical::{ConversationGenerationFailureReason, ConversationTextRejection};
-pub use canonical::{
-    PairProviderCredentialRequest, ProviderCredentialMutationAckDto,
-    RevokeProviderCredentialRequest,
-};
+pub use canonical::{ProviderCredentialMutationAckDto, RevokeProviderCredentialRequest};
 pub use local_profile::{
     LocalProfileError, LocalRuntimeConnectError, LocalRuntimeProfile, default_local_profile_path,
 };

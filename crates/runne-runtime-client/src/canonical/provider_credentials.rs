@@ -1,56 +1,4 @@
-use runne_api::{
-    MAX_PROVIDER_CREDENTIAL_BYTES_V1, ProviderCredentialProviderV1, ProviderCredentialStatusV1,
-};
-
-/// Runtime command identity plus zeroizing provider material.
-pub struct PairProviderCredentialRequest {
-    pub(crate) identity: CommandIdentity,
-    provider: ProviderCredentialProviderV1,
-    #[expect(
-        dead_code,
-        reason = "legacy compatibility retains zeroizing material without any transport reader"
-    )]
-    material: Zeroizing<Vec<u8>>,
-}
-
-impl std::fmt::Debug for PairProviderCredentialRequest {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("PairProviderCredentialRequest")
-            .field("identity", &self.identity)
-            .field("provider", &self.provider)
-            .field("material", &"<redacted>")
-            .finish()
-    }
-}
-
-impl PairProviderCredentialRequest {
-    /// Validates the bounded single-line credential before transport.
-    ///
-    /// # Errors
-    ///
-    /// Returns `InvalidRequest` when the credential is empty, oversized, or
-    /// contains forbidden control bytes.
-    pub fn new(
-        identity: CommandIdentity,
-        provider: ProviderCredentialProviderV1,
-        material: Vec<u8>,
-    ) -> Result<Self, RuntimeApiError> {
-        if material.is_empty()
-            || material.len() > MAX_PROVIDER_CREDENTIAL_BYTES_V1
-            || material
-                .iter()
-                .any(|byte| matches!(byte, 0 | b'\r' | b'\n'))
-        {
-            return Err(invalid_request());
-        }
-        Ok(Self {
-            identity,
-            provider,
-            material: Zeroizing::new(material),
-        })
-    }
-}
+use runne_api::{ProviderCredentialProviderV1, ProviderCredentialStatusV1};
 
 /// Runtime command identity for provider credential deletion.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -90,23 +38,6 @@ impl AuthenticatedRuntimeClient {
     ///
     /// # Errors
     ///
-    /// V1 material transport is permanently unavailable. Consumers must use the
-    /// protected V2 enrollment flow once its qualified profile is available.
-    #[expect(
-        clippy::unused_async,
-        reason = "legacy compatibility preserves the published asynchronous client API"
-    )]
-    pub async fn pair_provider_credential(
-        &self,
-        _request: PairProviderCredentialRequest,
-    ) -> Result<ProviderCredentialMutationAckDto, RuntimeApiError> {
-        Err(legacy_control_closed())
-    }
-
-    /// Returns the closed V1 compatibility disposition.
-    ///
-    /// # Errors
-    ///
     /// V1 mutation transport is permanently unavailable. Consumers must use
     /// the protected V2 enrollment flow once its qualified profile is available.
     #[expect(
@@ -140,18 +71,6 @@ mod tests {
         let identity = CommandIdentity::new(CanonicalId::now_v7(), "legacy-control")
             .expect("command identity");
         let provider = ProviderCredentialProviderV1::parse("openai").expect("provider");
-        let pair =
-            PairProviderCredentialRequest::new(identity.clone(), provider, b"test-value".to_vec())
-                .expect("pair request");
-
-        assert_eq!(
-            client
-                .pair_provider_credential(pair)
-                .await
-                .expect_err("legacy pair is closed")
-                .kind(),
-            RuntimeApiErrorKind::Unavailable
-        );
         assert_eq!(
             client
                 .revoke_provider_credential(RevokeProviderCredentialRequest::new(
