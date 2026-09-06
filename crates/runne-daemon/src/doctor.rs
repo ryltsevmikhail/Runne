@@ -207,7 +207,7 @@ mod tests {
                 activation: ProviderActivation::DeepSeekResponsesText(
                     runne_api::ProviderActivationBindingV1::deepseek_responses_text_v1(),
                 ),
-                profile_id: "gocode-deepseek-responses-text/1".to_owned(),
+                profile_id: "runne-deepseek-responses-text/1".to_owned(),
                 model_id: DEEPSEEK_MODEL_ID,
                 model_revision: DEEPSEEK_MODEL_REVISION,
             }),
@@ -218,7 +218,7 @@ mod tests {
         assert!(!report.execution_ready());
         let formatted = format_report(&report);
         assert!(formatted.contains("credential deepseek: missing"));
-        assert!(formatted.contains("model: deepseek-chat"));
+        assert!(formatted.contains("model: deepseek-v4-flash"));
     }
 
     #[test]

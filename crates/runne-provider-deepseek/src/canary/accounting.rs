@@ -5,13 +5,14 @@ pub const MAX_INPUT_TOKENS: u64 = 256;
 /// Exact terminal output token count for the candidate budget.
 pub const MAX_OUTPUT_TOKENS: u64 = 16;
 /// Candidate reservation in micro-USD.
-pub const RESERVATION_MICRO_USD: u64 = 1_760;
+pub const RESERVATION_MICRO_USD: u64 = 135;
 
-const INPUT_RATE_TENTHS: u64 = 50;
-const CACHED_INPUT_RATE_TENTHS: u64 = 5;
-const OUTPUT_RATE_TENTHS: u64 = 300;
-const RESERVATION_TENTHS: u64 = 17_600;
-const CAP_TENTHS: u64 = 20_000;
+const UNIT_TOKENS: u64 = 1_000_000;
+const INPUT_RATE_MICROS: u64 = 440_000;
+const CACHED_INPUT_RATE_MICROS: u64 = 14_000;
+const OUTPUT_RATE_MICROS: u64 = 1_320_000;
+const RESERVATION_TENTHS: u64 = 1_350;
+const CAP_TENTHS: u64 = 2_000;
 
 /// Closed result of checked terminal accounting.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -116,18 +117,13 @@ impl CanaryAccounting {
         let uncached = input_tokens
             .checked_sub(cached_input_tokens)
             .ok_or(AccountingDisposition::CachedUnderflow)?;
-        let uncached_cost = uncached
-            .checked_mul(INPUT_RATE_TENTHS)
-            .ok_or(AccountingDisposition::Overflow)?;
-        let cached_cost = cached_input_tokens
-            .checked_mul(CACHED_INPUT_RATE_TENTHS)
-            .ok_or(AccountingDisposition::Overflow)?;
-        let output_cost = output_tokens
-            .checked_mul(OUTPUT_RATE_TENTHS)
-            .ok_or(AccountingDisposition::Overflow)?;
+        let uncached_cost = prorated_micros(uncached, INPUT_RATE_MICROS)?;
+        let cached_cost = prorated_micros(cached_input_tokens, CACHED_INPUT_RATE_MICROS)?;
+        let output_cost = prorated_micros(output_tokens, OUTPUT_RATE_MICROS)?;
         uncached_cost
             .checked_add(cached_cost)
             .and_then(|cost| cost.checked_add(output_cost))
+            .and_then(|cost| cost.checked_mul(10))
             .ok_or(AccountingDisposition::Overflow)
     }
 
@@ -199,4 +195,14 @@ impl CanaryAccounting {
     pub const fn disposition(&self) -> AccountingDisposition {
         self.disposition
     }
+}
+
+fn prorated_micros(tokens: u64, rate: u64) -> Result<u64, AccountingDisposition> {
+    let numerator = tokens
+        .checked_mul(rate)
+        .ok_or(AccountingDisposition::Overflow)?;
+    numerator
+        .checked_add(UNIT_TOKENS - 1)
+        .map(|rounded| rounded / UNIT_TOKENS)
+        .ok_or(AccountingDisposition::Overflow)
 }

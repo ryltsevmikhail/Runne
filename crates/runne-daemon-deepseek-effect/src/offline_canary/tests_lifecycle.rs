@@ -35,7 +35,7 @@ pub(super) const GUARDED_PATHS: [&str; 16] = ["crates/runne-daemon-deepseek-effe
 pub(super) const SEMANTIC_GUARDED_PATHS: [&str; 1] = ["docs/traceability/TASK5_DEEPSEEK_L4_CANARY.md"];
 #[rustfmt::skip]
 pub(super) const GATE_ORACLE_PATHS: [&str; 2] = ["crates/runne-daemon-deepseek-effect/src/offline_canary/tests_lifecycle.rs", "crates/runne-daemon-deepseek-effect/src/offline_canary/tests_redaction.rs"];
-const PRICING: &str = "deepseek-chat-base-2026-08-16/1";
+const PRICING: &str = "deepseek-v4-flash-0731-peak-offpeak-2026-08-16/1";
 #[test]
 fn checkpoints_are_four_distinct_pre_boundary_checks() {
     #[rustfmt::skip]
@@ -51,22 +51,22 @@ fn terminal_reconciliation_is_single_exact_and_conflict_is_permanently_uncertain
     let mut lifecycle = CanaryLifecycle::default();
     let mut fence = dispatching_fence();
     lifecycle.observe_terminal_after_possible_dispatch(&mut fence).expect("reserved fence is consumed before pure observation");
-    let settled = lifecycle.reconcile(Some(usage), PRICING, 17_600).expect("terminal usage settles");
+    let settled = lifecycle.reconcile(Some(usage), PRICING, 1_350).expect("terminal usage settles");
     assert_eq!(settled.disposition(), AccountingDisposition::Reconciled);
-    assert_eq!([settled.input_tokens(), settled.output_tokens(), settled.cached_input_tokens(), settled.expected_cost_tenths(), settled.reserved_tenths(), settled.settled_tenths(), settled.remaining_tenths()], [256, 16, 0, 17_600, 17_600, 17_600, 0]);
+    assert_eq!([settled.input_tokens(), settled.output_tokens(), settled.cached_input_tokens(), settled.expected_cost_tenths(), settled.reserved_tenths(), settled.settled_tenths(), settled.remaining_tenths()], [256, 16, 0, 1_350, 1_350, 1_350, 0]);
     assert_eq!(settled.pricing_revision(), PRICING);
     assert_eq!(settled.settlement_count(), 1);
     assert_eq!(lifecycle.disposition(), LifecycleDisposition::Terminal);
-    assert_eq!(lifecycle.reconcile(Some(TerminalUsage::new(256, 16, 0)), PRICING, 17_600).unwrap().settlement_count(), 1);
-    assert!(matches!(CanaryLifecycle::default().reconcile(Some(TerminalUsage::new(256, 16, 0)), PRICING, 17_600), Err(ReportDisposition::Uncertain)));
-    assert!(matches!(lifecycle.reconcile(Some(TerminalUsage::new(1, 1, 0)), PRICING, 350), Err(ReportDisposition::Uncertain)));
+    assert_eq!(lifecycle.reconcile(Some(TerminalUsage::new(256, 16, 0)), PRICING, 1_350).unwrap().settlement_count(), 1);
+    assert!(matches!(CanaryLifecycle::default().reconcile(Some(TerminalUsage::new(256, 16, 0)), PRICING, 1_350), Err(ReportDisposition::Uncertain)));
+    assert!(matches!(lifecycle.reconcile(Some(TerminalUsage::new(1, 1, 0)), PRICING, 30), Err(ReportDisposition::Uncertain)));
     assert_eq!(lifecycle.disposition(), LifecycleDisposition::Uncertain);
-    assert!(matches!(lifecycle.reconcile(Some(TerminalUsage::new(256, 16, 0)), PRICING, 17_600), Err(ReportDisposition::Uncertain)));
+    assert!(matches!(lifecycle.reconcile(Some(TerminalUsage::new(256, 16, 0)), PRICING, 1_350), Err(ReportDisposition::Uncertain)));
 }
 #[test]
 #[rustfmt::skip]
 fn reconciliation_rejects_only_closed_terminal_failures() {
-    for result in [reconcile_once(None, PRICING, 0), reconcile_once(Some(TerminalUsage::new(1, 1, 2)), PRICING, 0), reconcile_once(Some(TerminalUsage::new(1, 1, 0)), "other", 350), reconcile_once(Some(TerminalUsage::new(1, 1, 0)), PRICING, 351), reconcile_once(Some(TerminalUsage::new(257, 1, 0)), PRICING, 0), CanaryLifecycle::default().reject_nonterminal()] {
+    for result in [reconcile_once(None, PRICING, 0), reconcile_once(Some(TerminalUsage::new(1, 1, 2)), PRICING, 0), reconcile_once(Some(TerminalUsage::new(1, 1, 0)), "other", 30), reconcile_once(Some(TerminalUsage::new(1, 1, 0)), PRICING, 31), reconcile_once(Some(TerminalUsage::new(257, 1, 0)), PRICING, 0), CanaryLifecycle::default().reject_nonterminal()] {
         assert!(matches!(result, Err(ReportDisposition::MissingUsage | ReportDisposition::NonterminalUsage | ReportDisposition::CachedUnderflow | ReportDisposition::PricingMismatch | ReportDisposition::SettlementMismatch | ReportDisposition::OverCap | ReportDisposition::Overflow | ReportDisposition::Underflow)));
     }
 }
@@ -89,7 +89,7 @@ fn ambiguous_observations_consume_witnesses_and_stay_uncertain() {
         assert!(!outcome.retry() && !outcome.redispatch() && !outcome.second_reservation() && !outcome.settlement());
         assert!(outcome.manual_reconciliation() && outcome.reservation_held());
         assert_eq!(lifecycle.disposition(), LifecycleDisposition::Uncertain);
-        assert!(matches!(lifecycle.reconcile(Some(TerminalUsage::new(256, 16, 0)), PRICING, 17_600), Err(ReportDisposition::Uncertain)));
+        assert!(matches!(lifecycle.reconcile(Some(TerminalUsage::new(256, 16, 0)), PRICING, 1_350), Err(ReportDisposition::Uncertain)));
     }
 }
 #[test]
@@ -123,7 +123,7 @@ fn settled_terminal_rejects_new_observations_without_consuming_fences() {
     let mut lifecycle = CanaryLifecycle::default();
     let mut first = dispatching_fence();
     lifecycle.observe_terminal_after_possible_dispatch(&mut first).unwrap();
-    lifecycle.reconcile(Some(TerminalUsage::new(256, 16, 0)), PRICING, 17_600).unwrap();
+    lifecycle.reconcile(Some(TerminalUsage::new(256, 16, 0)), PRICING, 1_350).unwrap();
     let mut terminal = reserved_fence();
     let mut ambiguous = reserved_fence();
     assert!(matches!(lifecycle.observe_terminal_after_possible_dispatch(&mut terminal), Err(FenceError::InvalidTransition)));
@@ -142,13 +142,13 @@ fn one_fence_cannot_observe_two_lifecycles() {
 #[test]
 #[rustfmt::skip]
 fn every_conflicting_repeat_is_sticky_but_first_invalid_evidence_is_typed() {
-    for (usage, pricing, reported) in [(Some(TerminalUsage::new(256, 16, 0)), PRICING, 17_599), (Some(TerminalUsage::new(1, 1, 0)), PRICING, 350), (Some(TerminalUsage::new(256, 16, 0)), "other", 17_600), (None, PRICING, 17_600)] {
+    for (usage, pricing, reported) in [(Some(TerminalUsage::new(256, 16, 0)), PRICING, 1_349), (Some(TerminalUsage::new(1, 1, 0)), PRICING, 30), (Some(TerminalUsage::new(256, 16, 0)), "other", 1_350), (None, PRICING, 1_350)] {
         let mut lifecycle = CanaryLifecycle::default();
         let mut fence = dispatching_fence();
         lifecycle.observe_terminal_after_possible_dispatch(&mut fence).unwrap();
-        lifecycle.reconcile(Some(TerminalUsage::new(256, 16, 0)), PRICING, 17_600).unwrap();
+        lifecycle.reconcile(Some(TerminalUsage::new(256, 16, 0)), PRICING, 1_350).unwrap();
         assert!(matches!(lifecycle.reconcile(usage, pricing, reported), Err(ReportDisposition::Uncertain)));
-        assert!(matches!(lifecycle.reconcile(Some(TerminalUsage::new(256, 16, 0)), PRICING, 17_600), Err(ReportDisposition::Uncertain)));
+        assert!(matches!(lifecycle.reconcile(Some(TerminalUsage::new(256, 16, 0)), PRICING, 1_350), Err(ReportDisposition::Uncertain)));
     }
     assert!(matches!(reconcile_once(None, PRICING, 0), Err(ReportDisposition::MissingUsage)));
 }
@@ -163,7 +163,7 @@ fn report_is_closed_offline_and_redacted() {
     let mut terminal_lifecycle = CanaryLifecycle::default();
     let mut terminal_fence = dispatching_fence();
     terminal_lifecycle.observe_terminal_after_possible_dispatch(&mut terminal_fence).unwrap();
-    let report = terminal_lifecycle.reconcile(Some(TerminalUsage::new(256, 16, 0)), PRICING, 17_600).unwrap();
+    let report = terminal_lifecycle.reconcile(Some(TerminalUsage::new(256, 16, 0)), PRICING, 1_350).unwrap();
     let rendered = format!("{lifecycle:?}{observation:?}{report:?}{candidate:?}{:?}{:?}{:?}{:?}{:?}{}", candidate.evidence(), [Checkpoint::CredentialMaterialization, Checkpoint::NetworkAuthorityClaim, Checkpoint::BudgetReservationClaim, Checkpoint::PossibleDispatchBoundary], [LifecycleDisposition::NotRun, LifecycleDisposition::Terminal, LifecycleDisposition::Uncertain], [ReportDisposition::MissingUsage, ReportDisposition::NonterminalUsage, ReportDisposition::CachedUnderflow, ReportDisposition::Overflow, ReportDisposition::Underflow, ReportDisposition::PricingMismatch, ReportDisposition::SettlementMismatch, ReportDisposition::OverCap, ReportDisposition::Uncertain], [Observation::Cancelled, Observation::TimedOut, Observation::Disconnected, Observation::TlsAmbiguity, Observation::HttpAmbiguity, Observation::MalformedSse, Observation::MissingTerminalUsage, Observation::MissingTerminalResponse, Observation::TransportError], rendered_authority_fence_types());
     let accounting = [AccountingDisposition::MissingUsage, AccountingDisposition::NonterminalUsage, AccountingDisposition::CachedUnderflow, AccountingDisposition::Overflow, AccountingDisposition::Underflow, AccountingDisposition::PricingMismatch, AccountingDisposition::SettlementMismatch, AccountingDisposition::OverCap, AccountingDisposition::Reconciled, AccountingDisposition::Uncertain];
     assert_markers_absent(&format!("{rendered}{accounting:?}"));
@@ -175,7 +175,7 @@ fn template_and_traceability_are_offline_and_contain_no_rendered_markers() {
     for status in [REPORT_STATUS.0, REPORT_STATUS.1, REPORT_STATUS.2] {
         assert!(template.contains(status));
     }
-    assert!(template.contains("sha256:27b47cd539754d7da86f7ba40f16b80aeb6fc71a0b6e81404c477e365b33a422"));
+    assert!(template.contains("sha256:d0e56dd6d50bf87010a1e135425d13f60a285499faa0ef5c7a4b68049d8eae16"));
     assert!(!template.contains("VERIFIED"));
     assert_markers_absent(&template);
     let traceability = read("docs/traceability/TASK5_DEEPSEEK_L4_CANARY.md");

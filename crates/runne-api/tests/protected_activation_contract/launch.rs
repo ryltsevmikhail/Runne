@@ -236,7 +236,7 @@ fn v2_launch_round_trips_exact_provider_binding_and_rejects_mismatch() {
 }
 
 #[test]
-fn released_provider_bindings_accept_gocode_literals_and_reject_runne_aliases() {
+fn historical_provider_bindings_retain_their_released_gocode_literals() {
     for (mode, profile_id, profile_digest, runne_alias) in [
         (
             ProviderActivationModeV1::DeterministicV1,
@@ -258,16 +258,6 @@ fn released_provider_bindings_accept_gocode_literals_and_reject_runne_aliases() 
             ],
             "runne-openai-responses-text/1",
         ),
-        (
-            ProviderActivationModeV1::DeepSeekResponsesTextV1,
-            "gocode-deepseek-responses-text/1",
-            [
-                0x25, 0x67, 0x0f, 0xfe, 0x78, 0xdb, 0xc7, 0xef, 0x4d, 0xb8, 0x91, 0x13, 0x56, 0xd9,
-                0xeb, 0x4e, 0x27, 0x41, 0x67, 0xff, 0x9e, 0xed, 0x0a, 0x7c, 0xc9, 0xb5, 0xe6, 0x6e,
-                0x40, 0x85, 0xd8, 0x53,
-            ],
-            "runne-deepseek-responses-text/1",
-        ),
     ] {
         let binding = ProviderActivationBindingV1::new(mode, profile_id, profile_digest)
             .expect("source-pinned canonical GOCODE binding");
@@ -280,4 +270,27 @@ fn released_provider_bindings_accept_gocode_literals_and_reject_runne_aliases() 
             LaunchAuthorityError::ProviderProfileMismatch
         );
     }
+}
+
+#[test]
+fn deepseek_binding_accepts_only_the_current_runne_profile() {
+    const PROFILE: &str = "runne-deepseek-responses-text/1";
+    let digest = [
+        0x80, 0x45, 0x11, 0x6b, 0xaa, 0xf2, 0x04, 0x41, 0x63, 0x53, 0x38, 0xad, 0x3c, 0x8e,
+        0x6a, 0x3b, 0xf2, 0x5f, 0x4c, 0x21, 0xb2, 0xa4, 0x71, 0xd7, 0x89, 0x62, 0x62, 0x2a,
+        0x74, 0x79, 0x8f, 0xe1,
+    ];
+    let mode = ProviderActivationModeV1::DeepSeekResponsesTextV1;
+    let binding = ProviderActivationBindingV1::new(mode, PROFILE, digest)
+        .expect("current Runne DeepSeek binding");
+    assert_eq!(binding.profile_digest(), &digest);
+    assert_eq!(
+        ProviderActivationBindingV1::new(mode, "gocode-deepseek-responses-text/1", digest)
+            .unwrap_err(),
+        LaunchAuthorityError::ProviderProfileMismatch
+    );
+    assert_eq!(
+        ProviderActivationBindingV1::new(mode, PROFILE, [0x25; 32]).unwrap_err(),
+        LaunchAuthorityError::ProviderProfileMismatch
+    );
 }

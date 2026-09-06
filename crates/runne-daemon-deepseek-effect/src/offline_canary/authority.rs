@@ -8,10 +8,10 @@ pub(super) use super::approvals::{
 use core::fmt;
 use runne_provider_deepseek::canary::CanaryCandidate;
 
-const MODEL: &str = "deepseek-chat";
+const MODEL: &str = "deepseek-v4-flash";
 const METHOD: &str = "POST";
 const ORIGIN: &str = "https://api.deepseek.com";
-const PRICING: &str = "deepseek-chat-base-2026-08-16/1";
+const PRICING: &str = "deepseek-v4-flash-0731-peak-offpeak-2026-08-16/1";
 #[derive(Clone, PartialEq)]
 pub(super) enum TrustRoots {
     SystemTrustRootsOnly,
@@ -90,7 +90,7 @@ impl AuthorityBindings {
                 30,
                 120,
             ),
-            cost: (MODEL, PRICING, 256, 16, 1_760, 2_000),
+            cost: (MODEL, PRICING, 256, 16, 135, 200),
         }
     }
     #[cfg(test)]
@@ -127,7 +127,7 @@ impl AuthorityBindings {
     }
     #[cfg(test)]
     pub(super) fn cost_cap_over(&mut self) {
-        self.cost.5 = 2_001;
+        self.cost.5 = 201;
     }
     fn common_matches(&self, other: &Self) -> bool {
         self.replay == other.replay
@@ -255,7 +255,7 @@ pub(super) fn validate(
     for bindings in [&credential.bindings, &network.bindings, &cost.bindings] {
         validate_common(bindings, expected, now)?;
     }
-    if cost.bindings.cost.5 > 2_000 {
+    if cost.bindings.cost.5 > 200 {
         return Err(ApprovalError::CostCapExceeded);
     }
     if !network_matches(&network.bindings, expected) || !cost_matches(&cost.bindings, expected) {
@@ -292,5 +292,5 @@ fn network_matches(actual: &AuthorityBindings, expected: &AuthorityBindings) -> 
         && actual.network == expected.network
 }
 fn cost_matches(actual: &AuthorityBindings, expected: &AuthorityBindings) -> bool {
-    actual.cost == (MODEL, PRICING, 256, 16, 1_760, 2_000) && actual.cost == expected.cost
+    actual.cost == (MODEL, PRICING, 256, 16, 135, 200) && actual.cost == expected.cost
 }

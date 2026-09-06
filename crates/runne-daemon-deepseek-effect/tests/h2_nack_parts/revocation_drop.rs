@@ -26,7 +26,7 @@ impl PartialResponseServer {
                 .ok_or(())?
                 .map_err(|_| ())?;
             if request.method() != http::Method::POST
-                || request.uri().path() != "/v1/responses"
+                || request.uri().path() != "/responses"
                 || !request
                     .headers()
                     .get(http::header::AUTHORIZATION)

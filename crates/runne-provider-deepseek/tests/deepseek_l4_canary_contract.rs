@@ -41,20 +41,19 @@ fn accepts_the_exact_compiled_candidate() {
         CanaryCandidate::prepare(CanaryIdentity::canonical(), CanaryOverlay::approved())
             .expect("the compiled candidate must prepare");
 
-    assert_eq!(candidate.profile_id(), "gocode-deepseek-responses-text/1");
+    assert_eq!(candidate.profile_id(), "runne-deepseek-responses-text/1");
     assert_eq!(candidate.profile_revision(), 1);
     assert_eq!(candidate.candidate_digest(), CANARY_DIGEST);
     assert_eq!(candidate.provider(), "deepseek");
     assert_eq!(candidate.origin(), "https://api.deepseek.com");
     assert_eq!(candidate.method(), "POST");
-    assert_eq!(candidate.path(), "/v1/responses");
-    assert_eq!(candidate.request_model(), "deepseek-chat");
-    assert_eq!(candidate.model_id(), "deepseek-chat");
-    assert_eq!(candidate.model_revision(), "2026-08-16");
-    assert_eq!(candidate.service_tier(), "default");
+    assert_eq!(candidate.path(), "/responses");
+    assert_eq!(candidate.request_model(), "deepseek-v4-flash");
+    assert_eq!(candidate.model_id(), "deepseek-v4-flash");
+    assert_eq!(candidate.model_revision(), "DeepSeek-V4-Flash-0731");
     assert_eq!(
         candidate.pricing_revision(),
-        "deepseek-chat-base-2026-08-16/1"
+        "deepseek-v4-flash-0731-peak-offpeak-2026-08-16/1"
     );
     assert_eq!(candidate.disposition(), CandidateDisposition::NotActivated);
     assert_eq!(format!("{candidate:?}"), "CanaryCandidate");
@@ -66,41 +65,13 @@ fn separates_profile_and_candidate_digests_with_closed_evidence() {
         CanaryCandidate::prepare(CanaryIdentity::canonical(), CanaryOverlay::approved()).unwrap();
     let evidence = candidate.evidence();
     let profile = digest_bytes(PROFILE_DIGEST);
-    let prompt = digest("gocode.canary.prompt/1", &[b"Reply with exactly: OK"]);
-    let result = digest("gocode.canary.result/1", &[b"OK"]);
-    let one = 1_u64.to_be_bytes();
-    let zero = 0_u64.to_be_bytes();
-    let sixteen = 16_u64.to_be_bytes();
-    let request = digest(
-        "gocode.canary.request/1",
-        &[
-            &profile,
-            b"POST",
-            b"https://api.deepseek.com",
-            b"/v1/responses",
-            b"deepseek-chat",
-            b"default",
-            &one,
-            &[1],
-            &prompt,
-            &22_u64.to_be_bytes(),
-            &[0],
-            &[0],
-            &[1],
-            &[0],
-            &[0],
-            &[0],
-            &zero,
-            b"none",
-            b"none",
-            &sixteen,
-            &[1],
-            &[1],
-        ],
-    );
-    let request_length = 384_u64.to_be_bytes();
+    let prompt = digest("runne.canary.prompt/1", &[b"Reply with exactly: OK"]);
+    let result = digest("runne.canary.result/1", &[b"OK"]);
+    let request_bytes = b"{\"model\":\"deepseek-v4-flash\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Reply with exactly: OK\"}]}],\"max_output_tokens\":16,\"reasoning\":{\"effort\":\"none\"},\"tools\":[],\"tool_choice\":\"none\",\"stream\":true}\n";
+    let request = digest("runne.canary.request/1", &[request_bytes]);
+    let request_length = 221_u64.to_be_bytes();
     let candidate_digest = digest(
-        "gocode.canary.candidate/1",
+        "runne.canary.candidate/1",
         &[
             &profile,
             &request,
@@ -114,28 +85,28 @@ fn separates_profile_and_candidate_digests_with_closed_evidence() {
 
     assert_eq!(
         PROFILE_DIGEST,
-        "sha256:25670ffe78dbc7ef4db8911356d9eb4e274167ff9eed0a7cc9b5e66e4085d853"
+        "sha256:8045116baaf20441635338ad3c8e6a3bf25f4c21b2a471d78962622a74798fe1"
     );
     assert_eq!(
         CANARY_DIGEST,
-        "sha256:27b47cd539754d7da86f7ba40f16b80aeb6fc71a0b6e81404c477e365b33a422"
+        "sha256:d0e56dd6d50bf87010a1e135425d13f60a285499faa0ef5c7a4b68049d8eae16"
     );
     assert_ne!(CANARY_DIGEST, PROFILE_DIGEST);
     assert_eq!(
         prompt,
-        digest_bytes("sha256:19afb888ed8b093a39540296bb69ca5271fc3733bf05f7fafacdce7cd66b6bc4")
+        digest_bytes("sha256:1ff713bca9a5e1685124ed010e5d36ef30edb5d429d6a8145620df0b6ba9ad3d")
     );
     assert_eq!(
         result,
-        digest_bytes("sha256:ab029deedfbaf4e7c796a0a0248a7e0153767006ae9ec93af64fa4576ed3ea41")
+        digest_bytes("sha256:b7adb9b31484687cc9ea88e6a0f08c99e307b130e79677f6794d3f7ba575d1ad")
     );
     assert_eq!(
         request,
-        digest_bytes("sha256:61ff3470e77e9550163e04be31e7f4f7ddd6f22eef02144fd779517a2f2eadb2")
+        digest_bytes("sha256:d21fb2b7407bf73d2eb9cc32c80c3ecb27b94d6ab2d561d12fcd21e17463107b")
     );
     assert_eq!(
         candidate_digest,
-        digest_bytes("sha256:27b47cd539754d7da86f7ba40f16b80aeb6fc71a0b6e81404c477e365b33a422")
+        digest_bytes("sha256:d0e56dd6d50bf87010a1e135425d13f60a285499faa0ef5c7a4b68049d8eae16")
     );
     assert_eq!(candidate.candidate_digest(), CANARY_DIGEST);
     assert_eq!(evidence.candidate_digest(), &candidate_digest);
@@ -143,7 +114,7 @@ fn separates_profile_and_candidate_digests_with_closed_evidence() {
     assert_eq!(evidence.request_digest(), &request);
     assert_eq!(evidence.prompt_digest(), &prompt);
     assert_eq!(evidence.result_digest(), &result);
-    assert_eq!(evidence.request_length(), 384);
+    assert_eq!(evidence.request_length(), 221);
     assert_eq!(evidence.prompt_length(), 22);
     assert_eq!(evidence.result_length(), 2);
     assert_eq!(format!("{evidence:?}"), "CanaryEvidence");
@@ -173,18 +144,7 @@ fn rejects_each_changed_candidate_identity_field() {
     assert_profile_rejected(CanaryIdentity::canonical().with_request_model("changed"));
     assert_profile_rejected(CanaryIdentity::canonical().with_model_id("changed"));
     assert_profile_rejected(CanaryIdentity::canonical().with_model_revision("changed"));
-    assert_profile_rejected(CanaryIdentity::canonical().with_service_tier("changed"));
     assert_profile_rejected(CanaryIdentity::canonical().with_pricing_revision("changed"));
-}
-
-#[test]
-fn rejects_store_other_than_false() {
-    assert_overlay_rejected(CanaryOverlay::approved().with_store(true));
-}
-
-#[test]
-fn rejects_background_other_than_false() {
-    assert_overlay_rejected(CanaryOverlay::approved().with_background(true));
 }
 
 #[test]
@@ -239,26 +199,26 @@ fn rejects_developer_entries_and_other_fixed_overlay_fields() {
 fn derives_the_fixed_budget_with_checked_tenths() {
     let accounting = CanaryAccounting::reconcile(
         TerminalUsage::new(MAX_INPUT_TOKENS, MAX_OUTPUT_TOKENS, 0),
-        "deepseek-chat-base-2026-08-16/1",
+        "deepseek-v4-flash-0731-peak-offpeak-2026-08-16/1",
     )
     .expect("fixed budget must reconcile");
 
-    assert_eq!(RESERVATION_MICRO_USD, 1_760);
-    assert_eq!(accounting.expected_cost_tenths(), 17_600);
+    assert_eq!(RESERVATION_MICRO_USD, 135);
+    assert_eq!(accounting.expected_cost_tenths(), 1_350);
     assert_eq!(accounting.expected_cost_micro_usd(), RESERVATION_MICRO_USD);
-    assert_eq!(accounting.reserved_tenths(), 17_600);
+    assert_eq!(accounting.reserved_tenths(), 1_350);
     assert_eq!(accounting.remaining_tenths(), 0);
     assert_eq!(accounting.settlement_count(), 1);
     assert_eq!(accounting.disposition(), AccountingDisposition::Reconciled);
     assert_eq!(
         CanaryAccounting::checked_expected_cost_tenths(256, 16, 64),
-        Ok(14_720)
+        Ok(1_080)
     );
     let partial =
         CanaryAccounting::reconcile(TerminalUsage::new(1, 1, 0), accounting.pricing_revision())
             .unwrap();
-    assert_eq!(partial.expected_cost_tenths(), 350);
-    assert_eq!(partial.remaining_tenths(), 17_250);
+    assert_eq!(partial.expected_cost_tenths(), 30);
+    assert_eq!(partial.remaining_tenths(), 1_320);
 }
 
 #[test]
@@ -286,7 +246,7 @@ fn reports_checked_accounting_failures_without_values() {
 
 #[test]
 fn rejects_usage_outside_the_hard_authorization_cap() {
-    let pricing_revision = "deepseek-chat-base-2026-08-16/1";
+    let pricing_revision = "deepseek-v4-flash-0731-peak-offpeak-2026-08-16/1";
 
     for usage in [
         TerminalUsage::new(257, 17, 0),
