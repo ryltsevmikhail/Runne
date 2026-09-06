@@ -17,18 +17,26 @@ use super::{InitialQualificationFrame, read_initial_qualification};
 pub(super) mod support;
 use support::*;
 
+fn installed(
+    owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
+    candidate: [u8; 32],
+    raw_tuple: [u8; 32],
+) -> runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts {
+    runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts::
+        test_only_qualification_facts(
+            *owned.enrollment_binding().release_tuple_digest(),
+            *owned.enrollment_binding().qualification_binding_digest(),
+            candidate,
+            raw_tuple,
+        )
+}
+
 #[test]
 fn exact_signed_pair_verifies_and_legacy_request_is_preserved() {
     let (owned, keys, _) = crate::protected_activation::enrollment_v3_tests::owned_and_sessions();
     let context_key = SigningKey::from_bytes(&[7; 32]);
     let fault_key = SigningKey::from_bytes(&[9; 32]);
-    let installed = runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts::
-        test_only_qualification_facts(
-            *owned.enrollment_binding().release_tuple_digest(),
-            *owned.enrollment_binding().qualification_binding_digest(),
-            CANDIDATE,
-            RAW_TUPLE,
-        );
+    let installed = installed(&owned, CANDIDATE, RAW_TUPLE);
     let mut verifier = QualificationAdmissionVerifier::test_only_from_verifying_keys(
         context_key.verifying_key(),
         fault_key.verifying_key(),
@@ -62,17 +70,105 @@ fn exact_signed_pair_verifies_and_legacy_request_is_preserved() {
 }
 
 #[test]
+fn qualification_clock_is_epoch_time_and_boot_duration_cannot_verify() {
+    let before = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let observed = super::super::unix_epoch_qualification_clock()().unwrap();
+    let after = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    assert!((before..=after).contains(&observed));
+
+    let (owned, keys, _) = crate::protected_activation::enrollment_v3_tests::owned_and_sessions();
+    let context_key = SigningKey::from_bytes(&[7; 32]);
+    let fault_key = SigningKey::from_bytes(&[9; 32]);
+    let installed = installed(&owned, CANDIDATE, RAW_TUPLE);
+    for (now, accepted) in [(600, false), (NOW, true)] {
+        let (mut peer, daemon) = UnixStream::pair().unwrap();
+        peer.write_all(&relay(&owned, &keys, &context_key, &fault_key))
+            .unwrap();
+        let mut verifier = QualificationAdmissionVerifier::test_only_from_verifying_keys(
+            context_key.verifying_key(),
+            fault_key.verifying_key(),
+        );
+        let result = read_initial_qualification(
+            &mut ProtectedActivationChannel::new(daemon).unwrap(),
+            &keys,
+            &owned,
+            &installed,
+            &mut verifier,
+            now,
+        );
+        assert_eq!(result.is_ok(), accepted);
+    }
+}
+
+#[test]
+fn installed_facts_and_both_authorities_fail_closed_independently() {
+    let (owned, keys, _) = crate::protected_activation::enrollment_v3_tests::owned_and_sessions();
+    let context_key = SigningKey::from_bytes(&[7; 32]);
+    let fault_key = SigningKey::from_bytes(&[9; 32]);
+    let wrong_key = SigningKey::from_bytes(&[5; 32]);
+    for (facts, mut verifier) in [
+        (
+            installed(&owned, [0xac; 32], RAW_TUPLE),
+            QualificationAdmissionVerifier::test_only_from_verifying_keys(
+                context_key.verifying_key(),
+                fault_key.verifying_key(),
+            ),
+        ),
+        (
+            installed(&owned, CANDIDATE, [0xbc; 32]),
+            QualificationAdmissionVerifier::test_only_from_verifying_keys(
+                context_key.verifying_key(),
+                fault_key.verifying_key(),
+            ),
+        ),
+        (
+            installed(&owned, CANDIDATE, RAW_TUPLE),
+            QualificationAdmissionVerifier::from_compiled_policy(),
+        ),
+        (
+            installed(&owned, CANDIDATE, RAW_TUPLE),
+            QualificationAdmissionVerifier::test_only_from_verifying_keys(
+                wrong_key.verifying_key(),
+                fault_key.verifying_key(),
+            ),
+        ),
+        (
+            installed(&owned, CANDIDATE, RAW_TUPLE),
+            QualificationAdmissionVerifier::test_only_from_verifying_keys(
+                context_key.verifying_key(),
+                wrong_key.verifying_key(),
+            ),
+        ),
+    ] {
+        let (mut peer, daemon) = UnixStream::pair().unwrap();
+        peer.write_all(&relay(&owned, &keys, &context_key, &fault_key))
+            .unwrap();
+        assert!(
+            read_initial_qualification(
+                &mut ProtectedActivationChannel::new(daemon).unwrap(),
+                &keys,
+                &owned,
+                &facts,
+                &mut verifier,
+                NOW,
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
 fn raw_fault_first_and_missing_or_malformed_second_frame_fail_closed() {
     let (owned, keys, _) = crate::protected_activation::enrollment_v3_tests::owned_and_sessions();
     let context_key = SigningKey::from_bytes(&[7; 32]);
     let fault_key = SigningKey::from_bytes(&[9; 32]);
-    let installed = runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts::
-        test_only_qualification_facts(
-            *owned.enrollment_binding().release_tuple_digest(),
-            *owned.enrollment_binding().qualification_binding_digest(),
-            CANDIDATE,
-            RAW_TUPLE,
-        );
+    let installed = installed(&owned, CANDIDATE, RAW_TUPLE);
     let transcript = relay(&owned, &keys, &context_key, &fault_key);
     let first_len = 4 + u32::from_be_bytes(transcript[..4].try_into().unwrap()) as usize;
     let fault = transcript[first_len..].to_vec();

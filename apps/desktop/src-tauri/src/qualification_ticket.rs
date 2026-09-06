@@ -1,4 +1,4 @@
-//! Native-only inherited qualification-ticket admission.
+//! Native-only inherited qualification-admission bundle input.
 
 use std::fs::{File, OpenOptions};
 use std::io::Read as _;

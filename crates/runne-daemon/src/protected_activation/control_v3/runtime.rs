@@ -71,6 +71,8 @@ pub(crate) struct V3EnrollmentDispatch {
     pub(super) qualification_verifier:
         Option<runne_native_qualification::QualificationAdmissionVerifier>,
     #[cfg(test)]
+    pub(super) qualification_clock: Option<super::QualificationClock>,
+    #[cfg(test)]
     pub(super) qualification_verified: Option<Arc<std::sync::atomic::AtomicUsize>>,
 }
 
@@ -95,6 +97,8 @@ impl V3EnrollmentDispatch {
             #[cfg(test)]
             qualification_verifier: None,
             #[cfg(test)]
+            qualification_clock: None,
+            #[cfg(test)]
             qualification_verified: None,
         }
     }
@@ -103,9 +107,11 @@ impl V3EnrollmentDispatch {
     pub(crate) fn with_test_qualification(
         mut self,
         verifier: runne_native_qualification::QualificationAdmissionVerifier,
+        clock: super::QualificationClock,
         verified: Arc<std::sync::atomic::AtomicUsize>,
     ) -> Self {
         self.qualification_verifier = Some(verifier);
+        self.qualification_clock = Some(clock);
         self.qualification_verified = Some(verified);
         self
     }

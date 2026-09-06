@@ -188,7 +188,9 @@ pub(super) fn relay_with_bindings(
         .into_bytes()
 }
 
-pub(super) fn outer(payload: &[u8]) -> Vec<u8> {
+pub(in crate::protected_activation::control_v3::initial_exchange) fn outer(
+    payload: &[u8],
+) -> Vec<u8> {
     let mut frame = Vec::with_capacity(payload.len() + 4);
     frame.extend_from_slice(&u32::try_from(payload.len()).unwrap().to_be_bytes());
     frame.extend_from_slice(payload);

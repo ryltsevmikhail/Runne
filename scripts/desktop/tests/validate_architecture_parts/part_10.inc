@@ -32,6 +32,15 @@ class NativeQualificationDeliveryAliasTest(unittest.TestCase):
             with self.subTest(payload=payload):
                 self.assertNotEqual([], self.violations(payload, relative))
 
+    def test_qualification_admission_cannot_be_loaded_from_environment(self):
+        self.assertNotEqual(
+            [],
+            self.violations(
+                'let qualification_admission = std::env::var("ADMISSION");',
+                Path("apps/desktop/src-tauri/src/lib_parts/run.rs"),
+            ),
+        )
+
     def test_delivery_scan_ignores_forbidden_spelling_in_comments_and_literals(self):
         payload = r'''
 // std::env::var("TICKET");
@@ -63,6 +72,7 @@ const RAW: &str = r#"extern crate std as platform;"#;
             "crates/runne-platform-desktop/src/protected_runtime/qualification_relay_tests.rs",
             "crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/tests.rs",
             "crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/connected_tests.rs",
+            "crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/connected_tests/support.rs",
             "crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/qualification_admission_tests.rs",
             "crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/qualification_admission_tests/support.rs",
         )

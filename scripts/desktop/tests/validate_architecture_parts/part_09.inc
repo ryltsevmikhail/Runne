@@ -144,13 +144,13 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
                     ),
                 )
 
-    def test_ticket_admission_has_no_renderer_cli_env_argv_or_storage_surface(self):
+    def test_qualification_admission_has_no_renderer_cli_env_argv_or_storage_surface(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             owner = root / "apps/desktop/src-tauri/src/qualification_ticket.rs"
             owner.parent.mkdir(parents=True)
             owner.write_text(
-                "use runne_native_qualification::PendingQualificationFault;\n",
+                "use runne_native_qualification::PendingQualificationAdmission;\n",
                 encoding="utf-8",
             )
             self.assertEqual(
@@ -159,11 +159,11 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
             for relative, payload in (
                 (
                     "apps/desktop/src-tauri/src/provider_credential_enrollment/dispatch.rs",
-                    "QualificationFaultHostState",
+                    "QualificationAdmissionHostState",
                 ),
                 (
                     "apps/desktop/src-tauri/src/provider_credential_enrollment/prepared.rs",
-                    "PendingQualificationFault",
+                    "PendingQualificationAdmission",
                 ),
                 (
                     "crates/runne-platform-desktop/src/updater_metadata/enrollment_tuple/measurement_facts.rs",
@@ -181,24 +181,24 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
                 [], architecture.find_native_qualification_admission_surface_violations(root)
             )
             cases = (
-                ("renderer", "apps/desktop/src/page.ts", "PendingQualificationFault"),
-                ("cli", "crates/runne-cli/src/fault.rs", "runne_native_qualification"),
-                ("module alias", "apps/desktop/src-tauri/src/lib_parts/commands.rs", "use crate::bundled_runtime::qualification_ticket as faults;"),
-                ("host alias", "apps/desktop/src-tauri/src/lib_parts/commands.rs", "use crate::bundled_runtime::qualification_ticket::QualificationFaultHostState as Faults;"),
-                ("state access", "apps/desktop/src-tauri/src/lib_parts/commands.rs", "fn leak(_: tauri::State<'_, QualificationFaultHostState>) {}"),
+                ("renderer", "apps/desktop/src/page.ts", "PendingQualificationAdmission"),
+                ("cli", "crates/runne-cli/src/admission.rs", "runne_native_qualification"),
+                ("module alias", "apps/desktop/src-tauri/src/lib_parts/commands.rs", "use crate::bundled_runtime::qualification_ticket as admission;"),
+                ("host alias", "apps/desktop/src-tauri/src/lib_parts/commands.rs", "use crate::bundled_runtime::qualification_ticket::QualificationAdmissionHostState as Admission;"),
+                ("state access", "apps/desktop/src-tauri/src/lib_parts/commands.rs", "fn leak(_: tauri::State<'_, QualificationAdmissionHostState>) {}"),
                 ("tauri", "apps/desktop/src-tauri/src/qualification_ticket.rs", "#[tauri::command]"),
                 ("environment", "apps/desktop/src-tauri/src/qualification_ticket.rs", "std::env::var(\"RUNNE_DPK\")"),
                 ("argv", "apps/desktop/src-tauri/src/qualification_ticket.rs", "std::env::args_os()"),
-                ("file", "apps/desktop/src-tauri/src/qualification_ticket.rs", "std::fs::read(\"ticket\")"),
+                ("file", "apps/desktop/src-tauri/src/qualification_ticket.rs", "std::fs::read(\"admission\")"),
                 ("sqlite", "apps/desktop/src-tauri/src/qualification_ticket.rs", "profile.sqlite3"),
-                ("run env", "apps/desktop/src-tauri/src/lib_parts/run.rs", "let qualification_faults = std::env::var(\"TICKET\");"),
-                ("run argv", "apps/desktop/src-tauri/src/lib_parts/run.rs", "let qualification_faults =\n std::env::args_os();"),
-                ("run file", "apps/desktop/src-tauri/src/lib_parts/run.rs", "let qualification_ticket = std::fs::read(\"ticket\");"),
-                ("run sqlite", "apps/desktop/src-tauri/src/lib_parts/run.rs", "let qualification_faults = rusqlite::Connection::open(\"ticket.sqlite3\");"),
-                ("bundled env", "apps/desktop/src-tauri/src/bundled_runtime.rs", "let qualification_ticket = std::env::var(\"TICKET\");"),
-                ("bundled argv", "apps/desktop/src-tauri/src/bundled_runtime.rs", "let qualification_faults = std::env::args_os();"),
-                ("bundled file", "apps/desktop/src-tauri/src/bundled_runtime.rs", "let qualification_ticket = std::fs::read(\"ticket\");"),
-                ("bundled sqlite", "apps/desktop/src-tauri/src/bundled_runtime.rs", "let qualification_ticket = rusqlite::Connection::open(\"ticket.sqlite3\");"),
+                ("run env", "apps/desktop/src-tauri/src/lib_parts/run.rs", "let qualification_admission = std::env::var(\"ADMISSION\");"),
+                ("run argv", "apps/desktop/src-tauri/src/lib_parts/run.rs", "let qualification_admission =\n std::env::args_os();"),
+                ("run file", "apps/desktop/src-tauri/src/lib_parts/run.rs", "let qualification_admission = std::fs::read(\"admission\");"),
+                ("run sqlite", "apps/desktop/src-tauri/src/lib_parts/run.rs", "let qualification_admission = rusqlite::Connection::open(\"admission.sqlite3\");"),
+                ("bundled env", "apps/desktop/src-tauri/src/bundled_runtime.rs", "let qualification_admission = std::env::var(\"ADMISSION\");"),
+                ("bundled argv", "apps/desktop/src-tauri/src/bundled_runtime.rs", "let qualification_admission = std::env::args_os();"),
+                ("bundled file", "apps/desktop/src-tauri/src/bundled_runtime.rs", "let qualification_admission = std::fs::read(\"admission\");"),
+                ("bundled sqlite", "apps/desktop/src-tauri/src/bundled_runtime.rs", "let qualification_admission = rusqlite::Connection::open(\"admission.sqlite3\");"),
                 ("forgeable bool", "apps/desktop/src-tauri/src/qualification_ticket.rs", "fn admit(bundle_is_protected: bool) {}"),
                 ("raw getter", "apps/desktop/src-tauri/src/qualification_ticket.rs", "pub fn bytes(&self) -> &[u8] { &[] }"),
             )
@@ -223,20 +223,20 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
         control = "crates/runne-daemon/src/protected_activation/control_v3.rs"
         round_path = "crates/runne-daemon/src/protected_activation/control_v3/round.rs"
         cases = (
-            (dispatch, "use runne_native_qualification as q; std::env::var(\"TICKET\");"),
-            (prepared, "std::fs::read(\"ticket\");"),
-            (prepared, "File::open(\"ticket\");"),
-            (prepared, "rusqlite::Connection::open(\"ticket.sqlite3\");"),
-            (runner, "std::fs::read(\"ticket\");"),
-            (runner, "File::create(\"ticket\");"),
-            (runner, "rusqlite::Connection::open(\"ticket.sqlite3\");"),
-            (relay, "std::env::var(\"TICKET\");"),
+            (dispatch, "use runne_native_qualification as q; std::env::var(\"ADMISSION\");"),
+            (prepared, "std::fs::read(\"admission\");"),
+            (prepared, "File::open(\"admission\");"),
+            (prepared, "rusqlite::Connection::open(\"admission.sqlite3\");"),
+            (runner, "std::fs::read(\"admission\");"),
+            (runner, "File::create(\"admission\");"),
+            (runner, "rusqlite::Connection::open(\"admission.sqlite3\");"),
+            (relay, "std::env::var(\"ADMISSION\");"),
             (relay, "std::env::args_os();"),
-            (relay, "std::fs::read(\"ticket\");"),
-            (platform, "pub const fn qualification_ticket_bytes(&self) -> &[u8] { &[] }"),
-            (initial, "std::fs::read(\"ticket\");"),
-            (control, "pub fn clone_qualification_ticket(&self) {}"),
-            (round_path, "std::env::var(\"TICKET\");"),
+            (relay, "std::fs::read(\"admission\");"),
+            (platform, "pub const fn qualification_admission_bytes(&self) -> &[u8] { &[] }"),
+            (initial, "std::fs::read(\"admission\");"),
+            (control, "pub fn clone_qualification_admission(&self) {}"),
+            (round_path, "std::env::var(\"ADMISSION\");"),
         )
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

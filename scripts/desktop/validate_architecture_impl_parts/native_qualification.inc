@@ -1,4 +1,4 @@
-"""Closed dependency and source boundary for native qualification tickets."""
+"""Closed dependency and source boundary for native qualification admission."""
 from __future__ import annotations
 
 NATIVE_QUALIFICATION_PACKAGE = "runne-native-qualification"
@@ -64,26 +64,28 @@ NATIVE_QUALIFICATION_ADMISSION_ALLOWED = {
     Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange.rs"),
     Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/tests.rs"),
     Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/connected_tests.rs"),
+    Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/connected_tests/support.rs"),
     Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/qualification_admission_tests.rs"),
     Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/qualification_admission_tests/support.rs"),
 }
 NATIVE_QUALIFICATION_ADMISSION_TOKEN = re.compile(
-    r"runne_native_qualification|PendingQualificationFault|QualificationFaultHostState|"
-    r"QUALIFICATION_TICKET_DESCRIPTOR|admit_inherited_qualification_ticket|"
-    r"\bqualification_ticket\b"
+    r"runne_native_qualification|PendingQualificationFault|PendingQualificationAdmission|"
+    r"QualificationAdmissionHostState|"
+    r"QUALIFICATION_ADMISSION_DESCRIPTOR|admit_inherited_qualification_admission|"
+    r"\bqualification_(?:admission|ticket)\b"
 )
 NATIVE_QUALIFICATION_ADMISSION_FORBIDDEN_OWNER = re.compile(
     r"#\s*\[\s*tauri::command\s*\]|std::env::(?:var|args|args_os)\s*\(|"
     r"std::fs::(?:read|read_to_string|write|copy|rename|remove\w*)\s*\(|"
     r"File::(?:open|create)\s*\(|profile\.sqlite3|rusqlite|"
     r"pub\s+fn\s+(?:bytes|as_bytes|serialize)\s*\(|"
-    r"(?s:fn\s+(?:admit|admit_inherited_qualification_ticket)\b[^;{]*\bbool\b)"
+    r"(?s:fn\s+(?:admit|admit_inherited_qualification_admission)\b[^;{]*\bbool\b)"
 )
 NATIVE_QUALIFICATION_ADMISSION_FORBIDDEN_SETUP = re.compile(
-    r"(?s:(?:qualification_ticket|qualification_faults|QualificationFaultHostState)"
+    r"(?s:(?:qualification_admission|QualificationAdmissionHostState)"
     r"[^;{}]*(?:std::env|args_os|std::fs|File::|rusqlite|sqlite3)|"
     r"(?:std::env|args_os|std::fs|File::|rusqlite|sqlite3)[^;{}]*"
-    r"(?:qualification_ticket|qualification_faults|QualificationFaultHostState))"
+    r"(?:qualification_admission|QualificationAdmissionHostState))"
 )
 NATIVE_QUALIFICATION_DELIVERY_FORBIDDEN = re.compile(
     r"#\s*\[\s*tauri::command\s*\]|(?:^|[^\w])(?:::)?std::env::\w+\s*\(|"
@@ -93,8 +95,8 @@ NATIVE_QUALIFICATION_DELIVERY_FORBIDDEN = re.compile(
     r"(?:File|OpenOptions)::(?:open|create|new)\s*\(|"
     r"rusqlite|sqlite3|reqwest|TcpStream|UdpSocket|"
     r"pub(?:\([^)]*\))?\s+(?:const\s+)?fn\s+(?:bytes|as_bytes|serialize|"
-    r"(?:qualification|ticket)\w*(?:bytes|serialize)|"
-    r"clone_\w*(?:qualification|ticket)|(?:qualification|ticket)\w*_clone)\s*\("
+    r"(?:qualification|admission|ticket)\w*(?:bytes|serialize)|"
+    r"clone_\w*(?:qualification|admission|ticket)|(?:qualification|admission|ticket)\w*_clone)\s*\("
 )
 
 
@@ -211,7 +213,7 @@ def find_native_qualification_admission_dependency_violations(
 
 
 def find_native_qualification_admission_surface_violations(root: Path) -> list[str]:
-    """Keep pending fault-ticket authority inside one native Desktop module."""
+    """Keep pending qualification admission inside reviewed native modules."""
     roots = (
         root / "apps/desktop/src",
         root / "apps/desktop/src-tauri/src",

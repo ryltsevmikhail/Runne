@@ -1,75 +1,17 @@
 use std::io::{Read as _, Write as _};
 use std::os::unix::net::UnixStream;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use ed25519_dalek::SigningKey;
-use runne_api::{
-    ApiPrincipalId, BeginProviderCredentialEnrollment, DaemonInstanceId, EventLogLineageId,
-    ProviderCredentialEnrollmentActionV2, ProviderCredentialProviderV2, RuntimeSessionBinding,
-    StableRuntimeBinding,
-};
-use runne_application::local_session::LocalSessionService;
-use runne_domain::event::Sensitivity;
 use runne_native_qualification::QualificationAdmissionVerifier;
-use runne_provider::{CredentialAuthorityPair, CredentialEnrollmentAuthorityPair};
-use runne_secure_store::{
-    CredentialReadbackObservation, ExactAbsenceReadback, ExactVersionReadback,
-    ProviderCredentialReadback, SecureStoreError,
-};
 
-use super::super::{V3EnrollmentDispatch, run_control_loop_v3_entered};
-use crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl;
-use crate::protected_activation::{
-    ProtectedActivationChannel, enrollment_control_transition::DaemonEnrollmentRendezvous,
-};
-
-const TEST_TIMEOUT: Duration = Duration::from_secs(2);
-
-struct BoundedThread<T> {
-    result: mpsc::Receiver<T>,
-    handle: JoinHandle<()>,
-}
-
-impl<T: Send + 'static> BoundedThread<T> {
-    fn spawn(action: impl FnOnce() -> T + Send + 'static) -> Self {
-        let (sender, result) = mpsc::sync_channel(1);
-        let handle = std::thread::spawn(move || sender.send(action()).unwrap());
-        Self { result, handle }
-    }
-
-    fn wait(self, phase: &str) -> T {
-        let result = self
-            .result
-            .recv_timeout(TEST_TIMEOUT)
-            .unwrap_or_else(|error| panic!("{phase} exceeded {TEST_TIMEOUT:?}: {error}"));
-        self.handle.join().unwrap();
-        result
-    }
-}
-
-struct NoReadback;
-
-impl ProviderCredentialReadback for NoReadback {
-    fn readback_exact_version(
-        &self,
-        _: ExactVersionReadback,
-    ) -> Result<CredentialReadbackObservation, SecureStoreError> {
-        Err(SecureStoreError::Unavailable)
-    }
-
-    fn readback_exact_absence(
-        &self,
-        _: ExactAbsenceReadback,
-    ) -> Result<CredentialReadbackObservation, SecureStoreError> {
-        Err(SecureStoreError::Unavailable)
-    }
-}
+mod support;
+use support::*;
 
 #[test]
-fn connected_supervisor_relay_closes_before_request_and_cannot_cross_session() {
+fn connected_valid_pair_with_extra_frame_closes_before_gcp_and_cannot_cross_session() {
     let context_key = SigningKey::from_bytes(&[7; 32]);
     let fault_key = SigningKey::from_bytes(&[9; 32]);
     let verified = Arc::new(AtomicUsize::new(0));
@@ -98,7 +40,12 @@ fn connected_supervisor_relay_closes_before_request_and_cannot_cross_session() {
         assert_eq!(&context[4..12], b"RNQCTX1\0");
         assert_eq!(&fault[4..12], b"RNQFRLY1");
         let relay = [context, fault].concat();
-        proxy_daemon.write_all(&relay).unwrap();
+        let with_extra = [
+            relay.clone(),
+            super::qualification_admission_tests::support::outer(b"GCPCECTLextra-request"),
+        ]
+        .concat();
+        proxy_daemon.write_all(&with_extra).unwrap();
         desktop_peer
             .set_read_timeout(Some(Duration::from_millis(100)))
             .unwrap();
@@ -177,117 +124,65 @@ fn connected_supervisor_relay_closes_before_request_and_cannot_cross_session() {
     );
 }
 
-fn spawn_daemon(
-    channel: UnixStream,
-    keys: runne_api::ProtectedActivationKeys,
-    owned: runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
-    installed: runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts,
-    control: Arc<DaemonProviderCredentialEnrollmentControl>,
-    verifier: QualificationAdmissionVerifier,
-    verified: Arc<AtomicUsize>,
-) -> BoundedThread<Result<(), runne_api::LaunchAuthorityError>> {
-    let sessions = sessions_for(&owned);
-    let channel = ProtectedActivationChannel::new(channel).unwrap();
-    BoundedThread::spawn(move || {
-        run_control_loop_v3_entered(
-            channel,
-            keys,
-            owned,
-            sessions,
-            Arc::new(|| Duration::from_secs(1)),
-            Arc::new(|| Ok(1_800_000_000_000)),
-            V3EnrollmentDispatch::new(
-                Some(control),
-                DaemonEnrollmentRendezvous::for_test(),
-                Some(installed),
+#[test]
+fn connected_absent_admission_preserves_the_canonical_legacy_first_frame() {
+    let verified = Arc::new(AtomicUsize::new(0));
+    let fixture = runne_platform_desktop::test_only_connected_ready_v3_enrollment_supervisor();
+    let (mut supervisor, desktop_peer, keys, owned, installed) = fixture.into_parts();
+    let daemon_keys = keys.clone();
+    let (control, _database) = control();
+    let (mut proxy_daemon, daemon_channel) = UnixStream::pair().unwrap();
+    let daemon = spawn_daemon(
+        daemon_channel,
+        daemon_keys,
+        owned,
+        installed,
+        control,
+        QualificationAdmissionVerifier::test_only_from_verifying_keys(
+            SigningKey::from_bytes(&[7; 32]).verifying_key(),
+            SigningKey::from_bytes(&[9; 32]).verifying_key(),
+        ),
+        Arc::clone(&verified),
+    );
+    let proxy = BoundedThread::spawn(move || {
+        let mut desktop_peer = desktop_peer;
+        let first = crate::protected_activation::enrollment_v3_tests::read_frame(&mut desktop_peer);
+        assert_eq!(&first[4..12], b"GCPCECTL");
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+            .try_into()
+            .unwrap();
+        runne_api::ProtectedCredentialEnrollmentAuthenticator::from_protected_activation(&keys)
+            .decode_authenticated_request(&first, 0, now)
+            .unwrap();
+        assert!(
+            !runne_native_qualification::QualificationRunContextRelayCodecV1::recognizes_frame(
+                &first
             )
-            .with_test_qualification(verifier, verified),
-        )
-    })
-}
-
-fn sessions_for(
-    owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
-) -> Arc<Mutex<LocalSessionService>> {
-    let stable = owned.stable();
-    let stable = StableRuntimeBinding::new(
-        *stable.authority_id(),
-        ApiPrincipalId::new(stable.principal_id()).unwrap(),
-        EventLogLineageId::from_bytes(*stable.lineage_id()),
-        stable.profile_id(),
-        *stable.profile_hash(),
-        *stable.capability_digest(),
-    )
-    .unwrap();
-    let binding = RuntimeSessionBinding::new(
-        stable,
-        DaemonInstanceId::from_bytes(*owned.daemon_instance_id()),
-        owned.launch_generation(),
-        *owned.session_id(),
-        0,
-        Sensitivity::Public,
-        [14; 32],
-    )
-    .unwrap();
-    Arc::new(Mutex::new(
-        LocalSessionService::new_protected(
-            binding,
-            [16; 32],
-            Duration::ZERO,
-            Duration::from_secs(30),
-        )
-        .unwrap(),
-    ))
-}
-
-fn control() -> (
-    Arc<DaemonProviderCredentialEnrollmentControl>,
-    tempfile::TempDir,
-) {
-    let directory = tempfile::tempdir().unwrap();
-    let database = directory.path().join("relay-control.sqlite3");
-    let (lifecycle, _) = CredentialAuthorityPair::new().split();
-    let (enrollment_store, measurements) = CredentialEnrollmentAuthorityPair::new().split();
-    let store =
-        runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_authorities(
-            &database,
-            lifecycle,
-            enrollment_store.clone(),
-        )
-        .unwrap();
-    let control = DaemonProviderCredentialEnrollmentControl::new(
-        Arc::new(store),
-        Arc::new(NoReadback),
-        measurements,
-        enrollment_store,
-        [9; 16],
-        10,
-        None,
-    )
-    .unwrap();
-    (Arc::new(control), directory)
-}
-
-fn command() -> BeginProviderCredentialEnrollment {
-    BeginProviderCredentialEnrollment::new(
-        ProviderCredentialEnrollmentActionV2::Pair,
-        ProviderCredentialProviderV2::OpenAi,
-        1,
-        "018f8d23-7f90-7c00-8000-000000000001",
-        "qualification-relay",
-        "native-intent",
-    )
-    .unwrap()
-}
-
-fn assert_zero_operations(database: impl AsRef<std::path::Path>) {
-    let connection = rusqlite::Connection::open(database).unwrap();
-    let count: i64 = connection
-        .query_row(
-            "SELECT COUNT(*) FROM provider_credential_operations",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(count, 0, "relay reached Begin/effect persistence");
+        );
+        proxy_daemon.write_all(&first).unwrap();
+        first
+    });
+    let begin =
+        runne_platform_desktop::NativeProtectedCredentialEnrollmentBegin::new(command(), [9; 32])
+            .unwrap();
+    assert!(
+        supervisor
+            .begin_protected_credential_enrollment_with_qualification(begin, None)
+            .is_err()
+    );
+    let first = proxy.wait("absent legacy first frame");
+    assert_eq!(
+        u32::from_be_bytes(first[..4].try_into().unwrap()) as usize,
+        first.len() - 4
+    );
+    assert!(daemon.wait("absent daemon close").is_err());
+    assert_eq!(verified.load(Ordering::SeqCst), 1);
+    let cleanup = BoundedThread::spawn(move || supervisor.stop());
+    assert_eq!(
+        cleanup.wait("absent supervisor cleanup").unwrap(),
+        runne_platform_desktop::BundledRuntimeStopDisposition::Forced
+    );
 }

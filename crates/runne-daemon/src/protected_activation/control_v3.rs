@@ -1,4 +1,5 @@
 use super::*;
+mod clocks;
 #[cfg(unix)]
 mod discovery;
 #[cfg(unix)]
@@ -9,6 +10,10 @@ mod renewal;
 mod round;
 #[cfg(unix)]
 mod runtime;
+#[cfg(test)]
+use clocks::QualificationClock;
+use clocks::TicketClock;
+pub(crate) use clocks::{macos_continuous_ticket_clock, unix_epoch_qualification_clock};
 #[cfg(unix)]
 use runtime::V3EnrollmentRuntime;
 #[cfg(all(test, unix))]
@@ -17,22 +22,6 @@ pub(crate) use runtime::require_shutdown_terminal;
 pub(super) use runtime::with_control;
 #[cfg(unix)]
 pub(super) use runtime::{V3EnrollmentDispatch, enrollment_transcript_allows_rotation};
-type TicketClock = Arc<dyn Fn() -> Result<u64, LaunchAuthorityError> + Send + Sync>;
-
-/// Builds the production ticket clock without making an unverified V3 launch
-/// path available. Non-Apple-Silicon targets fail closed when wired later.
-#[allow(dead_code)]
-pub(crate) fn macos_continuous_ticket_clock() -> TicketClock {
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    {
-        Arc::new(|| {
-            runne_platform_desktop::MacOsContinuousClock::now_millis()
-                .map_err(|_| LaunchAuthorityError::RenewalUnavailable)
-        })
-    }
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-    Arc::new(|| Err(LaunchAuthorityError::RenewalUnavailable))
-}
 
 /// Serves only enrollment V3 renewal, broker writer-handoff, and shutdown
 /// frames.
@@ -124,7 +113,6 @@ pub(crate) fn run_control_loop_v3_entered(
             &owned_launch,
             &installed_facts,
             &mut enrollment,
-            &ticket_clock,
         )?;
         #[cfg(not(target_os = "macos"))]
         let initial_request = channel.read_control_frame()?;

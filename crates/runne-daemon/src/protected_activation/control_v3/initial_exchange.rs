@@ -72,7 +72,6 @@ pub(super) fn read_admitted_initial_request(
     owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
     installed: &runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts,
     _enrollment: &mut super::runtime::V3EnrollmentDispatch,
-    ticket_clock: &super::TicketClock,
 ) -> Result<Zeroizing<Vec<u8>>, LaunchAuthorityError> {
     #[cfg(test)]
     if let Some(observed) = _enrollment.qualification_verified.as_ref() {
@@ -95,13 +94,26 @@ pub(super) fn read_admitted_initial_request(
             runne_native_qualification::QualificationAdmissionVerifier::from_compiled_policy()
         }
     };
+    let qualification_clock = {
+        #[cfg(test)]
+        {
+            _enrollment
+                .qualification_clock
+                .take()
+                .unwrap_or_else(super::unix_epoch_qualification_clock)
+        }
+        #[cfg(not(test))]
+        {
+            super::unix_epoch_qualification_clock()
+        }
+    };
     match read_initial_qualification(
         channel,
         keys,
         owned,
         installed,
         &mut verifier,
-        ticket_clock()? / 1_000,
+        qualification_clock()?,
     )? {
         InitialQualificationFrame::Legacy(frame) => Ok(frame),
         InitialQualificationFrame::Verified(_verified) => {
