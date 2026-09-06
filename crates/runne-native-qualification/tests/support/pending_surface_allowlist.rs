@@ -122,6 +122,7 @@ pub fn exact_admission_reexport(item: &syn::ItemUse, source: &str) -> bool {
         && !ident_is_raw(&path.ident)
         && matches!(item.vis, Visibility::Public(_))
         && item.attrs.is_empty()
+        && names.len() == group.items.len()
         && names
             == [
                 ADMISSION.to_owned(),

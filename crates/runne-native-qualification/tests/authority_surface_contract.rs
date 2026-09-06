@@ -1,5 +1,7 @@
 #[path = "support/authority_surface_audit.rs"]
 mod authority_surface_audit;
+#[path = "support/authority_use_audit.rs"]
+mod authority_use_audit;
 
 use std::path::Path;
 
@@ -51,6 +53,11 @@ fn surface_auditor_rejects_alias_trait_wrapper_getter_and_borrowed_mutations() {
             "impl PendingQualificationAdmission { pub fn bytes(&self) -> &[u8] { &self.inner }",
         ),
         BASELINE.replace("verify_and_consume(&mut self", "verify_and_consume(&self"),
+        format!("{BASELINE}\npub use crate::VerifiedQualificationRunContext as ContextLeak;"),
+        format!("{BASELINE}\npub use crate::QualificationRunContextVerifier as VerifierLeak;"),
+        format!("{BASELINE}\npub use crate::PendingQualificationAdmission as AdmissionLeak;"),
+        format!("{BASELINE}\npub use crate::context_model::*;"),
+        format!("{BASELINE}\nmod nested {{ pub use crate::VerifiedQualificationRunContext; }}"),
     ] {
         assert!(
             !audit_sources(&[("mutation.rs", &mutation)]).is_empty(),

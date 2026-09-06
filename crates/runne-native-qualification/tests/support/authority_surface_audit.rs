@@ -3,6 +3,8 @@ use std::path::Path;
 
 use syn::{Fields, ImplItem, Item, ReturnType, Type, Visibility};
 
+use crate::authority_use_audit;
+
 const VERIFIED: &str = "VerifiedQualificationRunContext";
 const ADMISSION: &str = "PendingQualificationAdmission";
 const VERIFIER: &str = "QualificationRunContextVerifier";
@@ -33,7 +35,7 @@ pub fn audit_sources(sources: &[(&str, &str)]) -> Vec<String> {
     let mut audit = Audit::default();
     for (source, text) in sources {
         match syn::parse_file(text) {
-            Ok(file) => audit.items(&file.items, source),
+            Ok(file) => audit.items(&file.items, source, 0),
             Err(error) => audit.violations.push(format!("{source}: parse: {error}")),
         }
     }
@@ -71,104 +73,112 @@ struct Audit {
 }
 
 impl Audit {
-    fn items(&mut self, items: &[Item], source: &str) {
+    fn items(&mut self, items: &[Item], source: &str, depth: usize) {
         for item in items {
-            match item {
-                Item::Struct(item) if guarded(&item.ident.to_string()) => {
-                    let name = item.ident.to_string();
-                    self.declarations.push(name.clone());
-                    if !matches!(item.vis, Visibility::Public(_))
-                        || matches!(item.fields, Fields::Unit)
-                        || item
-                            .fields
-                            .iter()
-                            .any(|field| !matches!(field.vis, Visibility::Inherited))
-                        || item.attrs.iter().any(|attr| !attr.path().is_ident("doc"))
-                    {
-                        self.violations
-                            .push(format!("{source}: unsafe {name} declaration"));
-                    }
+            self.item(item, source, depth);
+        }
+    }
+
+    fn item(&mut self, item: &Item, source: &str, depth: usize) {
+        match item {
+            Item::Struct(item) if guarded(&item.ident.to_string()) => {
+                let name = item.ident.to_string();
+                self.declarations.push(name.clone());
+                if !matches!(item.vis, Visibility::Public(_))
+                    || matches!(item.fields, Fields::Unit)
+                    || item
+                        .fields
+                        .iter()
+                        .any(|field| !matches!(field.vis, Visibility::Inherited))
+                    || item.attrs.iter().any(|attr| !attr.path().is_ident("doc"))
+                {
+                    self.violations
+                        .push(format!("{source}: unsafe {name} declaration"));
                 }
-                Item::Impl(item) if type_name(&item.self_ty).as_deref().is_some_and(guarded) => {
-                    let owner = type_name(&item.self_ty).expect("guarded owner");
-                    if item.trait_.is_some() {
-                        self.violations
-                            .push(format!("{source}: trait impl for {owner}"));
-                    } else {
-                        for member in &item.items {
-                            match member {
-                                ImplItem::Fn(method)
-                                    if matches!(method.vis, Visibility::Public(_)) =>
-                                {
-                                    self.check_method(&owner, method, source);
-                                }
-                                ImplItem::Const(value)
-                                    if !matches!(value.vis, Visibility::Inherited) =>
-                                {
-                                    self.violations
-                                        .push(format!("{source}: visible const on {owner}"));
-                                }
-                                ImplItem::Type(value)
-                                    if !matches!(value.vis, Visibility::Inherited) =>
-                                {
-                                    self.violations
-                                        .push(format!("{source}: visible type on {owner}"));
-                                }
-                                ImplItem::Macro(_) | ImplItem::Verbatim(_) => self
-                                    .violations
-                                    .push(format!("{source}: opaque item on {owner}")),
-                                _ => {}
+            }
+            Item::Impl(item) if type_name(&item.self_ty).as_deref().is_some_and(guarded) => {
+                let owner = type_name(&item.self_ty).expect("guarded owner");
+                if item.trait_.is_some() {
+                    self.violations
+                        .push(format!("{source}: trait impl for {owner}"));
+                } else {
+                    for member in &item.items {
+                        match member {
+                            ImplItem::Fn(method) if matches!(method.vis, Visibility::Public(_)) => {
+                                self.check_method(&owner, method, source);
                             }
+                            ImplItem::Const(value)
+                                if !matches!(value.vis, Visibility::Inherited) =>
+                            {
+                                self.violations
+                                    .push(format!("{source}: visible const on {owner}"));
+                            }
+                            ImplItem::Type(value)
+                                if !matches!(value.vis, Visibility::Inherited) =>
+                            {
+                                self.violations
+                                    .push(format!("{source}: visible type on {owner}"));
+                            }
+                            ImplItem::Macro(_) | ImplItem::Verbatim(_) => self
+                                .violations
+                                .push(format!("{source}: opaque item on {owner}")),
+                            _ => {}
                         }
                     }
                 }
-                Item::Type(item) if mentions(&item.ty) => self
-                    .violations
-                    .push(format!("{source}: alias involving guarded authority")),
-                Item::Struct(item)
-                    if !guarded(&item.ident.to_string())
-                        && item.fields.iter().any(|field| mentions(&field.ty))
-                        && matches!(item.vis, Visibility::Public(_)) =>
+            }
+            Item::Type(item) if mentions(&item.ty) => self
+                .violations
+                .push(format!("{source}: alias involving guarded authority")),
+            Item::Struct(item)
+                if !guarded(&item.ident.to_string())
+                    && item.fields.iter().any(|field| mentions(&field.ty))
+                    && matches!(item.vis, Visibility::Public(_)) =>
+            {
+                self.violations
+                    .push(format!("{source}: public wrapper around guarded authority"));
+            }
+            Item::Enum(item)
+                if matches!(item.vis, Visibility::Public(_))
+                    && item
+                        .variants
+                        .iter()
+                        .flat_map(|variant| variant.fields.iter())
+                        .any(|field| mentions(&field.ty)) =>
+            {
+                self.violations.push(format!(
+                    "{source}: public enum wrapper around guarded authority"
+                ));
+            }
+            Item::Fn(item)
+                if matches!(item.vis, Visibility::Public(_)) && signature_mentions(&item.sig) =>
+            {
+                self.violations.push(format!(
+                    "{source}: public free function exposes guarded authority"
+                ));
+            }
+            Item::Use(item) => {
+                if let Some(violation) = authority_use_audit::violation(item, source, depth) {
+                    self.violations.push(violation);
+                }
+            }
+            Item::Mod(item) => {
+                if item
+                    .attrs
+                    .iter()
+                    .any(|attr| attr.path().is_ident("path") || attr.path().is_ident("cfg_attr"))
                 {
                     self.violations
-                        .push(format!("{source}: public wrapper around guarded authority"));
+                        .push(format!("{source}: path-substituted module"));
                 }
-                Item::Enum(item)
-                    if matches!(item.vis, Visibility::Public(_))
-                        && item
-                            .variants
-                            .iter()
-                            .flat_map(|variant| variant.fields.iter())
-                            .any(|field| mentions(&field.ty)) =>
-                {
-                    self.violations.push(format!(
-                        "{source}: public enum wrapper around guarded authority"
-                    ));
+                if let Some((_, nested)) = &item.content {
+                    self.items(nested, source, depth + 1);
                 }
-                Item::Fn(item)
-                    if matches!(item.vis, Visibility::Public(_))
-                        && signature_mentions(&item.sig) =>
-                {
-                    self.violations.push(format!(
-                        "{source}: public free function exposes guarded authority"
-                    ));
-                }
-                Item::Mod(item) => {
-                    if item.attrs.iter().any(|attr| {
-                        attr.path().is_ident("path") || attr.path().is_ident("cfg_attr")
-                    }) {
-                        self.violations
-                            .push(format!("{source}: path-substituted module"));
-                    }
-                    if let Some((_, nested)) = &item.content {
-                        self.items(nested, source);
-                    }
-                }
-                Item::Macro(_) | Item::Verbatim(_) => self
-                    .violations
-                    .push(format!("{source}: opaque module item")),
-                _ => {}
             }
+            Item::Macro(_) | Item::Verbatim(_) => self
+                .violations
+                .push(format!("{source}: opaque module item")),
+            _ => {}
         }
     }
 

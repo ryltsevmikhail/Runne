@@ -8,10 +8,27 @@ pub struct ContextVerificationPolicy {
 }
 
 pub fn load() -> Option<ContextVerificationPolicy> {
-    decode_policy(
+    let context = decode_policy(
         option_env!("RUNNE_DPK_CONTEXT_PUBLIC_KEY_B64URL"),
         option_env!("RUNNE_DPK_CONTEXT_KEY_ID"),
-    )
+    );
+    select_distinct_policy(context, crate::compiled_policy::load())
+}
+
+pub fn select_distinct_policy(
+    context: Option<ContextVerificationPolicy>,
+    fault: Option<crate::compiled_policy::FaultVerificationPolicy>,
+) -> Option<ContextVerificationPolicy> {
+    let context = context?;
+    let fault = fault?;
+    authorities_are_distinct(&context, &fault).then_some(context)
+}
+
+pub fn authorities_are_distinct(
+    context: &ContextVerificationPolicy,
+    fault: &crate::compiled_policy::FaultVerificationPolicy,
+) -> bool {
+    context.key.as_bytes() != fault.key.as_bytes() && context.key_id != fault.key_id
 }
 
 pub fn decode_policy(

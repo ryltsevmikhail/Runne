@@ -65,6 +65,24 @@ fn exact_admission_wrapper_is_the_only_pending_carrier_exception() {
             ADMISSION.to_owned(),
             "pub use admission::PendingQualificationAdmission as Leak;".to_owned(),
         ),
+        (
+            "extra glob in exact group",
+            ADMISSION.to_owned(),
+            "pub use admission::{PendingQualificationAdmission, QualificationAdmissionError, *};"
+                .to_owned(),
+        ),
+        (
+            "extra rename in exact group",
+            ADMISSION.to_owned(),
+            "pub use admission::{PendingQualificationAdmission, QualificationAdmissionError, PendingQualificationAdmission as Leak};"
+                .to_owned(),
+        ),
+        (
+            "extra nested path in exact group",
+            ADMISSION.to_owned(),
+            "pub use admission::{PendingQualificationAdmission, QualificationAdmissionError, nested::PendingQualificationAdmission};"
+                .to_owned(),
+        ),
     ] {
         assert!(!audit(&admission, &reexport).is_empty(), "{label}");
     }
