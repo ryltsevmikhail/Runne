@@ -8,7 +8,7 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
             architecture.NATIVE_QUALIFICATION_DEPENDENCIES,
         )
         self.assertEqual(
-            [], architecture.find_native_qualification_dependency_violations([self.package()])
+            [], architecture.find_native_qualification_dependency_violations(self.packages())
         )
 
     def test_rejects_dependency_shape_mutations(self):
@@ -28,14 +28,27 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
             ("static assertion floating", 8, "req", "^1"),
         ):
             with self.subTest(label=label):
-                package = self.package()
+                packages = self.packages()
+                package = packages[0]
                 if field == "delete":
                     del package["dependencies"][index]
                 else:
                     package["dependencies"][index][field] = value
                 self.assertNotEqual(
-                    [], architecture.find_native_qualification_dependency_violations([package])
+                    [], architecture.find_native_qualification_dependency_violations(packages)
                 )
+
+    def test_api_dependency_matches_the_metadata_package_not_a_path_suffix(self):
+        packages = self.packages()
+        packages[0]["dependencies"][3]["path"] = "/tmp/evil/crates/runne-api"
+        self.assertNotEqual(
+            [], architecture.find_native_qualification_dependency_violations(packages)
+        )
+        packages = self.packages()
+        packages[0]["dependencies"][3]["path"] = "/repo/crates/../crates/runne-api"
+        self.assertEqual(
+            [], architecture.find_native_qualification_dependency_violations(packages)
+        )
 
     def test_rejects_runtime_key_signer_filesystem_and_callback_surfaces(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -64,19 +77,39 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
             root = Path(directory)
             source = root / "crates/runne-native-qualification/src/model.rs"
             source.parent.mkdir(parents=True)
-            baseline = "pub struct PendingQualificationFault { bytes: Vec<u8> }\n"
+            baseline = """pub struct PendingQualificationFault { bytes: Vec<u8> }
+impl PendingQualificationFault {
+    pub fn from_admitted_frame(bytes: Vec<u8>) -> Result<Self, ()> { todo!() }
+    pub fn verify_and_consume(self, verifier: &mut crate::QualificationFaultVerifier, context: &QualificationFaultContext, now_unix_seconds: u64) -> Result<(), ()> { todo!() }
+    pub fn encode_relay(self, codec: &crate::QualificationFaultRelayCodecV1, binding: &runne_api::QualificationFaultRelayBindingV1) -> Result<Vec<u8>, ()> { todo!() }
+}
+"""
             source.write_text(baseline, encoding="utf-8")
             self.assertEqual([], architecture.find_native_qualification_violations(root))
             for forbidden in (
-                "impl PendingQualificationFault { pub fn bytes(&self) -> &[u8] { &self.bytes } }",
-                "impl PendingQualificationFault { pub fn as_relay_bytes(&self) -> &[u8] { &self.bytes } }",
-                "impl PendingQualificationFault { pub fn into_bytes(self) -> Vec<u8> { self.bytes } }",
+                "impl PendingQualificationFault { pub fn ticket(&self) -> &[u8] { &self.bytes } }",
+                "impl self::PendingQualificationFault { pub fn ticket(&self) -> &[u8] { &self.bytes } }",
+                "impl PendingQualificationFault { pub unsafe fn ticket(&self) -> &[u8] { &self.bytes } }",
+                "impl PendingQualificationFault { pub(crate) fn ticket(&self) -> &[u8] { &self.bytes } }",
                 "#[derive(Clone)] pub struct PendingQualificationFault { bytes: Vec<u8> }",
+                "impl AsRef<[u8]> for PendingQualificationFault { fn as_ref(&self) -> &[u8] { &self.bytes } }",
+                "impl std::ops::Deref for PendingQualificationFault { type Target = [u8]; fn deref(&self) -> &[u8] { &self.bytes } }",
+                "impl std::borrow::Borrow<[u8]> for PendingQualificationFault { fn borrow(&self) -> &[u8] { &self.bytes } }",
+                "impl Into<Vec<u8>> for PendingQualificationFault { fn into(self) -> Vec<u8> { self.bytes } }",
                 "impl serde::Serialize for PendingQualificationFault { fn serialize<S>(&self, _: S) -> Result<S::Ok, S::Error> where S: serde::Serializer { todo!() } }",
+                "impl PendingQualificationFault { const MASK: &'static str = \"}\"; pub fn ticket(&self) -> &[u8] { &self.bytes } }",
+                "impl PendingQualificationFault { const MASK: &'static str = r#\"}\"#; pub fn ticket(&self) -> &[u8] { &self.bytes } }",
+                "impl PendingQualificationFault { /* nested /* } */ comment */ pub fn ticket(&self) -> &[u8] { &self.bytes } }",
             ):
                 source.write_text(baseline + forbidden, encoding="utf-8")
                 self.assertNotEqual(
                     [], architecture.find_native_qualification_violations(root), forbidden
+                )
+            for consuming in ("verify_and_consume", "encode_relay"):
+                mutated = baseline.replace(f"{consuming}(self,", f"{consuming}(&self,")
+                source.write_text(mutated, encoding="utf-8")
+                self.assertNotEqual(
+                    [], architecture.find_native_qualification_violations(root), consuming
                 )
 
     def test_rejects_manual_reusable_proof_trait_implementations(self):
@@ -180,7 +213,7 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
                     path.write_text(baseline, encoding="utf-8")
 
     @classmethod
-    def package(cls):
+    def packages(cls):
         rows = [
             cls.dependency("base64", "=0.22.1"),
             cls.dependency("ed25519-dalek", "=2.1.1"),
@@ -198,11 +231,18 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
             ),
             cls.dependency("static_assertions", "=1.1.0", kind="dev"),
         ]
-        return {
-            "name": architecture.NATIVE_QUALIFICATION_PACKAGE,
-            "manifest_path": "/repo/crates/runne-native-qualification/Cargo.toml",
-            "dependencies": rows,
-        }
+        return [
+            {
+                "name": architecture.NATIVE_QUALIFICATION_PACKAGE,
+                "manifest_path": "/repo/crates/runne-native-qualification/Cargo.toml",
+                "dependencies": rows,
+            },
+            {
+                "name": "runne-api",
+                "manifest_path": "/repo/crates/runne-api/Cargo.toml",
+                "dependencies": [],
+            },
+        ]
 
     @staticmethod
     def dependency(

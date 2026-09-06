@@ -7,6 +7,7 @@ for name in (
     "checks.inc",
     "renderer_channel_checks.inc",
     "credential_service_core_dependencies.inc",
+    "native_qualification_surface.inc",
     "native_qualification.inc",
     "native_process_identity.inc",
     "macos_process_identity_crate_dependencies.inc",

@@ -36,21 +36,6 @@ NATIVE_QUALIFICATION_FORBIDDEN_PROOF_IMPL = re.compile(
     r"|(?:(?:::)?serde\s*::\s*(?:de\s*::\s*)?)?Deserialize(?:\s*<[^>{}]*>)?"
     r")\s+for\s+(?:::)?(?:[A-Za-z_]\w*\s*::\s*)*VerifiedQualificationFault\b"
 )
-NATIVE_QUALIFICATION_PENDING = re.compile(
-    r"(?s)(?P<attributes>(?:\s*#\[[^]]+\]\s*)*)pub\s+struct\s+PendingQualificationFault\b"
-)
-NATIVE_QUALIFICATION_FORBIDDEN_PENDING_IMPL = re.compile(
-    r"\bimpl(?:\s*<[^>{}]*>)?\s+"
-    r"(?:"
-    r"(?:(?:::)?(?:std|core)\s*::\s*clone\s*::\s*)?Clone"
-    r"|(?:(?:::)?(?:std|core)\s*::\s*marker\s*::\s*)?Copy"
-    r"|(?:(?:::)?serde\s*::\s*(?:ser\s*::\s*)?)?Serialize"
-    r"|(?:(?:::)?serde\s*::\s*(?:de\s*::\s*)?)?Deserialize(?:\s*<[^>{}]*>)?"
-    r")\s+for\s+(?:::)?(?:[A-Za-z_]\w*\s*::\s*)*PendingQualificationFault\b"
-)
-NATIVE_QUALIFICATION_RAW_CARRIER = re.compile(
-    r"pub\s+fn\s+(?:bytes|as_(?:relay_)?bytes|into_(?:relay_)?bytes)\s*\("
-)
 NATIVE_QUALIFICATION_ADMISSION_OWNER = "runne-desktop"
 NATIVE_QUALIFICATION_ADMISSION_TARGET = 'cfg(target_os = "macos")'
 NATIVE_QUALIFICATION_ADMISSION_SOURCE = Path(
@@ -91,6 +76,14 @@ def find_native_qualification_dependency_violations(packages: list[dict]) -> lis
     if package is None:
         return [f"{NATIVE_QUALIFICATION_PACKAGE} package is missing from workspace metadata"]
     violations = []
+    api_packages = [row for row in packages if row.get("name") == "runne-api"]
+    api_directory = None
+    if len(api_packages) == 1:
+        api_manifest = api_packages[0].get("manifest_path")
+        if isinstance(api_manifest, str) and Path(api_manifest).name == "Cargo.toml":
+            api_directory = Path(api_manifest).parent.resolve(strict=False)
+    if api_directory is None:
+        violations.append("runne-api package metadata is missing or ambiguous")
     manifest = package.get("manifest_path")
     if (
         not isinstance(manifest, str)
@@ -113,7 +106,8 @@ def find_native_qualification_dependency_violations(packages: list[dict]) -> lis
         source_is_exact = (
             dependency.get("source") is None
             and isinstance(path, str)
-            and Path(path).as_posix().endswith("/crates/runne-api")
+            and api_directory is not None
+            and Path(path).resolve(strict=False) == api_directory
         ) if name == "runne-api" else (
             dependency.get("source") == CARGO_REGISTRY_SOURCE
             and path is None
@@ -224,10 +218,12 @@ def find_native_qualification_violations(root: Path) -> list[str]:
     if not source_root.exists():
         return []
     violations = []
+    crate_text = []
     for path in sorted(source_root.rglob("*.rs")):
         if "tests" in path.relative_to(source_root).parts:
             continue
         text = path.read_text(encoding="utf-8")
+        crate_text.append(text)
         if NATIVE_QUALIFICATION_FORBIDDEN_SOURCE.search(text):
             violations.append(f"{path.relative_to(root).as_posix()} has forbidden authority surface")
         match = NATIVE_QUALIFICATION_PROOF.search(text)
@@ -238,14 +234,9 @@ def find_native_qualification_violations(root: Path) -> list[str]:
         manually_reusable = NATIVE_QUALIFICATION_FORBIDDEN_PROOF_IMPL.search(text)
         if derived_reusable or manually_reusable:
             violations.append(f"{path.relative_to(root).as_posix()} makes verified fault reusable")
-        pending_reusable = any(
-            any(
-                name in pending.group("attributes")
-                for name in ("Clone", "Copy", "Serialize", "Deserialize")
-            )
-            for pending in NATIVE_QUALIFICATION_PENDING.finditer(text)
+    combined = "\n".join(crate_text)
+    if not native_qualification_pending_surface_is_closed(combined):
+        violations.append(
+            f"crates/{NATIVE_QUALIFICATION_PACKAGE}/src exposes pending fault bytes"
         )
-        pending_impl = NATIVE_QUALIFICATION_FORBIDDEN_PENDING_IMPL.search(text)
-        if pending_reusable or pending_impl or NATIVE_QUALIFICATION_RAW_CARRIER.search(text):
-            violations.append(f"{path.relative_to(root).as_posix()} exposes pending fault bytes")
     return violations
