@@ -4,8 +4,10 @@ use std::path::Path;
 
 use syn::{Fields, ImplItem, ImplItemFn, Item, Visibility};
 
+use crate::pending_public_surface::audit_public_surface;
 use crate::pending_surface_aliases::{collect_aliases, ident_is_raw, ident_name, type_name};
 use crate::pending_surface_sources::collect_sources;
+use crate::pending_surface_types::expand_family;
 
 const PENDING: &str = "PendingQualificationFault";
 
@@ -47,21 +49,9 @@ fn audit_files(files: &[(String, syn::File)]) -> Vec<String> {
     for (_, file) in files {
         collect_aliases(&file.items, &mut aliases);
     }
-    let mut family = BTreeSet::from([PENDING.to_owned()]);
-    loop {
-        let before = family.len();
-        for alias in &aliases {
-            if family.contains(&alias.left) || family.contains(&alias.right) {
-                family.insert(alias.left.clone());
-                family.insert(alias.right.clone());
-            }
-        }
-        if family.len() == before {
-            break;
-        }
-    }
+    let family = expand_family(files, &aliases, PENDING);
     let mut audit = Audit::new(&family);
-    for alias in aliases {
+    for alias in &aliases {
         if family.contains(&alias.left) && family.contains(&alias.right) {
             audit.violations.push(format!(
                 "forbidden {} alias {} -> {}{}",
@@ -75,7 +65,9 @@ fn audit_files(files: &[(String, syn::File)]) -> Vec<String> {
     for (source, file) in files {
         audit_items(&file.items, source, &mut audit);
     }
-    audit.finish()
+    let mut violations = audit.finish();
+    violations.extend(audit_public_surface(files, &family, &aliases));
+    violations
 }
 
 struct Audit<'a> {
@@ -116,6 +108,12 @@ impl<'a> Audit<'a> {
 
 fn audit_items(items: &[Item], source: &str, audit: &mut Audit<'_>) {
     for item in items {
+        if source == "pending.rs" && !allowed_defining_item(item) {
+            audit.violations.push(
+                "pending.rs: defining module contains an item outside the closed carrier"
+                    .to_owned(),
+            );
+        }
         match item {
             Item::Struct(item) if ident_name(&item.ident) == PENDING => {
                 audit.declarations += 1;
@@ -167,6 +165,19 @@ fn audit_items(items: &[Item], source: &str, audit: &mut Audit<'_>) {
             }
             _ => {}
         }
+    }
+}
+
+fn allowed_defining_item(item: &Item) -> bool {
+    match item {
+        Item::Use(item) => matches!(item.vis, Visibility::Inherited),
+        Item::Struct(item) => ident_name(&item.ident) == PENDING,
+        Item::Impl(item) => {
+            item.trait_.is_none()
+                && type_name(&item.self_ty).is_some_and(|(name, raw)| name == PENDING && !raw)
+                && matches!(&*item.self_ty, syn::Type::Path(path) if path.path.segments.len() == 1)
+        }
+        _ => false,
     }
 }
 

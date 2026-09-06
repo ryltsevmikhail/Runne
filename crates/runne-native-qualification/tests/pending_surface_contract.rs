@@ -1,22 +1,26 @@
+#[path = "support/pending_public_surface.rs"]
+mod pending_public_surface;
 #[path = "support/pending_surface_aliases.rs"]
 mod pending_surface_aliases;
+#[path = "support/pending_surface_allowlist.rs"]
+mod pending_surface_allowlist;
 #[path = "support/pending_surface_audit.rs"]
 mod pending_surface_audit;
+#[path = "support/pending_surface_fixture.rs"]
+mod pending_surface_fixture;
+#[path = "support/pending_surface_root_tests.rs"]
+mod pending_surface_root_tests;
 #[path = "support/pending_surface_sources.rs"]
 mod pending_surface_sources;
+#[path = "support/pending_surface_types.rs"]
+mod pending_surface_types;
 
 use std::path::Path;
 
-use pending_surface_audit::{audit_crate, audit_sources};
-
-const BASELINE: &str = r"
-pub struct PendingQualificationFault { bytes: Vec<u8> }
-impl PendingQualificationFault {
-    pub fn from_admitted_frame(bytes: Vec<u8>) -> Result<Self, QualificationFaultError> { todo!() }
-    pub fn verify_and_consume(self, verifier: &mut crate::QualificationFaultVerifier, context: &QualificationFaultContext, now_unix_seconds: u64) -> Result<VerifiedQualificationFault, QualificationFaultError> { todo!() }
-    pub fn encode_relay(self, codec: &crate::QualificationFaultRelayCodecV1, binding: &runne_api::QualificationFaultRelayBindingV1) -> Result<Vec<u8>, crate::QualificationFaultRelayError> { todo!() }
-}
-";
+use pending_surface_audit::audit_crate;
+use pending_surface_fixture::{
+    BASELINE, appended, audit_fixture, reject_all, reject_public_all, require_violations,
+};
 
 #[test]
 fn production_pending_carrier_has_the_exact_ast_surface() {
@@ -27,10 +31,7 @@ fn production_pending_carrier_has_the_exact_ast_surface() {
 
 #[test]
 fn reviewed_baseline_is_accepted() {
-    assert_eq!(
-        audit_sources(&[("baseline.rs", BASELINE)]),
-        Vec::<String>::new()
-    );
+    assert_eq!(audit_fixture(BASELINE, &[]), Vec::<String>::new());
 }
 
 #[test]
@@ -203,25 +204,80 @@ fn comments_and_literals_cannot_hide_public_items() {
     ]);
 }
 
-fn appended(mutation: &str) -> String {
-    format!("{BASELINE}\n{mutation}\n")
-}
-
-fn reject_all(cases: &[(&str, String)]) {
-    for (label, source) in cases {
-        let violations = audit_sources(&[(label, source)]);
-        assert!(!violations.is_empty(), "mutation escaped: {label}");
-    }
-}
-
-fn require_violations(label: &str, source: &str, expected: &[&str]) {
-    let violations = audit_sources(&[(label, source)]);
-    for fragment in expected {
-        assert!(
-            violations
-                .iter()
-                .any(|violation| violation.contains(fragment)),
-            "{label} lacked {fragment:?}: {violations:#?}"
-        );
-    }
+#[test]
+fn whole_crate_public_escape_mutations_are_rejected() {
+    reject_public_all(&[
+        (
+            "public consuming free function",
+            "pub fn into_bytes(_: PendingQualificationFault) -> Vec<u8> { todo!() }".to_owned(),
+        ),
+        (
+            "public nested wrapper",
+            "pub struct Wrapper { pending: Option<Box<PendingQualificationFault>> }".to_owned(),
+        ),
+        (
+            "public enum wrapper",
+            "pub enum Wrapper { Pending(Option<Box<PendingQualificationFault>>) }".to_owned(),
+        ),
+        (
+            "public union wrapper",
+            "pub union Wrapper { pending: std::mem::ManuallyDrop<PendingQualificationFault> }"
+                .to_owned(),
+        ),
+        (
+            "public nested type alias",
+            "pub type Wrapper = Option<Box<PendingQualificationFault>>;".to_owned(),
+        ),
+        (
+            "public const wrapper",
+            "pub const LEAK: Option<PendingQualificationFault> = None;".to_owned(),
+        ),
+        (
+            "public trait signature",
+            "pub trait Leak { fn consume(_: PendingQualificationFault); }".to_owned(),
+        ),
+        (
+            "public associated wrapper",
+            "struct Other; impl Other { pub fn consume(_: Option<PendingQualificationFault>) {} }"
+                .to_owned(),
+        ),
+        (
+            "reexported private helper",
+            "struct Helper(PendingQualificationFault); pub use self::Helper as Exported;"
+                .to_owned(),
+        ),
+        (
+            "trait impl for boxed carrier",
+            "trait Leak {} impl Leak for Box<PendingQualificationFault> {}".to_owned(),
+        ),
+        (
+            "nested type alias trait",
+            "type Carrier = Option<Box<PendingQualificationFault>>; impl AsRef<[u8]> for Carrier { fn as_ref(&self) -> &[u8] { &[] } }".to_owned(),
+        ),
+        (
+            "private nested type alias",
+            "type Carrier = Option<Box<PendingQualificationFault>>;".to_owned(),
+        ),
+        (
+            "carrier in implemented trait path",
+            "trait Leak<T> {} struct Other; impl Leak<PendingQualificationFault> for Other {}"
+                .to_owned(),
+        ),
+        (
+            "macro type in public signature",
+            "pub fn leak(_: carrier_type!(PendingQualificationFault)) {}".to_owned(),
+        ),
+        (
+            "macro associated item",
+            "struct Other; impl Other { expose_pending!(PendingQualificationFault); }".to_owned(),
+        ),
+        (
+            "foreign function",
+            "unsafe extern \"C\" { pub fn leak(value: PendingQualificationFault); }".to_owned(),
+        ),
+        (
+            "public trait alias",
+            "pub trait Leak = Iterator<Item = PendingQualificationFault>;".to_owned(),
+        ),
+    ]);
 }

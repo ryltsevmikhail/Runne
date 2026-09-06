@@ -4,14 +4,16 @@
 
 mod compiled_policy;
 mod model;
+mod pending;
 mod relay;
 mod verification;
 mod wire;
 
 pub use model::{
-    PendingQualificationFault, QualificationFaultContext, QualificationFaultError,
-    QualificationFaultSelector, QualificationProcessRole, VerifiedQualificationFault,
+    QualificationFaultContext, QualificationFaultError, QualificationFaultSelector,
+    QualificationProcessRole, VerifiedQualificationFault,
 };
+pub use pending::PendingQualificationFault;
 pub use relay::{QualificationFaultRelayCodecV1, QualificationFaultRelayError};
 pub use verification::QualificationFaultVerifier;
 

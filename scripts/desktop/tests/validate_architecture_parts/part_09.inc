@@ -194,7 +194,7 @@ class NativeQualificationBoundaryTest(unittest.TestCase):
             ),
             cls.dependency("static_assertions", "=1.1.0", kind="dev"),
             cls.dependency(
-                "syn", "^2", kind="dev", features=["extra-traits", "full"],
+                "syn", "^2", kind="dev", features=["extra-traits", "full", "visit"],
             ),
         ]
         return [

@@ -13,7 +13,7 @@ pub fn collect_aliases(items: &[Item], aliases: &mut Vec<Alias>) {
     for item in items {
         match item {
             Item::Type(item) => {
-                if let Some(target) = type_name(&item.ty) {
+                if let Some(target) = direct_alias_target(&item.ty) {
                     aliases.push(Alias {
                         left: ident_name(&item.ident),
                         right: target.0,
@@ -30,6 +30,18 @@ pub fn collect_aliases(items: &[Item], aliases: &mut Vec<Alias>) {
             }
             _ => {}
         }
+    }
+}
+
+fn direct_alias_target(ty: &Type) -> Option<(String, bool)> {
+    match ty {
+        Type::Path(path) if path.qself.is_none() => path.path.segments.last().and_then(|segment| {
+            matches!(segment.arguments, syn::PathArguments::None)
+                .then(|| (ident_name(&segment.ident), ident_is_raw(&segment.ident)))
+        }),
+        Type::Group(group) => direct_alias_target(&group.elem),
+        Type::Paren(paren) => direct_alias_target(&paren.elem),
+        _ => None,
     }
 }
 

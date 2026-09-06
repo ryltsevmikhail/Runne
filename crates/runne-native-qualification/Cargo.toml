@@ -17,7 +17,7 @@ sha2.workspace = true
 [dev-dependencies]
 jsonschema = { version = "=0.18.0", default-features = false, features = ["draft202012"] }
 static_assertions = "=1.1.0"
-syn = { version = "2", features = ["extra-traits", "full"] }
+syn = { version = "2", features = ["extra-traits", "full", "visit"] }
 
 [lints]
 workspace = true
