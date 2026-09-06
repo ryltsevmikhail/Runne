@@ -2,7 +2,10 @@ use std::fmt;
 
 use sha2::{Digest as _, Sha256};
 
-use crate::{MAX_ADMISSION_BUNDLE_BYTES, PendingQualificationFault};
+use crate::{
+    MAX_ADMISSION_BUNDLE_BYTES, PendingQualificationFault, PendingQualificationRunContext,
+    QualificationAdmissionRelayError, QualificationAdmissionRelayPair,
+};
 
 const MAGIC: &[u8; 8] = b"RNQADM1\0";
 const VERSION: u8 = 1;
@@ -20,14 +23,10 @@ impl fmt::Display for QualificationAdmissionError {
 
 impl std::error::Error for QualificationAdmissionError {}
 
-struct PendingQualificationRunContext {
-    _bytes: Vec<u8>,
-}
-
 /// Opaque context-plus-ticket pair retained after bounded semantic admission.
 pub struct PendingQualificationAdmission {
-    _context: PendingQualificationRunContext,
-    _fault: PendingQualificationFault,
+    context: PendingQualificationRunContext,
+    fault: PendingQualificationFault,
 }
 
 impl PendingQualificationAdmission {
@@ -84,11 +83,42 @@ impl PendingQualificationAdmission {
         let fault = PendingQualificationFault::from_admitted_frame(ticket_bytes)
             .map_err(|_| QualificationAdmissionError)?;
         Ok(Self {
-            _context: PendingQualificationRunContext {
-                _bytes: context_bytes,
-            },
-            _fault: fault,
+            context: PendingQualificationRunContext::from_admitted_frame(context_bytes)
+                .map_err(|_| QualificationAdmissionError)?,
+            fault,
         })
+    }
+
+    /// Consumes the admitted pair into one exact context-first relay pair.
+    ///
+    /// # Errors
+    ///
+    /// Rejects mismatched protected sessions, release tuples, generations,
+    /// non-Desktop fault direction, or either closed relay encoding failure.
+    pub fn encode_relays(
+        self,
+        context_codec: &crate::QualificationRunContextRelayCodecV1,
+        context_binding: &runne_api::QualificationRunContextRelayBindingV1,
+        fault_codec: &crate::QualificationFaultRelayCodecV1,
+        fault_binding: &runne_api::QualificationFaultRelayBindingV1,
+    ) -> Result<QualificationAdmissionRelayPair, QualificationAdmissionRelayError> {
+        if context_binding.protected_session_id() != fault_binding.protected_session_id()
+            || context_binding.release_tuple_v3_sha256() != fault_binding.release_tuple_v3_sha256()
+            || context_binding.launch_generation() != fault_binding.launch_generation()
+            || fault_binding.direction()
+                != runne_api::QualificationFaultRelayDirectionV1::DesktopToRuntime
+        {
+            return Err(QualificationAdmissionRelayError);
+        }
+        let context = self
+            .context
+            .encode_relay(context_codec, context_binding)
+            .map_err(|_| QualificationAdmissionRelayError)?;
+        let fault = self
+            .fault
+            .encode_relay(fault_codec, fault_binding)
+            .map_err(|_| QualificationAdmissionRelayError)?;
+        Ok(QualificationAdmissionRelayPair::new(context, fault))
     }
 }
 

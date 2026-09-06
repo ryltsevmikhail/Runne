@@ -19,8 +19,8 @@ use pending_surface_fixture::{BASELINE, audit_fixture};
 
 const ADMISSION: &str = r"
 pub struct PendingQualificationAdmission {
-    _context: PendingQualificationRunContext,
-    _fault: PendingQualificationFault,
+    context: PendingQualificationRunContext,
+    fault: PendingQualificationFault,
 }
 impl PendingQualificationAdmission {
     pub fn from_admitted_bundle(bytes: Vec<u8>) -> Result<Self, QualificationAdmissionError> { todo!() }
@@ -44,7 +44,7 @@ fn exact_admission_wrapper_is_the_only_pending_carrier_exception() {
     for (label, admission, reexport) in [
         (
             "public fault field",
-            ADMISSION.replace("_fault: Pending", "pub _fault: Pending"),
+            ADMISSION.replace("fault: Pending", "pub fault: Pending"),
             REEXPORT.to_owned(),
         ),
         (

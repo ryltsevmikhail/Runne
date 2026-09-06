@@ -3,6 +3,9 @@ use syn::{UseTree, Visibility};
 const SENSITIVE: &[&str] = &[
     "VerifiedQualificationRunContext",
     "PendingQualificationAdmission",
+    "PendingQualificationRunContext",
+    "QualificationAdmissionRelayPair",
+    "QualificationRunContextRelayCodecV1",
     "QualificationRunContextVerifier",
     "PendingQualificationFault",
     "VerifiedQualificationFault",
@@ -31,6 +34,9 @@ pub fn violation(item: &syn::ItemUse, source: &str, depth: usize) -> Option<Stri
                 "context_verification",
                 "model",
                 "pending",
+                "pending_context",
+                "admission_relay",
+                "context_relay",
             ]
             .iter()
             .any(|module| entry.trim_end_matches("::*").ends_with(module))
@@ -76,10 +82,13 @@ fn exact_root_reexport(source: &str, item: &syn::ItemUse) -> bool {
     }
     let allowed = [
         "pub use admission::{PendingQualificationAdmission, QualificationAdmissionError};",
+        "pub use admission_relay::{QualificationAdmissionRelayError, QualificationAdmissionRelayPair};",
         "pub use context_model::{QualificationRunContextError, QualificationRunContextExpectation, QualificationScenario, VerifiedQualificationRunContext,};",
         "pub use context_verification::QualificationRunContextVerifier;",
+        "pub use context_relay::{QualificationRunContextRelayCodecV1, QualificationRunContextRelayError};",
         "pub use model::{QualificationFaultContext, QualificationFaultError, QualificationFaultSelector, QualificationProcessRole, VerifiedQualificationFault,};",
         "pub use pending::PendingQualificationFault;",
+        "pub use pending_context::PendingQualificationRunContext;",
     ];
     allowed.into_iter().any(|source| {
         let expected =

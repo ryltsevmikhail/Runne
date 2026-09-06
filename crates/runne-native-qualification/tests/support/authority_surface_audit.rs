@@ -8,6 +8,9 @@ use crate::authority_use_audit;
 const VERIFIED: &str = "VerifiedQualificationRunContext";
 const ADMISSION: &str = "PendingQualificationAdmission";
 const VERIFIER: &str = "QualificationRunContextVerifier";
+const PENDING_CONTEXT: &str = "PendingQualificationRunContext";
+const RELAY_PAIR: &str = "QualificationAdmissionRelayPair";
+const CONTEXT_CODEC: &str = "QualificationRunContextRelayCodecV1";
 
 pub fn audit_crate(root: &Path) -> Vec<String> {
     let mut sources = Vec::new();
@@ -39,7 +42,14 @@ pub fn audit_sources(sources: &[(&str, &str)]) -> Vec<String> {
             Err(error) => audit.violations.push(format!("{source}: parse: {error}")),
         }
     }
-    for name in [VERIFIED, ADMISSION, VERIFIER] {
+    for name in [
+        VERIFIED,
+        ADMISSION,
+        VERIFIER,
+        PENDING_CONTEXT,
+        RELAY_PAIR,
+        CONTEXT_CODEC,
+    ] {
         if audit
             .declarations
             .iter()
@@ -186,9 +196,10 @@ impl Audit {
         let name = method.sig.ident.to_string();
         let allowed = expected_signature(owner, &name)
             .is_some_and(|expected| signatures_match(&method.sig, &expected));
+        let exact_ordered_output = owner == RELAY_PAIR && name == "into_ordered_frames";
         if !allowed
             || !matches!(method.vis, Visibility::Public(_))
-            || returns_raw(&method.sig.output)
+            || (returns_raw(&method.sig.output) && !exact_ordered_output)
         {
             self.violations
                 .push(format!("{source}: forbidden visible {owner}::{name}"));
@@ -205,9 +216,22 @@ fn expected_signature(owner: &str, method: &str) -> Option<syn::Signature> {
         (ADMISSION, "from_admitted_bundle") => {
             "pub fn from_admitted_bundle(bytes: Vec<u8>) -> Result<Self, QualificationAdmissionError> {}"
         }
+        (ADMISSION, "encode_relays") => {
+            "pub fn encode_relays(self, context_codec: &crate::QualificationRunContextRelayCodecV1, context_binding: &runne_api::QualificationRunContextRelayBindingV1, fault_codec: &crate::QualificationFaultRelayCodecV1, fault_binding: &runne_api::QualificationFaultRelayBindingV1) -> Result<QualificationAdmissionRelayPair, QualificationAdmissionRelayError> {}"
+        }
         (VERIFIER, "from_compiled_policy") => "pub fn from_compiled_policy() -> Self {}",
         (VERIFIER, "verify_and_consume") => {
             "pub fn verify_and_consume(&mut self, bytes: &[u8], expected: &QualificationRunContextExpectation, now_unix_seconds: u64) -> Result<VerifiedQualificationRunContext, QualificationRunContextError> {}"
+        }
+        (RELAY_PAIR, "into_ordered_frames") => {
+            "pub fn into_ordered_frames(self) -> [Vec<u8>; 2] {}"
+        }
+        (CONTEXT_CODEC, "from_protected_activation") => {
+            "pub fn from_protected_activation(keys: &ProtectedActivationKeys) -> Self {}"
+        }
+        (CONTEXT_CODEC, "recognizes_frame") => "pub fn recognizes_frame(frame: &[u8]) -> bool {}",
+        (CONTEXT_CODEC, "decode") => {
+            "pub fn decode(&self, frame: &[u8], expected: &QualificationRunContextRelayBindingV1) -> Result<PendingQualificationRunContext, QualificationRunContextRelayError> {}"
         }
         _ => return None,
     };
@@ -225,7 +249,10 @@ fn signatures_match(actual: &syn::Signature, expected: &syn::Signature) -> bool 
 }
 
 fn guarded(name: &str) -> bool {
-    matches!(name, VERIFIED | ADMISSION | VERIFIER)
+    matches!(
+        name,
+        VERIFIED | ADMISSION | VERIFIER | PENDING_CONTEXT | RELAY_PAIR | CONTEXT_CODEC
+    )
 }
 
 fn type_name(ty: &Type) -> Option<String> {
@@ -239,7 +266,16 @@ fn type_name(ty: &Type) -> Option<String> {
 
 fn mentions(ty: &Type) -> bool {
     let text = format!("{ty:?}");
-    [VERIFIED, ADMISSION, VERIFIER].iter().any(|name| {
+    [
+        VERIFIED,
+        ADMISSION,
+        VERIFIER,
+        PENDING_CONTEXT,
+        RELAY_PAIR,
+        CONTEXT_CODEC,
+    ]
+    .iter()
+    .any(|name| {
         text.split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
             .any(|word| word == *name)
     })

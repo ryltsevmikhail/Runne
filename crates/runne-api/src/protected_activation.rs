@@ -25,6 +25,7 @@ include!("protected_activation/enrollment_transition_v2_view.rs");
 include!("protected_activation/enrollment_transition_v2_prelude.rs");
 include!("protected_activation/credential_broker_transfer_authenticator.rs");
 include!("protected_activation/qualification_fault_relay.rs");
+include!("protected_activation/qualification_run_context_relay.rs");
 mod credential_service;
 pub use credential_service::*;
 #[cfg(test)]

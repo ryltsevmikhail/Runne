@@ -70,12 +70,12 @@ pub fn exact_admission_struct(item: &syn::ItemStruct, source: &str) -> bool {
         && observed
             == [
                 (
-                    Some("_context".to_owned()),
+                    Some("context".to_owned()),
                     Some(("PendingQualificationRunContext".to_owned(), false)),
                     true,
                 ),
                 (
-                    Some("_fault".to_owned()),
+                    Some("fault".to_owned()),
                     Some((PENDING.to_owned(), false)),
                     true,
                 ),
@@ -84,10 +84,14 @@ pub fn exact_admission_struct(item: &syn::ItemStruct, source: &str) -> bool {
 
 pub fn exact_admission_impl(item: &syn::ItemImpl, source: &str) -> bool {
     let owner = type_name(&item.self_ty);
-    let expected = syn::parse_str::<syn::ImplItemFn>(
+    let constructor = syn::parse_str::<syn::ImplItemFn>(
         "pub fn from_admitted_bundle(bytes: Vec<u8>) -> Result<Self, QualificationAdmissionError> {}",
     )
     .expect("valid admission signature");
+    let relay = syn::parse_str::<syn::ImplItemFn>(
+        "pub fn encode_relays(self, context_codec: &crate::QualificationRunContextRelayCodecV1, context_binding: &runne_api::QualificationRunContextRelayBindingV1, fault_codec: &crate::QualificationFaultRelayCodecV1, fault_binding: &runne_api::QualificationFaultRelayBindingV1) -> Result<QualificationAdmissionRelayPair, QualificationAdmissionRelayError> {}",
+    )
+    .expect("valid admission relay signature");
     source == "admission.rs"
         && item.trait_.is_none()
         && owner.is_some_and(|(name, raw)| name == ADMISSION && !raw)
@@ -95,11 +99,23 @@ pub fn exact_admission_impl(item: &syn::ItemImpl, source: &str) -> bool {
         && item.attrs.iter().all(|attr| attr.path().is_ident("doc"))
         && item.generics.params.is_empty()
         && item.generics.where_clause.is_none()
-        && item.items.len() == 1
-        && matches!(&item.items[0], syn::ImplItem::Fn(method)
+        && matches!(item.items.len(), 1 | 2)
+        && item.items.iter().all(|member| {
+            matches!(member, syn::ImplItem::Fn(method)
             if matches!(method.vis, Visibility::Public(_))
                 && method.attrs.iter().all(|attr| attr.path().is_ident("doc"))
-                && signatures_match(&method.sig, &expected.sig))
+                && (signatures_match(&method.sig, &constructor.sig)
+                    || signatures_match(&method.sig, &relay.sig)))
+        })
+        && item
+            .items
+            .iter()
+            .filter(|member| {
+                matches!(member, syn::ImplItem::Fn(method)
+            if signatures_match(&method.sig, &constructor.sig))
+            })
+            .count()
+            == 1
 }
 
 pub fn exact_admission_reexport(item: &syn::ItemUse, source: &str) -> bool {

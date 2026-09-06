@@ -25,6 +25,18 @@ impl QualificationRunContextVerifier {
   pub fn from_compiled_policy() -> Self { todo!() }
   pub fn verify_and_consume(&mut self, bytes: &[u8], expected: &QualificationRunContextExpectation, now_unix_seconds: u64) -> Result<VerifiedQualificationRunContext, QualificationRunContextError> { todo!() }
 }
+/// Pending context.
+pub struct PendingQualificationRunContext { bytes: Vec<u8> }
+/// Ordered output.
+pub struct QualificationAdmissionRelayPair { frames: [Vec<u8>; 2] }
+impl QualificationAdmissionRelayPair { pub fn into_ordered_frames(self) -> [Vec<u8>; 2] { self.frames } }
+/// Context codec.
+pub struct QualificationRunContextRelayCodecV1 { inner: K }
+impl QualificationRunContextRelayCodecV1 {
+  pub fn from_protected_activation(keys: &ProtectedActivationKeys) -> Self { todo!() }
+  pub fn recognizes_frame(frame: &[u8]) -> bool { todo!() }
+  pub fn decode(&self, frame: &[u8], expected: &QualificationRunContextRelayBindingV1) -> Result<PendingQualificationRunContext, QualificationRunContextRelayError> { todo!() }
+}
 ";
 
 #[test]
@@ -56,6 +68,23 @@ fn surface_auditor_rejects_alias_trait_wrapper_getter_and_borrowed_mutations() {
         format!("{BASELINE}\npub use crate::VerifiedQualificationRunContext as ContextLeak;"),
         format!("{BASELINE}\npub use crate::QualificationRunContextVerifier as VerifierLeak;"),
         format!("{BASELINE}\npub use crate::PendingQualificationAdmission as AdmissionLeak;"),
+        format!("{BASELINE}\npub type ContextLeak = PendingQualificationRunContext;"),
+        format!("{BASELINE}\npub struct PairLeak {{ inner: QualificationAdmissionRelayPair }}"),
+        BASELINE.replace(
+            "pub struct PendingQualificationRunContext",
+            "#[derive(Clone)] pub struct PendingQualificationRunContext",
+        ),
+        BASELINE.replace(
+            "pub struct QualificationAdmissionRelayPair",
+            "#[derive(Debug)] pub struct QualificationAdmissionRelayPair",
+        ),
+        BASELINE.replace(
+            "pub fn into_ordered_frames(self)",
+            "pub fn into_ordered_frames(&self)",
+        ),
+        format!(
+            "{BASELINE}\nimpl PendingQualificationRunContext {{ pub fn bytes(&self) -> &[u8] {{ &self.bytes }} }}"
+        ),
         format!("{BASELINE}\npub use crate::context_model::*;"),
         format!("{BASELINE}\nmod nested {{ pub use crate::VerifiedQualificationRunContext; }}"),
     ] {
