@@ -16,9 +16,18 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/../.." && pwd)
-STANDALONE_ROOT=${RUNNE_LOCAL_ENGINE_ROOT:-$(cd -- "$REPO_ROOT/../runne-local-engine" && pwd)}
+ENGINE_ROOT="$REPO_ROOT/local-engine"
 TARGET_TRIPLE=$(rustc -vV | awk '/^host:/ {print $2}')
 BINARIES_DIR="$REPO_ROOT/apps/desktop/src-tauri/binaries"
+
+target_dir() {
+  case "${CARGO_TARGET_DIR:-target}" in
+    /*) printf '%s\n' "${CARGO_TARGET_DIR:-target}" ;;
+    *) printf '%s/%s\n' "$REPO_ROOT" "${CARGO_TARGET_DIR:-target}" ;;
+  esac
+}
+
+TARGET_DIR=$(target_dir)
 
 SKIP_TESTS=0
 for arg in "$@"; do
@@ -29,25 +38,30 @@ for arg in "$@"; do
 done
 
 echo "== building sidecar binaries ($TARGET_TRIPLE)"
-cargo build -p runne-daemon --bin runned -p runne-cli --bin runne
+(cd "$REPO_ROOT" && cargo build --locked --target-dir "$TARGET_DIR" \
+  --target "$TARGET_TRIPLE" -p runne-daemon --bin runned -p runne-cli --bin runne)
 
 mkdir -p "$BINARIES_DIR"
 for bin in runned runne; do
-  cp "target/debug/$bin" "$BINARIES_DIR/$bin-$TARGET_TRIPLE"
+  cp "$TARGET_DIR/$TARGET_TRIPLE/debug/$bin" "$BINARIES_DIR/$bin-$TARGET_TRIPLE"
   echo "installed $BINARIES_DIR/$bin-$TARGET_TRIPLE"
 done
 
 echo "== local engine final gates"
-MATRIX="$STANDALONE_ROOT/docs/profiles/local-engine/PHASE1_QUALIFICATION_MODELS.json"
-python3 "$STANDALONE_ROOT/scripts/local-engine/verify_backend_inventory.py" \
-  --profile "$STANDALONE_ROOT/docs/profiles/local-engine/PHASE1_BACKEND_PROFILE.json" \
-  --lock "$STANDALONE_ROOT/Cargo.lock"
-python3 "$STANDALONE_ROOT/scripts/local-engine/verify-qualification-matrix.py" \
-  --matrix "$MATRIX" --repo-root "$STANDALONE_ROOT"
+MATRIX="$ENGINE_ROOT/docs/profiles/local-engine/PHASE1_QUALIFICATION_MODELS.json"
+python3 "$ENGINE_ROOT/scripts/local-engine/verify_backend_inventory.py" \
+  --profile "$ENGINE_ROOT/docs/profiles/local-engine/PHASE1_BACKEND_PROFILE.json" \
+  --lock "$ENGINE_ROOT/Cargo.lock"
+python3 "$ENGINE_ROOT/scripts/local-engine/verify-qualification-matrix.py" \
+  --matrix "$MATRIX" --repo-root "$ENGINE_ROOT"
 
 if [ "$SKIP_TESTS" -eq 0 ]; then
-  (cd "$STANDALONE_ROOT" && cargo test -p runne-daemon-local-engine-effect -p runne-provider-local)
-  cargo test -p runne-platform-desktop --test local_model_source
+  (cd "$REPO_ROOT" && cargo test --locked --target-dir "$TARGET_DIR" \
+    -p runne-daemon-local-engine-effect)
+  (cd "$ENGINE_ROOT" && cargo test --locked --target-dir "$TARGET_DIR" \
+    -p runne-provider-local)
+  (cd "$REPO_ROOT" && cargo test --locked --target-dir "$TARGET_DIR" \
+    -p runne-platform-desktop --test local_model_source)
 fi
 
 echo "OK: local engine sidecars provisioned and gates passed"

@@ -4,6 +4,9 @@ members = [
   "apps/desktop/src-tauri",
   "crates/*",
 ]
+# The native engine keeps its own locked backend inventory and qualification
+# fixtures, while its source is versioned in this repository.
+exclude = ["local-engine"]
 
 [workspace.package]
 version = "0.0.3"

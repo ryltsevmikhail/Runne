@@ -13,32 +13,46 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/../.." && pwd)
-STANDALONE_ROOT=${RUNNE_LOCAL_ENGINE_ROOT:-$(cd -- "$REPO_ROOT/../runne-local-engine" && pwd)}
+ENGINE_ROOT="$REPO_ROOT/local-engine"
 TARGET_TRIPLE=$(rustc -vV | awk '/^host:/ {print $2}')
 OUT="$REPO_ROOT/dist/local-engine-candidate"
 
-echo "== [1/5] building desktop sidecars"
-cargo build -p runne-daemon --bin runned -p runne-cli --bin runne
-mkdir -p "$OUT/binaries"
-cp "target/debug/runned" "$OUT/binaries/runned-$TARGET_TRIPLE"
-cp "target/debug/runne" "$OUT/binaries/runne-$TARGET_TRIPLE"
+target_dir() {
+  case "${CARGO_TARGET_DIR:-target}" in
+    /*) printf '%s\n' "${CARGO_TARGET_DIR:-target}" ;;
+    *) printf '%s/%s\n' "$REPO_ROOT" "${CARGO_TARGET_DIR:-target}" ;;
+  esac
+}
 
-echo "== [2/5] building the llama.cpp worker (standalone, backend-llama-cpp)"
-(cd "$STANDALONE_ROOT" && CARGO_BUILD_JOBS=4 cargo build -p runne-llama-worker --features backend-llama-cpp)
-WORKER_BIN="$STANDALONE_ROOT/target/debug/runne-llama-worker"
+TARGET_DIR=$(target_dir)
+
+echo "== [1/5] building desktop sidecars"
+(cd "$REPO_ROOT" && cargo build --locked --target-dir "$TARGET_DIR" \
+  --target "$TARGET_TRIPLE" -p runne-daemon --bin runned -p runne-cli --bin runne)
+mkdir -p "$OUT/binaries"
+cp "$TARGET_DIR/$TARGET_TRIPLE/debug/runned" "$OUT/binaries/runned-$TARGET_TRIPLE"
+cp "$TARGET_DIR/$TARGET_TRIPLE/debug/runne" "$OUT/binaries/runne-$TARGET_TRIPLE"
+
+echo "== [2/5] building the llama.cpp worker (backend-llama-cpp)"
+(cd "$ENGINE_ROOT" && CARGO_BUILD_JOBS=4 cargo build --locked --target-dir "$TARGET_DIR" \
+  --target "$TARGET_TRIPLE" -p runne-llama-worker --features backend-llama-cpp)
+WORKER_BIN="$TARGET_DIR/$TARGET_TRIPLE/debug/runne-llama-worker"
 cp "$WORKER_BIN" "$OUT/binaries/runne-llama-worker-$TARGET_TRIPLE"
 
 echo "== [3/5] running the Local Engine final gates"
-python3 "$STANDALONE_ROOT/scripts/local-engine/verify_backend_inventory.py" \
-  --profile "$STANDALONE_ROOT/docs/profiles/local-engine/PHASE1_BACKEND_PROFILE.json" \
-  --lock "$STANDALONE_ROOT/Cargo.lock"
-python3 "$STANDALONE_ROOT/scripts/local-engine/verify-qualification-matrix.py" \
-  --matrix "$STANDALONE_ROOT/docs/profiles/local-engine/PHASE1_QUALIFICATION_MODELS.json" \
-  --repo-root "$STANDALONE_ROOT"
-# Effect boundary tests live in this repo; engine crates in the standalone.
-cargo test -p runne-daemon-local-engine-effect
-(cd "$STANDALONE_ROOT" && cargo test -p runne-provider-local)
-cargo test -p runne-platform-desktop --test local_model_source
+python3 "$ENGINE_ROOT/scripts/local-engine/verify_backend_inventory.py" \
+  --profile "$ENGINE_ROOT/docs/profiles/local-engine/PHASE1_BACKEND_PROFILE.json" \
+  --lock "$ENGINE_ROOT/Cargo.lock"
+python3 "$ENGINE_ROOT/scripts/local-engine/verify-qualification-matrix.py" \
+  --matrix "$ENGINE_ROOT/docs/profiles/local-engine/PHASE1_QUALIFICATION_MODELS.json" \
+  --repo-root "$ENGINE_ROOT"
+# Effect boundary tests live in the root workspace; engine crates are nested.
+(cd "$REPO_ROOT" && cargo test --locked --target-dir "$TARGET_DIR" \
+  -p runne-daemon-local-engine-effect)
+(cd "$ENGINE_ROOT" && cargo test --locked --target-dir "$TARGET_DIR" \
+  -p runne-provider-local)
+(cd "$REPO_ROOT" && cargo test --locked --target-dir "$TARGET_DIR" \
+  -p runne-platform-desktop --test local_model_source)
 
 echo "== [4/5] hashing artifacts"
 : > "$OUT/MANIFEST.txt"
