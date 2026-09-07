@@ -1,0 +1,20 @@
+[package]
+name = "runne-model-store"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+runne-local-model.workspace = true
+rusqlite.workspace = true
+sha2.workspace = true
+hex.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+sha2.workspace = true
+hex.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

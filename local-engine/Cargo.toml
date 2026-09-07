@@ -1,0 +1,41 @@
+[workspace]
+resolver = "3"
+members = ["crates/runne-local-model", "crates/runne-inference-protocol", "crates/runne-model-store", "crates/runne-provider-local", "crates/runne-engine-broker", "crates/runne-inference-host", "crates/runne-engine-platform", "crates/runne-llama-worker"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.95"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+# Phase 1 backend inventory pins (Plan Task 1; see
+# docs/profiles/local-engine/PHASE1_BACKEND_PROFILE.json).
+# Members must reference these exact versions; the inventory verifier
+# rejects any lock entry that diverges from the profile.
+[workspace.dependencies]
+hmac = "=0.12.1"
+hkdf = "=0.12.4"
+sha2 = "=0.10.8"
+hex = "=0.4.3"
+serde_json = "=1.0.151"
+runne-local-model = { path = "crates/runne-local-model" }
+runne-model-store = { path = "crates/runne-model-store" }
+runne-engine-broker = { path = "crates/runne-engine-broker" }
+runne-inference-protocol = { path = "crates/runne-inference-protocol" }
+runne-inference-host = { path = "crates/runne-inference-host" }
+runne-engine-platform = { path = "crates/runne-engine-platform" }
+tempfile = "=3.10.1"
+rusqlite = { version = "=0.34.0", features = ["bundled"] }
+rustix = { version = "=1.1.4", features = ["fs", "net", "process"] }
+tokio-util = { version = "=0.7.14", features = ["io"] }
+serde_json_canonicalizer = "=0.3.2"
+# Already in the llama-cpp-2 0.1.152 dependency tree; pinned as a direct
+# dep of the worker for incremental UTF-8 token assembly (no new crates
+# in the resolved graph).
+encoding_rs = "=0.8.35"
+llama-cpp-2 = "=0.1.152"
+# Lockstep pair of llama-cpp-2 0.1.152 (its own manifest requires
+# "0.1.152"; the caret range admits later 0.1.x, but the generated C
+# API drifts — sampler inits — so the pair is pinned exactly).
+llama-cpp-sys-2 = "=0.1.152"

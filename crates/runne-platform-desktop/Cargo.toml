@@ -19,11 +19,9 @@ test-support = [
 
 [dependencies]
 ed25519-dalek.workspace = true
-# Temporary cross-repo bridge to the standalone Local Engine crates
-# (~/runne-local-engine). To be replaced by a published/git dependency
-# once the engine crates are released (owner decision pending).
-runne-local-model = { path = "../../../runne-local-engine/crates/runne-local-model" }
-runne-model-store = { path = "../../../runne-local-engine/crates/runne-model-store" }
+# In-repository engine workspace; no sibling checkout is required.
+runne-local-model = { path = "../../local-engine/crates/runne-local-model" }
+runne-model-store = { path = "../../local-engine/crates/runne-model-store" }
 runne-api = { path = "../runne-api" }
 runne-platform-ports = { path = "../runne-platform-ports" }
 runne-provider = { path = "../runne-provider" }

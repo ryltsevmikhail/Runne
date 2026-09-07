@@ -52,6 +52,13 @@ if [ "$RUSTC_VER" != "$EXPECTED" ]; then
     exit 1
 fi
 
+# This is a separate workspace; root --workspace does not test its members.
+# Its current descriptor transport is Unix-only, not a Windows qualification.
+case "$(uname -s)" in
+    Linux|Darwin) bash scripts/local-engine/ci.sh "$MODE" ;;
+    *) echo "Local Engine contract suite unavailable on this platform (Unix transport)" ;;
+esac
+
 stage_bundled_binary() {
     local package="$1"
     local bin="$2"

@@ -1,0 +1,7 @@
+# Рабочий мусор инструментов, не часть репо
+.mimosa/
+.playwright-mcp/
+.DS_Store
+__pycache__/
+/target/
+.superpowers/
