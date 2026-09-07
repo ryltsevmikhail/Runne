@@ -22,7 +22,9 @@ ALLOWED_RUST_DEPENDENCIES: dict[str, set[str]] = {
     },
     "runne-platform-desktop": {
         "runne-api",
+        "runne-local-model",
         "runne-macos-xpc",
+        "runne-model-store",
         "runne-platform-ports",
         "runne-provider",
         "runne-runtime-client",

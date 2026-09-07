@@ -1,0 +1,13 @@
+{
+  "profileId": "gocode-local-engine-text/1",
+  "revision": "1",
+  "provider": "local",
+  "model": "local-engine-text",
+  "maxInputBytes": 65536,
+  "maxInputEntries": 64,
+  "maxInputEntryBytes": 32768,
+  "maxOutputTokens": 1024,
+  "maxRequestBytes": 98304,
+  "currency": "XXX",
+  "priceMicrosPerCall": 0
+}

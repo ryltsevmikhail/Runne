@@ -286,3 +286,5 @@ fn get_diagnostics(state: State<'_, Arc<AppCore>>) -> Result<DiagnosticsSnapshot
 include!("runtime_connect.rs");
 
 include!("destructive_commands.rs");
+
+include!("local_model_commands.rs");

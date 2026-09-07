@@ -127,6 +127,7 @@ fn provider(provider: &ProviderId) -> Result<ProviderCredentialId, SecureStoreEr
     match provider.as_str() {
         "openai" => Ok(ProviderCredentialId::OpenAi),
         "deepseek" => Ok(ProviderCredentialId::DeepSeek),
+        "local-engine" => Ok(ProviderCredentialId::LocalEngine),
         _ => Err(SecureStoreError::UnsupportedSecureStoreBackend),
     }
 }

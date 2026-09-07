@@ -66,6 +66,7 @@ impl DoctorReport {
                 ProviderActivation::DeepSeekResponsesText(_) => {
                     self.deepseek_credential.is_configured()
                 }
+                ProviderActivation::LocalEngineText(_) => true,
             },
         }
     }
@@ -74,6 +75,12 @@ impl DoctorReport {
 fn active_provider_info(activation: &ProviderActivation) -> Option<ActiveProviderInfo> {
     match activation {
         ProviderActivation::Deterministic(_) => None,
+        ProviderActivation::LocalEngineText(binding) => Some(ActiveProviderInfo {
+            activation: activation.clone(),
+            profile_id: binding.profile_id().to_owned(),
+            model_id: "local-engine-text",
+            model_revision: "v1",
+        }),
         ProviderActivation::OpenAiResponsesText(binding) => Some(ActiveProviderInfo {
             activation: activation.clone(),
             profile_id: binding.profile_id().to_owned(),
@@ -140,6 +147,7 @@ pub fn format_report(report: &DoctorReport) -> String {
                     ProviderActivation::Deterministic(_) => "deterministic",
                     ProviderActivation::OpenAiResponsesText(_) => "openai",
                     ProviderActivation::DeepSeekResponsesText(_) => "deepseek",
+                    ProviderActivation::LocalEngineText(_) => "local-engine",
                 }
             );
             let _ = writeln!(output, "profile: {}", info.profile_id);

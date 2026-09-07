@@ -172,3 +172,4 @@ mod tests {
         include!("tests/root_files.rs");
     }
 }
+pub mod local_model_source;

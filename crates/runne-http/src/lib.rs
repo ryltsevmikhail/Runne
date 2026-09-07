@@ -13,6 +13,7 @@ pub mod editors;
 pub mod error;
 pub mod health;
 pub mod limits;
+pub mod local_engine;
 pub mod local_session;
 pub mod middleware;
 pub mod opencode;
