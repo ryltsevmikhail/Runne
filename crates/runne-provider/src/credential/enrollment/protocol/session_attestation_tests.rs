@@ -2,6 +2,14 @@
 mod codec;
 #[path = "session_attestation_tests/issue_ticket.rs"]
 mod issue_ticket;
+#[path = "session_attestation_tests/qualification.rs"]
+mod qualification;
+#[path = "session_attestation_tests/qualification_admission.rs"]
+mod qualification_admission;
+#[path = "session_attestation_tests/qualification_receiver.rs"]
+mod qualification_receiver;
+#[path = "session_attestation_tests/qualification_release.rs"]
+mod qualification_release;
 #[path = "session_attestation_tests/signer.rs"]
 mod signer;
 #[path = "session_attestation_tests/support.rs"]

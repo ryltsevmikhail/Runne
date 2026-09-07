@@ -110,6 +110,24 @@ pub(super) fn command(operation: u8, attempt: u64, version: u64) -> CredentialBr
 }
 
 pub(super) fn claims(frame: &CredentialBrokerFrame) -> CredentialWriterSessionAttestationClaimsV1 {
+    claims_for_window(frame, 13, 14)
+}
+
+pub(super) fn current_claims(
+    frame: &CredentialBrokerFrame,
+) -> CredentialWriterSessionAttestationClaimsV1 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    claims_for_window(frame, now, now + 3_600)
+}
+
+fn claims_for_window(
+    frame: &CredentialBrokerFrame,
+    issued_at: i64,
+    expires_at: i64,
+) -> CredentialWriterSessionAttestationClaimsV1 {
     let issue = CredentialIssueTicketBindingV1::from_issue_ticket(frame).unwrap();
     let CredentialBrokerFrame::IssueTicket {
         operation_id,
@@ -128,8 +146,8 @@ pub(super) fn claims(frame: &CredentialBrokerFrame) -> CredentialWriterSessionAt
             *binding,
             crate::CredentialInstallationOwnerId::from_bytes([5; 32]).unwrap(),
             digest(6),
-            13,
-            14,
+            issued_at,
+            expires_at,
         )
         .unwrap(),
         CredentialWriterSessionRuntimeClaimsV1::new(

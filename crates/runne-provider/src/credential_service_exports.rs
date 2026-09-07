@@ -16,4 +16,8 @@ pub use credential::{
     CredentialWriterBrokerHandoffFrame, CredentialWriterConsumeRequest,
     CredentialWriterIngressRequest,
     CredentialWriterServiceBindingHandoff,
+    ServiceQualificationCommon, ServiceQualificationProtocolCodec,
+    ServiceQualificationRejectionCode, ServiceQualificationReplyFrame,
+    ServiceQualificationRequest, ServiceQualificationRequestKind,
+    ServiceQualificationRequestPayload,
 };

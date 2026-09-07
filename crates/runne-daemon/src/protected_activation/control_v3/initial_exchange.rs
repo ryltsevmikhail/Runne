@@ -26,6 +26,8 @@ mod connected_tests;
 #[cfg(all(test, target_os = "macos"))]
 mod qualification_admission_tests;
 #[cfg(all(test, target_os = "macos"))]
+pub(crate) use qualification_admission_tests::support::writer_admission_bundle_for_at;
+#[cfg(all(test, target_os = "macos"))]
 pub(crate) mod session_test_support;
 #[cfg(all(test, target_os = "macos"))]
 mod tests;
@@ -66,11 +68,12 @@ pub(super) fn run(
 pub(crate) struct VerifiedQualificationAdmission {
     _admission: PendingQualificationAdmission,
     owned: Box<runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3>,
+    members: qualification_fence::QualificationAdmissionMembers,
 }
 
 #[cfg(target_os = "macos")]
 #[path = "initial_exchange/qualification_fence.rs"]
-mod qualification_fence;
+pub(crate) mod qualification_fence;
 
 #[cfg(target_os = "macos")]
 enum InitialQualificationFrame {
@@ -84,6 +87,7 @@ fn verify_and_retain_qualification_admission(
     owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
     verifier: &mut runne_native_qualification::QualificationAdmissionVerifier,
     admission: runne_native_qualification::PendingQualificationAdmission,
+    members: qualification_fence::QualificationAdmissionMembers,
     now_unix_seconds: u64,
 ) -> Result<VerifiedQualificationAdmission, LaunchAuthorityError> {
     installed
@@ -92,7 +96,27 @@ fn verify_and_retain_qualification_admission(
     Ok(VerifiedQualificationAdmission {
         _admission: admission,
         owned: Box::new(owned.clone()),
+        members,
     })
+}
+
+#[cfg(test)]
+pub(crate) fn verify_and_retain_qualification_admission_for_test(
+    installed: &runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts,
+    owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
+    verifier: &mut runne_native_qualification::QualificationAdmissionVerifier,
+    admission: runne_native_qualification::PendingQualificationAdmission,
+    members: qualification_fence::QualificationAdmissionMembers,
+    now_unix_seconds: u64,
+) -> Result<VerifiedQualificationAdmission, LaunchAuthorityError> {
+    verify_and_retain_qualification_admission(
+        installed,
+        owned,
+        verifier,
+        admission,
+        members,
+        now_unix_seconds,
+    )
 }
 
 #[cfg(target_os = "macos")]
@@ -206,11 +230,17 @@ fn read_initial_qualification(
     let admission = QualificationAdmissionRelayCodecV1::from_protected_activation(keys)
         .decode_transcript(&transcript, &context_binding, &fault_binding)
         .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
+    let members = qualification_fence::QualificationAdmissionMembers::from_relay_frames(
+        &context_frame,
+        &fault_frame,
+    )
+    .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
     verify_and_retain_qualification_admission(
         installed,
         owned,
         verifier,
         admission,
+        members,
         now_unix_seconds,
     )
     .map(InitialQualificationFrame::Verified)

@@ -1,6 +1,8 @@
 use runne_platform_ports::credential_service::{
     CredentialServiceCallContext, CredentialServiceDesktopPort, CredentialServiceDesktopReply,
-    CredentialServiceDesktopRequest, CredentialServicePortFuture, CredentialServiceRuntimePort,
+    CredentialServiceDesktopRequest, CredentialServicePortError, CredentialServicePortFuture,
+    CredentialServiceQualificationPort, CredentialServiceQualificationReply,
+    CredentialServiceQualificationRequest, CredentialServiceRuntimePort,
     CredentialServiceRuntimeReply, CredentialServiceRuntimeRequest, CredentialServiceWriterPort,
     CredentialServiceWriterReply, CredentialServiceWriterRequest,
 };
@@ -188,6 +190,19 @@ impl CredentialServiceRuntimePort for CredentialServiceRuntimeXpcClient {
         context: CredentialServiceCallContext,
     ) -> CredentialServicePortFuture<'_, CredentialServiceRuntimeReply> {
         exchange_method!(self, request, context, CredentialServiceRuntimeReply)
+    }
+}
+
+impl CredentialServiceQualificationPort for CredentialServiceRuntimeXpcClient {
+    fn qualify(
+        &self,
+        request: CredentialServiceQualificationRequest,
+        context: CredentialServiceCallContext,
+    ) -> CredentialServicePortFuture<'_, CredentialServiceQualificationReply> {
+        Box::pin(async move {
+            let _ = (request, context);
+            Err(CredentialServicePortError::Unsupported)
+        })
     }
 }
 

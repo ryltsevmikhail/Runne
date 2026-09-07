@@ -26,34 +26,12 @@ impl CredentialWriterSessionAttestationCodec {
     /// Encodes the record in its sole canonical fixed-width form.
     #[must_use]
     pub fn encode(value: &SignedCredentialWriterSessionAttestationV1) -> [u8; BYTES] {
-        let ticket = &value.claims.ticket;
-        let runtime = &value.claims.runtime;
-        let process = &value.claims.process;
         let mut bytes = [0; BYTES];
-        bytes[0] = VERSION;
-        bytes[1..17].copy_from_slice(&ticket.operation.as_bytes());
-        bytes[17..25].copy_from_slice(&ticket.attempt.get().to_be_bytes());
-        bytes[25..57].copy_from_slice(&ticket.issue_ticket.digest().as_bytes());
-        bytes[57..89].copy_from_slice(&ticket.claim.as_bytes());
-        bytes[89..121].copy_from_slice(&ticket.owner.as_bytes());
-        bytes[121..153].copy_from_slice(&ticket.begin_proof.as_bytes());
-        bytes[153..185].copy_from_slice(&runtime.protected_session.as_bytes());
-        bytes[185..217].copy_from_slice(&runtime.tauri_peer.as_bytes());
-        bytes[217..249].copy_from_slice(&runtime.daemon_authority.as_bytes());
-        bytes[249..257].copy_from_slice(&runtime.database_generation.to_be_bytes());
-        bytes[257..265].copy_from_slice(&runtime.supervisor_generation.to_be_bytes());
-        bytes[265..297].copy_from_slice(&runtime.release_tuple.as_bytes());
-        bytes[297..305].copy_from_slice(&ticket.issued_at.to_be_bytes());
-        bytes[305..313].copy_from_slice(&ticket.expires_at.to_be_bytes());
-        bytes[313..345].copy_from_slice(&value.channel.as_bytes());
-        bytes[345..377].copy_from_slice(&value.publication_public_key);
-        bytes[377..409].copy_from_slice(&process.handoff.as_bytes());
-        bytes[409..441].copy_from_slice(&process.writer_start.as_bytes());
-        bytes[441..473].copy_from_slice(&process.writer_image.as_bytes());
-        bytes[473..505].copy_from_slice(&process.writer_ownership.as_bytes());
-        bytes[505..537].copy_from_slice(&process.daemon_start.as_bytes());
-        bytes[537..569].copy_from_slice(&process.daemon_image.as_bytes());
-        bytes[569..577].copy_from_slice(&SEQUENCE.to_be_bytes());
+        bytes[..SIGNED_BYTES].copy_from_slice(&encode_v1_body(
+            &value.claims,
+            value.channel,
+            value.publication_public_key,
+        ));
         bytes[577..].copy_from_slice(&value.signature);
         bytes
     }
@@ -71,49 +49,7 @@ impl CredentialWriterSessionAttestationCodec {
         {
             return Err(CredentialEnrollmentError::InvalidFrame);
         }
-        let operation = CredentialOperationId::from_bytes(fixed(bytes, 1)?)
-            .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
-        let attempt = CredentialTicketAttempt::new(u64::from_be_bytes(fixed(bytes, 17)?))
-            .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
-        let claim = digest(fixed(bytes, 57)?)?;
-        let channel = digest(fixed(bytes, 313)?)?;
-        let issue_ticket = CredentialIssueTicketBindingV1::from_attested_digest(
-            fixed(bytes, 25)?,
-            operation,
-            attempt,
-            claim,
-            channel,
-        )?;
-        let ticket = CredentialWriterSessionTicketClaimsV1::new(
-            operation,
-            attempt,
-            issue_ticket,
-            claim,
-            CredentialInstallationOwnerId::from_bytes(fixed(bytes, 89)?)
-                .map_err(|_| CredentialEnrollmentError::InvalidFrame)?,
-            digest(fixed(bytes, 121)?)?,
-            i64::from_be_bytes(fixed(bytes, 297)?),
-            i64::from_be_bytes(fixed(bytes, 305)?),
-        )
-        .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
-        let runtime = CredentialWriterSessionRuntimeClaimsV1::new(
-            digest(fixed(bytes, 153)?)?,
-            digest(fixed(bytes, 185)?)?,
-            digest(fixed(bytes, 217)?)?,
-            u64::from_be_bytes(fixed(bytes, 249)?),
-            u64::from_be_bytes(fixed(bytes, 257)?),
-            digest(fixed(bytes, 265)?)?,
-        )
-        .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
-        let process = CredentialWriterSessionProcessClaimsV1::new(
-            digest(fixed(bytes, 377)?)?,
-            digest(fixed(bytes, 409)?)?,
-            digest(fixed(bytes, 441)?)?,
-            digest(fixed(bytes, 473)?)?,
-            digest(fixed(bytes, 505)?)?,
-            digest(fixed(bytes, 537)?)?,
-        )
-        .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
+        let (claims, channel, _) = decode_body(bytes, expected_public_key)?;
         signature::UnparsedPublicKey::new(&signature::ED25519, expected_public_key)
             .verify(
                 &[DOMAIN, &bytes[..SIGNED_BYTES]].concat(),
@@ -121,7 +57,7 @@ impl CredentialWriterSessionAttestationCodec {
             )
             .map_err(|_| CredentialEnrollmentError::InvalidEvidence)?;
         Ok(SignedCredentialWriterSessionAttestationV1 {
-            claims: CredentialWriterSessionAttestationClaimsV1::new(ticket, runtime, process),
+            claims,
             channel,
             publication_public_key: expected_public_key,
             signature: fixed(bytes, 577)?,
@@ -139,6 +75,109 @@ impl CredentialWriterSessionAttestationCodec {
             .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
         Self::decode_and_verify(&bytes, expected_public_key)
     }
+}
+
+pub(super) fn decode_body(
+    bytes: &[u8],
+    expected_public_key: [u8; 32],
+) -> Result<
+    (
+        CredentialWriterSessionAttestationClaimsV1,
+        CredentialBindingDigest,
+        [u8; 32],
+    ),
+    CredentialEnrollmentError,
+> {
+    if bytes.len() < SIGNED_BYTES
+        || expected_public_key == [0; 32]
+        || bytes[345..377] != expected_public_key
+    {
+        return Err(CredentialEnrollmentError::InvalidFrame);
+    }
+    let operation = CredentialOperationId::from_bytes(fixed(bytes, 1)?)
+        .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
+    let attempt = CredentialTicketAttempt::new(u64::from_be_bytes(fixed(bytes, 17)?))
+        .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
+    let claim = digest(fixed(bytes, 57)?)?;
+    let channel = digest(fixed(bytes, 313)?)?;
+    let issue_ticket = CredentialIssueTicketBindingV1::from_attested_digest(
+        fixed(bytes, 25)?,
+        operation,
+        attempt,
+        claim,
+        channel,
+    )?;
+    let ticket = CredentialWriterSessionTicketClaimsV1::new(
+        operation,
+        attempt,
+        issue_ticket,
+        claim,
+        CredentialInstallationOwnerId::from_bytes(fixed(bytes, 89)?)
+            .map_err(|_| CredentialEnrollmentError::InvalidFrame)?,
+        digest(fixed(bytes, 121)?)?,
+        i64::from_be_bytes(fixed(bytes, 297)?),
+        i64::from_be_bytes(fixed(bytes, 305)?),
+    )
+    .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
+    let runtime = CredentialWriterSessionRuntimeClaimsV1::new(
+        digest(fixed(bytes, 153)?)?,
+        digest(fixed(bytes, 185)?)?,
+        digest(fixed(bytes, 217)?)?,
+        u64::from_be_bytes(fixed(bytes, 249)?),
+        u64::from_be_bytes(fixed(bytes, 257)?),
+        digest(fixed(bytes, 265)?)?,
+    )
+    .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
+    let process = CredentialWriterSessionProcessClaimsV1::new(
+        digest(fixed(bytes, 377)?)?,
+        digest(fixed(bytes, 409)?)?,
+        digest(fixed(bytes, 441)?)?,
+        digest(fixed(bytes, 473)?)?,
+        digest(fixed(bytes, 505)?)?,
+        digest(fixed(bytes, 537)?)?,
+    )
+    .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
+    Ok((
+        CredentialWriterSessionAttestationClaimsV1::new(ticket, runtime, process),
+        channel,
+        expected_public_key,
+    ))
+}
+
+pub(super) fn encode_v1_body(
+    claims: &CredentialWriterSessionAttestationClaimsV1,
+    channel: CredentialBindingDigest,
+    publication_public_key: [u8; 32],
+) -> [u8; SIGNED_BYTES] {
+    let ticket = &claims.ticket;
+    let runtime = &claims.runtime;
+    let process = &claims.process;
+    let mut bytes = [0; SIGNED_BYTES];
+    bytes[0] = VERSION;
+    bytes[1..17].copy_from_slice(&ticket.operation.as_bytes());
+    bytes[17..25].copy_from_slice(&ticket.attempt.get().to_be_bytes());
+    bytes[25..57].copy_from_slice(&ticket.issue_ticket.digest().as_bytes());
+    bytes[57..89].copy_from_slice(&ticket.claim.as_bytes());
+    bytes[89..121].copy_from_slice(&ticket.owner.as_bytes());
+    bytes[121..153].copy_from_slice(&ticket.begin_proof.as_bytes());
+    bytes[153..185].copy_from_slice(&runtime.protected_session.as_bytes());
+    bytes[185..217].copy_from_slice(&runtime.tauri_peer.as_bytes());
+    bytes[217..249].copy_from_slice(&runtime.daemon_authority.as_bytes());
+    bytes[249..257].copy_from_slice(&runtime.database_generation.to_be_bytes());
+    bytes[257..265].copy_from_slice(&runtime.supervisor_generation.to_be_bytes());
+    bytes[265..297].copy_from_slice(&runtime.release_tuple.as_bytes());
+    bytes[297..305].copy_from_slice(&ticket.issued_at.to_be_bytes());
+    bytes[305..313].copy_from_slice(&ticket.expires_at.to_be_bytes());
+    bytes[313..345].copy_from_slice(&channel.as_bytes());
+    bytes[345..377].copy_from_slice(&publication_public_key);
+    bytes[377..409].copy_from_slice(&process.handoff.as_bytes());
+    bytes[409..441].copy_from_slice(&process.writer_start.as_bytes());
+    bytes[441..473].copy_from_slice(&process.writer_image.as_bytes());
+    bytes[473..505].copy_from_slice(&process.writer_ownership.as_bytes());
+    bytes[505..537].copy_from_slice(&process.daemon_start.as_bytes());
+    bytes[537..569].copy_from_slice(&process.daemon_image.as_bytes());
+    bytes[569..577].copy_from_slice(&SEQUENCE.to_be_bytes());
+    bytes
 }
 
 pub(super) fn signature_message(value: &SignedCredentialWriterSessionAttestationV1) -> Vec<u8> {

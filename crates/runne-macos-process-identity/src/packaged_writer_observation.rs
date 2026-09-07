@@ -5,8 +5,8 @@
     reason = "crate-root tests exercise private observation layers"
 )]
 
-pub(super) mod artifact;
-pub(super) mod package;
+pub(crate) mod artifact;
+pub(crate) mod package;
 pub(super) mod process;
 pub(super) mod security_code;
 

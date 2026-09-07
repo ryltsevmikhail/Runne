@@ -17,16 +17,18 @@ fn rust_sources(directory: &Path, output: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(directory).expect("source directory") {
         let path = entry.expect("source entry").path();
         if path.is_dir() {
-            let is_test_tree = path
-                .file_name()
-                .is_some_and(|name| name.to_string_lossy().contains("test"));
+            let is_test_tree = path.file_name().is_some_and(|name| {
+                let name = name.to_string_lossy();
+                name == "tests" || name.ends_with("_tests")
+            });
             if !is_test_tree {
                 rust_sources(&path, output);
             }
         } else if path.extension().is_some_and(|extension| extension == "rs")
-            && path
-                .file_stem()
-                .is_none_or(|stem| !stem.to_string_lossy().contains("test"))
+            && path.file_stem().is_none_or(|stem| {
+                let stem = stem.to_string_lossy();
+                stem != "tests" && !stem.ends_with("_tests")
+            })
         {
             output.push(path);
         }
@@ -55,7 +57,7 @@ fn pending_ticket_has_one_opaque_reader_and_no_escape_surface() {
             .count(),
         1
     );
-    assert_eq!(source.matches("Ok(Self { frame, binding })").count(), 1);
+    assert_eq!(source.matches("Ok(Self {\n            frame,").count(), 1);
     let fields = source
         .split_once("pub struct PendingCredentialIssueTicketV1 {")
         .and_then(|(_, rest)| rest.split_once('}'))
@@ -167,5 +169,89 @@ fn macos_consumer_never_recovers_release_binding_from_attestation_wire_bytes() {
                 path.display(),
             );
         }
+    }
+}
+
+#[test]
+fn verified_release_receiver_binding_has_one_production_seam_and_no_raw_factory() {
+    let provider = crate_root();
+    let workspace = provider.parent().and_then(Path::parent).unwrap();
+    let mut sources = Vec::new();
+    rust_sources(&workspace.join("crates"), &mut sources);
+    let mut binding_sites = sources
+        .iter()
+        .filter(|path| production_source(path).contains("bind_verified_qualification_release("))
+        .map(|path| path.strip_prefix(workspace).unwrap().to_owned())
+        .collect::<Vec<_>>();
+    binding_sites.sort();
+    assert_eq!(
+        binding_sites,
+        vec![
+            PathBuf::from(
+                "crates/runne-provider/src/credential/enrollment/protocol/\
+session_attestation/qualified/receiver.rs",
+            ),
+            PathBuf::from(
+                "crates/runne-secure-store/src/provider_credential/broker/writer/\
+native_authenticated.rs",
+            ),
+        ]
+    );
+    let receiver = production_source(&workspace.join(
+        "crates/runne-provider/src/credential/enrollment/protocol/\
+session_attestation/qualified/receiver.rs",
+    ));
+    assert!(receiver.contains("release: &runne_api::VerifiedSignedInstalledReleaseV2"));
+    assert!(!receiver.contains(
+        "pub fn bind_verified_qualification_release(\n        mut self,\n        candidate"
+    ));
+    let release = production_source(&workspace.join(
+        "crates/runne-api/src/provider_credential_enrollment/signed_installed_release/binding.rs",
+    ));
+    assert!(!release.contains("test_only_from_verifying_keys"));
+}
+
+#[test]
+fn writer_fault_transition_has_exact_native_sites_and_one_receiver_call() {
+    let provider = crate_root();
+    let workspace = provider.parent().and_then(Path::parent).unwrap();
+    let mut sources = Vec::new();
+    rust_sources(&workspace.join("crates"), &mut sources);
+    let mut transition_sites = sources
+        .iter()
+        .filter_map(|path| {
+            let count = production_source(path)
+                .matches("verify_exact_writer_fault_borrowed")
+                .count();
+            (count != 0).then(|| (path.strip_prefix(workspace).unwrap().to_owned(), count))
+        })
+        .collect::<Vec<_>>();
+    transition_sites.sort();
+    assert_eq!(
+        transition_sites,
+        [
+            (
+                PathBuf::from("crates/runne-native-qualification/src/admission.rs"),
+                1,
+            ),
+            (
+                PathBuf::from("crates/runne-native-qualification/src/admission_verification.rs",),
+                2,
+            ),
+            (
+                PathBuf::from(
+                    "crates/runne-provider/src/credential/enrollment/protocol/\
+session_attestation/qualified/receiver.rs",
+                ),
+                1,
+            ),
+        ]
+    );
+    for path in sources {
+        assert!(
+            !production_source(&path).contains("take_writer_fault("),
+            "{} retains a shared Writer fault extractor",
+            path.display(),
+        );
     }
 }

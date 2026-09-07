@@ -9,14 +9,14 @@ use super::super::MacOsPackagedWriterObservationError;
 const MAX_ROLE_BYTES: u64 = 64 * 1024 * 1024;
 const HASH_CHUNK_BYTES: usize = 16 * 1024;
 
-pub(super) struct RetainedArtifact {
+pub(crate) struct RetainedArtifact {
     file: File,
     captured: ArtifactSnapshot,
     digest: [u8; 32],
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
-pub(super) struct ArtifactSnapshot {
+pub(crate) struct ArtifactSnapshot {
     pub(super) device: u64,
     pub(super) inode: u64,
     pub(super) uid: u32,
@@ -30,16 +30,32 @@ pub(super) struct ArtifactSnapshot {
 }
 
 impl RetainedArtifact {
-    pub(super) fn capture(
+    pub(crate) fn capture(
         file: File,
         root_device: u64,
         root_uid: u32,
         executable: bool,
     ) -> Result<Self, MacOsPackagedWriterObservationError> {
-        let captured = snapshot(&file)?;
+        let captured = Self::preflight(&file, root_device, root_uid, executable)?;
+        Self::capture_preflight(file, captured)
+    }
+
+    pub(crate) fn preflight(
+        file: &File,
+        root_device: u64,
+        root_uid: u32,
+        executable: bool,
+    ) -> Result<ArtifactSnapshot, MacOsPackagedWriterObservationError> {
+        let captured = snapshot(file)?;
         valid_file_shape(&captured, root_device, root_uid, executable)
-            .then_some(())
-            .ok_or(MacOsPackagedWriterObservationError::Rejected)?;
+            .then_some(captured)
+            .ok_or(MacOsPackagedWriterObservationError::Rejected)
+    }
+
+    pub(crate) fn capture_preflight(
+        file: File,
+        captured: ArtifactSnapshot,
+    ) -> Result<Self, MacOsPackagedWriterObservationError> {
         let digest = measure(&file, &captured)?;
         Ok(Self {
             file,
@@ -48,30 +64,38 @@ impl RetainedArtifact {
         })
     }
 
-    pub(super) fn revalidate(&self) -> Result<(), MacOsPackagedWriterObservationError> {
+    pub(crate) fn revalidate(&self) -> Result<(), MacOsPackagedWriterObservationError> {
         (snapshot(&self.file)? == self.captured
             && measure(&self.file, &self.captured)? == self.digest)
             .then_some(())
             .ok_or(MacOsPackagedWriterObservationError::Rejected)
     }
 
-    pub(super) fn matches(&self, other: &Self) -> bool {
+    pub(crate) fn matches(&self, other: &Self) -> bool {
         self.captured == other.captured && self.digest == other.digest
     }
 
-    pub(super) fn distinct_from(&self, other: &Self) -> bool {
+    pub(crate) fn distinct_from(&self, other: &Self) -> bool {
         let another_vnode = (self.captured.device, self.captured.inode)
             != (other.captured.device, other.captured.inode);
         let another_digest = self.digest != other.digest;
         another_vnode && another_digest
     }
 
-    pub(super) const fn snapshot(&self) -> &ArtifactSnapshot {
+    pub(crate) fn same_vnode(&self, other: &Self) -> bool {
+        (self.captured.device, self.captured.inode) == (other.captured.device, other.captured.inode)
+    }
+
+    pub(crate) const fn snapshot(&self) -> &ArtifactSnapshot {
         &self.captured
     }
 
-    pub(super) const fn digest(&self) -> &[u8; 32] {
+    pub(crate) const fn digest(&self) -> &[u8; 32] {
         &self.digest
+    }
+
+    pub(crate) const fn file_for_read(&self) -> &File {
+        &self.file
     }
 
     #[cfg(test)]
@@ -79,7 +103,7 @@ impl RetainedArtifact {
         self.digest[0] ^= 0x80;
     }
 
-    pub(super) fn observe_executable_mapping(
+    pub(crate) fn observe_executable_mapping(
         &self,
         pid: NonZeroU32,
     ) -> Result<crate::ffi::ExecutableVnodeIdentity, MacOsPackagedWriterObservationError> {
@@ -95,7 +119,7 @@ fn snapshot(file: &File) -> Result<ArtifactSnapshot, MacOsPackagedWriterObservat
 }
 
 impl ArtifactSnapshot {
-    pub(super) fn from_file_for_match(
+    pub(crate) fn from_file_for_match(
         file: &File,
     ) -> Result<Self, MacOsPackagedWriterObservationError> {
         snapshot(file)
@@ -130,6 +154,12 @@ impl ArtifactSnapshot {
             modified_seconds: 1,
             modified_nanoseconds: 1,
         }
+    }
+}
+
+impl ArtifactSnapshot {
+    pub(crate) const fn length(&self) -> u64 {
+        self.length
     }
 }
 

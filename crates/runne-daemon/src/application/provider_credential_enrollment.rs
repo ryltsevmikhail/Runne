@@ -19,6 +19,8 @@ mod status;
 mod verified_frames;
 
 pub(crate) use control_facade::DaemonProviderCredentialEnrollmentControl;
+#[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+pub(crate) use control_facade::PostcommitAdmissionPermit;
 #[cfg(any(test, feature = "desktop-protected"))]
 pub(crate) use control_facade::{
     DaemonProtectedCredentialEnrollmentSession, InitialCredentialExchange,

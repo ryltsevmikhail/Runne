@@ -7,6 +7,7 @@ for name in (
     "checks.inc",
     "renderer_channel_checks.inc",
     "credential_service_core_dependencies.inc",
+    "native_qualification_receiver.inc",
     "native_qualification.inc",
     "native_qualification_delivery_scan.inc",
     "native_process_identity.inc",

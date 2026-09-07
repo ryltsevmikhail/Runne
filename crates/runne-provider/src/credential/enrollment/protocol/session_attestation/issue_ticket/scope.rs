@@ -40,7 +40,7 @@ impl CredentialWriterCommandScopeV1 {
     /// Current packaged-writer scope without N-to-N+1 identity migration.
     pub const D1_1A: Self = Self(());
 
-    pub(super) const fn classify(
+    pub(crate) const fn classify(
         self,
         action: CredentialOperationAction,
     ) -> Option<CredentialWriterCommandKindV1> {

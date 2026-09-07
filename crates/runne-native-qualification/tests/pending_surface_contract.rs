@@ -1,3 +1,5 @@
+#[path = "support/pending_admission_visibility_tests.rs"]
+mod pending_admission_visibility_tests;
 #[path = "support/pending_public_surface.rs"]
 mod pending_public_surface;
 #[path = "support/pending_surface_aliases.rs"]

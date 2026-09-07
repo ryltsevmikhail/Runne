@@ -6,7 +6,9 @@ use runne_provider::{
     IssuedCredentialTicketAttempt, ProviderCredentialEnrollmentStore, RawCredentialTicket,
 };
 
-use super::{CredentialBrokerChannel, ProviderCredentialBroker};
+use super::{
+    CredentialBrokerChannel, ProviderCredentialBroker, qualified_exchange::QualifiedIssuedTicket,
+};
 use crate::application::provider_credential_enrollment::effect_authority::map_store;
 
 /// Recovery requires the move-only store witness, never a metadata snapshot.
@@ -33,6 +35,19 @@ pub(crate) struct ClaimIssueContext {
     channel_binding: [u8; 32],
     database_generation: u64,
     desktop_supervisor_generation: u64,
+}
+
+pub(super) struct QualifiedIssueFrame {
+    issued: IssuedCredentialTicketAttempt,
+    frame: CredentialBrokerFrame,
+}
+
+impl QualifiedIssueFrame {
+    pub(super) fn into_qualified_frame_members(
+        self,
+    ) -> (IssuedCredentialTicketAttempt, CredentialBrokerFrame) {
+        (self.issued, self.frame)
+    }
 }
 
 impl ClaimIssueContext {
@@ -185,11 +200,44 @@ impl ProviderCredentialBroker {
                 .map_err(|_| ProviderCredentialEnrollmentHostError::InvalidRequest)?,
             )
             .map_err(map_store)?;
+        let frame = self.issue_frame_for_receipt(&receipt, ticket, continuation, context)?;
+        channel.send_issue(&receipt, frame)?;
+        Ok(receipt)
+    }
+
+    pub(super) fn issue_frame_for_qualified(
+        &self,
+        qualified: QualifiedIssuedTicket,
+        continuation: CredentialBindingDigest,
+        context: &ClaimIssueContext,
+    ) -> Result<QualifiedIssueFrame, ProviderCredentialEnrollmentHostError> {
+        let (ticket, issued) = qualified.into_qualified_issue_members();
+        let frame = self.issue_frame_for_receipt(&issued, ticket, continuation, context)?;
+        Ok(QualifiedIssueFrame { issued, frame })
+    }
+
+    /// Builds measured IssueTicket bytes for a receipt without issuing again.
+    fn issue_frame_for_receipt(
+        &self,
+        receipt: &IssuedCredentialTicketAttempt,
+        ticket: RawCredentialTicket,
+        continuation: CredentialBindingDigest,
+        context: &ClaimIssueContext,
+    ) -> Result<CredentialBrokerFrame, ProviderCredentialEnrollmentHostError> {
+        if context.measurements.continuation_binding_digest() != continuation
+            || self
+                .measurements
+                .validate_measurement_snapshot(&context.measurements)
+                .is_err()
+        {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        let ticket_digest = ticket.binding_digest();
         let draft = ClaimCredentialOperation::new(
             receipt.clone(),
-            ticket.binding_digest(),
+            ticket_digest,
             continuation,
-            ticket.binding_digest(),
+            ticket_digest,
             context.database_generation,
             context.desktop_supervisor_generation,
         )
@@ -201,16 +249,14 @@ impl ProviderCredentialBroker {
         let command =
             CredentialBrokerCommand::from_operation(receipt.operation(), receipt.ticket_attempt())
                 .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?;
-        let frame = CredentialBrokerFrame::IssueTicket {
+        Ok(CredentialBrokerFrame::IssueTicket {
             operation_id: receipt.operation().operation_id(),
             attempt: receipt.ticket_attempt(),
             ticket,
             channel_binding: context.channel_binding,
             binding,
             command,
-        };
-        channel.send_issue(&receipt, frame)?;
-        Ok(receipt)
+        })
     }
 }
 

@@ -3,13 +3,14 @@ use sha2::{Digest as _, Sha256};
 use super::super::{
     CredentialBrokerCommandCodec, CredentialBrokerFrame, CredentialBrokerFrameCodec,
 };
+use super::qualified::WriterQualificationReceiver;
 use crate::credential::enrollment::{
-    BrokerChannelBinding, ClaimedWriterAuthorization, CredentialBindingDigest,
-    CredentialBrokerCommand, CredentialEnrollmentError, CredentialOperationAction,
-    CredentialOperationId, CredentialSecretClaimOffer, CredentialTicketAttempt,
-    CredentialWriterClaimIssuer, PendingCredentialSecretOpening,
+    CredentialBindingDigest, CredentialEnrollmentError, CredentialOperationId,
+    CredentialTicketAttempt,
 };
 
+#[path = "issue_ticket/claim.rs"]
+mod claim;
 #[path = "issue_ticket/scope.rs"]
 mod scope;
 pub use scope::{
@@ -20,6 +21,8 @@ const DOMAIN: &[u8] = b"GOCODE_CREDENTIAL_ISSUE_TICKET_SESSION_V1\0";
 
 #[path = "legacy_read_verifier.rs"]
 mod legacy_read_verifier;
+#[path = "issue_ticket/qualified.rs"]
+mod qualified;
 
 /// One prefetched broker ticket retained for a later authenticated claim.
 ///
@@ -75,6 +78,7 @@ mod legacy_read_verifier;
 pub struct PendingCredentialIssueTicketV1 {
     frame: CredentialBrokerFrame,
     binding: CredentialIssueTicketBindingV1,
+    qualified_receiver: Option<WriterQualificationReceiver>,
 }
 
 impl PendingCredentialIssueTicketV1 {
@@ -82,101 +86,24 @@ impl PendingCredentialIssueTicketV1 {
     pub fn read_from<R: std::io::Read>(reader: &mut R) -> Result<Self, CredentialEnrollmentError> {
         let frame = CredentialBrokerFrameCodec::read_from(reader)?;
         let binding = CredentialIssueTicketBindingV1::from_issue_ticket(&frame)?;
-        Ok(Self { frame, binding })
-    }
-
-    /// Consumes the retained ticket as the sole command source for one claim.
-    ///
-    /// The control stream must therefore contain only the following
-    /// `ClaimAccepted`; a second `IssueTicket` is never read.
-    ///
-    /// # Errors
-    ///
-    /// Rejects changed ticket fields, channel substitution, malformed control
-    /// frames, or a non-matching acknowledgement before granting authority.
-    #[allow(
-        clippy::type_complexity,
-        reason = "the move-only result deliberately exposes no raw ticket projection"
-    )]
-    pub fn claim_on<R: std::io::Read + std::io::Write>(
-        self,
-        control: &mut R,
-        issuer: &CredentialWriterClaimIssuer,
-        channel: &BrokerChannelBinding,
-        secret_input: CredentialSecretInputPresence,
-        scope: CredentialWriterCommandScopeV1,
-    ) -> Result<
-        (
-            ClaimedWriterAuthorization,
-            CredentialBrokerCommand,
-            CredentialBindingDigest,
-            CredentialWriterCommandKindV1,
-            Option<PendingCredentialSecretOpening>,
-        ),
-        CredentialEnrollmentError,
-    > {
-        let Self {
+        Ok(Self {
             frame,
-            binding: retained_binding,
-        } = self;
-        let actual_binding = CredentialIssueTicketBindingV1::from_issue_ticket(&frame)?;
-        if actual_binding != retained_binding || actual_binding.channel() != channel.digest() {
-            return Err(CredentialEnrollmentError::InvalidEvidence);
-        }
-        let CredentialBrokerFrame::IssueTicket {
-            operation_id,
-            attempt,
-            ticket,
-            channel_binding,
             binding,
-            command,
-        } = frame
-        else {
-            return Err(CredentialEnrollmentError::InvalidFrame);
-        };
-        if channel_binding != channel.digest().as_bytes() {
-            return Err(CredentialEnrollmentError::InvalidEvidence);
-        }
-        let command_kind = scope
-            .classify(command.action())
-            .ok_or(CredentialEnrollmentError::InvalidEvidence)?;
-        let expects_secret = command.action() == CredentialOperationAction::Pair;
-        if (secret_input == CredentialSecretInputPresence::Present) != expects_secret {
-            return Err(CredentialEnrollmentError::InvalidEvidence);
-        }
-        let pending_claim = issuer.issue_pending_claim(&command, binding, channel);
-        let (secret_offer, pending_opening) = if command.action() == CredentialOperationAction::Pair
-        {
-            let (offer, pending) = CredentialSecretClaimOffer::prepare(&command, binding)?;
-            (Some(offer), Some(pending))
-        } else {
-            (None, None)
-        };
-        CredentialBrokerFrameCodec::write_to(
-            control,
-            CredentialBrokerFrame::Claim {
-                operation_id,
-                attempt,
-                ticket,
-                binding,
-                secret_offer,
-            },
-        )?;
-        let accepted = CredentialBrokerFrameCodec::read_from(control)?;
-        let authorization =
-            issuer.claim_accepted(pending_claim, accepted, &command, binding, channel)?;
-        Ok((
-            authorization,
-            command,
-            binding,
-            command_kind,
-            pending_opening,
-        ))
+            qualified_receiver: None,
+        })
     }
 
     pub(super) fn matches_attested(&self, attested: &CredentialIssueTicketBindingV1) -> bool {
         CredentialIssueTicketBindingV1::from_issue_ticket(&self.frame)
             .is_ok_and(|actual| actual == self.binding && &actual == attested)
+    }
+
+    pub(super) fn take_qualified_receiver(&mut self) -> Option<WriterQualificationReceiver> {
+        self.qualified_receiver.take()
+    }
+
+    pub(super) fn retain_qualified_receiver(&mut self, receiver: WriterQualificationReceiver) {
+        self.qualified_receiver = Some(receiver);
     }
 }
 

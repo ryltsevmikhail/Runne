@@ -55,6 +55,8 @@ fn verifier() -> QualificationAdmissionVerifier {
 }
 
 mod fence;
+mod service;
+mod writer;
 
 #[test]
 fn successful_combined_verification_borrows_and_preserves_the_exact_admission() {

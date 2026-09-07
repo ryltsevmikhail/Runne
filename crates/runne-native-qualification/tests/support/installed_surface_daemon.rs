@@ -2,6 +2,8 @@ use syn::{Fields, Visibility};
 
 pub const DAEMON_SOURCE: &str =
     "runne-daemon/src/protected_activation/control_v3/initial_exchange.rs";
+const SESSION_TEST_SUPPORT_SOURCE: &str =
+    "runne-daemon/src/protected_activation/control_v3/initial_exchange/session_test_support.rs";
 
 pub fn exact_daemon_carrier(source: &str, item: &syn::ItemStruct) -> bool {
     let expected: syn::ItemStruct = syn::parse_str(
@@ -17,15 +19,45 @@ pub fn exact_daemon_carrier(source: &str, item: &syn::ItemStruct) -> bool {
         && item.attrs == expected.attrs
         && item.generics.params.is_empty()
         && item.generics.where_clause.is_none()
-        && fields.named.len() == 2
+        && fields.named.len() == 3
         && fields.named.iter().all(|field| {
             matches!(field.vis, Visibility::Inherited) && match field.ident.as_ref().map(ToString::to_string).as_deref() {
                 Some("_admission") => matches!(&field.ty, syn::Type::Path(path)
                     if path.path.segments.last().is_some_and(|part| part.ident == "PendingQualificationAdmission")),
                 Some("owned") => field.ty == syn::parse_str::<syn::Type>("Box<runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3>").unwrap(),
+                Some("members") => field.ty == syn::parse_str::<syn::Type>("qualification_fence::QualificationAdmissionMembers").unwrap(),
                 _ => false,
             }
         })
+}
+
+pub fn exact_connected_test_fixture(source: &str, item: &syn::ItemStruct) -> bool {
+    let expected: syn::ItemStruct = syn::parse_str(
+        "pub(crate) struct ConnectedQualificationFixture { pub(crate) installed: runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts, pub(crate) admission: super::VerifiedQualificationAdmission, pub(crate) verifier: runne_native_qualification::QualificationAdmissionVerifier, receiver: ConnectedQualificationReceiver, pub(crate) now: u64, }",
+    )
+    .unwrap();
+    source == SESSION_TEST_SUPPORT_SOURCE
+        && item.ident == expected.ident
+        && item.vis == expected.vis
+        && item.fields == expected.fields
+        && item.generics == expected.generics
+        && item.attrs.is_empty()
+}
+
+pub fn exact_connected_test_transfer(
+    source: &str,
+    owner: &syn::Type,
+    method: &syn::ImplItemFn,
+) -> bool {
+    let expected: syn::ImplItemFn = syn::parse_str(
+        "pub(crate) fn into_parts(self) -> (runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts, super::VerifiedQualificationAdmission, runne_native_qualification::QualificationAdmissionVerifier, ConnectedQualificationReceiver, u64,) {}",
+    )
+    .unwrap();
+    source == SESSION_TEST_SUPPORT_SOURCE
+        && matches!(owner, syn::Type::Path(path) if path.path.is_ident("ConnectedQualificationFixture"))
+        && method.vis == expected.vis
+        && method.attrs.is_empty()
+        && signatures_match(&method.sig, &expected.sig)
 }
 
 pub fn exact_fence_wrapper(source: &str, item: &syn::ItemStruct) -> bool {
@@ -34,7 +66,7 @@ pub fn exact_fence_wrapper(source: &str, item: &syn::ItemStruct) -> bool {
     }
     let expected = match item.ident.to_string().as_str() {
         "CommittedQualification" => {
-            "struct CommittedQualification { admission: VerifiedQualificationAdmission, receipt: ProviderQualificationAdmissionFenceReceipt, issued: IssuedCredentialTicketAttempt, fingerprint: [u8; 32], continuation: CredentialBindingDigest, }"
+            "struct CommittedQualification { admission: VerifiedQualificationAdmission, receipt: ProviderQualificationAdmissionFenceReceipt, qualified: QualifiedIssuedTicket, fingerprint: [u8; 32], continuation: CredentialBindingDigest, }"
         }
         "FencedQualificationAdmission" => {
             "pub(super) struct FencedQualificationAdmission { _admission: VerifiedQualificationAdmission, _receipt: runne_provider::ProviderQualificationAdmissionFenceReceipt, }"
@@ -53,7 +85,7 @@ pub fn exact_fence_reverification(source: &str, item: &syn::ItemImpl) -> bool {
         != "runne-daemon/src/protected_activation/control_v3/initial_exchange/qualification_fence.rs"
         || item.trait_.is_some()
         || !item.generics.params.is_empty()
-        || item.items.len() != 2
+        || item.items.len() != 3
     {
         return false;
     }
@@ -61,6 +93,7 @@ pub fn exact_fence_reverification(source: &str, item: &syn::ItemImpl) -> bool {
         let syn::ImplItem::Fn(method) = member else { return false; };
         let expected = match method.sig.ident.to_string().as_str() {
             "retained_owned" => "pub(crate) fn retained_owned(&self) -> &ProtectedCredentialEnrollmentOwnedLaunchV3 {}",
+            "into_postcommit" => "pub(crate) fn into_postcommit(self, qualified: QualifiedIssuedTicket, permit: PostcommitAdmissionPermit) -> PostcommitQualificationAdmission {}",
             "reverify_for_fence" => "pub(crate) fn reverify_for_fence(&self, installed: &runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts, current: &ProtectedCredentialEnrollmentOwnedLaunchV3, verifier: &mut runne_native_qualification::QualificationAdmissionVerifier, now_unix_seconds: u64) -> Result<runne_native_qualification::VerifiedQualificationFenceFacts, Error> {}",
             _ => return false,
         };
@@ -116,7 +149,18 @@ pub fn exact_session_transfer(source: &str, owner: &syn::Type, method: &syn::Imp
 
 pub fn exact_retention_helper(source: &str, item: &syn::ItemFn) -> bool {
     let expected: syn::ItemFn = syn::parse_str(
-        "#[cfg(target_os = \"macos\")] fn verify_and_retain_qualification_admission(installed: &runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3, verifier: &mut runne_native_qualification::QualificationAdmissionVerifier, admission: runne_native_qualification::PendingQualificationAdmission, now_unix_seconds: u64) -> Result<VerifiedQualificationAdmission, LaunchAuthorityError> { todo!() }",
+        "#[cfg(target_os = \"macos\")] fn verify_and_retain_qualification_admission(installed: &runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3, verifier: &mut runne_native_qualification::QualificationAdmissionVerifier, admission: runne_native_qualification::PendingQualificationAdmission, members: qualification_fence::QualificationAdmissionMembers, now_unix_seconds: u64) -> Result<VerifiedQualificationAdmission, LaunchAuthorityError> { todo!() }",
+    )
+    .unwrap();
+    source == DAEMON_SOURCE
+        && item.attrs == expected.attrs
+        && item.vis == expected.vis
+        && signatures_match(&item.sig, &expected.sig)
+}
+
+pub fn exact_test_retention_helper(source: &str, item: &syn::ItemFn) -> bool {
+    let expected: syn::ItemFn = syn::parse_str(
+        "#[cfg(test)] pub(crate) fn verify_and_retain_qualification_admission_for_test(installed: &runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3, verifier: &mut runne_native_qualification::QualificationAdmissionVerifier, admission: runne_native_qualification::PendingQualificationAdmission, members: qualification_fence::QualificationAdmissionMembers, now_unix_seconds: u64) -> Result<VerifiedQualificationAdmission, LaunchAuthorityError> { todo!() }",
     )
     .unwrap();
     source == DAEMON_SOURCE

@@ -4,6 +4,9 @@ use ring::{
 };
 use zeroize::Zeroizing;
 
+use super::qualified::{
+    CredentialWriterQualifiedPreludeSigner, SignedCredentialWriterSessionAttestationV2,
+};
 use super::{
     CredentialWriterSessionAttestationClaimsV1, SignedCredentialWriterSessionAttestationV1, codec,
 };
@@ -77,5 +80,49 @@ impl CredentialWriterSessionAttestationSigner {
             record.claims.ticket.claim,
         );
         Ok((record, publication))
+    }
+
+    /// Consumes the session signer into the qualification-required V2 phase.
+    pub fn sign_qualified(
+        self,
+        claims: CredentialWriterSessionAttestationClaimsV1,
+        launch_generation: u64,
+        context_sha256: [u8; 32],
+        ticket_sha256: [u8; 32],
+    ) -> Result<
+        (
+            SignedCredentialWriterSessionAttestationV2,
+            CredentialWriterQualifiedPreludeSigner,
+        ),
+        CredentialEnrollmentError,
+    > {
+        if claims.ticket.issue_ticket.channel() != self.channel
+            || launch_generation == 0
+            || context_sha256 == [0; 32]
+            || ticket_sha256 == [0; 32]
+        {
+            return Err(CredentialEnrollmentError::InvalidEvidence);
+        }
+        let public_key = self.public_key();
+        let context_sha256 = CredentialBindingDigest::from_measured(context_sha256)?;
+        let ticket_sha256 = CredentialBindingDigest::from_measured(ticket_sha256)?;
+        let mut record = SignedCredentialWriterSessionAttestationV2 {
+            claims,
+            channel: self.channel,
+            publication_public_key: public_key,
+            launch_generation,
+            context_sha256,
+            ticket_sha256,
+            signature: [0; 64],
+        };
+        record.signature = self
+            .key_pair
+            .sign(&super::qualified::signature_message(&record))
+            .as_ref()
+            .try_into()
+            .expect("signature width");
+        let pending =
+            CredentialWriterQualifiedPreludeSigner::new(self.key_pair, self.channel, &record);
+        Ok((record, pending))
     }
 }

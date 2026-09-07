@@ -7,6 +7,7 @@ use crate::MacOsPackagedWriterObservationError;
 use crate::packaged_writer_observation::package::PackagedWriterArtifacts;
 use crate::packaged_writer_observation::process::PackagedLiveProcessObservation;
 
+pub mod service;
 mod signing_information;
 
 struct NativeSignedCodeIdentity {

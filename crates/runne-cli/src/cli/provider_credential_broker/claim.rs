@@ -1,9 +1,7 @@
 //! Writer-side claim gate for an already authenticated daemon control endpoint.
-
 use std::io::{Read, Write};
 #[cfg(test)]
 use std::sync::Arc;
-
 use runne_provider::{
     BrokerChannelBinding, ClaimedWriterAuthorization, CredentialBindingDigest,
     CredentialBrokerCommand, CredentialBrokerFrame, CredentialBrokerFrameCodec,
@@ -16,10 +14,13 @@ use runne_secure_store::{
 };
 #[cfg(test)]
 use runne_secure_store::BrokeredProviderCredentialWriter;
-
 use super::CliError;
+#[path = "qualified_deadline.rs"]
+mod qualified_deadline;
+#[path = "claim/flow.rs"]
+mod flow;
 
-pub trait BrokerControl {
+pub trait BrokerControl: Read + Write {
     fn read_frame(&mut self) -> Result<CredentialBrokerFrame, CliError>;
     fn write_frame(&mut self, frame: CredentialBrokerFrame) -> Result<(), CliError>;
 }
@@ -195,7 +196,7 @@ pub fn claim_writer_authorization(
     let (control, channel, ticket, issuer, effect_route) = writers
         .into_authenticated_parts()
         .map_err(|_| CliError::CredentialOperation)?;
-    claim_writer_authorization_with_parts(
+    flow::claim_socket(
         control,
         channel,
         ticket,
@@ -214,7 +215,7 @@ pub fn claim_writer_authorization_with_legacy_parts<C: Read + Write + 'static>(
     writer: Arc<dyn BrokeredProviderCredentialWriter>,
     secret_input: CredentialSecretInputPresence,
 ) -> Result<ClaimedWriterControl, CliError> {
-    claim_writer_authorization_with_parts(
+    flow::claim_generic(
         control,
         channel,
         ticket,
@@ -241,7 +242,7 @@ pub fn claim_writer_authorization_with_service_parts<C: Read + Write + 'static>(
         configuration,
         legacy,
     };
-    claim_writer_authorization_with_parts(
+    flow::claim_generic(
         control,
         channel,
         ticket,
@@ -249,50 +250,4 @@ pub fn claim_writer_authorization_with_service_parts<C: Read + Write + 'static>(
         effect_route,
         secret_input,
     )
-}
-
-#[cfg(any(test, target_os = "macos"))]
-fn claim_writer_authorization_with_parts<C: Read + Write + 'static>(
-    mut control: C,
-    channel: BrokerChannelBinding,
-    ticket: PendingCredentialIssueTicketV1,
-    issuer: &CredentialWriterClaimIssuer,
-    effect_route: NativeProviderCredentialEffectRoute,
-    secret_input: CredentialSecretInputPresence,
-) -> Result<ClaimedWriterControl, CliError> {
-    let (authorization, command, binding, command_kind, pending_pair_secret_opening) = ticket
-        .claim_on(
-            &mut control,
-            issuer,
-            &channel,
-            secret_input,
-            CredentialWriterCommandScopeV1::D1_1A,
-        )
-        .map_err(|_| CliError::CredentialOperation)?;
-    #[cfg(target_os = "macos")]
-    let requires_service_handoff = matches!(
-        &effect_route,
-        NativeProviderCredentialEffectRoute::CredentialService { .. }
-    ) && command_kind != CredentialWriterCommandKindV1::LegacySourceCleanup;
-    #[cfg(not(target_os = "macos"))]
-    let requires_service_handoff = false;
-    let service_handoff = if requires_service_handoff {
-        Some(
-            CredentialWriterBrokerHandoffFrame::read_from(&mut control)
-                .map_err(|_| CliError::CredentialOperation)?,
-        )
-    } else {
-        None
-    };
-    Ok(ClaimedWriterControl {
-        control: Box::new(control),
-        effect_route,
-        authorization,
-        command,
-        binding,
-        channel,
-        command_kind,
-        pending_pair_secret_opening,
-        service_handoff,
-    })
 }

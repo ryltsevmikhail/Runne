@@ -245,6 +245,7 @@ mod tests {
                 expires_at_unix_seconds: 12,
             }),
             signed_candidate_v3: None,
+            candidate_binding_v3: None,
         }
     }
 

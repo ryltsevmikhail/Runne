@@ -10,3 +10,8 @@ workspace = true
 
 [dependencies]
 zeroize.workspace = true
+
+[dev-dependencies]
+cargo_metadata = "0.19.2"
+sha2.workspace = true
+syn = { version = "2.0.119", features = ["full", "visit"] }

@@ -26,6 +26,10 @@ mod intent_exchange;
 pub(crate) use initial_request::InitialCredentialExchange;
 #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
 mod qualification;
+#[cfg(all(test, target_os = "macos", feature = "desktop-protected"))]
+use claim_runtime::{QualifiedWriterService, claim_fenced_writer_on};
+#[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+pub(crate) use qualification::PostcommitAdmissionPermit;
 mod recovery;
 pub(crate) use facts::ProtectedEnrollmentSessionFacts;
 use facts::{daemon_binding, session_binding};

@@ -23,4 +23,5 @@ zeroize.workspace = true
 jsonschema = { version = "=0.18.0", default-features = false, features = ["draft202012"] }
 
 [dev-dependencies]
+syn = { version = "2", features = ["extra-traits", "full", "visit"] }
 tempfile = "=3.27.0"

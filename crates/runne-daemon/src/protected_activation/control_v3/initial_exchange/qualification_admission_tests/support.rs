@@ -81,13 +81,90 @@ pub(in crate::protected_activation::control_v3::initial_exchange) fn admission_a
     fault_key: &SigningKey,
     now: u64,
 ) -> PendingQualificationAdmission {
+    PendingQualificationAdmission::from_admitted_bundle(admission_bundle_at(
+        context_key,
+        fault_key,
+        now,
+        "kill_desktop_process",
+        "desktop",
+    ))
+    .unwrap()
+}
+
+pub(in crate::protected_activation::control_v3::initial_exchange) fn writer_admission_at(
+    context_key: &SigningKey,
+    fault_key: &SigningKey,
+    now: u64,
+) -> PendingQualificationAdmission {
+    PendingQualificationAdmission::from_admitted_bundle(writer_admission_bundle_at(
+        context_key,
+        fault_key,
+        now,
+    ))
+    .unwrap()
+}
+
+pub(in crate::protected_activation::control_v3::initial_exchange) fn writer_admission_bundle_at(
+    context_key: &SigningKey,
+    fault_key: &SigningKey,
+    now: u64,
+) -> Vec<u8> {
+    writer_admission_bundle_for_at(context_key, fault_key, now, CANDIDATE, RAW_TUPLE)
+}
+
+pub(crate) fn writer_admission_bundle_for_at(
+    context_key: &SigningKey,
+    fault_key: &SigningKey,
+    now: u64,
+    candidate: [u8; 32],
+    raw_tuple: [u8; 32],
+) -> Vec<u8> {
+    admission_bundle_with_digests_at(
+        context_key,
+        fault_key,
+        now,
+        "kill_writer_process",
+        "writer",
+        candidate,
+        raw_tuple,
+    )
+}
+
+pub(super) fn admission_bundle_at(
+    context_key: &SigningKey,
+    fault_key: &SigningKey,
+    now: u64,
+    selector: &'static str,
+    process_role: &'static str,
+) -> Vec<u8> {
+    admission_bundle_with_digests_at(
+        context_key,
+        fault_key,
+        now,
+        selector,
+        process_role,
+        CANDIDATE,
+        RAW_TUPLE,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn admission_bundle_with_digests_at(
+    context_key: &SigningKey,
+    fault_key: &SigningKey,
+    now: u64,
+    selector: &'static str,
+    process_role: &'static str,
+    candidate: [u8; 32],
+    raw_tuple: [u8; 32],
+) -> Vec<u8> {
     let mut ticket = Ticket {
         schema_version: "runne/macos-xpc-dpk-fault-ticket/v1",
         ticket_id: "11".repeat(32),
-        selector: "kill_desktop_process",
-        process_role: "desktop",
-        candidate_sha256: hex::encode(CANDIDATE),
-        release_tuple_v3_sha256: hex::encode(RAW_TUPLE),
+        selector,
+        process_role,
+        candidate_sha256: hex::encode(candidate),
+        release_tuple_v3_sha256: hex::encode(raw_tuple),
         source_revision: "cc".repeat(20),
         workflow_run_id: "run-42",
         namespace_sha256: "dd".repeat(32),
@@ -106,10 +183,10 @@ pub(in crate::protected_activation::control_v3::initial_exchange) fn admission_a
         schema_version: "runne/macos-xpc-dpk-run-context/v1",
         context_id: "33".repeat(32),
         scenario_id: "macos-xpc-dpk-v1",
-        selector: "kill_desktop_process",
-        process_role: "desktop",
-        candidate_sha256: hex::encode(CANDIDATE),
-        release_tuple_v3_sha256: hex::encode(RAW_TUPLE),
+        selector,
+        process_role,
+        candidate_sha256: hex::encode(candidate),
+        release_tuple_v3_sha256: hex::encode(raw_tuple),
         source_revision: "cc".repeat(20),
         workflow_run_id: "run-42",
         namespace_sha256: "dd".repeat(32),
@@ -132,7 +209,7 @@ pub(in crate::protected_activation::control_v3::initial_exchange) fn admission_a
     bundle.extend_from_slice(&u32::try_from(ticket.len()).unwrap().to_be_bytes());
     bundle.extend_from_slice(&context);
     bundle.extend_from_slice(&ticket);
-    PendingQualificationAdmission::from_admitted_bundle(bundle).unwrap()
+    bundle
 }
 
 pub(super) fn bindings(

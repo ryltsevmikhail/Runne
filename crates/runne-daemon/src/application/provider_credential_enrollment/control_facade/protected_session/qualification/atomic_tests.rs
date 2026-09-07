@@ -61,6 +61,15 @@ fn qualified_daemon_commits_and_retains_fenced_carrier_but_never_releases_delive
         super::tests::rows(&database, "provider_credential_ticket_attempts"),
         1
     );
+    let qualified = session
+        .qualification_fenced
+        .take()
+        .unwrap()
+        .into_writer_delivery()
+        .unwrap()
+        .into_writer_exchange()
+        .unwrap();
+    assert_eq!(qualified.receipt().ticket_attempt().get(), 1);
 }
 
 #[test]

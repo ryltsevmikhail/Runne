@@ -105,6 +105,18 @@ pub fn exact_admission_impl(item: &syn::ItemImpl, source: &str) -> bool {
         "pub(crate) fn verify_exact_for_fence_borrowed(&self, context_verifier: &mut crate::QualificationRunContextVerifier, fault_verifier: &mut crate::QualificationFaultVerifier, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<crate::VerifiedQualificationFenceFacts, crate::QualificationAdmissionVerificationError,> {}",
     )
     .expect("valid admission fence verification signature");
+    let writer_verification = syn::parse_str::<syn::ImplItemFn>(
+        "pub(crate) fn verify_exact_writer_fault_borrowed(&self, context_verifier: &mut crate::QualificationRunContextVerifier, fault_verifier: &mut crate::QualificationFaultVerifier, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<crate::VerifiedQualificationFault, crate::QualificationAdmissionVerificationError> {}",
+    )
+    .expect("valid admission Writer verification signature");
+    let service_verification = syn::parse_str::<syn::ImplItemFn>(
+        "pub(crate) fn verify_exact_service_fault_borrowed(&self, context_verifier: &mut crate::QualificationRunContextVerifier, fault_verifier: &mut crate::QualificationFaultVerifier, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<crate::VerifiedQualificationFault, crate::QualificationAdmissionVerificationError> {}",
+    )
+    .expect("valid admission Service verification signature");
+    let fault_verification = syn::parse_str::<syn::ImplItemFn>(
+        "fn verify_exact_fault_borrowed(&self, context_verifier: &mut crate::QualificationRunContextVerifier, fault_verifier: &mut crate::QualificationFaultVerifier, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<(crate::QualificationFaultContext, crate::VerifiedQualificationFault,), crate::QualificationAdmissionVerificationError,> {}",
+    )
+    .expect("valid private combined fault verification signature");
     source == "admission.rs"
         && item.trait_.is_none()
         && owner.is_some_and(|(name, raw)| name == ADMISSION && !raw)
@@ -112,22 +124,25 @@ pub fn exact_admission_impl(item: &syn::ItemImpl, source: &str) -> bool {
         && item.attrs.iter().all(|attr| attr.path().is_ident("doc"))
         && item.generics.params.is_empty()
         && item.generics.where_clause.is_none()
-        && matches!(item.items.len(), 1 | 3 | 4 | 5)
+        && matches!(item.items.len(), 1 | 3 | 4 | 5 | 6 | 7 | 8)
         && item.items.iter().all(|member| {
             matches!(member, syn::ImplItem::Fn(method)
             if method.attrs.iter().all(|attr| attr.path().is_ident("doc"))
-                && (signatures_match(&method.sig, &constructor.sig)
-                    || signatures_match(&method.sig, &relay.sig)
-                    || signatures_match(&method.sig, &retained.sig)
-                    || signatures_match(&method.sig, &verification.sig)
-                    || signatures_match(&method.sig, &fence_verification.sig)))
+                && (methods_match(method, &constructor)
+                    || methods_match(method, &relay)
+                    || methods_match(method, &retained)
+                    || methods_match(method, &verification)
+                    || methods_match(method, &fence_verification)
+                    || methods_match(method, &writer_verification)
+                    || methods_match(method, &service_verification)
+                    || methods_match(method, &fault_verification)))
         })
         && item
             .items
             .iter()
             .filter(|member| {
                 matches!(member, syn::ImplItem::Fn(method)
-            if signatures_match(&method.sig, &constructor.sig))
+            if methods_match(method, &constructor))
             })
             .count()
             == 1
@@ -191,6 +206,14 @@ pub fn exact_combined_verification_method(
         "pub fn verify_exact_for_fence_borrowed(&mut self, admission: &PendingQualificationAdmission, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<crate::VerifiedQualificationFenceFacts, QualificationAdmissionVerificationError> {}",
     )
     .expect("valid combined fence verification signature");
+    let writer = syn::parse_str::<syn::ImplItemFn>(
+        "pub fn verify_exact_writer_fault_borrowed(&mut self, admission: &PendingQualificationAdmission, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<crate::VerifiedQualificationFault, QualificationAdmissionVerificationError> {}",
+    )
+    .expect("valid combined Writer verification signature");
+    let service = syn::parse_str::<syn::ImplItemFn>(
+        "pub fn verify_exact_service_fault_borrowed(&mut self, admission: &PendingQualificationAdmission, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<crate::VerifiedQualificationFault, QualificationAdmissionVerificationError> {}",
+    )
+    .expect("valid combined Service verification signature");
     source == "admission_verification.rs"
         && owner.trait_.is_none()
         && type_name(&owner.self_ty)
@@ -198,7 +221,9 @@ pub fn exact_combined_verification_method(
         && owner.generics.params.is_empty()
         && owner.generics.where_clause.is_none()
         && (signatures_match(&method.sig, &admission.sig)
-            || signatures_match(&method.sig, &fence.sig))
+            || signatures_match(&method.sig, &fence.sig)
+            || signatures_match(&method.sig, &writer.sig)
+            || signatures_match(&method.sig, &service.sig))
 }
 
 pub fn exact_admission_reexport(item: &syn::ItemUse, source: &str) -> bool {
@@ -235,4 +260,8 @@ fn signatures_match(actual: &syn::Signature, expected: &syn::Signature) -> bool 
     actual.inputs.pop_punct();
     expected.inputs.pop_punct();
     actual == expected
+}
+
+fn methods_match(actual: &syn::ImplItemFn, expected: &syn::ImplItemFn) -> bool {
+    actual.vis == expected.vis && signatures_match(&actual.sig, &expected.sig)
 }

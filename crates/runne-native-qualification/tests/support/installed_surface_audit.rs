@@ -7,8 +7,10 @@ use crate::installed_surface_consumers::{
     exact_reviewed_consumer_method, exact_reviewed_consumer_struct,
 };
 use crate::installed_surface_daemon::{
-    exact_daemon_carrier, exact_fence_reverification, exact_fence_wrapper, exact_initial_read,
-    exact_initial_result, exact_retention_helper, exact_session_carrier, exact_session_transfer,
+    exact_connected_test_fixture, exact_connected_test_transfer, exact_daemon_carrier,
+    exact_fence_reverification, exact_fence_wrapper, exact_initial_read, exact_initial_result,
+    exact_retention_helper, exact_session_carrier, exact_session_transfer,
+    exact_test_retention_helper,
 };
 use crate::installed_surface_expected::{
     exact_reviewed_facts_method, exact_test_only_qualification_facts,
@@ -66,10 +68,11 @@ impl<'ast> Visit<'ast> for SourceAudit<'_> {
             let public_facts = matches!(item.vis, Visibility::Public(_))
                 && (fields_mention(&item.fields, &self.aliases)
                     || generics_mention(&item.generics, &self.aliases));
-            if (sealed
-                && !exact_session_carrier(self.source, item, &self.sealed_aliases)
-                && !exact_fence_wrapper(self.source, item))
-                || (public_facts && !exact_reviewed_consumer_struct(self.source, item))
+            if !exact_connected_test_fixture(self.source, item)
+                && ((sealed
+                    && !exact_session_carrier(self.source, item, &self.sealed_aliases)
+                    && !exact_fence_wrapper(self.source, item))
+                    || (public_facts && !exact_reviewed_consumer_struct(self.source, item)))
             {
                 self.reject("public generic or field wrapper escapes a sealed type");
             }
@@ -103,7 +106,9 @@ impl<'ast> Visit<'ast> for SourceAudit<'_> {
         }
         for member in &item.items {
             if impl_member_mentions(member, &self.sealed_aliases) {
-                if !matches!(member, ImplItem::Fn(method) if exact_session_transfer(self.source, &item.self_ty, method))
+                if !matches!(member, ImplItem::Fn(method)
+                    if exact_session_transfer(self.source, &item.self_ty, method)
+                        || exact_connected_test_transfer(self.source, &item.self_ty, method))
                 {
                     self.reject("impl member escapes a sealed installed token");
                 }
@@ -123,6 +128,7 @@ impl<'ast> Visit<'ast> for SourceAudit<'_> {
         if exact_retention_helper(self.source, item) {
             self.audit.retention += 1;
         } else if !exact_initial_read(self.source, item)
+            && !exact_test_retention_helper(self.source, item)
             && (signature_mentions(&item.sig, &self.sealed_aliases)
                 || (matches!(item.vis, Visibility::Public(_))
                     && signature_mentions(&item.sig, &self.aliases)))

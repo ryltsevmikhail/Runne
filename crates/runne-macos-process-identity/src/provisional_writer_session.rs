@@ -1,11 +1,14 @@
+mod qualified;
+
 use runne_api::{PendingSignedInstalledReleaseMetadataV2, VerifiedSignedInstalledReleaseV2};
-use runne_provider::{PendingCredentialIssueTicketV1, SignedCredentialWriterSessionAttestationV1};
+use runne_provider::PendingCredentialIssueTicketV1;
 use std::path::PathBuf;
 
 use crate::packaged_writer_observation::{
     CapturedPackagedWriterObservationV1, package::PackagedWriterArtifacts,
 };
 use crate::signed_code_identity::match_retained_code_identities;
+use crate::writer_bootstrap_transcript::BootstrapAttestation;
 use crate::{MacOsPackagedWriterObservationError, MacOsUntrustedWriterEndpointHandoffV1};
 
 /// Opaque provisional release match with no ordinary constructor or conversion.
@@ -25,7 +28,7 @@ use crate::{MacOsPackagedWriterObservationError, MacOsUntrustedWriterEndpointHan
 #[doc(hidden)]
 pub struct MacOsPendingProvisionalReleaseMatchV1 {
     handoff: MacOsUntrustedWriterEndpointHandoffV1,
-    attestation: SignedCredentialWriterSessionAttestationV1,
+    attestation: BootstrapAttestation,
     issue_ticket: PendingCredentialIssueTicketV1,
     observation: CapturedPackagedWriterObservationV1,
 }
@@ -57,7 +60,7 @@ pub struct MacOsPendingProvisionalWriterSessionV1 {
     #[allow(dead_code)]
     handoff: MacOsUntrustedWriterEndpointHandoffV1,
     #[allow(dead_code)]
-    attestation: SignedCredentialWriterSessionAttestationV1,
+    attestation: BootstrapAttestation,
     #[allow(dead_code)]
     issue_ticket: PendingCredentialIssueTicketV1,
     #[allow(dead_code)]
@@ -69,7 +72,7 @@ pub struct MacOsPendingProvisionalWriterSessionV1 {
 impl MacOsPendingProvisionalReleaseMatchV1 {
     pub(super) const fn from_bootstrap(
         handoff: MacOsUntrustedWriterEndpointHandoffV1,
-        attestation: SignedCredentialWriterSessionAttestationV1,
+        attestation: BootstrapAttestation,
         issue_ticket: PendingCredentialIssueTicketV1,
         observation: CapturedPackagedWriterObservationV1,
     ) -> Self {
@@ -91,12 +94,16 @@ impl MacOsPendingProvisionalReleaseMatchV1 {
         self,
         metadata: PendingSignedInstalledReleaseMetadataV2,
     ) -> Result<MacOsPendingProvisionalWriterSessionV1, MacOsPackagedWriterObservationError> {
-        let expectation = self.attestation.release_binding_expectation();
+        let expectation = match &self.attestation {
+            BootstrapAttestation::V1(attestation) => attestation.release_binding_expectation(),
+            BootstrapAttestation::Qualified(attestation) => {
+                attestation.release_binding_expectation()
+            }
+        };
         let release = metadata
             .verify_current_pinned(expectation)
             .map_err(|_| MacOsPackagedWriterObservationError::Rejected)?;
-        self.attestation
-            .is_current_now()
+        qualified::attestation_is_current(&self.attestation)
             .then_some(())
             .ok_or(MacOsPackagedWriterObservationError::Rejected)?;
         self.match_verified_current_release(release)
@@ -121,12 +128,11 @@ impl MacOsPendingProvisionalReleaseMatchV1 {
             observation.self_process(),
             observation.peer_process(),
         )?;
-        matches_attested_facts(&attestation, &issue_ticket, &handoff, &observation)
+        qualified::matches_attested_facts(&attestation, &issue_ticket, &handoff, &observation)
             .then_some(())
             .ok_or(MacOsPackagedWriterObservationError::Rejected)?;
 
-        attestation
-            .is_current_now()
+        qualified::attestation_is_current(&attestation)
             .then_some(())
             .ok_or(MacOsPackagedWriterObservationError::Rejected)?;
         observation.revalidate_for_provisional_session(&handoff)?;
@@ -171,7 +177,7 @@ impl MacOsPendingProvisionalWriterSessionV1 {
             self.observation.self_process(),
             self.observation.peer_process(),
         )?;
-        matches_attested_facts(
+        qualified::matches_attested_facts(
             &self.attestation,
             &self.issue_ticket,
             &self.handoff,
@@ -179,8 +185,7 @@ impl MacOsPendingProvisionalWriterSessionV1 {
         )
         .then_some(())
         .ok_or(MacOsPackagedWriterObservationError::Rejected)?;
-        self.attestation
-            .is_current_now()
+        qualified::attestation_is_current(&self.attestation)
             .then_some(())
             .ok_or(MacOsPackagedWriterObservationError::Rejected)?;
         self.observation
@@ -212,6 +217,16 @@ impl MacOsPendingProvisionalWriterSessionV1 {
         MacOsPackagedWriterObservationError,
     > {
         let verified = self.reauthenticate_current()?;
+        let attestation = match verified.attestation {
+            BootstrapAttestation::V1(_) => None,
+            BootstrapAttestation::Qualified(attestation) => Some(attestation),
+        };
+        let issue_ticket = match attestation {
+            Some(attestation) => verified
+                .issue_ticket
+                .with_qualified_attestation(attestation),
+            None => verified.issue_ticket,
+        };
         let writer = verified
             .observation
             .self_process()
@@ -228,7 +243,7 @@ impl MacOsPendingProvisionalWriterSessionV1 {
         Ok((
             std::os::unix::net::UnixStream::from(control),
             channel,
-            verified.issue_ticket,
+            issue_ticket,
             writer,
             reader,
             verified.release,
@@ -244,26 +259,4 @@ fn matches_release_artifacts(
         && release.matches_writer_digest(package.writer_digest())
         && release.matches_daemon_digest(package.daemon_digest())
         && release.matches_contract_digest(package.contract_digest())
-}
-
-fn matches_attested_facts(
-    attestation: &SignedCredentialWriterSessionAttestationV1,
-    issue_ticket: &PendingCredentialIssueTicketV1,
-    handoff: &MacOsUntrustedWriterEndpointHandoffV1,
-    observation: &CapturedPackagedWriterObservationV1,
-) -> bool {
-    let writer_start = observation.self_process().start_digest();
-    let daemon_start = observation.peer().process_start_digest();
-    attestation.matches_pending_issue_ticket(issue_ticket)
-        && attestation.matches_handoff(
-            handoff.observation_channel_binding(),
-            handoff.observation_publication_public_key(),
-            handoff.observation_handoff_digest(),
-        )
-        && attestation.matches_live_processes(
-            &writer_start,
-            observation.package().writer_digest(),
-            &daemon_start,
-            observation.package().daemon_digest(),
-        )
 }

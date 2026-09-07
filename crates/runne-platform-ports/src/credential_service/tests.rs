@@ -63,6 +63,17 @@ impl CredentialServiceWriterPort for Writer {
     }
 }
 
+struct Qualification;
+impl CredentialServiceQualificationPort for Qualification {
+    fn qualify(
+        &self,
+        _request: CredentialServiceQualificationRequest,
+        _context: CredentialServiceCallContext,
+    ) -> CredentialServicePortFuture<'_, CredentialServiceQualificationReply> {
+        Box::pin(async { Ok(qualification_reply()) })
+    }
+}
+
 fn context(cancellation: CredentialServiceCancellation) -> CredentialServiceCallContext {
     CredentialServiceCallContext::new(std::time::Instant::now(), cancellation)
 }
@@ -85,6 +96,14 @@ fn writer_request() -> CredentialServiceWriterRequest {
 fn writer_reply() -> CredentialServiceWriterReply {
     CredentialServiceWriterReply::from_zeroizing(zeroize::Zeroizing::new(vec![6])).unwrap()
 }
+fn qualification_request() -> CredentialServiceQualificationRequest {
+    CredentialServiceQualificationRequest::from_test_zeroizing(zeroize::Zeroizing::new(vec![7]))
+        .unwrap()
+}
+fn qualification_reply() -> CredentialServiceQualificationReply {
+    CredentialServiceQualificationReply::from_test_zeroizing(zeroize::Zeroizing::new(vec![8]))
+        .unwrap()
+}
 
 #[test]
 fn role_ports_expose_only_their_bounded_operations() {
@@ -99,7 +118,10 @@ fn role_ports_expose_only_their_bounded_operations() {
     drop(runtime.read_material(runtime_request(), context(cancellation.clone())));
 
     let writer = Writer;
-    drop(writer.consume_mutation(writer_request(), context(cancellation)));
+    drop(writer.consume_mutation(writer_request(), context(cancellation.clone())));
+
+    let qualification = Qualification;
+    drop(qualification.qualify(qualification_request(), context(cancellation)));
 }
 
 struct FlagWake(AtomicBool);
@@ -154,6 +176,29 @@ fn transport_frames_are_bounded_and_zeroizing() {
             0;
             MAX_CREDENTIAL_SERVICE_FRAME_BYTES
                 + 1
+        ]))
+        .is_err()
+    );
+}
+
+#[test]
+fn qualification_frames_are_bounded_and_retain_the_zeroizing_allocation() {
+    let bytes = zeroize::Zeroizing::new(vec![7]);
+    let allocation = bytes.as_ptr();
+    let request = CredentialServiceQualificationRequest::from_test_zeroizing(bytes).unwrap();
+    let bytes = request.test_into_zeroizing();
+    assert_eq!(&*bytes, &[7]);
+    assert_eq!(bytes.as_ptr(), allocation);
+    assert!(
+        CredentialServiceQualificationReply::from_test_zeroizing(zeroize::Zeroizing::new(
+            Vec::new(),
+        ))
+        .is_err()
+    );
+    assert!(
+        CredentialServiceQualificationReply::from_test_zeroizing(zeroize::Zeroizing::new(vec![
+            0;
+            MAX_CREDENTIAL_SERVICE_FRAME_BYTES + 1
         ]))
         .is_err()
     );

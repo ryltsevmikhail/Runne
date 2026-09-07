@@ -123,20 +123,13 @@ impl PendingQualificationAdmission {
         raw_v3_tuple_sha256: [u8; 32],
         now_unix_seconds: u64,
     ) -> Result<(), crate::QualificationAdmissionVerificationError> {
-        let (_context, expected) = self
-            .context
-            .verify_installed_borrowed(
-                context_verifier,
-                candidate_sha256,
-                raw_v3_tuple_sha256,
-                now_unix_seconds,
-            )
-            .map_err(|_| crate::QualificationAdmissionVerificationError)?;
-        let fault = self
-            .fault
-            .verify_borrowed(fault_verifier, &expected, now_unix_seconds)
-            .map_err(|_| crate::QualificationAdmissionVerificationError)?;
-        let _ = fault;
+        let _ = self.verify_exact_fault_borrowed(
+            context_verifier,
+            fault_verifier,
+            candidate_sha256,
+            raw_v3_tuple_sha256,
+            now_unix_seconds,
+        )?;
         Ok(())
     }
 
@@ -167,6 +160,85 @@ impl PendingQualificationAdmission {
         Ok(crate::VerifiedQualificationFenceFacts::verified(
             context, fault, binding,
         ))
+    }
+
+    pub(crate) fn verify_exact_writer_fault_borrowed(
+        &self,
+        context_verifier: &mut crate::QualificationRunContextVerifier,
+        fault_verifier: &mut crate::QualificationFaultVerifier,
+        candidate_sha256: [u8; 32],
+        raw_v3_tuple_sha256: [u8; 32],
+        now_unix_seconds: u64,
+    ) -> Result<crate::VerifiedQualificationFault, crate::QualificationAdmissionVerificationError>
+    {
+        let (binding, fault) = self.verify_exact_fault_borrowed(
+            context_verifier,
+            fault_verifier,
+            candidate_sha256,
+            raw_v3_tuple_sha256,
+            now_unix_seconds,
+        )?;
+        if binding.process_role != crate::QualificationProcessRole::Writer
+            || binding.selector != crate::QualificationFaultSelector::WriterProcess
+        {
+            return Err(crate::QualificationAdmissionVerificationError);
+        }
+        Ok(fault)
+    }
+
+    pub(crate) fn verify_exact_service_fault_borrowed(
+        &self,
+        context_verifier: &mut crate::QualificationRunContextVerifier,
+        fault_verifier: &mut crate::QualificationFaultVerifier,
+        candidate_sha256: [u8; 32],
+        raw_v3_tuple_sha256: [u8; 32],
+        now_unix_seconds: u64,
+    ) -> Result<crate::VerifiedQualificationFault, crate::QualificationAdmissionVerificationError>
+    {
+        let (binding, fault) = self.verify_exact_fault_borrowed(
+            context_verifier,
+            fault_verifier,
+            candidate_sha256,
+            raw_v3_tuple_sha256,
+            now_unix_seconds,
+        )?;
+        if binding.process_role != crate::QualificationProcessRole::Service
+            || binding.selector.process_role() != crate::QualificationProcessRole::Service
+        {
+            return Err(crate::QualificationAdmissionVerificationError);
+        }
+        Ok(fault)
+    }
+
+    /// Independently verifies the pair before a local role-specific transition.
+    fn verify_exact_fault_borrowed(
+        &self,
+        context_verifier: &mut crate::QualificationRunContextVerifier,
+        fault_verifier: &mut crate::QualificationFaultVerifier,
+        candidate_sha256: [u8; 32],
+        raw_v3_tuple_sha256: [u8; 32],
+        now_unix_seconds: u64,
+    ) -> Result<
+        (
+            crate::QualificationFaultContext,
+            crate::VerifiedQualificationFault,
+        ),
+        crate::QualificationAdmissionVerificationError,
+    > {
+        let (_context, binding) = self
+            .context
+            .verify_installed_borrowed(
+                context_verifier,
+                candidate_sha256,
+                raw_v3_tuple_sha256,
+                now_unix_seconds,
+            )
+            .map_err(|_| crate::QualificationAdmissionVerificationError)?;
+        let fault = self
+            .fault
+            .verify_borrowed(fault_verifier, &binding, now_unix_seconds)
+            .map_err(|_| crate::QualificationAdmissionVerificationError)?;
+        Ok((binding, fault))
     }
 }
 

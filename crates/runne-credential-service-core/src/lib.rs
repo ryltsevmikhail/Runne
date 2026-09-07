@@ -2,7 +2,7 @@
 
 mod admission;
 mod backend;
-mod session;
+pub(crate) mod session;
 
 #[cfg(test)]
 mod tests;
@@ -13,5 +13,5 @@ pub use backend::{
 };
 pub use session::{
     CredentialRegistrationOutcome, CredentialServiceActivity, CredentialServiceCore,
-    CredentialServiceIngressFailure,
+    CredentialServiceIngressFailure, QualificationResourceBudget,
 };

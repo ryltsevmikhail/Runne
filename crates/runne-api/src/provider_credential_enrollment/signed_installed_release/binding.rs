@@ -5,6 +5,8 @@ use super::tuple::NativeEnrollmentTupleV2;
 use super::tuple_identity::MacOsCodeIdentityExpectationV1;
 use super::verification::SignedInstalledReleaseVerificationErrorV2;
 
+#[path = "binding/candidate_binding.rs"]
+mod candidate_binding;
 #[path = "binding/exact.rs"]
 mod exact;
 mod matchers;
@@ -54,6 +56,7 @@ pub struct VerifiedSignedUpdateMetadataV2 {
 pub struct VerifiedSignedInstalledReleaseV2 {
     signed_candidate: Option<SignedInstalledReleaseCandidateV2>,
     signed_candidate_v3: Option<SignedInstalledReleaseCandidateV3>,
+    candidate_binding_v3: Option<candidate_binding::VerifiedCandidateBindingV3>,
 }
 
 impl core::fmt::Debug for VerifiedSignedInstalledReleaseV2 {

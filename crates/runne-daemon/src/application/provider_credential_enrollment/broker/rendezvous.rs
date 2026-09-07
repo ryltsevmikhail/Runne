@@ -80,6 +80,26 @@ impl DaemonBrokerAuthority {
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
     }
 
+    pub(in crate::application::provider_credential_enrollment::broker) fn sign_writer_session_qualified(
+        &mut self,
+        claims: runne_provider::CredentialWriterSessionAttestationClaimsV1,
+        launch_generation: u64,
+        context_sha256: [u8; 32],
+        ticket_sha256: [u8; 32],
+    ) -> Result<
+        (
+            runne_provider::SignedCredentialWriterSessionAttestationV2,
+            runne_provider::CredentialWriterQualifiedPreludeSigner,
+        ),
+        ProviderCredentialEnrollmentHostError,
+    > {
+        self.signer
+            .take()
+            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?
+            .sign_qualified(claims, launch_generation, context_sha256, ticket_sha256)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
+    }
+
     #[cfg(test)]
     pub(super) fn into_parts(
         mut self,

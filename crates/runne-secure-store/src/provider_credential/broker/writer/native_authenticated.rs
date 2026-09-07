@@ -42,6 +42,9 @@ impl NativeProviderCredentialWriters {
         let (issuer, control, channel, ticket, release) = claim
             .into_macos_claim_parts()
             .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
+        let ticket = ticket
+            .bind_verified_qualification_release(&release)
+            .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
         let (effects, writer_path, reader_path) = effect
             .into_macos_effect_parts()
             .map_err(|_| SecureStoreError::CredentialAccessDenied)?;

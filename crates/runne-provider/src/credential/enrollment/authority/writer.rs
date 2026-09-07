@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::credential::enrollment::protocol::VerifiedWriterQualificationFault;
 use crate::credential::enrollment::{
     BrokerChannelBinding, CredentialBindingDigest, CredentialBrokerCommand, CredentialBrokerFrame,
     CredentialEnrollmentError, PendingCredentialSecretOpening, SealedCredentialEnvelope,
@@ -47,6 +48,7 @@ pub struct PendingCredentialWriterClaim {
     command: CredentialBrokerCommand,
     binding: CredentialBindingDigest,
     channel_binding: CredentialBindingDigest,
+    qualification_fault: Option<VerifiedWriterQualificationFault>,
 }
 
 /// One process-local authority consumed by exactly one matching native effect.
@@ -68,6 +70,18 @@ pub struct ClaimedWriterAuthorization {
     command: CredentialBrokerCommand,
     binding: CredentialBindingDigest,
     channel_binding: CredentialBindingDigest,
+    #[allow(
+        dead_code,
+        reason = "Task 3 consumes the retained Writer fault at its exact hook"
+    )]
+    qualification_fault: Option<VerifiedWriterQualificationFault>,
+}
+
+#[cfg(test)]
+impl ClaimedWriterAuthorization {
+    pub(crate) fn test_only_has_writer_fault(&self) -> bool {
+        self.qualification_fault.is_some()
+    }
 }
 
 /// One effect authority admitted before a sealed credential may be opened.
@@ -99,7 +113,16 @@ impl CredentialWriterClaimIssuer {
             command: command.clone(),
             binding,
             channel_binding: channel.digest(),
+            qualification_fault: None,
         }
+    }
+
+    pub(crate) fn retain_qualification_fault(
+        mut pending: PendingCredentialWriterClaim,
+        fault: VerifiedWriterQualificationFault,
+    ) -> PendingCredentialWriterClaim {
+        pending.qualification_fault = Some(fault);
+        pending
     }
 
     /// Converts a matching accepted broker frame and pending transcript into one authorization.
@@ -125,6 +148,7 @@ impl CredentialWriterClaimIssuer {
             command: pending.command,
             binding: pending.binding,
             channel_binding: pending.channel_binding,
+            qualification_fault: pending.qualification_fault,
         })
     }
 }

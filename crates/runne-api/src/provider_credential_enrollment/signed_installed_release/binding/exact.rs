@@ -16,6 +16,8 @@ pub(in super::super) fn exact_with_matcher(
     verified: VerifiedSignedUpdateMetadataV2,
     expected: &DigestEqualityMatcherV1,
 ) -> Result<VerifiedSignedInstalledReleaseV2, SignedInstalledReleaseVerificationErrorV2> {
+    let retained_target =
+        candidate_binding::VerifiedCandidateBindingV3::from_target(verified.target());
     let (candidate, candidate_v3, release_binding) = match (
         verified.qualified_release_candidate,
         verified.qualified_release_candidate_v3,
@@ -36,8 +38,10 @@ pub(in super::super) fn exact_with_matcher(
     if release_binding == [0; 32] || !expected.matches(&release_binding) {
         return Err(SignedInstalledReleaseVerificationErrorV2::ReleaseBindingMismatch);
     }
+    let candidate_binding_v3 = candidate_v3.as_ref().map(|_| retained_target);
     Ok(VerifiedSignedInstalledReleaseV2 {
         signed_candidate: candidate,
         signed_candidate_v3: candidate_v3,
+        candidate_binding_v3,
     })
 }

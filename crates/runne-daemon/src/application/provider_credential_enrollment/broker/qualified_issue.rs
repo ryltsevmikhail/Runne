@@ -1,9 +1,9 @@
-use super::{ProviderCredentialBroker, map_store};
+use super::{ProviderCredentialBroker, map_store, qualified_exchange::QualifiedIssuedTicket};
 use runne_api::ProviderCredentialEnrollmentHostError as Error;
 use runne_provider::{
-    AttachCredentialProcess, IssueCredentialTicketDigest, IssuedCredentialTicketAttempt,
-    MeasuredQualificationAdmission, ProviderCredentialEnrollmentStore,
-    ProviderQualificationAdmissionFenceReceipt, RawCredentialTicket,
+    AttachCredentialProcess, IssueCredentialTicketDigest, MeasuredQualificationAdmission,
+    ProviderCredentialEnrollmentStore, ProviderQualificationAdmissionFenceReceipt,
+    RawCredentialTicket,
 };
 
 impl ProviderCredentialBroker {
@@ -14,7 +14,7 @@ impl ProviderCredentialBroker {
         store: &S,
     ) -> Result<
         (
-            IssuedCredentialTicketAttempt,
+            QualifiedIssuedTicket,
             ProviderQualificationAdmissionFenceReceipt,
         ),
         Error,
@@ -41,8 +41,7 @@ impl ProviderCredentialBroker {
             )
             .map_err(map_store)?;
         self.validate_qualification_receipt(&issued.1)?;
-        // Raw ticket is dropped: the intermediate slice deliberately cannot deliver it.
-        Ok(issued)
+        Ok((QualifiedIssuedTicket::new(ticket, issued.0), issued.1))
     }
 
     pub(crate) fn validate_qualification_receipt(

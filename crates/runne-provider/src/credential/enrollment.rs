@@ -13,6 +13,7 @@ mod qualification_fence_receipt;
 mod qualified_release;
 mod recovery_admission;
 mod service_protocol;
+mod service_qualification_protocol;
 mod snapshot;
 mod state;
 mod store;
@@ -73,11 +74,15 @@ pub use protocol::{
     CredentialSecretClaimOffer, CredentialSecretEnvelopeCodec, CredentialSecretInputPresence,
     CredentialSecretOfferCodec, CredentialSecretPublication, CredentialSecretPublicationCodec,
     CredentialSecretRelayFrameCodec, CredentialWriterCommandKindV1, CredentialWriterCommandScopeV1,
+    CredentialWriterQualifiedAckCodec, CredentialWriterQualifiedAckSigner,
+    CredentialWriterQualifiedAckV1, CredentialWriterQualifiedPreludeCodec,
+    CredentialWriterQualifiedPreludeSigner, CredentialWriterQualifiedPreludeV1,
     CredentialWriterSessionAttestationClaimsV1, CredentialWriterSessionAttestationCodec,
-    CredentialWriterSessionProcessClaimsV1, CredentialWriterSessionRuntimeClaimsV1,
-    CredentialWriterSessionTicketClaimsV1, PROVIDER_CREDENTIAL_BROKER_MODE_V1,
-    PendingCredentialIssueTicketV1, PendingCredentialSecretOpening, SealedCredentialEnvelope,
-    SignedCredentialWriterSessionAttestationV1,
+    CredentialWriterSessionAttestationV2Codec, CredentialWriterSessionProcessClaimsV1,
+    CredentialWriterSessionRuntimeClaimsV1, CredentialWriterSessionTicketClaimsV1,
+    PROVIDER_CREDENTIAL_BROKER_MODE_V1, PendingCredentialIssueTicketV1,
+    PendingCredentialSecretOpening, SealedCredentialEnvelope,
+    SignedCredentialWriterSessionAttestationV1, SignedCredentialWriterSessionAttestationV2,
 };
 #[cfg(feature = "test-support")]
 #[doc(hidden)]
@@ -100,6 +105,12 @@ pub use service_protocol::{
     CredentialServiceRequestKind, CredentialServiceRequestSequence,
     CredentialWriterBrokerHandoffFrame, CredentialWriterConsumeRequest,
     CredentialWriterIngressRequest, CredentialWriterServiceBindingHandoff,
+};
+#[allow(unused_imports)]
+pub use service_qualification_protocol::{
+    ServiceQualificationCommon, ServiceQualificationProtocolCodec,
+    ServiceQualificationRejectionCode, ServiceQualificationReplyFrame, ServiceQualificationRequest,
+    ServiceQualificationRequestKind, ServiceQualificationRequestPayload,
 };
 pub use snapshot::{
     CredentialLifecycleSnapshot, CredentialOperationSnapshot, CredentialRecoveryWork,

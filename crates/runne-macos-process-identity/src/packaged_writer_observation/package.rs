@@ -7,7 +7,7 @@ use nix::sys::stat::Mode;
 
 use super::super::MacOsPackagedWriterObservationError;
 use super::artifact::{ArtifactSnapshot, RetainedArtifact};
-use open::{directory_flags, file_flags, open_absolute_directory, open_absolute_file};
+use open::{directory_flags, file_flags, open_absolute_file};
 use roles::{CONTRACT, DAEMON, DESKTOP, WRITER, fixed_application_from_writer};
 
 mod open;
@@ -29,7 +29,7 @@ pub(crate) struct PackagedWriterArtifacts {
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
-struct DirectorySnapshot {
+pub(crate) struct DirectorySnapshot {
     device: u64,
     inode: u64,
     uid: u32,
@@ -185,7 +185,7 @@ fn capture_role(
     )
 }
 
-fn open_rooted_file(
+pub(crate) fn open_rooted_file(
     root: &File,
     root_identity: &DirectorySnapshot,
     components: &[&str],
@@ -210,7 +210,7 @@ fn open_rooted_file(
         .map_err(|_| MacOsPackagedWriterObservationError::Rejected)
 }
 
-fn directory_snapshot(
+pub(crate) fn directory_snapshot(
     file: &File,
 ) -> Result<DirectorySnapshot, MacOsPackagedWriterObservationError> {
     file.metadata()
@@ -238,15 +238,23 @@ impl DirectorySnapshot {
     clippy::missing_const_for_fn,
     reason = "lossless mode conversion is not const on the pinned MSRV"
 )]
-fn valid_root(snapshot: &DirectorySnapshot) -> bool {
+pub(crate) fn valid_root(snapshot: &DirectorySnapshot) -> bool {
     snapshot.mode & u32::from(libc::S_IFMT) == u32::from(libc::S_IFDIR)
         && snapshot.mode & 0o022 == 0
         && snapshot.links != 0
 }
 
-fn valid_descendant(snapshot: &DirectorySnapshot, root: &DirectorySnapshot) -> bool {
+pub(crate) fn valid_descendant(snapshot: &DirectorySnapshot, root: &DirectorySnapshot) -> bool {
     valid_root(snapshot) && snapshot.device == root.device && snapshot.uid == root.uid
 }
+
+impl DirectorySnapshot {
+    pub(crate) const fn device_uid(&self) -> (u64, u32) {
+        (self.device, self.uid)
+    }
+}
+
+pub(crate) use open::open_absolute_directory;
 
 #[cfg(test)]
 pub(crate) fn test_only_valid_directory_shape(

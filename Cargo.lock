@@ -3816,6 +3816,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "subtle",
+ "syn 2.0.119",
  "tempfile",
  "zeroize",
 ]
@@ -3923,6 +3924,7 @@ dependencies = [
  "runne-api",
  "runne-provider",
  "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -4199,6 +4201,7 @@ dependencies = [
  "ed25519-dalek",
  "libc",
  "nix 0.31.3",
+ "proc-macro2",
  "runne-api",
  "runne-provider",
  "security-framework",
@@ -4206,6 +4209,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -4357,6 +4361,9 @@ dependencies = [
 name = "runne-platform-ports"
 version = "0.0.3"
 dependencies = [
+ "cargo_metadata",
+ "sha2",
+ "syn 2.0.119",
  "zeroize",
 ]
 
@@ -4408,7 +4415,10 @@ dependencies = [
 name = "runne-provider"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "ed25519-dalek",
  "futures",
+ "hex",
  "rand 0.8.7",
  "ring",
  "runne-api",

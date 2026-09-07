@@ -1,4 +1,4 @@
-#![cfg(target_os = "macos")]
+#![cfg(all(target_os = "macos", feature = "test-support"))]
 #![allow(
     clippy::borrow_as_ptr,
     clippy::cast_possible_truncation,
@@ -10,28 +10,39 @@
 mod package;
 #[path = "packaged_writer_observation_real_process/protocol.rs"]
 mod protocol;
+#[cfg(feature = "test-support")]
 #[path = "packaged_writer_observation_real_process/release.rs"]
 mod release;
 
+#[cfg(feature = "test-support")]
 use std::io::Write as _;
+#[cfg(feature = "test-support")]
 use std::num::NonZeroU32;
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::process::{Command, Stdio};
 
-use package::{PackageView, SigningMode, TestPackage};
+#[cfg(feature = "test-support")]
+use package::PackageView;
+use package::{SigningMode, TestPackage};
+#[cfg(feature = "test-support")]
 use release::ReleaseFixture;
+use runne_macos_process_identity::MacOsUntrustedWriterEndpointHandoffV1;
+#[cfg(feature = "test-support")]
 use runne_macos_process_identity::{
     MacOsPackagedWriterObservationError, MacOsProcessStartIdentity,
-    MacOsUntrustedWriterEndpointHandoffV1,
 };
+#[cfg(feature = "test-support")]
 use runne_provider::daemon_credential_publication::CredentialWriterSessionAttestationSigner;
 
 const ROLE_ENV: &str = "RUNNE_B2B3I_REAL_PROCESS_ROLE";
 const WRITER_ENV: &str = "RUNNE_B2B3I_WRITER_PATH";
+#[cfg(feature = "test-support")]
 const SIGNING_IDENTITY_ENV: &str = "RUNNE_MACOS_SIGNING_IDENTITY";
 const LOW_LEVEL_TEST: &str = "packaged_runned_creates_control_stream_and_writer_reaches_pending";
+#[cfg(feature = "test-support")]
 const AD_HOC_TEST: &str = "ad_hoc_package_reaches_release_match_and_signed_identity_rejects";
+#[cfg(feature = "test-support")]
 const DEVELOPER_ID_TEST: &str = "developer_id_package_reaches_one_provisional_writer_session";
 
 #[test]
@@ -46,11 +57,13 @@ fn packaged_runned_creates_control_stream_and_writer_reaches_pending() {
 }
 
 #[test]
+#[cfg(feature = "test-support")]
 fn ad_hoc_package_reaches_release_match_and_signed_identity_rejects() {
     run_case(AD_HOC_TEST, SigningMode::AdHoc, ExpectedMatch::Rejected);
 }
 
 #[test]
+#[cfg(feature = "test-support")]
 #[ignore = "requires explicit RUNNE_MACOS_SIGNING_IDENTITY and an unlocked signing key"]
 fn developer_id_package_reaches_one_provisional_writer_session() {
     let identity = std::env::var(SIGNING_IDENTITY_ENV)
@@ -63,11 +76,13 @@ fn developer_id_package_reaches_one_provisional_writer_session() {
 }
 
 #[derive(Clone, Copy)]
+#[cfg(feature = "test-support")]
 enum ExpectedMatch {
     Accepted,
     Rejected,
 }
 
+#[cfg(feature = "test-support")]
 fn run_case(test_name: &str, signing: SigningMode<'_>, expected: ExpectedMatch) {
     match std::env::var(ROLE_ENV).as_deref() {
         Ok("runne") => return writer_helper(expected),
@@ -120,6 +135,7 @@ fn low_level_daemon_helper() {
     assert_child_success("runne", &output);
 }
 
+#[cfg(feature = "test-support")]
 fn writer_helper(expected: ExpectedMatch) {
     let handoff = MacOsUntrustedWriterEndpointHandoffV1::receive_from_stdin()
         .expect("receive exact writer handoff");
@@ -141,6 +157,7 @@ fn writer_helper(expected: ExpectedMatch) {
     }
 }
 
+#[cfg(feature = "test-support")]
 fn daemon_helper(test_name: &str) {
     let package = PackageView::from_current_executable();
     let release = ReleaseFixture::for_package(&package);

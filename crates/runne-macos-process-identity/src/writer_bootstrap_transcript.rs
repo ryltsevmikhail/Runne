@@ -1,11 +1,12 @@
 mod deadline;
+mod qualified;
 
 use std::time::Duration;
 
 use runne_api::PendingSignedInstalledReleaseMetadataV2;
 use runne_provider::{
     CredentialWriterSessionAttestationCodec, PendingCredentialIssueTicketV1,
-    SignedCredentialWriterSessionAttestationV1,
+    SignedCredentialWriterSessionAttestationV1, SignedCredentialWriterSessionAttestationV2,
 };
 
 use self::deadline::DeadlineReader;
@@ -30,10 +31,24 @@ struct BootstrapPrefix {
     release: PendingSignedInstalledReleaseMetadataV2,
 }
 
+pub enum BootstrapAttestation {
+    V1(SignedCredentialWriterSessionAttestationV1),
+    Qualified(SignedCredentialWriterSessionAttestationV2),
+}
+
+enum BootstrapPrefixVersion {
+    V1(BootstrapPrefix),
+    Qualified {
+        attestation: SignedCredentialWriterSessionAttestationV2,
+        issue_ticket: PendingCredentialIssueTicketV1,
+        release: PendingSignedInstalledReleaseMetadataV2,
+    },
+}
+
 #[doc(hidden)]
 pub struct MacOsPendingWriterBootstrapTranscriptV1 {
     handoff: MacOsUntrustedWriterEndpointHandoffV1,
-    attestation: SignedCredentialWriterSessionAttestationV1,
+    attestation: BootstrapAttestation,
     issue_ticket: PendingCredentialIssueTicketV1,
     release: PendingSignedInstalledReleaseMetadataV2,
     observation: CapturedPackagedWriterObservationV1,
@@ -47,6 +62,28 @@ impl MacOsUntrustedWriterEndpointHandoffV1 {
         observe(self, &PrefixBudget::Production)
     }
 
+    /// Observes either the unchanged V1 or the qualification-required V2
+    /// bootstrap, selected by the attestation version byte.
+    #[doc(hidden)]
+    pub fn observe_pending_writer_bootstrap_any(
+        self,
+    ) -> Result<MacOsPendingWriterBootstrapTranscriptV1, MacOsPackagedWriterObservationError> {
+        qualified::observe_any(self, &PrefixBudget::Production)
+    }
+
+    /// Observes only the qualification-required V2 bootstrap.
+    #[doc(hidden)]
+    pub fn observe_pending_qualified_writer_bootstrap(
+        self,
+    ) -> Result<MacOsPendingWriterBootstrapTranscriptV1, MacOsPackagedWriterObservationError> {
+        let transcript = qualified::observe_any(self, &PrefixBudget::Production)?;
+        if transcript.is_qualified() {
+            Ok(transcript)
+        } else {
+            Err(MacOsPackagedWriterObservationError::Rejected)
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn test_only_observe_pending_writer_bootstrap(
         self,
@@ -57,6 +94,12 @@ impl MacOsUntrustedWriterEndpointHandoffV1 {
 }
 
 impl MacOsPendingWriterBootstrapTranscriptV1 {
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn is_qualified(&self) -> bool {
+        matches!(self.attestation, BootstrapAttestation::Qualified(_))
+    }
+
     #[doc(hidden)]
     #[must_use]
     pub fn into_release_verification(
@@ -97,7 +140,7 @@ fn observe(
         CapturedPackagedWriterObservationV1::capture_with_retained_peer(&handoff, peer)?;
     Ok(MacOsPendingWriterBootstrapTranscriptV1 {
         handoff,
-        attestation: prefix.attestation,
+        attestation: BootstrapAttestation::V1(prefix.attestation),
         issue_ticket: prefix.issue_ticket,
         release: prefix.release,
         observation,
@@ -131,7 +174,7 @@ fn production_or_local_prefix_budget() -> Duration {
     prefix_budget_for_local_test_opt_in(opted_in)
 }
 
-#[cfg(feature = "test-support")]
+#[cfg(any(test, feature = "test-support"))]
 const fn prefix_budget_for_local_test_opt_in(opted_in: bool) -> Duration {
     if opted_in {
         Duration::from_mins(2)

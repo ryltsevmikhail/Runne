@@ -34,6 +34,8 @@ pub use verification::{
 };
 
 #[cfg(test)]
+mod candidate_binding_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tuple_v3_qualification_tests;

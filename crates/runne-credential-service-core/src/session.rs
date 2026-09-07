@@ -15,7 +15,16 @@ use crate::admission::AdmissionLedger;
 
 mod registration;
 mod runtime;
+// Gate A deliberately exposes no production qualification ingress. The private staged
+// API stays compiled and tested below until the future atomic receiver wires it in.
+#[allow(
+    dead_code,
+    reason = "Gate A qualification staging has zero production callers"
+)]
+mod qualification;
 mod validation;
+
+pub use qualification::QualificationResourceBudget;
 
 const MAX_CHALLENGES: usize = 64;
 const CHALLENGE_TTL_MILLIS: u64 = 5_000;

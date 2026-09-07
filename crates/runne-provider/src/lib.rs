@@ -263,7 +263,8 @@ pub use credential::{
     WriterIdentityMigrationPhase, WriterLaunchId, WriterProcessHandleIdentity,
     WriterProcessStartIdentity, allows_structural_transition,
 };
-
+#[rustfmt::skip]
+pub use credential::{CredentialWriterQualifiedAckCodec, CredentialWriterQualifiedAckSigner, CredentialWriterQualifiedAckV1, CredentialWriterQualifiedPreludeCodec, CredentialWriterQualifiedPreludeSigner, CredentialWriterQualifiedPreludeV1, CredentialWriterSessionAttestationV2Codec, SignedCredentialWriterSessionAttestationV2};
 #[cfg(feature = "test-support")]
 #[doc(hidden)]
 pub use credential::{SealedPairFixture, sealed_pair_for_test};

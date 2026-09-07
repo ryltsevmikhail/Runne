@@ -11,6 +11,10 @@ use crate::application::provider_credential_enrollment::{
     operation_projection,
 };
 
+mod qualified;
+#[cfg(test)]
+pub(super) use qualified::{QualifiedWriterService, claim_fenced_writer_on};
+
 pub(crate) struct PendingProtectedBrokerClaim {
     claimed: broker::ClaimedBrokerEffect,
     relay: Option<[u8; runne_provider::CredentialSecretRelayFrameCodec::BYTES]>,
@@ -76,6 +80,18 @@ impl DaemonProtectedCredentialEnrollmentSession {
             self.facts.database_generation,
             self.facts.supervisor_generation,
         )?;
+        if let Some(fenced) = self.qualification_fenced.take() {
+            return qualified::claim_fenced_writer(
+                self,
+                fenced.into_writer_delivery()?,
+                coordinator,
+                context,
+                measurements,
+                continuation,
+                channel,
+                service,
+            );
+        }
         let authority = self.take_ticket_authority()?;
         let receipt = coordinator.issue_ticket(
             authority,

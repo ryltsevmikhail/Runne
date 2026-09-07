@@ -164,8 +164,11 @@ fn cheap_peer_prefix_deadline_and_heavy_capture_have_locked_ordering() {
 #[test]
 fn provisional_writer_session_match_uses_every_retained_fact_before_its_sole_constructor() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let transition =
+    let mut transition =
         std::fs::read_to_string(root.join("src/provisional_writer_session.rs")).unwrap();
+    transition.push_str(
+        &std::fs::read_to_string(root.join("src/provisional_writer_session/qualified.rs")).unwrap(),
+    );
     let signing = std::fs::read_to_string(root.join("src/signed_code_identity.rs")).unwrap();
     let observation =
         std::fs::read_to_string(root.join("src/packaged_writer_observation.rs")).unwrap();
@@ -225,8 +228,8 @@ fn provisional_writer_session_match_uses_every_retained_fact_before_its_sole_con
         + match_start;
     let matching = &transition[match_start..match_end];
     let pinned = matching.find("verify_current_pinned").unwrap();
-    let first_current = matching.find("is_current_now").unwrap();
-    let final_current = matching.rfind("is_current_now").unwrap();
+    let first_current = matching.find("qualified::attestation_is_current").unwrap();
+    let final_current = matching.rfind("qualified::attestation_is_current").unwrap();
     let final_revalidation = matching.find("revalidate_for_provisional_session").unwrap();
     let constructor = matching
         .find("MacOsPendingProvisionalWriterSessionV1 {")

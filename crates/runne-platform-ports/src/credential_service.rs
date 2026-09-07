@@ -12,10 +12,12 @@ use std::time::Instant;
 use zeroize::Zeroizing;
 
 mod desktop;
+mod qualification;
 mod runtime;
 mod writer;
 
 pub use desktop::CredentialServiceDesktopPort;
+pub use qualification::CredentialServiceQualificationPort;
 pub use runtime::CredentialServiceRuntimePort;
 pub use writer::CredentialServiceWriterPort;
 
@@ -69,6 +71,35 @@ credential_service_frame!(CredentialServiceRuntimeRequest);
 credential_service_frame!(CredentialServiceRuntimeReply);
 credential_service_frame!(CredentialServiceWriterRequest);
 credential_service_frame!(CredentialServiceWriterReply);
+
+macro_rules! qualification_service_frame {
+    ($name:ident $(, $transfer:ident)?) => {
+        /// Opaque, move-only qualification bytes reserved for an authenticated boundary.
+        #[allow(dead_code)]
+        pub struct $name(Zeroizing<Vec<u8>>);
+
+        #[cfg(test)]
+        impl $name {
+            pub(crate) fn from_test_zeroizing(
+                bytes: Zeroizing<Vec<u8>>,
+            ) -> Result<Self, CredentialServicePortError> {
+                if bytes.is_empty() || bytes.len() > MAX_CREDENTIAL_SERVICE_FRAME_BYTES {
+                    return Err(CredentialServicePortError::Rejected);
+                }
+                Ok(Self(bytes))
+            }
+
+            $(
+                pub(crate) fn $transfer(self) -> Zeroizing<Vec<u8>> {
+                    self.0
+                }
+            )?
+        }
+    };
+}
+
+qualification_service_frame!(CredentialServiceQualificationRequest, test_into_zeroizing);
+qualification_service_frame!(CredentialServiceQualificationReply);
 
 /// Sendable future returned by each native credential-service call.
 pub type CredentialServicePortFuture<'a, T> =
@@ -255,5 +286,7 @@ impl fmt::Display for CredentialServicePortError {
 
 impl std::error::Error for CredentialServicePortError {}
 
+#[cfg(test)]
+mod qualification_contract_tests;
 #[cfg(test)]
 mod tests;

@@ -1,9 +1,7 @@
 """Closed dependency and source boundary for native qualification admission."""
 from __future__ import annotations
 NATIVE_QUALIFICATION_PACKAGE = "runne-native-qualification"
-NATIVE_QUALIFICATION_DEPENDENCIES = {
-    "base64", "ed25519-dalek", "hex", "runne-api", "serde", "serde_json", "sha2",
-}
+NATIVE_QUALIFICATION_DEPENDENCIES = {"base64", "ed25519-dalek", "hex", "runne-api", "serde", "serde_json", "sha2"}
 ALLOWED_RUST_DEPENDENCIES[NATIVE_QUALIFICATION_PACKAGE] = {"runne-api"}
 for owner in ("runne-desktop", "runne-platform-desktop"):
     ALLOWED_RUST_DEPENDENCIES[owner].add(NATIVE_QUALIFICATION_PACKAGE)
@@ -20,7 +18,8 @@ NATIVE_QUALIFICATION_EXACT_DEPENDENCIES = {
     ("dev", "syn"): ("^2", ("extra-traits", "full", "visit"), True),
 }
 NATIVE_QUALIFICATION_FORBIDDEN_SOURCE = re.compile(
-    r"\b(?:std::env|std::fs|std::path|SigningKey|File::|OpenOptions|dyn\s+Fn|impl\s+Fn)\b"
+    r"\b(?:std::env|std::fs|std::path|SigningKey|File::|OpenOptions|"
+    r"dyn\s+Fn(?:Once|Mut)?|impl\s+Fn(?:Once|Mut)?)\b"
     r"|<\s*[A-Za-z_]\w*\s*:\s*Fn"
     r"|\bwhere\b[^;{]*\bFn(?:Once|Mut)?\s*\("
     r"|\buse\s+std\s*::\s*\{[^}]*\b(?:env|fs|path)\b"
@@ -74,6 +73,7 @@ NATIVE_QUALIFICATION_ADMISSION_ALLOWED = {
     Path("crates/runne-daemon/src/application/provider_credential_enrollment/control_facade/protected_session.rs"),
     Path("crates/runne-daemon/src/application/provider_credential_enrollment/control_facade/protected_session/qualification.rs"),
 }
+NATIVE_QUALIFICATION_ADMISSION_ALLOWED.update(PROVIDER_QUALIFICATION_ALLOWED_SOURCES)
 NATIVE_QUALIFICATION_ADMISSION_TOKEN = re.compile(
     r"runne_native_qualification|PendingQualificationFault|PendingQualificationAdmission|"
     r"QualificationAdmissionHostState|"
@@ -194,8 +194,9 @@ def find_native_qualification_admission_dependency_violations(
     if native_directory is None:
         violations.append("native qualification package metadata is missing or ambiguous")
     for owner, dependency in observed:
-        facts_edge = owner == "runne-provider"
-        fixture_edge = owner == "runne-store"
+        kind = dependency.get("kind") or "normal"
+        facts_edge = owner == "runne-provider" and kind == "normal"
+        fixture_edge = owner in {"runne-provider", "runne-store"} and kind == "dev"
         path = dependency.get("path")
         canonical_path = (
             isinstance(path, str)
@@ -204,7 +205,7 @@ def find_native_qualification_admission_dependency_violations(
         )
         exact = (
             (owner in NATIVE_QUALIFICATION_ADMISSION_OWNERS or facts_edge or fixture_edge)
-            and (dependency.get("kind") or "normal") == ("dev" if fixture_edge else "normal")
+            and kind == ("dev" if fixture_edge else "normal")
             and dependency.get("req") == "*"
             and dependency.get("target") == (None if facts_edge or fixture_edge else NATIVE_QUALIFICATION_ADMISSION_TARGET)
             and dependency.get("source") is None
@@ -232,7 +233,7 @@ def find_native_qualification_admission_surface_violations(root: Path) -> list[s
         root / "crates/runne-daemon/src",
         root / "crates/runne-provider/src",
     )
-    violations = []
+    violations = native_writer_fault_transition_violations(root) + native_service_fault_transition_violations(root) + external_service_fault_transition_violations(root, roots)
     for source_root in roots:
         if not source_root.exists():
             continue
@@ -241,10 +242,9 @@ def find_native_qualification_admission_surface_violations(root: Path) -> list[s
                 continue
             relative = path.relative_to(root)
             text = path.read_text(encoding="utf-8")
-            if "runne-provider" in relative.parts and re.search(
-                r"PendingQualification|Qualification\w*Verifier|Qualification\w*Relay|RawQualification", text
-            ):
-                violations.append(f"{relative.as_posix()} exceeds provider facts-only native edge")
+            provider_violation = provider_qualification_surface_violation(relative, text)
+            if provider_violation is not None:
+                violations.append(f"{relative.as_posix()} {provider_violation}")
             if native_qualification_delivery_forbidden(relative, text):
                 violations.append(
                     f"{relative.as_posix()} exposes forbidden qualification transport"

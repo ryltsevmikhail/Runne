@@ -21,6 +21,8 @@ use super::{
 
 #[cfg(any(test, feature = "desktop-protected"))]
 mod protected_session;
+#[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+pub(crate) use protected_session::PostcommitAdmissionPermit;
 #[cfg(any(test, feature = "desktop-protected"))]
 pub(crate) use protected_session::{
     DaemonProtectedCredentialEnrollmentSession, InitialCredentialExchange,

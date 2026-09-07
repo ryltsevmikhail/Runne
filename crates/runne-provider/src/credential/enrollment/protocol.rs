@@ -42,12 +42,17 @@ pub use secret::{
 #[cfg(feature = "test-support")]
 #[doc(hidden)]
 pub use secret::{SealedPairFixture, sealed_pair_for_test};
+pub(crate) use session_attestation::VerifiedWriterQualificationFault;
 pub use session_attestation::{
     CredentialIssueTicketBindingV1, CredentialSecretInputPresence, CredentialWriterCommandKindV1,
-    CredentialWriterCommandScopeV1, CredentialWriterSessionAttestationClaimsV1,
-    CredentialWriterSessionAttestationCodec, CredentialWriterSessionProcessClaimsV1,
-    CredentialWriterSessionRuntimeClaimsV1, CredentialWriterSessionTicketClaimsV1,
-    PendingCredentialIssueTicketV1, SignedCredentialWriterSessionAttestationV1,
+    CredentialWriterCommandScopeV1, CredentialWriterQualifiedAckCodec,
+    CredentialWriterQualifiedAckSigner, CredentialWriterQualifiedAckV1,
+    CredentialWriterQualifiedPreludeCodec, CredentialWriterQualifiedPreludeSigner,
+    CredentialWriterQualifiedPreludeV1, CredentialWriterSessionAttestationClaimsV1,
+    CredentialWriterSessionAttestationCodec, CredentialWriterSessionAttestationV2Codec,
+    CredentialWriterSessionProcessClaimsV1, CredentialWriterSessionRuntimeClaimsV1,
+    CredentialWriterSessionTicketClaimsV1, PendingCredentialIssueTicketV1,
+    SignedCredentialWriterSessionAttestationV1, SignedCredentialWriterSessionAttestationV2,
 };
 
 /// Deliberately narrow daemon-only publication adapter.

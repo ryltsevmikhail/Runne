@@ -11,12 +11,14 @@ use runne_provider::{
 use zeroize::Zeroizing;
 
 use super::effect_authority::map_store;
-
 mod effect_release;
 pub(crate) mod issue;
 pub(super) mod pending;
 #[cfg(all(unix, feature = "desktop-protected"))]
 mod pending_writer;
+mod qualified_exchange;
+pub(crate) use qualified_exchange::{FencedWriterExchange, QualifiedIssuedTicket};
+pub(super) use qualified_exchange::{QualifiedCredentialBrokerChannel, QualifiedIssueTransmission};
 #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
 mod qualified_issue;
 #[cfg(unix)]
@@ -36,7 +38,7 @@ pub(crate) use pending_writer::VerifiedMacOsWriterWithDaemonKillCapability;
 pub(crate) use pending_writer::VerifiedWriterAwaitingDaemonKillCapability;
 
 /// Authenticated inherited control channel; Task 11 owns its platform adapters.
-pub(super) trait CredentialBrokerChannel {
+pub(crate) trait CredentialBrokerChannel {
     /// Exact measured binding for the authenticated, daemon-owned control channel.
     fn binding_digest(&self) -> CredentialBindingDigest;
 

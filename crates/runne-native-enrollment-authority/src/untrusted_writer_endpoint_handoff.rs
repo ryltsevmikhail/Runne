@@ -150,7 +150,7 @@ impl UntrustedProviderCredentialWriterEndpointHandoffV1 {
         PendingPinnedProviderCredentialWriterSessionV1,
         runne_macos_process_identity::MacOsPackagedWriterObservationError,
     > {
-        let transcript = self.inner.observe_pending_writer_bootstrap()?;
+        let transcript = self.inner.observe_pending_writer_bootstrap_any()?;
         let (pending_match, metadata) = transcript.into_release_verification();
         pending_match
             .match_current_pinned_release(metadata)

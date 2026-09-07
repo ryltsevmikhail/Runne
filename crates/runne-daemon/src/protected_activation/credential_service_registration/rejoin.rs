@@ -18,7 +18,10 @@ impl CredentialServiceRuntimeSession {
         expires_at_unix_millis: u64,
     ) -> Result<PreparedCredentialServiceRejoin, LaunchAuthorityError> {
         let enrollment = owned.enrollment_binding();
-        if owned.session_id() != self.binding.protected_session_id()
+        // `owned` is the current authenticated control-loop authority. V3
+        // renewal rotates only its protected session ID; a rejoin binds to
+        // that current session while retaining the established owner tuple.
+        if owned.launch_generation() != self.binding.daemon_authority_generation()
             || owned.launch_generation() != self.binding.runtime_generation()
             || enrollment.desktop_supervisor_generation() != self.binding.supervisor_generation()
             || enrollment.installation_identity_digest() != self.binding.installation_owner()

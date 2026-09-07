@@ -56,6 +56,7 @@ class CredentialServiceCoreDependencyTest(unittest.TestCase):
         expected_edges = (
             ("rand", "normal"), ("runne-api", "normal"),
             ("runne-provider", "normal"), ("subtle", "normal"),
+            ("zeroize", "normal"),
             ("runne-provider", "dev"),
         )
         for index, (name, kind) in enumerate(expected_edges):
@@ -65,6 +66,13 @@ class CredentialServiceCoreDependencyTest(unittest.TestCase):
                 [f"{self.PACKAGE} -> {name} ({kind}) exact dependency is missing"],
                 validate([package]),
             )
+
+        package = self.package()
+        package["dependencies"][4]["req"] = "*"
+        self.assertEqual(
+            [f"{self.PACKAGE} -> zeroize (normal) has forbidden dependency shape"],
+            validate([package]),
+        )
 
         missing_manifest = self.package()
         del missing_manifest["manifest_path"]
@@ -94,6 +102,7 @@ class CredentialServiceCoreDependencyTest(unittest.TestCase):
                 cls.dependency("runne-api", path="/repo/crates/runne-api"),
                 cls.dependency("runne-provider", path="/repo/crates/runne-provider"),
                 cls.dependency("subtle", req="=2.6.1", source=architecture.CARGO_REGISTRY_SOURCE),
+                cls.dependency("zeroize", req="=1.9.0", source=architecture.CARGO_REGISTRY_SOURCE),
                 cls.dependency("runne-provider", kind="dev", features=["test-support"], path="/repo/crates/runne-provider"),
             ],
         }

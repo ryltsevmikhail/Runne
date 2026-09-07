@@ -33,8 +33,15 @@ pub(super) async fn prove_restart_rejoin(
     }
     wait_for_service_exit(&target, old_pid)?;
 
-    super::point_of_use::prove_service_loss_is_fenced(client, runtime).await?;
-    complete_pending_rejoin(supervisor).await?;
+    // The Desktop controller drives rejoin from its independent monitor while
+    // the client request remains in flight. Keep the real-process fixture on
+    // that lifecycle so the bounded metadata retry receives a fresh session.
+    let (fenced, rejoined) = tokio::join!(
+        super::point_of_use::prove_service_loss_is_fenced(client, runtime),
+        complete_pending_rejoin(supervisor),
+    );
+    fenced?;
+    rejoined?;
     let renewed = supervisor
         .renew_profile()
         .map_err(|_| "service-rejoin-renew")?

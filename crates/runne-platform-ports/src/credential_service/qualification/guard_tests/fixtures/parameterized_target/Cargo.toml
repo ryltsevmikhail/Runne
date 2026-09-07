@@ -1,0 +1,10 @@
+[package]
+name = "qualification-parameterized-target-fixture"
+version = "0.0.0"
+edition = "2024"
+
+[workspace]
+
+[[bin]]
+name = "fixture"
+path = "test_fixture/main.rs"

@@ -3,6 +3,7 @@ use std::mem::size_of;
 use std::os::fd::AsRawFd as _;
 use std::os::unix::net::UnixStream;
 
+#[cfg(any(test, feature = "test-support"))]
 use runne_provider::{
     CredentialBindingDigest, CredentialBrokerCommand, CredentialBrokerFrame,
     CredentialBrokerFrameCodec, CredentialBrokerTarget, CredentialFence,
@@ -13,8 +14,10 @@ use runne_provider::{
     CredentialWriterSessionRuntimeClaimsV1, CredentialWriterSessionTicketClaimsV1, ProviderId,
     RawCredentialTicket, daemon_credential_publication::CredentialWriterSessionAttestationSigner,
 };
+#[cfg(any(test, feature = "test-support"))]
 use sha2::{Digest as _, Sha256};
 
+#[cfg(any(test, feature = "test-support"))]
 use super::release::ReleaseFixture;
 
 pub const CHANNEL: [u8; 32] = [0x41; 32];
@@ -30,6 +33,7 @@ pub fn handoff_frame(public_key: [u8; 32]) -> [u8; 160] {
     frame
 }
 
+#[cfg(any(test, feature = "test-support"))]
 pub fn bootstrap_prefix(
     handoff: &[u8; 160],
     signer: CredentialWriterSessionAttestationSigner,
@@ -49,6 +53,7 @@ pub fn bootstrap_prefix(
     .concat()
 }
 
+#[cfg(any(test, feature = "test-support"))]
 fn issue_ticket() -> CredentialBrokerFrame {
     let operation_id = CredentialOperationId::from_bytes([1; 16]).expect("operation id");
     let attempt = CredentialTicketAttempt::new(2).expect("attempt");
@@ -75,6 +80,7 @@ fn issue_ticket() -> CredentialBrokerFrame {
     }
 }
 
+#[cfg(any(test, feature = "test-support"))]
 fn claims(
     handoff: &[u8; 160],
     issue: &CredentialBrokerFrame,
@@ -132,6 +138,7 @@ fn claims(
     )
 }
 
+#[cfg(any(test, feature = "test-support"))]
 fn handoff_digest(frame: &[u8; 160]) -> [u8; 32] {
     let mut digest = Sha256::new();
     digest.update(HANDOFF_DOMAIN);
@@ -139,6 +146,7 @@ fn handoff_digest(frame: &[u8; 160]) -> [u8; 32] {
     digest.finalize().into()
 }
 
+#[cfg(any(test, feature = "test-support"))]
 fn digest(value: [u8; 32]) -> CredentialBindingDigest {
     CredentialBindingDigest::from_measured(value).expect("nonzero fixture digest")
 }

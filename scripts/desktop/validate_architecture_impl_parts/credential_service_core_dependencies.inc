@@ -12,6 +12,7 @@ CREDENTIAL_SERVICE_CORE_DEPENDENCIES = {
     ("normal", "runne-api"): ("*", (), False, None, None, True, ("path", "runne-api")),
     ("normal", "runne-provider"): ("*", (), False, None, None, True, ("path", "runne-provider")),
     ("normal", "subtle"): ("=2.6.1", (), False, None, None, True, ("registry",)),
+    ("normal", "zeroize"): ("=1.9.0", (), False, None, None, True, ("registry",)),
     ("dev", "runne-provider"): ("*", ("test-support",), False, None, None, True, ("path", "runne-provider")),
 }
 

@@ -14,6 +14,107 @@ struct NoReadback;
 pub(crate) fn owned_for_test() -> runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3 {
     crate::protected_activation::enrollment_v3_tests::owned_and_sessions().0
 }
+
+pub(crate) struct ConnectedQualificationFixture {
+    pub(crate) installed: runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts,
+    pub(crate) admission: super::VerifiedQualificationAdmission,
+    pub(crate) verifier: runne_native_qualification::QualificationAdmissionVerifier,
+    receiver: ConnectedQualificationReceiver,
+    pub(crate) now: u64,
+}
+
+pub(crate) struct ConnectedQualificationReceiver {
+    release: runne_api::VerifiedSignedInstalledReleaseV2,
+    verifier: runne_native_qualification::QualificationAdmissionVerifier,
+}
+
+impl ConnectedQualificationFixture {
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts,
+        super::VerifiedQualificationAdmission,
+        runne_native_qualification::QualificationAdmissionVerifier,
+        ConnectedQualificationReceiver,
+        u64,
+    ) {
+        (
+            self.installed,
+            self.admission,
+            self.verifier,
+            self.receiver,
+            self.now,
+        )
+    }
+}
+
+impl ConnectedQualificationReceiver {
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        runne_api::VerifiedSignedInstalledReleaseV2,
+        runne_native_qualification::QualificationAdmissionVerifier,
+    ) {
+        (self.release, self.verifier)
+    }
+}
+
+pub(crate) fn connected_qualification_fixture(
+    owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
+    release: runne_api::VerifiedSignedInstalledReleaseV2,
+) -> ConnectedQualificationFixture {
+    let tuple = release.native_enrollment_tuple_v3().unwrap();
+    let installed = runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts::test_only_qualification_facts(
+        *owned.enrollment_binding().release_tuple_digest(),
+        *owned.enrollment_binding().qualification_binding_digest(),
+        tuple.candidate_digest(),
+        tuple.tuple_digest(),
+    );
+    let context = SigningKey::from_bytes(&[7; 32]);
+    let fault = SigningKey::from_bytes(&[9; 32]);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let bundle = super::writer_admission_bundle_for_at(
+        &context,
+        &fault,
+        now,
+        tuple.candidate_digest(),
+        tuple.tuple_digest(),
+    );
+    let mut verifier =
+        runne_native_qualification::QualificationAdmissionVerifier::test_only_from_verifying_keys(
+            context.verifying_key(),
+            fault.verifying_key(),
+        );
+    let admission = super::verify_and_retain_qualification_admission_for_test(
+        &installed,
+        owned,
+        &mut verifier,
+        runne_native_qualification::PendingQualificationAdmission::from_admitted_bundle(
+            bundle.clone(),
+        )
+        .unwrap(),
+        super::qualification_fence::QualificationAdmissionMembers::from_test_bundle(&bundle)
+            .unwrap(),
+        now,
+    )
+    .unwrap();
+    ConnectedQualificationFixture {
+        installed,
+        admission,
+        verifier: runne_native_qualification::QualificationAdmissionVerifier::test_only_from_verifying_keys(context.verifying_key(), fault.verifying_key()),
+        receiver: ConnectedQualificationReceiver {
+            release,
+            verifier: runne_native_qualification::QualificationAdmissionVerifier::test_only_from_verifying_keys(
+                context.verifying_key(),
+                fault.verifying_key(),
+            ),
+        },
+        now,
+    }
+}
 impl ProviderCredentialReadback for NoReadback {
     fn readback_exact_version(
         &self,
@@ -67,7 +168,19 @@ pub(crate) fn session_with_active(
         &installed,
         &owned,
         &mut verifier,
-        super::qualification_admission_tests::support::admission_at(&context_key, &fault_key, now),
+        super::qualification_admission_tests::support::writer_admission_at(
+            &context_key,
+            &fault_key,
+            now,
+        ),
+        super::qualification_fence::QualificationAdmissionMembers::from_test_bundle(
+            &super::qualification_admission_tests::support::writer_admission_bundle_at(
+                &context_key,
+                &fault_key,
+                now,
+            ),
+        )
+        .unwrap(),
         now,
     )
     .unwrap();

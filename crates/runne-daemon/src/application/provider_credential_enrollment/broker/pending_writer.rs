@@ -24,6 +24,10 @@ use super::{
     rendezvous::DaemonBrokerAuthority,
 };
 
+#[cfg(target_os = "macos")]
+#[path = "pending_writer/qualified.rs"]
+mod qualified;
+
 /// Exact writer admitted to this rendezvous but not yet granted daemon kill authority.
 pub(crate) struct VerifiedWriterAwaitingDaemonKillCapability {
     binding: PendingBrokerRendezvousBinding,

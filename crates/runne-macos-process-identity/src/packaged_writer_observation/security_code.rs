@@ -83,6 +83,12 @@ impl NativeCodeObservation {
     }
 }
 
+pub(crate) fn static_main_executable(
+    code: &security_framework::os::macos::code_signing::SecStaticCode,
+) -> Result<PathBuf, MacOsPackagedWriterObservationError> {
+    copy_main_executable_ref(code.as_concrete_TypeRef().cast())
+}
+
 fn check_requirement_free_validity(
     code: &SecCode,
 ) -> Result<(), MacOsPackagedWriterObservationError> {
@@ -95,10 +101,14 @@ fn check_requirement_free_validity(
 }
 
 fn copy_main_executable(code: &SecCode) -> Result<PathBuf, MacOsPackagedWriterObservationError> {
+    copy_main_executable_ref(code.as_concrete_TypeRef().cast())
+}
+
+fn copy_main_executable_ref(
+    code: SecStaticCodeRef,
+) -> Result<PathBuf, MacOsPackagedWriterObservationError> {
     let mut information: CFDictionaryRef = std::ptr::null();
-    let status = unsafe {
-        SecCodeCopySigningInformation(code.as_concrete_TypeRef().cast(), 0, &raw mut information)
-    };
+    let status = unsafe { SecCodeCopySigningInformation(code, 0, &raw mut information) };
     if status != 0 || information.is_null() {
         return Err(MacOsPackagedWriterObservationError::Rejected);
     }

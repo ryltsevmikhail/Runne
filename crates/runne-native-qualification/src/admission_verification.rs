@@ -71,6 +71,56 @@ impl QualificationAdmissionVerifier {
         )
     }
 
+    /// Authenticates one exact pair and returns only a Writer-local fault capability.
+    ///
+    /// # Errors
+    ///
+    /// Rejects unavailable authority, signature, freshness, replay, installed-fact,
+    /// cross-member, selector, or local Writer-role mismatches.
+    pub fn verify_exact_writer_fault_borrowed(
+        &mut self,
+        admission: &PendingQualificationAdmission,
+        candidate_sha256: [u8; 32],
+        raw_v3_tuple_sha256: [u8; 32],
+        now_unix_seconds: u64,
+    ) -> Result<crate::VerifiedQualificationFault, QualificationAdmissionVerificationError> {
+        if candidate_sha256 == [0; 32] || raw_v3_tuple_sha256 == [0; 32] {
+            return Err(QualificationAdmissionVerificationError);
+        }
+        admission.verify_exact_writer_fault_borrowed(
+            &mut self.context,
+            &mut self.fault,
+            candidate_sha256,
+            raw_v3_tuple_sha256,
+            now_unix_seconds,
+        )
+    }
+
+    /// Authenticates one exact pair and returns only a Service-local fault capability.
+    ///
+    /// # Errors
+    ///
+    /// Rejects unavailable authority, signature, freshness, replay, installed-fact,
+    /// cross-member, selector, or local Service-role mismatches.
+    pub fn verify_exact_service_fault_borrowed(
+        &mut self,
+        admission: &PendingQualificationAdmission,
+        candidate_sha256: [u8; 32],
+        raw_v3_tuple_sha256: [u8; 32],
+        now_unix_seconds: u64,
+    ) -> Result<crate::VerifiedQualificationFault, QualificationAdmissionVerificationError> {
+        if candidate_sha256 == [0; 32] || raw_v3_tuple_sha256 == [0; 32] {
+            return Err(QualificationAdmissionVerificationError);
+        }
+        admission.verify_exact_service_fault_borrowed(
+            &mut self.context,
+            &mut self.fault,
+            candidate_sha256,
+            raw_v3_tuple_sha256,
+            now_unix_seconds,
+        )
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     #[doc(hidden)]
     #[must_use]

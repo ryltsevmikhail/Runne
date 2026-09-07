@@ -4,6 +4,7 @@
 #![deny(unsafe_code)]
 
 mod continuous_clock;
+mod credential_service_package_observation;
 mod ffi;
 mod local_parent_channel;
 mod local_peer;
@@ -30,6 +31,10 @@ mod packaged_writer_observation_tests;
 mod writer_endpoint_handoff_tests;
 
 pub use continuous_clock::{MacOsContinuousClock, MacOsContinuousClockError};
+pub use credential_service_package_observation::{
+    MacOsCredentialServicePackageObservationError,
+    MacOsPendingCredentialServicePackageObservationV1, MacOsVerifiedCredentialServicePackageV1,
+};
 pub use local_parent_channel::validate_current_parent_channel;
 pub use local_peer::{MacOsLocalPeerProcessIdentity, MacOsLocalPeerProcessIdentityError};
 pub use packaged_writer_observation::{

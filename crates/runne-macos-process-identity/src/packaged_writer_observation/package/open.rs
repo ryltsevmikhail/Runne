@@ -6,7 +6,7 @@ use nix::sys::stat::Mode;
 
 use super::super::super::MacOsPackagedWriterObservationError;
 
-pub(super) fn open_absolute_directory(
+pub(crate) fn open_absolute_directory(
     path: &Path,
 ) -> Result<File, MacOsPackagedWriterObservationError> {
     let mut current = File::from(
