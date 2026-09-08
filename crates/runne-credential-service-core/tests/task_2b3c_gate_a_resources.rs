@@ -1,3 +1,5 @@
+#![cfg(feature = "test-support")]
+
 use runne_credential_service_core::QualificationResourceBudget;
 
 const FULL_TRANSFER_BYTES: usize = 524_300 + 8_192;

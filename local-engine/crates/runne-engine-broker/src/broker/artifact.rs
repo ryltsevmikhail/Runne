@@ -5,7 +5,7 @@
 
 use crate::broker::error::BrokerError;
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
-use rustix::fs::{Mode, OFlags, fstat, openat};
+use rustix::fs::{FileType, Mode, OFlags, fstat, openat};
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -110,9 +110,7 @@ impl SecurityBroker {
             other => BrokerError::OpenFailed(other.to_string()),
         })?;
         let st_fd = fstat(&fd).map_err(|e| BrokerError::OpenFailed(e.to_string()))?;
-        const S_IFMT: u16 = 0o170_000;
-        const S_IFREG: u16 = 0o100_000;
-        if st_fd.st_mode & S_IFMT != S_IFREG {
+        if FileType::from_raw_mode(st_fd.st_mode) != FileType::RegularFile {
             return Err(BrokerError::NotRegularFile);
         }
         if st_fd.st_size != declared_len as i64 {
