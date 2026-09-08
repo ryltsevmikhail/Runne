@@ -49,11 +49,11 @@
       "hardenedRuntime": true,
       "minimumSystemVersion": "13.0",
       "files": {
-        "macos/com.runne.credential-service.plist": "Library/LaunchAgents/com.runne.credential-service.plist",
-        "macos/credential-service/staged/RunneCredentialService.app": "Library/Helpers/RunneCredentialService.app",
-        "macos/credential-service.entitlements": "Resources/native-enrollment/credential-service.entitlements.plist",
-        "macos/native-enrollment/staged/xpc-protocol-v1.json": "Resources/native-enrollment/xpc-protocol-v1.json",
-        "macos/native-enrollment/staged/release-candidate-binding.json": "Resources/native-enrollment/release-candidate-binding.json"
+        "Library/LaunchAgents/com.runne.credential-service.plist": "macos/com.runne.credential-service.plist",
+        "Library/Helpers/RunneCredentialService.app": "macos/credential-service/staged/RunneCredentialService.app",
+        "Resources/native-enrollment/credential-service.entitlements.plist": "macos/credential-service.entitlements",
+        "Resources/native-enrollment/xpc-protocol-v1.json": "macos/native-enrollment/staged/xpc-protocol-v1.json",
+        "Resources/native-enrollment/release-candidate-binding.json": "macos/native-enrollment/staged/release-candidate-binding.json"
       }
     },
     "windows": {
