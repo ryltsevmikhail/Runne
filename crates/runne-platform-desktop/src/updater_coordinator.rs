@@ -285,7 +285,7 @@ impl UpdateCoordinator {
     }
 }
 
-#[cfg(feature = "test-support")]
+#[cfg(all(feature = "test-support", target_os = "macos", target_arch = "aarch64"))]
 include!("updater_coordinator/test_enrollment_fixture.rs");
 #[cfg(test)]
 mod tests {

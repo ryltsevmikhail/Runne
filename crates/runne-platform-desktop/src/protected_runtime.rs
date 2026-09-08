@@ -112,7 +112,7 @@ mod credential_service_session_tests;
 include!("protected_runtime/enrollment_transition_tests.rs");
 #[cfg(feature = "test-support")]
 include!("protected_runtime/test_root_transport.rs");
-#[cfg(all(feature = "test-support", unix))]
+#[cfg(all(feature = "test-support", target_os = "macos", target_arch = "aarch64"))]
 include!("protected_runtime/test_enrollment_fixture.rs");
 include!("protected_runtime/root_handle_transport.rs");
 #[cfg(windows)]

@@ -124,12 +124,16 @@ pub use updater_metadata::{
     NativeEnrollmentTupleV3EffectState, NativeEnrollmentTupleV3ProtocolCompatibility,
     NativeEnrollmentTupleV3ProtocolVersions, NativeEnrollmentTupleV3UpdateDisposition,
     NativeEnrollmentTupleV3UpdateError, PreparedInstalledNativeEnrollment,
-    QualificationAdmissionError, UpdateMetadataSigningError, UpdateMetadataV2, UpdateRootRoleV2,
-    UpdateSignatureV2, UpdateSnapshotRoleV2, UpdateTargetV2, UpdateTargetV2Binding,
-    UpdateTargetsRoleV2, UpdateTimestampRoleV2, UpdateTrustRootV2, UpdateV2VerificationError,
-    VerifiedDaemonNativeEnrollmentPrepare, VerifiedInstalledEnrollmentMeasurementFacts,
-    VerifiedMacOsWriterLaunch, VerifiedSignedNativeEnrollmentTupleV3, VerifiedUpdateV2,
+    UpdateMetadataSigningError, UpdateMetadataV2, UpdateRootRoleV2, UpdateSignatureV2,
+    UpdateSnapshotRoleV2, UpdateTargetV2, UpdateTargetV2Binding, UpdateTargetsRoleV2,
+    UpdateTimestampRoleV2, UpdateTrustRootV2, UpdateV2VerificationError,
+    VerifiedDaemonNativeEnrollmentPrepare, VerifiedMacOsWriterLaunch,
+    VerifiedSignedNativeEnrollmentTupleV3, VerifiedUpdateV2,
     evaluate_native_enrollment_tuple_v3_update, update_metadata_signing_bytes, verify_update_v2,
+};
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub use updater_metadata::{
+    QualificationAdmissionError, VerifiedInstalledEnrollmentMeasurementFacts,
 };
 pub use updater_trust::{UpdateTrustError, UpdateTrustJournal, UpdateTrustState};
 

@@ -26,9 +26,10 @@ mod enrollment_live_daemon_credential_service;
 mod enrollment_desktop_peer_claim;
 #[path = "enrollment_tuple/daemon_installed.rs"]
 mod enrollment_daemon_installed;
+pub use enrollment_daemon_installed::VerifiedDaemonNativeEnrollmentPrepare;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use enrollment_daemon_installed::{
-    QualificationAdmissionError, VerifiedDaemonNativeEnrollmentPrepare,
-    VerifiedInstalledEnrollmentMeasurementFacts,
+    QualificationAdmissionError, VerifiedInstalledEnrollmentMeasurementFacts,
 };
 #[path = "enrollment_tuple/daemon_peer.rs"]
 mod enrollment_daemon_peer;

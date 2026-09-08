@@ -7,7 +7,9 @@ use std::path::PathBuf;
 #[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
 use super::{NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleAdmission};
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod measurement_facts;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use measurement_facts::{
     QualificationAdmissionError, VerifiedInstalledEnrollmentMeasurementFacts,
 };
@@ -267,7 +269,7 @@ fn local_test_policy() -> Option<DaemonEnrollmentPolicy<'static>> {
     )
 }
 
-#[cfg(not(all(feature = "test-support", target_os = "macos", target_arch = "aarch64")))]
+#[cfg(all(not(feature = "test-support"), target_os = "macos", target_arch = "aarch64"))]
 const fn local_test_policy() -> Option<DaemonEnrollmentPolicy<'static>> {
     None
 }
