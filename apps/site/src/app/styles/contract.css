@@ -1,0 +1,90 @@
+/* Contract flow */
+.contract {
+  background: var(--paper);
+  color: var(--ink);
+  padding: 96px 0;
+}
+
+.contract-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 40px;
+  max-width: 1080px;
+}
+
+.contract-head h2 {
+  font-size: clamp(30px, 3.4vw, 46px);
+  font-weight: 600;
+  max-width: 16ch;
+}
+
+.contract-head .lead {
+  margin-top: 16px;
+  max-width: 52ch;
+}
+
+.contract-notes {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  text-align: right;
+  display: grid;
+  gap: 10px;
+}
+
+.contract-notes li {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+.flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1.15fr) 44px minmax(0, 1fr);
+  align-items: stretch;
+  gap: 0;
+  margin-top: 56px;
+}
+
+.flow-node {
+  border-radius: 10px;
+  padding: 26px 26px 30px;
+  box-shadow: 5px 5px 0 rgba(23, 23, 23, 0.85);
+}
+
+.flow-node h3 {
+  font-size: 21px;
+  font-weight: 600;
+}
+
+.flow-node .mono {
+  margin-top: 10px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+}
+
+.flow-node.light {
+  background: var(--white);
+  color: var(--ink);
+}
+
+.flow-node.light .mono {
+  color: var(--faint);
+}
+
+.flow-node.dark {
+  background: var(--black);
+  color: var(--white);
+}
+
+.flow-node.dark .mono {
+  color: var(--silver);
+}
+
+.flow-arrow {
+  display: grid;
+  place-items: center;
+  color: var(--cobalt);
+  font-size: 22px;
+}
