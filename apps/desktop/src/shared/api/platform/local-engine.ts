@@ -40,31 +40,6 @@ function parseInstalled(value: unknown): LocalModelInstalled | null {
   }
 }
 
-function parseCandidate(value: unknown): LocalModelCandidate | null {
-  if (typeof value !== 'object' || value === null) return null
-  const v = value as Record<string, unknown>
-  for (const key of [
-    'candidateId',
-    'manifestDigest',
-    'modelId',
-    'modelRevision',
-    'license',
-    'artifactDigest',
-  ]) {
-    if (!isNonEmptyString(v[key])) return null
-  }
-  if (typeof v.byteLen !== 'number') return null
-  return {
-    candidateId: v.candidateId as string,
-    manifestDigest: v.manifestDigest as string,
-    modelId: v.modelId as string,
-    modelRevision: v.modelRevision as string,
-    license: v.license as string,
-    artifactDigest: v.artifactDigest as string,
-    byteLen: v.byteLen as number,
-  }
-}
-
 /** Lists installed local models (metadata-only). */
 export async function listLocalModels(invoke: Invoke = tauriInvoke): Promise<LocalModelInstalled[]> {
   const value = await invoke('local_model_list')
