@@ -21,6 +21,7 @@ python3 scripts/local-engine/verify-qualification-matrix.py \
     --matrix docs/profiles/local-engine/PHASE1_QUALIFICATION_MODELS.json \
     --repo-root "$ENGINE_ROOT"
 python3 -m unittest discover -s scripts/tests -v
+python3 -m unittest scripts.tests.test_verify_embedded_source -v
 cargo metadata --no-deps --format-version 1 --locked > /dev/null
 if [ "$MODE" = pinned ]; then
     cargo fmt --all --check

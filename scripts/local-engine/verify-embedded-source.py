@@ -34,14 +34,22 @@ def embedded_digest(root: Path, paths: list[str]) -> str:
     return digest.hexdigest()
 
 
-def main() -> int:
-    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    paths = embedded_paths(ROOT)
+def verify(root: Path, manifest_path: Path) -> dict:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    paths = embedded_paths(root)
     if manifest.get("schema") != "runne-local-engine-import.v1":
-        return 2
+        raise ValueError("unexpected manifest schema")
     if len(paths) != manifest.get("embedded_file_count"):
-        return 2
-    if embedded_digest(ROOT, paths) != manifest.get("embedded_tree_sha256"):
+        raise ValueError("embedded file count does not match")
+    if embedded_digest(root, paths) != manifest.get("embedded_tree_sha256"):
+        raise ValueError("embedded tree digest does not match")
+    return manifest
+
+
+def main() -> int:
+    try:
+        manifest = verify(ROOT, MANIFEST)
+    except (OSError, ValueError, json.JSONDecodeError, subprocess.SubprocessError):
         return 2
     print(
         "Local Engine import verified:",
