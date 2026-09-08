@@ -17,6 +17,7 @@ const { c } = useSite();
         </ul>
       </nav>
       <div class="nav-actions">
+        <a class="lang-switch" href="/pass/">Runne Pass</a>
         <a class="lang-switch" :href="langPath(c.langSwitch.to)">{{ c.langSwitch.label }}</a>
         <a class="btn btn-cobalt" href="#cta">
           <span class="btn-arrow" aria-hidden="true">→</span>
