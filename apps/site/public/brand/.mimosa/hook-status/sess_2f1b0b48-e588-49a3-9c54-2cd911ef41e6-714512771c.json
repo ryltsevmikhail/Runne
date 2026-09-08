@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "mimosa-hook-status/v1",
+  "recordedAt": "2026-09-02T08:17:33.282Z",
+  "sessionId": "sess_2f1b0b48-e588-49a3-9c54-2cd911ef41e6",
+  "event": "PostToolUse",
+  "toolName": "Edit",
+  "file": "/Users/ryltsevmg-air/runne/site-worktree/apps/site/index.html",
+  "outcome": "clear",
+  "coverage": "complete",
+  "findingCount": 0,
+  "durationMs": 2,
+  "hostState": "hook_complete",
+  "reportHint": ".mimosa/reports/"
+}
