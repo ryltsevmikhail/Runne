@@ -1,14 +1,18 @@
 # Evidence — entry-llama-q4-fixture
 
 Qualification evidence record for matrix entry `entry-llama-q4-fixture`
-(matrix revision `2026-09-05-r1`).
+(matrix revision `2026-09-06-r2`).
 
 | Field | Value |
 |---|---|
+| matrix_revision | `2026-09-06-r2` |
 | artifact_digest | `sha256:a3d27b1a556d63979122c0aa64b44c9f9d69701323b3fa4333839bcd399ee61e` |
 | byte_length | 204 |
+| quantization_class | `q4_0` |
 | artifact | the deterministic zero-tensor GGUF builder fixture (see `docs/golden/local-engine/builder/README.md`); NOT a real model |
 | backend_profile | `llama-cpp-cpu-macos-arm64-v1` |
+| hardware_class | `macos-arm64-min-16gb` |
+| capabilities | `text` |
 | interpretation_revisions | reasoning_parser `inline-markers-v1`, tokenizer `1` |
 | status | STRUCTURAL FIXTURE — proves the matrix/verifier/binding plumbing |
 

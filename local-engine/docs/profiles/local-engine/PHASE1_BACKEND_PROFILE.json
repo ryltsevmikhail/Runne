@@ -48,7 +48,7 @@
    "name": "cc",
    "version": "1.4.4",
    "checksum": "0ad534f4357a5264cce5019c989cf66a4f0dc4e0d1b1d15f8aacec0ff7360273",
-   "license": "true",
+   "license": "MIT OR Apache-2.0",
    "source": "crates.io",
    "role": "transitive"
   },
@@ -176,7 +176,7 @@
    "name": "find-msvc-tools",
    "version": "0.1.11",
    "checksum": "d45db016d36b838f563236e9193d0ee6ce38f3f68b6c94e914b4929c96bbb890",
-   "license": "true",
+   "license": "MIT OR Apache-2.0",
    "source": "crates.io",
    "role": "transitive"
   },
@@ -808,8 +808,11 @@
  "features": {
   "llama-cpp-sys-2": {
    "allowed": [
+    "common",
+    "default",
     "metal",
-    "default"
+    "openmp",
+    "shared-stdcxx"
    ],
    "recorded": [
     "metal"
