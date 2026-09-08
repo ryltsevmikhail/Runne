@@ -23,10 +23,10 @@ async fn prepare_first<P: Preparation>(mut preparation: P) -> Result<P::Output, 
 pub(super) async fn prepare_startup(
     resources: Arc<RecoveryResources>,
 ) -> Result<Arc<RecoveryResources>, RecoveryRunError> {
-    prepare_first(NativePreparation {
+    Box::pin(prepare_first(NativePreparation {
         resources,
         confirmed: None,
-    })
+    }))
     .await
 }
 

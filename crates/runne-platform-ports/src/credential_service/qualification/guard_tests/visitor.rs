@@ -160,7 +160,8 @@ impl<'ast> Visit<'ast> for CallVisitor {
                 .map(|segment| segment.ident.to_string())
                 .unwrap_or_default(),
             unqualified: mac.path.segments.len() == 1,
-            qualification_context: self.qualification_context,
+            qualification_context: self.qualification_context
+                || macro_mentions_names(&mac.tokens, &self.qualification_receivers),
             selects_qualification: macro_mentions_qualification(&mac.tokens),
             scope: self.scope.clone(),
             position: macro_scope::position(mac.span()),

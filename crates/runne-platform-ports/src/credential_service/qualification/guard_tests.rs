@@ -5,6 +5,7 @@ mod task7;
 mod task7_collision;
 mod task7_round6;
 mod task7_round7;
+mod task7_round8;
 
 use std::path::{Path, PathBuf};
 

@@ -260,3 +260,22 @@ fn compile_valid_carriers_and_macro_invocations_are_detected() {
     cargo_check(&workspace);
     assert_ne!(super::super::count_credential_service_calls(source), 0);
 }
+
+#[test]
+fn public_inventory_gate_keeps_direct_glob_imported_target_consumers() {
+    let workspace = workspace();
+    workspace.write(
+        "crates/example/src/lib.rs",
+        "use runne_macos_process_identity::*; pub fn production(pending: MacOsPendingCredentialServicePackageObservationV1) { let _ = MacOsPendingCredentialServicePackageObservationV1::capture_current(); pending.verify_exact(); }",
+    );
+
+    cargo_check(&workspace);
+    let facade = workspace.path().join("crates/example/src/lib.rs");
+    assert!(
+        std::panic::catch_unwind(|| {
+            super::assert_workspace_has_no_credential_service_calls(workspace.path(), &facade);
+        })
+        .is_err(),
+        "a direct glob import of the canonical target must remain in the public inventory"
+    );
+}

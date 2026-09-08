@@ -16,7 +16,7 @@ pub struct LocalModelState {
 }
 
 impl LocalModelState {
-    pub fn new(models_root: PathBuf) -> Self {
+    pub const fn new(models_root: PathBuf) -> Self {
         Self {
             models_root,
             inner: Mutex::new(None),
@@ -96,6 +96,7 @@ fn local_model_admit(
 }
 
 #[tauri::command]
+#[allow(clippy::needless_pass_by_value, reason = "Tauri command state is extracted by value")]
 fn local_model_list(state: State<'_, LocalModelState>) -> Result<Vec<InstalledView>, IpcError> {
     state.with_source(|source| source.list()).map_err(|_| IpcError {
         code: "local_model_list_unavailable",

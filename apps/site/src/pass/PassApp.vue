@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, watchEffect } from "vue";
-import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
+import { RouterView, useRoute, useRouter } from "vue-router";
 import { useAuth } from "./stores/auth";
 import PassHeader from "./PassHeader.vue";
 

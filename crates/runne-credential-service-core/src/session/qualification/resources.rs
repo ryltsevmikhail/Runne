@@ -4,7 +4,7 @@ const MAX_LEASES: usize = 8;
 const MAX_RESERVED_BYTES: usize = 2_129_968;
 const MAX_VERIFICATIONS: usize = 2;
 
-#[cfg(feature = "test-support")]
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[doc(hidden)]
 pub enum QualificationResourceError {
@@ -35,7 +35,7 @@ pub struct QualificationVerificationPermit {
 }
 
 impl QualificationResourceBudget {
-    #[cfg(feature = "test-support")]
+    #[cfg(any(test, feature = "test-support"))]
     #[doc(hidden)]
     #[must_use]
     pub fn new_for_test() -> Self {
@@ -48,7 +48,7 @@ impl QualificationResourceBudget {
         }
     }
 
-    #[cfg(feature = "test-support")]
+    #[cfg(any(test, feature = "test-support"))]
     #[doc(hidden)]
     pub fn try_acquire_reservation_for_test(
         &self,
@@ -78,7 +78,7 @@ impl QualificationResourceBudget {
         })
     }
 
-    #[cfg(feature = "test-support")]
+    #[cfg(any(test, feature = "test-support"))]
     #[doc(hidden)]
     pub fn try_acquire_verification_permit_for_test(
         &self,
@@ -101,7 +101,7 @@ impl QualificationResourceBudget {
         })
     }
 
-    #[cfg(feature = "test-support")]
+    #[cfg(any(test, feature = "test-support"))]
     #[doc(hidden)]
     #[must_use]
     pub fn usage_for_test(&self) -> (usize, usize, usize) {

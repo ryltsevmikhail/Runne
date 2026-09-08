@@ -6,6 +6,7 @@
 use runne_platform_desktop::local_model_source::{
     LocalModelSource, LocalModelSourceError, PickerInput,
 };
+use sha2::Digest as _;
 use std::path::{Path, PathBuf};
 
 fn gguf_with_metadata() -> Vec<u8> {
@@ -15,7 +16,7 @@ fn gguf_with_metadata() -> Vec<u8> {
     out.extend_from_slice(&0u64.to_le_bytes());
     out.extend_from_slice(&4u64.to_le_bytes());
 
-    let mut put_str = |out: &mut Vec<u8>, s: &str| {
+    let put_str = |out: &mut Vec<u8>, s: &str| {
         out.extend_from_slice(&(s.len() as u64).to_le_bytes());
         out.extend_from_slice(s.as_bytes());
     };
@@ -68,16 +69,14 @@ fn picker_to_stage_to_admit_to_list() {
     // Admission with a wrong license digest refuses (fail-closed).
     let wrong = source
         .admit(&candidate.candidate_id, "sha256:deadbeef")
-        .err()
-        .expect("license mismatch");
+        .expect_err("license mismatch");
     assert!(matches!(wrong, LocalModelSourceError::Store(_)));
 
     // The exact shown-license digest admits.
-    use sha2::Digest as _;
     let accepted = source
         .admit(
             &candidate.candidate_id,
-            &hex::encode(sha2::Sha256::digest("Apache-2.0".as_bytes())),
+            &hex::encode(sha2::Sha256::digest(b"Apache-2.0")),
         )
         .expect("admit");
     assert_eq!(accepted.model_id, "desktop-model");
@@ -105,11 +104,6 @@ fn unreadable_source_refuses() {
     let input = picker_input();
     let err = source
         .stage_candidate(Path::new("/nonexistent/model.gguf"), &input)
-        .err()
-        .expect("unreadable");
+        .expect_err("unreadable");
     assert!(matches!(err, LocalModelSourceError::SourceUnreadable));
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }

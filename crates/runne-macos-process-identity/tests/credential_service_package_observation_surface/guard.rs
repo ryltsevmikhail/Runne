@@ -32,6 +32,8 @@ mod carrier_deep_tests;
 mod cfg_projection;
 #[path = "guard/inventory_generated_provenance_tests.rs"]
 mod inventory_generated_provenance_tests;
+#[path = "guard/inventory_glob_provenance_tests.rs"]
+mod inventory_glob_provenance_tests;
 #[path = "guard/inventory_include_aliases.rs"]
 mod inventory_include_aliases;
 #[path = "guard/inventory_macro_bindings.rs"]

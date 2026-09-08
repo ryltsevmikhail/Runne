@@ -70,6 +70,14 @@ impl From<runne_local_model::BuilderError> for LocalModelSourceError {
     }
 }
 
+fn renderer_active_refs(active_refs: i64) -> Result<u32, LocalModelSourceError> {
+    active_refs.try_into().map_err(|_| {
+        LocalModelSourceError::Store(StoreError::Schema(
+            "installation active reference count is outside the renderer range".to_owned(),
+        ))
+    })
+}
+
 /// Owner-supplied fields for one candidate build (all required except
 /// the optional user chat-template file).
 #[derive(Debug, Clone)]
@@ -172,12 +180,13 @@ impl LocalModelSource {
             license_digest: license_acceptance_digest.to_owned(),
         };
         let installed = self.store.admit(candidate_id, &acceptance)?;
+        let active_refs = renderer_active_refs(installed.active_refs)?;
         Ok(InstalledView {
             manifest_digest: installed.manifest_digest,
             model_id: installed.model_id,
             model_revision: installed.model_revision,
             matrix_revision: installed.matrix_revision,
-            active_refs: installed.active_refs as u32,
+            active_refs,
         })
     }
 
@@ -199,17 +208,34 @@ impl LocalModelSource {
     ///
     /// Returns [`LocalModelSourceError::Store`] on catalog failure.
     pub fn list(&self) -> Result<Vec<InstalledView>, LocalModelSourceError> {
-        Ok(self
-            .store
+        self.store
             .list()?
             .into_iter()
-            .map(|i| InstalledView {
-                manifest_digest: i.manifest_digest,
-                model_id: i.model_id,
-                model_revision: i.model_revision,
-                matrix_revision: i.matrix_revision,
-                active_refs: i.active_refs as u32,
+            .map(|i| -> Result<InstalledView, LocalModelSourceError> {
+                Ok(InstalledView {
+                    manifest_digest: i.manifest_digest,
+                    model_id: i.model_id,
+                    model_revision: i.model_revision,
+                    matrix_revision: i.matrix_revision,
+                    active_refs: renderer_active_refs(i.active_refs)?,
+                })
             })
-            .collect())
+            .collect::<Result<Vec<_>, _>>()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LocalModelSourceError, renderer_active_refs};
+    use runne_model_store::StoreError;
+
+    #[test]
+    fn renderer_active_refs_rejects_database_values_outside_u32_range() {
+        for active_refs in [-1, i64::from(u32::MAX) + 1] {
+            assert!(matches!(
+                renderer_active_refs(active_refs),
+                Err(LocalModelSourceError::Store(StoreError::Schema(_)))
+            ));
+        }
     }
 }

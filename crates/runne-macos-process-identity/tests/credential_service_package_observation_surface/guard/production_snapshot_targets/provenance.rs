@@ -84,7 +84,7 @@ fn import_reference_tree(
         syn::UseTree::Rename(rename) => {
             import_reference(&rename.ident, prefix, dependencies, types)
         }
-        syn::UseTree::Glob(_) => false,
+        syn::UseTree::Glob(_) => prefix.iter().any(|name| dependencies.contains(name)),
         syn::UseTree::Group(group) => group
             .items
             .iter()
@@ -161,7 +161,10 @@ fn import_tree(
             types,
             canonical_type,
         ),
-        syn::UseTree::Glob(_) => false,
+        syn::UseTree::Glob(_) => {
+            prefix.iter().any(|name| dependencies.contains(name))
+                && dependencies.insert(canonical_type.to_owned())
+        }
         syn::UseTree::Group(group) => group
             .items
             .iter()

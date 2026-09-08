@@ -183,6 +183,7 @@ fn handle_run_event(app: &tauri::AppHandle, event: &RunEvent) {
 /// # Panics
 ///
 /// Panics when native desktop initialization or the event loop fails.
+#[allow(clippy::too_many_lines, reason = "the Tauri builder is kept together as one declarative registration list")]
 pub fn run() {
     let activations = crate::external_activation::ActivationManager::default();
     let second_instance_activations = activations.clone();

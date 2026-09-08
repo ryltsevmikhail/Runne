@@ -5,6 +5,7 @@ import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
 const fsdElements = [
+  { type: 'pass', pattern: 'apps/*/src/pass/**' },
   { type: 'app', pattern: 'apps/*/src/app/**' },
   { type: 'app', pattern: 'apps/*/src/*.ts' },
   { type: 'app', pattern: 'apps/*/src/*.d.ts' },
@@ -52,6 +53,7 @@ export default tseslint.config(
         {
           default: 'disallow',
           rules: [
+            { from: 'pass', allow: ['pass', 'package'] },
             { from: 'app', allow: ['pages', 'widgets', 'features', 'entities', 'shared', 'package'] },
             { from: 'pages', allow: ['widgets', 'features', 'entities', 'shared', 'package'] },
             { from: 'widgets', allow: ['features', 'entities', 'shared', 'package'] },

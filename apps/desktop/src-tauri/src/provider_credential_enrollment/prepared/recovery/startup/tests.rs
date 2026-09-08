@@ -21,7 +21,7 @@ async fn native_startup_skips_existing_v3_without_preparing_a_new_transition() {
         updater: Arc::new(updater.lease),
         recovered: None,
     };
-    assert_eq!(run(&mut native).await, Ok(()));
+    assert_eq!(Box::pin(run(&mut native)).await, Ok(()));
     assert!(native.recovered.is_none());
     drop(native);
     assert!(runtime.operation_available());

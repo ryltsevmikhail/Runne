@@ -4,6 +4,7 @@ use proc_macro2::{TokenStream, TokenTree};
 use syn::visit::{self, Visit};
 use syn::{Item, ItemUse, Type, UseTree};
 
+use super::syntax::impl_item_is_test_only;
 use super::{item_attrs, item_is_test_only};
 
 pub(super) struct Binding {
@@ -42,13 +43,29 @@ pub(super) fn collect_metadata(
         }
         match item {
             Item::Use(item) => collect_use(item, bindings),
-            Item::Impl(item) => impls.push(ImplRecord {
-                trait_name: item
-                    .trait_
-                    .as_ref()
-                    .and_then(|(_, path, _)| last_path_segment(path)),
-                self_name: type_name(&item.self_ty),
-            }),
+            Item::Impl(item) => {
+                impls.push(ImplRecord {
+                    trait_name: item
+                        .trait_
+                        .as_ref()
+                        .and_then(|(_, path, _)| last_path_segment(path)),
+                    self_name: type_name(&item.self_ty),
+                });
+                for member in &item.items {
+                    if let syn::ImplItem::Type(associated) = member
+                        && !impl_item_is_test_only(member)
+                    {
+                        let (bases, has_qualified_path, qualified_modules) =
+                            type_bases(&associated.ty);
+                        aliases.push(AliasRecord {
+                            name: associated.ident.to_string(),
+                            bases,
+                            has_qualified_path,
+                            qualified_modules,
+                        });
+                    }
+                }
+            }
             Item::Trait(item) => supertraits.push(SupertraitRecord {
                 name: item.ident.to_string(),
                 bases: item

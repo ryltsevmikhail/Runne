@@ -50,7 +50,7 @@ pub(in crate::provider_credential_enrollment::prepared) async fn reconcile(
         recovered: None,
     };
     let (result, _watcher) = crate::provider_credential_enrollment::dispatch::post_fence::spawn_pre_fence_enrollment_owner(
-        move || async move { run(&mut { steps }).await },
+        move || async move { Box::pin(run(&mut { steps })).await },
         move || async move { cleanup.abort().await; drop((runtime, updater)); },
         || RecoveryRunError::Transport,
     ).map_err(|_| ())?;
@@ -94,7 +94,7 @@ impl StartupSteps for NativeStartup {
             updater: Arc::clone(&self.updater),
             installed,
         });
-        let resources = super::preparation::prepare_startup(resources).await?;
+        let resources = Box::pin(super::preparation::prepare_startup(resources)).await?;
         let worker = Arc::clone(&resources);
         tauri::async_runtime::spawn_blocking(move || super::run_recovery(operation, worker))
             .await
