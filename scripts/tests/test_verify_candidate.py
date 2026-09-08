@@ -75,6 +75,35 @@ class VerifyCandidate(unittest.TestCase):
         with self.assertRaises(vc.Rejection):
             vc.verify(self.root, TARGET)
 
+    def test_manifest_listed_extra_artifact_rejects(self) -> None:
+        extra = self.root / "binaries" / f"stale-helper-{TARGET}"
+        extra.write_bytes(b"stale")
+        import hashlib
+
+        digest = hashlib.sha256(extra.read_bytes()).hexdigest()
+        manifest = self.root / "MANIFEST.txt"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8")
+            + f"sha256:{digest}  {extra.name}\n",
+            encoding="utf-8",
+        )
+        with self.assertRaises(vc.Rejection):
+            vc.verify(self.root, TARGET)
+
+    def test_unlisted_directory_in_binaries_rejects(self) -> None:
+        (self.root / "binaries" / "stale-helper").mkdir()
+        with self.assertRaises(vc.Rejection):
+            vc.verify(self.root, TARGET)
+
+    def test_required_binary_symlink_to_outside_rejects(self) -> None:
+        binary = self.root / "binaries" / f"runned-{TARGET}"
+        outside = self.root / "outside-binary"
+        shutil.copy2(binary, outside)
+        binary.unlink()
+        binary.symlink_to(outside)
+        with self.assertRaises(vc.Rejection):
+            vc.verify(self.root, TARGET)
+
     def test_duplicate_entry_rejects(self) -> None:
         manifest = self.root / "MANIFEST.txt"
         hash_line = [

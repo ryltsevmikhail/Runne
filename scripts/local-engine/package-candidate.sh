@@ -15,7 +15,23 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/../.." && pwd)
 ENGINE_ROOT="$REPO_ROOT/local-engine"
 TARGET_TRIPLE=$(rustc -vV | awk '/^host:/ {print $2}')
-OUT="$REPO_ROOT/dist/local-engine-candidate"
+FINAL_OUT="$REPO_ROOT/dist/local-engine-candidate"
+OUT_PARENT=$(dirname -- "$FINAL_OUT")
+mkdir -p "$OUT_PARENT"
+OUT=$(mktemp -d "$OUT_PARENT/.local-engine-candidate.XXXXXX")
+BACKUP=""
+
+cleanup() {
+  status=$?
+  if [[ -n "$OUT" && -e "$OUT" ]]; then
+    rm -rf -- "$OUT"
+  fi
+  if [[ -n "$BACKUP" && -e "$BACKUP" && ! -e "$FINAL_OUT" ]]; then
+    mv -- "$BACKUP" "$FINAL_OUT" || true
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
 
 target_dir() {
   case "${CARGO_TARGET_DIR:-target}" in
@@ -25,6 +41,8 @@ target_dir() {
 }
 
 TARGET_DIR=$(target_dir)
+
+python3 "$SCRIPT_DIR/verify-embedded-source.py"
 
 echo "== [1/5] building desktop sidecars"
 (cd "$REPO_ROOT" && cargo build --locked --target-dir "$TARGET_DIR" \
@@ -69,5 +87,17 @@ done
 echo "== [5/5] verifying the assembled candidate"
 python3 "$SCRIPT_DIR/verify-candidate.py" --candidate "$OUT" --target-triple "$TARGET_TRIPLE"
 
-echo "candidate assembled: $OUT"
-cat "$OUT/MANIFEST.txt"
+if [[ -e "$FINAL_OUT" ]]; then
+  BACKUP=$(mktemp -d "$OUT_PARENT/.local-engine-candidate.previous.XXXXXX")
+  rmdir "$BACKUP"
+  mv -- "$FINAL_OUT" "$BACKUP"
+fi
+mv -- "$OUT" "$FINAL_OUT"
+OUT=""
+if [[ -n "$BACKUP" ]]; then
+  rm -rf -- "$BACKUP"
+  BACKUP=""
+fi
+
+echo "candidate assembled: $FINAL_OUT"
+cat "$FINAL_OUT/MANIFEST.txt"

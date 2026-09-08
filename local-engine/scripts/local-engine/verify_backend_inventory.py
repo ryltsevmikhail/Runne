@@ -1,18 +1,8 @@
 #!/usr/bin/env python3
-"""Backend inventory verifier (Plan Task 1).
+"""Verify the pinned registry, resolved Cargo graph, and vendored native tree.
 
-Validates that the Phase 1 backend profile and the workspace Cargo.lock
-agree exactly: every lock crate is pinned in the profile with matching
-version + checksum, every pinned crate carries a license, the recorded
-native feature graph is present in Cargo metadata, and the vendored llama.cpp
-tree digest matches recomputation from its resolved Cargo package. An explicit
---native-dir must resolve to that same package source.
-
-Usage:
-  python3 verify_backend_inventory.py --profile PROFILE.json \
-      --lock Cargo.lock [--native-dir DIR]
-
-Exit 0 = inventory consistent; exit 1 = rejection (reason on stderr).
+Usage: verify_backend_inventory.py --profile PROFILE --lock Cargo.lock
+       [--native-dir DIR]
 """
 
 from __future__ import annotations
@@ -29,14 +19,11 @@ from pathlib import Path
 DIGEST_METHOD = "sha256-of-sorted-file-digests-v1"
 CRATES_IO_SOURCE = "registry+https://github.com/rust-lang/crates.io-index"
 
-
 class Rejection(Exception):
     pass
 
-
 def reject(reason: str) -> None:
     raise Rejection(reason)
-
 
 def compute_tree_digest(root: Path) -> str:
     lines = []
@@ -54,7 +41,6 @@ def compute_tree_digest(root: Path) -> str:
     blob = "\n".join(sorted(lines)) + "\n"
     return hashlib.sha256(blob.encode()).hexdigest()
 
-
 def profile_pins(profile: dict) -> dict[tuple[str, str], dict]:
     # Cargo allows multiple versions of one crate in a lock; match on
     # (name, version) pairs, not names.
@@ -70,9 +56,24 @@ def profile_pins(profile: dict) -> dict[tuple[str, str], dict]:
     if not pinned:
         reject("profile declares no pinned crates")
     return pinned
+def check_workspace_member(pkg: dict, metadata: dict, workspace_root: Path) -> None:
+    matches = [p for p in metadata["packages"] if (p.get("name"), p.get("version")) == (pkg["name"], pkg["version"])]
+    if len(matches) != 1:
+        reject(f"source-less lock package lacks unique workspace metadata: {pkg['name']} {pkg['version']}")
+    package = matches[0]
+    package_id = package.get("id")
+    nodes = [node for node in metadata["resolve"].get("nodes", []) if node.get("id") == package_id]
+    if len(nodes) != 1 or package_id not in metadata["workspace_members"]:
+        reject(f"source-less lock package is not a resolved workspace member: {pkg['name']} {pkg['version']}")
+    manifest = Path(package.get("manifest_path", ""))
+    if manifest.name != "Cargo.toml" or not manifest.is_file():
+        reject(f"source-less workspace manifest is invalid: {pkg['name']} {pkg['version']}")
+    try:
+        manifest.resolve().relative_to(workspace_root.resolve())
+    except ValueError:
+        reject(f"source-less workspace manifest escapes workspace: {pkg['name']} {pkg['version']}")
 
-
-def check_lock_against_profile(profile: dict, lock_path: Path) -> tuple[int, dict[tuple[str, str], dict]]:
+def check_lock_against_profile(profile: dict, lock_path: Path, metadata: dict) -> tuple[int, dict[tuple[str, str], dict]]:
     pinned = profile_pins(profile)
     lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
     packages = lock.get("package", [])
@@ -85,7 +86,7 @@ def check_lock_against_profile(profile: dict, lock_path: Path) -> tuple[int, dic
         if source is None:
             if checksum:
                 reject(f"local crate unexpectedly has registry checksum: {name} {pkg['version']}")
-            # Local workspace members are first-party and have no registry pin.
+            check_workspace_member(pkg, metadata, lock_path.parent)
             continue
         if source != CRATES_IO_SOURCE:
             reject(f"non-registry source in lock: {name} {pkg['version']}")
@@ -101,6 +102,9 @@ def check_lock_against_profile(profile: dict, lock_path: Path) -> tuple[int, dic
         matched_pins.add(key)
     if matched == 0:
         reject("no registry lock crates matched profile pins")
+    registry_crates = profile.get("inventory", {}).get("registry_crates")
+    if not isinstance(registry_crates, int) or isinstance(registry_crates, bool) or registry_crates != matched:
+        reject(f"inventory.registry_crates does not match lock: {registry_crates!r} != {matched}")
     for name, version in sorted(set(pinned) - matched_pins):
         reject(f"profile pin absent from lock: {name} {version}")
     return matched, pinned
@@ -137,8 +141,8 @@ def load_cargo_metadata(lock_path: Path) -> dict:
         metadata = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         reject(f"cargo metadata produced invalid JSON: {exc}")
-    if not isinstance(metadata.get("packages"), list) or not isinstance(metadata.get("resolve"), dict):
-        reject("cargo metadata missing packages or resolve graph")
+    if not isinstance(metadata.get("packages"), list) or not isinstance(metadata.get("resolve"), dict) or not isinstance(metadata.get("workspace_members"), list):
+        reject("cargo metadata missing packages, resolve graph, or workspace members")
     return metadata
 
 
@@ -274,8 +278,8 @@ def main() -> int:
         if profile.get("schema_version") != "Phase1BackendProfileV1":
             reject("unsupported profile schema_version")
         lock_path = Path(args.lock).resolve()
-        matched, pinned = check_lock_against_profile(profile, lock_path)
         metadata = load_cargo_metadata(lock_path)
+        matched, pinned = check_lock_against_profile(profile, lock_path, metadata)
         check_features(profile, metadata, pinned)
         check_native_tree(profile, Path(args.native_dir) if args.native_dir else None, metadata, pinned)
     except Rejection as exc:

@@ -34,11 +34,11 @@ class Rejection(Exception):
 
 def verify(candidate: Path, target_triple: str) -> int:
     manifest_path = candidate / "MANIFEST.txt"
-    if not manifest_path.is_file():
+    if manifest_path.is_symlink() or not manifest_path.is_file():
         raise Rejection("MANIFEST.txt missing")
 
     binaries_dir = candidate / "binaries"
-    if not binaries_dir.is_dir():
+    if binaries_dir.is_symlink() or not binaries_dir.is_dir():
         raise Rejection("binaries/ directory missing")
 
     recorded: dict[str, str] = {}
@@ -56,22 +56,39 @@ def verify(candidate: Path, target_triple: str) -> int:
     if not recorded:
         raise Rejection("MANIFEST lists no artifacts")
 
-    actual = {p.name: p for p in binaries_dir.iterdir() if p.is_file()}
+    expected_names = {
+        f"{required}-{target_triple}" for required in REQUIRED_BINARIES
+    }
+    recorded_names = set(recorded)
+    if recorded_names != expected_names:
+        missing = sorted(expected_names - recorded_names)
+        extra = sorted(recorded_names - expected_names)
+        details = []
+        if missing:
+            details.append(f"missing required artifacts: {', '.join(missing)}")
+        if extra:
+            details.append(f"unexpected artifacts: {', '.join(extra)}")
+        raise Rejection("MANIFEST artifact set is not exact: " + "; ".join(details))
+
+    actual = {p.name: p for p in binaries_dir.iterdir()}
+    actual_names = set(actual)
+    if actual_names != expected_names:
+        missing = sorted(expected_names - actual_names)
+        extra = sorted(actual_names - expected_names)
+        details = []
+        if missing:
+            details.append(f"missing binary files: {', '.join(missing)}")
+        if extra:
+            details.append(f"unexpected entries in binaries/: {', '.join(extra)}")
+        raise Rejection("binaries entry set is not exact: " + "; ".join(details))
+
     for name, expected_digest in recorded.items():
-        path = binaries_dir / name
-        if name not in actual:
-            raise Rejection(f"manifest artifact missing from disk: {name}")
+        path = actual[name]
+        if path.is_symlink() or not path.is_file():
+            raise Rejection(f"manifest artifact is not a regular file: {name}")
         actual_digest = hashlib.sha256(path.read_bytes()).hexdigest()
         if actual_digest != expected_digest:
             raise Rejection(f"sha256 mismatch for {name}: manifest vs disk")
-    for name in actual:
-        if name not in recorded:
-            raise Rejection(f"unlisted file in binaries/: {name}")
-
-    for required in REQUIRED_BINARIES:
-        expected_name = f"{required}-{target_triple}"
-        if expected_name not in recorded:
-            raise Rejection(f"required sidecar missing from manifest: {expected_name}")
 
     return len(recorded)
 

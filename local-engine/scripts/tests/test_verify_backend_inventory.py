@@ -10,8 +10,6 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 VERIFIER = REPO / "scripts" / "local-engine" / "verify_backend_inventory.py"
-
-
 def tree_digest(dirpath: Path) -> str:
     """Same algorithm as the verifier: sha256 of sorted 'filehash  relpath' lines."""
     import hashlib
@@ -25,7 +23,6 @@ def tree_digest(dirpath: Path) -> str:
             lines.append(f"{h}  {p.relative_to(dirpath).as_posix()}")
     blob = "\n".join(sorted(lines)) + "\n"
     return hashlib.sha256(blob.encode()).hexdigest()
-
 
 def write_profile(path: Path, native_digest: str, **overrides) -> Path:
     profile = {
@@ -44,11 +41,11 @@ def write_profile(path: Path, native_digest: str, **overrides) -> Path:
             "file_count": 2,
             "digest_method": "sha256-of-sorted-file-digests-v1",
         },
+        "inventory": {"registry_crates": 2},
     }
     profile.update(overrides)
     path.write_text(json.dumps(profile, indent=2), encoding="utf-8")
     return path
-
 
 def write_lock(path: Path, checksum: str = "a" * 64, extra: str = "") -> Path:
     body = f'''version = 4
@@ -73,7 +70,6 @@ dependencies = []
     )
     return path
 
-
 def write_native_tree(root: Path) -> Path:
     vendored = root / "llama-cpp-sys-2-0.1.152" / "llama.cpp"
     (vendored / "src").mkdir(parents=True)
@@ -82,12 +78,10 @@ def write_native_tree(root: Path) -> Path:
     (vendored / "include" / "llama.h").write_bytes(b"header")
     return vendored
 
-
 class VerifierInventoryTest(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="le-inventory-"))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-
     def write_cargo_metadata(self, native: Path, *, selected_features=None, declared_features=None,
                              package_name="llama-cpp-sys-2") -> Path:
         package_id = f"registry+https://example.invalid#{package_name}@0.1.152"
@@ -95,7 +89,7 @@ class VerifierInventoryTest(unittest.TestCase):
         metadata = {"packages": [{"id": hmac_id, "name": "hmac", "version": "0.12.1", "features": {}, "license": "MIT"}, {"id": package_id, "name": package_name,
                     "version": "0.1.152", "manifest_path": str(native.parent / "Cargo.toml"),
                     "features": declared_features if declared_features is not None else {"metal": [], "default": []}, "license": "MIT"}],
-                    "resolve": {"nodes": [{"id": hmac_id, "features": []}, {"id": package_id, "features": selected_features if selected_features is not None else ["metal", "default"]}]}}
+                    "resolve": {"nodes": [{"id": hmac_id, "features": []}, {"id": package_id, "features": selected_features if selected_features is not None else ["metal", "default"]}]}, "workspace_members": []}
         metadata_path = self.tmp / "cargo-metadata.json"
         metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
         cargo = self.tmp / "cargo"
@@ -106,7 +100,6 @@ class VerifierInventoryTest(unittest.TestCase):
         )
         cargo.chmod(0o755)
         return cargo
-
     def run_verifier(self, profile: Path, lock: Path, native: Path | None, *, metadata_native=None,
                      selected_features=None, declared_features=None, package_name="llama-cpp-sys-2"):
         metadata_native = metadata_native or native
@@ -129,7 +122,6 @@ class VerifierInventoryTest(unittest.TestCase):
                 "RUNNE_TEST_CARGO_METADATA": str(self.tmp / "cargo-metadata.json"),
             },
         )
-
     def test_accepts_consistent_inventory(self):
         native = write_native_tree(self.tmp / "native")
         profile = write_profile(self.tmp / "profile.json", tree_digest(native))
@@ -158,6 +150,22 @@ class VerifierInventoryTest(unittest.TestCase):
         result = self.run_verifier(profile, write_lock(self.tmp / "Cargo.lock", extra=extra), native)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("non-registry", (result.stderr + result.stdout).lower())
+    def test_rejects_source_less_package_outside_workspace_metadata(self):
+        native = write_native_tree(self.tmp / "outside-path")
+        profile = write_profile(self.tmp / "profile.json", tree_digest(native))
+        extra = '\n[[package]]\nname = "outside-path"\nversion = "1.0.0"\n'
+        result = self.run_verifier(profile, write_lock(self.tmp / "Cargo.lock", extra=extra), native)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("workspace", (result.stderr + result.stdout).lower())
+    def test_rejects_stale_registry_crate_count(self):
+        native = write_native_tree(self.tmp / "stale-count")
+        profile = write_profile(self.tmp / "profile.json", tree_digest(native))
+        data = json.loads(profile.read_text(encoding="utf-8"))
+        data["inventory"]["registry_crates"] = 1
+        profile.write_text(json.dumps(data), encoding="utf-8")
+        result = self.run_verifier(profile, write_lock(self.tmp / "Cargo.lock"), native)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("registry_crates", (result.stderr + result.stdout).lower())
     def test_rejects_changed_checksum(self):
         native = write_native_tree(self.tmp / "n2")
         profile = write_profile(self.tmp / "profile.json", tree_digest(native))
@@ -261,13 +269,11 @@ class VerifierInventoryTest(unittest.TestCase):
         result = self.run_verifier(profile, lock, native)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("native tree", (result.stderr + result.stdout).lower())
-
     def test_derives_native_dir_from_resolved_cargo_package(self):
         native = write_native_tree(self.tmp / "missing-native")
         profile = write_profile(self.tmp / "profile.json", tree_digest(native))
         result = self.run_verifier(profile, write_lock(self.tmp / "Cargo.lock"), None)
         self.assertEqual(result.returncode, 0, result.stderr)
-
     def test_uses_exact_native_worker_feature_for_cargo_metadata(self):
         native = write_native_tree(self.tmp / "metadata-feature")
         profile = write_profile(self.tmp / "profile.json", tree_digest(native))
@@ -276,7 +282,6 @@ class VerifierInventoryTest(unittest.TestCase):
         arguments = (self.tmp / "cargo-args.txt").read_text(encoding="utf-8")
         self.assertIn("--features runne-llama-worker/backend-llama-cpp", arguments)
         self.assertNotIn("--all-features", arguments)
-
     def test_rejects_native_dir_not_owned_by_resolved_cargo_package(self):
         expected = write_native_tree(self.tmp / "resolved-package")
         alternate = write_native_tree(self.tmp / "alternate")
@@ -290,7 +295,5 @@ class VerifierInventoryTest(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("resolved cargo package", (result.stderr + result.stdout).lower())
-
-
 if __name__ == "__main__":
     unittest.main()

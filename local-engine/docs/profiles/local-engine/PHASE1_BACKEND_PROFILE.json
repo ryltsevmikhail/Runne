@@ -846,7 +846,7 @@
   }
  },
  "inventory": {
-  "registry_crates": 59,
+  "registry_crates": 99,
   "generated": "2026-09-04 after Task 5 (SCM_RIGHTS transport pulls linux-raw-sys via rustix net)",
   "generator": "regenerated after Task 2 deps (serde, serde_json, sha2 + transitives)",
   "missing_from_cache": []

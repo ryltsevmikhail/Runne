@@ -23,6 +23,7 @@ class LocalEngineScriptPathsTests(unittest.TestCase):
             "prepare-desktop-sidecars.sh",
             "package-candidate.sh",
             "verify-candidate.py",
+            "verify-embedded-source.py",
         ):
             shutil.copy2(ROOT / "scripts" / "local-engine" / name, script_dir)
         engine = self.root / "local-engine"
@@ -62,7 +63,10 @@ class LocalEngineScriptPathsTests(unittest.TestCase):
         )
         self._write_stub(
             "python3",
-            "#!/bin/sh\nset -eu\nprintf '%s|%s\\n' \"$PWD\" \"$*\" >> \"${FAKE_PYTHON_LOG:?}\"\n",
+            "#!/bin/sh\nset -eu\n"
+            "printf '%s|%s\\n' \"$PWD\" \"$*\" >> \"${FAKE_PYTHON_LOG:?}\"\n"
+            "case \"$*\" in *verify-embedded-source.py*) "
+            "  test \"${FAKE_PROVENANCE_FAIL:-0}\" = 0 || exit 2;; esac\n",
         )
 
     def _write_stub(self, name: str, contents: str) -> None:
@@ -70,13 +74,14 @@ class LocalEngineScriptPathsTests(unittest.TestCase):
         path.write_text(contents, encoding="utf-8")
         path.chmod(0o755)
 
-    def _run(self, script: str, relative_target: bool = False) -> tuple[subprocess.CompletedProcess[str], Path]:
+    def _run(self, script: str, relative_target: bool = False, fail_provenance: bool = False) -> tuple[subprocess.CompletedProcess[str], Path]:
         target = self.root / "controlled target"
         environment = os.environ | {
             "PATH": f"{self.bin_directory}{os.pathsep}{os.environ['PATH']}",
             "CARGO_TARGET_DIR": target.name if relative_target else str(target),
             "FAKE_CARGO_LOG": str(self.root / "cargo.log"),
             "FAKE_PYTHON_LOG": str(self.root / "python.log"),
+            "FAKE_PROVENANCE_FAIL": "1" if fail_provenance else "0",
         }
         outside = self.root.parent / "outside"
         outside.mkdir()
@@ -102,6 +107,11 @@ class LocalEngineScriptPathsTests(unittest.TestCase):
         python_calls = (self.root / "python.log").read_text(encoding="utf-8")
         self.assertIn(str(self.root / "local-engine" / "Cargo.lock"), python_calls)
         self.assertNotIn("runne-local-engine", python_calls)
+
+    def test_package_stops_before_build_when_provenance_fails(self) -> None:
+        result, _ = self._run("package-candidate.sh", fail_provenance=True)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertFalse((self.root / "cargo.log").exists())
 
     def _assert_package_roots(self, includes_worker: bool) -> None:
         commands = (self.root / "cargo.log").read_text(encoding="utf-8")
@@ -137,6 +147,24 @@ class LocalEngineScriptPathsTests(unittest.TestCase):
         self.assertEqual((binaries / f"runne-llama-worker-{TARGET}").read_text(), "worker")
         self._assert_package_roots(includes_worker=True)
         self.assertNotIn("RUNNE_LOCAL_ENGINE_ROOT", (self.root / "scripts" / "local-engine" / "package-candidate.sh").read_text())
+
+    def test_package_replaces_a_preexisting_candidate(self) -> None:
+        stale = self.root / "dist" / "local-engine-candidate" / "binaries" / "stale-helper"
+        stale.parent.mkdir(parents=True)
+        stale.write_text("stale", encoding="utf-8")
+
+        result, _ = self._run("package-candidate.sh")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        binaries = self.root / "dist" / "local-engine-candidate" / "binaries"
+        self.assertEqual(
+            {entry.name for entry in binaries.iterdir()},
+            {
+                f"runned-{TARGET}",
+                f"runne-{TARGET}",
+                f"runne-llama-worker-{TARGET}",
+            },
+        )
 
     def test_prepare_resolves_a_relative_target_directory_from_the_repository(self) -> None:
         result, target = self._run("prepare-desktop-sidecars.sh", relative_target=True)
