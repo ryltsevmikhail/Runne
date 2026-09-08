@@ -131,6 +131,12 @@ class MacOSProductSigningOrchestrationTests(unittest.TestCase):
         self.assertEqual(outcome.failure.phase, "requirement-credential-service")
         self.assertEqual(runner.commands[-1].phase, "requirement-credential-service")
 
+    def test_unquoted_daemon_requirement_must_name_exact_identifier(self) -> None:
+        runner = ProductRecordingRunner(self.root, invalid_requirement_role="daemon")
+        outcome = run_product_signing(self.request, runner, "darwin")
+        expected = (FailureCode.ARTIFACT_IDENTITY_MISMATCH, "requirement-daemon")
+        self.assertEqual((outcome.failure.code, outcome.failure.phase), expected)
+        self.assertEqual(runner.commands[-1].phase, "requirement-daemon")
     def test_dmg_and_evidence_are_published_by_one_directory_rename(self) -> None:
         real_replace = os.replace
         with mock.patch(

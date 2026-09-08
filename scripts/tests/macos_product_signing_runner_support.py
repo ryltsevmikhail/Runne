@@ -91,10 +91,13 @@ class ProductRecordingRunner:
             }[role]
             if role == self.invalid_requirement_role:
                 identifier = "example.invalid"
+            rendered_identifier = (
+                identifier if role in ("cli", "daemon") else f'"{identifier}"'
+            )
             return CommandResult(
                 0,
                 "",
-                f'designated => identifier "{identifier}" and anchor apple generic',
+                f"designated => identifier {rendered_identifier} and anchor apple generic",
             )
         if phase.startswith("entitlements-"):
             payload = self._entitlement_payload(phase)

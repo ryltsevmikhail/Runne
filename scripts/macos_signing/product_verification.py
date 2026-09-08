@@ -70,8 +70,11 @@ def _requirement_failure(role: str, result: CommandResult) -> FailureCode | None
     if isinstance(value, FailureCode):
         return value
     identifier = _EXPECTED_IDENTIFIERS.get(role)
-    prefix = f'designated => identifier "{identifier}" and anchor apple generic'
-    if identifier is None or not value.startswith(prefix) or " or " in value:
+    prefixes = (
+        f'designated => identifier "{identifier}" and anchor apple generic',
+        f"designated => identifier {identifier} and anchor apple generic",
+    )
+    if identifier is None or not value.startswith(prefixes) or " or " in value:
         return FailureCode.ARTIFACT_IDENTITY_MISMATCH
     return None
 
