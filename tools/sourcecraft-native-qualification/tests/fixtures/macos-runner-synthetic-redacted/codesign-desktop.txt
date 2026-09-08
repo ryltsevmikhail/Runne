@@ -1,0 +1,4 @@
+Executable=/private/var/REDACTED/Runne.app/Contents/MacOS/runne-desktop
+Identifier=com.runne.desktop
+Authority=Developer ID Application: Runne (758F9Z45SR)
+TeamIdentifier=758F9Z45SR

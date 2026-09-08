@@ -1,0 +1,4 @@
+Executable=/private/var/REDACTED/Runne.app/Contents/Library/Helpers/RunneCredentialService.app/Contents/MacOS/runne-credential-service
+Identifier=com.runne.credential-service
+Authority=Developer ID Application: Runne (758F9Z45SR)
+TeamIdentifier=758F9Z45SR

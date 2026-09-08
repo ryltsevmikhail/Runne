@@ -4398,6 +4398,7 @@ name = "runne-platform-ports"
 version = "0.0.3"
 dependencies = [
  "cargo_metadata",
+ "proc-macro2",
  "sha2",
  "syn 2.0.119",
  "zeroize",

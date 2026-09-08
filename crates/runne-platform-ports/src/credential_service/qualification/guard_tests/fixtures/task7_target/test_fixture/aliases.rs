@@ -1,0 +1,9 @@
+pub type Qualified = dyn crate::CredentialServiceQualificationPort;
+pub type Borrowed = &'static dyn crate::CredentialServiceQualificationPort;
+pub type Boxed = Box<dyn crate::CredentialServiceQualificationPort>;
+pub type TupleWrapped<'a> = (&'a dyn crate::CredentialServiceQualificationPort,);
+pub type ArrayWrapped<'a> = [&'a dyn crate::CredentialServiceQualificationPort; 1];
+pub type SliceWrapped<'a> = &'a [&'a dyn crate::CredentialServiceQualificationPort];
+pub type GenericWrapped<'a> = Option<Box<&'a dyn crate::CredentialServiceQualificationPort>>;
+pub type BareFnWrapped<'a> = fn(Option<&'a dyn crate::CredentialServiceQualificationPort>);
+pub type UnrelatedComposite<'a> = (&'a str, [u8; 1], &'a [u8]);

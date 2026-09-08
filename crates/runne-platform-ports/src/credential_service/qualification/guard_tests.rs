@@ -1,6 +1,10 @@
 mod edges;
 mod source_audit;
 mod source_inventory;
+mod task7;
+mod task7_collision;
+mod task7_round6;
+mod task7_round7;
 
 use std::path::{Path, PathBuf};
 

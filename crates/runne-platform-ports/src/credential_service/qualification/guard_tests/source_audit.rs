@@ -1,21 +1,34 @@
 #[path = "bodies.rs"]
 mod bodies;
+#[path = "calls.rs"]
+mod calls;
+#[path = "implementer_names.rs"]
+mod implementer_names;
+#[path = "macro_definitions.rs"]
+mod macro_definitions;
+#[path = "macro_scope.rs"]
+mod macro_scope;
 #[path = "metadata.rs"]
 mod metadata;
+#[path = "source_parse.rs"]
+mod source_parse;
 #[path = "syntax.rs"]
 mod syntax;
 #[path = "visitor.rs"]
 mod visitor;
+#[path = "visitor_types.rs"]
+mod visitor_types;
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use syn::visit::Visit;
-use syn::{File, Item, ItemImpl};
+use syn::ItemImpl;
 
-use metadata::{collect_metadata, is_known_target, last_path_segment};
+use implementer_names::{implementer_modules, local_implementer_names, qualification_implementers};
+use metadata::{is_known_target, last_path_segment};
+use source_parse::{ParsedSource, parse_source};
 pub(super) use syntax::{item_attrs, item_is_test_only};
-use visitor::{Call, CallVisitor, macro_mentions_qualification};
+use visitor::Call;
 
 const QUALIFICATION_PORT: &str = "CredentialServiceQualificationPort";
 
@@ -32,19 +45,11 @@ pub(super) struct Finding {
     reason: &'static str,
 }
 
-struct ParsedSource {
-    unit: SourceUnit,
-    file: File,
-    bindings: Vec<metadata::Binding>,
-    impls: Vec<metadata::ImplRecord>,
-    supertraits: Vec<metadata::SupertraitRecord>,
-}
-
 pub(super) fn find_production_callers(sources: &[SourceUnit]) -> Vec<Finding> {
     let mut parsed = Vec::new();
     let mut findings = Vec::new();
     for unit in sources.iter().filter(|unit| !unit.test_only) {
-        let Ok(file) = syn::parse_file(&unit.source) else {
+        let Some(source) = parse_source(unit) else {
             if unit.source.contains("qualify") || unit.source.contains(QUALIFICATION_PORT) {
                 findings.push(Finding {
                     path: unit.path.clone(),
@@ -53,54 +58,32 @@ pub(super) fn find_production_callers(sources: &[SourceUnit]) -> Vec<Finding> {
             }
             continue;
         };
-        let mut bindings = Vec::new();
-        let mut impls = Vec::new();
-        let mut supertraits = Vec::new();
-        collect_metadata(&file.items, &mut bindings, &mut impls, &mut supertraits);
-        parsed.push(ParsedSource {
-            unit: unit.clone(),
-            file,
-            bindings,
-            impls,
-            supertraits,
-        });
+        parsed.push(source);
     }
 
     let public_aliases = public_aliases(&parsed);
-    let direct_qualification_names = qualification_names(&parsed);
-    let qualification_names = metadata::qualification_names_with_supertraits(
-        &direct_qualification_names,
-        parsed.iter().flat_map(|source| source.supertraits.iter()),
-    );
+    let qualification_names = qualification_names(&parsed);
     let reexport_modules = public_reexport_modules(&parsed, &public_aliases);
     let implementers = qualification_implementers(&parsed, &qualification_names);
+    let implementer_modules = implementer_modules(&parsed, &implementers, &qualification_names);
     for source in &parsed {
         let local_names =
             local_qualification_names(source, &qualification_names, &reexport_modules);
-        let concrete_names = local_implementer_names(source, &implementers);
-        let evidence = source.bindings.iter().any(|binding| {
-            binding.local.is_some()
-                && (is_known_target(&binding.target, &public_aliases)
-                    || is_known_target(&binding.target, &implementers))
-        }) || !concrete_names.is_empty()
-            || source
-                .unit
-                .path
-                .extension()
-                .and_then(|extension| extension.to_str())
-                == Some("inc");
-        let mut calls = Vec::new();
-        collect_calls(&source.file.items, &local_names, &mut calls);
-        let has_qualification_bound = calls.iter().any(|call| match call {
-            Call::TraitBound { name } => qualification_names.contains(name),
-            _ => false,
-        });
+        let concrete_names = local_implementer_names(
+            source,
+            &implementers,
+            &qualification_names,
+            &implementer_modules,
+        );
+        let (calls, macro_definitions) =
+            calls::collect(&source.file.items, &local_names, &concrete_names);
         for call in calls {
             let relevant = match call {
                 Call::Path {
                     qualifier,
                     subject,
                     qself,
+                    qualification_context,
                 } => {
                     source
                         .unit
@@ -108,14 +91,44 @@ pub(super) fn find_production_callers(sources: &[SourceUnit]) -> Vec<Finding> {
                         .extension()
                         .and_then(|extension| extension.to_str())
                         == Some("inc")
-                        || qualifier.is_some_and(|name| local_names.contains(&name))
+                        || qualifier
+                            .as_ref()
+                            .is_some_and(|name| local_names.contains(name))
+                        || qualifier
+                            .as_ref()
+                            .is_some_and(|name| implementers.contains(name))
+                        || qualification_context
                         || (qself && subject.is_some_and(|name| implementers.contains(&name)))
                 }
                 Call::Method {
                     from_qualification_body,
-                } => evidence || has_qualification_bound || from_qualification_body,
-                Call::TraitBound { .. } => false,
-                Call::Macro => true,
+                    qualification_context,
+                } => {
+                    from_qualification_body
+                        || qualification_context
+                        || source
+                            .unit
+                            .path
+                            .extension()
+                            .and_then(|extension| extension.to_str())
+                            == Some("inc")
+                }
+                Call::Macro {
+                    name,
+                    unqualified,
+                    qualification_context,
+                    selects_qualification,
+                    scope,
+                    position,
+                } => macro_definitions::is_relevant(
+                    &macro_definitions,
+                    &name,
+                    unqualified,
+                    qualification_context,
+                    selects_qualification,
+                    &scope,
+                    position,
+                ),
             };
             if relevant {
                 findings.push(Finding {
@@ -126,38 +139,6 @@ pub(super) fn find_production_callers(sources: &[SourceUnit]) -> Vec<Finding> {
         }
     }
     findings
-}
-
-fn collect_calls(items: &[Item], local_names: &BTreeSet<String>, calls: &mut Vec<Call>) {
-    for item in items {
-        if item_is_test_only(item_attrs(item)) {
-            continue;
-        }
-        match item {
-            Item::Trait(item) if item.ident == QUALIFICATION_PORT => {
-                bodies::collect_trait_bodies(item, calls);
-            }
-            Item::Trait(item) => {
-                let mut visitor = CallVisitor::new();
-                visitor.visit_item_trait(item);
-                calls.extend(visitor.calls);
-            }
-            Item::Impl(item) if impl_is_qualification(item, local_names) => {
-                bodies::collect_impl_bodies(item, calls);
-            }
-            Item::Macro(item) if macro_mentions_qualification(&item.mac) => calls.push(Call::Macro),
-            Item::Mod(item) => {
-                if let Some((_, nested)) = &item.content {
-                    collect_calls(nested, local_names, calls);
-                }
-            }
-            _ => {
-                let mut visitor = CallVisitor::new();
-                visitor.visit_item(item);
-                calls.extend(visitor.calls);
-            }
-        }
-    }
 }
 
 fn public_aliases(sources: &[ParsedSource]) -> BTreeSet<String> {
@@ -182,22 +163,6 @@ fn public_aliases(sources: &[ParsedSource]) -> BTreeSet<String> {
     }
 }
 
-fn qualification_implementers(
-    sources: &[ParsedSource],
-    aliases: &BTreeSet<String>,
-) -> BTreeSet<String> {
-    sources
-        .iter()
-        .flat_map(|source| source.impls.iter())
-        .filter(|item| {
-            item.trait_name
-                .as_ref()
-                .is_some_and(|name| aliases.contains(name))
-        })
-        .filter_map(|item| item.self_name.clone())
-        .collect()
-}
-
 fn qualification_names(sources: &[ParsedSource]) -> BTreeSet<String> {
     let mut known = BTreeSet::from([QUALIFICATION_PORT.to_owned()]);
     loop {
@@ -210,6 +175,16 @@ fn qualification_names(sources: &[ParsedSource]) -> BTreeSet<String> {
                     .is_some_and(|_| is_known_target(&binding.target, &known))
                 {
                     known.insert(binding.local.clone().unwrap());
+                }
+            }
+            for alias in &source.aliases {
+                if alias.bases.iter().any(|base| known.contains(base)) {
+                    known.insert(alias.name.clone());
+                }
+            }
+            for supertrait in &source.supertraits {
+                if supertrait.bases.iter().any(|base| known.contains(base)) {
+                    known.insert(supertrait.name.clone());
                 }
             }
         }
@@ -262,20 +237,7 @@ fn local_qualification_names(
     names
 }
 
-fn local_implementer_names(
-    source: &ParsedSource,
-    implementers: &BTreeSet<String>,
-) -> BTreeSet<String> {
-    source
-        .bindings
-        .iter()
-        .filter_map(|binding| binding.local.as_ref())
-        .filter(|local| implementers.contains(*local))
-        .cloned()
-        .collect()
-}
-
-fn impl_is_qualification(item: &ItemImpl, names: &BTreeSet<String>) -> bool {
+pub(super) fn impl_is_qualification(item: &ItemImpl, names: &BTreeSet<String>) -> bool {
     item.trait_
         .as_ref()
         .and_then(|(_, path, _)| last_path_segment(path))

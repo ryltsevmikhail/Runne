@@ -1,0 +1,13 @@
+[package]
+name = "qualification-task7-target-fixture"
+version = "0.0.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+macro-carrier = { path = "macro-carrier" }
+
+[[bin]]
+name = "fixture"
+path = "test_fixture/main.rs"

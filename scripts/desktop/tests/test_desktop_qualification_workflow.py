@@ -14,12 +14,14 @@ class DesktopQualificationWorkflowTest(unittest.TestCase):
                                     qualification.index("- name: qualification-native-linux")]
         for name in ("test_native_credential_xpc_hardening", "test_native_credential_xpc_preflight",
                      "test_native_credential_xpc_qualification", "test_native_credential_enrollment",
+                     "test_native_credential_xpc_external_contract",
                      "test_native_credential_counter_types", "test_native_credential_xpc_schema"):
             self.assertIn(name, structural)
         self.assertIn("scripts/requirements-schema-tests.txt", structural)
         self.assertNotIn("native_credential_xpc_preflight.py", qualification)
         local = (ROOT / "scripts/ci-local-inputs.sh").read_text()
         self.assertIn("test_native_credential_xpc_hardening", local)
+        self.assertIn("test_native_credential_xpc_external_contract", local)
 
     def _qualification(self) -> str:
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -119,6 +121,11 @@ class DesktopQualificationWorkflowTest(unittest.TestCase):
             end = qualification.find("\n      - name: ", start + 1)
             section = qualification[start:] if end == -1 else qualification[start:end]
             self.assertIn("prepare-macos-signing.sh", section)
+            self.assertIn(
+                "cargo test -p runne-macos-process-identity --test "
+                "credential_service_package_observation_surface --locked",
+                section,
+            )
             for name in (
                 "APPLE_CERTIFICATE",
                 "APPLE_CREDENTIAL_SERVICE_PROVISIONING_PROFILE",

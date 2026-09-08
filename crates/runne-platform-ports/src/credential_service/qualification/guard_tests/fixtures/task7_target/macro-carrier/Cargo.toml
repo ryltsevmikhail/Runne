@@ -1,0 +1,8 @@
+[package]
+name = "macro-carrier"
+version = "0.0.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+proc-macro = true

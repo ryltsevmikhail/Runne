@@ -1,37 +1,53 @@
-use syn::punctuated::Punctuated;
-use syn::{Attribute, Meta, Token};
+use syn::{Attribute, Expr};
 
 pub(super) fn is_test_only(attributes: &[Attribute]) -> bool {
-    attributes.iter().any(|attribute| {
-        attribute.path().is_ident("test")
-            || attribute.path().is_ident("cfg") && cfg_is_test_only(&attribute.meta)
-    })
+    !super::cfg_projection::is_production(attributes)
 }
 
-fn cfg_is_test_only(meta: &Meta) -> bool {
-    let Meta::List(list) = meta else { return false };
-    let Ok(nested) = list.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated) else {
-        return false;
+pub(super) fn expr_is_test_only(expression: &Expr) -> bool {
+    let attributes = match expression {
+        Expr::Array(node) => &node.attrs,
+        Expr::Assign(node) => &node.attrs,
+        Expr::Async(node) => &node.attrs,
+        Expr::Await(node) => &node.attrs,
+        Expr::Binary(node) => &node.attrs,
+        Expr::Block(node) => &node.attrs,
+        Expr::Break(node) => &node.attrs,
+        Expr::Call(node) => &node.attrs,
+        Expr::Cast(node) => &node.attrs,
+        Expr::Closure(node) => &node.attrs,
+        Expr::Const(node) => &node.attrs,
+        Expr::Continue(node) => &node.attrs,
+        Expr::Field(node) => &node.attrs,
+        Expr::ForLoop(node) => &node.attrs,
+        Expr::Group(node) => &node.attrs,
+        Expr::If(node) => &node.attrs,
+        Expr::Index(node) => &node.attrs,
+        Expr::Infer(node) => &node.attrs,
+        Expr::Let(node) => &node.attrs,
+        Expr::Lit(node) => &node.attrs,
+        Expr::Loop(node) => &node.attrs,
+        Expr::Macro(node) => &node.attrs,
+        Expr::Match(node) => &node.attrs,
+        Expr::MethodCall(node) => &node.attrs,
+        Expr::Paren(node) => &node.attrs,
+        Expr::Path(node) => &node.attrs,
+        Expr::Range(node) => &node.attrs,
+        Expr::RawAddr(node) => &node.attrs,
+        Expr::Reference(node) => &node.attrs,
+        Expr::Repeat(node) => &node.attrs,
+        Expr::Return(node) => &node.attrs,
+        Expr::Struct(node) => &node.attrs,
+        Expr::Try(node) => &node.attrs,
+        Expr::TryBlock(node) => &node.attrs,
+        Expr::Tuple(node) => &node.attrs,
+        Expr::Unary(node) => &node.attrs,
+        Expr::Unsafe(node) => &node.attrs,
+        Expr::While(node) => &node.attrs,
+        Expr::Yield(node) => &node.attrs,
+        Expr::Verbatim(_) | _ => return false,
     };
-    if list.path.is_ident("any") {
-        nested.iter().all(cfg_is_test_predicate)
-    } else {
-        nested.iter().any(cfg_is_test_predicate)
-    }
-}
-
-fn cfg_is_test_predicate(meta: &Meta) -> bool {
-    match meta {
-        Meta::Path(path) => path.is_ident("test"),
-        Meta::List(list) if list.path.is_ident("all") => list
-            .parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
-            .is_ok_and(|items| items.iter().any(cfg_is_test_predicate)),
-        Meta::List(list) if list.path.is_ident("any") => list
-            .parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
-            .is_ok_and(|items| items.iter().all(cfg_is_test_predicate)),
-        Meta::List(list) if list.path.is_ident("not") => false,
-        Meta::NameValue(_) | Meta::List(_) => false,
-    }
+    is_test_only(attributes)
 }
 
 pub(super) fn parse_source(source: &str) -> syn::File {

@@ -1,5 +1,7 @@
 use std::collections::BTreeSet;
 
+use proc_macro2::{TokenStream, TokenTree};
+use syn::visit::{self, Visit};
 use syn::{Item, ItemUse, Type, UseTree};
 
 use super::{item_attrs, item_is_test_only};
@@ -20,11 +22,19 @@ pub(super) struct SupertraitRecord {
     pub(super) bases: Vec<String>,
 }
 
+pub(super) struct AliasRecord {
+    pub(super) name: String,
+    pub(super) bases: Vec<String>,
+    pub(super) has_qualified_path: bool,
+    pub(super) qualified_modules: Vec<String>,
+}
+
 pub(super) fn collect_metadata(
     items: &[Item],
     bindings: &mut Vec<Binding>,
     impls: &mut Vec<ImplRecord>,
     supertraits: &mut Vec<SupertraitRecord>,
+    aliases: &mut Vec<AliasRecord>,
 ) {
     for item in items {
         if item_is_test_only(item_attrs(item)) {
@@ -50,31 +60,21 @@ pub(super) fn collect_metadata(
                     })
                     .collect(),
             }),
+            Item::Type(item) => {
+                let (bases, has_qualified_path, qualified_modules) = type_bases(&item.ty);
+                aliases.push(AliasRecord {
+                    name: item.ident.to_string(),
+                    bases,
+                    has_qualified_path,
+                    qualified_modules,
+                });
+            }
             Item::Mod(item) => {
                 if let Some((_, nested)) = &item.content {
-                    collect_metadata(nested, bindings, impls, supertraits);
+                    collect_metadata(nested, bindings, impls, supertraits, aliases);
                 }
             }
             _ => {}
-        }
-    }
-}
-
-pub(super) fn qualification_names_with_supertraits<'a>(
-    names: &BTreeSet<String>,
-    records: impl Iterator<Item = &'a SupertraitRecord>,
-) -> BTreeSet<String> {
-    let records: Vec<_> = records.collect();
-    let mut known = names.clone();
-    loop {
-        let previous = known.len();
-        for record in &records {
-            if record.bases.iter().any(|base| known.contains(base)) {
-                known.insert(record.name.clone());
-            }
-        }
-        if known.len() == previous {
-            return known;
         }
     }
 }
@@ -124,6 +124,35 @@ pub(super) fn is_known_target(target: &str, known: &BTreeSet<String>) -> bool {
         .is_some_and(|segment| segment != "*" && known.contains(segment))
 }
 
+pub(super) fn alias_has_local_provenance(
+    alias: &AliasRecord,
+    aliases: &[AliasRecord],
+    bindings: &[Binding],
+    impls: &[ImplRecord],
+    qualification_names: &BTreeSet<String>,
+    implementers: &BTreeSet<String>,
+) -> bool {
+    impls.iter().any(|item| {
+        item.self_name
+            .as_ref()
+            .is_some_and(|name| alias.bases.contains(name))
+            && item
+                .trait_name
+                .as_ref()
+                .is_some_and(|name| qualification_names.contains(name))
+    }) || bindings.iter().any(|binding| {
+        binding
+            .local
+            .as_ref()
+            .is_some_and(|name| alias.bases.contains(name))
+            && is_known_target(&binding.target, implementers)
+    }) || aliases.iter().any(|local| {
+        local.name != alias.name
+            && implementers.contains(&local.name)
+            && alias.bases.contains(&local.name)
+    })
+}
+
 pub(super) fn last_path_segment(path: &syn::Path) -> Option<String> {
     path.segments
         .last()
@@ -138,6 +167,85 @@ pub(super) fn type_name(ty: &Type) -> Option<String> {
             .last()
             .map(|segment| segment.ident.to_string()),
         _ => None,
+    }
+}
+
+fn type_bases(ty: &Type) -> (Vec<String>, bool, Vec<String>) {
+    let mut visitor = TypeBases::default();
+    visitor.visit_type(ty);
+    (
+        visitor.bases,
+        visitor.has_qualified_path,
+        visitor.qualified_modules,
+    )
+}
+
+#[derive(Default)]
+struct TypeBases {
+    bases: Vec<String>,
+    has_qualified_path: bool,
+    qualified_modules: Vec<String>,
+}
+
+impl TypeBases {
+    fn push(&mut self, name: String) {
+        if !self.bases.contains(&name) {
+            self.bases.push(name);
+        }
+    }
+
+    fn push_tokens(&mut self, tokens: &TokenStream) {
+        for token in tokens.clone() {
+            match token {
+                TokenTree::Ident(identifier) => self.push(identifier.to_string()),
+                TokenTree::Group(group) => self.push_tokens(&group.stream()),
+                TokenTree::Literal(_) | TokenTree::Punct(_) => {}
+            }
+        }
+    }
+}
+
+impl<'ast> Visit<'ast> for TypeBases {
+    fn visit_type(&mut self, ty: &'ast Type) {
+        if let Type::Verbatim(tokens) = ty {
+            self.push_tokens(tokens);
+        } else {
+            visit::visit_type(self, ty);
+        }
+    }
+
+    fn visit_type_path(&mut self, ty: &'ast syn::TypePath) {
+        self.has_qualified_path |= ty.path.segments.len() > 1;
+        if ty.path.segments.len() > 1 {
+            let index = ty.path.segments.len() - 2;
+            self.push_module(ty.path.segments[index].ident.to_string());
+        }
+        if let Some(name) = last_path_segment(&ty.path) {
+            self.push(name);
+        }
+        visit::visit_type_path(self, ty);
+    }
+
+    fn visit_trait_bound(&mut self, bound: &'ast syn::TraitBound) {
+        if let Some(name) = last_path_segment(&bound.path) {
+            self.push(name);
+        }
+        visit::visit_trait_bound(self, bound);
+    }
+
+    fn visit_type_macro(&mut self, ty: &'ast syn::TypeMacro) {
+        self.push_tokens(&ty.mac.tokens);
+        visit::visit_type_macro(self, ty);
+    }
+}
+
+impl TypeBases {
+    fn push_module(&mut self, name: String) {
+        if !matches!(name.as_str(), "crate" | "self" | "super")
+            && !self.qualified_modules.contains(&name)
+        {
+            self.qualified_modules.push(name);
+        }
     }
 }
 

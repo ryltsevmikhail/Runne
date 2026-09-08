@@ -1,12 +1,23 @@
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use super::source_edge_macros::{
-    IncludeTemplate, MacroDefinitions, include_templates, include_token_present,
+use super::source_edge_macros::{MacroDefinitions, ResolvedSourceEdge};
+use super::source_edge_paths::{
+    is_builtin_include, is_builtin_source_free, module_directory, module_path,
 };
-use super::syntax::{is_test_only, parse_source};
+use super::source_model::{
+    OpaqueSourceMacro, SourceEdgeKind, SourceEdgeRecord, SourceOrigin, SyntaxId,
+};
+use super::syntax::{expr_is_test_only, is_test_only};
 use syn::visit::{self, Visit};
-use syn::{Attribute, Expr, ExprLit, Lit, LitStr, Meta};
+use syn::{Expr, LitStr};
+
+#[path = "source_edges/collection.rs"]
+mod collection;
+#[path = "source_edges/validation.rs"]
+mod validation;
+
+pub(super) use collection::{source_edge_collection, source_edge_records};
+pub(super) use validation::{source_edges, validate_source_edges};
 
 macro_rules! visit_non_test_items {
     ($($method:ident: $item:ty => $delegate:ident),* $(,)?) => {
@@ -16,43 +27,29 @@ macro_rules! visit_non_test_items {
     };
 }
 
-pub(super) fn validate_source_edges(path: &Path, source: &str, inventory: &HashSet<PathBuf>) {
-    for target in source_edges(path, source) {
-        assert!(
-            inventory.contains(&target),
-            "source edge escaped production inventory: {}",
-            target.display()
-        );
-    }
-}
-
-pub(super) fn source_edges(path: &Path, source: &str) -> Vec<PathBuf> {
-    let file = parse_source(source);
-    let mut definitions = MacroDefinitions::default();
-    definitions.visit_file(&file);
-    let mut edges = Vec::new();
-    SourceEdgeCollector {
-        source: path,
-        definitions: &definitions.items,
-        edges: &mut edges,
-    }
-    .visit_file(&file);
-    edges
-}
-
 struct SourceEdgeCollector<'a> {
     source: &'a Path,
-    definitions: &'a HashMap<String, Vec<IncludeTemplate>>,
-    edges: &'a mut Vec<PathBuf>,
+    definitions: &'a MacroDefinitions,
+    scope: Vec<String>,
+    site_ordinal: u32,
+    macro_position: u32,
+    edges: &'a mut Vec<SourceEdgeRecord>,
+    opaque_source_macros: &'a mut Vec<OpaqueSourceMacro>,
 }
 
 impl SourceEdgeCollector<'_> {
-    fn add_target(&mut self, target: &Path, edge: &str) {
-        let kind = std::fs::symlink_metadata(target).unwrap_or_else(|error| {
+    fn add_target(
+        &mut self,
+        target: &Path,
+        edge: &str,
+        kind: SourceEdgeKind,
+        origin: SourceOrigin,
+    ) {
+        let metadata = std::fs::symlink_metadata(target).unwrap_or_else(|error| {
             panic!("cannot inspect {edge} target {}: {error}", target.display())
         });
         assert!(
-            !kind.file_type().is_symlink(),
+            !metadata.file_type().is_symlink(),
             "symlink {edge} is unsupported: {}",
             target.display()
         );
@@ -71,51 +68,59 @@ impl SourceEdgeCollector<'_> {
                 target.display()
             )
         });
-        self.edges.push(canonical);
+        self.edges.push(SourceEdgeRecord {
+            from: self.source.to_path_buf(),
+            from_module_scope: self.scope.clone(),
+            target: canonical,
+            kind,
+            origin,
+        });
+        self.site_ordinal += 1;
     }
 
-    fn add_literal(&mut self, literal: &str, edge: &str) {
+    fn add_literal(&mut self, literal: &str, edge: &str, origin: SourceOrigin) {
         let target = self
             .source
             .parent()
             .unwrap_or_else(|| panic!("source has no parent: {}", self.source.display()))
             .join(literal);
-        self.add_target(&target, edge);
+        self.add_target(
+            &target,
+            edge,
+            SourceEdgeKind::Include {
+                expansion_site: SyntaxId(self.site_ordinal),
+            },
+            origin,
+        );
     }
 
-    fn add_templates(&mut self, templates: &[IncludeTemplate], tokens: &proc_macro2::TokenStream) {
-        for template in templates {
-            match template {
-                IncludeTemplate::Literal(path) => self.add_literal(path, "macro include edge"),
-                IncludeTemplate::Forwarded => {
-                    let literal = syn::parse2::<LitStr>(tokens.clone()).unwrap_or_else(|error| {
-                        panic!("unsupported forwarded include argument: {error}")
-                    });
-                    self.add_literal(&literal.value(), "macro include edge");
+    fn add_resolved_edges(&mut self, edges: Vec<ResolvedSourceEdge>, origin: SourceOrigin) {
+        for edge in edges {
+            match edge {
+                ResolvedSourceEdge::Include(path) => {
+                    self.add_literal(&path, "macro include edge", origin);
                 }
+                ResolvedSourceEdge::Module { name, path } => self.add_module(&name, path, origin),
             }
         }
     }
 
-    fn validate_module(&mut self, node: &syn::ItemMod) {
-        if node.content.is_some() || is_test_only(&node.attrs) {
-            return;
-        }
+    fn add_module(&mut self, name: &str, explicit_path: Option<String>, origin: SourceOrigin) {
         let parent = self.source.parent().expect("source has no parent");
-        let candidates = if let Some(path) = module_path(&node.attrs) {
+        let candidates = if let Some(path) = explicit_path {
             vec![parent.join(path)]
         } else {
             let nested = module_directory(self.source);
             let primary = [
-                nested.join(format!("{}.rs", node.ident)),
-                nested.join(node.ident.to_string()).join("mod.rs"),
+                nested.join(format!("{name}.rs")),
+                nested.join(name).join("mod.rs"),
             ];
             if primary.iter().any(|path| path.is_file()) {
                 primary.to_vec()
             } else {
                 vec![
-                    parent.join(format!("{}.rs", node.ident)),
-                    parent.join(node.ident.to_string()).join("mod.rs"),
+                    parent.join(format!("{name}.rs")),
+                    parent.join(name).join("mod.rs"),
                 ]
             }
         };
@@ -128,109 +133,132 @@ impl SourceEdgeCollector<'_> {
             1,
             "unresolved or ambiguous module source from {}: {}",
             self.source.display(),
-            node.ident
+            name
         );
-        self.add_target(existing[0], "module edge");
+        self.add_target(
+            existing[0],
+            "module edge",
+            SourceEdgeKind::Module {
+                declared_name: name.to_owned(),
+            },
+            origin,
+        );
     }
-}
 
-fn module_directory(source: &Path) -> PathBuf {
-    let parent = source.parent().expect("source has no parent");
-    if source
-        .extension()
-        .is_some_and(|extension| extension == "inc")
-    {
-        return parent.to_path_buf();
-    }
-    match source.file_stem().and_then(|stem| stem.to_str()) {
-        Some("mod" | "lib" | "main" | "build") => parent.to_path_buf(),
-        _ => parent.join(source.file_stem().expect("source has no stem")),
-    }
-}
-
-fn module_path(attributes: &[Attribute]) -> Option<String> {
-    let mut result = None;
-    for attribute in attributes {
-        if attribute.path().is_ident("path") {
-            let Meta::NameValue(value) = &attribute.meta else {
-                panic!("unsupported path attribute")
-            };
-            let Expr::Lit(ExprLit {
-                lit: Lit::Str(path),
-                ..
-            }) = &value.value
-            else {
-                panic!("unsupported path attribute")
-            };
-            assert!(result.is_none(), "multiple path attributes are unsupported");
-            result = Some(path.value());
-        } else if attribute
-            .path()
-            .segments
-            .last()
-            .is_some_and(|segment| segment.ident == "path")
-        {
-            panic!("unsupported qualified path attribute")
-        } else if attribute.path().is_ident("cfg_attr")
-            && matches!(&attribute.meta, Meta::List(list) if list.tokens.to_string().contains("path"))
-        {
-            panic!("unsupported conditional path attribute")
+    fn validate_module(&mut self, node: &syn::ItemMod) {
+        if node.content.is_none() && !is_test_only(&node.attrs) {
+            self.add_module(
+                &node.ident.to_string(),
+                module_path(&node.attrs),
+                SourceOrigin::RustModule,
+            );
         }
     }
-    result
+
+    fn visit_source_macro(&mut self, node: &syn::Macro, item_position: bool, source_position: u32) {
+        match self.definitions.resolve(
+            self.source,
+            &self.scope,
+            &node.path,
+            &node.tokens,
+            source_position,
+        ) {
+            Ok(Some(edges)) => self.add_resolved_edges(edges, SourceOrigin::ResolvedInclude),
+            Ok(None) if is_builtin_include(&node.path) => {
+                match syn::parse2::<LitStr>(node.tokens.clone()) {
+                    Ok(literal) => self.add_literal(
+                        &literal.value(),
+                        "include edge",
+                        SourceOrigin::ResolvedInclude,
+                    ),
+                    Err(_) => self.record_opaque_source_macro(node),
+                }
+            }
+            Ok(None) => match self.definitions.nested_edges(
+                self.source,
+                &self.scope,
+                node.tokens.clone(),
+                source_position,
+            ) {
+                Ok(edges) => {
+                    self.add_resolved_edges(edges, SourceOrigin::OpaqueMacroInclude);
+                    if item_position && !is_builtin_source_free(&node.path) {
+                        self.record_opaque_source_macro(node);
+                    }
+                }
+                Err(_) => self.record_opaque_source_macro(node),
+            },
+            Err(_) => self.record_opaque_source_macro(node),
+        }
+    }
+
+    fn record_opaque_source_macro(&mut self, node: &syn::Macro) {
+        self.opaque_source_macros.push(OpaqueSourceMacro {
+            from: self.source.to_path_buf(),
+            macro_path: node
+                .path
+                .segments
+                .iter()
+                .map(|segment| segment.ident.to_string())
+                .collect::<Vec<_>>()
+                .join("::"),
+        });
+    }
+
+    const fn next_macro_position(&mut self) -> u32 {
+        let current = self.macro_position;
+        self.macro_position = self
+            .macro_position
+            .checked_add(1)
+            .expect("macro source position exceeds u32");
+        current
+    }
 }
 
 impl<'ast> Visit<'ast> for SourceEdgeCollector<'_> {
     fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
         if !is_test_only(&node.attrs) {
             self.validate_module(node);
+            if node.content.is_some() {
+                self.scope.push(node.ident.to_string());
+            }
             visit::visit_item_mod(self, node);
+            if node.content.is_some() {
+                self.scope.pop();
+            }
         }
     }
 
     fn visit_macro(&mut self, node: &'ast syn::Macro) {
-        let name = node
-            .path
-            .segments
-            .last()
-            .map(|segment| segment.ident.to_string());
-        if name.as_deref() == Some("include") {
-            let literal = syn::parse2::<LitStr>(node.tokens.clone())
-                .unwrap_or_else(|error| panic!("unsupported include argument: {error}"));
-            self.add_literal(&literal.value(), "include edge");
-        } else if let Some(templates) = name.as_deref().and_then(|name| self.definitions.get(name))
-        {
-            self.add_templates(templates, &node.tokens);
-        } else if include_token_present(node.tokens.clone()) {
-            panic!("unsupported macro-wrapped include edge")
-        }
+        let source_position = self.next_macro_position();
+        self.visit_source_macro(node, false, source_position);
         visit::visit_macro(self, node);
     }
 
     fn visit_item_macro(&mut self, node: &'ast syn::ItemMacro) {
+        let source_position = self.next_macro_position();
         if is_test_only(&node.attrs) {
             return;
         }
-        if node.mac.path.is_ident("include") {
-            let literal = syn::parse2::<LitStr>(node.mac.tokens.clone())
-                .unwrap_or_else(|error| panic!("unsupported include argument: {error}"));
-            self.add_literal(&literal.value(), "include edge");
-        } else if node.ident.is_some() {
-            for template in include_templates(node.mac.tokens.clone()) {
-                if let IncludeTemplate::Literal(path) = template {
-                    self.add_literal(&path, "macro include edge");
-                }
-            }
-        } else if let Some(templates) = node
-            .mac
-            .path
-            .segments
-            .last()
-            .and_then(|name| self.definitions.get(&name.ident.to_string()))
-        {
-            self.add_templates(templates, &node.mac.tokens);
-        } else if include_token_present(node.mac.tokens.clone()) {
-            panic!("unsupported macro-wrapped include edge")
+        if node.ident.is_none() {
+            self.visit_source_macro(&node.mac, true, source_position);
+        }
+    }
+
+    fn visit_item_use(&mut self, node: &'ast syn::ItemUse) {
+        self.next_macro_position();
+        visit::visit_item_use(self, node);
+    }
+
+    fn visit_expr(&mut self, node: &'ast Expr) {
+        if !expr_is_test_only(node) {
+            visit::visit_expr(self, node);
+        }
+    }
+
+    fn visit_local(&mut self, node: &'ast syn::Local) {
+        if !is_test_only(&node.attrs) {
+            visit::visit_local(self, node);
         }
     }
 

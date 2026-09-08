@@ -26,9 +26,10 @@ export class LocalModelManager {
     return this.installed
   }
 
-  async admit(candidateId: string, licenseDigest: string): Promise<LocalModelInstalled[]> {
-    this.installed = await admitLocalModel(candidateId, licenseDigest, this.invoke)
-    return this.installed
+  async admit(candidateId: string, licenseDigest: string): Promise<LocalModelInstalled> {
+    const installed = await admitLocalModel(candidateId, licenseDigest, this.invoke)
+    this.installed = [...this.installed, installed]
+    return installed
   }
 
   async discard(candidateId: string): Promise<boolean> {

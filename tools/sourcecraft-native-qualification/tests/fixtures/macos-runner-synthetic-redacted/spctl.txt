@@ -1,0 +1,2 @@
+/private/var/REDACTED/Runne.app: accepted
+source=Notarized Developer ID

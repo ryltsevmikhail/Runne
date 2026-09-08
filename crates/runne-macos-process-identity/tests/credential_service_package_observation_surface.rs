@@ -3,10 +3,7 @@
 #[path = "credential_service_package_observation_surface/guard.rs"]
 mod guard;
 
-use guard::{
-    collect_workspace_production_sources, count_credential_service_calls,
-    count_workspace_credential_service_calls, is_workspace_production_source, production_text,
-};
+use guard::{count_credential_service_calls, is_workspace_production_source, production_text};
 use runne_api::VerifiedSignedInstalledReleaseV2;
 use runne_macos_process_identity::{
     MacOsCredentialServicePackageObservationError,
@@ -70,14 +67,9 @@ fn credential_service_observation_pure_surface_has_no_authority_or_fact_escape()
     assert_eq!(facade.matches("pub fn capture_current(").count(), 1);
     assert_eq!(facade.matches("pub fn verify_exact(").count(), 1);
     let workspace = root.parent().unwrap().parent().unwrap();
-    let production = collect_workspace_production_sources(
+    guard::assert_workspace_has_no_credential_service_calls(
         workspace,
         &root.join("src/credential_service_package_observation.rs"),
-    );
-    assert_eq!(
-        count_workspace_credential_service_calls(&production),
-        0,
-        "production caller added"
     );
 }
 
@@ -85,7 +77,7 @@ fn credential_service_observation_pure_surface_has_no_authority_or_fact_escape()
 fn credential_service_observation_pure_workspace_guard_does_not_trust_test_fixture_path_names() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let facade = root.join("src/credential_service_package_observation.rs");
-    assert!(!is_workspace_production_source(&facade, &facade));
+    assert!(is_workspace_production_source(&facade, &facade));
     for source in [
         root.join("test_fixture/main.rs"),
         root.join("src/tests.rs"),
@@ -119,10 +111,9 @@ fn credential_service_observation_pure_workspace_guard_does_not_trust_test_fixtu
         1
     );
     assert_eq!(
-        count_workspace_credential_service_calls(&[
-            "pub use runne_macos_process_identity::MacOsPendingCredentialServicePackageObservationV1 as Reexported;".into(),
-            "use crate::reexport::Reexported as Pending; fn call() { Pending::capture_current(); }".into(),
-        ]),
+        count_credential_service_calls(
+            "mod reexport { pub use runne_macos_process_identity::MacOsPendingCredentialServicePackageObservationV1 as Reexported; } use crate::reexport::Reexported as Pending; fn call() { Pending::capture_current(); }",
+        ),
         1
     );
 }
@@ -134,6 +125,8 @@ fn credential_service_observation_pure_ast_guard_ignores_comments_and_cfg_test()
             r"
             // use runne_macos_process_identity::MacOsPendingCredentialServicePackageObservationV1 as Pending;
             // Pending::capture_current();
+            struct Profile;
+            mod subject { pub fn capture_current(_: super::Profile) {} }
             fn unrelated(profile: Profile) { subject::capture_current(profile); }
             ",
         ),

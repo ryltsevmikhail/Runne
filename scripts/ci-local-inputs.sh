@@ -124,6 +124,7 @@ if gate_enabled local-structural; then
         scripts.desktop.tests.test_native_credential_xpc_hardening \
         scripts.desktop.tests.test_native_credential_xpc_preflight \
         scripts.desktop.tests.test_native_credential_xpc_schema \
+        scripts.desktop.tests.test_native_credential_xpc_external_contract \
         -v
     "$trusted_python" -m unittest \
         scripts.desktop.tests.test_legacy_cleanup_evidence \
