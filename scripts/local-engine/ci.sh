@@ -6,6 +6,7 @@ set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/../.." && pwd)
 ENGINE_ROOT="$REPO_ROOT/local-engine"
+python3 "$REPO_ROOT/scripts/local-engine/verify-embedded-source.py"
 MODE="${1:-pinned}"
 case "$MODE" in
     pinned|msrv) ;;
