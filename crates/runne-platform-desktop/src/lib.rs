@@ -55,7 +55,7 @@ pub use protected_runtime::{
     ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeProcess,
     ProtectedBundledRuntimeSupervisor, discover_bundled_runtime,
 };
-#[cfg(all(feature = "test-support", unix))]
+#[cfg(all(feature = "test-support", target_os = "macos", target_arch = "aarch64"))]
 #[doc(hidden)]
 pub use protected_runtime::{
     TestOnlyConnectedReadyV3EnrollmentSupervisor, TestOnlyReadyV3EnrollmentSupervisor,
@@ -94,7 +94,7 @@ pub use updater::{
     stage_verified_artifact, verify_update,
 };
 pub use updater_artifact::{UpdateArtifactKind, UpdateArtifactKindError};
-#[cfg(feature = "test-support")]
+#[cfg(all(feature = "test-support", target_os = "macos", target_arch = "aarch64"))]
 #[doc(hidden)]
 pub use updater_coordinator::{
     TestOnlyEnrollmentRevalidation, TestOnlyEnrollmentUpdaterFixture,

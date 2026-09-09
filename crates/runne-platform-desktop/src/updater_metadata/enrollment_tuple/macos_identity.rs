@@ -39,7 +39,7 @@ impl MacOsCodeIdentityV1 {
         )
     }
 
-    #[cfg(feature = "test-support")]
+    #[cfg(all(feature = "test-support", target_os = "macos"))]
     pub(super) fn local(path: &std::path::Path, expected_identifier: &str) -> Option<Self> {
         if !runne_api::test_support::local_native_enrollment_enabled() {
             return None;
@@ -73,7 +73,7 @@ impl MacOsCodeIdentityV1 {
         })
     }
 
-    #[cfg(feature = "test-support")]
+    #[cfg(all(feature = "test-support", target_os = "macos"))]
     pub(super) fn local_xpc_requirement(
         &self,
     ) -> Option<runne_macos_xpc::CredentialServicePeerRequirement> {

@@ -265,6 +265,9 @@ async fn dispatch_inner(
 }
 
 #[cfg(test)]
+#[path = "dispatch/platform_enrollment_scope_tests.rs"]
+mod platform_enrollment_scope_tests;
+#[cfg(test)]
 #[path = "dispatch/round2_tests.rs"]
 mod round2_tests;
 #[cfg(test)]
