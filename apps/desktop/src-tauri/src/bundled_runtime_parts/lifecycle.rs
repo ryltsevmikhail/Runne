@@ -81,6 +81,7 @@ impl NativeRootAdmissionLifecycle for BundledRuntimeController {
         })
     }
 
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     fn acquire_credential_enrollment_lease(&self) -> crate::bundled_runtime::CredentialEnrollmentFuture {
         let core = Arc::clone(&self.core);
         let supervisor = Arc::clone(&self.supervisor);
@@ -101,6 +102,7 @@ impl NativeRootAdmissionLifecycle for BundledRuntimeController {
     }
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 async fn acquire_fenced_enrollment_permit(
     fence: &RuntimeOperationFence,
     accepts_writer: impl FnOnce() -> bool,

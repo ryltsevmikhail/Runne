@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 use super::ReaperOperationId;
 use super::{
     CredentialWriterReaperLastError, CredentialWriterReaperState, ExactWriterCleanup, ReaperEntry,
@@ -9,6 +9,13 @@ use super::{
 
 #[derive(Clone, Copy)]
 pub(super) enum AttemptKind {
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        expect(
+            dead_code,
+            reason = "only native enrollment producers issue outer writer retries"
+        )
+    )]
     OuterRetry,
     Maintenance,
     Shutdown,
@@ -56,7 +63,7 @@ pub(super) fn eligible_entries<C>(
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub(super) fn matching_entries<C>(
     core: &RegistryCore<C>,
     operation: &ReaperOperationId,

@@ -51,7 +51,6 @@ async fn failed_poll_admission_freezes_attempt_before_retry() {
     let provider = SecretProvider::default();
     assert_eq!(runtime.next_and_commit(&provider, fixture.stream(), StreamCursor::new(0), fixture.context()).await, Err(RuntimeProviderExecutionError::PersistenceUnavailable));
     connection.execute_batch("DROP TRIGGER fail_poll;").unwrap();
-    drop(runtime);
     let reopened = fixture.reopened_execution();
     let runtime = RuntimeProviderExecution::new(&keyring, &reopened, &FixedPricing, &AllowingGuard, &redaction);
     runtime.use_existing_active_key(fixture.journal_key()).unwrap();

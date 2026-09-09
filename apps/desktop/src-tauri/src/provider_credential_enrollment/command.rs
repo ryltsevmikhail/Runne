@@ -24,6 +24,7 @@ impl CredentialIntentIpc {
         matches!(self.action, ProviderCredentialEnrollmentActionV2::Pair)
     }
 
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     pub(crate) const fn writer_handoff_mode(
         self,
     ) -> runne_platform_desktop::CredentialWriterHandoffMode {
@@ -50,6 +51,7 @@ impl CredentialIntentIpc {
                 && self.verification_kind.is_some())
     }
 
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     pub(crate) fn prompt_request(
         self,
     ) -> Result<runne_platform_desktop::SecureCredentialPromptRequest, ()> {
@@ -108,6 +110,7 @@ mod tests {
         );
     }
 
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     #[test]
     fn ipc_maps_only_closed_public_actions_to_native_prompt_metadata() {
         use runne_platform_desktop::{CredentialPromptAction, CredentialPromptProvider};
@@ -140,6 +143,7 @@ mod tests {
         }
     }
 
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     #[test]
     fn only_pair_selects_the_native_secret_relay_handoff() {
         use runne_platform_desktop::CredentialWriterHandoffMode;

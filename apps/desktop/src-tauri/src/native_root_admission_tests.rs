@@ -13,6 +13,7 @@ async fn external_lifecycle_rejects_native_root_admission() {
     );
 }
 
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 #[tokio::test]
 async fn external_lifecycle_rejects_credential_enrollment_lease() {
     assert!(RuntimeLifecycleManager::external()

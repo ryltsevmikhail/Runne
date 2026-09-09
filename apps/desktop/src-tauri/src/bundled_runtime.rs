@@ -8,7 +8,7 @@
 //! the one-time protected profile directly to `AppCore`, monitors only the
 //! proven-owned child, and maps every failure to a closed renderer-safe code.
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[path = "qualification_ticket.rs"]
 pub mod qualification_ticket;
 
@@ -34,6 +34,7 @@ use runne_platform_desktop::{
     PROTECTED_BUNDLED_SESSION_RENEW_AFTER, ProtectedBundledRuntimeError,
     ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeSupervisor, discover_bundled_runtime,
 };
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use runne_platform_desktop::{
     ConfirmedInstalledNativeEnrollment, PreparedInstalledNativeEnrollment,
 };
@@ -144,6 +145,7 @@ pub struct BundledRuntimeController {
 ///
 /// It holds the async operation fence but never a supervisor mutex, so host UI
 /// stays responsive while the exact owned daemon is rechecked after the prompt.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub struct NativeCredentialEnrollmentLease {
     core: Arc<AppCore>,
     supervisor: Arc<Mutex<ProtectedBundledRuntimeSupervisor>>,
@@ -153,6 +155,7 @@ pub struct NativeCredentialEnrollmentLease {
     operation_permit: tokio::sync::OwnedMutexGuard<()>,
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[derive(Clone)]
 pub struct NativeCredentialEnrollmentCleanup {
     core: Arc<AppCore>,
@@ -160,17 +163,20 @@ pub struct NativeCredentialEnrollmentCleanup {
     writer_reapers: Arc<ProtectedWriterReaperRegistry>,
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub type CredentialEnrollmentFuture = Pin<
     Box<
         dyn Future<Output = Result<NativeCredentialEnrollmentLease, AppCoreError>> + Send + 'static,
     >,
 >;
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[path = "bundled_runtime_parts/enrollment.rs"]
 mod enrollment;
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub use enrollment::test_only_live_enrollment_runtime;
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 impl crate::RuntimeLifecycleManager {
     pub(crate) async fn acquire_credential_enrollment_lease(
         &self,
@@ -186,6 +192,7 @@ impl crate::RuntimeLifecycleManager {
     }
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 impl BundledRuntimeController {
     pub(crate) const fn qualification_admission(
         &self,

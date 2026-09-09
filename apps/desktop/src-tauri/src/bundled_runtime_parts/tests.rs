@@ -3,8 +3,10 @@
 
     use super::{
         BundledRuntimeController, ProtectedSessionRenewalSchedule, RuntimeOperationFence,
-        acquire_fenced_enrollment_permit, map_protected_failure,
+        map_protected_failure,
     };
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    use super::acquire_fenced_enrollment_permit;
     use runne_api::ProviderActivationReadinessV1;
     use runne_app_core::{AppCore, RuntimeFailureCode, RuntimeMode};
     use runne_platform_desktop::ProtectedBundledRuntimeError;
@@ -145,6 +147,7 @@
         assert!(!fence.begin_shutdown());
     }
 
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     #[tokio::test]
     async fn enrollment_reaper_admission_is_checked_after_the_operation_fence() {
         let fence = Arc::new(RuntimeOperationFence::new());
