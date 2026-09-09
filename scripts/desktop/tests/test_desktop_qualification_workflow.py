@@ -10,6 +10,34 @@ BRANCH_POLICY = ROOT / ".sourcecraft/branches.yaml"
 
 
 class DesktopQualificationWorkflowTest(unittest.TestCase):
+    def test_pinned_runtime_jobs_provision_schema_dependencies(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        for name, end_marker in (
+            ("runtime-ci-pr", "\n  runtime-ci:"),
+            ("runtime-ci", "\n      - name: ubuntu-msrv"),
+        ):
+            start = workflow.index(f"  {name}:")
+            end = workflow.index(end_marker, start)
+            job = workflow[start:end]
+            for value in (
+                "python3-venv",
+                "ab21c6a338fbc9a2b34bdb214dda38b23104035bd1d4610daf7b56a65b80bb8a scripts/requirements-schema-tests.txt | sha256sum -c -",
+                "python3 -m venv /tmp/runne-ci-venv",
+                "/tmp/runne-ci-venv/bin/python -m pip install --disable-pip-version-check -r scripts/requirements-schema-tests.txt",
+                'export PATH="/tmp/runne-ci-venv/bin:$PATH"',
+            ):
+                self.assertIn(value, job)
+            self.assertNotIn("$SOURCECRAFT_WORKSPACE/.ci-venv", job)
+            checksum = job.index("sha256sum -c -")
+            venv = job.index("python3 -m venv")
+            install = job.index("/tmp/runne-ci-venv/bin/python -m pip install")
+            path = job.index('export PATH="/tmp/runne-ci-venv/bin:$PATH"')
+            ci = job.index("bash scripts/ci.sh pinned")
+            self.assertLess(checksum, venv)
+            self.assertLess(venv, install)
+            self.assertLess(install, path)
+            self.assertLess(path, ci)
+
     def _qualification(self) -> str:
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("  desktop-qualification:", workflow)
