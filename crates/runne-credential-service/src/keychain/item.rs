@@ -34,10 +34,10 @@ impl CredentialItemLocator {
         KEYCHAIN_ACCESS_GROUP
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "macos"))]
     pub(crate) fn with_account_for_test(reference: &CredentialVersionRef, account: &str) -> Self {
         let mut locator = Self::new(reference);
-        locator.account = account.to_owned();
+        account.clone_into(&mut locator.account);
         locator
     }
 }

@@ -1,5 +1,6 @@
 use crate::CredentialServiceXpcError;
 
+#[cfg(any(test, target_os = "macos"))]
 pub const LAUNCH_AGENT_PLIST: &str = "com.runne.credential-service.plist";
 
 /// Safe projection of every current `SMAppServiceStatus` value.
@@ -12,6 +13,7 @@ pub enum CredentialServiceRegistrationStatus {
     Unavailable,
 }
 
+#[cfg(any(test, target_os = "macos"))]
 pub const fn map_status_code(code: isize) -> CredentialServiceRegistrationStatus {
     match code {
         0 => CredentialServiceRegistrationStatus::NotRegistered,
@@ -32,6 +34,7 @@ pub fn validate_registration_version(
     Ok(())
 }
 
+#[cfg(any(test, target_os = "macos"))]
 pub const fn operation_error(
     status: CredentialServiceRegistrationStatus,
 ) -> CredentialServiceXpcError {
@@ -91,14 +94,20 @@ impl CredentialServiceRegistrationManager {
     /// # Errors
     ///
     /// Maps native failures to closed status-based dispositions.
+    #[cfg(target_os = "macos")]
     pub fn register(&self) -> Result<(), CredentialServiceXpcError> {
-        #[cfg(target_os = "macos")]
-        {
-            // SAFETY: `native` is the retained fixed LaunchAgent service.
-            unsafe { self.native.registerAndReturnError() }
-                .map_err(|_| operation_error(self.status()))
-        }
-        #[cfg(not(target_os = "macos"))]
+        // SAFETY: `native` is the retained fixed LaunchAgent service.
+        unsafe { self.native.registerAndReturnError() }.map_err(|_| operation_error(self.status()))
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    /// Returns `Unsupported` because `LaunchAgent` registration is unavailable off macOS.
+    ///
+    /// # Errors
+    ///
+    /// Always returns `CredentialServiceXpcError::Unsupported`.
+    pub const fn register(&self) -> Result<(), CredentialServiceXpcError> {
+        let _ = self;
         Err(CredentialServiceXpcError::Unsupported)
     }
 
@@ -107,25 +116,35 @@ impl CredentialServiceRegistrationManager {
     /// # Errors
     ///
     /// Maps native failures to closed status-based dispositions.
+    #[cfg(target_os = "macos")]
     pub fn unregister(&self) -> Result<(), CredentialServiceXpcError> {
-        #[cfg(target_os = "macos")]
-        {
-            // SAFETY: `native` is the retained fixed LaunchAgent service.
-            unsafe { self.native.unregisterAndReturnError() }
-                .map_err(|_| operation_error(self.status()))
-        }
-        #[cfg(not(target_os = "macos"))]
+        // SAFETY: `native` is the retained fixed LaunchAgent service.
+        unsafe { self.native.unregisterAndReturnError() }
+            .map_err(|_| operation_error(self.status()))
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    /// Returns `Unsupported` because `LaunchAgent` registration is unavailable off macOS.
+    ///
+    /// # Errors
+    ///
+    /// Always returns `CredentialServiceXpcError::Unsupported`.
+    pub const fn unregister(&self) -> Result<(), CredentialServiceXpcError> {
+        let _ = self;
         Err(CredentialServiceXpcError::Unsupported)
     }
 
     #[must_use]
+    #[cfg(target_os = "macos")]
     pub fn status(&self) -> CredentialServiceRegistrationStatus {
-        #[cfg(target_os = "macos")]
-        {
-            // SAFETY: reading status has no out parameters and `native` is retained.
-            map_status_code(unsafe { self.native.status() }.0)
-        }
-        #[cfg(not(target_os = "macos"))]
+        // SAFETY: reading status has no out parameters and `native` is retained.
+        map_status_code(unsafe { self.native.status() }.0)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[must_use]
+    pub const fn status(&self) -> CredentialServiceRegistrationStatus {
+        let _ = self;
         CredentialServiceRegistrationStatus::Unavailable
     }
 

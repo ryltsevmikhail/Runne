@@ -1,6 +1,7 @@
 //! Safe Rust boundary around the audited macOS credential-service transport.
 
 mod client;
+#[cfg(any(test, target_os = "macos"))]
 mod frame;
 mod listener;
 mod peer_requirement;
@@ -66,5 +67,7 @@ impl From<CredentialServiceXpcError>
     }
 }
 
+#[cfg(test)]
+mod frame_tests;
 #[cfg(test)]
 mod tests;

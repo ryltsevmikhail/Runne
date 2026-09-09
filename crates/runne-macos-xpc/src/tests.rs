@@ -4,7 +4,6 @@ use zeroize::Zeroizing;
 
 use super::*;
 use crate::client::{CallEvent, PendingCall};
-use crate::frame::{NativeReplyFrame, NativeRequestFrame};
 use crate::peer_requirement::ConnectionPreparation;
 use crate::service_management::{
     LAUNCH_AGENT_PLIST, map_status_code, operation_error, validate_registration_version,
@@ -75,16 +74,6 @@ fn signing_requirement_must_be_installed_before_resume() {
         ),
         Err(CredentialServiceXpcError::Rejected)
     );
-}
-
-#[test]
-fn native_frames_reject_empty_and_oversized_request_or_reply() {
-    assert!(NativeRequestFrame::new(Zeroizing::new(Vec::new())).is_err());
-    assert!(NativeReplyFrame::new(Zeroizing::new(Vec::new())).is_err());
-    let oversized =
-        vec![0; runne_platform_ports::credential_service::MAX_CREDENTIAL_SERVICE_FRAME_BYTES + 1];
-    assert!(NativeRequestFrame::new(Zeroizing::new(oversized.clone())).is_err());
-    assert!(NativeReplyFrame::new(Zeroizing::new(oversized)).is_err());
 }
 
 #[test]

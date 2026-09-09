@@ -1,8 +1,10 @@
 use runne_provider::{CredentialVersionRef, ProviderId};
 
+#[cfg(target_os = "macos")]
+use super::KeychainBackend;
 use super::item::KEYCHAIN_ACCESS_GROUP;
 use super::{
-    CredentialItemLocator, CredentialKeychainStatus, KeychainBackend, map_keychain_read_status,
+    CredentialItemLocator, CredentialKeychainStatus, map_keychain_read_status,
     map_keychain_write_status,
 };
 

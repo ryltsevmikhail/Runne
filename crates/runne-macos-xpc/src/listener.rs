@@ -1,5 +1,7 @@
+use std::sync::Arc;
+#[cfg(any(test, target_os = "macos"))]
 use std::sync::{
-    Arc, Mutex, MutexGuard,
+    Mutex, MutexGuard,
     atomic::{AtomicBool, Ordering},
 };
 
@@ -27,6 +29,7 @@ pub trait CredentialServiceRequestHandler: Send + Sync {
     ) -> Result<Zeroizing<Vec<u8>>, CredentialServiceXpcError>;
 }
 
+#[cfg(any(test, target_os = "macos"))]
 pub fn invoke_handler(
     handler: &dyn CredentialServiceRequestHandler,
     role: CredentialServiceEndpointRole,
@@ -38,18 +41,22 @@ pub fn invoke_handler(
     .unwrap_or(Err(CredentialServiceXpcError::Unavailable))
 }
 
+#[cfg(any(test, target_os = "macos"))]
 struct ConnectionActivityState {
     admission: Mutex<AdmissionState>,
 }
 
+#[cfg(any(test, target_os = "macos"))]
 struct AdmissionState {
     active: usize,
     accepting: bool,
 }
 
+#[cfg(any(test, target_os = "macos"))]
 #[derive(Clone)]
 struct ConnectionActivity(Arc<ConnectionActivityState>);
 
+#[cfg(any(test, target_os = "macos"))]
 impl ConnectionActivity {
     fn new() -> Self {
         Self(Arc::new(ConnectionActivityState {
@@ -93,11 +100,13 @@ impl ConnectionActivity {
     }
 }
 
+#[cfg(any(test, target_os = "macos"))]
 struct ConnectionGuard {
     activity: ConnectionActivity,
     closed: AtomicBool,
 }
 
+#[cfg(any(test, target_os = "macos"))]
 impl ConnectionGuard {
     fn close(&self) {
         if !self.closed.swap(true, Ordering::AcqRel) {
@@ -107,6 +116,7 @@ impl ConnectionGuard {
     }
 }
 
+#[cfg(any(test, target_os = "macos"))]
 impl Drop for ConnectionGuard {
     fn drop(&mut self) {
         self.close();
@@ -143,30 +153,50 @@ impl CredentialServiceXpcListener {
     }
 
     /// Invalidates the native listener immediately.
+    #[cfg(target_os = "macos")]
     pub fn invalidate(&self) {
-        #[cfg(target_os = "macos")]
         self.native.invalidate();
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub const fn invalidate(&self) {
+        let _ = self;
     }
 
     /// Returns the exact number of accepted connections not yet invalidated.
     #[must_use]
+    #[cfg(target_os = "macos")]
     pub fn active_connections(&self) -> usize {
-        #[cfg(target_os = "macos")]
-        return self.native.active_connections();
-        #[cfg(not(target_os = "macos"))]
-        return 0;
+        self.native.active_connections()
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[must_use]
+    pub const fn active_connections(&self) -> usize {
+        let _ = self;
+        0
     }
 
     /// Closes admission before an idle snapshot is finalized.
+    #[cfg(target_os = "macos")]
     pub fn close_admission(&self) {
-        #[cfg(target_os = "macos")]
         self.native.close_admission();
     }
 
+    #[cfg(not(target_os = "macos"))]
+    pub const fn close_admission(&self) {
+        let _ = self;
+    }
+
     /// Reopens admission when the final idle snapshot finds live work.
+    #[cfg(target_os = "macos")]
     pub fn reopen_admission(&self) {
-        #[cfg(target_os = "macos")]
         self.native.reopen_admission();
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub const fn reopen_admission(&self) {
+        let _ = self;
     }
 }
 
