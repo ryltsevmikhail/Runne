@@ -102,6 +102,8 @@ class DesktopQualificationWorkflowTest(unittest.TestCase):
     def test_xpc_contracts_run_in_structural_task(self):
         structural = self._task("qualification-structural")
         for name in (
+            "apt-get install -y --no-install-recommends git ca-certificates",
+            'git config --global --add safe.directory "$SOURCECRAFT_WORKSPACE"',
             "test_native_credential_xpc_hardening",
             "test_native_credential_xpc_preflight",
             "test_native_credential_xpc_qualification",
@@ -114,6 +116,13 @@ class DesktopQualificationWorkflowTest(unittest.TestCase):
             "scripts/requirements-schema-tests.txt",
         ):
             self.assertIn(name, structural)
+        install = structural.index("apt-get install -y --no-install-recommends git ca-certificates")
+        checkout = structural.index('cd "$SOURCECRAFT_WORKSPACE"')
+        trust = structural.index('git config --global --add safe.directory "$SOURCECRAFT_WORKSPACE"')
+        tests = structural.index("python3 -m unittest")
+        self.assertLess(install, checkout)
+        self.assertLess(checkout, trust)
+        self.assertLess(trust, tests)
 
     def test_arm64_native_task_requires_signed_package_and_external_authority(self):
         native = self._task("qualification-native-macos")

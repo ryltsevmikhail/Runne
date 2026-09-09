@@ -16,12 +16,19 @@ from codec import Rejected, canonical, digest
 from contract import DEPLOYMENT, ROLE_PATHS, SELECTORS
 from controller import STAGES, _attestation_receipt, handoff
 from package_subject import canonical_roles, open_package, signed_subject, snapshot, subject
-from process_control import run
+from process_control import _alive, run
 from policy import MODULES
 
 
 def file_sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def assert_terminated(case: unittest.TestCase, pid: int, message: str) -> None:
+    for _ in range(20):
+        if not _alive(pid): return
+        time.sleep(0.05)
+    case.fail(message)
 
 
 class ControllerTests(unittest.TestCase):
@@ -35,7 +42,7 @@ class ControllerTests(unittest.TestCase):
         executor = root / "executor.py"
         mutation = f"Path({str(package / 'candidate')!r}).write_text('drift')" if drift else ""
         executor.write_text(
-            "#!/usr/bin/python3 -I\nimport hashlib,json,sys\nfrom pathlib import Path\n"
+            f"#!{sys.executable} -I\nimport hashlib,json,sys\nfrom pathlib import Path\n"
             "value=json.load(sys.stdin)\n"
             "canonical=json.dumps(value,sort_keys=True,separators=(',',':')).encode('ascii')\n"
             "if not any(item.startswith('--package-fd=') for item in sys.argv): sys.exit(2)\n"
@@ -153,16 +160,12 @@ class ControllerTests(unittest.TestCase):
             script.write_text(f"#!/bin/sh\nsleep 30 & echo $! > {pid_file}\nwait\n"); script.chmod(0o755)
             with self.assertRaises(Exception): run([str(script)], None, timeout=0.2)
             child = int(pid_file.read_text())
-            for _ in range(20):
-                try: os.kill(child, 0)
-                except ProcessLookupError: break
-                time.sleep(0.05)
-            else: self.fail("descendant survived process-group timeout")
+            assert_terminated(self, child, "descendant survived process-group timeout")
 
     def test_output_limit_uses_one_over_limit_sentinel(self):
         with tempfile.TemporaryDirectory() as directory:
             script = Path(directory) / "output.py"
-            script.write_text("#!/usr/bin/python3 -I\nimport sys\nsys.stdout.write('x'*131073)\n"); script.chmod(0o755)
+            script.write_text(f"#!{sys.executable} -I\nimport sys\nsys.stdout.write('x'*131073)\n"); script.chmod(0o755)
             with self.assertRaises(Rejected): run([str(script)], None, timeout=0.5)
 
     def test_stdin_no_read_obeys_deadline(self):
@@ -176,17 +179,13 @@ class ControllerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             pid_file = Path(directory) / "child.pid"; script = Path(directory) / "escape.sh"
             script.write_text(
-                "#!/usr/bin/python3 -I\nimport os,time\n"
+                f"#!{sys.executable} -I\nimport os,time\n"
                 f"pid=os.fork()\nif pid == 0:\n os.setsid();open({str(pid_file)!r},'w').write(str(os.getpid()));time.sleep(30)\nelse:\n time.sleep(3)\n"
             )
             script.chmod(0o755)
             with self.assertRaises(Rejected): run([str(script)], None, timeout=0.5)
             child = int(pid_file.read_text())
-            for _ in range(20):
-                try: os.kill(child, 0)
-                except ProcessLookupError: break
-                time.sleep(0.05)
-            else: self.fail("setsid descendant survived containment")
+            assert_terminated(self, child, "setsid descendant survived containment")
 
     def test_darwin_uses_kernel_no_fork_containment(self):
         import process_control
@@ -197,6 +196,24 @@ class ControllerTests(unittest.TestCase):
         finally: process_control.sys.platform, process_control.SANDBOX_EXEC = original, sandbox
         self.assertEqual(command[:3], ["/usr/bin/env", "-p", process_control.SANDBOX_PROFILE])
 
+    def test_linux_rejects_production_containment(self):
+        import process_control
+        original = process_control.sys.platform
+        process_control.sys.platform = "linux"
+        try:
+            with self.assertRaises(Rejected): run(["/bin/true"], None, contain=True)
+        finally: process_control.sys.platform = original
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "pidfd cleanup is Linux-specific")
+    def test_linux_cleanup_signals_pinned_pidfd(self):
+        import process_control
+        from unittest.mock import Mock, patch
+        process = Mock(pid=999); process.wait.return_value = 0
+        with patch.object(process_control.signal, "pidfd_send_signal") as send, \
+             patch.object(process_control.os, "killpg", side_effect=ProcessLookupError):
+            process_control._kill_group(process, {123: 7})
+        send.assert_called_once_with(7, process_control.signal.SIGKILL)
+
     def test_success_rejects_and_kills_detached_descendant(self):
         with tempfile.TemporaryDirectory() as directory:
             pid_file = Path(directory) / "child.pid"; script = Path(directory) / "leak.sh"
@@ -204,11 +221,7 @@ class ControllerTests(unittest.TestCase):
             script.chmod(0o755)
             with self.assertRaises(Rejected): run([str(script)], None)
             child = int(pid_file.read_text())
-            for _ in range(20):
-                try: os.kill(child, 0)
-                except ProcessLookupError: break
-                time.sleep(0.05)
-            else: self.fail("successful leader left descendant alive")
+            assert_terminated(self, child, "successful leader left descendant alive")
 
     def test_stdin_broken_pipe_kills_descendant_process_group(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -219,11 +232,7 @@ class ControllerTests(unittest.TestCase):
             script.chmod(0o755)
             with self.assertRaises(Rejected): run([str(script)], b"x" * (16 * 1024 * 1024))
             child = int(pid_file.read_text())
-            for _ in range(20):
-                try: os.kill(child, 0)
-                except ProcessLookupError: break
-                time.sleep(0.05)
-            else: self.fail("stdin failure left descendant alive")
+            assert_terminated(self, child, "stdin failure left descendant alive")
 
 
 if __name__ == "__main__": unittest.main()

@@ -57,6 +57,9 @@ class NativeConformanceTests(unittest.TestCase):
     def test_fixed_shebang_does_not_use_path_python(self) -> None:
         import os, subprocess
         verifier = PACKAGE / "verifier.py"; verifier.chmod(0o755)
+        if not Path("/usr/bin/python3").exists():
+            self.assertEqual(verifier.read_text().splitlines()[0], "#!/usr/bin/python3 -I")
+            self.skipTest("production shebang interpreter is unavailable on this structural runner")
         with tempfile.TemporaryDirectory() as directory:
             shim = Path(directory) / "python3"; shim.write_text("#!/bin/sh\nprintf '{\\\"qualified\\\":true}'\n"); shim.chmod(0o755)
             result = subprocess.run([str(verifier), "--bad"], env={"PATH":str(shim.parent)}, capture_output=True, text=True, check=False)
@@ -65,7 +68,7 @@ class NativeConformanceTests(unittest.TestCase):
     def test_policy_leaf_permission_admission_is_descriptor_bound(self) -> None:
         from codec import load_installed_json
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory).resolve() / "policy.json"; path.write_text("{}")
+            path = Path(directory).resolve() / "policy.json"; path.write_text("{}"); path.chmod(0o666)
             with self.assertRaises(Rejected): load_installed_json(path)
 
     def test_policy_requires_a_pinned_evidence_signer(self) -> None:
@@ -92,7 +95,9 @@ class NativeConformanceTests(unittest.TestCase):
                 destination = root / "bin" / Path(item["destination"]).name
                 destination.parent.mkdir(parents=True, exist_ok=True); destination.write_bytes((PACKAGE / item["path"]).read_bytes()); destination.chmod(int(item["mode"], 8))
             for name in ("sourcecraft-native-qualification-controller", "sourcecraft-native-qualification-verifier", "sourcecraft-native-qualification-vector-harness", "sourcecraft-native-qualification-sign-evidence", "sourcecraft-native-qualification-signer-broker", "sourcecraft-native-qualification-request-signature"):
-                result = subprocess.run([str(root / "bin" / name), "--rejected"], capture_output=True, text=True, check=False)
+                entrypoint = root / "bin" / name
+                command = [str(entrypoint), "--rejected"] if Path("/usr/bin/python3").exists() else [sys.executable, "-I", str(entrypoint), "--rejected"]
+                result = subprocess.run(command, capture_output=True, text=True, check=False)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn("ModuleNotFoundError", result.stderr)
 
