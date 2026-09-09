@@ -4,7 +4,7 @@ use proc_macro2::{TokenStream, TokenTree};
 use syn::visit::{self, Visit};
 use syn::{Item, ItemUse, Type, UseTree};
 
-use super::syntax::impl_item_is_test_only;
+use super::syntax::{impl_item_is_test_only, normalized_ident};
 use super::{item_attrs, item_is_test_only};
 
 pub(super) struct Binding {
@@ -58,7 +58,7 @@ pub(super) fn collect_metadata(
                         let (bases, has_qualified_path, qualified_modules) =
                             type_bases(&associated.ty);
                         aliases.push(AliasRecord {
-                            name: associated.ident.to_string(),
+                            name: normalized_ident(&associated.ident),
                             bases,
                             has_qualified_path,
                             qualified_modules,
@@ -67,7 +67,7 @@ pub(super) fn collect_metadata(
                 }
             }
             Item::Trait(item) => supertraits.push(SupertraitRecord {
-                name: item.ident.to_string(),
+                name: normalized_ident(&item.ident),
                 bases: item
                     .supertraits
                     .iter()
@@ -80,7 +80,7 @@ pub(super) fn collect_metadata(
             Item::Type(item) => {
                 let (bases, has_qualified_path, qualified_modules) = type_bases(&item.ty);
                 aliases.push(AliasRecord {
-                    name: item.ident.to_string(),
+                    name: normalized_ident(&item.ident),
                     bases,
                     has_qualified_path,
                     qualified_modules,
@@ -108,17 +108,17 @@ fn collect_use(item: &ItemUse, bindings: &mut Vec<Binding>) {
 fn collect_use_tree(tree: &UseTree, prefix: &str, public: bool, bindings: &mut Vec<Binding>) {
     match tree {
         UseTree::Path(path) => {
-            let next_prefix = join_path(prefix, &path.ident.to_string());
+            let next_prefix = join_path(prefix, &normalized_ident(&path.ident));
             collect_use_tree(&path.tree, &next_prefix, public, bindings);
         }
         UseTree::Name(name) => bindings.push(Binding {
-            local: Some(name.ident.to_string()),
-            target: join_path(prefix, &name.ident.to_string()),
+            local: Some(normalized_ident(&name.ident)),
+            target: join_path(prefix, &normalized_ident(&name.ident)),
             public,
         }),
         UseTree::Rename(rename) => bindings.push(Binding {
-            local: Some(rename.rename.to_string()),
-            target: join_path(prefix, &rename.ident.to_string()),
+            local: Some(normalized_ident(&rename.rename)),
+            target: join_path(prefix, &normalized_ident(&rename.ident)),
             public,
         }),
         UseTree::Glob(_) => bindings.push(Binding {
@@ -173,7 +173,7 @@ pub(super) fn alias_has_local_provenance(
 pub(super) fn last_path_segment(path: &syn::Path) -> Option<String> {
     path.segments
         .last()
-        .map(|segment| segment.ident.to_string())
+        .map(|segment| normalized_ident(&segment.ident))
 }
 
 pub(super) fn type_name(ty: &Type) -> Option<String> {
@@ -182,7 +182,7 @@ pub(super) fn type_name(ty: &Type) -> Option<String> {
             .path
             .segments
             .last()
-            .map(|segment| segment.ident.to_string()),
+            .map(|segment| normalized_ident(&segment.ident)),
         _ => None,
     }
 }
@@ -235,7 +235,7 @@ impl<'ast> Visit<'ast> for TypeBases {
         self.has_qualified_path |= ty.path.segments.len() > 1;
         if ty.path.segments.len() > 1 {
             let index = ty.path.segments.len() - 2;
-            self.push_module(ty.path.segments[index].ident.to_string());
+            self.push_module(normalized_ident(&ty.path.segments[index].ident));
         }
         if let Some(name) = last_path_segment(&ty.path) {
             self.push(name);

@@ -1,11 +1,15 @@
 mod edges;
 mod source_audit;
 mod source_inventory;
+mod source_inventory_tests;
 mod task7;
 mod task7_collision;
+mod task7_round10;
+mod task7_round11;
 mod task7_round6;
 mod task7_round7;
 mod task7_round8;
+mod task7_round9;
 
 use std::path::{Path, PathBuf};
 
@@ -170,73 +174,6 @@ fn caller_guard_fails_closed_on_an_unresolved_semantic_supertrait_alias() {
 }
 
 #[test]
-fn custom_inventory_follows_a_function_local_macro_include() {
-    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/credential_service/qualification/guard_tests/fixtures/custom_target/Cargo.toml");
-    let sources = inventory_for_manifest(&manifest);
-    assert!(sources.iter().any(|source| {
-        source
-            .path
-            .ends_with(Path::new("test_fixture/local_qualification.inc"))
-    }));
-    assert!(find_production_callers(&sources).iter().any(|finding| {
-        finding
-            .path
-            .ends_with(Path::new("test_fixture/local_qualification.inc"))
-    }));
-}
-
-#[test]
-fn custom_cargo_target_inventory_follows_path_and_macro_include_edges() {
-    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/credential_service/qualification/guard_tests/fixtures/custom_target/Cargo.toml");
-    let sources = inventory_for_manifest(&manifest);
-    assert!(sources.iter().any(|source| {
-        source
-            .path
-            .ends_with(Path::new("test_fixture/qualification.inc"))
-    }));
-    assert!(find_production_callers(&sources).iter().any(|finding| {
-        finding
-            .path
-            .ends_with(Path::new("test_fixture/qualification.inc"))
-    }));
-}
-
-#[test]
-fn custom_inventory_does_not_silently_omit_parameterized_local_macro_include() {
-    let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "src/credential_service/qualification/guard_tests/fixtures/parameterized_target/Cargo.toml",
-    );
-    let inventory = std::panic::catch_unwind(|| inventory_for_manifest(&manifest));
-    match inventory {
-        Ok(sources) => {
-            assert!(sources.iter().any(|source| {
-                source
-                    .path
-                    .ends_with(Path::new("test_fixture/parameterized_qualification.inc"))
-            }));
-            assert!(find_production_callers(&sources).iter().any(|finding| {
-                finding
-                    .path
-                    .ends_with(Path::new("test_fixture/parameterized_qualification.inc"))
-            }));
-        }
-        Err(payload) => {
-            let message = payload
-                .downcast_ref::<String>()
-                .map(String::as_str)
-                .or_else(|| payload.downcast_ref::<&str>().copied())
-                .unwrap_or_default();
-            assert!(
-                message.contains("ambiguous macro include token flow"),
-                "unexpected inventory panic: {message}"
-            );
-        }
-    }
-}
-
-#[test]
 fn caller_guard_follows_a_production_include_fragment() {
     let sources = [
         fixture(
@@ -274,7 +211,7 @@ fn caller_guard_uses_item_semantics_not_a_tests_filename() {
 fn unrelated_qualification_named_methods_are_not_port_callers() {
     let source = fixture(
         "src/unrelated.rs",
-        "fn release(probe: Probe) { probe.qualify(); }",
+        "trait Probe { fn qualify(&self); } fn release(probe: impl Probe) { probe.qualify(); }",
         false,
     );
     assert!(find_production_callers(&[source]).is_empty());
@@ -285,5 +222,6 @@ fn fixture(path: &str, source: &str, test_only: bool) -> SourceUnit {
         path: PathBuf::from(path),
         source: source.to_owned(),
         test_only,
+        trusted_external_roots: std::collections::BTreeSet::default(),
     }
 }

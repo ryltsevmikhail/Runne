@@ -245,7 +245,7 @@ fn qualified_constructor_is_test_only_and_production_composition_uses_not_qualif
     assert!(!include_str!("../lib.rs").contains("new_with_probe"));
     assert!(include_str!("process.rs").contains("Arc::new(production_sandbox_probe())"));
     assert_eq!(
-        production_sandbox_probe().qualify(),
+        production_sandbox_probe().verify_containment(),
         Err(ProcessStubDisposition::NotQualified)
     );
 }

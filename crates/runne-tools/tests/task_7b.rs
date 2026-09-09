@@ -20,7 +20,7 @@ fn id(value: u8) -> [u8; 16] {
 struct QualifiedProbe;
 
 impl SandboxQualificationProbe for QualifiedProbe {
-    fn qualify(&self) -> Result<(), ProcessStubDisposition> {
+    fn verify_containment(&self) -> Result<(), ProcessStubDisposition> {
         Ok(())
     }
 }
@@ -121,9 +121,9 @@ fn validated_intent() -> ValidatedProcessIntentV1 {
 
 #[test]
 fn probes_distinguish_test_qualification_from_production_failure() {
-    assert_eq!(QualifiedProbe.qualify(), Ok(()));
+    assert_eq!(QualifiedProbe.verify_containment(), Ok(()));
     assert_eq!(
-        production_sandbox_probe().qualify(),
+        production_sandbox_probe().verify_containment(),
         Err(ProcessStubDisposition::NotQualified)
     );
 }

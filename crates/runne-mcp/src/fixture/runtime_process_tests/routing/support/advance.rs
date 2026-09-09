@@ -19,7 +19,7 @@ impl AdvanceAuthorizationProbe {
 }
 
 impl SandboxQualificationProbe for AdvanceAuthorizationProbe {
-    fn qualify(&self) -> Result<(), ProcessStubDisposition> {
+    fn verify_containment(&self) -> Result<(), ProcessStubDisposition> {
         if !self.advanced.swap(true, Ordering::SeqCst) {
             self.authority.prepare_advance().unwrap().commit().unwrap();
         }

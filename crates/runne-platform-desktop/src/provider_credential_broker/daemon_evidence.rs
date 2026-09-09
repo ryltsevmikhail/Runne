@@ -270,7 +270,7 @@ fn transfer_timeout() -> std::time::Duration {
     transfer_timeout_for_local_test_opt_in(opted_in)
 }
 
-#[cfg(feature = "test-support")]
+#[cfg(any(test, feature = "test-support"))]
 pub(super) const fn transfer_timeout_for_local_test_opt_in(opted_in: bool) -> std::time::Duration {
     if opted_in {
         std::time::Duration::from_mins(2)

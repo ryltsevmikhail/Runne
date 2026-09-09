@@ -1,5 +1,9 @@
+#[path = "attributes.rs"]
+mod attributes;
 #[path = "bodies.rs"]
 mod bodies;
+#[path = "call_provenance.rs"]
+mod call_provenance;
 #[path = "calls.rs"]
 mod calls;
 #[path = "implementer_names.rs"]
@@ -8,25 +12,36 @@ mod implementer_names;
 mod macro_definitions;
 #[path = "macro_scope.rs"]
 mod macro_scope;
+#[path = "macro_tokens.rs"]
+mod macro_tokens;
+#[path = "macro_trust.rs"]
+mod macro_trust;
 #[path = "metadata.rs"]
 mod metadata;
 #[path = "source_parse.rs"]
 mod source_parse;
+#[path = "source_semantics.rs"]
+mod source_semantics;
 #[path = "syntax.rs"]
 mod syntax;
 #[path = "visitor.rs"]
 mod visitor;
+#[path = "visitor_state.rs"]
+mod visitor_state;
 #[path = "visitor_types.rs"]
 mod visitor_types;
+
+pub(super) use macro_trust::source_shadows_root;
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use syn::ItemImpl;
-
 use implementer_names::{implementer_modules, local_implementer_names, qualification_implementers};
-use metadata::{is_known_target, last_path_segment};
 use source_parse::{ParsedSource, parse_source};
+use source_semantics::{
+    local_qualification_names, public_aliases, public_reexport_modules, qualification_names,
+    unrelated_type_names,
+};
 pub(super) use syntax::{item_attrs, item_is_test_only};
 use visitor::Call;
 
@@ -37,6 +52,7 @@ pub(super) struct SourceUnit {
     pub(super) path: PathBuf,
     pub(super) source: String,
     pub(super) test_only: bool,
+    pub(super) trusted_external_roots: BTreeSet<String>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -50,12 +66,10 @@ pub(super) fn find_production_callers(sources: &[SourceUnit]) -> Vec<Finding> {
     let mut findings = Vec::new();
     for unit in sources.iter().filter(|unit| !unit.test_only) {
         let Some(source) = parse_source(unit) else {
-            if unit.source.contains("qualify") || unit.source.contains(QUALIFICATION_PORT) {
-                findings.push(Finding {
-                    path: unit.path.clone(),
-                    reason: "production source with qualification syntax is not parseable",
-                });
-            }
+            findings.push(Finding {
+                path: unit.path.clone(),
+                reason: "production source is not parseable as a complete Rust file",
+            });
             continue;
         };
         parsed.push(source);
@@ -63,6 +77,7 @@ pub(super) fn find_production_callers(sources: &[SourceUnit]) -> Vec<Finding> {
 
     let public_aliases = public_aliases(&parsed);
     let qualification_names = qualification_names(&parsed);
+    let unrelated_type_names = unrelated_type_names(&parsed, &qualification_names);
     let reexport_modules = public_reexport_modules(&parsed, &public_aliases);
     let implementers = qualification_implementers(&parsed, &qualification_names);
     let implementer_modules = implementer_modules(&parsed, &implementers, &qualification_names);
@@ -75,8 +90,13 @@ pub(super) fn find_production_callers(sources: &[SourceUnit]) -> Vec<Finding> {
             &qualification_names,
             &implementer_modules,
         );
-        let (calls, macro_definitions) =
-            calls::collect(&source.file.items, &local_names, &concrete_names);
+        let (calls, macro_definitions) = calls::collect(
+            &source.file.items,
+            &local_names,
+            &concrete_names,
+            &unrelated_type_names,
+            &source.unit.trusted_external_roots,
+        );
         for call in calls {
             let relevant = match call {
                 Call::Path {
@@ -85,12 +105,7 @@ pub(super) fn find_production_callers(sources: &[SourceUnit]) -> Vec<Finding> {
                     qself,
                     qualification_context,
                 } => {
-                    source
-                        .unit
-                        .path
-                        .extension()
-                        .and_then(|extension| extension.to_str())
-                        == Some("inc")
+                    source_is_fragment(source)
                         || qualifier
                             .as_ref()
                             .is_some_and(|name| local_names.contains(name))
@@ -110,25 +125,34 @@ pub(super) fn find_production_callers(sources: &[SourceUnit]) -> Vec<Finding> {
                             .unit
                             .path
                             .extension()
-                            .and_then(|extension| extension.to_str())
-                            == Some("inc")
+                            .is_some_and(|value| value == "inc")
                 }
                 Call::Macro {
                     name,
-                    unqualified,
-                    qualification_context,
-                    selects_qualification,
+                    trusted_path,
+                    disposition,
                     scope,
                     position,
-                } => macro_definitions::is_relevant(
-                    &macro_definitions,
-                    &name,
-                    unqualified,
-                    qualification_context,
-                    selects_qualification,
-                    &scope,
-                    position,
-                ),
+                    payload,
+                } => {
+                    let disposition = resolved_macro_disposition(
+                        source,
+                        &parsed,
+                        &macro_definitions,
+                        &name,
+                        trusted_path.as_deref(),
+                        disposition,
+                        &scope,
+                    );
+                    macro_definitions::is_relevant(
+                        &macro_definitions,
+                        &name,
+                        disposition,
+                        &scope,
+                        position,
+                        payload.as_ref(),
+                    )
+                }
             };
             if relevant {
                 findings.push(Finding {
@@ -141,105 +165,68 @@ pub(super) fn find_production_callers(sources: &[SourceUnit]) -> Vec<Finding> {
     findings
 }
 
-fn public_aliases(sources: &[ParsedSource]) -> BTreeSet<String> {
-    let mut known = BTreeSet::from([QUALIFICATION_PORT.to_owned()]);
-    loop {
-        let previous = known.len();
-        for source in sources {
-            for binding in &source.bindings {
-                if binding.public
-                    && binding
-                        .local
-                        .as_ref()
-                        .is_some_and(|_| is_known_target(&binding.target, &known))
-                {
-                    known.insert(binding.local.clone().unwrap());
-                }
-            }
-        }
-        if known.len() == previous {
-            return known;
-        }
-    }
+fn source_is_fragment(source: &ParsedSource) -> bool {
+    source
+        .unit
+        .path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        == Some("inc")
 }
 
-fn qualification_names(sources: &[ParsedSource]) -> BTreeSet<String> {
-    let mut known = BTreeSet::from([QUALIFICATION_PORT.to_owned()]);
-    loop {
-        let previous = known.len();
-        for source in sources {
-            for binding in &source.bindings {
-                if binding
-                    .local
-                    .as_ref()
-                    .is_some_and(|_| is_known_target(&binding.target, &known))
-                {
-                    known.insert(binding.local.clone().unwrap());
-                }
-            }
-            for alias in &source.aliases {
-                if alias.bases.iter().any(|base| known.contains(base)) {
-                    known.insert(alias.name.clone());
-                }
-            }
-            for supertrait in &source.supertraits {
-                if supertrait.bases.iter().any(|base| known.contains(base)) {
-                    known.insert(supertrait.name.clone());
-                }
-            }
-        }
-        if known.len() == previous {
-            return known;
-        }
-    }
-}
-
-fn public_reexport_modules(
-    sources: &[ParsedSource],
-    aliases: &BTreeSet<String>,
-) -> BTreeSet<String> {
-    sources
-        .iter()
-        .filter(|source| {
-            source.bindings.iter().any(|binding| {
-                binding.public
-                    && binding.local.is_some()
-                    && is_known_target(&binding.target, aliases)
-            })
-        })
-        .filter_map(|source| source.unit.path.file_stem())
-        .filter_map(|stem| stem.to_str())
-        .map(str::to_owned)
-        .collect()
-}
-
-fn local_qualification_names(
+fn resolved_macro_disposition(
     source: &ParsedSource,
-    aliases: &BTreeSet<String>,
-    reexport_modules: &BTreeSet<String>,
-) -> BTreeSet<String> {
-    let mut names = aliases.clone();
-    names.insert(QUALIFICATION_PORT.to_owned());
-    for binding in &source.bindings {
-        if let Some(local) = &binding.local {
-            if is_known_target(&binding.target, aliases) {
-                names.insert(local.clone());
-            }
-        } else if binding.target.ends_with("::*")
-            && binding
-                .target
-                .split("::")
-                .any(|segment| reexport_modules.contains(segment))
-        {
-            names.extend(aliases.iter().cloned());
-        }
+    parsed: &[ParsedSource],
+    definitions: &macro_definitions::Index,
+    name: &str,
+    trusted_path: Option<&str>,
+    disposition: visitor::MacroDisposition,
+    scope: &[String],
+) -> visitor::MacroDisposition {
+    let unresolved = matches!(
+        disposition,
+        visitor::MacroDisposition::ResolveLocal | visitor::MacroDisposition::ResolveContext
+    );
+    let trusted_fallback = definitions.allows_trusted_fallback(name, scope)
+        && !macro_trust::has_macro_use(&source.file);
+    if unresolved
+        && (macro_trust::trusted_local_macro_import(&source.file, name)
+            || (trusted_fallback && macro_definitions::is_compiler_builtin_macro(name))
+            || (trusted_fallback
+                && macro_trust::trusted_bare_root(name)
+                    .is_some_and(|root| source.unit.trusted_external_roots.contains(root))))
+    {
+        return visitor::MacroDisposition::ResolveTrusted;
     }
-    names
+    if unresolved && macro_trust::has_macro_use(&source.file) {
+        return visitor::MacroDisposition::OpaqueExternal;
+    }
+    if trusted_path.is_some_and(|path| {
+        let mut segments = path.split("::");
+        let root = segments.next().unwrap_or_default();
+        let symbol = segments.next();
+        (!matches!(root, "core" | "std") && !source.unit.trusted_external_roots.contains(root))
+            || source_or_glob_shadows_root(source, parsed, root)
+            || symbol.is_some_and(|symbol| {
+                macro_trust::source_shadows_symbol(&source.file, symbol, root)
+            })
+    }) {
+        return visitor::MacroDisposition::OpaqueExternal;
+    }
+    disposition
 }
 
-pub(super) fn impl_is_qualification(item: &ItemImpl, names: &BTreeSet<String>) -> bool {
-    item.trait_
-        .as_ref()
-        .and_then(|(_, path, _)| last_path_segment(path))
-        .is_some_and(|name| names.contains(&name))
+fn source_or_glob_shadows_root(
+    source: &ParsedSource,
+    sources: &[ParsedSource],
+    root: &str,
+) -> bool {
+    if macro_trust::source_shadows_root(&source.file, root) {
+        return true;
+    }
+    let modules = macro_trust::local_glob_modules(&source.file);
+    !modules.is_empty()
+        && sources
+            .iter()
+            .any(|candidate| macro_trust::source_shadows_root(&candidate.file, root))
 }

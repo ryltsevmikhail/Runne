@@ -154,7 +154,7 @@ impl ToolAdmissionPort for ProcessAdmission {
                     .map(|_| ToolAdmissionDecision::Passed)
                     .or_else(|failure| self.reject(request, stage, failure))
             }
-            GateStage::Containment => match self.probe.qualify() {
+            GateStage::Containment => match self.probe.verify_containment() {
                 Ok(()) => Ok(ToolAdmissionDecision::Passed),
                 Err(_) => self.reject(request, stage, ProcessPreEffectFailure::Containment),
             },

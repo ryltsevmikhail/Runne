@@ -12,7 +12,15 @@ pub(super) struct ParsedSource {
 }
 
 pub(super) fn parse_source(unit: &SourceUnit) -> Option<ParsedSource> {
-    let file = syn::parse_file(&unit.source).ok()?;
+    let file = syn::parse_file(&unit.source)
+        .or_else(|_| syn::parse_file(&format!("fn __runne_fragment() {{ {} }}", unit.source)))
+        .or_else(|_| {
+            syn::parse_file(&format!(
+                "fn __runne_fragment() {{ match __runne_value {{ {} }} }}",
+                unit.source
+            ))
+        })
+        .ok()?;
     let mut bindings = Vec::new();
     let mut impls = Vec::new();
     let mut supertraits = Vec::new();

@@ -9,14 +9,14 @@ pub(super) fn collect_trait_bodies(item: &ItemTrait, calls: &mut Vec<Call>) {
         if trait_item_is_test_only(trait_item) {
             continue;
         }
-        let TraitItem::Fn(function) = trait_item else {
-            continue;
-        };
-        if function.default.is_none() {
-            continue;
-        }
         let mut visitor = CallVisitor::qualification_body();
-        visitor.visit_trait_item_fn(function);
+        match trait_item {
+            TraitItem::Fn(function) if function.default.is_some() => {
+                visitor.visit_trait_item_fn(function);
+            }
+            TraitItem::Fn(_) | TraitItem::Macro(_) => continue,
+            _ => visitor.visit_trait_item(trait_item),
+        }
         calls.extend(visitor.calls);
     }
 }
@@ -26,11 +26,12 @@ pub(super) fn collect_impl_bodies(item: &ItemImpl, calls: &mut Vec<Call>) {
         if impl_item_is_test_only(impl_item) {
             continue;
         }
-        let ImplItem::Fn(function) = impl_item else {
-            continue;
-        };
         let mut visitor = CallVisitor::qualification_body();
-        visitor.visit_impl_item_fn(function);
+        match impl_item {
+            ImplItem::Fn(function) => visitor.visit_impl_item_fn(function),
+            ImplItem::Macro(_) => continue,
+            _ => visitor.visit_impl_item(impl_item),
+        }
         calls.extend(visitor.calls);
     }
 }

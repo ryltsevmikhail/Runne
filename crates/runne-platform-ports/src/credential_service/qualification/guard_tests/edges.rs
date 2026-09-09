@@ -16,7 +16,7 @@ struct IncludeVisitor {
 
 impl<'ast> Visit<'ast> for IncludeVisitor {
     fn visit_macro(&mut self, mac: &'ast Macro) {
-        if mac.path.is_ident("include") {
+        if is_compiler_include(&mac.path) {
             self.includes.push(
                 syn::parse2::<LitStr>(mac.tokens.clone())
                     .map(|literal| PathBuf::from(literal.value()))
@@ -37,6 +37,13 @@ impl<'ast> Visit<'ast> for IncludeVisitor {
         }
         visit::visit_macro(self, mac);
     }
+}
+
+pub(super) fn is_compiler_include(path: &syn::Path) -> bool {
+    path.is_ident("include")
+        || (path.segments.len() == 2
+            && path.segments[0].ident == "std"
+            && path.segments[1].ident == "include")
 }
 
 pub(super) fn collect_includes(

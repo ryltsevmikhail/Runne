@@ -38,7 +38,7 @@ pub(in crate::fixture) enum Probe {
 struct QualifiedProbe;
 
 impl SandboxQualificationProbe for QualifiedProbe {
-    fn qualify(&self) -> Result<(), ProcessStubDisposition> {
+    fn verify_containment(&self) -> Result<(), ProcessStubDisposition> {
         Ok(())
     }
 }

@@ -1,6 +1,8 @@
 #[path = "custom_module.rs"]
 mod custom_module;
 
+include!("direct_qualification.inc");
+
 macro_rules! load_qualification_fragment {
     () => {
         include!("qualification.inc");

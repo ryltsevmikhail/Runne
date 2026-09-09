@@ -112,7 +112,7 @@ pub use settlement::{
 /// Object-safe sandbox qualification gate for process admission.
 pub trait SandboxQualificationProbe: Send + Sync {
     /// Qualifies the sandbox or returns its closed failure disposition without an effect.
-    fn qualify(&self) -> Result<(), ProcessStubDisposition>;
+    fn verify_containment(&self) -> Result<(), ProcessStubDisposition>;
 }
 
 struct ProductionSandboxProbe {
@@ -120,7 +120,7 @@ struct ProductionSandboxProbe {
 }
 
 impl SandboxQualificationProbe for ProductionSandboxProbe {
-    fn qualify(&self) -> Result<(), ProcessStubDisposition> {
+    fn verify_containment(&self) -> Result<(), ProcessStubDisposition> {
         Err(ProcessStubDisposition::NotQualified)
     }
 }

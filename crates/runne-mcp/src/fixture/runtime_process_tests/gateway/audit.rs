@@ -12,7 +12,7 @@ struct BlockingContainmentProbe {
 }
 
 impl SandboxQualificationProbe for BlockingContainmentProbe {
-    fn qualify(&self) -> Result<(), ProcessStubDisposition> {
+    fn verify_containment(&self) -> Result<(), ProcessStubDisposition> {
         self.entered.send(()).expect("test receiver remains open");
         self.release
             .lock()

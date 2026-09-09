@@ -114,7 +114,7 @@ fn caller_guard_fails_closed_on_an_opaque_type_macro_carrier() {
             false,
         ),
     ];
-    assert_eq!(find_production_callers(&sources).len(), 1);
+    assert_eq!(find_production_callers(&sources).len(), 2);
 }
 
 #[test]

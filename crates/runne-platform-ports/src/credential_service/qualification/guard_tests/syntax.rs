@@ -2,6 +2,11 @@ use syn::parse::Parser;
 use syn::punctuated::Punctuated;
 use syn::{Arm, Attribute, Expr, ImplItem, Item, Meta, Stmt, Token, TraitItem};
 
+pub(super) fn normalized_ident(ident: &proc_macro2::Ident) -> String {
+    let ident = ident.to_string();
+    ident.strip_prefix("r#").unwrap_or(&ident).to_owned()
+}
+
 pub fn item_attrs(item: &Item) -> &[Attribute] {
     match item {
         Item::Const(item) => &item.attrs,
@@ -89,6 +94,10 @@ enum Truth {
     True,
     False,
     Unknown,
+}
+
+pub(super) fn cfg_meta_is_false(meta: &Meta) -> bool {
+    cfg_meta_truth(meta) == Truth::False
 }
 
 fn cfg_truth(tokens: &proc_macro2::TokenStream) -> Truth {
