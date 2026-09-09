@@ -3,16 +3,16 @@ use crate::application::provider_credential_enrollment::{
     DaemonProtectedCredentialEnrollmentSession, InitialCredentialExchange,
 };
 use crate::protected_activation::ProtectedActivationChannel;
-use runne_api::{
-    LaunchAuthorityError, ProtectedActivationKeys, ProtectedCredentialEnrollmentOwnedLaunchV3,
-};
-#[cfg(target_os = "macos")]
+use runne_api::LaunchAuthorityError;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use runne_api::{ProtectedActivationKeys, ProtectedCredentialEnrollmentOwnedLaunchV3};
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use runne_api::{
     QualificationFaultRelayBindingV1, QualificationFaultRelayDirectionV1,
     QualificationRunContextRelayBindingV1, QualificationRunContextRelayDirectionV1,
 };
 use runne_application::local_session::LocalSessionService;
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use runne_native_qualification::{
     PendingQualificationAdmission, QualificationAdmissionRelayCodecV1,
     QualificationAdmissionVerifier, QualificationFaultRelayCodecV1,
@@ -23,13 +23,13 @@ use zeroize::Zeroizing;
 
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 mod connected_tests;
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 mod qualification_admission_tests;
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub(crate) use qualification_admission_tests::support::writer_admission_bundle_for_at;
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub(crate) mod session_test_support;
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 mod tests;
 
 /// Selects an authenticated initial transcript. No recovery-to-intent fallback.
@@ -100,7 +100,7 @@ fn verify_and_retain_qualification_admission(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub(crate) fn verify_and_retain_qualification_admission_for_test(
     installed: &runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts,
     owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
@@ -154,11 +154,11 @@ pub(super) fn read_admitted_initial_request(
             _enrollment
                 .qualification_clock
                 .take()
-                .unwrap_or_else(super::unix_epoch_qualification_clock)
+                .unwrap_or_else(super::clocks::unix_epoch_qualification_clock)
         }
         #[cfg(not(test))]
         {
-            super::unix_epoch_qualification_clock()
+            super::clocks::unix_epoch_qualification_clock()
         }
     };
     match read_initial_qualification(
@@ -189,7 +189,7 @@ pub(super) fn read_admitted_initial_request(
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn read_initial_qualification(
     channel: &mut ProtectedActivationChannel,
     keys: &ProtectedActivationKeys,

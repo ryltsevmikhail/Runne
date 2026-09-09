@@ -9,13 +9,14 @@ use runne_provider::{
     CredentialWriterBrokerHandoffFrame, CredentialWriterCommandScopeV1,
     PendingCredentialIssueTicketV1, PendingCredentialSecretOpening,
 };
-use runne_secure_store::{
-    NativeProviderCredentialEffectRoute, NativeProviderCredentialWriters,
-};
+use runne_secure_store::NativeProviderCredentialEffectRoute;
+#[cfg(target_os = "macos")]
+use runne_secure_store::NativeProviderCredentialWriters;
 #[cfg(test)]
 use runne_secure_store::BrokeredProviderCredentialWriter;
 use super::CliError;
 #[path = "qualified_deadline.rs"]
+#[cfg(any(test, target_os = "macos"))]
 mod qualified_deadline;
 #[path = "claim/flow.rs"]
 mod flow;

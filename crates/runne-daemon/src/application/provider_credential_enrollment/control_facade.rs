@@ -27,10 +27,18 @@ mod protected_session;
     feature = "desktop-protected"
 ))]
 pub(crate) use protected_session::PostcommitAdmissionPermit;
+#[cfg(any(
+    test,
+    all(
+        target_os = "macos",
+        target_arch = "aarch64",
+        feature = "desktop-protected"
+    )
+))]
+pub(crate) use protected_session::ProtectedEnrollmentSessionFacts;
 #[cfg(any(test, feature = "desktop-protected"))]
 pub(crate) use protected_session::{
     DaemonProtectedCredentialEnrollmentSession, InitialCredentialExchange,
-    ProtectedEnrollmentSessionFacts,
 };
 
 /// Daemon-owned online-enrollment authorities paired to the canonical store.

@@ -37,6 +37,23 @@ fn pair_spawn_inherits_bootstrap_on_stdin_and_separate_pipe_on_fd3() {
 
 #[test]
 fn non_pair_spawn_does_not_create_or_inherit_fd3() {
+    // Descriptor 3 is process-global; another parallel test may close its
+    // descriptor between our canary observation and the spawn assertion.
+    const CHILD: &str = "RUNNE_NON_PAIR_FD3_TEST_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "provider_credential_broker::tests_index::tests_macos_secret_slot::non_pair_spawn_does_not_create_or_inherit_fd3",
+                "--test-threads=1",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+        return;
+    }
     let _parent_fd3_canary = ensure_parent_fd3_open();
     assert!(std::fs::metadata("/dev/fd/3").is_ok());
     let fixture = compile_descriptor_fixture();

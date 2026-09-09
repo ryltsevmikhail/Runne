@@ -10,10 +10,10 @@ mod renewal;
 mod round;
 #[cfg(unix)]
 mod runtime;
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 use clocks::QualificationClock;
 use clocks::TicketClock;
-pub(crate) use clocks::{macos_continuous_ticket_clock, unix_epoch_qualification_clock};
+pub(crate) use clocks::macos_continuous_ticket_clock;
 #[cfg(unix)]
 use runtime::V3EnrollmentRuntime;
 #[cfg(all(test, unix))]

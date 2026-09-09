@@ -68,12 +68,12 @@ pub(crate) struct V3EnrollmentDispatch {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     pub(super) installed_facts:
         Option<runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts>,
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
     pub(super) qualification_verifier:
         Option<runne_native_qualification::QualificationAdmissionVerifier>,
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
     pub(super) qualification_clock: Option<super::QualificationClock>,
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
     pub(super) qualification_verified: Option<Arc<std::sync::atomic::AtomicUsize>>,
 }
 
@@ -96,16 +96,16 @@ impl V3EnrollmentDispatch {
             rendezvous,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             installed_facts,
-            #[cfg(test)]
+            #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
             qualification_verifier: None,
-            #[cfg(test)]
+            #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
             qualification_clock: None,
-            #[cfg(test)]
+            #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
             qualification_verified: None,
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
     pub(crate) fn with_test_qualification(
         mut self,
         verifier: runne_native_qualification::QualificationAdmissionVerifier,
@@ -257,6 +257,9 @@ fn acquire_after_preflight<P, A, E>(
     Ok((prepared, acquire()))
 }
 
+#[cfg(test)]
+#[path = "runtime_cfg_scope_tests.rs"]
+mod cfg_scope_tests;
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
