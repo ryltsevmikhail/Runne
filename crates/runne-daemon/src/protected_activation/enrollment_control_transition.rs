@@ -169,6 +169,7 @@ pub(crate) struct EnrollmentTransitionOutcome {
     keys: ProtectedActivationKeys,
     owned_launch: ProtectedCredentialEnrollmentOwnedLaunchV3,
     rendezvous: DaemonEnrollmentRendezvous,
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     installed_facts: Option<runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts>,
 }
 
@@ -177,7 +178,7 @@ impl EnrollmentTransitionOutcome {
         keys: ProtectedActivationKeys,
         owned_launch: ProtectedCredentialEnrollmentOwnedLaunchV3,
         rendezvous: DaemonEnrollmentRendezvous,
-        installed_facts: Option<
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))] installed_facts: Option<
             runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts,
         >,
     ) -> Self {
@@ -185,10 +186,12 @@ impl EnrollmentTransitionOutcome {
             keys,
             owned_launch,
             rendezvous,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             installed_facts,
         }
     }
 
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     pub(crate) fn into_parts(
         self,
     ) -> (

@@ -87,7 +87,11 @@ pub(crate) use installation_anchor::{VerifiedNativeEnrollmentInstallation, load_
 #[path = "protected_activation/installation_anchor_tests.rs"]
 mod installation_anchor_tests;
 
-#[cfg(all(unix, feature = "desktop-protected"))]
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
 mod enrollment_control_exchange;
 #[cfg(all(
     test,

@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -25,7 +26,9 @@ else:
 SCHEMA = "desktop-native-platform-foundation.v1"
 EXPECTED_REPOSITORY = "https://git@git.sourcecraft.dev/ryltsevmg/runne.git"
 EXPECTED_WORKFLOW = "desktop-qualification"
-EXPECTED_SOURCE_REF = "refs/tags/v1.0.0"
+PROTECTED_SOURCE_REF = re.compile(
+    r"refs/tags/v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z"
+)
 
 
 def _sha(value: object) -> bool:
@@ -139,8 +142,8 @@ def main(argv: list[str] | None = None) -> int:
         errors.append("repository is not the protected SourceCraft repository")
     if args.workflow != EXPECTED_WORKFLOW:
         errors.append("workflow is not the protected desktop qualification workflow")
-    if args.source_ref != EXPECTED_SOURCE_REF:
-        errors.append("source-ref is not the protected v1.0.0 tag")
+    if PROTECTED_SOURCE_REF.fullmatch(args.source_ref) is None:
+        errors.append("source-ref is not a protected stable SemVer tag")
     if not args.repository or not args.workflow or not args.source_ref or not args.source_digest or not args.job_id or not args.workflow_run_id:
         errors.append("SourceCraft repository, workflow, source, job, and run bindings are required")
     if not args.bundle.is_file():

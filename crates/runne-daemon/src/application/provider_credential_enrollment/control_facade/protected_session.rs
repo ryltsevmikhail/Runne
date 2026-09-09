@@ -14,9 +14,17 @@ use runne_api::{
     VerifiedProtectedCredentialEnrollmentAdmission, VerifiedProtectedCredentialEnrollmentRequest,
 };
 
-#[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
 mod claim_measurements;
-#[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
 mod claim_runtime;
 mod claim_selection;
 mod discovery;
@@ -24,11 +32,24 @@ mod facts;
 mod initial_request;
 mod intent_exchange;
 pub(crate) use initial_request::InitialCredentialExchange;
-#[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
 mod qualification;
-#[cfg(all(test, target_os = "macos", feature = "desktop-protected"))]
+#[cfg(all(
+    test,
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
 use claim_runtime::{QualifiedWriterService, claim_fenced_writer_on};
-#[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
 pub(crate) use qualification::PostcommitAdmissionPermit;
 mod recovery;
 pub(crate) use facts::ProtectedEnrollmentSessionFacts;
@@ -53,13 +74,13 @@ pub(crate) struct DaemonProtectedCredentialEnrollmentSession {
     pending: Option<VerifiedAdmission>,
     begun: Option<(BeginProviderCredentialEnrollment, ProviderCredentialOperationSnapshotV2)>,
     handoff: Option<crate::application::provider_credential_enrollment::broker::pending::PendingBrokerEndpointHandoff>,
-    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+    #[cfg(all(target_os = "macos", target_arch = "aarch64", feature = "desktop-protected"))]
     installed_facts: Option<runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts>,
-    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+    #[cfg(all(target_os = "macos", target_arch = "aarch64", feature = "desktop-protected"))]
     qualification: Option<crate::protected_activation::control_v3::initial_exchange::VerifiedQualificationAdmission>,
-    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+    #[cfg(all(target_os = "macos", target_arch = "aarch64", feature = "desktop-protected"))]
     qualification_snapshot: Option<ProtectedEnrollmentSessionFacts>,
-    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+    #[cfg(all(target_os = "macos", target_arch = "aarch64", feature = "desktop-protected"))]
     qualification_fenced: Option<qualification::FencedQualificationAdmission>,
     desktop_sequence: u64,
     daemon_sequence: u64,
@@ -71,7 +92,12 @@ impl DaemonProtectedCredentialEnrollmentSession {
         keys: &ProtectedActivationKeys,
         facts: ProtectedEnrollmentSessionFacts,
         rendezvous: DaemonOwnedUnixBrokerRendezvous,
-        #[cfg(all(target_os = "macos", feature = "desktop-protected"))] installed_facts: Option<
+        #[cfg(all(
+            target_os = "macos",
+            target_arch = "aarch64",
+            feature = "desktop-protected"
+        ))]
+        installed_facts: Option<
             runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts,
         >,
     ) -> Result<Self, ProviderCredentialEnrollmentHostError> {
@@ -97,13 +123,29 @@ impl DaemonProtectedCredentialEnrollmentSession {
             pending: None,
             begun: None,
             handoff: None,
-            #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+            #[cfg(all(
+                target_os = "macos",
+                target_arch = "aarch64",
+                feature = "desktop-protected"
+            ))]
             installed_facts,
-            #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+            #[cfg(all(
+                target_os = "macos",
+                target_arch = "aarch64",
+                feature = "desktop-protected"
+            ))]
             qualification: None,
-            #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+            #[cfg(all(
+                target_os = "macos",
+                target_arch = "aarch64",
+                feature = "desktop-protected"
+            ))]
             qualification_snapshot: None,
-            #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+            #[cfg(all(
+                target_os = "macos",
+                target_arch = "aarch64",
+                feature = "desktop-protected"
+            ))]
             qualification_fenced: None,
             desktop_sequence: 0,
             daemon_sequence: 0,

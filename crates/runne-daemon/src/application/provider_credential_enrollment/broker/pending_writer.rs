@@ -118,13 +118,13 @@ impl AwaitingVerifiedWriter {
     }
 }
 
-#[cfg(target_os = "macos")]
 impl VerifiedWriterAwaitingDaemonKillCapability {
     pub(crate) const fn transfer_authority(&self) -> &ProviderCredentialBrokerTransferAuthority {
         &self.transfer_authority
     }
 
     /// Captures the exact kernel peer authority before Desktop may accept ACK.
+    #[cfg(target_os = "macos")]
     pub(crate) fn capture_macos_kill_capability(
         self,
     ) -> Result<VerifiedMacOsWriterKillReady, ProviderCredentialEnrollmentHostError> {

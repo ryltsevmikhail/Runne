@@ -25,9 +25,11 @@ use runne_platform_desktop::provider_credential_broker::MacOsPeerKillCapability;
 use super::{
     ProtectedActivationChannel, enrollment_control_transition::DaemonEnrollmentRendezvous,
 };
+#[cfg(target_os = "macos")]
+use crate::application::provider_credential_enrollment::broker::VerifiedMacOsWriterWithDaemonKillCapability;
 use crate::application::provider_credential_enrollment::broker::{
     AwaitingVerifiedWriter, PendingBrokerEndpointHandoff,
-    VerifiedMacOsWriterWithDaemonKillCapability, VerifiedWriterAwaitingDaemonKillCapability,
+    VerifiedWriterAwaitingDaemonKillCapability,
 };
 
 pub(crate) type HandoffTicketClock =

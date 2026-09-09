@@ -36,7 +36,7 @@ class ExternalQualificationContractTests(unittest.TestCase):
 
     def test_structural_gate_runs_external_contract_and_vector_tests(self) -> None:
         workflow = (ROOT / ".sourcecraft/ci.yaml").read_text()
-        structural = workflow[workflow.index("- name: qualification-structural"):workflow.index("- name: qualification-native-linux")]
+        structural = workflow[workflow.index("- name: qualification-structural"):workflow.index("- name: qualification-native-macos")]
         self.assertIn("test_native_credential_xpc_external_contract", structural)
         self.assertIn("tools/sourcecraft-native-qualification/tests/test_conformance.py", structural)
         self.assertIn("tools/sourcecraft-native-qualification/tests/test_controller.py", structural)
@@ -46,7 +46,7 @@ class ExternalQualificationContractTests(unittest.TestCase):
         policy = (PACKAGE / "policy.py").read_text()
         manifest = (PACKAGE / "installation_manifest.py").read_text()
         start = workflow.index("- name: qualification-native-macos")
-        section = workflow[start:workflow.index("- name: qualification-native-macos-x86_64", start)]
+        section = workflow[start:]
         signer = "/opt/gocode/sourcecraft/bin/sourcecraft-native-qualification-sign-evidence"
         request = "/opt/gocode/sourcecraft/bin/sourcecraft-native-qualification-request-signature"
         for command in ("test -x /opt/gocode/sourcecraft/bin/sourcecraft-native-qualification-controller", "test -x /opt/gocode/sourcecraft/bin/sourcecraft-native-qualification-verifier", f"test -x {request}", "test -S /private/var/run/gocode/sourcecraft-native-qualification-sign.sock", "test -r /private/etc/gocode/sourcecraft-native-qualification/policy.json", "/opt/gocode/sourcecraft/bin/sourcecraft-native-qualification-controller", request, "/opt/gocode/sourcecraft/bin/sourcecraft-native-qualification-verifier"):

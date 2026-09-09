@@ -1,40 +1,40 @@
 """Descriptor-validated, private snapshots of Desktop package artifacts."""
 from __future__ import annotations
-
 import errno
 import os
 import stat
 import tempfile
 from pathlib import Path
-
 try:
     from .snapshot_lease import SnapshotLeaseState, SnapshotUseLease
 except ImportError:
     from snapshot_lease import SnapshotLeaseState, SnapshotUseLease
-
-
 class ArtifactAdmissionError(Exception):
     """A fail-closed package admission error with a stable blocker code."""
-
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
-
-
 class ArtifactSnapshot:
     """A read-only, private staged artifact that is safe to hash or execute."""
-
-    def __init__(self, directory: tempfile.TemporaryDirectory[str], path: Path, root_fd: int):
+    def __init__(self, directory: tempfile.TemporaryDirectory[str], artifact_fd: int, root_fd: int):
         self._directory = directory
         self._root = Path(directory.name)
         self._root_fd = root_fd
+        self._artifact_fd = artifact_fd
         self._lease_state = SnapshotLeaseState()
         self._closed = False
-        self.path = Path(f"/dev/fd/{root_fd}/{path.name}")
-
+        self._path = Path(f"/dev/fd/{artifact_fd}")
+    @property
+    def path(self) -> Path:
+        try:
+            os.lseek(self._artifact_fd, 0, os.SEEK_SET)
+        except OSError:
+            pass
+        return self._path
+    def is_pinned_fd(self, candidate: int) -> bool:
+        return not self._closed and candidate == self._artifact_fd
     def acquire_use(self) -> SnapshotUseLease:
         return self._lease_state.acquire(self)
-
     def close(self) -> None:
         if not self._lease_state.begin_close():
             return
@@ -46,26 +46,20 @@ class ArtifactSnapshot:
         finally:
             try:
                 self._directory._finalizer.detach()
+                os.close(self._artifact_fd)
                 os.close(self._root_fd)
             finally:
                 self._lease_state.finish_close()
-
     @property
     def staging_root(self) -> Path:
         """Raw staging path for cleanup diagnostics; never use it to consume bytes."""
         return self._root
-
-
 def _unsafe() -> ArtifactAdmissionError:
     return ArtifactAdmissionError("PACKAGE_ARTIFACT_PATH_UNSAFE")
-
-
 def _require_primitives() -> None:
     required = ("O_DIRECTORY", "O_NOFOLLOW")
     if os.name != "posix" or not Path("/dev/fd").is_dir() or os.open not in os.supports_dir_fd or any(not hasattr(os, flag) for flag in required):
         raise _unsafe()
-
-
 def _components(relative_path: str | None) -> tuple[str, ...]:
     if not isinstance(relative_path, str):
         raise ArtifactAdmissionError("PACKAGE_ARTIFACT_PATH_UNRESOLVED")
@@ -137,8 +131,8 @@ def _open_stage_root(parent_fd: int, name: str, expected: tuple[int, int]) -> in
         raise _unsafe() from error
 
 
-def _copy_file(source_fd: int, destination: Path, mode: int) -> None:
-    destination_fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+def _copy_file(source_fd: int, parent_fd: int, name: str, mode: int) -> None:
+    destination_fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent_fd)
     try:
         while chunk := os.read(source_fd, 1024 * 1024):
             while chunk:
@@ -148,10 +142,10 @@ def _copy_file(source_fd: int, destination: Path, mode: int) -> None:
                 chunk = chunk[written:]
     finally:
         os.close(destination_fd)
-    destination.chmod(0o500 if mode & stat.S_IXUSR else 0o400)
+    os.chmod(name, 0o500 if mode & stat.S_IXUSR else 0o400, dir_fd=parent_fd, follow_symlinks=False)
 
 
-def _copy_directory(source_fd: int, destination: Path) -> None:
+def _copy_directory(source_fd: int, destination_fd: int) -> None:
     try:
         names = os.listdir(source_fd)
     except OSError as error:
@@ -163,9 +157,8 @@ def _copy_directory(source_fd: int, destination: Path) -> None:
             raise _unsafe() from error
         if stat.S_ISLNK(entry.st_mode):
             raise _unsafe()
-        target = destination / name
         if stat.S_ISDIR(entry.st_mode):
-            target.mkdir(mode=0o700)
+            os.mkdir(name, mode=0o700, dir_fd=destination_fd)
             try:
                 child_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=source_fd)
             except OSError as error:
@@ -173,10 +166,14 @@ def _copy_directory(source_fd: int, destination: Path) -> None:
             try:
                 if not stat.S_ISDIR(os.fstat(child_fd).st_mode):
                     raise _unsafe()
-                _copy_directory(child_fd, target)
+                child_destination = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=destination_fd)
+                try:
+                    _copy_directory(child_fd, child_destination)
+                    os.fchmod(child_destination, 0o500)
+                finally:
+                    os.close(child_destination)
             finally:
                 os.close(child_fd)
-            target.chmod(0o500)
         elif stat.S_ISREG(entry.st_mode):
             try:
                 child_fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=source_fd)
@@ -185,7 +182,7 @@ def _copy_directory(source_fd: int, destination: Path) -> None:
             try:
                 if not stat.S_ISREG(os.fstat(child_fd).st_mode):
                     raise _unsafe()
-                _copy_file(child_fd, target, entry.st_mode)
+                _copy_file(child_fd, destination_fd, name, entry.st_mode)
             finally:
                 os.close(child_fd)
         else:
@@ -221,6 +218,7 @@ def _stage_from_artifact_fd(artifact_fd: int, bundle: str) -> ArtifactSnapshot:
     stage: tempfile.TemporaryDirectory[str] | None = None
     parent_fd: int | None = None
     stage_root_fd: int | None = None
+    staged_artifact_fd: int | None = None
     try:
         stage = tempfile.TemporaryDirectory(prefix="runne-package-")
         stage_path = Path(stage.name)
@@ -231,15 +229,18 @@ def _stage_from_artifact_fd(artifact_fd: int, bundle: str) -> ArtifactSnapshot:
         stage_root_fd = _open_stage_root(parent_fd, stage_path.name, (stage_stat.st_dev, stage_stat.st_ino))
         os.close(parent_fd)
         parent_fd = None
-        destination = Path(f"/dev/fd/{stage_root_fd}") / ("artifact.app" if bundle == "app" else "artifact")
+        artifact_name = "artifact.app" if bundle == "app" else "artifact"
         if bundle == "app":
-            destination.mkdir(mode=0o700)
-            _copy_directory(artifact_fd, destination)
-            destination.chmod(0o500)
+            os.mkdir(artifact_name, mode=0o700, dir_fd=stage_root_fd)
+            staged_artifact_fd = os.open(artifact_name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=stage_root_fd)
+            _copy_directory(artifact_fd, staged_artifact_fd)
+            os.fchmod(staged_artifact_fd, 0o500)
         else:
-            _copy_file(artifact_fd, destination, os.fstat(artifact_fd).st_mode)
+            _copy_file(artifact_fd, stage_root_fd, artifact_name, os.fstat(artifact_fd).st_mode)
+            staged_artifact_fd = os.open(artifact_name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=stage_root_fd)
         os.fchmod(stage_root_fd, 0o500)
-        snapshot = ArtifactSnapshot(stage, destination, stage_root_fd)
+        snapshot = ArtifactSnapshot(stage, staged_artifact_fd, stage_root_fd)
+        staged_artifact_fd = None
         stage_root_fd = None
         return snapshot
     except ArtifactAdmissionError:
@@ -258,6 +259,8 @@ def _stage_from_artifact_fd(artifact_fd: int, bundle: str) -> ArtifactSnapshot:
         code = "PACKAGE_ARTIFACT_MISSING" if error.errno == errno.ENOENT else "PACKAGE_ARTIFACT_PATH_UNSAFE"
         raise ArtifactAdmissionError(code) from error
     finally:
+        if staged_artifact_fd is not None:
+            os.close(staged_artifact_fd)
         if parent_fd is not None:
             os.close(parent_fd)
         if stage_root_fd is not None:

@@ -1,8 +1,10 @@
 use std::os::unix::net::UnixStream;
 
+#[cfg(target_os = "macos")]
+use runne_platform_desktop::provider_credential_broker::capture_macos_daemon_peer_kill_capability;
 use runne_platform_desktop::provider_credential_broker::{
-    capture_macos_daemon_peer_kill_capability, receive_daemon_control_transport_half,
-    receive_daemon_owned_writer_measurements, send_daemon_owned_writer_endpoint,
+    receive_daemon_control_transport_half, receive_daemon_owned_writer_measurements,
+    send_daemon_owned_writer_endpoint,
 };
 
 use super::*;

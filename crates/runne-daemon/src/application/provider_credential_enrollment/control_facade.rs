@@ -21,7 +21,11 @@ use super::{
 
 #[cfg(any(test, feature = "desktop-protected"))]
 mod protected_session;
-#[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
 pub(crate) use protected_session::PostcommitAdmissionPermit;
 #[cfg(any(test, feature = "desktop-protected"))]
 pub(crate) use protected_session::{
@@ -117,7 +121,11 @@ impl DaemonProviderCredentialEnrollmentControl {
         .admit(authority, proof, context, command, now_high_water)
     }
 
-    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+    #[cfg(all(
+        target_os = "macos",
+        target_arch = "aarch64",
+        feature = "desktop-protected"
+    ))]
     pub(crate) fn start_protected_session(
         self: &Arc<Self>,
         keys: &runne_api::ProtectedActivationKeys,

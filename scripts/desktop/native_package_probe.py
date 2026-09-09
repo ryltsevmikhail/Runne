@@ -25,7 +25,7 @@ else:
 
 ROOT = Path(__file__).resolve().parents[2]
 PAIR_MATRIX = {
-    "macos-13-arm64": {"os": "darwin", "arch": "arm64", "version": (13,), "bundle": "app", "required_bundles": ("app", "dmg")},
+    "macos-14-arm64": {"os": "darwin", "arch": "arm64", "version": (14,), "bundle": "app", "required_bundles": ("app", "dmg")},
     "macos-13-x86_64": {"os": "darwin", "arch": "x86_64", "version": (13,), "bundle": "app", "required_bundles": ("app", "dmg")},
     "windows-10-22h2-x86_64": {"os": "windows", "arch": "amd64", "build": "19045", "bundle": "nsis", "required_bundles": ("nsis",)},
     "ubuntu-22.04-x86_64": {"os": "linux", "arch": "x86_64", "version": "22.04", "bundle": "deb", "required_bundles": ("appimage", "deb")},
@@ -56,7 +56,12 @@ def _lsb_release() -> str | None:
 
 
 def _version_matches(version: str, expected: object) -> bool:
-    return str(version).startswith(f"{expected[0]}.") if isinstance(expected, tuple) else str(version).startswith(expected) if isinstance(expected, str) else True
+    if isinstance(expected, tuple):
+        try:
+            return int(str(version).split(".", 1)[0]) >= expected[0]
+        except (TypeError, ValueError):
+            return False
+    return str(version).startswith(expected) if isinstance(expected, str) else True
 
 
 def _windows_build() -> str | None:
@@ -85,7 +90,7 @@ def recompute_package_path(pair: str, bundle: str | None = None) -> str | None:
     product, version = conf.get("productName") or conf.get("package", {}).get("productName"), conf.get("version")
     bundle = bundle or PAIR_MATRIX.get(pair, {}).get("bundle")
     if not isinstance(product, str) or not isinstance(version, str): return None
-    architecture = "aarch64" if pair == "macos-13-arm64" else "x64" if pair == "macos-13-x86_64" else "amd64"
+    architecture = "aarch64" if pair == "macos-14-arm64" else "x64" if pair == "macos-13-x86_64" else "amd64"
     return f"target/release/bundle/macos/{product}.app" if bundle == "app" else f"target/release/bundle/dmg/{product}_{version}_{architecture}.dmg" if bundle == "dmg" else f"target/release/bundle/nsis/{product}_{version}_x64-setup.exe" if bundle == "nsis" else f"target/release/bundle/appimage/{product}_{version}_amd64.AppImage" if bundle == "appimage" else f"target/release/bundle/deb/{product}_{version}_amd64.deb" if bundle == "deb" else None
 
 
@@ -157,11 +162,14 @@ def native_probe(pair: str, operation: str, package: str, snapshot: object | Non
     elif os.name == "posix":
         prefix = "/dev/fd/"
         parts = package[len(prefix):].split("/") if package.startswith(prefix) else []
-        if len(parts) != 2 or not parts[0].isdecimal() or parts[1] in {"", ".", ".."}:
+        if len(parts) != 1 or not parts[0].isdecimal():
             return {"status": "blocked", "detail": "PACKAGE_ARTIFACT_PATH_UNSAFE"}
         pinned_fd = int(parts[0])
         try:
-            if not stat.S_ISDIR(os.fstat(pinned_fd).st_mode):
+            mode = os.fstat(pinned_fd).st_mode
+            if not getattr(snapshot, "is_pinned_fd", lambda _fd: False)(pinned_fd):
+                return {"status": "blocked", "detail": "PACKAGE_ARTIFACT_PATH_UNSAFE"}
+            if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
                 return {"status": "blocked", "detail": "PACKAGE_ARTIFACT_PATH_UNSAFE"}
         except OSError:
             return {"status": "blocked", "detail": "PACKAGE_ARTIFACT_PATH_UNSAFE"}

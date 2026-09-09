@@ -6,9 +6,13 @@ use runne_provider::{
     IssuedCredentialTicketAttempt, ProviderCredentialEnrollmentStore, RawCredentialTicket,
 };
 
-use super::{
-    CredentialBrokerChannel, ProviderCredentialBroker, qualified_exchange::QualifiedIssuedTicket,
-};
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
+use super::qualified_exchange::QualifiedIssuedTicket;
+use super::{CredentialBrokerChannel, ProviderCredentialBroker};
 use crate::application::provider_credential_enrollment::effect_authority::map_store;
 
 /// Recovery requires the move-only store witness, never a metadata snapshot.
@@ -205,6 +209,11 @@ impl ProviderCredentialBroker {
         Ok(receipt)
     }
 
+    #[cfg(all(
+        target_os = "macos",
+        target_arch = "aarch64",
+        feature = "desktop-protected"
+    ))]
     pub(super) fn issue_frame_for_qualified(
         &self,
         qualified: QualifiedIssuedTicket,

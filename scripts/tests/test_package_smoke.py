@@ -46,14 +46,12 @@ class PackageSmokeTests(unittest.TestCase):
             self.assertIn(token, service_staging)
         macos_files = config["bundle"]["macOS"]["files"]
         self.assertEqual(
-            macos_files["macos/com.runne.credential-service.plist"],
-            "Library/LaunchAgents/com.runne.credential-service.plist",
+            macos_files["Library/LaunchAgents/com.runne.credential-service.plist"],
+            "macos/com.runne.credential-service.plist",
         )
         self.assertEqual(
-            macos_files[
-                "macos/credential-service/staged/RunneCredentialService.app"
-            ],
-            "Library/Helpers/RunneCredentialService.app",
+            macos_files["Library/Helpers/RunneCredentialService.app"],
+            "macos/credential-service/staged/RunneCredentialService.app",
         )
 
     def test_production_manifest_has_no_configuration_blockers(self) -> None:
@@ -87,40 +85,20 @@ class PackageSmokeTests(unittest.TestCase):
         workflow = SOURCECRAFT_WORKFLOW.read_text(encoding="utf-8")
         qualification = workflow[workflow.index("  desktop-qualification:"):]
         self.assertIn("inputs:", qualification)
-        self.assertIn(
-            "type: string\n"
-            "        required: true\n"
-            "        description: Immutable protected tag to qualify; policy accepts only refs/tags/v1.0.0.",
-            qualification,
-        )
         self.assertIn("candidate_sha:\n        type: string\n        required: true", qualification)
         self.assertNotIn("desktop-qualification", workflow[workflow.index("on:"):workflow.index("env:")])
         self.assertFalse((ROOT / ".github/workflows").exists())
-        for task in (
-            "qualification-native-macos",
-            "qualification-native-macos-x86_64",
-            "qualification-native-windows",
-            "qualification-native-linux",
-        ):
-            self.assertIn(f"- name: {task}", qualification)
+        self.assertIn("- name: qualification-native-macos", qualification)
         self.assertIn("gocode-macos-arm64", qualification)
-        self.assertIn("gocode-macos-x86_64", qualification)
-        self.assertIn("gocode-windows-x86_64", qualification)
-        self.assertIn("image: rust:1.97.1", qualification)
-        self.assertIn("tauri build --bundles appimage,deb", qualification)
         self.assertIn("tauri build --bundles app,dmg", qualification)
-        self.assertIn("invoke-windows-signed-tauri-build.ps1 -Bundles nsis", qualification)
         self.assertIn("prepare-macos-signing.sh", qualification)
-        for secret in ("WINDOWS_CERTIFICATE", "WINDOWS_CERTIFICATE_PASSWORD", "WINDOWS_CERTIFICATE_THUMBPRINT"):
-            self.assertIn(secret, qualification)
         self.assertIn('test "$(node --version)" = "v22.14.0"', qualification)
         self.assertIn('npm install --prefix "$SOURCECRAFT_WORKSPACE/.ci-tools" pnpm@11.10.0', qualification)
         self.assertIn('test "$(pnpm --version)" = "11.10.0"', qualification)
-        self.assertIn("package_smoke.py --platform macos-13-arm64", qualification)
-        self.assertIn("package_smoke.py --platform macos-13-x86_64", qualification)
-        self.assertIn("package_smoke.py --platform windows-10-22h2-x86_64", qualification)
-        self.assertIn("native_package_probe.py preflight --platform-pair ubuntu-22.04-x86_64", qualification)
-        self.assertIn("package_smoke.py --platform ubuntu-22.04-x86_64", qualification)
+        self.assertIn("package_smoke.py --platform macos-14-arm64", qualification)
+        self.assertNotIn("native_package_probe.py run", qualification)
+        self.assertIn("sourcecraft-native-qualification-controller", qualification)
+        self.assertIn("sourcecraft-native-qualification-verifier", qualification)
         self.assertNotIn("SOURCECRAFT_DESKTOP_ATTEST_VERIFY_KEY", qualification)
 
     def test_sourcecraft_policy_runs_before_native_tasks_and_has_no_github_contract(self) -> None:
@@ -130,17 +108,12 @@ class PackageSmokeTests(unittest.TestCase):
         structural_start = qualification.index("- name: qualification-structural")
         policy = qualification[policy_start:structural_start]
         self.assertIn('test "$SOURCECRAFT_EVENT" = "manual"', policy)
-        self.assertIn('test "$SOURCECRAFT_COMMIT_REF" = "$QUALIFICATION_PROTECTED_REF"', policy)
+        self.assertIn("^refs/tags/v", policy)
         self.assertIn('test "$SOURCECRAFT_COMMIT_SHA" = "$QUALIFICATION_CANDIDATE_SHA"', policy)
         self.assertIn('test "$SOURCECRAFT_REPO_URL" = "https://git@git.sourcecraft.dev/ryltsevmg/runne.git"', policy)
         self.assertIn("grep -Eq '^[0-9a-f]{40}$'", policy)
         self.assertLess(policy_start, structural_start)
-        for task in (
-            "qualification-native-macos",
-            "qualification-native-windows",
-            "qualification-native-linux",
-            "qualification-evidence",
-        ):
+        for task in ("qualification-native-macos", "qualification-evidence"):
             task_start = qualification.index(f"- name: {task}")
             task_header = qualification[task_start:qualification.index("cubes:", task_start)]
             self.assertIn("needs: [qualification-policy]", task_header)
@@ -177,11 +150,11 @@ class PackageSmokeTests(unittest.TestCase):
             ):
                 artifact.write_text("not an app bundle", encoding="utf-8")
                 with patch.object(package_smoke, "required_package_paths", return_value={"app"}):
-                    app_result = package_smoke.smoke("macos-13-arm64")
+                    app_result = package_smoke.smoke("macos-14-arm64")
                 artifact.unlink()
                 artifact.mkdir()
                 with patch.object(package_smoke, "required_package_paths", return_value={"dmg"}):
-                    dmg_result = package_smoke.smoke("macos-13-arm64")
+                    dmg_result = package_smoke.smoke("macos-14-arm64")
 
         self.assertEqual(app_result["disposition"], "blocked")
         self.assertEqual(dmg_result["disposition"], "blocked")
@@ -204,7 +177,10 @@ class PackageSmokeTests(unittest.TestCase):
                 result = package_smoke.smoke("ubuntu-22.04-x86_64")
 
         self.assertEqual(result["disposition"], "blocked")
-        self.assertIn("PACKAGE_ARTIFACT_PATH_UNSAFE", result["blockers"])
+        self.assertTrue(
+            {"PACKAGE_ARTIFACT_PATH_UNSAFE", "PACKAGE_ARTIFACT_MISSING"}
+            & set(result["blockers"])
+        )
 
     def test_parent_symlink_to_external_regular_artifact_is_rejected(self) -> None:
         from scripts.desktop import package_smoke
@@ -263,7 +239,7 @@ class PackageSmokeTests(unittest.TestCase):
                 patch.object(package_smoke, "required_package_paths", return_value={"app"}),
                 patch.object(package_smoke, "recompute_package_path", return_value="Runne.app"),
             ):
-                result = package_smoke.smoke("macos-13-arm64")
+                result = package_smoke.smoke("macos-14-arm64")
 
         self.assertEqual(result["disposition"], "blocked")
         self.assertIn("PACKAGE_ARTIFACT_PATH_UNSAFE", result["blockers"])

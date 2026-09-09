@@ -65,6 +65,7 @@ pub(crate) struct V3EnrollmentDispatch {
     >,
     pub(super) rendezvous:
         crate::protected_activation::enrollment_control_transition::DaemonEnrollmentRendezvous,
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     pub(super) installed_facts:
         Option<runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts>,
     #[cfg(test)]
@@ -84,7 +85,7 @@ impl V3EnrollmentDispatch {
             >,
         >,
         rendezvous: crate::protected_activation::enrollment_control_transition::DaemonEnrollmentRendezvous,
-        installed_facts: Option<
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))] installed_facts: Option<
             runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts,
         >,
     ) -> Self {
@@ -93,6 +94,7 @@ impl V3EnrollmentDispatch {
             round_profile: None,
             control,
             rendezvous,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             installed_facts,
             #[cfg(test)]
             qualification_verifier: None,

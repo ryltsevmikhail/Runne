@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.desktop.enforce_native_package_evidence import main, validate
+from scripts.desktop.enforce_native_package_evidence import PROTECTED_SOURCE_REF, main, validate
 
 
 def valid_evidence() -> dict[str, object]:
@@ -32,6 +32,12 @@ def valid_evidence() -> dict[str, object]:
 
 
 class NativePackageEvidenceEnforcementTests(unittest.TestCase):
+    def test_protected_ref_contract_accepts_only_stable_semver_tags(self) -> None:
+        for value in ("refs/tags/v1.0.0", "refs/tags/v1.0.1", "refs/tags/v12.34.56"):
+            self.assertIsNotNone(PROTECTED_SOURCE_REF.fullmatch(value))
+        for value in ("refs/tags/v1.0", "refs/tags/v01.0.0", "refs/tags/v1.0.0-rc1", "refs/heads/main"):
+            self.assertIsNone(PROTECTED_SOURCE_REF.fullmatch(value))
+
     def test_verified_evidence_is_accepted(self) -> None:
         self.assertEqual(validate(valid_evidence()), [])
 

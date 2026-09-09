@@ -47,7 +47,7 @@ class NativePackageProbeTests(unittest.TestCase):
         self.assertGreaterEqual(blocked, 3)
 
     def test_preflight_is_deterministic(self) -> None:
-        self.assertEqual(preflight("macos-13-arm64"), preflight("macos-13-arm64"))
+        self.assertEqual(preflight("macos-14-arm64"), preflight("macos-14-arm64"))
 
     def test_preflight_rejects_declared_package_path_that_differs_from_tauri_config(self) -> None:
         result = preflight("ubuntu-22.04-x86_64", "target/release/bundle/deb/wrong.deb")
@@ -57,7 +57,7 @@ class NativePackageProbeTests(unittest.TestCase):
     def test_run_emits_blocked_for_absent_package(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             evidence = Path(directory) / "evidence.json"
-            run("macos-13-arm64", None, evidence)
+            run("macos-14-arm64", None, evidence)
             text = evidence.read_text(encoding="utf-8")
             self.assertIn('"blocked"', text)
             # Host mismatch vs. absent package both stay fail-closed; the exact
@@ -94,7 +94,7 @@ class NativePackageProbeTests(unittest.TestCase):
 
         self.assertTrue(hasattr(native_package_probe, "required_package_paths"))
         self.assertEqual(
-            native_package_probe.required_package_paths("macos-13-arm64"),
+            native_package_probe.required_package_paths("macos-14-arm64"),
             {"app", "dmg"},
         )
         self.assertEqual(
@@ -109,7 +109,8 @@ class NativePackageProbeTests(unittest.TestCase):
     def test_version_matches_macos_major_and_ubuntu_exact(self) -> None:
         from scripts.desktop.native_package_probe import _version_matches
         self.assertTrue(_version_matches("13.5.0", (13,)))
-        self.assertFalse(_version_matches("14.1.0", (13,)))
+        self.assertTrue(_version_matches("27.1.0", (14,)))
+        self.assertFalse(_version_matches("13.7.6", (14,)))
         self.assertTrue(_version_matches("22.04", "22.04"))
         self.assertFalse(_version_matches("26.04", "22.04"))
         self.assertFalse(_version_matches("22.04", "22.04."))
@@ -122,13 +123,13 @@ class NativePackageProbeTests(unittest.TestCase):
             evidence = root / "evidence.json"
             calls = []
             with patch("scripts.desktop.native_package_probe.preflight", return_value={
-                "platform_id": "macos-13-arm64", "disposition": "blocked",
+                "platform_id": "macos-14-arm64", "disposition": "blocked",
                 "blocker_code": "MACOS_STAGED_DAEMON_IDENTITY_UNVERIFIED", "detail": "preflight passed",
             }), patch("scripts.desktop.native_package_probe.ROOT", root), patch(
                 "scripts.desktop.native_package_probe.recompute_package_path",
                 side_effect=lambda _pair, bundle=None: {"app": "Runne.app", "dmg": "Runne.dmg"}[bundle or "app"],
             ), patch("scripts.desktop.native_package_probe.native_probe", side_effect=lambda *args: calls.append(args) or {"status": "verified"}):
-                run("macos-13-arm64", "Runne.app", evidence)
+                run("macos-14-arm64", "Runne.app", evidence)
             value = __import__("json").loads(evidence.read_text(encoding="utf-8"))
             self.assertEqual(value["disposition"], "blocked")
             self.assertTrue(calls)

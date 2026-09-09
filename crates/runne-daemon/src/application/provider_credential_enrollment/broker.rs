@@ -4,22 +4,43 @@ use runne_api::ProviderCredentialEnrollmentHostError;
 use runne_provider::{
     ClaimCredentialOperation, CredentialBindingDigest, CredentialBrokerFrame,
     CredentialBrokerFrameCodec, CredentialEnrollmentMeasurementAuthority,
-    CredentialMeasurementSnapshot, CredentialNativeEffectDisposition, CredentialOperationId,
-    CredentialOperationSnapshot, CredentialSecretClaimOffer, CredentialSecretPublication,
-    IssuedCredentialTicketAttempt, ObserveNativeEffect, ProviderCredentialEnrollmentStore,
+    CredentialMeasurementSnapshot, CredentialNativeEffectDisposition, CredentialOperationSnapshot,
+    CredentialSecretClaimOffer, CredentialSecretPublication, IssuedCredentialTicketAttempt,
+    ObserveNativeEffect, ProviderCredentialEnrollmentStore,
 };
 use zeroize::Zeroizing;
 
 use super::effect_authority::map_store;
+mod claimed_effect;
 mod effect_release;
+pub(super) use claimed_effect::{AcceptedBrokerClaim, ClaimedBrokerEffect};
 pub(crate) mod issue;
 pub(super) mod pending;
 #[cfg(all(unix, feature = "desktop-protected"))]
 mod pending_writer;
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
 mod qualified_exchange;
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
 pub(crate) use qualified_exchange::{FencedWriterExchange, QualifiedIssuedTicket};
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
 pub(super) use qualified_exchange::{QualifiedCredentialBrokerChannel, QualifiedIssueTransmission};
-#[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
 mod qualified_issue;
 #[cfg(unix)]
 pub(crate) mod rendezvous;
@@ -63,72 +84,6 @@ pub(crate) trait CredentialBrokerChannel {
         &mut self,
         offer: CredentialSecretClaimOffer,
     ) -> Result<CredentialSecretPublication, ProviderCredentialEnrollmentHostError>;
-}
-
-/// Move-only authority for the one post-claim possible-effect diagnostic.
-#[must_use = "the writer effect diagnostic must be consumed or reconciled after a claim"]
-pub(super) struct ClaimedBrokerEffect {
-    operation_id: CredentialOperationId,
-    attempt: runne_provider::CredentialTicketAttempt,
-    binding: CredentialBindingDigest,
-    publication: Option<CredentialSecretPublication>,
-    offer: Option<[u8; runne_provider::CredentialSecretOfferCodec::BYTES]>,
-    publication_taken: bool,
-}
-
-impl ClaimedBrokerEffect {
-    /// Returns the exact claimed operation identity for session binding checks.
-    pub(crate) const fn operation_id(&self) -> CredentialOperationId {
-        self.operation_id
-    }
-}
-
-pub(super) struct AcceptedBrokerClaim {
-    acknowledgement: Vec<u8>,
-    pending_publication: Option<CredentialSecretClaimOffer>,
-}
-
-impl AcceptedBrokerClaim {
-    #[cfg(test)]
-    pub(super) fn acknowledgement(&self) -> &[u8] {
-        &self.acknowledgement
-    }
-}
-
-impl ClaimedBrokerEffect {
-    #[cfg(test)]
-    pub(super) fn take_secret_publication(
-        &mut self,
-    ) -> Result<Option<CredentialSecretPublication>, ProviderCredentialEnrollmentHostError> {
-        if self.publication_taken {
-            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
-        }
-        self.publication_taken = true;
-        Ok(self.publication.take())
-    }
-
-    pub(super) fn take_secret_relay(
-        &mut self,
-    ) -> Result<
-        Option<[u8; runne_provider::CredentialSecretRelayFrameCodec::BYTES]>,
-        ProviderCredentialEnrollmentHostError,
-    > {
-        if self.publication_taken {
-            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
-        }
-        self.publication_taken = true;
-        match (self.offer.take(), self.publication.take()) {
-            (Some(offer), Some(publication)) => {
-                let offer = runne_provider::CredentialSecretOfferCodec::decode(&offer)
-                    .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?;
-                Ok(Some(
-                    runne_provider::CredentialSecretRelayFrameCodec::encode(&offer, &publication),
-                ))
-            }
-            (None, None) => Ok(None),
-            _ => Err(ProviderCredentialEnrollmentHostError::InvariantViolation),
-        }
-    }
 }
 
 /// Daemon coordinator for digest-first credential-ticket issuance.

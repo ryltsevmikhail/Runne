@@ -64,24 +64,24 @@ pub(super) fn run(
     channel.write_control_frame(&snapshot)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(crate) struct VerifiedQualificationAdmission {
     _admission: PendingQualificationAdmission,
     owned: Box<runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3>,
     members: qualification_fence::QualificationAdmissionMembers,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[path = "initial_exchange/qualification_fence.rs"]
 pub(crate) mod qualification_fence;
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 enum InitialQualificationFrame {
     Legacy(Zeroizing<Vec<u8>>),
     Verified(VerifiedQualificationAdmission),
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn verify_and_retain_qualification_admission(
     installed: &runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts,
     owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
@@ -119,7 +119,7 @@ pub(crate) fn verify_and_retain_qualification_admission_for_test(
     )
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(super) fn read_admitted_initial_request(
     channel: &mut ProtectedActivationChannel,
     keys: &ProtectedActivationKeys,

@@ -251,34 +251,28 @@ SOURCECRAFT_WORKFLOW = EVIDENCE_PATH.parents[2] / ".sourcecraft/ci.yaml"
 
 
 class NativeQualificationWorkflowTests(unittest.TestCase):
-    def test_sourcecraft_workflow_builds_native_packages_and_preserves_blockers(self) -> None:
+    def test_sourcecraft_workflow_builds_the_canonical_macos_package_and_preserves_release_gate(self) -> None:
         workflow = SOURCECRAFT_WORKFLOW.read_text(encoding="utf-8")
         qualification = workflow[workflow.index("  desktop-qualification:"):]
         for required in (
             "qualification-policy",
-            "qualification-native-linux",
             "qualification-native-macos",
-            "qualification-native-macos-x86_64",
-            "qualification-native-windows",
             "qualification-evidence",
-            "image: rust:1.97.1",
             "pnpm install --frozen-lockfile",
-            "package_smoke.py --platform ubuntu-22.04-x86_64",
-            "package_smoke.py --platform macos-13-arm64",
-            "package_smoke.py --platform macos-13-x86_64",
-            "package_smoke.py --platform windows-10-22h2-x86_64",
-            "native_package_probe.py preflight",
+            "package_smoke.py --platform macos-14-arm64",
+            "sourcecraft-native-qualification-controller",
             "needs: [qualification-policy]",
         ):
             self.assertIn(required, qualification)
-        self.assertNotIn("exit 1", qualification[qualification.index("qualification-native-linux"):qualification.index("qualification-native-macos")])
+        for removed in ("qualification-native-linux", "qualification-native-macos-x86_64", "qualification-native-windows"):
+            self.assertNotIn(removed, qualification)
 
     def test_sourcecraft_workflow_binds_policy_and_external_evidence(self) -> None:
         workflow = SOURCECRAFT_WORKFLOW.read_text(encoding="utf-8")
         qualification = workflow[workflow.index("  desktop-qualification:"):]
         for required in (
             'test "$SOURCECRAFT_EVENT" = "manual"',
-            'test "$SOURCECRAFT_COMMIT_REF" = "$QUALIFICATION_PROTECTED_REF"',
+            "^refs/tags/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
             'test "$SOURCECRAFT_COMMIT_SHA" = "$QUALIFICATION_CANDIDATE_SHA"',
             'test "$SOURCECRAFT_REPO_URL" = "https://git@git.sourcecraft.dev/ryltsevmg/runne.git"',
             "SOURCECRAFT_DESKTOP_ATTEST_REPOSITORY",
@@ -288,6 +282,9 @@ class NativeQualificationWorkflowTests(unittest.TestCase):
             "/opt/gocode/sourcecraft/bin/sourcecraft-desktop-evidence-enforce",
         ):
             self.assertIn(required, qualification)
+        policy = (EVIDENCE_PATH.parents[2] / ".sourcecraft/branches.yaml").read_text(encoding="utf-8")
+        for required in ('target: tag', 'matches: "v*"', "prevent_creation", "prevent_update", "prevent_deletion"):
+            self.assertIn(required, policy)
         for forbidden in ("GITHUB", "gh ", "actions/"):
             self.assertNotIn(forbidden, qualification)
         self.assertNotIn(".github/workflows", qualification)

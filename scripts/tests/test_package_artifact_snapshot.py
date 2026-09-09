@@ -204,7 +204,7 @@ class PackageArtifactSnapshotTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "Runne.deb").write_bytes(b"admitted")
-            fd_count_before = len(os.listdir("/proc/self/fd"))
+            fd_count_before = len(os.listdir("/dev/fd"))
             parent_fd: int | None = None
             names: list[str] = []
             real_open = lambda parent, name: os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
@@ -231,7 +231,7 @@ class PackageArtifactSnapshotTests(unittest.TestCase):
                         except OSError:
                             pass
                     os.close(parent_fd)
-            self.assertEqual(len(os.listdir("/proc/self/fd")), fd_count_before)
+            self.assertEqual(len(os.listdir("/dev/fd")), fd_count_before)
 
     def test_copy_uses_pinned_root_when_staging_path_is_swapped(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

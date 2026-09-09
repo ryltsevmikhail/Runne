@@ -25,10 +25,6 @@ pub(super) use runtime::{V3EnrollmentDispatch, enrollment_transcript_allows_rota
 
 /// Serves only enrollment V3 renewal, broker writer-handoff, and shutdown
 /// frames.
-///
-/// Enters the channel, then serves the V3 transcript. Root-handle frames have
-/// no V3 owned-launch projection, so this loop rejects them until a separately
-/// verified V3 root-admission protocol exists.
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 #[cfg_attr(
     not(test),
@@ -55,7 +51,12 @@ pub(crate) fn run_control_loop_v3(
         session_clock,
         ticket_clock,
         #[cfg(unix)]
-        V3EnrollmentDispatch::new(None, rendezvous, None),
+        V3EnrollmentDispatch::new(
+            None,
+            rendezvous,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            None,
+        ),
     )
 }
 
@@ -73,87 +74,93 @@ pub(crate) fn run_control_loop_v3_entered(
     #[cfg(unix)] mut enrollment: V3EnrollmentDispatch,
 ) -> Result<(), LaunchAuthorityError> {
     #[cfg(unix)]
-    let mut runtime = if let Some(control) = enrollment.control.take() {
-        let live =
-            live_session::LiveEnrollmentSession::capture(&local_session_service, &owned_launch)?;
+    let mut runtime = match enrollment.control.take() {
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        let round = enrollment
-            .round_profile
-            .take()
-            .map(|profile| round::RoundContext {
-                profile,
-                control: Arc::clone(&control),
-                previous: owned_launch.clone(),
-            });
-        let installed_facts = enrollment
-            .installed_facts
-            .take()
-            .ok_or(LaunchAuthorityError::OwnershipMismatch)?;
-        #[cfg(target_os = "macos")]
-        let credential_service_configuration =
-            installed_facts.runtime_credential_service_configuration();
-        #[cfg(target_os = "macos")]
-        let credential_service_session =
-            super::credential_service_registration::receive_required_registration(
+        Some(control) => {
+            let live = live_session::LiveEnrollmentSession::capture(
+                &local_session_service,
+                &owned_launch,
+            )?;
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            let round = enrollment
+                .round_profile
+                .take()
+                .map(|profile| round::RoundContext {
+                    profile,
+                    control: Arc::clone(&control),
+                    previous: owned_launch.clone(),
+                });
+            let installed_facts = enrollment
+                .installed_facts
+                .take()
+                .ok_or(LaunchAuthorityError::OwnershipMismatch)?;
+            #[cfg(target_os = "macos")]
+            let credential_service_configuration =
+                installed_facts.runtime_credential_service_configuration();
+            #[cfg(target_os = "macos")]
+            let credential_service_session =
+                super::credential_service_registration::receive_required_registration(
+                    &mut channel,
+                    &keys,
+                    &owned_launch,
+                    &installed_facts,
+                    runtime::unix_now_millis()?,
+                )?;
+            #[cfg(target_os = "macos")]
+            let credential_service = credential_service_session
+                .map(|session| control.install_credential_service_session(session))
+                .transpose()
+                .map_err(runtime::map_enrollment_error)?;
+            #[cfg(target_os = "macos")]
+            let (initial_request, qualification) = initial_exchange::read_admitted_initial_request(
                 &mut channel,
                 &keys,
                 &owned_launch,
                 &installed_facts,
-                runtime::unix_now_millis()?,
+                &mut enrollment,
             )?;
-        #[cfg(target_os = "macos")]
-        let credential_service = credential_service_session
-            .map(|session| control.install_credential_service_session(session))
-            .transpose()
-            .map_err(runtime::map_enrollment_error)?;
-        #[cfg(target_os = "macos")]
-        let (initial_request, qualification) = initial_exchange::read_admitted_initial_request(
-            &mut channel,
-            &keys,
-            &owned_launch,
-            &installed_facts,
-            &mut enrollment,
-        )?;
-        #[cfg(not(target_os = "macos"))]
-        let initial_request = channel.read_control_frame()?;
-        let owned_rendezvous = enrollment.rendezvous.into_owned()?;
-        let mut enrollment = control
-            .start_protected_session(&keys, &owned_launch, owned_rendezvous, installed_facts)
-            .map_err(runtime::map_enrollment_error)?;
-        #[cfg(target_os = "macos")]
-        if let Some(qualification) = qualification {
-            enrollment = enrollment
-                .retain_qualification(qualification)
+            #[cfg(not(target_os = "macos"))]
+            let initial_request = channel.read_control_frame()?;
+            let owned_rendezvous = enrollment.rendezvous.into_owned()?;
+            let mut enrollment = control
+                .start_protected_session(&keys, &owned_launch, owned_rendezvous, installed_facts)
                 .map_err(runtime::map_enrollment_error)?;
+            #[cfg(target_os = "macos")]
+            if let Some(qualification) = qualification {
+                enrollment = enrollment
+                    .retain_qualification(qualification)
+                    .map_err(runtime::map_enrollment_error)?;
+            }
+            initial_exchange::run(
+                &mut channel,
+                &mut enrollment,
+                &live,
+                &local_session_service,
+                initial_request,
+            )?;
+            let terminal = enrollment.begun_is_terminal();
+            let broker = runtime::bind_broker(&keys, &owned_launch, &mut enrollment)?;
+            V3EnrollmentRuntime {
+                #[cfg(target_os = "macos")]
+                deferred_control: None,
+                #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+                round,
+                live: Some(live),
+                broker,
+                session: Some(enrollment),
+                terminal,
+                claim_measurements: None,
+                #[cfg(target_os = "macos")]
+                channel: None,
+                #[cfg(target_os = "macos")]
+                credential_service,
+                #[cfg(target_os = "macos")]
+                credential_service_configuration,
+            }
         }
-        initial_exchange::run(
-            &mut channel,
-            &mut enrollment,
-            &live,
-            &local_session_service,
-            initial_request,
-        )?;
-        let terminal = enrollment.begun_is_terminal();
-        let broker = runtime::bind_broker(&keys, &owned_launch, &mut enrollment)?;
-        V3EnrollmentRuntime {
-            #[cfg(target_os = "macos")]
-            deferred_control: None,
-            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-            round,
-            live: Some(live),
-            broker,
-            session: Some(enrollment),
-            terminal,
-            claim_measurements: None,
-            #[cfg(target_os = "macos")]
-            channel: None,
-            #[cfg(target_os = "macos")]
-            credential_service,
-            #[cfg(target_os = "macos")]
-            credential_service_configuration,
-        }
-    } else {
-        V3EnrollmentRuntime {
+        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+        Some(_) => return Err(LaunchAuthorityError::UnsupportedPlatformBackend),
+        None => V3EnrollmentRuntime {
             #[cfg(target_os = "macos")]
             deferred_control: None,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -173,7 +180,7 @@ pub(crate) fn run_control_loop_v3_entered(
             credential_service: None,
             #[cfg(target_os = "macos")]
             credential_service_configuration: None,
-        }
+        },
     };
     let transcript = serve_v3_transcript(
         &mut channel,
