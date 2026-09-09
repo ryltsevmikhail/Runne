@@ -24,14 +24,14 @@ class DesktopQualificationWorkflowTest(unittest.TestCase):
                 "ab21c6a338fbc9a2b34bdb214dda38b23104035bd1d4610daf7b56a65b80bb8a scripts/requirements-schema-tests.txt | sha256sum -c -",
                 "python3 -m venv /tmp/runne-ci-venv",
                 "/tmp/runne-ci-venv/bin/python -m pip install --disable-pip-version-check -r scripts/requirements-schema-tests.txt",
-                'PATH="/tmp/runne-ci-venv/bin:$PATH" bash -c',
+                "PYTHON_BIN=/tmp/runne-ci-venv/bin/python bash -c",
             ):
                 self.assertIn(value, job)
             self.assertNotIn("$SOURCECRAFT_WORKSPACE/.ci-venv", job)
             checksum = job.index("sha256sum -c -")
             venv = job.index("python3 -m venv")
             install = job.index("/tmp/runne-ci-venv/bin/python -m pip install")
-            path = job.index('PATH="/tmp/runne-ci-venv/bin:$PATH" bash -c')
+            path = job.index("PYTHON_BIN=/tmp/runne-ci-venv/bin/python bash -c")
             ci = job.index("bash scripts/ci.sh pinned")
             self.assertLess(checksum, venv)
             self.assertLess(venv, install)

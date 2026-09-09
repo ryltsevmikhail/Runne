@@ -99,7 +99,12 @@ stage_bundled_binary runne-cli runne
 
 echo "=== CI: $MODE mode (rustc $RUSTC_VER) ==="
 
-if command -v python3 &>/dev/null; then
+if [ -n "${PYTHON_BIN:-}" ]; then
+    if [ ! -x "$PYTHON_BIN" ]; then
+        echo "ERROR: configured python is not executable: $PYTHON_BIN"
+        exit 1
+    fi
+elif command -v python3 &>/dev/null; then
     PYTHON_BIN=python3
 elif command -v python &>/dev/null; then
     PYTHON_BIN=python
