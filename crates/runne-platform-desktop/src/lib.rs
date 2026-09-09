@@ -1,12 +1,12 @@
 //! Desktop implementations of native capability ports.
 #![cfg_attr(
     not(feature = "test-support"),
-    doc = r#"
+    doc = r"
 Test-only enrollment fixtures are absent from the production feature graph:
 ```compile_fail
 use runne_platform_desktop::test_only_ready_v3_enrollment_supervisor;
 ```
-"#
+"
 )]
 
 #[cfg(all(feature = "dev-loopback-updater", not(debug_assertions)))]

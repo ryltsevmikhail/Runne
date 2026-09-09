@@ -65,11 +65,15 @@ const LAUNCH_TIMEOUT: Duration = Duration::from_secs(30);
 #[cfg(feature = "test-support")]
 const LOCAL_PROCESS_TIMEOUT: Duration = Duration::from_mins(2);
 
+#[cfg(feature = "test-support")]
 fn launch_timeout() -> Duration {
-    #[cfg(feature = "test-support")]
     if runne_api::test_support::local_native_enrollment_enabled() {
         return LOCAL_PROCESS_TIMEOUT;
     }
+    LAUNCH_TIMEOUT
+}
+#[cfg(not(feature = "test-support"))]
+const fn launch_timeout() -> Duration {
     LAUNCH_TIMEOUT
 }
 const LOCAL_PRINCIPAL: &str = "local-owner";

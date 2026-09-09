@@ -176,6 +176,7 @@ impl DevelopmentBundledRuntimeLauncher {
         let child_stdin = Stdio::from(OwnedFd::from(child_channel));
         let mut command = Command::new(&launch_executable_path);
         command.env_clear().stdin(child_stdin);
+        #[cfg(feature = "test-support")]
         preserve_local_process_environment(&mut command)?;
         if controls.capture_output {
             command.stdout(Stdio::piped()).stderr(Stdio::piped());
