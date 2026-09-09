@@ -196,6 +196,12 @@ fn protected_request_admission_begin_and_exact_replay_return_one_safe_projection
     assert!(crate::protected_activation::require_shutdown_terminal(Some(&session), true).is_ok());
 }
 
+#[test]
+fn portable_control_constructs_with_valid_authorities_and_runtime_identity() {
+    let (control, _) = control();
+    assert_eq!(Arc::strong_count(&control), 1);
+}
+
 fn control() -> (
     Arc<DaemonProviderCredentialEnrollmentControl>,
     runne_api::ProtectedActivationKeys,

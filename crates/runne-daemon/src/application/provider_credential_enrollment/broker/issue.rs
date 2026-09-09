@@ -1,11 +1,3 @@
-use runne_api::ProviderCredentialEnrollmentHostError;
-use runne_provider::{
-    AttachCredentialProcess, ClaimCredentialOperation, CredentialBindingDigest,
-    CredentialBrokerCommand, CredentialBrokerFrame, CredentialEnrollmentError,
-    CredentialMeasurementSnapshot, CredentialOperationSnapshot, IssueCredentialTicketDigest,
-    IssuedCredentialTicketAttempt, ProviderCredentialEnrollmentStore, RawCredentialTicket,
-};
-
 #[cfg(all(
     target_os = "macos",
     target_arch = "aarch64",
@@ -14,19 +6,23 @@ use runne_provider::{
 use super::qualified_exchange::QualifiedIssuedTicket;
 use super::{CredentialBrokerChannel, ProviderCredentialBroker};
 use crate::application::provider_credential_enrollment::effect_authority::map_store;
-
+use runne_api::ProviderCredentialEnrollmentHostError;
+use runne_provider::{
+    AttachCredentialProcess, ClaimCredentialOperation, CredentialBindingDigest,
+    CredentialBrokerCommand, CredentialBrokerFrame, CredentialEnrollmentError,
+    CredentialMeasurementSnapshot, CredentialOperationSnapshot, IssueCredentialTicketDigest,
+    IssuedCredentialTicketAttempt, ProviderCredentialEnrollmentStore, RawCredentialTicket,
+};
 /// Recovery requires the move-only store witness, never a metadata snapshot.
 pub(crate) enum CredentialTicketAuthority {
     Intent(Box<CredentialOperationSnapshot>),
     Recovery(Box<runne_provider::AcceptedCredentialCleanupRecovery>),
 }
-
 impl From<CredentialOperationSnapshot> for CredentialTicketAuthority {
     fn from(value: CredentialOperationSnapshot) -> Self {
         Self::Intent(Box::new(value))
     }
 }
-
 impl From<runne_provider::AcceptedCredentialCleanupRecovery> for CredentialTicketAuthority {
     fn from(value: runne_provider::AcceptedCredentialCleanupRecovery) -> Self {
         Self::Recovery(Box::new(value))
@@ -41,11 +37,21 @@ pub(crate) struct ClaimIssueContext {
     desktop_supervisor_generation: u64,
 }
 
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
 pub(super) struct QualifiedIssueFrame {
     issued: IssuedCredentialTicketAttempt,
     frame: CredentialBrokerFrame,
 }
 
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
 impl QualifiedIssueFrame {
     pub(super) fn into_qualified_frame_members(
         self,

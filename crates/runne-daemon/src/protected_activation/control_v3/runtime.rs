@@ -20,6 +20,7 @@ pub(super) fn map_enrollment_error(
     }
 }
 
+#[cfg(target_os = "macos")]
 pub(super) fn unix_now_millis() -> Result<u64, runne_api::LaunchAuthorityError> {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -28,6 +29,7 @@ pub(super) fn unix_now_millis() -> Result<u64, runne_api::LaunchAuthorityError> 
         .ok_or(runne_api::LaunchAuthorityError::StaleLaunchAuthority)
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(super) fn bind_broker(
     keys: &runne_api::ProtectedActivationKeys,
     owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
@@ -130,6 +132,7 @@ pub(super) struct V3EnrollmentRuntime {
         crate::application::provider_credential_enrollment::DaemonProtectedCredentialEnrollmentSession,
     >,
     pub(super) terminal: bool,
+    #[cfg(target_os = "macos")]
     pub(super) claim_measurements: Option<(
         runne_provider::CredentialMeasurementSnapshot,
         runne_provider::CredentialBindingDigest,

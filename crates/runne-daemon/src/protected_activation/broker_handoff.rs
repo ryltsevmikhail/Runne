@@ -80,6 +80,7 @@ impl BrokerHandoffDispatch {
         Ok(dispatch)
     }
 
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     pub(crate) fn from_bound_enrollment(
         keys: &ProtectedActivationKeys,
         owned_launch: &ProtectedCredentialEnrollmentOwnedLaunchV3,

@@ -51,12 +51,24 @@ impl ReservedAuthorityBinding {
 }
 
 impl PendingBrokerRendezvousBinding {
+    #[cfg(all(
+        feature = "desktop-protected",
+        any(test, all(target_os = "macos", target_arch = "aarch64"))
+    ))]
     pub(in crate::application::provider_credential_enrollment::broker) const fn release_tuple(
         &self,
     ) -> CredentialBindingDigest {
         self.release_tuple
     }
 
+    #[cfg(any(
+        test,
+        all(
+            feature = "desktop-protected",
+            target_os = "macos",
+            target_arch = "aarch64"
+        )
+    ))]
     pub(in crate::application::provider_credential_enrollment::broker) fn new(
         operation: &CredentialOperationSnapshot,
         authority: &ProviderCredentialBaseRequestAuthority,

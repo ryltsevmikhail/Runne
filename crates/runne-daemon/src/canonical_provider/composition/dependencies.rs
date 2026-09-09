@@ -45,6 +45,7 @@ pub(super) fn select(dependencies: ProtectedProviderDependencyCapsule) -> Select
             keyring,
             decorator,
         } => selected(Some(effect), None, Some(keyring), Some(decorator)),
+        #[cfg(unix)]
         ProviderDependencyState::ServiceLoopbackFixture {
             adapter_factory,
             keyring,

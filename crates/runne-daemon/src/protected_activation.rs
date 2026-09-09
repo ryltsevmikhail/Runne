@@ -1,19 +1,15 @@
-//! Protected inherited-channel admission for bundled daemon launches.
-
 #![cfg_attr(not(feature = "desktop-protected"), allow(dead_code, unused_imports))]
 
+#[cfg(feature = "desktop-protected")]
+use crate::application::root_handle_admission::RootHandleAdmissionAuthority;
 #[cfg(any(unix, windows))]
-use std::io::{Read, Write};
+use crate::bootstrap::{
+    BootstrapOutcome, bootstrap_protected, preflight_recoverable_first_activation_sidecars,
+};
 #[cfg(any(unix, windows))]
-use std::path::{Path, PathBuf};
-#[cfg(all(
-    any(unix, windows),
-    any(feature = "desktop-protected", feature = "test-support")
-))]
-use std::sync::{Arc, Mutex};
+use crate::config::{BuiltInDefaults, ConfigurationSnapshot};
 #[cfg(any(unix, windows))]
-use std::time::Duration;
-
+use crate::provider_activation::ProviderActivation;
 #[cfg(any(unix, windows))]
 use rand::{RngCore, rngs::OsRng};
 #[cfg(all(unix, any(feature = "desktop-protected", feature = "test-support")))]
@@ -30,7 +26,10 @@ use runne_api::{
 use runne_api::{
     ProtectedCredentialEnrollmentLaunchBindingV1, ProtectedCredentialEnrollmentLaunchRequestV3,
 };
-#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
+#[cfg(all(
+    feature = "desktop-protected",
+    any(test, all(target_os = "macos", target_arch = "aarch64"))
+))]
 use runne_api::{
     ProtectedCredentialEnrollmentOwnedLaunchV3, ProtectedCredentialEnrollmentRenewRequestV3,
     ProtectedCredentialEnrollmentRenewTicketV3, ProtectedCredentialEnrollmentShutdownAckV3,
@@ -60,6 +59,17 @@ use runne_application::local_session::LocalSessionService;
 use runne_store::schema;
 #[cfg(any(unix, windows))]
 use sha2::{Digest, Sha256};
+#[cfg(any(unix, windows))]
+use std::io::{Read, Write};
+#[cfg(any(unix, windows))]
+use std::path::{Path, PathBuf};
+#[cfg(all(
+    any(unix, windows),
+    any(feature = "desktop-protected", feature = "test-support")
+))]
+use std::sync::{Arc, Mutex};
+#[cfg(any(unix, windows))]
+use std::time::Duration;
 #[cfg(all(
     any(unix, windows),
     any(feature = "desktop-protected", feature = "test-support")
@@ -67,26 +77,10 @@ use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 #[cfg(any(unix, windows))]
 use zeroize::Zeroizing;
-
-#[cfg(feature = "desktop-protected")]
-use crate::application::root_handle_admission::RootHandleAdmissionAuthority;
-#[cfg(any(unix, windows))]
-use crate::bootstrap::{
-    BootstrapOutcome, bootstrap_protected, preflight_recoverable_first_activation_sidecars,
-};
-#[cfg(any(unix, windows))]
-use crate::config::{BuiltInDefaults, ConfigurationSnapshot};
-#[cfg(any(unix, windows))]
-use crate::provider_activation::ProviderActivation;
-
 #[cfg(target_os = "macos")]
 mod installation_anchor;
 #[cfg(target_os = "macos")]
 pub(crate) use installation_anchor::{VerifiedNativeEnrollmentInstallation, load_read_only};
-#[cfg(all(test, target_os = "macos"))]
-#[path = "protected_activation/installation_anchor_tests.rs"]
-mod installation_anchor_tests;
-
 #[cfg(all(
     target_os = "macos",
     target_arch = "aarch64",
@@ -102,7 +96,10 @@ mod enrollment_control_exchange;
 ))]
 #[path = "protected_activation/enrollment_control_exchange_negative_tests.rs"]
 mod enrollment_control_exchange_negative_tests;
-#[cfg(all(unix, feature = "desktop-protected"))]
+#[cfg(all(
+    feature = "desktop-protected",
+    any(all(test, unix), all(target_os = "macos", target_arch = "aarch64"))
+))]
 mod enrollment_control_transition;
 #[cfg(all(
     test,
@@ -122,6 +119,9 @@ mod enrollment_control_transition_fixture;
 ))]
 #[path = "protected_activation/enrollment_control_transition_tests.rs"]
 mod enrollment_control_transition_tests;
+#[cfg(all(test, target_os = "macos"))]
+#[path = "protected_activation/installation_anchor_tests.rs"]
+mod installation_anchor_tests;
 
 #[cfg(any(unix, windows))]
 const MAX_FRAME_PAYLOAD_BYTES: usize = 65_536;
@@ -135,7 +135,6 @@ const LOCAL_PRINCIPAL: &str = "local-owner";
 
 #[cfg(feature = "desktop-protected")]
 pub(crate) struct ProtectedRootControl(Arc<RootHandleAdmissionAuthority>);
-
 #[cfg(feature = "desktop-protected")]
 impl ProtectedRootControl {
     pub(crate) fn new(authority: Arc<RootHandleAdmissionAuthority>) -> Arc<Self> {
@@ -163,7 +162,8 @@ impl ProtectedRootControl {
     }
 }
 
-#[cfg(all(unix, feature = "desktop-protected"))]
+#[cfg(feature = "desktop-protected")]
+#[cfg(any(all(test, unix), all(target_os = "macos", target_arch = "aarch64")))]
 mod broker_handoff;
 #[cfg(any(unix, windows))]
 mod channel;
@@ -172,7 +172,8 @@ mod channel;
     any(feature = "desktop-protected", feature = "test-support")
 ))]
 mod control;
-#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
+#[cfg(feature = "desktop-protected")]
+#[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
 pub(crate) mod control_v3;
 #[cfg(all(test, unix, feature = "desktop-protected"))]
 pub(crate) use control_v3::require_shutdown_terminal;

@@ -18,13 +18,24 @@ mod resume;
 mod status;
 mod verified_frames;
 
+#[cfg(all(
+    feature = "desktop-protected",
+    any(all(test, unix), all(target_os = "macos", target_arch = "aarch64"))
+))]
+pub(crate) use control_facade::DaemonProtectedCredentialEnrollmentSession;
 pub(crate) use control_facade::DaemonProviderCredentialEnrollmentControl;
-#[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+#[cfg(all(
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
+pub(crate) use control_facade::InitialCredentialExchange;
+#[cfg(all(
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
 pub(crate) use control_facade::PostcommitAdmissionPermit;
-#[cfg(any(test, feature = "desktop-protected"))]
-pub(crate) use control_facade::{
-    DaemonProtectedCredentialEnrollmentSession, InitialCredentialExchange,
-};
 pub(crate) use coordinator::ProviderCredentialAdmission;
 use effect_authority::ProviderCredentialEffectAuthority;
 pub(crate) use host::ProviderCredentialVerificationHost;
