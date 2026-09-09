@@ -124,13 +124,12 @@ impl NativeProviderCredentialWriters {
         CredentialWriterClaimIssuer,
         Arc<dyn BrokeredProviderCredentialWriter>,
     ) {
-        let writer = match self.effect_route {
-            NativeProviderCredentialEffectRoute::Legacy(writer) => writer,
-            #[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
-            NativeProviderCredentialEffectRoute::CredentialService { .. } => {
-                panic!("authenticated service routes cannot enter the test-only legacy split")
-            }
+        #[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
+        let NativeProviderCredentialEffectRoute::Legacy(writer) = self.effect_route else {
+            panic!("authenticated service routes cannot enter the test-only legacy split")
         };
+        #[cfg(not(all(target_os = "macos", feature = "provider-credential-broker-writer")))]
+        let NativeProviderCredentialEffectRoute::Legacy(writer) = self.effect_route;
         (self.issuer, writer)
     }
 }

@@ -13,6 +13,6 @@ fn main() -> std::process::ExitCode {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn main() -> std::process::ExitCode {
+const fn main() -> std::process::ExitCode {
     std::process::ExitCode::FAILURE
 }

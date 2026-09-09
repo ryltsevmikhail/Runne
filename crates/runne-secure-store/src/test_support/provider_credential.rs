@@ -37,7 +37,7 @@ fn prove_native_load(
 }
 
 #[cfg(not(target_os = "macos"))]
-fn prove_native_load(
+const fn prove_native_load(
     _reference: &CredentialVersionRef,
     _access: &ProviderCredentialAccessPolicy,
 ) -> Result<(), SecureStoreError> {

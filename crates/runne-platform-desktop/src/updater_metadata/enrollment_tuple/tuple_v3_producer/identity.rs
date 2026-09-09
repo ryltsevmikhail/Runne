@@ -1,9 +1,12 @@
+#[cfg(target_os = "macos")]
 use std::path::Path;
 
 use runne_api::{MacOsCodeIdentityExpectationV1, NativeEnrollmentTupleError};
 
+#[cfg(target_os = "macos")]
 use super::{CodeIdentityObserver, CodeIdentityRole};
 
+#[cfg(target_os = "macos")]
 pub(super) struct NativeCodeIdentityObserver;
 
 #[cfg(target_os = "macos")]
@@ -32,21 +35,6 @@ impl CodeIdentityObserver for NativeCodeIdentityObserver {
         let mut bytes = displayed.stdout;
         bytes.extend_from_slice(&displayed.stderr);
         parse_identity(&bytes)
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-impl CodeIdentityObserver for NativeCodeIdentityObserver {
-    fn verify_bundle(&self, _path: &Path) -> Result<(), NativeEnrollmentTupleError> {
-        Err(NativeEnrollmentTupleError::Rejected)
-    }
-
-    fn observe(
-        &self,
-        _role: CodeIdentityRole,
-        _path: &Path,
-    ) -> Result<MacOsCodeIdentityExpectationV1, NativeEnrollmentTupleError> {
-        Err(NativeEnrollmentTupleError::Rejected)
     }
 }
 

@@ -165,6 +165,13 @@ impl AuthenticatedProviderCredentialWriterSession {
 
     /// Consumes the admitted session and creates one matched claim/effect pair.
     #[must_use]
+    #[cfg_attr(
+        not(any(test, target_os = "macos")),
+        expect(
+            clippy::missing_const_for_fn,
+            reason = "the shared opaque API performs non-const authority creation on macOS"
+        )
+    )]
     pub fn split(
         self,
     ) -> (

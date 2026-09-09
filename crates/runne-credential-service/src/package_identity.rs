@@ -14,6 +14,7 @@ struct PackageExecutables {
     writer: PathBuf,
 }
 
+#[cfg(target_os = "macos")]
 pub struct InstalledConfigurations {
     pub endpoints: [CredentialServiceEndpointConfiguration; 3],
     pub local_fixture: bool,
@@ -43,30 +44,25 @@ impl ObservedIdentity {
     }
 }
 
+#[cfg(target_os = "macos")]
 pub fn installed_configurations() -> Result<InstalledConfigurations, CredentialServiceXpcError> {
-    #[cfg(target_os = "macos")]
-    {
-        let executable =
-            std::env::current_exe().map_err(|_| CredentialServiceXpcError::Unavailable)?;
-        let paths = package_executables(&executable)?;
-        #[cfg(feature = "test-support")]
-        if local_fixture_enabled(&executable) {
-            return Ok(InstalledConfigurations {
-                endpoints: local_configurations(&paths)?,
-                local_fixture: true,
-            });
-        }
-        let service = observe(&paths.service)?;
-        let desktop = observe(&paths.desktop)?;
-        let runtime = observe(&paths.runtime)?;
-        let writer = observe(&paths.writer)?;
-        Ok(InstalledConfigurations {
-            endpoints: configurations(&service, &desktop, &runtime, &writer)?,
-            local_fixture: false,
-        })
+    let executable = std::env::current_exe().map_err(|_| CredentialServiceXpcError::Unavailable)?;
+    let paths = package_executables(&executable)?;
+    #[cfg(feature = "test-support")]
+    if local_fixture_enabled(&executable) {
+        return Ok(InstalledConfigurations {
+            endpoints: local_configurations(&paths)?,
+            local_fixture: true,
+        });
     }
-    #[cfg(not(target_os = "macos"))]
-    Err(CredentialServiceXpcError::Unsupported)
+    let service = observe(&paths.service)?;
+    let desktop = observe(&paths.desktop)?;
+    let runtime = observe(&paths.runtime)?;
+    let writer = observe(&paths.writer)?;
+    Ok(InstalledConfigurations {
+        endpoints: configurations(&service, &desktop, &runtime, &writer)?,
+        local_fixture: false,
+    })
 }
 
 #[cfg(all(feature = "test-support", target_os = "macos"))]
