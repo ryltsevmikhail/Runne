@@ -226,7 +226,7 @@ impl TestOnlyLiveEnrollmentRuntime {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub async fn test_only_live_enrollment_runtime(
     directory: &std::path::Path,
     fixture: runne_platform_desktop::TestOnlyReadyV3EnrollmentSupervisor,

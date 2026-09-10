@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use runne_app_core::test_support::open_protected_bundled_workspace_core;
@@ -16,7 +16,9 @@ const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-000000000881";
 const PROJECT_ID: &str = "018f2e3a-7000-7000-8000-000000000882";
 
 struct CancellationLifecycle {
+    operations: Arc<tokio::sync::Mutex<()>>,
     reaps: Arc<AtomicUsize>,
+    reaper_saw_exact_permit: Arc<AtomicBool>,
 }
 
 impl OwnedRuntimeLifecycle for CancellationLifecycle {
@@ -37,16 +39,32 @@ impl NativeRootAdmissionLifecycle for CancellationLifecycle {
         &self,
         permit: tokio::sync::OwnedMutexGuard<()>,
     ) -> RootAdmissionReapFuture {
+        let operations = Arc::clone(&self.operations);
+        let reaper_saw_exact_permit = Arc::clone(&self.reaper_saw_exact_permit);
         self.reaps.fetch_add(1, Ordering::AcqRel);
-        Box::pin(async move { drop(permit) })
+        Box::pin(async move {
+            // The reaper owns the exact permit: while it holds the operations
+            // permit, operations stays locked, so try_lock() must fail. A
+            // foreign permit (from another mutex) would leave operations free
+            // and try_lock() would succeed. Publish the observation instead of
+            // asserting: this future is detached, so the parent test must
+            // inspect the result after the lock is released.
+            reaper_saw_exact_permit.store(operations.try_lock().is_err(), Ordering::SeqCst);
+            drop(permit);
+        })
     }
 }
 
 fn lifecycle(
-    _operations: Arc<tokio::sync::Mutex<()>>,
+    operations: Arc<tokio::sync::Mutex<()>>,
     reaps: Arc<AtomicUsize>,
+    reaper_saw_exact_permit: Arc<AtomicBool>,
 ) -> RuntimeLifecycleManager {
-    let lifecycle = Arc::new(CancellationLifecycle { reaps });
+    let lifecycle = Arc::new(CancellationLifecycle {
+        operations,
+        reaps,
+        reaper_saw_exact_permit,
+    });
     RuntimeLifecycleManager {
         owned_runtime: Some(lifecycle.clone()),
         root_admission: Some(lifecycle),
@@ -65,7 +83,11 @@ fn snapshot(version: u64) -> String {
 async fn cancellation_after_possible_bind_send_retains_the_exact_child_for_retry() {
     let operations = Arc::new(tokio::sync::Mutex::new(()));
     let reaps = Arc::new(AtomicUsize::new(0));
-    let lifecycle = lifecycle(Arc::clone(&operations), Arc::clone(&reaps));
+    let lifecycle = lifecycle(
+        Arc::clone(&operations),
+        Arc::clone(&reaps),
+        Arc::new(AtomicBool::new(false)),
+    );
     let listener = TcpListener::bind(("127.0.0.1", 0)).await.expect("listener");
     let address = listener.local_addr().expect("address");
     let bind_started = Arc::new(Notify::new());
@@ -136,6 +158,7 @@ async fn cancellation_after_possible_bind_send_retains_the_exact_child_for_retry
     let retry_lifecycle = super::open_selected_workspace_cancellation_tests::lifecycle(
         Arc::clone(&operations),
         Arc::clone(&reaps),
+        Arc::new(AtomicBool::new(false)),
     );
     assert!(
         prepared
@@ -185,7 +208,13 @@ async fn initial_and_retry_are_single_attempt_exact_bindings() {
             Instant::now(),
         )
         .expect("commit");
-    let lifecycle = lifecycle(Arc::clone(&operations), Arc::new(AtomicUsize::new(0)));
+    let reaps = Arc::new(AtomicUsize::new(0));
+    let reaper_saw_exact_permit = Arc::new(AtomicBool::new(false));
+    let lifecycle = lifecycle(
+        Arc::clone(&operations),
+        Arc::clone(&reaps),
+        Arc::clone(&reaper_saw_exact_permit),
+    );
     assert!(
         prepared
             .begin_initial(&reference, "main", 1, "wrong", Instant::now(), &lifecycle)
@@ -205,6 +234,13 @@ async fn initial_and_retry_are_single_attempt_exact_bindings() {
             .is_err()
     );
     drop(first);
-    tokio::time::sleep(Duration::from_millis(5)).await;
-    assert!(operations.try_lock().is_ok());
+    let released = tokio::time::timeout(Duration::from_secs(1), Arc::clone(&operations).lock_owned())
+        .await
+        .expect("reaper must release the exact permit");
+    assert_eq!(reaps.load(Ordering::Acquire), 1);
+    assert!(
+        reaper_saw_exact_permit.load(Ordering::Acquire),
+        "reaper must have observed the exact operations permit"
+    );
+    drop(released);
 }

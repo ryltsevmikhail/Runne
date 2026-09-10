@@ -11,20 +11,22 @@
 use crate::RuntimeLifecycleManager;
 use crate::provider_credential_enrollment::{CredentialIntentProjection, CredentialIntentRegistry};
 use crate::updater_status::UpdateStatusStore;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use runne_platform_desktop::SecureCredentialPromptDisposition;
 use tauri::{AppHandle, Manager as _, WebviewWindow};
 
 use super::CredentialIntentIpc;
 #[path = "dispatch/post_fence.rs"]
 pub(super) mod post_fence;
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use super::host_prompt::MacOsHostCredentialPrompt;
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use super::prepared::{NativeEnrollmentConfirmation, PreparedCredentialEnrollmentExchange};
-use post_fence::{
-    PostFenceEnrollmentDependencies, run_post_fence_branches, spawn_pre_fence_enrollment_owner,
-};
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use post_fence::PostFenceEnrollmentDependencies;
+use post_fence::{run_post_fence_branches, spawn_pre_fence_enrollment_owner};
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 const NATIVE_PROMPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 type DispatchError = &'static str;
@@ -57,7 +59,7 @@ pub(super) enum DispatchFailure {
     Closed(DispatchError),
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[allow(clippy::significant_drop_tightening)]
 async fn dispatch_inner(
     app: &AppHandle,
@@ -85,7 +87,7 @@ pub(super) fn run_after_pair_gate<T>(
         ))
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 struct LivePostFenceAdmission<'a> {
     intents: &'a CredentialIntentRegistry,
     disposition: SecureCredentialPromptDisposition,
@@ -97,7 +99,7 @@ struct LivePostFenceAdmission<'a> {
     intent_session: Option<[u8; 32]>,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 impl PostFenceEnrollmentDependencies for LivePostFenceAdmission<'_> {
     type Output = PreparedCredentialEnrollmentExchange;
     type Error = DispatchFailure;
@@ -137,7 +139,7 @@ impl PostFenceEnrollmentDependencies for LivePostFenceAdmission<'_> {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[allow(clippy::significant_drop_tightening)]
 async fn dispatch_pair_inner(
     app: &AppHandle,
@@ -251,7 +253,7 @@ async fn dispatch_pair_inner(
     Ok(CredentialIntentProjection::Completed)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
 #[allow(clippy::unused_async)]
 async fn dispatch_inner(
     _app: &AppHandle,
@@ -264,6 +266,9 @@ async fn dispatch_inner(
     Err(DispatchFailure::Closed("provider_credential_unsupported"))
 }
 
+#[cfg(test)]
+#[path = "dispatch/platform_enrollment_scope_tests.rs"]
+mod platform_enrollment_scope_tests;
 #[cfg(test)]
 #[path = "dispatch/round2_tests.rs"]
 mod round2_tests;

@@ -11,6 +11,7 @@ use runne_provider::{
 
 #[cfg(any(test, feature = "test-support"))]
 use super::BrokeredProviderCredentialWriterAdapter;
+#[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
 use super::legacy_source::BrokeredProviderCredentialLegacySource;
 use super::{
     BrokeredCreateInput, BrokeredDeleteInput, BrokeredLegacySourceDeleteInput,
@@ -123,9 +124,12 @@ impl NativeProviderCredentialWriters {
         CredentialWriterClaimIssuer,
         Arc<dyn BrokeredProviderCredentialWriter>,
     ) {
+        #[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
         let NativeProviderCredentialEffectRoute::Legacy(writer) = self.effect_route else {
             panic!("authenticated service routes cannot enter the test-only legacy split")
         };
+        #[cfg(not(all(target_os = "macos", feature = "provider-credential-broker-writer")))]
+        let NativeProviderCredentialEffectRoute::Legacy(writer) = self.effect_route;
         (self.issuer, writer)
     }
 }

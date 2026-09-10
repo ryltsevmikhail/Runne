@@ -30,8 +30,11 @@ use prepared_workspace::{
     PreparedWorkspaceBinding, PreparedWorkspaceManager, PreparedWorkspaceReservationGuard,
     PreparedWorkspaceResponse,
 };
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use provider_credential_enrollment::{
     CredentialServiceRegistration, CredentialServiceRegistrationDisposition,
+};
+pub use provider_credential_enrollment::{
     CredentialWriterReaperLastError, CredentialWriterReaperSnapshot, CredentialWriterReaperState,
 };
 use runne_api::ProviderStatusSnapshotV1;
@@ -88,7 +91,6 @@ pub trait OwnedRuntimeLifecycle: Send + Sync {
     fn connect_runtime(&self) -> RuntimeConnectionFuture<'_> {
         Box::pin(async { Err(AppCoreError::RuntimeUnavailable) })
     }
-
     /// Runs the explicit-quit shutdown sequence for the proven owned runtime.
     fn stop_on_explicit_quit(&self);
 }
@@ -99,12 +101,11 @@ trait NativeRootAdmissionLifecycle: OwnedRuntimeLifecycle {
         workspace_id: WorkspaceId,
         expected_version: u64,
     ) -> RootAdmissionFuture;
-
     fn reap_failed_root_admission(
         &self,
         permit: tokio::sync::OwnedMutexGuard<()>,
     ) -> RootAdmissionReapFuture;
-
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     #[allow(dead_code)] // The protected prompt composition owns this fail-closed default.
     fn acquire_credential_enrollment_lease(&self) -> bundled_runtime::CredentialEnrollmentFuture {
         Box::pin(async { Err(AppCoreError::RuntimeUnavailable) })
@@ -119,7 +120,6 @@ pub struct RuntimeLifecycleManager {
     runtime_mode: RuntimeMode,
     shutting_down: AtomicBool,
 }
-
 impl RuntimeLifecycleManager {
     #[must_use]
     pub const fn external() -> Self {

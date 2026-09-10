@@ -147,10 +147,35 @@ class DesktopQualificationWorkflowTest(unittest.TestCase):
         install = structural.index("apt-get install -y --no-install-recommends git ca-certificates")
         checkout = structural.index('cd "$SOURCECRAFT_WORKSPACE"')
         trust = structural.index('git config --global --add safe.directory "$SOURCECRAFT_WORKSPACE"')
-        tests = structural.index("python3 -m unittest")
+        tests = structural.index('"$SOURCECRAFT_WORKSPACE/.ci-venv/bin/python" -m unittest')
         self.assertLess(install, checkout)
         self.assertLess(checkout, trust)
         self.assertLess(trust, tests)
+
+    def test_structural_task_provides_pinned_cargo_for_architecture_validation(self):
+        structural = self._task("qualification-structural")
+        self.assertIn(
+            "image: rust:1.97.1@sha256:4277ce860337f6cfa1b679891bbf689a447f4b3f4f55701742614ad31321cee7",
+            structural,
+        )
+        self.assertNotIn("sh.rustup.rs", structural)
+        self.assertNotIn("curl", structural)
+        self.assertIn("python3 -m venv \"$SOURCECRAFT_WORKSPACE/.ci-venv\"", structural)
+        venv_python = '"$SOURCECRAFT_WORKSPACE/.ci-venv/bin/python"'
+        self.assertIn(
+            f"{venv_python} -m pip install --disable-pip-version-check -r scripts/requirements-schema-tests.txt",
+            structural,
+        )
+        self.assertNotIn("python3 -m pip", structural)
+        self.assertNotIn("python3 -m unittest", structural)
+        self.assertNotIn("python3 scripts/desktop", structural)
+        cargo = structural.index('cargo --version | grep -Eq "^cargo 1\\.97\\.1 "')
+        rustc = structural.index('rustc --version | grep -Eq "^rustc 1\\.97\\.1 "')
+        venv = structural.index("python3 -m venv \"$SOURCECRAFT_WORKSPACE/.ci-venv\"")
+        architecture = structural.index("validate_architecture.py")
+        self.assertLess(cargo, architecture)
+        self.assertLess(rustc, architecture)
+        self.assertLess(venv, architecture)
 
     def test_arm64_native_task_requires_signed_package_and_external_authority(self):
         native = self._task("qualification-native-macos")

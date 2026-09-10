@@ -1,23 +1,28 @@
 use std::{
-    process::ExitCode,
     sync::{
-        Arc, Mutex,
+        Mutex,
         atomic::{AtomicUsize, Ordering},
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(target_os = "macos")]
+use std::process::ExitCode;
+#[cfg(target_os = "macos")]
+use std::sync::Arc;
+
 use runne_credential_service_core::CredentialServiceCore;
-use runne_macos_xpc::{
-    CredentialServiceEndpointConfiguration, CredentialServiceRequestHandler,
-    CredentialServiceXpcError, CredentialServiceXpcListener,
-};
+#[cfg(target_os = "macos")]
+use runne_macos_xpc::{CredentialServiceEndpointConfiguration, CredentialServiceXpcListener};
+use runne_macos_xpc::{CredentialServiceRequestHandler, CredentialServiceXpcError};
 use runne_provider::CredentialServiceEndpointRole as DomainRole;
 use zeroize::Zeroizing;
 
 use crate::service_backend::ServiceBackend;
 
+#[cfg(target_os = "macos")]
 const IDLE_TIMEOUT_MILLIS: u64 = 30_000;
+#[cfg(target_os = "macos")]
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 struct ServiceState {
@@ -44,6 +49,7 @@ impl ServiceHandler {
         })
     }
 
+    #[cfg(target_os = "macos")]
     fn activity(&self, now: u64) -> Result<(bool, usize, Duration), CredentialServiceXpcError> {
         let mut state = self
             .state
@@ -189,6 +195,7 @@ impl IdlePolicy {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn serve(
     configurations: &[CredentialServiceEndpointConfiguration; 3],
     local_fixture: bool,
@@ -243,6 +250,7 @@ fn serve(
     }
 }
 
+#[cfg(target_os = "macos")]
 pub fn run() -> ExitCode {
     let Ok(installed) = crate::package_identity::installed_configurations() else {
         return ExitCode::FAILURE;

@@ -75,7 +75,7 @@ fn qualification_clock_is_epoch_time_and_boot_duration_cannot_verify() {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    let observed = super::super::unix_epoch_qualification_clock()().unwrap();
+    let observed = super::super::clocks::unix_epoch_qualification_clock()().unwrap();
     let after = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()

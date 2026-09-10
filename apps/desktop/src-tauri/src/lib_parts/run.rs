@@ -109,7 +109,7 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             }
         },
     };
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     let qualification_admission =
         crate::bundled_runtime::qualification_ticket::admit_inherited_qualification_admission(
             monitor
@@ -131,7 +131,7 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .forward(app.handle(), std::env::args_os().skip(1));
     app.manage(ConversationSubscriptionManager::new());
     app.manage(TaskRunSubscriptionManager::new());
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     app.manage(qualification_admission);
     app.manage(lifecycle);
     if let Some(controller) = monitor.take() {

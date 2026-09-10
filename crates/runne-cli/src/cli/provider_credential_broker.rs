@@ -1,14 +1,19 @@
+#[cfg(any(test, target_os = "macos"))]
 #[path = "provider_credential_broker/claim.rs"]
 mod claim;
 #[cfg(target_os = "macos")]
 #[path = "provider_credential_broker/channel.rs"]
 mod channel;
+#[cfg(any(test, target_os = "macos"))]
 #[path = "provider_credential_broker/effect.rs"]
 mod effect;
+#[cfg(any(test, target_os = "macos"))]
 #[path = "provider_credential_broker/pair.rs"]
 mod pair;
+#[cfg(any(test, target_os = "macos"))]
 #[path = "provider_credential_broker/run.rs"]
 mod run;
+#[cfg(any(test, target_os = "macos"))]
 #[path = "provider_credential_broker/secret.rs"]
 mod secret;
 

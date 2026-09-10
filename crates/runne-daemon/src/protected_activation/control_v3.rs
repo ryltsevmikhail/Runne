@@ -2,7 +2,7 @@ use super::*;
 mod clocks;
 #[cfg(unix)]
 mod discovery;
-#[cfg(unix)]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(crate) mod initial_exchange;
 mod live_session;
 mod renewal;
@@ -10,10 +10,15 @@ mod renewal;
 mod round;
 #[cfg(unix)]
 mod runtime;
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 use clocks::QualificationClock;
 use clocks::TicketClock;
-pub(crate) use clocks::{macos_continuous_ticket_clock, unix_epoch_qualification_clock};
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
+pub(crate) use clocks::macos_continuous_ticket_clock;
 #[cfg(unix)]
 use runtime::V3EnrollmentRuntime;
 #[cfg(all(test, unix))]
@@ -22,9 +27,7 @@ pub(crate) use runtime::require_shutdown_terminal;
 pub(super) use runtime::with_control;
 #[cfg(unix)]
 pub(super) use runtime::{V3EnrollmentDispatch, enrollment_transcript_allows_rotation};
-
-/// Serves only enrollment V3 renewal, broker writer-handoff, and shutdown
-/// frames.
+/// Serves enrollment V3 renewal, broker writer-handoff, and shutdown frames.
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 #[cfg_attr(
     not(test),
@@ -59,10 +62,7 @@ pub(crate) fn run_control_loop_v3(
         ),
     )
 }
-
-/// Continues V3 on an entered channel. Same-process upgrades avoid re-entry;
-/// broker offers consume rendezvous in order. Retained kill authority terminates
-/// the writer on later failure; V1/V2 frames fail closed.
+/// Continues entered V3; failures retain kill authority and reject V1/V2 frames.
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 pub(crate) fn run_control_loop_v3_entered(
     mut channel: ProtectedActivationChannel,
@@ -149,6 +149,7 @@ pub(crate) fn run_control_loop_v3_entered(
                 broker,
                 session: Some(enrollment),
                 terminal,
+                #[cfg(target_os = "macos")]
                 claim_measurements: None,
                 #[cfg(target_os = "macos")]
                 channel: None,
@@ -173,6 +174,7 @@ pub(crate) fn run_control_loop_v3_entered(
             )?),
             session: None,
             terminal: true,
+            #[cfg(target_os = "macos")]
             claim_measurements: None,
             #[cfg(target_os = "macos")]
             channel: None,
@@ -199,7 +201,6 @@ pub(crate) fn run_control_loop_v3_entered(
     }
     transcript
 }
-
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 #[allow(clippy::too_many_arguments)]
 fn serve_v3_transcript(

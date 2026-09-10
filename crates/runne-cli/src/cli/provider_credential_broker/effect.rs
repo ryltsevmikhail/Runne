@@ -36,6 +36,8 @@ pub fn execute_pair_effect(authority: AuthorizedPairWriterControl) -> Result<(),
         envelope,
         service_handoff,
     } = authority.into_effect_parts();
+    #[cfg(not(target_os = "macos"))]
+    drop(service_handoff);
     if command.action() != CredentialOperationAction::Pair {
         return Err(CliError::CredentialOperation);
     }
@@ -70,7 +72,7 @@ pub fn execute_pair_effect(authority: AuthorizedPairWriterControl) -> Result<(),
     result
 }
 
-#[cfg(feature = "local-native-enrollment-test")]
+#[cfg(all(feature = "local-native-enrollment-test", target_os = "macos"))]
 fn pause_after_legacy_source_delete(
     result: &Result<(), CliError>,
     legacy_source_cleanup: bool,
@@ -89,7 +91,7 @@ fn pause_after_legacy_source_delete(
     Ok(())
 }
 
-#[cfg(feature = "local-native-enrollment-test")]
+#[cfg(all(feature = "local-native-enrollment-test", target_os = "macos"))]
 fn wait_for_legacy_delete_release() -> Result<(), CliError> {
     use std::io::Write as _;
     use std::os::unix::fs::PermissionsExt as _;
@@ -133,7 +135,9 @@ pub fn execute_non_pair_effect(authority: AuthorizedWriterControl) -> Result<(),
         effect_kind,
         service_handoff,
     } = authority.into_effect_parts();
-    #[cfg(feature = "local-native-enrollment-test")]
+    #[cfg(not(target_os = "macos"))]
+    drop(service_handoff);
+    #[cfg(all(feature = "local-native-enrollment-test", target_os = "macos"))]
     let legacy_source_cleanup = matches!(&effect_kind, NonPairWriterEffectKind::DeleteLegacySource);
     let result = match (effect_route, effect_kind) {
         (NativeProviderCredentialEffectRoute::Legacy(writer), effect_kind) => match effect_kind {
@@ -209,7 +213,7 @@ pub fn execute_non_pair_effect(authority: AuthorizedWriterControl) -> Result<(),
                 .map_err(|_| CliError::CredentialOperation)
         }
     };
-    #[cfg(feature = "local-native-enrollment-test")]
+    #[cfg(all(feature = "local-native-enrollment-test", target_os = "macos"))]
     pause_after_legacy_source_delete(&result, legacy_source_cleanup)?;
     control.write_frame(CredentialBrokerFrame::NativeEffectObserved {
         operation_id: command.operation_id(),

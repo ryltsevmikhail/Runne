@@ -137,7 +137,10 @@ impl UpdateCoordinator {
         self.test_support_revalidate_confirmed_at(confirmed, now_unix_seconds, artifacts)
     }
 
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(any(
+        test,
+        all(feature = "test-support", target_os = "macos", target_arch = "aarch64")
+    ))]
     pub(super) fn test_support_revalidate_confirmed_at(
         &self,
         confirmed: &ConfirmedInstalledNativeEnrollment,

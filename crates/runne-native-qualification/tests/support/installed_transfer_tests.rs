@@ -2,7 +2,7 @@ use super::installed_surface_audit::audit_sources;
 use super::installed_surface_daemon::{SESSION_SOURCE, TRANSFER_SOURCE};
 
 const SESSION: &str = "pub(crate) struct DaemonProtectedCredentialEnrollmentSession {
-#[cfg(all(target_os = \"macos\", feature = \"desktop-protected\"))]
+#[cfg(all(target_os = \"macos\", target_arch = \"aarch64\", feature = \"desktop-protected\"))]
 qualification: Option<crate::protected_activation::control_v3::initial_exchange::VerifiedQualificationAdmission>
 }";
 const TRANSFER: &str = "impl DaemonProtectedCredentialEnrollmentSession {

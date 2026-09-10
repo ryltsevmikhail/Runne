@@ -16,6 +16,11 @@ pub(in crate::application::provider_credential_enrollment) struct ClaimedBrokerE
 }
 
 impl ClaimedBrokerEffect {
+    #[cfg(all(
+        feature = "desktop-protected",
+        any(test, all(target_os = "macos", target_arch = "aarch64"))
+    ))]
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     pub(crate) const fn operation_id(&self) -> CredentialOperationId {
         self.operation_id
     }

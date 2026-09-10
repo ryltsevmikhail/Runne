@@ -1,6 +1,6 @@
-use runne_provider::{
-    CredentialWriterAuthorityPair, CredentialWriterClaimIssuer, CredentialWriterEffectAuthority,
-};
+#[cfg(any(test, target_os = "macos"))]
+use runne_provider::CredentialWriterAuthorityPair;
+use runne_provider::{CredentialWriterClaimIssuer, CredentialWriterEffectAuthority};
 
 #[allow(
     clippy::redundant_pub_crate,
@@ -90,6 +90,13 @@ pub struct AuthenticatedProviderCredentialWriterSession {
 /// let _ = AuthenticatedWriterClaimContext { issuer };
 /// ```
 pub struct AuthenticatedWriterClaimContext {
+    #[cfg_attr(
+        not(any(test, target_os = "macos")),
+        expect(
+            dead_code,
+            reason = "opaque claim surface is retained; only macOS can admit a native session"
+        )
+    )]
     issuer: CredentialWriterClaimIssuer,
     #[cfg(target_os = "macos")]
     native: Option<(
@@ -129,12 +136,20 @@ pub struct AuthenticatedWriterClaimContext {
 /// let _ = AuthenticatedWriterEffectAdmission { effects };
 /// ```
 pub struct AuthenticatedWriterEffectAdmission {
+    #[cfg_attr(
+        not(any(test, target_os = "macos")),
+        expect(
+            dead_code,
+            reason = "opaque effect surface is retained; only macOS can admit a native session"
+        )
+    )]
     effects: CredentialWriterEffectAuthority,
     #[cfg(target_os = "macos")]
     native_paths: Option<(std::path::PathBuf, std::path::PathBuf)>,
 }
 
 impl AuthenticatedProviderCredentialWriterSession {
+    #[cfg(any(test, target_os = "macos"))]
     #[allow(
         clippy::redundant_pub_crate,
         reason = "the sibling verifier is the sole production caller"
@@ -150,44 +165,58 @@ impl AuthenticatedProviderCredentialWriterSession {
 
     /// Consumes the admitted session and creates one matched claim/effect pair.
     #[must_use]
+    #[cfg_attr(
+        not(any(test, target_os = "macos")),
+        expect(
+            clippy::missing_const_for_fn,
+            reason = "the shared opaque API performs non-const authority creation on macOS"
+        )
+    )]
     pub fn split(
         self,
     ) -> (
         AuthenticatedWriterClaimContext,
         AuthenticatedWriterEffectAdmission,
     ) {
-        #[cfg(target_os = "macos")]
-        let (native, native_paths) = match self.verified {
-            #[cfg(target_os = "macos")]
-            VerifiedEnrollmentSession::MacOs(parts) => {
-                let (control, channel, ticket, writer, reader, release) = *parts;
-                (
-                    Some((control, channel, ticket, release)),
-                    Some((writer, reader)),
-                )
-            }
-            #[cfg(test)]
-            VerifiedEnrollmentSession::Verified => (None, None),
-        };
-        #[cfg(not(target_os = "macos"))]
-        match self.verified {
-            #[cfg(test)]
-            VerifiedEnrollmentSession::Verified => {}
+        #[cfg(not(any(test, target_os = "macos")))]
+        {
+            match self.verified {}
         }
-        let pair = CredentialWriterAuthorityPair::new();
-        let (issuer, effects) = pair.split();
-        (
-            AuthenticatedWriterClaimContext {
-                issuer,
+        #[cfg(any(test, target_os = "macos"))]
+        {
+            #[cfg(target_os = "macos")]
+            let (native, native_paths) = match self.verified {
                 #[cfg(target_os = "macos")]
-                native,
-            },
-            AuthenticatedWriterEffectAdmission {
-                effects,
-                #[cfg(target_os = "macos")]
-                native_paths,
-            },
-        )
+                VerifiedEnrollmentSession::MacOs(parts) => {
+                    let (control, channel, ticket, writer, reader, release) = *parts;
+                    (
+                        Some((control, channel, ticket, release)),
+                        Some((writer, reader)),
+                    )
+                }
+                #[cfg(test)]
+                VerifiedEnrollmentSession::Verified => (None, None),
+            };
+            #[cfg(not(target_os = "macos"))]
+            match self.verified {
+                #[cfg(test)]
+                VerifiedEnrollmentSession::Verified => {}
+            }
+            let pair = CredentialWriterAuthorityPair::new();
+            let (issuer, effects) = pair.split();
+            (
+                AuthenticatedWriterClaimContext {
+                    issuer,
+                    #[cfg(target_os = "macos")]
+                    native,
+                },
+                AuthenticatedWriterEffectAdmission {
+                    effects,
+                    #[cfg(target_os = "macos")]
+                    native_paths,
+                },
+            )
+        }
     }
 }
 

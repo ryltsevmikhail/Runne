@@ -146,6 +146,7 @@ impl BrokerHandoffDispatch {
         Err(LaunchAuthorityError::UnsupportedPlatformBackend)
     }
 
+    #[cfg(target_os = "macos")]
     fn write_kill_ack(
         &mut self,
         channel: &mut ProtectedActivationChannel,

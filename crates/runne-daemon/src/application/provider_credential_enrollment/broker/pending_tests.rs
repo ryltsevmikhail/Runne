@@ -1,18 +1,20 @@
+#[cfg(all(feature = "desktop-protected", unix))]
 use runne_api::{
     LaunchSecret, ProtectedCredentialEnrollmentAdmissionBinding,
     ProtectedCredentialEnrollmentAuthenticator, ProtectedCredentialEnrollmentControlFrame,
     ProtectedCredentialEnrollmentRequestBinding, ProviderCredentialRequestAuthorityIssuer,
     ProviderCredentialRequestAuthorityPair,
 };
-use runne_provider::{
-    CredentialBindingDigest, CredentialInstallationOwnerId, CredentialOperationId,
-};
+use runne_provider::CredentialOperationId;
+#[cfg(all(feature = "desktop-protected", unix))]
+use runne_provider::{CredentialBindingDigest, CredentialInstallationOwnerId};
 
 use crate::application::provider_credential_enrollment::operation_handle::ProviderCredentialOperationHandleIssuer;
 
-use super::{
-    PendingBrokerEndpointHandoff, PendingBrokerRendezvousBinding, PendingBrokerRendezvousRegistry,
-};
+use super::PendingBrokerRendezvousRegistry;
+#[cfg(all(feature = "desktop-protected", unix))]
+use super::{PendingBrokerEndpointHandoff, PendingBrokerRendezvousBinding};
+#[cfg(all(feature = "desktop-protected", unix))]
 use crate::application::provider_credential_enrollment::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous;
 
 #[test]
@@ -24,7 +26,7 @@ fn restarted_registry_has_no_live_rendezvous_authority() {
     assert!(!registry.has_live(operation, 1));
 }
 
-#[cfg(feature = "desktop-protected")]
+#[cfg(all(feature = "desktop-protected", unix))]
 #[test]
 fn matching_foreign_transfer_key_is_rejected_before_endpoint_handoff() {
     let (issuer_a, _) = ProviderCredentialRequestAuthorityPair::new().split();
@@ -56,7 +58,7 @@ fn matching_foreign_transfer_key_is_rejected_before_endpoint_handoff() {
     assert!(handoff.send_endpoint(sender, transfer).is_err());
 }
 
-#[cfg(feature = "desktop-protected")]
+#[cfg(all(feature = "desktop-protected", unix))]
 #[test]
 fn transfer_authority_requires_the_same_daemon_issuer_and_session() {
     let (issuer, _) = ProviderCredentialRequestAuthorityPair::new().split();
@@ -70,7 +72,7 @@ fn transfer_authority_requires_the_same_daemon_issuer_and_session() {
     assert!(!transfer.matches_handoff(&witness, &[8; 32]));
 }
 
-#[cfg(feature = "desktop-protected")]
+#[cfg(all(feature = "desktop-protected", unix))]
 fn verified_transfer_authority(
     issuer: &ProviderCredentialRequestAuthorityIssuer,
     secret: [u8; 32],
@@ -136,7 +138,7 @@ fn verified_transfer_authority(
     transfer
 }
 
-#[cfg(feature = "desktop-protected")]
+#[cfg(all(feature = "desktop-protected", unix))]
 const fn uuid(value: u8) -> [u8; 16] {
     [0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, value]
 }

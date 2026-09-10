@@ -1,3 +1,8 @@
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
 use runne_api::{
     ProtectedCredentialEnrollmentOwnedLaunchV3, ProviderCredentialEnrollmentHostError,
 };
@@ -22,6 +27,11 @@ pub(crate) struct ProtectedEnrollmentSessionFacts {
 }
 
 impl ProtectedEnrollmentSessionFacts {
+    #[cfg(all(
+        target_os = "macos",
+        target_arch = "aarch64",
+        feature = "desktop-protected"
+    ))]
     pub(crate) fn from_owned(
         owned: &ProtectedCredentialEnrollmentOwnedLaunchV3,
         runtime_authority: [u8; 16],

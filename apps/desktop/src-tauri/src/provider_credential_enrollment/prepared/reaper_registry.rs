@@ -5,7 +5,7 @@ use std::time::Duration;
 use super::reap_guard::ExactWriterCleanup;
 #[path = "reaper_registry/worker.rs"]
 mod worker;
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 use worker::matching_entries;
 use worker::{AttemptKind, attempt_entry, eligible_entries, maintenance_loop};
 
@@ -13,6 +13,13 @@ use worker::{AttemptKind, attempt_entry, eligible_entries, maintenance_loop};
 pub(in crate::provider_credential_enrollment) struct ReaperOperationId(String);
 
 impl ReaperOperationId {
+    #[cfg_attr(
+        all(not(test), not(all(target_os = "macos", target_arch = "aarch64"))),
+        expect(
+            dead_code,
+            reason = "only native enrollment producers create reaper operations"
+        )
+    )]
     pub(in crate::provider_credential_enrollment) fn new(value: &str) -> Option<Self> {
         (!value.is_empty() && value.len() <= 128).then(|| Self(value.to_owned()))
     }
@@ -49,7 +56,7 @@ impl CredentialWriterReaperSnapshot {
         self.operation.0.as_str()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
     pub(in crate::provider_credential_enrollment) const fn operation(&self) -> &ReaperOperationId {
         &self.operation
     }
@@ -125,6 +132,13 @@ impl<C: ExactWriterCleanup + Send + 'static> CredentialWriterReaperRegistry<C> {
         }))
     }
 
+    #[cfg_attr(
+        all(not(test), not(all(target_os = "macos", target_arch = "aarch64"))),
+        expect(
+            dead_code,
+            reason = "only native enrollment producers retain failed writer cleanup"
+        )
+    )]
     pub(in crate::provider_credential_enrollment) fn retain_after_initial_failure(
         &self,
         operation: ReaperOperationId,
@@ -152,7 +166,7 @@ impl<C: ExactWriterCleanup + Send + 'static> CredentialWriterReaperRegistry<C> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
     pub(in crate::provider_credential_enrollment) fn retry_after_outer_stop(
         &self,
         operation: &ReaperOperationId,
@@ -166,6 +180,13 @@ impl<C: ExactWriterCleanup + Send + 'static> CredentialWriterReaperRegistry<C> {
         self.operation_reaped(operation)
     }
 
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        expect(
+            dead_code,
+            reason = "only native enrollment producers retry retained writers after outer stop"
+        )
+    )]
     pub fn retry_all_after_outer_stop(&self) -> bool {
         let stopping = recover_lock(&self.core.state).stopping;
         let entries = eligible_entries(&self.core, true);
@@ -184,6 +205,13 @@ impl<C: ExactWriterCleanup + Send + 'static> CredentialWriterReaperRegistry<C> {
         self.snapshot().iter().all(|entry| !entry.owner_retained)
     }
 
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        expect(
+            dead_code,
+            reason = "only native enrollment producers admit another protected writer"
+        )
+    )]
     pub fn accepts_writer(&self) -> bool {
         let state = recover_lock(&self.core.state);
         !state.stopping
@@ -210,7 +238,7 @@ impl<C: ExactWriterCleanup + Send + 'static> CredentialWriterReaperRegistry<C> {
             .collect()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
     pub(in crate::provider_credential_enrollment) fn maintenance_is_owned(&self) -> bool {
         recover_lock(&self.maintenance).is_some()
     }
@@ -229,7 +257,7 @@ impl<C: ExactWriterCleanup + Send + 'static> CredentialWriterReaperRegistry<C> {
         self.snapshot().iter().all(|entry| !entry.owner_retained)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
     fn operation_reaped(&self, operation: &ReaperOperationId) -> bool {
         self.snapshot()
             .iter()

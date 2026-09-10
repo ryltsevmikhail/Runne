@@ -110,11 +110,11 @@ fn ordinary_runtime_endpoint_frame_wire_and_ceiling_sources_are_golden() {
         ),
         (
             "crates/runne-macos-xpc/src/peer_requirement.rs",
-            "0cc2167c572885fa20d2ef752caff17131e197ee7f64366ebb9de40ac303e5b8",
+            "17e76d46555adbe4dc0aeb12cc5c9afa0ea2ee9bf2b4bcab584246334a9e0e21",
         ),
         (
             "crates/runne-macos-xpc/src/frame.rs",
-            "bd1de92e4305bbea90ece5b257fedeb0403ee38dd1829c21cea3b8564eb38f9b",
+            "6359e70fcb051fd1f83780569abbb7c78a7075ba33a909184dd05bad80017315",
         ),
         (
             "crates/runne-macos-xpc/src/native_protocol.m",

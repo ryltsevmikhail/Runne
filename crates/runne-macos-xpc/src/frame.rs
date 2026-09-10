@@ -19,10 +19,12 @@ macro_rules! native_frame {
                 Ok(Self(bytes))
             }
 
+            #[cfg(target_os = "macos")]
             pub(crate) fn with_bytes<T>(&self, use_bytes: impl FnOnce(&[u8]) -> T) -> T {
                 use_bytes(&self.0)
             }
 
+            #[cfg(any(test, target_os = "macos"))]
             pub(crate) fn into_bytes(self) -> Zeroizing<Vec<u8>> {
                 self.0
             }

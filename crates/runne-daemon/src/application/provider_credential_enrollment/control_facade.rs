@@ -1,11 +1,23 @@
 use std::sync::Arc;
 
+use super::{
+    broker::pending::PendingBrokerRendezvousRegistry,
+    operation_handle::ProviderCredentialOperationHandleIssuer,
+};
 use rand::{RngCore as _, rngs::OsRng};
+use runne_api::ProviderCredentialEnrollmentHostError;
+#[cfg(any(
+    all(test, unix),
+    all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    )
+))]
 use runne_api::{
     BeginProviderCredentialEnrollment, ProviderCredentialBaseRequestAuthority,
-    ProviderCredentialCommandContext, ProviderCredentialEnrollmentHostError,
-    ProviderCredentialIntentConsumptionProof, ProviderCredentialOperationSnapshotV2,
-    ProviderCredentialRequestAuthorityVerifier,
+    ProviderCredentialCommandContext, ProviderCredentialIntentConsumptionProof,
+    ProviderCredentialOperationSnapshotV2, ProviderCredentialRequestAuthorityVerifier,
 };
 use runne_provider::{
     CredentialEnrollmentMeasurementAuthority, CredentialEnrollmentStoreAuthority,
@@ -13,27 +25,67 @@ use runne_provider::{
 use runne_secure_store::ProviderCredentialReadback;
 use runne_store::provider::SqliteProviderCredentialLifecycleStore;
 
-use super::{
-    ProviderCredentialAdmission, begin::ProviderCredentialEnrollmentBegin,
-    broker::pending::PendingBrokerRendezvousRegistry,
-    operation_handle::ProviderCredentialOperationHandleIssuer,
-};
+#[cfg(any(
+    all(test, unix),
+    all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    )
+))]
+use super::{ProviderCredentialAdmission, begin::ProviderCredentialEnrollmentBegin};
 
-#[cfg(any(test, feature = "desktop-protected"))]
+#[cfg(any(
+    all(test, unix),
+    all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    )
+))]
 mod protected_session;
 #[cfg(all(
+    feature = "desktop-protected",
     target_os = "macos",
-    target_arch = "aarch64",
-    feature = "desktop-protected"
+    target_arch = "aarch64"
 ))]
 pub(crate) use protected_session::PostcommitAdmissionPermit;
-#[cfg(any(test, feature = "desktop-protected"))]
+#[cfg(any(
+    all(test, unix),
+    all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    )
+))]
+pub(crate) use protected_session::ProtectedEnrollmentSessionFacts;
+#[cfg(any(
+    all(test, unix),
+    all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    )
+))]
 pub(crate) use protected_session::{
     DaemonProtectedCredentialEnrollmentSession, InitialCredentialExchange,
-    ProtectedEnrollmentSessionFacts,
 };
 
 /// Daemon-owned online-enrollment authorities paired to the canonical store.
+#[cfg_attr(
+    not(any(
+        all(test, unix),
+        all(
+            feature = "desktop-protected",
+            target_os = "macos",
+            target_arch = "aarch64"
+        )
+    )),
+    expect(
+        dead_code,
+        reason = "canonical composition retains the portable lifecycle control for its authenticated host boundary"
+    )
+)]
 pub(crate) struct DaemonProviderCredentialEnrollmentControl {
     store: Arc<SqliteProviderCredentialLifecycleStore>,
     readback: Arc<dyn ProviderCredentialReadback>,
@@ -41,7 +93,17 @@ pub(crate) struct DaemonProviderCredentialEnrollmentControl {
     enrollment_store_authority: CredentialEnrollmentStoreAuthority,
     handles: ProviderCredentialOperationHandleIssuer,
     rendezvous: PendingBrokerRendezvousRegistry,
+    #[cfg(all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    ))]
     runtime_authority: [u8; 16],
+    #[cfg(all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    ))]
     database_generation: u64,
     #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
     credential_service: Option<Arc<crate::protected_activation::CredentialServiceRuntimeGateway>>,
@@ -62,8 +124,7 @@ impl DaemonProviderCredentialEnrollmentControl {
         if runtime_authority == [0; 16] || database_generation == 0 {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
-        let handle_key = generate_handle_key()?;
-        let handles = ProviderCredentialOperationHandleIssuer::new(handle_key);
+        let handles = ProviderCredentialOperationHandleIssuer::new(generate_handle_key()?);
         let rendezvous = PendingBrokerRendezvousRegistry::new(handles.duplicate());
         Ok(Self {
             store,
@@ -72,7 +133,17 @@ impl DaemonProviderCredentialEnrollmentControl {
             enrollment_store_authority,
             handles,
             rendezvous,
+            #[cfg(all(
+                feature = "desktop-protected",
+                target_os = "macos",
+                target_arch = "aarch64"
+            ))]
             runtime_authority,
+            #[cfg(all(
+                feature = "desktop-protected",
+                target_os = "macos",
+                target_arch = "aarch64"
+            ))]
             database_generation,
             #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
             credential_service,
@@ -97,6 +168,14 @@ impl DaemonProviderCredentialEnrollmentControl {
         Ok(Arc::clone(gateway))
     }
 
+    #[cfg(any(
+        all(test, unix),
+        all(
+            feature = "desktop-protected",
+            target_os = "macos",
+            target_arch = "aarch64"
+        )
+    ))]
     #[allow(clippy::too_many_arguments)]
     fn begin_admitted(
         &self,
@@ -148,7 +227,7 @@ impl DaemonProviderCredentialEnrollmentControl {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn start_test_protected_session(
         self: &Arc<Self>,
         keys: &runne_api::ProtectedActivationKeys,
@@ -189,8 +268,23 @@ mod tests {
         assert_ne!(first, [0; 32]);
         assert_ne!(first, second);
     }
+
+    #[test]
+    fn control_constructor_has_one_unconditional_portable_implementation() {
+        let source = include_str!("control_facade.rs");
+        let production = source.split_once("#[cfg(test)]\nmod tests").unwrap().0;
+        let signature = "pub(crate) fn new(";
+        assert_eq!(production.matches(signature).count(), 1);
+        assert!(production.contains(concat!(
+            "impl DaemonProviderCredentialEnrollmentControl {\n",
+            "    pub(crate) fn new("
+        )));
+        let constructor = production.split_once(signature).unwrap().1;
+        let constructor = constructor.split_once("pub(crate) fn install_").unwrap().0;
+        assert!(!constructor.contains("ProviderCredentialEnrollmentHostError::Unsupported"));
+    }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "control_facade_tests/protected_session.rs"]
 mod protected_session_tests;

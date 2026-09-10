@@ -15,7 +15,7 @@ pub fn run_verified_protected_channel(
 ) -> Result<(), DaemonError> {
     #[cfg(feature = "desktop-protected")]
     {
-        #[cfg(all(feature = "test-support", not(test), target_os = "macos"))]
+        #[cfg(all(unix, feature = "test-support", not(test)))]
         if runne_api::test_support::local_credential_service_fixture_enabled() {
             return run_verified_protected_channel_with_fixture(channel, |runtime_root| {
                 let runtime_root = runtime_root.to_path_buf();

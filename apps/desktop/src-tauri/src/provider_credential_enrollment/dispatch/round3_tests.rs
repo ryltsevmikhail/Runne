@@ -4,20 +4,27 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use super::LivePostFenceAdmission;
 use super::post_fence::spawn_pre_fence_enrollment_owner;
-use super::{LivePostFenceAdmission, run_post_fence_branches};
+use super::run_post_fence_branches;
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 use crate::bundled_runtime::test_only_live_enrollment_runtime;
-use crate::provider_credential_enrollment::prepared::reap_guard::{
-    ExactWriterCleanup, RetainedWriterCleanup,
-};
-use crate::provider_credential_enrollment::prepared::reaper_registry::{
-    CredentialWriterReaperRegistry, ReaperOperationId,
-};
+#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+use crate::provider_credential_enrollment as portable_reaper;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use crate::provider_credential_enrollment::prepared as portable_reaper;
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 use crate::provider_credential_enrollment::{CredentialIntentIpc, CredentialIntentRegistry};
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 use crate::updater_status::enrollment::{
     test_only_current_enrollment_updater, test_only_expired_enrollment_updater,
 };
+use portable_reaper::reap_guard::{ExactWriterCleanup, RetainedWriterCleanup};
+use portable_reaper::reaper_registry::{CredentialWriterReaperRegistry, ReaperOperationId};
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 use runne_api::{ProviderCredentialEnrollmentActionV2, ProviderCredentialProviderV2};
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 use runne_platform_desktop::{SecureCredentialMaterial, SecureCredentialPromptDisposition};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -181,6 +188,7 @@ impl ChildCleanup {
     }
 }
 
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 #[tokio::test]
 async fn exact_live_post_fence_branches_fail_closed_before_writer() {
     for fault in [
@@ -244,6 +252,7 @@ async fn exact_live_post_fence_branches_fail_closed_before_writer() {
     }
 }
 
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum LiveFault {
     MissingV3,
@@ -251,6 +260,7 @@ enum LiveFault {
     FullRegistry,
 }
 
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 fn pair_request() -> CredentialIntentIpc {
     CredentialIntentIpc {
         provider: ProviderCredentialProviderV2::OpenAi,
@@ -261,6 +271,7 @@ fn pair_request() -> CredentialIntentIpc {
     }
 }
 
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 fn fill_registry(registry: &CredentialIntentRegistry) {
     let now = Instant::now();
     while registry.pending_len() < 64 {

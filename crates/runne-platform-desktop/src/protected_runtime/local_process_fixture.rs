@@ -33,12 +33,10 @@ fn select_launch_artifact(
     Ok(selected)
 }
 
+#[cfg(feature = "test-support")]
 fn preserve_local_process_environment(
     command: &mut Command,
 ) -> Result<(), ProtectedBundledRuntimeError> {
-    #[cfg(not(feature = "test-support"))]
-    let _ = command;
-    #[cfg(feature = "test-support")]
     if runne_api::test_support::local_native_enrollment_enabled() {
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)

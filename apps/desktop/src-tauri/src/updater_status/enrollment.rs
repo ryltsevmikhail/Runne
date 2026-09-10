@@ -13,7 +13,7 @@ use super::{CompiledUpdater, UpdateStatusStore};
 pub struct NativeInstalledEnrollmentLease {
     updater: OwnedMutexGuard<CompiledUpdater>,
     prepared: Option<PreparedInstalledNativeEnrollment>,
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
     test_revalidation: Option<runne_platform_desktop::TestOnlyEnrollmentRevalidation>,
 }
 
@@ -46,7 +46,7 @@ impl NativeInstalledEnrollmentLease {
         &self,
         confirmed: &ConfirmedInstalledNativeEnrollment,
     ) -> Result<(), ()> {
-        #[cfg(test)]
+        #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
         if let Some(revalidation) = self.test_revalidation.as_ref() {
             return revalidation
                 .revalidate(&self.updater.coordinator, confirmed)
@@ -87,19 +87,19 @@ impl UpdateStatusStore {
         Ok(prepared.map(|prepared| NativeInstalledEnrollmentLease {
             updater,
             prepared: Some(prepared),
-            #[cfg(test)]
+            #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
             test_revalidation: None,
         }))
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub struct TestOnlyEnrollmentUpdater {
     pub(crate) lease: NativeInstalledEnrollmentLease,
     pub(crate) confirmed: ConfirmedInstalledNativeEnrollment,
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub async fn test_only_current_enrollment_updater(
     directory: &std::path::Path,
 ) -> TestOnlyEnrollmentUpdater {
@@ -109,7 +109,7 @@ pub async fn test_only_current_enrollment_updater(
     .await
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub async fn test_only_expired_enrollment_updater(
     directory: &std::path::Path,
 ) -> TestOnlyEnrollmentUpdater {
@@ -119,7 +119,7 @@ pub async fn test_only_expired_enrollment_updater(
     .await
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 async fn test_only_enrollment_updater(
     fixture: runne_platform_desktop::TestOnlyEnrollmentUpdaterFixture,
 ) -> TestOnlyEnrollmentUpdater {
@@ -133,6 +133,7 @@ async fn test_only_enrollment_updater(
         lease: NativeInstalledEnrollmentLease {
             updater: updater.lock_owned().await,
             prepared: None,
+            #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
             test_revalidation: Some(revalidation),
         },
         confirmed,

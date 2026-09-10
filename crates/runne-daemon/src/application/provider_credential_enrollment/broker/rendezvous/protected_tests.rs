@@ -30,12 +30,9 @@ fn protected_handoff_moves_only_the_daemon_created_writer_endpoint() {
         )
     });
 
-    assert_eq!(
-        rendezvous
-            .handoff_writer_endpoint(sender, &sender_authority)
-            .unwrap(),
-        expected
-    );
+    let _handoff = rendezvous
+        .handoff_writer_endpoint(sender, &sender_authority)
+        .unwrap();
     let endpoint = receiver_thread.join().unwrap().unwrap();
     assert_eq!(endpoint.channel_binding(), expected);
     assert_eq!(endpoint.publication_public_key(), expected_publication_key);

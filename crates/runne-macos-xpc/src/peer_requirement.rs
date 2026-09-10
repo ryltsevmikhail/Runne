@@ -71,6 +71,7 @@ impl CredentialServicePeerRequirement {
         Ok(Self(value))
     }
 
+    #[cfg(target_os = "macos")]
     pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
@@ -166,9 +167,11 @@ impl CredentialServiceEndpointConfiguration {
     pub const fn endpoint_name(&self) -> &'static str {
         self.endpoint_name
     }
+    #[cfg(target_os = "macos")]
     pub(crate) const fn service_requirement(&self) -> &CredentialServicePeerRequirement {
         &self.service_requirement
     }
+    #[cfg(target_os = "macos")]
     pub(crate) const fn client_requirement(&self) -> &CredentialServicePeerRequirement {
         &self.client_requirement
     }

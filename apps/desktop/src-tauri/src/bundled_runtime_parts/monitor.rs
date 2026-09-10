@@ -38,6 +38,7 @@ impl BundledRuntimeController {
                 .await;
             return;
         };
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         if let Err(error) = self.drive_credential_service_rejoin().await {
             let _ = self.reject_current_client(map_protected_failure(error)).await;
             return;
@@ -113,6 +114,7 @@ impl BundledRuntimeController {
         let _ = self.connect_pending_profile(lease).await;
     }
 
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     async fn drive_credential_service_rejoin(
         &self,
     ) -> Result<(), ProtectedBundledRuntimeError> {

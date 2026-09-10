@@ -179,6 +179,7 @@ impl NativeEnrollmentTupleAdmission {
         self.release_tuple_sha256
     }
 
+    #[cfg(any(test, target_os = "macos"))]
     #[must_use]
     pub(crate) const fn installed_generation(&self) -> u64 {
         self.installed_generation

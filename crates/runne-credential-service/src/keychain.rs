@@ -172,19 +172,19 @@ impl KeychainBackend {
 mod native {
     use super::{CredentialItemLocator, CredentialKeychainStatus};
 
-    pub(super) fn add(
+    pub(super) const fn add(
         _: &CredentialItemLocator,
         _: &[u8],
         _: Option<[u8; 16]>,
     ) -> CredentialKeychainStatus {
         CredentialKeychainStatus::Unavailable
     }
-    pub(super) fn read_record(
+    pub(super) const fn read_record(
         _: &CredentialItemLocator,
     ) -> Result<super::CredentialStoredRecord, CredentialKeychainStatus> {
         Err(CredentialKeychainStatus::Unavailable)
     }
-    pub(super) fn delete(_: &CredentialItemLocator) -> CredentialKeychainStatus {
+    pub(super) const fn delete(_: &CredentialItemLocator) -> CredentialKeychainStatus {
         CredentialKeychainStatus::Unavailable
     }
 }

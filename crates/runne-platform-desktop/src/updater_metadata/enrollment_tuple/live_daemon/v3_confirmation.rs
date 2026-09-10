@@ -11,7 +11,7 @@ impl PreparedInstalledNativeEnrollment {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 mod tests {
     use super::super::*;
 

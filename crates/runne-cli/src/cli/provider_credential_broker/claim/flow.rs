@@ -4,8 +4,10 @@ use super::{
     CredentialWriterBrokerHandoffFrame, CredentialWriterClaimIssuer,
     CredentialWriterCommandKindV1, CredentialWriterCommandScopeV1,
     NativeProviderCredentialEffectRoute, PendingCredentialIssueTicketV1,
-    PendingCredentialSecretOpening, Read, Write, qualified_deadline,
+    PendingCredentialSecretOpening, Read, Write,
 };
+#[cfg(any(test, target_os = "macos"))]
+use super::qualified_deadline;
 
 type ClaimParts = (
     ClaimedWriterAuthorization,

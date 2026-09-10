@@ -81,6 +81,7 @@ fn qualified_v3_admission_requires_the_exact_remeasured_tuple() {
             .admit_native_enrollment_v3(&macos_tuple_v3(&target, 'e'))
             .is_none()
     );
+    #[cfg(target_os = "macos")]
     assert_eq!(
         admission
             .desktop_credential_service_configuration()
@@ -88,6 +89,7 @@ fn qualified_v3_admission_requires_the_exact_remeasured_tuple() {
             .role(),
         runne_macos_xpc::CredentialServiceEndpointRole::Desktop,
     );
+    #[cfg(target_os = "macos")]
     assert_eq!(
         admission
             .runtime_credential_service_configuration()
@@ -95,6 +97,7 @@ fn qualified_v3_admission_requires_the_exact_remeasured_tuple() {
             .role(),
         runne_macos_xpc::CredentialServiceEndpointRole::Runtime,
     );
+    #[cfg(target_os = "macos")]
     assert_eq!(
         admission
             .writer_credential_service_configuration()

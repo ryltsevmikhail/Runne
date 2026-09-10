@@ -7,6 +7,7 @@ async fn enrollment_preparation_rejects_without_a_compiled_updater() {
     assert!(store.prepare_installed_native_enrollment().await.is_err());
 }
 
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 #[tokio::test]
 async fn startup_does_not_report_success_for_corrupt_installed_admission() {
     let directory = tempfile::tempdir().unwrap();
@@ -36,6 +37,7 @@ async fn startup_does_not_report_success_for_corrupt_installed_admission() {
     );
 }
 
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 #[tokio::test]
 async fn startup_without_compiled_updater_skips_without_acquiring_runtime() {
     let directory = tempfile::tempdir().unwrap();

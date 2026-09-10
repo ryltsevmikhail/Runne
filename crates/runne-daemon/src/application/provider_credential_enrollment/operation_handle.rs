@@ -44,6 +44,14 @@ impl ProviderCredentialOperationHandleIssuer {
         self.resolve_tagged_bytes(HANDLE_DOMAIN, handle.as_bytes())
     }
 
+    #[cfg(any(
+        test,
+        all(
+            feature = "desktop-protected",
+            target_os = "macos",
+            target_arch = "aarch64"
+        )
+    ))]
     pub(crate) fn resolve_broker_rendezvous_id(
         &self,
         rendezvous_id: &str,

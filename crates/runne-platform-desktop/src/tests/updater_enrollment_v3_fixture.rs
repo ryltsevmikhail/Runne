@@ -4,6 +4,7 @@ use super::super::{
     NativeEnrollmentTupleV3Digests, NativeEnrollmentTupleV3ProtocolCompatibility,
     NativeEnrollmentTupleV3ProtocolVersions, UpdateTargetV2,
 };
+#[cfg(target_os = "macos")]
 use runne_api::{
     DaemonEnrollmentLaunchPreludeV1, ExecutableIdentityV1, LaunchSecret,
     PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID, ProtectedCredentialEnrollmentLaunchBindingV1,
@@ -11,6 +12,7 @@ use runne_api::{
     ProviderActivationBindingV1, ProviderActivationReadinessV1, StableRuntimeBindingV1,
 };
 
+#[cfg(target_os = "macos")]
 fn id(byte: u8) -> [u8; 16] {
     let mut value = [byte; 16];
     value[6] = 0x70;
@@ -58,6 +60,7 @@ pub fn macos_tuple_v3(
     .unwrap()
 }
 
+#[cfg(target_os = "macos")]
 pub fn owned(
     release: [u8; 32],
     qualification: [u8; 32],

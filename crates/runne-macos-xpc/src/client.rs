@@ -74,20 +74,20 @@ struct ClientCore {
 }
 
 impl ClientCore {
+    #[cfg(target_os = "macos")]
     fn connect(
         configuration: &CredentialServiceEndpointConfiguration,
     ) -> Result<Self, CredentialServiceXpcError> {
-        #[cfg(target_os = "macos")]
-        {
-            Ok(Self {
-                native: native::NativeClient::connect(configuration)?,
-            })
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = configuration;
-            Err(CredentialServiceXpcError::Unsupported)
-        }
+        Ok(Self {
+            native: native::NativeClient::connect(configuration)?,
+        })
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    const fn connect(
+        _: &CredentialServiceEndpointConfiguration,
+    ) -> Result<Self, CredentialServiceXpcError> {
+        Err(CredentialServiceXpcError::Unsupported)
     }
 
     fn exchange(
@@ -105,7 +105,7 @@ impl ClientCore {
         });
         #[cfg(not(target_os = "macos"))]
         {
-            let _ = (bytes, context);
+            let _ = (self, bytes, context);
             Box::pin(async { Err(CredentialServiceXpcError::Unsupported.into()) })
         }
     }
