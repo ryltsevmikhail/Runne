@@ -121,9 +121,10 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 /// a scenario that died before reaping its children. Such leftovers answer
 /// later handshakes and surface as an unrelated OwnershipMismatch deep in
 /// the writer handoff, which is why they are reported and failed on here.
-const FIXTURE_PROCESS_MARKER: &str = "/runne-slice-e-";
-
+/// Local note: any process whose command line merely mentions the marker
+/// (a grep, a pager) also matches; the assert names every match.
 fn fixture_process_lines() -> Vec<String> {
+    let marker = format!("/{}", crate::keychain::FIXTURE_TEMPFILE_PREFIX);
     let output = Command::new("/bin/ps")
         .args(["-axo", "pid=,command="])
         .output()
@@ -131,7 +132,7 @@ fn fixture_process_lines() -> Vec<String> {
     assert!(output.status.success(), "process table listing failed");
     String::from_utf8_lossy(&output.stdout)
         .lines()
-        .filter(|line| line.contains(FIXTURE_PROCESS_MARKER))
+        .filter(|line| line.contains(marker.as_str()))
         .map(str::to_owned)
         .collect()
 }
@@ -153,7 +154,10 @@ fn reap_fixture_processes(root: &Path) -> Vec<String> {
         .collect();
     for line in &leaked {
         if let Some(pid) = line.split_whitespace().next() {
-            let _ = Command::new("/bin/kill").args(["-9", pid]).output();
+            let killed = Command::new("/bin/kill").args(["-9", pid]).output();
+            if killed.map_or(true, |result| !result.status.success()) {
+                eprintln!("writer-authority harness: failed to kill fixture process {pid}");
+            }
         }
     }
     leaked

@@ -2,6 +2,8 @@
 
 #[path = "provider_credential_writer_authority/audit.rs"]
 mod audit;
+#[path = "provider_credential_writer_authority/handoff_diagnostic.rs"]
+mod handoff_diagnostic;
 #[path = "provider_credential_writer_authority/harness.rs"]
 mod harness;
 #[path = "provider_credential_writer_authority/keychain.rs"]
