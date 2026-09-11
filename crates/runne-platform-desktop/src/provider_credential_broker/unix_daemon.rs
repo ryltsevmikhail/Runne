@@ -76,23 +76,38 @@ pub fn spawn_macos_verified_pair_writer_from_prepared_daemon_handoff(
     ),
     BrokerHandoffError,
 > {
+    use super::handoff_trace::{
+        step as handoff_trace_step, step_failed as handoff_trace_step_failed,
+    };
     let (transport, channel_binding, publication_public_key, sealer) =
         prepared.into_pair_spawn_parts();
-    let image = macos_writer_admission::prepare_retained_writer_image(&launch)?;
-    let pipe = super::macos_secret_pipe::PreparedMacOsPairSecretPipe::prepare()?;
-    let (process, writer) = super::unix_daemon_macos::spawn_macos_prepared_writer(
+    handoff_trace_step("spawn-prepare-image");
+    let image = macos_writer_admission::prepare_retained_writer_image(&launch)
+        .inspect_err(|_| handoff_trace_step_failed("spawn-prepare-image"))?;
+    handoff_trace_step("spawn-secret-pipe");
+    let pipe = super::macos_secret_pipe::PreparedMacOsPairSecretPipe::prepare()
+        .inspect_err(|_| handoff_trace_step_failed("spawn-secret-pipe"))?;
+    handoff_trace_step("spawn-posix");
+    let spawned = super::unix_daemon_macos::spawn_macos_prepared_writer(
         launch.launch(),
         &image,
         transport,
         Some(pipe),
-    )?;
+    );
+    if spawned.is_err() {
+        handoff_trace_step_failed("spawn-posix");
+    }
+    let (process, writer) = spawned?;
+    handoff_trace_step("spawn-admit");
     let admitted = macos_writer_admission::VerifiedMacOsWriterProcess::admit(
         process,
         launch,
         image,
         channel_binding,
         publication_public_key,
-    )?;
+    )
+    .inspect_err(|_| handoff_trace_step_failed("spawn-admit"))?;
+    handoff_trace_step("spawn-relay");
     let relay =
         super::macos_secret_pipe::MacOsAuthenticatedPairSecretRelay::from_authenticated_parts(
             sealer,

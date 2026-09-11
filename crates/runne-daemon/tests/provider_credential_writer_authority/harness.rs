@@ -81,6 +81,10 @@ fn run_outer(selector: &'static str, scenario: &str) {
         .args(["--exact", selector, "--nocapture", "--test-threads=1"])
         .env_clear()
         .env("HOME", keychain.home())
+        .env(
+            "RUNNE_WRITER_HANDOFF_TRACE",
+            std::env::var_os("RUNNE_WRITER_HANDOFF_TRACE").unwrap_or_default(),
+        )
         .env("RUNNE_CI_MACOS_KEYCHAIN", keychain.path())
         .env("RUNNE_LOCAL_NATIVE_ENROLLMENT_TEST", "1")
         .env(INNER_CASE, selector)

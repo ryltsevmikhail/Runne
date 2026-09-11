@@ -6,6 +6,7 @@ mod daemon_evidence;
 mod daemon_rendezvous;
 #[cfg(unix)]
 mod daemon_transport_offer;
+pub(crate) mod handoff_trace;
 #[cfg(any(test, not(target_os = "macos")))]
 mod launch;
 #[cfg(target_os = "macos")]

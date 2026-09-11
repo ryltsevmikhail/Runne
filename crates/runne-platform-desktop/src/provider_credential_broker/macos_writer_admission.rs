@@ -1,72 +1,22 @@
 use std::fs::File;
-use std::num::NonZeroU32;
 use std::os::unix::fs::FileExt as _;
 use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
-use std::str::FromStr as _;
 
 use ed25519_dalek::SigningKey;
 use rand::{RngCore as _, rngs::OsRng};
 use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
 #[cfg(test)]
 use runne_platform_ports::provider_credential_broker::VerifiedWriterArtifact;
-use security_framework::os::macos::code_signing::{
-    Flags, GuestAttributes, SecCode, SecRequirement,
-};
 use sha2::{Digest as _, Sha256};
 use zeroize::Zeroizing;
 
 use super::{RetainedWriterProcess, UnixRetainedWriterProcess, WriterProcessEvidence};
 use crate::VerifiedMacOsWriterLaunch;
 
-pub(super) fn verify_live_writer(
-    process: &UnixRetainedWriterProcess,
-    launch: &VerifiedMacOsWriterLaunch,
-    image: &RetainedMacOsWriterImage,
-    channel_binding: [u8; 32],
-    publication_public_key: [u8; 32],
-    writer_kill_public_key: [u8; 32],
-) -> Result<WriterProcessEvidence, BrokerHandoffError> {
-    if channel_binding == [0; 32] || publication_public_key == [0; 32] {
-        return Err(BrokerHandoffError::Rejected);
-    }
-    let start = process.writer_start_identity()?;
-    let pid = process.pid();
-    let mut attributes = GuestAttributes::new();
-    attributes.set_pid(pid);
-    let code = SecCode::copy_guest_with_attribues(None, &attributes, Flags::NONE)
-        .map_err(|_| BrokerHandoffError::Rejected)?;
-    let requirement = SecRequirement::from_str(&launch.code_requirement())
-        .map_err(|_| BrokerHandoffError::Rejected)?;
-    let flags = Flags::STRICT_VALIDATE | Flags::NO_NETWORK_ACCESS;
-    code.check_validity(flags, &requirement)
-        .map_err(|_| BrokerHandoffError::Rejected)?;
-    let live_path = code
-        .path(Flags::NONE)
-        .ok()
-        .and_then(|value| value.to_path())
-        .ok_or(BrokerHandoffError::Rejected)?;
-    let live_path = std::fs::canonicalize(live_path).map_err(|_| BrokerHandoffError::Rejected)?;
-    let pid = NonZeroU32::new(pid.cast_unsigned()).ok_or(BrokerHandoffError::Rejected)?;
-    let executable =
-        runne_macos_process_identity::MacOsProcessExecutableIdentity::observe(pid, &live_path)
-            .map_err(|_| BrokerHandoffError::Rejected)?;
-    if live_path != image.path
-        || !executable.matches_file(&image.metadata)
-        || !image.matches_current_path_and_digest()?
-        || process.writer_start_identity()? != start
-    {
-        return Err(BrokerHandoffError::Rejected);
-    }
-    WriterProcessEvidence::from_verified_macos_writer(
-        start,
-        image.digest,
-        launch.launch().artifact().release_tuple_digest(),
-        channel_binding,
-        publication_public_key,
-        writer_kill_public_key,
-    )
-}
+mod live_verification;
+
+pub(super) use live_verification::verify_live_writer;
 
 /// Exact retained writer validated against one signed macOS release tuple.
 pub struct VerifiedMacOsWriterProcess {

@@ -58,19 +58,24 @@ impl<R: RejoinRegistration> SharedControl<R> {
                     return Ok(());
                 }
                 if attempt != 0 {
+                    super::trace_step_failed("shared-receive-verify-retry");
                     return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
                 }
+                super::trace_step("shared-rejoin");
                 guard.prepare_received_credential_service_rejoin(&frame)?
             };
             let registered = self
                 .runtime
-                .block_on(self.registration.register(prepared))?;
+                .block_on(self.registration.register(prepared))
+                .inspect_err(|_| super::trace_step_failed("shared-rejoin-register"))?;
             let mut guard = self
                 .supervisor
                 .lock()
                 .map_err(|_| ProtectedBundledRuntimeError::InvalidState)?;
             self.validate(&guard)?;
-            guard.confirm_credential_service_rejoin(registered)?;
+            guard
+                .confirm_credential_service_rejoin(registered)
+                .inspect_err(|_| super::trace_step_failed("shared-rejoin-confirm"))?;
         }
         Err(ProtectedBundledRuntimeError::OwnershipMismatch)
     }
@@ -79,14 +84,21 @@ impl<R: RejoinRegistration> SharedControl<R> {
         &self,
         guard: &ProtectedBundledRuntimeSupervisor,
     ) -> Result<(), ProtectedBundledRuntimeError> {
+        super::trace_step("shared-validate");
         if guard.state != BundledRuntimeLifecycleState::Ready || guard.pending_profile.is_some() {
+            super::trace_step_failed("shared-validate-state");
             return Err(ProtectedBundledRuntimeError::InvalidState);
         }
         let process = guard
             .process
             .as_ref()
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        if process.graceful_requested || process.recovery_bootstrap()? != self.bootstrap {
+        if process.graceful_requested {
+            super::trace_step_failed("shared-validate-graceful");
+            return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
+        }
+        if process.recovery_bootstrap()? != self.bootstrap {
+            super::trace_step_failed("shared-validate-bootstrap");
             return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
         }
         Ok(())
