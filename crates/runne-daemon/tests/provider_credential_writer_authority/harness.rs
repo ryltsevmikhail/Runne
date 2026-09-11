@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::process::Command;
 use std::sync::Mutex;
 
@@ -46,6 +47,12 @@ pub(super) fn dispatch_legacy_scenarios(
 }
 
 fn run_outer(selector: &'static str, scenario: &str) {
+    let stale = stale_fixture_processes();
+    assert!(
+        stale.is_empty(),
+        "stale fixture processes from an earlier scenario or run are alive; they \
+         answer later handshakes with an unrelated ownership failure: {stale:?}"
+    );
     let persistent_reference = selector
         == "persistent_reference_is_bounded_or_fails_closed_on_native_acl_rewrite"
         || selector == "persistent_reference_rejects_unrelated_same_uid_peer";
@@ -85,6 +92,7 @@ fn run_outer(selector: &'static str, scenario: &str) {
     if let Some(service) = service.as_mut() {
         service.shutdown().expect("credential service cleanup");
     }
+    let leaked = reap_fixture_processes(keychain.root());
     let service_stderr =
         std::fs::read(keychain.root().join("credential-service.stderr")).unwrap_or_default();
     let cleanup = keychain.cleanup();
@@ -96,7 +104,8 @@ fn run_outer(selector: &'static str, scenario: &str) {
     }
     assert!(
         output.status.success(),
-        "package desktop failed: scenario={scenario} stdout={} stderr={} service_stderr={}",
+        "package desktop failed: scenario={scenario} leaked={leaked:?} stdout={} stderr={} \
+         service_stderr={}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr),
         String::from_utf8_lossy(&service_stderr),
@@ -105,6 +114,53 @@ fn run_outer(selector: &'static str, scenario: &str) {
 
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     !needle.is_empty() && haystack.windows(needle.len()).any(|part| part == needle)
+}
+
+/// Fixture roots live under unique `runne-slice-e-` temporary directories, so
+/// a live process whose command line still references that marker belongs to
+/// a scenario that died before reaping its children. Such leftovers answer
+/// later handshakes and surface as an unrelated OwnershipMismatch deep in
+/// the writer handoff, which is why they are reported and failed on here.
+/// Local note: any process whose command line merely mentions the marker
+/// (a grep, a pager) also matches; the assert names every match.
+fn fixture_process_lines() -> Vec<String> {
+    let marker = format!("/{}", crate::keychain::FIXTURE_TEMPFILE_PREFIX);
+    let output = Command::new("/bin/ps")
+        .args(["-axo", "pid=,command="])
+        .output()
+        .expect("process table listing");
+    assert!(output.status.success(), "process table listing failed");
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| line.contains(marker.as_str()))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Live processes left over by an earlier scenario or an earlier suite run.
+fn stale_fixture_processes() -> Vec<String> {
+    fixture_process_lines()
+}
+
+/// Terminate every live process referencing this scenario's fixture root and
+/// report the ones that had to be killed. A healthy scenario leaves nothing:
+/// the supervisor and the service shutdown own their children, so any
+/// survivor is a leak caused by the scenario dying mid-handoff.
+fn reap_fixture_processes(root: &Path) -> Vec<String> {
+    let root_text = root.to_string_lossy();
+    let leaked: Vec<String> = fixture_process_lines()
+        .into_iter()
+        .filter(|line| line.contains(root_text.as_ref()))
+        .collect();
+    for line in &leaked {
+        if let Some(pid) = line.split_whitespace().next() {
+            let killed = Command::new("/bin/kill").args(["-9", pid]).output();
+            if killed.map_or(true, |result| !result.status.success()) {
+                eprintln!("writer-authority harness: failed to kill fixture process {pid}");
+            }
+        }
+    }
+    leaked
 }
 
 #[cfg(test)]

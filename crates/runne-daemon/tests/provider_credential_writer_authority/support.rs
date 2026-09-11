@@ -128,6 +128,7 @@ impl InnerContext {
         }
         let mut handoff = supervisor
             .run_credential_writer_handoff(&confirmed, CredentialWriterHandoffMode::Pair)
+            .inspect_err(crate::handoff_diagnostic::report_handoff_failure)
             .map_err(|_| "writer-handoff")?;
         supervisor
             .receive_credential_secret_relay(&mut enrollment)

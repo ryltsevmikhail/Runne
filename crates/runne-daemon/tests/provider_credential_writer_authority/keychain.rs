@@ -15,10 +15,15 @@ pub(super) struct DisposableKeychain {
     created: bool,
 }
 
+/// Common tempfile prefix for every scenario fixture root. The harness
+/// process guards match this prefix (with a leading path separator), so the
+/// two sites must stay in sync through this constant.
+pub(crate) const FIXTURE_TEMPFILE_PREFIX: &str = "runne-slice-e-";
+
 impl DisposableKeychain {
     pub(super) fn create() -> Result<Self, &'static str> {
         let temporary = tempfile::Builder::new()
-            .prefix("runne-slice-e-")
+            .prefix(FIXTURE_TEMPFILE_PREFIX)
             .tempdir()
             .map_err(|_| "temporary-root")?;
         let root = fs::canonicalize(temporary.path()).map_err(|_| "temporary-canonical")?;
