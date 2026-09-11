@@ -34,6 +34,10 @@ runne_ci_macos_keychain_setup() {
 
     /bin/mkdir -p "$RUNNE_CI_MACOS_KEYCHAIN_DIRECTORY"
     /bin/chmod 700 "$HOME/Library" "$RUNNE_CI_MACOS_KEYCHAIN_DIRECTORY"
+    # A task killed by its timeout leaves the keychain behind, so setup must
+    # be idempotent or every subsequent task fails at create.
+    /usr/bin/security delete-keychain "$RUNNE_CI_MACOS_KEYCHAIN" 2>/dev/null || true
+    /bin/rm -f "$RUNNE_CI_MACOS_KEYCHAIN" 2>/dev/null || true
     /usr/bin/security create-keychain -p "$keychain_password" "$RUNNE_CI_MACOS_KEYCHAIN"
     /usr/bin/security set-keychain-settings "$RUNNE_CI_MACOS_KEYCHAIN"
     /usr/bin/security unlock-keychain -p "$keychain_password" "$RUNNE_CI_MACOS_KEYCHAIN"
