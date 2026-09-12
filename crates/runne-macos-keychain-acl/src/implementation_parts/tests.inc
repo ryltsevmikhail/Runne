@@ -94,6 +94,49 @@ mod tests {
         assert_eq!(free_calls.get(), 64);
     }
 
+    #[test]
+    fn provider_credential_process_lock_is_reentrant_within_a_process() {
+        let outer = ProviderCredentialProcessLock::acquire().expect("outer acquire must succeed");
+        let inner =
+            ProviderCredentialProcessLock::acquire().expect("nested acquire must not self-deadlock");
+
+        let state = PROVIDER_CREDENTIAL_LOCK_STATE.lock().expect("registry must not be poisoned");
+        assert_eq!(state.depth, 2, "nested acquire must register a second depth token");
+        assert!(state.descriptor.is_some(), "kernel descriptor must stay registered");
+        drop(state);
+
+        // Dropping the outer token while the inner one is still held must not
+        // release the kernel lock.
+        drop(outer);
+        let state = PROVIDER_CREDENTIAL_LOCK_STATE.lock().expect("registry must not be poisoned");
+        assert_eq!(state.depth, 1, "dropping the outer token must keep the inner token");
+        assert!(
+            state.descriptor.is_some(),
+            "dropping the outer token must not close the registered descriptor"
+        );
+        drop(state);
+
+        // The final drop closes the descriptor; a fresh acquire only returns
+        // if the kernel `flock(LOCK_EX)` was actually released, because a new
+        // descriptor would otherwise block against the leaked one forever.
+        drop(inner);
+        let state = PROVIDER_CREDENTIAL_LOCK_STATE.lock().expect("registry must not be poisoned");
+        assert_eq!(state.depth, 0, "dropping the last token must clear the depth");
+        assert!(
+            state.descriptor.is_none(),
+            "dropping the last token must close the registered descriptor"
+        );
+        drop(state);
+
+        let reacquired =
+            ProviderCredentialProcessLock::acquire().expect("re-acquire after release must succeed");
+        drop(reacquired);
+        let state = PROVIDER_CREDENTIAL_LOCK_STATE.lock().expect("registry must not be poisoned");
+        assert_eq!(state.depth, 0, "re-acquired token must drop cleanly");
+        assert!(state.descriptor.is_none(), "re-acquired token must release the descriptor");
+        drop(state);
+    }
+
     include!("tests_access_profile.inc");
     include!("tests_opaque_profile.inc");
 }

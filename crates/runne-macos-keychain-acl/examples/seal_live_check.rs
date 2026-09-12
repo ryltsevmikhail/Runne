@@ -1,6 +1,6 @@
 //! Live Secure Enclave / DataProtection-keychain evidence probe for the seal path.
 //!
-//! This probe CREATES a real Secure Enclave key in the DataProtection keychain
+//! This probe `CREATES` a real Secure Enclave key in the `DataProtection` keychain
 //! for the supplied profile identity digest (label prefix
 //! `dev.runne.security-transaction-seal.v1.`). The calling binary must be
 //! codesigned with `DataProtection`-keychain-compatible entitlements.
@@ -24,7 +24,7 @@ fn fail(stage: &str, error: KeychainAclError) -> ExitCode {
     ExitCode::from(1)
 }
 
-fn hex_value(byte: u8) -> u8 {
+const fn hex_value(byte: u8) -> u8 {
     match byte {
         b'0'..=b'9' => byte - b'0',
         _ => byte - b'a' + 10,
@@ -68,6 +68,7 @@ fn main() -> ExitCode {
     if let Err(error) = lock.verify(digest, [1; 32], 1, [2; 32], [0; 32], seal.as_bytes()) {
         return fail("verify", error);
     }
+    drop(lock);
     emit("stage=verify status=ok");
     emit("result=ok");
     ExitCode::SUCCESS
