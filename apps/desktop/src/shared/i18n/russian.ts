@@ -176,6 +176,7 @@ const russian: Record<keyof typeof english, string> = {
   'providers.mutationFailed': 'Изменение учётных данных провайдера отклонено.',
   'providers.enrollCredential': 'Добавить ключ',
   'providers.enrollSucceeded': 'Ключ сохранён',
+  'providers.enrollPending': 'Ключ добавляется',
   'providers.enrollFailed': 'Не удалось добавить ключ: {code}',
   'devices.loading': 'Загрузка устройств',
   'devices.unavailable': 'Устройства',

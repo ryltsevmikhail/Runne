@@ -125,9 +125,12 @@ async function enrollCredential(providerId: ProviderStatusSnapshot['providerId']
     const expectedRevision = await expectedLifecycleRevision(provider)
     const request = props.requestCredentialIntent ?? defaultRequestCredentialIntent
     const disposition = await request(provider, 'pair', expectedRevision, generation)
-    if (disposition === 'pending') {
+    if (disposition === 'completed') {
       enrollNotes.value[provider] = translate('providers.enrollSucceeded')
       await loadStatuses()
+    }
+    else if (disposition === 'pending') {
+      enrollNotes.value[provider] = translate('providers.enrollPending')
     }
     else {
       enrollNotes.value[provider] = translate('providers.enrollFailed', { code: disposition })

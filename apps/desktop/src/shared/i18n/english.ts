@@ -175,6 +175,7 @@ const english = {
   'providers.mutationFailed': 'The provider credential change was rejected.',
   'providers.enrollCredential': 'Enroll credential',
   'providers.enrollSucceeded': 'Credential saved',
+  'providers.enrollPending': 'Enrollment in progress',
   'providers.enrollFailed': 'Enrollment failed: {code}',
   'devices.loading': 'Loading devices',
   'devices.unavailable': 'Devices',

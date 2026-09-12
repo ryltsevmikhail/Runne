@@ -94,7 +94,7 @@ describe('providers page credential enrollment', () => {
       loadProviderStatus,
       requestCredentialIntent: async (provider, action, expectedRevision, rendererGeneration) => {
         intents.push({ provider, action, expectedRevision, rendererGeneration })
-        return 'pending'
+        return 'completed'
       },
     })
     await flushPromises()
@@ -105,6 +105,32 @@ describe('providers page credential enrollment', () => {
     expect(intents).toEqual([{ provider: 'deepseek', action: 'pair', expectedRevision: 7, rendererGeneration: 42 }])
     expect(loadProviderStatus).toHaveBeenCalledTimes(2)
     expect(wrapper.text()).toContain('Credential saved')
+  })
+
+  it('treats the completed disposition as success without a failure note', async () => {
+    const wrapper = mountProvidersPage({ requestCredentialIntent: async () => 'completed' })
+    await flushPromises()
+
+    await wrapper.get('button[aria-label="Enroll credential (openai)"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[role="status"]').text()).toBe('Credential saved')
+    expect(wrapper.text()).not.toContain('Enrollment failed')
+  })
+
+  it('treats the pending disposition as in flight without a success reload', async () => {
+    const loadProviderStatus = vi.fn(async () => statuses)
+    const wrapper = mountProvidersPage({
+      loadProviderStatus,
+      requestCredentialIntent: async () => 'pending',
+    })
+    await flushPromises()
+
+    await wrapper.get('button[aria-label="Enroll credential (deepseek)"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[role="status"]').text()).toBe('Enrollment in progress')
+    expect(loadProviderStatus).toHaveBeenCalledTimes(1)
   })
 
   it('disables the enroll button while the intent is in flight', async () => {
@@ -159,7 +185,7 @@ describe('providers page credential enrollment', () => {
       },
       requestCredentialIntent: async (provider, action, expectedRevision, rendererGeneration) => {
         intents.push({ provider, action, expectedRevision, rendererGeneration })
-        return 'pending'
+        return 'completed'
       },
     })
     await flushPromises()
