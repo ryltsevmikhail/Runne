@@ -78,6 +78,16 @@ mod bootstrap_client_pins;
 #[path = "updater_metadata/enrollment_tuple/admission.rs"]
 mod enrollment_admission;
 pub use bootstrap_client_pins::VerifiedQualificationBootstrapClientPins;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[path = "updater_metadata/enrollment_tuple/bootstrap_desktop.rs"]
+mod bootstrap_desktop;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub use bootstrap_desktop::VerifiedInstalledQualificationBootstrapDesktop;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[path = "updater_metadata/enrollment_tuple/bootstrap_gui_executor.rs"]
+mod bootstrap_gui_executor;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub use bootstrap_gui_executor::VerifiedInstalledQualificationGuiExecutor;
 pub use enrollment_admission::NativeEnrollmentTupleAdmission;
 #[cfg(any(target_os = "macos", all(test, unix)))]
 #[path = "updater_metadata/enrollment_tuple/tuple_v3_producer.rs"]

@@ -136,6 +136,7 @@ pub use updater_metadata::{
 pub use updater_metadata::{
     QualificationAdmissionError, VerifiedInstalledEnrollmentCapability,
     VerifiedInstalledEnrollmentMeasurementFacts, VerifiedInstalledQualificationBootstrapCandidate,
+    VerifiedInstalledQualificationBootstrapDesktop, VerifiedInstalledQualificationGuiExecutor,
 };
 pub use updater_trust::{UpdateTrustError, UpdateTrustJournal, UpdateTrustState};
 

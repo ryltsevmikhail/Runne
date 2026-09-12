@@ -98,3 +98,7 @@ mod transport;
 #[cfg(test)]
 #[path = "bootstrap_client_pins/tests.rs"]
 mod tests;
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[path = "bootstrap_client_pins/executor_identity.rs"]
+mod executor_identity;

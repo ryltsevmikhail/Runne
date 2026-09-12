@@ -4376,6 +4376,7 @@ dependencies = [
  "ring",
  "runne-api",
  "runne-local-model",
+ "runne-macos-file-security",
  "runne-macos-process-identity",
  "runne-macos-xpc",
  "runne-model-store",
