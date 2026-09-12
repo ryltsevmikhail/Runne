@@ -1,0 +1,23 @@
+[package]
+name = "runne-qualification-bootstrap-policy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+hex.workspace = true
+runne-api = { path = "../runne-api" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+rustix = { version = "=1.1.4", features = ["fs"] }
+runne-macos-file-security = { path = "../runne-macos-file-security" }
+
+[dev-dependencies]
+tempfile = "=3.27.0"
+
+[lints]
+workspace = true

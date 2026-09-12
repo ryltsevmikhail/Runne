@@ -35,6 +35,8 @@ pub mod provider_credential;
 pub mod provider_credential_enrollment;
 /// Runtime-owned provider readiness projections.
 pub mod provider_status;
+/// Closed canonical native-qualification bootstrap control contracts.
+pub mod qualification_bootstrap;
 /// Public replay binding contracts.
 pub mod replay;
 /// Validated OpenCode `Session.Info` wire values.
@@ -68,6 +70,7 @@ pub use protected_activation::*;
 pub use provider_credential::*;
 pub use provider_credential_enrollment::*;
 pub use provider_status::*;
+pub use qualification_bootstrap::*;
 pub use replay::*;
 pub use session_info::*;
 pub use task_run::*;

@@ -4204,6 +4204,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "runne-macos-file-security"
+version = "0.0.3"
+dependencies = [
+ "cc",
+ "tempfile",
+]
+
+[[package]]
 name = "runne-macos-keychain-acl"
 version = "0.0.3"
 dependencies = [
@@ -4521,6 +4529,20 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "zeroize",
+]
+
+[[package]]
+name = "runne-qualification-bootstrap-policy"
+version = "0.0.3"
+dependencies = [
+ "hex",
+ "runne-api",
+ "runne-macos-file-security",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]
