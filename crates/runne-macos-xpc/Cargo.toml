@@ -11,6 +11,7 @@ test-support = []
 
 [dependencies]
 runne-platform-ports = { path = "../runne-platform-ports" }
+rand.workspace = true
 zeroize.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -23,6 +24,7 @@ objc2-foundation = { version = "=0.3.2", default-features = false, features = [
   "NSString",
   "NSXPCConnection",
   "block2",
+  "libc",
   "std",
 ] }
 objc2-service-management = { version = "=0.3.2", default-features = false, features = [
@@ -32,6 +34,7 @@ objc2-service-management = { version = "=0.3.2", default-features = false, featu
   "std",
 ] }
 tokio.workspace = true
+libc = "0.2"
 
 [build-dependencies]
 cc = "=1.4.0"

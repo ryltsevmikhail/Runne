@@ -4241,9 +4241,11 @@ version = "0.0.3"
 dependencies = [
  "block2",
  "cc",
+ "libc",
  "objc2",
  "objc2-foundation",
  "objc2-service-management",
+ "rand 0.8.7",
  "runne-platform-ports",
  "tokio",
  "zeroize",

@@ -8,6 +8,7 @@ class MacosXpcAdapterBoundaryTest(unittest.TestCase):
         for label, dependency, field, value in (
             ("extra", None, "append", self.dependency("serde", req="^1")),
             ("wrong target", "objc2", "target", None),
+            ("libc must stay macOS-only", "libc", "target", None),
             ("foundation defaults", "objc2-foundation", "uses_default_features", True),
             ("tokio feature drift", "tokio", "features", ["rt"]),
         ):
@@ -99,18 +100,20 @@ class MacosXpcAdapterBoundaryTest(unittest.TestCase):
     def package(cls):
         mac = cls.TARGET
         registry = architecture.CRATES_IO_REGISTRY_SOURCE
-        foundation = ["NSData", "NSError", "NSObject", "NSString", "NSXPCConnection", "block2", "std"]
+        foundation = ["NSData", "NSError", "NSObject", "NSString", "NSXPCConnection", "block2", "libc", "std"]
         service = ["SMAppService", "objc2", "objc2-foundation", "std"]
         return {
             "name": cls.PACKAGE,
             "manifest_path": f"/repo/crates/{cls.PACKAGE}/Cargo.toml",
             "dependencies": [
                 cls.dependency("runne-platform-ports", path="/repo/crates/runne-platform-ports"),
+                cls.dependency("rand", req="=0.8.7", source=registry),
                 cls.dependency("zeroize", req="=1.9.0", source=registry),
                 cls.dependency("block2", req="=0.6.2", target=mac, source=registry),
                 cls.dependency("objc2", req="=0.6.4", target=mac, features=["exception"], source=registry),
                 cls.dependency("objc2-foundation", req="=0.3.2", target=mac, features=foundation, defaults=False, source=registry),
                 cls.dependency("objc2-service-management", req="=0.3.2", target=mac, features=service, defaults=False, source=registry),
+                cls.dependency("libc", req="^0.2", target=mac, source=registry),
                 cls.dependency("tokio", req="^1", target=mac, features=["full"], source=registry),
                 cls.dependency("cc", kind="build", req="=1.4.0", source=registry),
             ],

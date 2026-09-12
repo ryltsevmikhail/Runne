@@ -100,7 +100,6 @@ impl ClientCore {
             self.native
                 .exchange(bytes, context)
                 .await
-                .map(crate::frame::NativeReplyFrame::into_bytes)
                 .map_err(Into::into)
         });
         #[cfg(not(target_os = "macos"))]
@@ -217,4 +216,5 @@ impl CredentialServiceWriterPort for CredentialServiceWriterXpcClient {
 }
 
 #[cfg(target_os = "macos")]
-mod native;
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) mod native;

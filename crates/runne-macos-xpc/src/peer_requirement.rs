@@ -2,7 +2,7 @@ use std::fmt;
 
 use crate::CredentialServiceXpcError;
 
-const MAX_REQUIREMENT_BYTES: usize = 4 * 1024;
+pub const MAX_REQUIREMENT_BYTES: usize = 4 * 1024;
 
 /// One of the three physically separate credential-service endpoints.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -89,7 +89,7 @@ fn valid_local_identifier(value: &str) -> bool {
         })
 }
 
-fn valid_canonical_requirement(value: &str) -> bool {
+pub fn valid_canonical_requirement(value: &str) -> bool {
     const IDENTIFIER_PREFIX: &str = "identifier \"";
     const TEAM_SEPARATOR: &str =
         "\" and anchor apple generic and certificate leaf[subject.OU] = \"";
