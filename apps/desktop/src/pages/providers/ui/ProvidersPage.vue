@@ -115,6 +115,18 @@ async function expectedLifecycleRevision(provider: ProviderCredentialProvider): 
   return fresh.lifecycleRevision
 }
 
+function enrollErrorCode(error: unknown): string {
+  const code = (error as { code?: unknown } | null | undefined)?.code
+  if (typeof code === 'string' && code.length > 0) return code
+  if (error instanceof Error) return error.message
+  try {
+    return JSON.stringify(error)
+  }
+  catch {
+    return String(error)
+  }
+}
+
 async function enrollCredential(providerId: ProviderStatusSnapshot['providerId']) {
   if (!isCredentialProvider(providerId) || enrolling.value[providerId] === true) return
   const provider: ProviderCredentialProvider = providerId
@@ -138,7 +150,7 @@ async function enrollCredential(providerId: ProviderStatusSnapshot['providerId']
   }
   catch (error) {
     enrollNotes.value[provider] = translate('providers.enrollFailed', {
-      code: error instanceof Error ? error.message : String(error),
+      code: enrollErrorCode(error),
     })
   }
   finally {

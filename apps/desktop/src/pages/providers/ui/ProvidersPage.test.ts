@@ -163,7 +163,7 @@ describe('providers page credential enrollment', () => {
   it('surfaces the closed rejection code when the intent is rejected', async () => {
     const wrapper = mountProvidersPage({
       requestCredentialIntent: async () => {
-        throw new Error('provider_credential_intent_rejected')
+        throw { code: 'provider_credential_intent_rejected' }
       },
     })
     await flushPromises()
@@ -172,6 +172,7 @@ describe('providers page credential enrollment', () => {
     await flushPromises()
 
     expect(wrapper.get('[role="status"]').text()).toBe('Enrollment failed: provider_credential_intent_rejected')
+    expect(wrapper.get('[role="status"]').text()).not.toContain('[object Object]')
   })
 
   it('reads a fresh credential status when the projection was unavailable before enrolling', async () => {
