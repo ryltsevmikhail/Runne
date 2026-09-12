@@ -88,7 +88,7 @@ for rt in "${runtime_bins[@]}"; do
   fi
 done
 
-bundle="target/dev-bundle/RunneDev.app"
+bundle="target/dev-bundle/Runne.app"
 rm -rf "$bundle"
 mkdir -p "$bundle/Contents/MacOS"
 install -m 0755 "$binary" "$bundle/Contents/MacOS/runne-desktop"
@@ -106,13 +106,21 @@ cat <<EOF > "$bundle/Contents/Info.plist"
 <dict>
   <key>CFBundleIdentifier</key><string>com.runne.desktop</string>
   <key>CFBundleExecutable</key><string>runne-desktop</string>
-  <key>CFBundleName</key><string>RunneDev</string>
+  <key>CFBundleName</key><string>Runne</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$version</string>
   <key>CFBundleVersion</key><string>$version</string>
 </dict>
 </plist>
 EOF
+
+# Stage the UI contract file (mirrors tauri.conf.json bundle.resources mapping
+# ../../../contracts/gocode-ui-client-2/bundle.json ->
+# Contents/Resources/contracts/gocode-ui-client-2/bundle.json).
+contract_src="contracts/gocode-ui-client-2/bundle.json"
+[[ -f "$contract_src" ]] || { echo "error: contract file not found: $contract_src" >&2; exit 1; }
+install -d -m 0755 "$bundle/Contents/Resources/contracts/gocode-ui-client-2"
+install -m 0644 "$contract_src" "$bundle/Contents/Resources/contracts/gocode-ui-client-2/bundle.json"
 
 identity="${RUNNE_MACOS_SIGNING_IDENTITY:-}"
 if [[ -z "$identity" ]]; then
