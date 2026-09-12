@@ -125,6 +125,7 @@ fi
 # Stage the bundled runtime (runned + runne CLI) next to the desktop
 # executable so discover_bundled_runtime finds them. Nested code must be
 # signed (plain, no entitlements) before the outer bundle signature.
+xattr -cr "$bundle" 2>/dev/null || true  # clear LaunchServices provenance xattrs (codesign EIO)
 for rt in "${runtime_bins[@]}"; do
   staged="$bundle/Contents/MacOS/$(basename "$rt")"
   install -m 0755 "$rt" "$staged"
@@ -165,11 +166,13 @@ if [[ -n "$profile" ]]; then
     exit 1
   fi
   cp "$profile" "$bundle/Contents/embedded.provisionprofile"
+  xattr -cr "$bundle" 2>/dev/null || true  # clear LaunchServices provenance xattrs (codesign EIO)
   codesign --sign "$identity" --force --options runtime --timestamp \
     --entitlements apps/desktop/src-tauri/macos/desktop.entitlements "$bundle"
   codesign --verify --verbose "$bundle"
   echo "Signed bundle: $bundle"
 else
+  xattr -cr "$bundle" 2>/dev/null || true  # clear LaunchServices provenance xattrs (codesign EIO)
   codesign --sign "$identity" --force --options runtime --timestamp "$bundle"
   codesign --verify --verbose "$bundle"
   cat <<'WARNING'
