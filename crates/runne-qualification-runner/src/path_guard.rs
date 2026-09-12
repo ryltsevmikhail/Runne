@@ -4,6 +4,9 @@ use std::path::{Path, PathBuf};
 use rustix::fs::{self, CWD, FileType, Mode, OFlags};
 use rustix::io::Errno;
 
+#[path = "path_guard/journal.rs"]
+mod journal;
+
 #[cfg(test)]
 thread_local! {
     static FAIL_NEXT_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };

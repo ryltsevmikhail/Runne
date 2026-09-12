@@ -17,6 +17,28 @@ fn crash_before_commit_recovers_without_consuming() {
         .expect("hot journal rolls back before a durable commit");
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn hot_journal_acls_are_rejected_before_recovery() {
+    for acl in ["everyone allow write,append", "everyone deny write"] {
+        let root = super::private_root();
+        crash("before", root.path());
+        let database = root.path().join(crate::path_guard::DATABASE_NAME);
+        let journal = root.path().join("ledger.sqlite3-journal");
+        let before = std::fs::read(&database).unwrap();
+        chmod_acl(&["-N"], &journal);
+        chmod_acl(&["+a", acl], &journal);
+        assert!(!probe(root.path()).success());
+        assert!(journal.exists(), "unadmitted journal was not consumed");
+        assert_eq!(std::fs::read(&database).unwrap(), before);
+        chmod_acl(&["-N"], &journal);
+        super::open(&root)
+            .consume_fault(super::fixture::facts([1, 2, 3, 4]), super::binding(5, 6))
+            .expect("cleaned hot journal recovers");
+        assert!(!journal.exists(), "DELETE recovery unlinks its journal");
+    }
+}
+
 #[test]
 fn crash_after_commit_keeps_replay_consumed() {
     let root = super::private_root();
@@ -93,8 +115,31 @@ fn crash_child_process() {
             );
             std::process::abort();
         }
+        "probe" => {}
         _ => panic!("unknown crash mode"),
     }
+}
+
+#[cfg(target_os = "macos")]
+fn chmod_acl(arguments: &[&str], path: &Path) {
+    assert!(
+        Command::new("/bin/chmod")
+            .args(arguments)
+            .arg(path)
+            .status()
+            .unwrap()
+            .success()
+    );
+}
+
+fn probe(root: &Path) -> std::process::ExitStatus {
+    Command::new(std::env::current_exe().expect("test executable"))
+        .arg("--exact")
+        .arg(CHILD)
+        .env(MODE, "probe")
+        .env(ROOT, root)
+        .status()
+        .expect("child process")
 }
 
 fn crash(mode: &str, root: &Path) {

@@ -120,6 +120,13 @@ fn migration_crash_boundaries_preserve_exact_fault_rows() {
         assert_eq!(version, expected_version);
         assert_eq!(fault_snapshot(&connection), before);
         drop(connection);
+        // The raw fixture reader may retain SQLite's recovery journal. Its exact
+        // state was observed above, so remove it rather than pass an unadmitted
+        // sidecar to the descriptor-guarded ledger under test.
+        let journal = path.with_extension("sqlite3-journal");
+        if journal.exists() {
+            std::fs::remove_file(journal).unwrap();
+        }
         assert!(
             open(&root)
                 .consume_fault(fixture::facts([1, 2, 3, 4]), binding(5, 6))

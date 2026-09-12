@@ -92,6 +92,7 @@ impl QualificationReplayLedger {
             file_database_identity(&witness).map_err(|_| QualificationReplayLedgerError)?;
         let path = root.path.join(crate::path_guard::DATABASE_NAME);
         root.verify_database_path()?;
+        let journal = root.open_existing_journal()?;
         let connection = Connection::open_with_flags(
             &path,
             OpenFlags::SQLITE_OPEN_READ_WRITE
@@ -99,6 +100,10 @@ impl QualificationReplayLedger {
                 | OpenFlags::SQLITE_OPEN_NOFOLLOW,
         )
         .map_err(|_| QualificationReplayLedgerError)?;
+        connection
+            .execute_batch("BEGIN IMMEDIATE; ROLLBACK")
+            .map_err(|_| QualificationReplayLedgerError)?;
+        root.verify_journal_recovered(journal)?;
         let expected = path_database_identity(&path).map_err(|_| QualificationReplayLedgerError)?;
         let opened =
             opened_database_identity(&connection).map_err(|_| QualificationReplayLedgerError)?;
