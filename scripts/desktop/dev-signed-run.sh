@@ -54,7 +54,9 @@ cd "$repo_root"
 
 export CARGO_PROFILE_DEV_DEBUG="${CARGO_PROFILE_DEV_DEBUG:-0}"
 
-cargo build -p runne-desktop -p runne-daemon -p runne-cli
+# Without --features desktop-protected the daemon cannot answer the protected first-activation protocol and exits(2) on spawn (release stage_bundled_daemon.mjs builds with the same feature); daemon builds last so target/debug/runned has it.
+cargo build -p runne-desktop -p runne-cli
+cargo build -p runne-daemon --features desktop-protected
 
 binary="target/debug/runne-desktop"
 if [[ ! -f "$binary" ]]; then
