@@ -68,7 +68,22 @@ done
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
-export CARGO_PROFILE_DEV_DEBUG="${CARGO_PROFILE_DEV_DEBUG:-0}"
+# Stripped dev binaries stay under the 64MiB native-enrollment role bound.
+export CARGO_PROFILE_DEV_DEBUG="${CARGO_PROFILE_DEV_DEBUG:-0}" CARGO_PROFILE_DEV_STRIP="${CARGO_PROFILE_DEV_STRIP:-symbols}"
+
+version=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' apps/desktop/src-tauri/tauri.conf.json) || { echo "error: failed to read .version from apps/desktop/src-tauri/tauri.conf.json" >&2; exit 1; }
+
+# Compile-time update trust root (dev bring-up): without the env file the build stays usable but enrollment admission fails closed.
+# Policy vars must match the staged release-candidate-binding.json and scripts/desktop/dev-update-metadata.sh.
+if [[ -f "target/dev-metadata/update-root.env" ]]; then
+  set -a
+  RUNNE_UPDATE_PROFILE_ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["profileId"])' apps/desktop/src-tauri/macos/native-enrollment/staged/release-candidate-binding.json)
+  RUNNE_UPDATE_RUNTIME_VERSION="$version" RUNNE_UPDATE_CHANNEL="dev"
+  . target/dev-metadata/update-root.env
+  set +a
+else
+  echo "warning: target/dev-metadata/update-root.env not found: building WITHOUT a compiled update trust root (enrollment admission will fail closed)" >&2
+fi
 
 # Without --features desktop-protected the daemon cannot answer the protected first-activation protocol and exits(2) on spawn (release stage_bundled_daemon.mjs builds with the same feature); daemon builds last so target/debug/runned has it.
 cargo build -p runne-desktop -p runne-cli
@@ -92,12 +107,6 @@ bundle="target/dev-bundle/Runne.app"
 rm -rf "$bundle"
 mkdir -p "$bundle/Contents/MacOS"
 install -m 0755 "$binary" "$bundle/Contents/MacOS/runne-desktop"
-
-version=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' \
-  apps/desktop/src-tauri/tauri.conf.json) || {
-  echo "error: failed to read .version from apps/desktop/src-tauri/tauri.conf.json" >&2
-  exit 1
-}
 
 cat <<EOF > "$bundle/Contents/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -169,6 +178,7 @@ if [[ "$credential_service" -eq 1 ]]; then
   install -m 0644 apps/desktop/src-tauri/macos/com.runne.credential-service.plist "$bundle/Contents/Library/LaunchAgents/com.runne.credential-service.plist"
   install -m 0644 apps/desktop/src-tauri/macos/native-enrollment/staged/xpc-protocol-v1.json "$bundle/Contents/Resources/native-enrollment/xpc-protocol-v1.json"
   install -m 0644 apps/desktop/src-tauri/macos/native-enrollment/staged/release-candidate-binding.json "$bundle/Contents/Resources/native-enrollment/release-candidate-binding.json"
+  install -m 0644 apps/desktop/src-tauri/macos/credential-service.entitlements "$bundle/Contents/Resources/native-enrollment/credential-service.entitlements.plist"
 fi
 
 if [[ -n "$profile" ]]; then
