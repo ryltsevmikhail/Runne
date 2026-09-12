@@ -58,6 +58,7 @@ def main() -> int:
     violations = find_rust_dependency_violations(dependencies)
     violations += find_credential_service_core_dependency_violations(metadata["packages"])
     violations += find_native_qualification_dependency_violations(metadata["packages"])
+    violations += find_qualification_runner_dependency_violations(metadata["packages"])
     violations += find_native_qualification_admission_dependency_violations(metadata["packages"])
     violations += find_native_qualification_violations(root)
     violations += find_native_qualification_admission_surface_violations(root)

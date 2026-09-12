@@ -1,6 +1,7 @@
 //! Audited native identity bridge for the exact `SQLite` main-file handle.
 #[cfg(unix)]
 mod trusted_vfs;
+#[cfg(windows)]
 use std::path::Path;
 #[cfg(unix)]
 use std::{os::fd::FromRawFd, os::unix::fs::MetadataExt};
@@ -46,19 +47,9 @@ struct TrustedUnixConnection {
     methods: *const rusqlite::ffi::sqlite3_io_methods,
 }
 #[cfg(unix)]
-/// # Errors
-/// Returns an error unless `path` is the pinned single-linked regular file.
-pub fn path_database_identity(path: &Path) -> Result<DatabaseFileIdentity, IdentityError> {
-    use std::os::unix::fs::MetadataExt;
-    let meta = std::fs::metadata(path).map_err(|_| IdentityError)?;
-    if !meta.file_type().is_file() || meta.nlink() != 1 || meta.dev() == 0 || meta.ino() == 0 {
-        return Err(IdentityError);
-    }
-    Ok(DatabaseFileIdentity {
-        device: meta.dev(),
-        inode: meta.ino(),
-    })
-}
+mod unix_file;
+#[cfg(unix)]
+pub use unix_file::{file_database_identity, path_database_identity};
 
 #[cfg(unix)]
 fn trusted_unix_connection(

@@ -4522,6 +4522,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "runne-qualification-runner"
+version = "0.0.3"
+dependencies = [
+ "base64 0.22.1",
+ "ed25519-dalek",
+ "hex",
+ "runne-native-qualification",
+ "runne-sqlite-handle-identity",
+ "runne-sqlite-native-identity",
+ "rusqlite",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "runne-release-authority"
 version = "0.0.3"
 dependencies = [

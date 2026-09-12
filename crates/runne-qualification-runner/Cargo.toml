@@ -1,0 +1,28 @@
+[package]
+name = "runne-qualification-runner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+runne-native-qualification = { path = "../runne-native-qualification" }
+runne-sqlite-handle-identity = { path = "../runne-sqlite-handle-identity" }
+runne-sqlite-native-identity = { path = "../runne-sqlite-native-identity" }
+rusqlite.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "=1.1.4", features = ["fs", "process"] }
+
+[dev-dependencies]
+base64.workspace = true
+ed25519-dalek.workspace = true
+hex.workspace = true
+runne-native-qualification = { path = "../runne-native-qualification", features = ["test-support"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile = "=3.27.0"
+
+[lints]
+workspace = true

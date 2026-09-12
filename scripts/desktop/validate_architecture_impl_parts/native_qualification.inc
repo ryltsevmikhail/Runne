@@ -173,14 +173,14 @@ def find_native_qualification_dependency_violations(packages: list[dict]) -> lis
 def find_native_qualification_admission_dependency_violations(
     packages: list[dict],
 ) -> list[str]:
-    """Allow exact macOS delivery, provider facts, and store test-only edges."""
+    """Allow exact macOS delivery, provider/runner facts, and test-only edges."""
     observed = []
     for package in packages:
         for dependency in package.get("dependencies", []):
             if dependency.get("name") == NATIVE_QUALIFICATION_PACKAGE:
                 observed.append((package.get("name", ""), dependency))
     violations = []
-    owner_names = [owner for owner, _ in observed if owner not in {"runne-provider", "runne-store"}]
+    owner_names = [owner for owner, _ in observed if owner not in {"runne-provider", "runne-store", "runne-qualification-runner"}]
     if set(owner_names) != NATIVE_QUALIFICATION_ADMISSION_OWNERS or len(owner_names) != 3 or len({(owner, dep.get("kind")) for owner, dep in observed}) != len(observed):
         violations.append("native qualification delivery must have exactly three owners")
     native_packages = [
@@ -195,8 +195,8 @@ def find_native_qualification_admission_dependency_violations(
         violations.append("native qualification package metadata is missing or ambiguous")
     for owner, dependency in observed:
         kind = dependency.get("kind") or "normal"
-        facts_edge = owner == "runne-provider" and kind == "normal"
-        fixture_edge = owner in {"runne-provider", "runne-store"} and kind == "dev"
+        facts_edge = owner in {"runne-provider", "runne-qualification-runner"} and kind == "normal"
+        fixture_edge = owner in {"runne-provider", "runne-store", "runne-qualification-runner"} and kind == "dev"
         path = dependency.get("path")
         canonical_path = (
             isinstance(path, str)
