@@ -92,6 +92,8 @@ fn enrollment_transition_v2_roundtrips_deterministically_and_exactly() {
         .unwrap();
 }
 
+include!("credential_status_v2/tests.rs");
+
 #[test]
 fn enrollment_transition_v2_request_rejects_owner_sequence_keys_and_claim_mutation() {
     let (request, _, owned, keys) = fixture();

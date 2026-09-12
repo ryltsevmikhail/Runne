@@ -62,8 +62,38 @@ mod tests {
             .map(|capability| (*capability).to_owned())
             .collect::<Vec<_>>();
 
-        assert_eq!(profile.capability_digest(), &ordered_capability_digest(&protected));
-        assert_ne!(profile.capability_digest(), &ordered_capability_digest(&base));
+        assert_eq!(
+            profile.capability_digest(),
+            &ordered_capability_digest(&protected)
+        );
+        assert_ne!(
+            profile.capability_digest(),
+            &ordered_capability_digest(&base)
+        );
+        let qualified = runne_runtime_client::ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES;
+        let qualified_profile = profile_for_capabilities(qualified).expect("qualified profile");
+        assert_ne!(
+            qualified_profile.capability_digest(),
+            profile.capability_digest()
+        );
+        assert_eq!(qualified_profile.profile_hash(), profile.profile_hash());
+        assert_eq!(
+            qualified_profile.capability_digest(),
+            &ordered_capability_digest(
+                &qualified
+                    .iter()
+                    .map(|value| (*value).to_owned())
+                    .collect::<Vec<_>>(),
+            )
+        );
+    }
+
+    #[test]
+    fn qualified_release_requires_provider_bound_launch() {
+        let base = expected_profile().unwrap();
+        assert_eq!(selected_launch_profile(false, true).unwrap(), base);
+        assert_eq!(selected_launch_profile(true, false).unwrap(), base);
+        assert_ne!(selected_launch_profile(true, true).unwrap(), base);
     }
 
     #[test]
@@ -107,9 +137,8 @@ mod tests {
     fn launch_rejects_source_replacement_after_identity_is_pinned() {
         let fixture = OwnerPrivateBundledRuntimeFixture::new();
         let daemon = fixture.daemon();
-        let spec =
-            ProtectedBundledRuntimeLaunchSpec::new(daemon, &fixture.runtime_root())
-                .expect("trusted launch spec");
+        let spec = ProtectedBundledRuntimeLaunchSpec::new(daemon, &fixture.runtime_root())
+            .expect("trusted launch spec");
         std::fs::set_permissions(daemon, std::fs::Permissions::from_mode(0o700))
             .expect("permit controlled replacement");
         std::fs::write(daemon, b"#!/bin/sh\nexit 7\n").expect("replace source bytes");

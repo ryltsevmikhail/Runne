@@ -4,7 +4,8 @@
     feature = "desktop-protected"
 ))]
 use runne_api::{
-    ProtectedCredentialEnrollmentOwnedLaunchV3, ProviderCredentialEnrollmentHostError,
+    ProtectedCredentialEnrollmentOwnedLaunchV3, ProtectedOwnedLaunchV2,
+    ProviderCredentialEnrollmentHostError,
 };
 use sha2::{Digest, Sha256};
 
@@ -27,6 +28,30 @@ pub(crate) struct ProtectedEnrollmentSessionFacts {
 }
 
 impl ProtectedEnrollmentSessionFacts {
+    pub(crate) fn http_authority_parts(
+        &self,
+    ) -> (
+        [u8; 16],
+        [u8; 32],
+        [u8; 32],
+        [u8; 32],
+        u64,
+        [u8; 32],
+        u64,
+        [u8; 32],
+    ) {
+        (
+            self.session,
+            self.installation,
+            self.release,
+            session_binding(self),
+            self.supervisor_generation,
+            self.tauri_peer,
+            self.database_generation,
+            daemon_binding(self),
+        )
+    }
+
     #[cfg(all(
         target_os = "macos",
         target_arch = "aarch64",
@@ -55,6 +80,43 @@ impl ProtectedEnrollmentSessionFacts {
         })
     }
 
+    #[cfg(all(
+        target_os = "macos",
+        target_arch = "aarch64",
+        feature = "desktop-protected"
+    ))]
+    pub(crate) fn from_verified_v2_status(
+        owned: &ProtectedOwnedLaunchV2,
+        installation: [u8; 32],
+        release: [u8; 32],
+        tauri_peer: [u8; 32],
+        supervisor_generation: u64,
+        runtime_authority: [u8; 16],
+        database_generation: u64,
+    ) -> Result<Self, ProviderCredentialEnrollmentHostError> {
+        if installation == [0; 32]
+            || release == [0; 32]
+            || tauri_peer == [0; 32]
+            || supervisor_generation == 0
+            || runtime_authority == [0; 16]
+            || database_generation == 0
+        {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        Ok(Self {
+            launch_authority: *owned.launch_authority_id(),
+            session: *owned.session_id(),
+            daemon: *owned.daemon_instance_id(),
+            launch_generation: owned.launch_generation(),
+            installation,
+            release,
+            tauri_peer,
+            supervisor_generation,
+            runtime_authority,
+            database_generation,
+        })
+    }
+
     #[cfg(test)]
     pub(in crate::application::provider_credential_enrollment::control_facade) fn for_test() -> Self
     {
@@ -70,6 +132,15 @@ impl ProtectedEnrollmentSessionFacts {
             runtime_authority: id(9),
             database_generation: 10,
         }
+    }
+
+    #[cfg(test)]
+    pub(in crate::application::provider_credential_enrollment::control_facade) fn for_test_with_session(
+        session: [u8; 16],
+    ) -> Self {
+        let mut facts = Self::for_test();
+        facts.session = session;
+        facts
     }
 }
 

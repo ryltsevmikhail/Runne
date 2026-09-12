@@ -74,14 +74,20 @@ fn get_provider_status(
 #[tauri::command]
 async fn get_provider_credential_enrollment_status(
     state: tauri::State<'_, std::sync::Arc<AppCore>>,
+    lifecycle: tauri::State<'_, RuntimeLifecycleManager>,
+    updater: tauri::State<'_, UpdateStatusStore>,
     provider: runne_api::ProviderCredentialProviderV2,
 ) -> Result<runne_app_core::ProviderCredentialEnrollmentProjection, IpcError> {
-    state
-        .provider_credential_enrollment_status(provider)
-        .await
-        .map_err(|_| IpcError {
-            code: "provider_credential_status_unavailable",
-        })
+    crate::provider_credential_enrollment::load_status(
+        state.inner(),
+        lifecycle.inner(),
+        updater.inner(),
+        provider,
+    )
+    .await
+    .map_err(|_| IpcError {
+        code: "provider_credential_status_unavailable",
+    })
 }
 
 #[tauri::command]

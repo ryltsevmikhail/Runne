@@ -58,11 +58,7 @@ impl ProtectedProcessActivation {
                 && session.session_id == hex::encode(owned.session_id())
                 && session.capability_digest == hex::encode(owned.profile().capability_digest())
                 && session.certificate_sha256 == hex::encode(ready.certificate_sha256())
-                && session
-                    .capabilities
-                    .iter()
-                    .map(String::as_str)
-                    .eq(PROTECTED_RUNTIME_CAPABILITIES.iter().copied()),
+                && runne_runtime_client::protected_profile_matches(client),
         )
     }
 

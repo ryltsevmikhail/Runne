@@ -244,6 +244,7 @@ pub(crate) fn run_enrollment_control_exchange(
             *native.borrow_mut() =
                 runne_platform_desktop::VerifiedDaemonNativeEnrollmentPrepare::verify_current_for_peer(
                     profile_directory,
+                    profile_directory,
                     claims,
                     stream,
                 );

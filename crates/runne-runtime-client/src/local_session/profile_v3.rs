@@ -96,11 +96,7 @@ fn session_peer_from_v3_ready(
         || stable.profile_id() != profile.profile_id()
         || stable.profile_hash() != profile.profile_hash()
         || stable.capability_digest() != profile.capability_digest()
-        || !ready
-            .capabilities()
-            .iter()
-            .map(String::as_str)
-            .eq(crate::PROTECTED_RUNTIME_CAPABILITIES.iter().copied())
+        || !exact_protected_capability_profile(ready.capabilities())
         || ordered_capability_digest(ready.capabilities()) != *profile.capability_digest()
     {
         return Err(LaunchAuthorityError::ProfileHashMismatch);

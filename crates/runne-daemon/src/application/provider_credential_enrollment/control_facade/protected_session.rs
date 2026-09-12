@@ -67,6 +67,7 @@ pub(crate) struct DaemonProtectedCredentialEnrollmentSession {
     lifecycle: ProtectedCredentialEnrollmentLifecycleCodec,
     recovery: recovery::RecoveryExchange,
     facts: ProtectedEnrollmentSessionFacts,
+    http_session: [u8; 16],
     broker_evidence: [u8; 32],
     admissions: PendingCredentialAdmissions,
     verifier: ProviderCredentialRequestAuthorityVerifier,
@@ -108,6 +109,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
             rendezvous.publication_public_key(),
         );
         let recovery = recovery::RecoveryExchange::new(keys, &facts, broker_evidence, &issuer)?;
+        let http_session = facts.session;
         Ok(Self {
             control,
             authenticator: ProtectedCredentialEnrollmentAuthenticator::from_protected_activation(
@@ -116,6 +118,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
             lifecycle: ProtectedCredentialEnrollmentLifecycleCodec::from_protected_activation(keys),
             recovery,
             facts,
+            http_session,
             broker_evidence,
             admissions: PendingCredentialAdmissions::new_with_broker_transfer(issuer, keys),
             verifier,
@@ -156,6 +159,44 @@ impl DaemonProtectedCredentialEnrollmentSession {
         self.begun
             .as_ref()
             .is_some_and(|(_, snapshot)| snapshot.state().terminal())
+    }
+
+    #[cfg(all(
+        target_os = "macos",
+        target_arch = "aarch64",
+        feature = "desktop-protected"
+    ))]
+    pub(crate) fn refresh_http_facts(
+        &mut self,
+        owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        let facts = ProtectedEnrollmentSessionFacts::from_owned(
+            owned,
+            self.control.runtime_authority,
+            self.control.database_generation,
+        )?;
+        self.control.publish_http_facts(facts)?;
+        self.http_session = *owned.session_id();
+        Ok(())
+    }
+
+    #[cfg(all(
+        target_os = "macos",
+        target_arch = "aarch64",
+        feature = "desktop-protected"
+    ))]
+    pub(crate) fn clear_http_facts(&self) {
+        self.control.clear_http_facts(self.http_session);
+    }
+
+    #[cfg(all(test, unix))]
+    pub(in crate::application::provider_credential_enrollment::control_facade) fn refresh_test_http_facts(
+        &mut self,
+        facts: ProtectedEnrollmentSessionFacts,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        self.control.publish_http_facts(facts.clone())?;
+        self.http_session = facts.session;
+        Ok(())
     }
 
     pub(crate) fn take_bound_broker_handoff(
@@ -220,5 +261,11 @@ impl DaemonProtectedCredentialEnrollmentSession {
             request.expires_at_unix_millis(),
         )
         .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
+    }
+}
+
+impl Drop for DaemonProtectedCredentialEnrollmentSession {
+    fn drop(&mut self) {
+        self.control.clear_http_facts(self.http_session);
     }
 }

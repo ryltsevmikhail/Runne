@@ -120,6 +120,9 @@ where
         composition.installation_identity_digest,
     );
     let mut prepared = admit_transition(&input, request, channel)?;
+    if let Some(control) = composition.enrollment_control.as_ref() {
+        control.clear_http_facts(*owned.session_id());
+    }
     let next_binding = rotate_to_reserved(
         sessions,
         session_clock,

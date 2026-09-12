@@ -76,6 +76,7 @@ impl DaemonApplication {
             protected_activation,
             dependencies,
             root_admission_keys,
+            enrollment_capability,
         ) = startup.into_parts();
         let launch_authority_id =
             launch_authority_id.unwrap_or(bootstrap.local_session_authority_id);
@@ -200,6 +201,7 @@ impl DaemonApplication {
             session_id,
             root_admission_keys,
             provider_readiness,
+            enrollment_capability,
         )
         .await
     }

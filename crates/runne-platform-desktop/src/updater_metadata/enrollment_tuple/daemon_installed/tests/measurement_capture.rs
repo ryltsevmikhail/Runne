@@ -41,7 +41,12 @@ fn captured_measurements_reject_artifacts_changed_after_admission() {
             .unwrap();
         }
         let prepared = VerifiedDaemonNativeEnrollmentPrepare::peer_bound(
-            peer, [7; 32], f.paths, admission, f.profile,
+            peer,
+            [7; 32],
+            f.paths,
+            admission,
+            f.profile.clone(),
+            f.profile,
         );
         let facts = VerifiedInstalledEnrollmentMeasurementFacts::from_revalidated(&prepared);
         assert_eq!(facts.is_some(), role.is_none(), "role {role:?}");

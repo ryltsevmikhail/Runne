@@ -1,10 +1,11 @@
+mod profile;
 use super::replay_authorization::DaemonReplayAuthorization;
 use super::shutdown::map_recovery_state;
 use super::*;
 mod command_hosts;
+mod enrollment;
 mod provider_credentials;
 mod session;
-use provider_credentials::runtime_capabilities;
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn start_http_and_runtime(
     config: &ConfigurationSnapshot,
@@ -26,12 +27,17 @@ pub(super) async fn start_http_and_runtime(
     session_id: [u8; 16],
     root_admission_keys: Option<runne_api::ProtectedActivationKeys>,
     provider_readiness: runne_api::ProviderActivationReadinessV1,
+    enrollment_capability: Option<
+        crate::protected_activation::VerifiedProtectedEnrollmentCapability,
+    >,
 ) -> Result<DaemonApplication, DaemonError> {
-    let credential_enrollment_control = provider_service
-        .as_ref()
-        .and_then(|service| service.credential_enrollment_control());
-    let runtime_capabilities =
-        runtime_capabilities(protected_activation, root_admission_keys.is_some());
+    let enrollment = enrollment::compose(
+        provider_service.as_ref(),
+        protected_activation,
+        root_admission_keys.as_ref(),
+        enrollment_capability.as_ref(),
+    )?;
+    let runtime_capabilities = enrollment.runtime_capabilities;
     let bootstrap_reservation_store = Arc::new(SqliteBootstrapReservationStore::new(
         open_runtime_connection(
             &config.db_path,
@@ -139,6 +145,7 @@ pub(super) async fn start_http_and_runtime(
     let launched_at = Instant::now();
     let session_clock: Arc<dyn Fn() -> Duration + Send + Sync> =
         Arc::new(move || launched_at.elapsed());
+    let enrollment_routes = enrollment.routes;
     let local_session_service = session::compose(
         binding.clone(),
         launch_authority_id,
@@ -169,26 +176,12 @@ pub(super) async fn start_http_and_runtime(
     );
     #[cfg(feature = "desktop-protected")]
     let root_control = command_hosts.root_control.clone();
-    let runtime_profile_state = RuntimeProfileHttpState::new(
-        runne_runtime::bundle::BUNDLE_ID,
-        runne_runtime::bundle::PUBLISHED_BUNDLE_HASH,
-        env!("CARGO_PKG_VERSION"),
+    let runtime_profile_state = profile::runtime_profile(
+        provider_service.clone(),
+        &provider_activation,
+        provider_readiness,
         runtime_capabilities,
     );
-    let runtime_profile_state = match provider_service.clone() {
-        Some(service) => {
-            let activation = provider_activation.clone();
-            runtime_profile_state.with_dynamic_provider_statuses(Arc::new(move || {
-                super::provider_status::provider_statuses(
-                    &activation,
-                    service.current_provider_readiness(),
-                )
-            }))
-        }
-        None => runtime_profile_state.with_provider_statuses(
-            super::provider_status::provider_statuses(&provider_activation, provider_readiness),
-        ),
-    };
     let http_host = LocalRuntimeTlsHost::bind_with_project_workspace_and_command_reconciliation(
         &config.http_bind,
         Arc::clone(bootstrap.launch_identity.server_config()),
@@ -229,6 +222,7 @@ pub(super) async fn start_http_and_runtime(
                 .contains(&runne_http::replay::REPLAY_BASELINE_RESUME_V2_CAPABILITY),
         ),
         telemetry_state,
+        enrollment_routes,
     )
     .await
     .map_err(DaemonError::from)?;
@@ -293,7 +287,7 @@ pub(super) async fn start_http_and_runtime(
         #[cfg(feature = "desktop-protected")]
         root_control,
         runtime_capabilities,
-        credential_enrollment_control,
+        credential_enrollment_control: enrollment.control,
     })
 }
 #[cfg(test)]

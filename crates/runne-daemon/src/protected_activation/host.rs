@@ -69,6 +69,9 @@ where
             let (dependencies, _fixture_keepalive) = fixture(runtime_root)
                 .await
                 .map_err(|_| protected_activation_error())?;
+            launch
+                .revalidate_enrollment_capability(&channel)
+                .map_err(|_| protected_activation_error())?;
             let start = launch
                 .bootstrap_runtime_start(launch_time)
                 .map_err(|_| protected_activation_error())?;
@@ -188,9 +191,7 @@ fn enrollment_transition_composition(
     let Ok(facts) = application.protected_enrollment_facts() else {
         return Ok(None);
     };
-    let Some(profile_directory) = runtime_root.parent() else {
-        return Ok(None);
-    };
+    let profile_directory = enrollment_profile_directory(runtime_root);
     let composition = EnrollmentControlComposition::new(
         request.clone(),
         *facts.installation.installation_identity_digest(),
@@ -199,11 +200,35 @@ fn enrollment_transition_composition(
         facts.certificate_sha256,
         facts.certificate_der,
         facts.capabilities,
-        profile_directory.to_path_buf(),
+        profile_directory,
         super::control_v3::macos_continuous_ticket_clock(),
         Some(facts.credential_enrollment_control),
     );
     Ok(Some((composition, facts.installation)))
+}
+
+#[cfg(all(
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
+fn enrollment_profile_directory(runtime_root: &Path) -> std::path::PathBuf {
+    runtime_root.to_path_buf()
+}
+
+#[cfg(all(
+    test,
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
+#[test]
+fn enrollment_composition_uses_exact_runtime_root_for_updater_journals() {
+    let runtime_root = Path::new("/private/var/runne/bundled-runtime");
+    assert_eq!(
+        enrollment_profile_directory(runtime_root),
+        runtime_root.to_path_buf()
+    );
 }
 
 #[cfg(feature = "desktop-protected")]

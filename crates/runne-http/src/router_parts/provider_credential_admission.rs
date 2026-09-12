@@ -4,7 +4,7 @@ pub(super) fn require_provider_credential_enrollment_admission(
     mounted: bool,
 ) -> Result<(), SecureLocalHttpHostError> {
     if runtime_profile_state.advertises(runne_api::PROVIDER_CREDENTIAL_ENROLLMENT_CAPABILITY_V2)
-        && !mounted
+        != mounted
     {
         return Err(SecureLocalHttpHostError::ProviderCredentialEnrollmentAdmissionMissing);
     }

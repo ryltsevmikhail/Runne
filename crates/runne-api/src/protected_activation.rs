@@ -23,6 +23,7 @@ include!("protected_activation/enrollment_launch_prelude.rs");
 include!("protected_activation/enrollment_transition_v2_prepare.rs");
 include!("protected_activation/enrollment_transition_v2_view.rs");
 include!("protected_activation/enrollment_transition_v2_prelude.rs");
+include!("protected_activation/credential_status_v2.rs");
 include!("protected_activation/credential_broker_transfer_authenticator.rs");
 include!("protected_activation/qualification_fault_relay.rs");
 include!("protected_activation/qualification_run_context_relay.rs");

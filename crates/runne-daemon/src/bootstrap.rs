@@ -22,7 +22,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use runne_api::{PendingFirstActivationV1, StableRuntimeBindingV1};
+use runne_api::{PendingFirstActivationV1, ProtectedRuntimeProfileV1, StableRuntimeBindingV1};
 use runne_domain::id::validate_uuid_v7_bytes;
 use runne_store::schema;
 use runne_store::schema::LaunchAuthorityConsumptionError;
@@ -109,4 +109,5 @@ include!("bootstrap/locks.rs");
 mod tests {
     include!("bootstrap/tests_basic.rs");
     include!("bootstrap/tests_recovery.rs");
+    include!("bootstrap/tests_qualified_profile.rs");
 }

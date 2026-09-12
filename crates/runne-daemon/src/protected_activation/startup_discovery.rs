@@ -1,6 +1,6 @@
 use super::*;
 
-fn with_current<T>(
+pub(super) fn with_current<T>(
     sessions: &Mutex<LocalSessionService>,
     owned: &ProtectedOwnedLaunchV2,
     read: impl FnOnce() -> Result<T, LaunchAuthorityError>,

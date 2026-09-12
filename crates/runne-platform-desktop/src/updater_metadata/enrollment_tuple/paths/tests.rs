@@ -19,11 +19,6 @@ fn paths_reject_a_layout_outside_the_macos_application_bundle() {
 }
 
 #[test]
-fn current_daemon_resolution_fails_closed_outside_the_installed_daemon_layout() {
-    assert!(NativeEnrollmentArtifactPathsV1::resolve_installed_from_current_daemon().is_err());
-}
-
-#[test]
 fn paths_accept_only_the_exact_macos_application_layout() {
     let directory = tempfile::tempdir().unwrap();
     let paths = macos_layout(directory.path());

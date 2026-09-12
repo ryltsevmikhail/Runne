@@ -8,6 +8,22 @@ use super::{
 use super::{CredentialWriterReaperSnapshot, WRITER_REAPER_POLL_INTERVAL};
 
 impl NativeCredentialEnrollmentLease {
+    pub(crate) async fn prepare_credential_status(
+        &self,
+        confirmed: ConfirmedInstalledNativeEnrollment,
+    ) -> Result<(), AppCoreError> {
+        let supervisor = Arc::clone(&self.supervisor);
+        tauri::async_runtime::spawn_blocking(move || {
+            supervisor
+                .lock()
+                .map_err(|_| AppCoreError::RuntimeUnavailable)?
+                .prepare_credential_status(&confirmed)
+                .map_err(|_| AppCoreError::RuntimeUnavailable)
+        })
+        .await
+        .map_err(|_| AppCoreError::RuntimeUnavailable)?
+    }
+
     pub(crate) fn supervisor_handle(&self) -> Arc<Mutex<ProtectedBundledRuntimeSupervisor>> {
         Arc::clone(&self.supervisor)
     }

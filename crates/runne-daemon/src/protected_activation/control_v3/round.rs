@@ -64,7 +64,10 @@ impl V3EnrollmentRuntime {
         let mut codec = runne_api::ProtectedCredentialRoundCodec::new(keys, owned);
         codec.decode_request(request)?;
         runne_platform_desktop::VerifiedDaemonNativeEnrollmentPrepare::verify_and_measure_current_v3_peer(
-            &context.profile.directory, owned, channel.unix_stream(),
+            &context.profile.directory,
+            &context.profile.directory,
+            owned,
+            channel.unix_stream(),
         ).ok_or(LaunchAuthorityError::OwnershipMismatch)?;
         let rendezvous =
             DaemonOwnedUnixBrokerRendezvous::create().map_err(runtime::map_enrollment_error)?;
@@ -77,13 +80,22 @@ impl V3EnrollmentRuntime {
         codec.decode_accept(&channel.read_control_frame()?)?;
         live.with_current(sessions, || Ok(()))?;
         let installed = runne_platform_desktop::VerifiedDaemonNativeEnrollmentPrepare::verify_and_measure_current_v3_peer(
-            &context.profile.directory, owned, channel.unix_stream(),
+            &context.profile.directory,
+            &context.profile.directory,
+            owned,
+            channel.unix_stream(),
         ).ok_or(LaunchAuthorityError::OwnershipMismatch)?;
         let configuration = installed.runtime_credential_service_configuration();
         let service = crate::protected_activation::credential_service_registration::receive_required_registration(
             channel, keys, owned, &installed, runtime::unix_now_millis()?,
         )?.map(|session| context.control.install_credential_service_session(session))
             .transpose().map_err(runtime::map_enrollment_error)?;
+        let previous_session = self
+            .session
+            .take()
+            .ok_or(LaunchAuthorityError::OwnershipMismatch)?;
+        previous_session.clear_http_facts();
+        drop(previous_session);
         let mut session = context
             .control
             .start_protected_session(keys, owned, rendezvous, installed)

@@ -1,7 +1,8 @@
+use super::super::enrollment_daemon_installed::CurrentStagedDaemonIdentity;
 use super::{
-    CurrentDaemonIdentity, DaemonIdentityVerifier, DaemonVerificationInput,
-    MacOsLocalPeerProcessIdentity, NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleAdmission,
-    Path, UnixStream, VerifiedDaemonNativeEnrollmentPrepare, compiled_policy, desktop_peer_digest,
+    DaemonIdentityVerifier, DaemonVerificationInput, MacOsLocalPeerProcessIdentity,
+    NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleAdmission, Path, UnixStream,
+    VerifiedDaemonNativeEnrollmentPrepare, compiled_policy, desktop_peer_digest,
     refresh_retained_admission_at, verify_with_final,
 };
 use runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3;
@@ -13,14 +14,18 @@ impl VerifiedDaemonNativeEnrollmentPrepare {
     #[must_use]
     pub fn verify_and_measure_current_v3_peer(
         profile_directory: &Path,
+        canonical_runtime_root: &Path,
         owned: &ProtectedCredentialEnrollmentOwnedLaunchV3,
         stream: &UnixStream,
     ) -> Option<crate::VerifiedInstalledEnrollmentMeasurementFacts> {
         let policy = compiled_policy()?;
-        let paths =
-            NativeEnrollmentArtifactPathsV1::resolve_installed_from_current_daemon().ok()?;
+        let (paths, peer) =
+            NativeEnrollmentArtifactPathsV1::resolve_installed_from_authenticated_desktop_peer(
+                stream,
+            )
+            .ok()?;
         let trust = crate::CompiledUpdateTrustRootV2::load()?.into_trust_root();
-        let peer = MacOsLocalPeerProcessIdentity::capture(stream).ok()?;
+        let identity = CurrentStagedDaemonIdentity::new(canonical_runtime_root);
         let binding = owned.enrollment_binding();
         let admission = verify_with_final(
             &DaemonVerificationInput {
@@ -31,7 +36,7 @@ impl VerifiedDaemonNativeEnrollmentPrepare {
                 release_tuple_digest: *binding.release_tuple_digest(),
                 qualification_binding_digest: *binding.qualification_binding_digest(),
             },
-            &CurrentDaemonIdentity,
+            &identity,
             || {},
             |admission| round_peer_matches(&paths, admission, &peer, owned, stream),
         )?;
@@ -41,6 +46,7 @@ impl VerifiedDaemonNativeEnrollmentPrepare {
             paths,
             admission,
             profile_directory.to_path_buf(),
+            canonical_runtime_root.to_path_buf(),
         );
         let facts =
             crate::VerifiedInstalledEnrollmentMeasurementFacts::from_revalidated(&verified)?;
@@ -56,7 +62,7 @@ impl VerifiedDaemonNativeEnrollmentPrepare {
             admission,
             now()?,
         )?;
-        if !CurrentDaemonIdentity.confirm(paths, admission)
+        if !CurrentStagedDaemonIdentity::new(canonical_runtime_root).confirm(paths, admission)
             || !round_peer_matches(paths, admission, peer, owned, stream)
         {
             return None;

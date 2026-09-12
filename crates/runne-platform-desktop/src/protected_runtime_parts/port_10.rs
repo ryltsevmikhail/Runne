@@ -1,12 +1,41 @@
-
 fn expected_profile() -> Result<ProtectedRuntimeProfileV1, ProtectedBundledRuntimeError> {
+    profile_for_capabilities(PROTECTED_RUNTIME_CAPABILITIES)
+}
+
+fn expected_profile_for_launch(
+    runtime_root: &Path,
+    provider_bound: bool,
+) -> Result<ProtectedRuntimeProfileV1, ProtectedBundledRuntimeError> {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    let qualified = provider_bound
+        && crate::VerifiedInstalledEnrollmentCapability::load_for_desktop(runtime_root).is_some();
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    let qualified = false;
+    let _ = runtime_root;
+    selected_launch_profile(provider_bound, qualified)
+}
+
+fn selected_launch_profile(
+    provider_bound: bool,
+    qualified: bool,
+) -> Result<ProtectedRuntimeProfileV1, ProtectedBundledRuntimeError> {
+    if provider_bound && qualified {
+        profile_for_capabilities(runne_runtime_client::ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES)
+    } else {
+        expected_profile()
+    }
+}
+
+fn profile_for_capabilities(
+    selected: &[&str],
+) -> Result<ProtectedRuntimeProfileV1, ProtectedBundledRuntimeError> {
     let profile_hash: [u8; 32] = hex::decode(GOLDEN_BUNDLE_HASH)
         .ok()
         .and_then(|bytes| bytes.try_into().ok())
         .ok_or(ProtectedBundledRuntimeError::LaunchAuthority(
             LaunchAuthorityError::ProfileHashMismatch,
         ))?;
-    let capabilities = PROTECTED_RUNTIME_CAPABILITIES
+    let capabilities = selected
         .iter()
         .map(|capability| (*capability).to_owned())
         .collect::<Vec<_>>();
@@ -72,7 +101,8 @@ fn read_frame(stream: &mut UnixStream) -> Result<Zeroizing<Vec<u8>>, ProtectedBu
 
 #[cfg(unix)]
 fn write_frame(stream: &mut UnixStream, frame: &[u8]) -> Result<(), ProtectedBundledRuntimeError> {
-    if frame.len() < 5 || frame.len() > MAX_FRAME_PAYLOAD_BYTES + 4
+    if frame.len() < 5
+        || frame.len() > MAX_FRAME_PAYLOAD_BYTES + 4
         || u32::from_be_bytes(frame[..4].try_into().unwrap_or([0; 4])) as usize != frame.len() - 4
     {
         return Err(ProtectedBundledRuntimeError::LaunchAuthority(

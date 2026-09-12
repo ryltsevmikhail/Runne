@@ -202,7 +202,7 @@ fn portable_control_constructs_with_valid_authorities_and_runtime_identity() {
     assert_eq!(Arc::strong_count(&control), 1);
 }
 
-fn control() -> (
+pub(super) fn control() -> (
     Arc<DaemonProviderCredentialEnrollmentControl>,
     runne_api::ProtectedActivationKeys,
 ) {
@@ -257,7 +257,7 @@ fn context(command: &BeginProviderCredentialEnrollment) -> ProviderCredentialCom
     }
 }
 
-fn id(byte: u8) -> [u8; 16] {
+pub(super) fn id(byte: u8) -> [u8; 16] {
     let mut value = [byte; 16];
     value[6] = 0x70;
     value[8] = 0x80;
