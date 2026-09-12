@@ -31,6 +31,8 @@ pub use qualification_runner::{
 };
 pub use qualification_runner_client::QualificationRunnerXpcClient;
 pub use qualification_runner_listener::QualificationRunnerXpcListener;
+#[cfg(target_os = "macos")]
+pub use qualification_runner_native::current_login_session_binding;
 pub use qualification_runner_session::{
     QualificationRunnerSessionContext, QualificationRunnerSessionLease,
 };
