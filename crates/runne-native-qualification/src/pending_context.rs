@@ -6,6 +6,15 @@ pub struct PendingQualificationRunContext {
 }
 
 impl PendingQualificationRunContext {
+    pub(crate) fn verify_expected_borrowed(
+        &self,
+        verifier: &mut crate::QualificationRunContextVerifier,
+        expected: &crate::QualificationRunContextExpectation,
+        now_unix_seconds: u64,
+    ) -> Result<crate::VerifiedQualificationRunContext, crate::QualificationRunContextError> {
+        verifier.verify_and_consume(&self.bytes, expected, now_unix_seconds)
+    }
+
     pub(crate) fn verify_installed_borrowed(
         &self,
         verifier: &mut crate::QualificationRunContextVerifier,

@@ -1,7 +1,8 @@
 use std::fmt;
 
 use crate::{
-    PendingQualificationAdmission, QualificationFaultVerifier, QualificationRunContextVerifier,
+    PendingQualificationAdmission, QualificationFaultVerifier, QualificationRunContextExpectation,
+    QualificationRunContextVerifier,
 };
 
 /// Stateful, move-only verifier for one exact context-then-ticket admission.
@@ -18,6 +19,34 @@ impl QualificationAdmissionVerifier {
             context: QualificationRunContextVerifier::from_compiled_policy(),
             fault: QualificationFaultVerifier::from_compiled_policy(),
         }
+    }
+
+    /// Authenticates one pair against the complete independently measured context.
+    ///
+    /// Context replay is consumed in memory before the fault ticket is verified.
+    /// The returned facts exist only after both independently signed members verify
+    /// exactly; they do not establish durable bootstrap admission or replay storage.
+    ///
+    /// # Errors
+    ///
+    /// Rejects unavailable authorities, any context expectation mismatch, signature,
+    /// freshness, replay, or context-to-ticket assertion mismatch.
+    pub fn verify_and_consume(
+        &mut self,
+        admission: &PendingQualificationAdmission,
+        expected: &QualificationRunContextExpectation,
+        now_unix_seconds: u64,
+    ) -> Result<crate::VerifiedQualificationFenceFacts, QualificationAdmissionVerificationError>
+    {
+        if !expected.has_nonzero_installed_hashes() {
+            return Err(QualificationAdmissionVerificationError);
+        }
+        admission.verify_and_consume_borrowed(
+            &mut self.context,
+            &mut self.fault,
+            expected,
+            now_unix_seconds,
+        )
     }
 
     /// Authenticates a borrowed pair and consumes verifier replay state.

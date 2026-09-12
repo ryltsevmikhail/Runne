@@ -97,6 +97,10 @@ pub fn exact_admission_impl(item: &syn::ItemImpl, source: &str) -> bool {
         "pub(crate) fn from_relay_members(context: PendingQualificationRunContext, fault: PendingQualificationFault) -> Result<Self, QualificationAdmissionRelayError> {}",
     )
     .expect("valid retained admission signature");
+    let expectation_verification = syn::parse_str::<syn::ImplItemFn>(
+        "pub(crate) fn verify_and_consume_borrowed(&self, context_verifier: &mut crate::QualificationRunContextVerifier, fault_verifier: &mut crate::QualificationFaultVerifier, expected: &crate::QualificationRunContextExpectation, now_unix_seconds: u64) -> Result<crate::VerifiedQualificationFenceFacts, crate::QualificationAdmissionVerificationError,> {}",
+    )
+    .expect("valid complete admission verification signature");
     let verification = syn::parse_str::<syn::ImplItemFn>(
         "pub(crate) fn verify_exact_borrowed(&self, context_verifier: &mut crate::QualificationRunContextVerifier, fault_verifier: &mut crate::QualificationFaultVerifier, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<(), crate::QualificationAdmissionVerificationError> {}",
     )
@@ -124,13 +128,14 @@ pub fn exact_admission_impl(item: &syn::ItemImpl, source: &str) -> bool {
         && item.attrs.iter().all(|attr| attr.path().is_ident("doc"))
         && item.generics.params.is_empty()
         && item.generics.where_clause.is_none()
-        && matches!(item.items.len(), 1 | 3 | 4 | 5 | 6 | 7 | 8)
+        && matches!(item.items.len(), 1 | 3 | 4 | 5 | 6 | 7 | 8 | 9)
         && item.items.iter().all(|member| {
             matches!(member, syn::ImplItem::Fn(method)
             if method.attrs.iter().all(|attr| attr.path().is_ident("doc"))
                 && (methods_match(method, &constructor)
                     || methods_match(method, &relay)
                     || methods_match(method, &retained)
+                    || methods_match(method, &expectation_verification)
                     || methods_match(method, &verification)
                     || methods_match(method, &fence_verification)
                     || methods_match(method, &writer_verification)
@@ -176,6 +181,10 @@ pub fn exact_admission_relay_method(
         "pub(crate) fn matches_fault(&self, fault: &crate::PendingQualificationFault) -> bool {}",
     )
     .expect("valid reviewed admission relation");
+    let expected_context_verification = syn::parse_str::<syn::ImplItemFn>(
+        "pub(crate) fn verify_expected_borrowed(&self, verifier: &mut crate::QualificationRunContextVerifier, expected: &crate::QualificationRunContextExpectation, now_unix_seconds: u64) -> Result<crate::VerifiedQualificationRunContext, crate::QualificationRunContextError> {}",
+    )
+    .expect("valid reviewed complete context verification");
     let context_verification = syn::parse_str::<syn::ImplItemFn>(
         "pub(crate) fn verify_installed_borrowed(&self, verifier: &mut crate::QualificationRunContextVerifier, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<(crate::VerifiedQualificationRunContext, crate::QualificationFaultContext), crate::QualificationRunContextError> {}",
     )
@@ -190,6 +199,7 @@ pub fn exact_admission_relay_method(
         && (signatures_match(&method.sig, &encode.sig)
             || signatures_match(&method.sig, &decode.sig)
             || signatures_match(&method.sig, &relation.sig)
+            || signatures_match(&method.sig, &expected_context_verification.sig)
             || signatures_match(&method.sig, &context_verification.sig))
 }
 
@@ -198,6 +208,10 @@ pub fn exact_combined_verification_method(
     method: &syn::ImplItemFn,
     source: &str,
 ) -> bool {
+    let complete = syn::parse_str::<syn::ImplItemFn>(
+        "pub fn verify_and_consume(&mut self, admission: &PendingQualificationAdmission, expected: &QualificationRunContextExpectation, now_unix_seconds: u64) -> Result<crate::VerifiedQualificationFenceFacts, QualificationAdmissionVerificationError> {}",
+    )
+    .expect("valid complete combined verification signature");
     let admission = syn::parse_str::<syn::ImplItemFn>(
         "pub fn verify_exact_borrowed(&mut self, admission: &PendingQualificationAdmission, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<(), QualificationAdmissionVerificationError> {}",
     )
@@ -220,7 +234,8 @@ pub fn exact_combined_verification_method(
             .is_some_and(|(name, raw)| name == "QualificationAdmissionVerifier" && !raw)
         && owner.generics.params.is_empty()
         && owner.generics.where_clause.is_none()
-        && (signatures_match(&method.sig, &admission.sig)
+        && (signatures_match(&method.sig, &complete.sig)
+            || signatures_match(&method.sig, &admission.sig)
             || signatures_match(&method.sig, &fence.sig)
             || signatures_match(&method.sig, &writer.sig)
             || signatures_match(&method.sig, &service.sig))

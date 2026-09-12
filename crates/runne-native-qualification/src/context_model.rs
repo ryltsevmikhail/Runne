@@ -70,6 +70,25 @@ impl QualificationRunContextExpectation {
             ticket_sha256,
         })
     }
+
+    pub(crate) fn has_nonzero_installed_hashes(&self) -> bool {
+        self.candidate_sha256 != [0; 32] && self.release_tuple_v3_sha256 != [0; 32]
+    }
+
+    pub(crate) fn fault_context(
+        &self,
+    ) -> Result<crate::QualificationFaultContext, QualificationRunContextError> {
+        crate::QualificationFaultContext::new(
+            self.selector,
+            self.process_role,
+            self.candidate_sha256,
+            self.release_tuple_v3_sha256,
+            self.source_revision,
+            &self.workflow_run_id,
+            self.namespace_sha256,
+        )
+        .map_err(|_| QualificationRunContextError::InvalidExpectation)
+    }
 }
 
 /// Opaque single-use authority produced after exact runner-context verification.

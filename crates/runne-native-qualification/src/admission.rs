@@ -115,6 +115,32 @@ impl PendingQualificationAdmission {
         Ok(Self { context, fault })
     }
 
+    pub(crate) fn verify_and_consume_borrowed(
+        &self,
+        context_verifier: &mut crate::QualificationRunContextVerifier,
+        fault_verifier: &mut crate::QualificationFaultVerifier,
+        expected: &crate::QualificationRunContextExpectation,
+        now_unix_seconds: u64,
+    ) -> Result<
+        crate::VerifiedQualificationFenceFacts,
+        crate::QualificationAdmissionVerificationError,
+    > {
+        let context = self
+            .context
+            .verify_expected_borrowed(context_verifier, expected, now_unix_seconds)
+            .map_err(|_| crate::QualificationAdmissionVerificationError)?;
+        let binding = expected
+            .fault_context()
+            .map_err(|_| crate::QualificationAdmissionVerificationError)?;
+        let fault = self
+            .fault
+            .verify_borrowed(fault_verifier, &binding, now_unix_seconds)
+            .map_err(|_| crate::QualificationAdmissionVerificationError)?;
+        Ok(crate::VerifiedQualificationFenceFacts::verified(
+            context, fault, binding,
+        ))
+    }
+
     pub(crate) fn verify_exact_borrowed(
         &self,
         context_verifier: &mut crate::QualificationRunContextVerifier,
