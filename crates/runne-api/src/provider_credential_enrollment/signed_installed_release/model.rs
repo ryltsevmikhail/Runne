@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use super::qualification_bootstrap_client::QualificationBootstrapClientV1;
 use super::tuple::NativeEnrollmentTupleV2;
 use super::tuple_v3::NativeEnrollmentTupleV3;
 
@@ -47,11 +48,13 @@ pub struct UpdateTargetV2 {
     pub native_enrollment_tuple: Option<NativeEnrollmentTupleV2>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_enrollment_tuple_v3: Option<NativeEnrollmentTupleV3>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qualification_bootstrap_client_v1: Option<QualificationBootstrapClientV1>,
 }
 
 impl UpdateTargetV2 {
     pub(super) fn native_enrollment_tuples_valid(&self) -> bool {
-        match (
+        let tuples_valid = match (
             self.native_enrollment_tuple.as_ref(),
             self.native_enrollment_tuple_v3.as_ref(),
         ) {
@@ -59,7 +62,16 @@ impl UpdateTargetV2 {
             (Some(tuple), None) => tuple.valid_signed(self),
             (None, Some(tuple)) => tuple.valid_signed(self),
             (Some(_), Some(_)) => false,
-        }
+        };
+        tuples_valid
+            && self
+                .qualification_bootstrap_client_v1
+                .as_ref()
+                .is_none_or(|client| {
+                    self.native_enrollment_tuple_v3
+                        .as_ref()
+                        .is_some_and(|tuple| client.valid_for_v3(tuple))
+                })
     }
 }
 

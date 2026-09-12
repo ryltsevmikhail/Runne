@@ -73,8 +73,11 @@ pub use enrollment_desktop_peer_claim::EnrollmentTransitionFacts;
 pub use enrollment_qualification::{
     NativeEnrollmentQualification, NativeEnrollmentQualificationBinding,
 };
+#[path = "updater_metadata/enrollment_tuple/bootstrap_client_pins.rs"]
+mod bootstrap_client_pins;
 #[path = "updater_metadata/enrollment_tuple/admission.rs"]
 mod enrollment_admission;
+pub use bootstrap_client_pins::VerifiedQualificationBootstrapClientPins;
 pub use enrollment_admission::NativeEnrollmentTupleAdmission;
 #[cfg(any(target_os = "macos", all(test, unix)))]
 #[path = "updater_metadata/enrollment_tuple/tuple_v3_producer.rs"]

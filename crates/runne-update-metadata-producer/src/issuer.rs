@@ -126,6 +126,7 @@ fn target(
         rollback_floor: draft.rollback_floor.clone(),
         native_enrollment_tuple: None,
         native_enrollment_tuple_v3,
+        qualification_bootstrap_client_v1: None,
     })
 }
 

@@ -111,12 +111,11 @@ fn sha256_hex(path: &Path) -> Result<String, String> {
 }
 
 fn load_staged_binding(candidate_app: &Path) -> Result<StagedReleaseCandidateBindingV1, String> {
-    let path = candidate_app.join(
-        "Contents/Resources/native-enrollment/release-candidate-binding.json",
-    );
+    let path =
+        candidate_app.join("Contents/Resources/native-enrollment/release-candidate-binding.json");
     let bytes = std::fs::read(&path).map_err(|error| format!("{}: {error}", path.display()))?;
-    let binding: StagedReleaseCandidateBindingV1 = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("{}: {error}", path.display()))?;
+    let binding: StagedReleaseCandidateBindingV1 =
+        serde_json::from_slice(&bytes).map_err(|error| format!("{}: {error}", path.display()))?;
     (binding.schema_version == 1)
         .then_some(binding)
         .ok_or_else(|| format!("{}: unsupported schema version", path.display()))
@@ -135,7 +134,8 @@ fn main() -> ExitCode {
         Ok(binding) => binding,
         Err(message) => return fail("staged-binding", &message),
     };
-    let contract = candidate_app.join("Contents/Resources/contracts/gocode-ui-client-2/bundle.json");
+    let contract =
+        candidate_app.join("Contents/Resources/contracts/gocode-ui-client-2/bundle.json");
     let daemon = candidate_app.join("Contents/MacOS/runned");
     let (bundle_sha256, runtime_digest) = match (sha256_hex(&contract), sha256_hex(&daemon)) {
         (Ok(bundle), Ok(runtime)) => (bundle, runtime),
@@ -161,6 +161,7 @@ fn main() -> ExitCode {
         rollback_floor: "0.0.0".into(),
         native_enrollment_tuple: None,
         native_enrollment_tuple_v3: None,
+        qualification_bootstrap_client_v1: None,
     };
     let tuple = match produce_staged_native_enrollment_tuple_v3(&candidate_app, &target) {
         Ok(tuple) => tuple,

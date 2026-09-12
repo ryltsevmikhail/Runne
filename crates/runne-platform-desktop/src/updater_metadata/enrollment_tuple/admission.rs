@@ -15,6 +15,7 @@ use file_measurement::measure_regular_file;
 /// Non-serializable installed-package admission minted only by `VerifiedUpdateV2`.
 #[derive(Debug, Eq, PartialEq)]
 pub struct NativeEnrollmentTupleAdmission {
+    pub(super) bootstrap_client_pins: Option<super::VerifiedQualificationBootstrapClientPins>,
     pub(super) installed_generation: u64,
     pub(super) desktop_sha256: [u8; 32],
     pub(super) writer_sha256: [u8; 32],
@@ -80,6 +81,7 @@ impl VerifiedUpdateV2 {
                 .map(macos_identity::MacOsCodeIdentityV1::from_expectation),
         ];
         Some(NativeEnrollmentTupleAdmission {
+            bootstrap_client_pins: None,
             installed_generation: self.metadata().targets.version,
             desktop_sha256: tuple.desktop_image_digest(),
             writer_sha256: tuple.writer_image_digest(),
@@ -116,6 +118,7 @@ impl VerifiedUpdateV2 {
         }
         let candidate = self.signed.qualified_release_candidate_v3();
         Some(NativeEnrollmentTupleAdmission {
+            bootstrap_client_pins: None,
             installed_generation: self.metadata().targets.version,
             desktop_sha256: tuple.desktop_digest(),
             writer_sha256: tuple.writer_digest(),

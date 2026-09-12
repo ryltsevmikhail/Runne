@@ -3,6 +3,7 @@ mod compiled_trust;
 mod frame;
 mod model;
 mod qualification;
+mod qualification_bootstrap_client;
 mod tuple;
 mod tuple_identity;
 mod tuple_v3;
@@ -21,6 +22,11 @@ pub use model::{
     UpdateTrustRootV2, update_metadata_signing_bytes,
 };
 pub use qualification::NativeEnrollmentQualificationRowV1;
+pub use qualification_bootstrap_client::{
+    QUALIFICATION_BOOTSTRAP_DESKTOP_ENDPOINT_V1, QUALIFICATION_BOOTSTRAP_ROOT_ENDPOINT_V1,
+    QUALIFICATION_BOOTSTRAP_RUNTIME_ENDPOINT_V1, QualificationBootstrapClientArtifactV1,
+    QualificationBootstrapClientV1,
+};
 pub use tuple::{NativeEnrollmentTupleError, NativeEnrollmentTupleV2};
 pub use tuple_identity::MacOsCodeIdentityExpectationV1;
 pub use tuple_v3::{
@@ -35,6 +41,8 @@ pub use verification::{
 
 #[cfg(test)]
 mod candidate_binding_tests;
+#[cfg(test)]
+mod qualification_bootstrap_client_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

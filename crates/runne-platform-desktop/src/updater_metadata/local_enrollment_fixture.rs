@@ -109,6 +109,7 @@ fn signed_metadata(
         rollback_floor: FLOOR.into(),
         native_enrollment_tuple: None,
         native_enrollment_tuple_v3: None,
+        qualification_bootstrap_client_v1: None,
     };
     let tuple = NativeEnrollmentTupleV2::new_macos(
         target.release_candidate_sha256.clone(),

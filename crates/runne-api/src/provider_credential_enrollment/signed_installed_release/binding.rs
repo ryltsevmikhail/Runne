@@ -46,6 +46,7 @@ pub struct SignedInstalledReleaseCandidateV2 {
 pub struct VerifiedSignedUpdateMetadataV2 {
     metadata: UpdateMetadataV2,
     verified_at_unix_seconds: u64,
+    target_manifest_digest: [u8; 32],
     native_enrollment_tuple: Option<VerifiedSignedNativeEnrollmentTupleV2>,
     native_enrollment_tuple_v3: Option<VerifiedSignedNativeEnrollmentTupleV3>,
     qualified_release_candidate: Option<SignedInstalledReleaseCandidateV2>,
@@ -74,6 +75,10 @@ impl VerifiedSignedUpdateMetadataV2 {
     }
     pub const fn verified_at_unix_seconds(&self) -> u64 {
         self.verified_at_unix_seconds
+    }
+    #[doc(hidden)]
+    pub const fn target_manifest_digest(&self) -> [u8; 32] {
+        self.target_manifest_digest
     }
     pub const fn native_enrollment_tuple(&self) -> Option<&VerifiedSignedNativeEnrollmentTupleV2> {
         self.native_enrollment_tuple.as_ref()
@@ -164,6 +169,7 @@ pub(super) fn build_verified(
     metadata: &UpdateMetadataV2,
     now: u64,
 ) -> Result<VerifiedSignedUpdateMetadataV2, SignedInstalledReleaseVerificationErrorV2> {
+    let target_manifest_digest = manifest_digest(metadata)?;
     let tuple = metadata.targets.target.native_enrollment_tuple.as_ref();
     let verified_tuple = tuple.map(verified_tuple).transpose()?;
     let verified_tuple_v3 = metadata
@@ -187,6 +193,7 @@ pub(super) fn build_verified(
     Ok(VerifiedSignedUpdateMetadataV2 {
         metadata: metadata.clone(),
         verified_at_unix_seconds: now,
+        target_manifest_digest,
         native_enrollment_tuple: verified_tuple,
         native_enrollment_tuple_v3: verified_tuple_v3,
         qualified_release_candidate,

@@ -88,6 +88,7 @@ fn harness_target(value: &UpdateMetadataDraft, artifact_sha256: String) -> Updat
         rollback_floor: value.rollback_floor.clone(),
         native_enrollment_tuple: None,
         native_enrollment_tuple_v3: None,
+        qualification_bootstrap_client_v1: None,
     }
 }
 
@@ -111,7 +112,9 @@ fn dev_tuple(target: &UpdateTargetV2) -> NativeEnrollmentTupleV3 {
             contract_sha256: target.bundle_sha256.clone(),
         },
         NativeEnrollmentTupleV3Deployment::exact(NativeEnrollmentTupleV3ProtocolVersions::new(
-            vec![NativeEnrollmentTupleV3ProtocolCompatibility::new(1, 1, 1, 1, 1, 1, 1)],
+            vec![NativeEnrollmentTupleV3ProtocolCompatibility::new(
+                1, 1, 1, 1, 1, 1, 1,
+            )],
         )),
         NativeEnrollmentTupleV3CodeIdentities::new(
             identity("com.runne.desktop", 1),
@@ -170,8 +173,7 @@ fn producer_embeds_native_enrollment_tuple_v3_from_draft_path() {
     let target = harness_target(&draft(artifact.clone()), artifact_sha256);
     let tuple = dev_tuple(&target);
     let mut value = draft(artifact);
-    value.native_enrollment_tuple_path =
-        Some(write_tuple_file(directory.path(), &target, &tuple));
+    value.native_enrollment_tuple_path = Some(write_tuple_file(directory.path(), &target, &tuple));
     let metadata = issue_metadata(&value, &MemoryKeys).unwrap();
     assert_eq!(
         metadata.targets.target.native_enrollment_tuple_v3.as_ref(),

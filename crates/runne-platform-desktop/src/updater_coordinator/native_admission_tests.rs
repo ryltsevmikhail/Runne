@@ -41,7 +41,7 @@ fn native_fixture(
         artifact_sha256: installer_hash.clone(), artifact_size: 10, artifact_url: "https://updates.example.test/runne.AppImage".into(),
         release_candidate_sha256: candidate, min_os: "ubuntu-22.04".into(), profile_id: "profile".into(), bundle_sha256: hashes[3].clone(),
         runtime_version: "0.1.0".into(), runtime_digest: "b".repeat(64), channel: "stable".into(),
-        published_at_unix_seconds: now.saturating_sub(5), expires_at_unix_seconds: expires_at, rollback_floor: "1.0.0".into(), native_enrollment_tuple: None, native_enrollment_tuple_v3: None,
+        published_at_unix_seconds: now.saturating_sub(5), expires_at_unix_seconds: expires_at, rollback_floor: "1.0.0".into(), native_enrollment_tuple: None, native_enrollment_tuple_v3: None, qualification_bootstrap_client_v1: None,
     };
     target.native_enrollment_tuple = Some(NativeEnrollmentTupleV2::new(
         target.release_candidate_sha256.clone(), hashes[0].clone(), hashes[1].clone(), hashes[2].clone(), hashes[3].clone(), &target,

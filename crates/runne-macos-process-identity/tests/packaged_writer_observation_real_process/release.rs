@@ -129,6 +129,7 @@ fn target(contract_digest: [u8; 32]) -> UpdateTargetV2 {
         rollback_floor: "1.0.0".into(),
         native_enrollment_tuple: None,
         native_enrollment_tuple_v3: None,
+        qualification_bootstrap_client_v1: None,
     }
 }
 

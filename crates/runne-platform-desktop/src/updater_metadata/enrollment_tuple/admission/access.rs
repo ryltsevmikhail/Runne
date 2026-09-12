@@ -55,6 +55,7 @@ impl NativeEnrollmentTupleAdmission {
         if desktop == writer || desktop == daemon || writer == daemon {
             return None;
         }
+        self.bootstrap_client_pins = None;
         self.macos_desktop_code_identity = Some(desktop);
         self.macos_writer_code_identity = Some(writer);
         self.macos_daemon_code_identity = Some(daemon);

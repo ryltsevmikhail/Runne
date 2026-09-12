@@ -115,6 +115,43 @@ impl VerifiedInstalledQualificationBootstrapCandidate {
         })
     }
 
+    /// Rechecks the installed package and desktop peer before constructing transport.
+    /// Raw V3 without signed bootstrap pins remains ineligible for this operation.
+    #[must_use]
+    pub fn prepare_bootstrap_transport(
+        self,
+        stream: &UnixStream,
+    ) -> Option<(
+        Self,
+        runne_macos_xpc::QualificationRunnerEndpointConfiguration,
+    )> {
+        let fresh = self.revalidate_for_authenticated_desktop_peer(stream)?;
+        let configuration = fresh
+            .admission
+            .bootstrap_client_pins
+            .as_ref()?
+            .runtime_bootstrap_configuration()
+            .ok()?;
+        Some((fresh, configuration))
+    }
+
+    /// Confirms the root-prepared binding against a fresh installed admission.
+    #[must_use]
+    pub fn confirm_bootstrap_binding(
+        self,
+        stream: &UnixStream,
+        binding: &runne_api::RunBinding,
+    ) -> Option<Self> {
+        let fresh = self.revalidate_for_authenticated_desktop_peer(stream)?;
+        fresh
+            .admission
+            .bootstrap_client_pins
+            .as_ref()?
+            .matches_prepared_binding(binding)
+            .then_some(())?;
+        Some(fresh)
+    }
+
     /// Returns the retained signed V3 candidate digest after authenticated loading.
     #[must_use]
     pub fn candidate_sha256(&self) -> Option<[u8; 32]> {

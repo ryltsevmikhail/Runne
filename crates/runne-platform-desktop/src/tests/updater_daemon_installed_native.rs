@@ -5,7 +5,10 @@ fn daemon_installed_native_composition_has_only_peer_bound_entrypoint() {
 
     assert!(!installed.contains("pub fn verify_current("));
     assert!(peer.contains("pub fn verify_current_for_peer("));
-    assert!(peer.contains("MacOsLocalPeerProcessIdentity::capture"));
+    let paths = include_str!("../updater_metadata/enrollment_tuple/daemon_paths.rs");
+    assert!(peer.contains("resolve_installed_from_authenticated_desktop_peer"));
+    assert!(paths.contains("fn resolve_installed_from_authenticated_desktop_peer("));
+    assert!(paths.contains("MacOsLocalPeerProcessIdentity::capture(stream)"));
     assert!(peer.contains("confirm_peer_macos_desktop"));
 }
 
