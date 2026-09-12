@@ -152,6 +152,7 @@ draft = {
     "targetsVersion": 1,
     "snapshotVersion": 1,
     "timestampVersion": 1,
+    "nativeEnrollmentTuplePath": os.environ["TUPLE_JSON"],
 }
 json.dump(draft, open(os.environ["DRAFT_JSON"], "w"))
 PYEOF
@@ -175,6 +176,10 @@ assert target["profileId"] == os.environ["PROFILE_ID"], "issued profile id misma
 assert target["channel"] == os.environ["CHANNEL"], "issued channel mismatch"
 assert target["bundleSha256"] == digests["contractSha256"], "issued bundle digest mismatch"
 assert target["runtimeDigest"] == digests["daemonSha256"], "issued runtime digest mismatch"
+embedded = target.get("nativeEnrollmentTupleV3")
+assert embedded is not None, "issued metadata does not embed native_enrollment_tuple_v3"
+assert embedded == tuple_doc["tuple"], "embedded tuple differs from the produced tuple"
+assert len(embedded["digests"]) == 10, "embedded tuple must carry 10 digests"
 PYEOF
 
 # ── 7. seed the installed-update journals for native admission ──────────────
@@ -222,7 +227,8 @@ Dev update metadata issued:
   updates dir:      $updates_dir
     install-state.json.1.json  trust-state.json.1.json  installed-metadata.json.1.json
   release binding:  profileId=$profile_id version=$version channel=$channel
-Note: the issued metadata does not embed native_enrollment_tuple_v3 (the
-producer hardcodes it); daemon verified admission additionally requires the
-producer to embed the tuple. See the step report.
+Note: the issued metadata embeds the produced NativeEnrollmentTupleV3 from
+$out_dir/tuple.json (draft nativeEnrollmentTuplePath); the issuer re-validated
+it against the draft, and the runtime admission path additionally re-measures
+the installed bundle against the embedded tuple at install time.
 SUMMARY
