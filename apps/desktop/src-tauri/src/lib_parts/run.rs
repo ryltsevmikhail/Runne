@@ -86,29 +86,6 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 .as_deref()
                 .map(BundledRuntimeController::qualification_admission),
         )?;
-    // TEMP diag: live SMAppService registration harness (agent-registration investigation).
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    if std::env::var("RUNNE_AGENT_REGISTRATION_HARNESS").as_deref() == Ok("1") {
-        let version = env!("CARGO_PKG_VERSION");
-        match crate::provider_credential_enrollment::CredentialServiceRegistration::open(version)
-        {
-            Ok(registration) => {
-                eprintln!(
-                    "runne-reg-diag: before register disposition={:?}",
-                    registration.disposition()
-                );
-                match registration.register() {
-                    Ok(()) => eprintln!("runne-reg-diag: register ok"),
-                    Err(error) => eprintln!("runne-reg-diag: register err={error:?}"),
-                }
-                eprintln!(
-                    "runne-reg-diag: after register disposition={:?}",
-                    registration.disposition()
-                );
-            }
-            Err(error) => eprintln!("runne-reg-diag: open err={error:?}"),
-        }
-    }
     let notification_core = Arc::clone(&core);
     let notification_state = Arc::new(crate::notifications::NotificationState::default());
     app.manage(profile_lock);
