@@ -192,3 +192,5 @@ mod http_admission_tests;
 #[cfg(all(test, unix))]
 #[path = "control_facade_tests/protected_session.rs"]
 mod protected_session_tests;
+#[cfg(all(test, unix))]
+pub(crate) use protected_session_tests::control as test_control;

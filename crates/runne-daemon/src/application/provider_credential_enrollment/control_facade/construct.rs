@@ -172,4 +172,23 @@ impl DaemonProviderCredentialEnrollmentControl {
             None,
         )
     }
+
+    #[cfg(all(test, unix))]
+    pub(crate) fn start_test_published_session(
+        self: &Arc<Self>,
+        keys: &runne_api::ProtectedActivationKeys,
+    ) -> Result<
+        (DaemonProtectedCredentialEnrollmentSession, [u8; 16]),
+        ProviderCredentialEnrollmentHostError,
+    > {
+        let facts = ProtectedEnrollmentSessionFacts::for_test();
+        let session = facts.http_authority_parts().0;
+        let enrollment = self.start_test_protected_session(
+            keys,
+            facts.clone(),
+            super::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous::create()?,
+        )?;
+        self.publish_http_facts(facts)?;
+        Ok((enrollment, session))
+    }
 }

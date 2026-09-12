@@ -142,6 +142,20 @@ impl DaemonProviderCredentialEnrollmentControl {
         }
     }
 
+    #[cfg(all(test, unix))]
+    pub(crate) fn test_status_is_unavailable(&self, session: [u8; 16]) -> bool {
+        use runne_http::ProviderCredentialEnrollmentHttpAdmissionResolver as _;
+
+        matches!(
+            super::super::http_admission_resolver::LiveCredentialHttpAdmissionResolver::new(
+                self.http_authority_issuer.clone(),
+                Arc::clone(&self.http_facts),
+            )
+            .resolve_status(session, &ProviderCredentialProviderV2::DeepSeek),
+            Err(ProviderCredentialEnrollmentHostError::Unavailable)
+        )
+    }
+
     pub(crate) fn status_http(
         &self,
         verifier: &ProviderCredentialRequestAuthorityVerifier,

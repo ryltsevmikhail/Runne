@@ -202,7 +202,7 @@ fn portable_control_constructs_with_valid_authorities_and_runtime_identity() {
     assert_eq!(Arc::strong_count(&control), 1);
 }
 
-pub(super) fn control() -> (
+pub(crate) fn control() -> (
     Arc<DaemonProviderCredentialEnrollmentControl>,
     runne_api::ProtectedActivationKeys,
 ) {

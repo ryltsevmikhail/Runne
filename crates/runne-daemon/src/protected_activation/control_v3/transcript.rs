@@ -93,6 +93,9 @@ fn serve_v3_transcript(
         let mut acknowledgement =
             ProtectedCredentialEnrollmentShutdownAckV3::new(owned_launch.clone(), true);
         acknowledgement.sign(keys);
+        #[cfg(unix)]
+        write_shutdown_ack_after_revocation(runtime, channel, &acknowledgement)?;
+        #[cfg(not(unix))]
         channel.write_control_frame(
             &acknowledgement
                 .encode_frame()
@@ -101,3 +104,21 @@ fn serve_v3_transcript(
         return Ok(());
     }
 }
+
+#[cfg(unix)]
+fn write_shutdown_ack_after_revocation(
+    runtime: &mut V3EnrollmentRuntime,
+    channel: &mut ProtectedActivationChannel,
+    acknowledgement: &ProtectedCredentialEnrollmentShutdownAckV3,
+) -> Result<(), LaunchAuthorityError> {
+    drop(runtime.revoke_shutdown_authorization());
+    channel.write_control_frame(
+        &acknowledgement
+            .encode_frame()
+            .map_err(|_| LaunchAuthorityError::InvalidContract)?,
+    )
+}
+
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
+#[path = "transcript/shutdown_tests.rs"]
+mod shutdown_tests;
