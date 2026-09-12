@@ -1,4 +1,4 @@
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::{Signer as _, SigningKey};
 use runne_native_qualification::{
     PendingQualificationAdmission, QualificationAdmissionVerifier, QualificationFaultSelector,
@@ -121,7 +121,7 @@ pub(super) fn facts(ids: [u8; 4]) -> VerifiedQualificationFenceFacts {
     .expect("verified fixture facts")
 }
 
-fn sign<T: Clone + Serialize>(value: T, key: &SigningKey, domain: &[u8]) -> Vec<u8> {
+pub(super) fn sign<T: Clone + Serialize>(value: T, key: &SigningKey, domain: &[u8]) -> Vec<u8> {
     let unsigned = serde_json::to_vec(&value).expect("canonical unsigned fixture");
     let mut payload = domain.to_vec();
     payload.extend_from_slice(&unsigned);

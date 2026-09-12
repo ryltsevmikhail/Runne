@@ -8,7 +8,9 @@ mod model;
 #[cfg(unix)]
 mod path_guard;
 mod record;
+mod run_record;
 mod schema;
+mod schema_v1;
 
 pub use ledger::{QualificationReplayLedger, QualificationReplayLedgerError};
 pub use model::CanonicalRunBinding;

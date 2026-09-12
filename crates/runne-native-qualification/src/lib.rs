@@ -6,6 +6,11 @@ mod admission;
 mod admission_relay;
 mod admission_relay_codec;
 mod admission_verification;
+mod bootstrap_model;
+mod bootstrap_pending;
+mod bootstrap_policy;
+mod bootstrap_verification;
+mod bootstrap_wire;
 mod compiled_policy;
 mod context_model;
 mod context_policy;
@@ -28,6 +33,12 @@ pub use admission_relay_codec::QualificationAdmissionRelayCodecV1;
 pub use admission_verification::{
     QualificationAdmissionVerificationError, QualificationAdmissionVerifier,
 };
+pub use bootstrap_model::{
+    QualificationRunBootstrapError, QualificationRunBootstrapExpectation,
+    VerifiedQualificationRunBootstrapProof,
+};
+pub use bootstrap_pending::PendingQualificationRunBootstrapProof;
+pub use bootstrap_verification::QualificationRunBootstrapVerifier;
 pub use context_model::{
     QualificationRunContextError, QualificationRunContextExpectation, QualificationScenario,
     VerifiedQualificationRunContext,
@@ -46,6 +57,9 @@ pub use verification::QualificationFaultVerifier;
 
 /// Maximum accepted canonical fault-ticket wire size.
 pub const MAX_FAULT_TICKET_BYTES: usize = 4_096;
+
+/// Maximum accepted canonical signed bootstrap-proof wire size.
+pub const MAX_RUN_BOOTSTRAP_PROOF_BYTES: usize = 2_048;
 
 /// Maximum accepted canonical runner-context wire size.
 pub const MAX_RUN_CONTEXT_BYTES: usize = 2_048;

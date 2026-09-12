@@ -1,3 +1,6 @@
+#[path = "ledger/run.rs"]
+mod run;
+
 use std::fmt;
 use std::fs::File;
 #[cfg(test)]
@@ -7,13 +10,13 @@ use runne_native_qualification::VerifiedQualificationFenceFacts;
 #[cfg(unix)]
 use runne_sqlite_native_identity::file_database_identity;
 use runne_sqlite_native_identity::{
-    opened_database_identity, path_database_identity, DatabaseFileIdentity,
+    DatabaseFileIdentity, opened_database_identity, path_database_identity,
 };
-use rusqlite::{params, Connection, OpenFlags, TransactionBehavior};
+use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
 
-use crate::{record::FaultRecord, CanonicalRunBinding};
+use crate::{CanonicalRunBinding, record::FaultRecord};
 
-/// Durable replay ledger for already-authenticated fault qualification facts.
+/// Durable replay ledger for already-authenticated qualification facts.
 pub struct QualificationReplayLedger {
     connection: Connection,
     #[cfg(unix)]

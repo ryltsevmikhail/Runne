@@ -2,8 +2,14 @@
 mod crash;
 #[path = "tests/fixture.rs"]
 mod fixture;
+#[path = "tests/migration.rs"]
+mod migration;
+#[path = "tests/run_cases.rs"]
+mod run_cases;
+#[path = "tests/run_fixture.rs"]
+mod run_fixture;
 
-use std::os::unix::fs::{symlink, PermissionsExt as _};
+use std::os::unix::fs::{PermissionsExt as _, symlink};
 use std::sync::{Arc, Barrier};
 
 use tempfile::TempDir;
@@ -137,9 +143,11 @@ fn conflicting_later_replay_key_rolls_back_earlier_new_keys() {
     open(&root)
         .consume_fault(fixture::facts([1, 2, 3, 4]), binding(5, 6))
         .expect("baseline consume");
-    assert!(open(&root)
-        .consume_fault(fixture::facts([5, 6, 3, 7]), binding(5, 6))
-        .is_err());
+    assert!(
+        open(&root)
+            .consume_fault(fixture::facts([5, 6, 3, 7]), binding(5, 6))
+            .is_err()
+    );
     open(&root)
         .consume_fault(fixture::facts([5, 6, 7, 8]), binding(5, 6))
         .expect("rolled-back context keys remain unused");
@@ -153,12 +161,16 @@ fn schema_and_pragma_uncertainty_close_the_ledger() {
         .connection
         .execute_batch("PRAGMA synchronous=OFF")
         .expect("test downgrade");
-    assert!(ledger
-        .consume_fault(fixture::facts([1, 2, 3, 4]), binding(5, 6))
-        .is_err());
-    assert!(ledger
-        .consume_fault(fixture::facts([7, 8, 9, 10]), binding(5, 6))
-        .is_err());
+    assert!(
+        ledger
+            .consume_fault(fixture::facts([1, 2, 3, 4]), binding(5, 6))
+            .is_err()
+    );
+    assert!(
+        ledger
+            .consume_fault(fixture::facts([7, 8, 9, 10]), binding(5, 6))
+            .is_err()
+    );
     drop(ledger);
     let path = root.path().join(crate::path_guard::DATABASE_NAME);
     rusqlite::Connection::open(&path)
@@ -248,9 +260,8 @@ fn private_path_guards_reject_symlinks_hardlinks_modes_and_owner_mismatch() {
     let database = database_root.path().join(crate::path_guard::DATABASE_NAME);
     std::fs::hard_link(&database, database_root.path().join("second")).expect("hard link");
     assert!(QualificationReplayLedger::open_for_test(database_root.path(), uid()).is_err());
-    assert!(QualificationReplayLedger::open_for_test(
-        database_root.path(),
-        uid().saturating_add(1)
-    )
-    .is_err());
+    assert!(
+        QualificationReplayLedger::open_for_test(database_root.path(), uid().saturating_add(1))
+            .is_err()
+    );
 }

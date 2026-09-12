@@ -2,7 +2,7 @@ use std::os::unix::process::ExitStatusExt as _;
 use std::path::Path;
 use std::process::Command;
 
-use rusqlite::{params, TransactionBehavior};
+use rusqlite::{TransactionBehavior, params};
 
 const MODE: &str = "RUNNE_QUALIFICATION_RUNNER_CRASH_MODE";
 const ROOT: &str = "RUNNE_QUALIFICATION_RUNNER_CRASH_ROOT";
@@ -21,9 +21,27 @@ fn crash_before_commit_recovers_without_consuming() {
 fn crash_after_commit_keeps_replay_consumed() {
     let root = super::private_root();
     crash("after", root.path());
-    assert!(super::open(&root)
-        .consume_fault(super::fixture::facts([1, 2, 3, 4]), super::binding(5, 6))
-        .is_err());
+    assert!(
+        super::open(&root)
+            .consume_fault(super::fixture::facts([1, 2, 3, 4]), super::binding(5, 6))
+            .is_err()
+    );
+}
+
+#[test]
+fn crash_after_run_commit_keeps_bootstrap_consumed() {
+    let root = super::private_root();
+    crash("after-run", root.path());
+    assert!(
+        super::open(&root)
+            .consume_run(super::run_fixture::proof([1, 2], 5, 6))
+            .is_err()
+    );
+    assert!(
+        super::open(&root)
+            .consume_run(super::run_fixture::proof([7, 8], 5, 6))
+            .is_err()
+    );
 }
 
 #[test]
@@ -38,6 +56,14 @@ fn crash_child_process() {
     let binding = super::binding(5, 6);
     let record = crate::record::FaultRecord::from_facts(&facts, &binding).expect("record");
     match mode.as_str() {
+        "after-run" => {
+            let proof = super::run_fixture::proof([1, 2], 5, 6);
+            let record = crate::run_record::RunRecord::from_facts(&proof).unwrap();
+            ledger
+                .consume_run_record(&record)
+                .expect("committed run before ACK");
+            std::process::abort();
+        }
         "after" => {
             ledger.consume_record(&record).expect("committed record");
             let count: i64 = ledger
