@@ -60,6 +60,7 @@ def main() -> int:
     violations += find_native_qualification_dependency_violations(metadata["packages"])
     violations += find_qualification_runner_dependency_violations(metadata["packages"])
     violations += find_bootstrap_policy_dependency_violations(metadata["packages"], root)
+    violations += find_qualification_root_service_violations(metadata["packages"], root)
     violations += find_macos_file_security_dependency_violations(metadata["packages"], root)
     violations += find_native_qualification_admission_dependency_violations(metadata["packages"])
     violations += find_native_qualification_violations(root)

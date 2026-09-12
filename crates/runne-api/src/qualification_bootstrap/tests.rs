@@ -17,6 +17,14 @@ fn ack() -> BootstrapControlReply {
         BootstrapAck::new([8; 32], [9; 32], binding(), [10; 32], MAX_SAFE_JS_INTEGER).unwrap(),
     )
 }
+fn root_prepared() -> BootstrapControlReply {
+    BootstrapControlReply::RootPrepared(RootPrepared::new([8; 32], binding(), 10, 11).unwrap())
+}
+fn root_issued_proof() -> BootstrapControlReply {
+    BootstrapControlReply::RootIssuedProof(
+        RootIssuedProof::new([8; 32], [9; 32], vec![255; 2_048]).unwrap(),
+    )
+}
 
 #[test]
 fn canonical_round_trips_each_closed_kind() {
@@ -34,15 +42,107 @@ fn canonical_round_trips_each_closed_kind() {
         )
         .encode()
         .unwrap(),
+        BootstrapControlRequest::RootPrepare(RootPrepareRequest::new())
+            .encode()
+            .unwrap(),
+        BootstrapControlRequest::RootArm(
+            RootArmRequest::new([1; 32], [2; 32], [3; 32], [4; 32], [5; 32]).unwrap(),
+        )
+        .encode()
+        .unwrap(),
     ];
     for bytes in requests {
         let decoded = BootstrapControlRequest::decode(&bytes).unwrap();
         assert_eq!(decoded.encode().unwrap(), bytes);
     }
-    for bytes in [offer().encode().unwrap(), ack().encode().unwrap()] {
+    for bytes in [
+        offer().encode().unwrap(),
+        ack().encode().unwrap(),
+        root_prepared().encode().unwrap(),
+        root_issued_proof().encode().unwrap(),
+    ] {
         let decoded = BootstrapControlReply::decode(&bytes).unwrap();
         assert_eq!(decoded.encode().unwrap(), bytes);
     }
+}
+
+#[test]
+fn root_service_kinds_are_fixed() {
+    let requests = [
+        (
+            BootstrapControlRequest::RootPrepare(RootPrepareRequest::new()),
+            "root_prepare",
+        ),
+        (
+            BootstrapControlRequest::RootArm(
+                RootArmRequest::new([1; 32], [2; 32], [3; 32], [4; 32], [5; 32]).unwrap(),
+            ),
+            "root_arm",
+        ),
+    ];
+    for (request, kind) in requests {
+        assert!(
+            String::from_utf8(request.encode().unwrap())
+                .unwrap()
+                .contains(&format!("\"kind\":\"{kind}\""))
+        );
+    }
+    for (reply, kind) in [
+        (root_prepared(), "root_prepared"),
+        (root_issued_proof(), "root_issued_proof"),
+    ] {
+        assert!(
+            String::from_utf8(reply.encode().unwrap())
+                .unwrap()
+                .contains(&format!("\"kind\":\"{kind}\""))
+        );
+    }
+}
+
+#[test]
+fn root_service_messages_reject_wrong_shapes() {
+    let prepare = BootstrapControlRequest::RootPrepare(RootPrepareRequest::new())
+        .encode()
+        .unwrap();
+    let prepare = String::from_utf8(prepare).unwrap();
+    assert!(
+        BootstrapControlRequest::decode(prepare.replacen('}', ",\"offer_id\":[1]}", 1).as_bytes())
+            .is_err()
+    );
+
+    let arm = BootstrapControlRequest::RootArm(
+        RootArmRequest::new([1; 32], [2; 32], [3; 32], [4; 32], [5; 32]).unwrap(),
+    )
+    .encode()
+    .unwrap();
+    let arm = String::from_utf8(arm).unwrap();
+    assert!(
+        BootstrapControlRequest::decode(
+            arm.replacen("\"candidate_sha256\"", "\"unexpected\"", 1)
+                .as_bytes()
+        )
+        .is_err()
+    );
+
+    let prepared = String::from_utf8(root_prepared().encode().unwrap()).unwrap();
+    assert!(
+        BootstrapControlReply::decode(
+            prepared
+                .replacen('}', ",\"desktop_challenge\":[1]}", 1)
+                .as_bytes()
+        )
+        .is_err()
+    );
+
+    let issued_proof = String::from_utf8(root_issued_proof().encode().unwrap()).unwrap();
+    assert!(
+        BootstrapControlReply::decode(
+            issued_proof
+                .replacen("\"signed_proof\":\"", "\"signed_proof\":\"+", 1)
+                .as_bytes()
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -115,6 +215,16 @@ fn rejects_zero_values_invalid_run_ids_and_time_boundaries() {
     );
     assert!(DesktopOffer::new([1; 32], [2; 32], binding(), 0, 1).is_err());
     assert!(DesktopOffer::new([1; 32], [2; 32], binding(), 2, 1).is_err());
+    assert!(RootPrepared::new([0; 32], binding(), 1, 1).is_err());
+    assert!(RootIssuedProof::new([1; 32], [2; 32], vec![]).is_err());
+    assert!(
+        RootIssuedProof::new(
+            [1; 32],
+            [2; 32],
+            vec![1; MAX_QUALIFICATION_BOOTSTRAP_SIGNED_PROOF_BYTES + 1]
+        )
+        .is_err()
+    );
     assert!(
         DesktopOffer::new(
             [1; 32],

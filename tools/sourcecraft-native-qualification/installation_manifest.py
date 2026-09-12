@@ -8,10 +8,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 INSTALL_FILES = frozenset({
+    "com.runne.qualification-runner.root-consume.v1.plist",
     "README.md", "com.gocode.sourcecraft-native-qualification-signer.plist", "codec.py", "contract.py", "controller.py", "ed25519_verify.py",
     "controller_entry.py", "installation_manifest.py", "native_checks.py", "package_subject.py", "policy.py", "process_control.py", "profile_grants.py", "signer.py", "signer_broker.py", "signer_broker_entry.py", "signer_entry.py", "signer_request.py", "signer_request_entry.py", "vector_harness.py", "vector_harness_entry.py", "verifier.py", "verifier_entry.py",
 })
 DESTINATIONS = {"com.gocode.sourcecraft-native-qualification-signer.plist":"/Library/LaunchDaemons/com.gocode.sourcecraft-native-qualification-signer.plist"}
+DESTINATIONS["com.runne.qualification-runner.root-consume.v1.plist"] = "/Library/LaunchDaemons/com.runne.qualification-runner.root-consume.v1.plist"
 ENTRYPOINTS = {"controller_entry.py":"sourcecraft-native-qualification-controller", "verifier_entry.py":"sourcecraft-native-qualification-verifier", "vector_harness_entry.py":"sourcecraft-native-qualification-vector-harness", "signer_entry.py":"sourcecraft-native-qualification-sign-evidence", "signer_broker_entry.py":"sourcecraft-native-qualification-signer-broker", "signer_request_entry.py":"sourcecraft-native-qualification-request-signature"}
 
 

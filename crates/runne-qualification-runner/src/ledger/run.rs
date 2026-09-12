@@ -92,6 +92,7 @@ impl QualificationReplayLedger {
         {
             return Err(QualificationReplayLedgerError);
         }
+        super::bootstrap_reservations::check_reserved_run(&transaction, record)?;
         for (domain, key) in [(1_i64, record.context_id), (2_i64, record.context_nonce)] {
             transaction
                 .execute(

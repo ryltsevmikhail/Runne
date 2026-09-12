@@ -5,7 +5,7 @@ use super::messages::{RootConsumeRequest, RuntimeBootstrapRequest};
 use super::{
     BootstrapControlRequest, DesktopOfferRequest, MAX_QUALIFICATION_BOOTSTRAP_CONTROL_BYTES,
     QUALIFICATION_BOOTSTRAP_CONTROL_DOMAIN, QUALIFICATION_BOOTSTRAP_CONTROL_VERSION,
-    QualificationBootstrapControlError,
+    QualificationBootstrapControlError, RootPrepareRequest,
 };
 
 #[derive(Deserialize, Serialize)]
@@ -18,8 +18,25 @@ enum RequestWire {
         role: String,
         desktop_challenge: [u8; 32],
     },
+    #[serde(rename = "root_prepare")]
+    RootPrepare {
+        domain: String,
+        version: u8,
+        role: String,
+    },
     #[serde(rename = "runtime_bootstrap_request")]
     RuntimeBootstrap {
+        domain: String,
+        version: u8,
+        role: String,
+        offer_id: [u8; 32],
+        daemon_challenge: [u8; 32],
+        candidate_sha256: [u8; 32],
+        raw_v3_tuple_sha256: [u8; 32],
+        profile_sha256: [u8; 32],
+    },
+    #[serde(rename = "root_arm")]
+    RootArm {
         domain: String,
         version: u8,
         role: String,
@@ -61,6 +78,16 @@ pub(super) fn decode(
                 DesktopOfferRequest::new(desktop_challenge)?,
             ))
         }
+        RequestWire::RootPrepare {
+            domain,
+            version,
+            role,
+        } => {
+            header(&domain, version, &role)?;
+            Ok(BootstrapControlRequest::RootPrepare(
+                RootPrepareRequest::new(),
+            ))
+        }
         RequestWire::RuntimeBootstrap {
             domain,
             version,
@@ -73,6 +100,27 @@ pub(super) fn decode(
         } => {
             header(&domain, version, &role)?;
             Ok(BootstrapControlRequest::RuntimeBootstrap(
+                RuntimeBootstrapRequest::new(
+                    offer_id,
+                    daemon_challenge,
+                    candidate_sha256,
+                    raw_v3_tuple_sha256,
+                    profile_sha256,
+                )?,
+            ))
+        }
+        RequestWire::RootArm {
+            domain,
+            version,
+            role,
+            offer_id,
+            daemon_challenge,
+            candidate_sha256,
+            raw_v3_tuple_sha256,
+            profile_sha256,
+        } => {
+            header(&domain, version, &role)?;
+            Ok(BootstrapControlRequest::RootArm(
                 RuntimeBootstrapRequest::new(
                     offer_id,
                     daemon_challenge,
@@ -109,7 +157,22 @@ impl From<&BootstrapControlRequest> for RequestWire {
                 role: "request".into(),
                 desktop_challenge: value.desktop_challenge,
             },
+            BootstrapControlRequest::RootPrepare(_) => Self::RootPrepare {
+                domain: QUALIFICATION_BOOTSTRAP_CONTROL_DOMAIN.into(),
+                version: QUALIFICATION_BOOTSTRAP_CONTROL_VERSION,
+                role: "request".into(),
+            },
             BootstrapControlRequest::RuntimeBootstrap(value) => Self::RuntimeBootstrap {
+                domain: QUALIFICATION_BOOTSTRAP_CONTROL_DOMAIN.into(),
+                version: QUALIFICATION_BOOTSTRAP_CONTROL_VERSION,
+                role: "request".into(),
+                offer_id: value.offer_id,
+                daemon_challenge: value.daemon_challenge,
+                candidate_sha256: value.candidate_sha256,
+                raw_v3_tuple_sha256: value.raw_v3_tuple_sha256,
+                profile_sha256: value.profile_sha256,
+            },
+            BootstrapControlRequest::RootArm(value) => Self::RootArm {
                 domain: QUALIFICATION_BOOTSTRAP_CONTROL_DOMAIN.into(),
                 version: QUALIFICATION_BOOTSTRAP_CONTROL_VERSION,
                 role: "request".into(),

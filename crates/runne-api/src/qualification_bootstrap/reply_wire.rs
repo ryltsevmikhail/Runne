@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
 
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+
 use super::messages::BootstrapAck;
 use super::{
     BootstrapControlReply, DesktopOffer, MAX_QUALIFICATION_BOOTSTRAP_CONTROL_BYTES,
     QUALIFICATION_BOOTSTRAP_CONTROL_DOMAIN, QUALIFICATION_BOOTSTRAP_CONTROL_VERSION,
-    QualificationBootstrapControlError, RunBinding,
+    QualificationBootstrapControlError, RootIssuedProof, RootPrepared, RunBinding,
 };
 
 #[derive(Deserialize, Serialize)]
@@ -16,6 +18,22 @@ enum ReplyWire {
         version: u8,
         role: String,
         desktop_challenge: [u8; 32],
+        offer_id: [u8; 32],
+        workflow_run_id: String,
+        source_revision: [u8; 20],
+        candidate_sha256: [u8; 32],
+        raw_v3_tuple_sha256: [u8; 32],
+        namespace_sha256: [u8; 32],
+        manifest_sha256: [u8; 32],
+        profile_sha256: [u8; 32],
+        expires_at: u64,
+        run_not_after: u64,
+    },
+    #[serde(rename = "root_prepared")]
+    RootPrepared {
+        domain: String,
+        version: u8,
+        role: String,
         offer_id: [u8; 32],
         workflow_run_id: String,
         source_revision: [u8; 20],
@@ -43,6 +61,15 @@ enum ReplyWire {
         profile_sha256: [u8; 32],
         proof_sha256: [u8; 32],
         run_not_after: u64,
+    },
+    #[serde(rename = "root_issued_proof")]
+    RootIssuedProof {
+        domain: String,
+        version: u8,
+        role: String,
+        offer_id: [u8; 32],
+        daemon_challenge: [u8; 32],
+        signed_proof: String,
     },
 }
 
@@ -90,6 +117,38 @@ pub(super) fn decode(
                 run_not_after,
             )?))
         }
+        ReplyWire::RootPrepared {
+            domain,
+            version,
+            role,
+            offer_id,
+            workflow_run_id,
+            source_revision,
+            candidate_sha256,
+            raw_v3_tuple_sha256,
+            namespace_sha256,
+            manifest_sha256,
+            profile_sha256,
+            expires_at,
+            run_not_after,
+        } => {
+            header(&domain, version, &role)?;
+            let binding = RunBinding::new(
+                &workflow_run_id,
+                source_revision,
+                candidate_sha256,
+                raw_v3_tuple_sha256,
+                namespace_sha256,
+                manifest_sha256,
+                profile_sha256,
+            )?;
+            Ok(BootstrapControlReply::RootPrepared(RootPrepared::new(
+                offer_id,
+                binding,
+                expires_at,
+                run_not_after,
+            )?))
+        }
         ReplyWire::BootstrapAck {
             domain,
             version,
@@ -124,6 +183,22 @@ pub(super) fn decode(
                 run_not_after,
             )?))
         }
+        ReplyWire::RootIssuedProof {
+            domain,
+            version,
+            role,
+            offer_id,
+            daemon_challenge,
+            signed_proof,
+        } => {
+            header(&domain, version, &role)?;
+            let signed_proof = URL_SAFE_NO_PAD
+                .decode(signed_proof)
+                .map_err(|_| QualificationBootstrapControlError::InvalidMessage)?;
+            Ok(BootstrapControlReply::RootIssuedProof(
+                RootIssuedProof::new(offer_id, daemon_challenge, signed_proof)?,
+            ))
+        }
     }
 }
 impl From<&BootstrapControlReply> for ReplyWire {
@@ -134,6 +209,21 @@ impl From<&BootstrapControlReply> for ReplyWire {
                 version: QUALIFICATION_BOOTSTRAP_CONTROL_VERSION,
                 role: "reply".into(),
                 desktop_challenge: value.desktop_challenge,
+                offer_id: value.offer_id,
+                workflow_run_id: value.binding.workflow_run_id.clone(),
+                source_revision: value.binding.source_revision,
+                candidate_sha256: value.binding.candidate_sha256,
+                raw_v3_tuple_sha256: value.binding.raw_v3_tuple_sha256,
+                namespace_sha256: value.binding.namespace_sha256,
+                manifest_sha256: value.binding.manifest_sha256,
+                profile_sha256: value.binding.profile_sha256,
+                expires_at: value.expires_at,
+                run_not_after: value.run_not_after,
+            },
+            BootstrapControlReply::RootPrepared(value) => Self::RootPrepared {
+                domain: QUALIFICATION_BOOTSTRAP_CONTROL_DOMAIN.into(),
+                version: QUALIFICATION_BOOTSTRAP_CONTROL_VERSION,
+                role: "reply".into(),
                 offer_id: value.offer_id,
                 workflow_run_id: value.binding.workflow_run_id.clone(),
                 source_revision: value.binding.source_revision,
@@ -160,6 +250,14 @@ impl From<&BootstrapControlReply> for ReplyWire {
                 profile_sha256: value.binding.profile_sha256,
                 proof_sha256: value.proof_sha256,
                 run_not_after: value.run_not_after,
+            },
+            BootstrapControlReply::RootIssuedProof(value) => Self::RootIssuedProof {
+                domain: QUALIFICATION_BOOTSTRAP_CONTROL_DOMAIN.into(),
+                version: QUALIFICATION_BOOTSTRAP_CONTROL_VERSION,
+                role: "reply".into(),
+                offer_id: value.offer_id(),
+                daemon_challenge: value.daemon_challenge(),
+                signed_proof: URL_SAFE_NO_PAD.encode(value.signed_proof()),
             },
         }
     }

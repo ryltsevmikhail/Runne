@@ -180,7 +180,7 @@ def find_native_qualification_admission_dependency_violations(
             if dependency.get("name") == NATIVE_QUALIFICATION_PACKAGE:
                 observed.append((package.get("name", ""), dependency))
     violations = []
-    owner_names = [owner for owner, _ in observed if owner not in {"runne-provider", "runne-store", "runne-qualification-runner"}]
+    owner_names = [owner for owner, _ in observed if owner not in {"runne-provider", "runne-store", "runne-qualification-runner", "runne-qualification-root-service"}]
     if set(owner_names) != NATIVE_QUALIFICATION_ADMISSION_OWNERS or len(owner_names) != 3 or len({(owner, dep.get("kind")) for owner, dep in observed}) != len(observed):
         violations.append("native qualification delivery must have exactly three owners")
     native_packages = [
@@ -195,7 +195,7 @@ def find_native_qualification_admission_dependency_violations(
         violations.append("native qualification package metadata is missing or ambiguous")
     for owner, dependency in observed:
         kind = dependency.get("kind") or "normal"
-        facts_edge = owner in {"runne-provider", "runne-qualification-runner"} and kind == "normal"
+        facts_edge = owner in {"runne-provider", "runne-qualification-runner", "runne-qualification-root-service"} and kind == "normal"
         fixture_edge = owner in {"runne-provider", "runne-store", "runne-qualification-runner"} and kind == "dev"
         path = dependency.get("path")
         canonical_path = (

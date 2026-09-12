@@ -1,6 +1,6 @@
 """Keep durable runner persistence outside application/runtime ownership."""
 QUALIFICATION_RUNNER_PACKAGE = "runne-qualification-runner"
-ALLOWED_RUST_DEPENDENCIES[QUALIFICATION_RUNNER_PACKAGE] = {NATIVE_QUALIFICATION_PACKAGE, "runne-sqlite-native-identity", "runne-sqlite-handle-identity", "runne-macos-file-security"}
+ALLOWED_RUST_DEPENDENCIES[QUALIFICATION_RUNNER_PACKAGE] = {NATIVE_QUALIFICATION_PACKAGE, "runne-api", "runne-sqlite-native-identity", "runne-sqlite-handle-identity", "runne-macos-file-security"}
 
 
 def find_qualification_runner_dependency_violations(packages: list[dict]) -> list[str]:
@@ -9,6 +9,7 @@ def find_qualification_runner_dependency_violations(packages: list[dict]) -> lis
         return ["qualification runner package is missing or ambiguous"]
     package = rows[0]
     expected = {
+        "runne-api": ("*", (), True, None),
         "runne-native-qualification": ("*", (), True, None),
         "runne-sqlite-native-identity": ("*", (), True, None),
         "runne-sqlite-handle-identity": ("*", (), True, None),
@@ -19,7 +20,7 @@ def find_qualification_runner_dependency_violations(packages: list[dict]) -> lis
     native = [row for row in packages if row.get("name") == NATIVE_QUALIFICATION_PACKAGE]
     native_path = Path(native[0]["manifest_path"]).parent.resolve() if len(native) == 1 and isinstance(native[0].get("manifest_path"), str) else None
     violations = []
-    if any(dep.get("name") == QUALIFICATION_RUNNER_PACKAGE for owner in packages for dep in owner.get("dependencies", [])):
+    if any(dep.get("name") == QUALIFICATION_RUNNER_PACKAGE for owner in packages if owner.get("name") != "runne-qualification-root-service" for dep in owner.get("dependencies", [])):
         violations.append("qualification runner persistence must not enter application dependencies")
     if package.get("features", {}):
         violations.append("qualification runner must not expose feature bypasses")

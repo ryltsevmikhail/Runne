@@ -11,6 +11,7 @@ for name in (
     "native_qualification.inc",
     "qualification_runner.inc",
     "bootstrap_policy.inc",
+    "qualification_root_service.inc",
     "native_qualification_delivery_scan.inc",
     "native_process_identity.inc",
     "macos_process_identity_crate_dependencies.inc",

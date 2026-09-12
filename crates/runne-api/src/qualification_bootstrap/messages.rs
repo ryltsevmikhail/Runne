@@ -1,4 +1,7 @@
 use super::model::{nonzero, valid_time};
+use super::root_service_messages::{
+    RootArmRequest, RootIssuedProof, RootPrepareRequest, RootPrepared,
+};
 use super::{
     DesktopOffer, DesktopOfferRequest, MAX_QUALIFICATION_BOOTSTRAP_SIGNED_PROOF_BYTES,
     QualificationBootstrapControlError, RunBinding,
@@ -150,16 +153,20 @@ impl BootstrapAck {
     }
 }
 
-/// Only these three unauthenticated bootstrap-control requests are accepted on the runner protocol.
+/// Only these unauthenticated bootstrap-control requests are accepted on the runner protocol.
 pub enum BootstrapControlRequest {
     DesktopOffer(DesktopOfferRequest),
     RuntimeBootstrap(RuntimeBootstrapRequest),
     RootConsume(RootConsumeRequest),
+    RootPrepare(RootPrepareRequest),
+    RootArm(RootArmRequest),
 }
-/// Only these two unauthenticated bootstrap-control replies are accepted on the runner protocol.
+/// Only these unauthenticated bootstrap-control replies are accepted on the runner protocol.
 pub enum BootstrapControlReply {
     DesktopOffer(DesktopOffer),
     BootstrapAck(BootstrapAck),
+    RootPrepared(RootPrepared),
+    RootIssuedProof(RootIssuedProof),
 }
 impl BootstrapControlRequest {
     pub fn encode(&self) -> Result<Vec<u8>, QualificationBootstrapControlError> {

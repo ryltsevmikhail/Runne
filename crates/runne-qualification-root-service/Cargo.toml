@@ -1,0 +1,31 @@
+[package]
+name = "runne-qualification-root-service"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+base64.workspace = true
+ed25519-dalek.workspace = true
+hex.workspace = true
+rand.workspace = true
+runne-api = { path = "../runne-api" }
+runne-macos-xpc = { path = "../runne-macos-xpc" }
+runne-native-qualification = { path = "../runne-native-qualification" }
+runne-qualification-bootstrap-policy = { path = "../runne-qualification-bootstrap-policy" }
+runne-qualification-runner = { path = "../runne-qualification-runner" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+zeroize.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+runne-macos-file-security = { path = "../runne-macos-file-security" }
+rustix = { version = "=1.1.4", features = ["fs", "process"] }
+
+[dev-dependencies]
+tempfile = "=3.27.0"
+
+[lints]
+workspace = true

@@ -21,6 +21,7 @@ def packages():
         {"name": "runne-native-qualification", "manifest_path": "/repo/crates/runne-native-qualification/Cargo.toml"},
         {"name": "runne-qualification-runner", "features": {}, "dependencies": [
             dependency("runne-native-qualification", "*"),
+            dependency("runne-api", "*"),
             dependency("runne-sqlite-native-identity", "*"),
             dependency("runne-sqlite-handle-identity", "*"),
             dependency("runne-macos-file-security", "*", target='cfg(target_os = "macos")'),

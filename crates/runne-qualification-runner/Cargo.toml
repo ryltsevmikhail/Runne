@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+runne-api = { path = "../runne-api" }
 runne-native-qualification = { path = "../runne-native-qualification" }
 runne-sqlite-handle-identity = { path = "../runne-sqlite-handle-identity" }
 runne-sqlite-native-identity = { path = "../runne-sqlite-native-identity" }

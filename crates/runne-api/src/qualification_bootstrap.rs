@@ -2,6 +2,7 @@ mod messages;
 mod model;
 mod reply_wire;
 mod request_wire;
+mod root_service_messages;
 
 pub use messages::{
     BootstrapAck, BootstrapControlReply, BootstrapControlRequest, RootConsumeRequest,
@@ -11,6 +12,9 @@ pub use model::{
     DesktopOffer, DesktopOfferRequest, MAX_QUALIFICATION_BOOTSTRAP_CONTROL_BYTES,
     MAX_QUALIFICATION_BOOTSTRAP_SIGNED_PROOF_BYTES, QUALIFICATION_BOOTSTRAP_CONTROL_DOMAIN,
     QUALIFICATION_BOOTSTRAP_CONTROL_VERSION, QualificationBootstrapControlError, RunBinding,
+};
+pub use root_service_messages::{
+    RootArmRequest, RootIssuedProof, RootPrepareRequest, RootPrepared,
 };
 
 #[cfg(test)]

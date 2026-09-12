@@ -4,7 +4,7 @@ use crate::QualificationReplayLedger;
 fn downgrade_fixture(root: &tempfile::TempDir) {
     let path = root.path().join(crate::path_guard::DATABASE_NAME);
     let connection = rusqlite::Connection::open(path).expect("fixture connection");
-    connection.execute_batch("BEGIN IMMEDIATE; DROP TABLE run_bootstraps; UPDATE ledger_meta SET schema_id='runne/qualification-runner-replay/v1'; PRAGMA user_version=1; COMMIT;").expect("exact historical schema");
+    connection.execute_batch("BEGIN IMMEDIATE; DROP TABLE bootstrap_arms; DROP TABLE run_bootstraps; UPDATE ledger_meta SET schema_id='runne/qualification-runner-replay/v1'; PRAGMA user_version=1; COMMIT;").expect("exact historical schema");
 }
 
 #[test]
@@ -19,7 +19,7 @@ fn historical_v1_upgrade_preserves_consumed_fault_keys() {
         .connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 2);
+    assert_eq!(version, 3);
     assert!(
         upgraded
             .consume_fault(fixture::facts([1, 2, 3, 4]), binding(5, 6))

@@ -1,3 +1,7 @@
+#[path = "ledger/bootstrap.rs"]
+mod bootstrap;
+#[path = "ledger/bootstrap_reservations.rs"]
+mod bootstrap_reservations;
 #[path = "ledger/run.rs"]
 mod run;
 
@@ -101,6 +105,9 @@ impl QualificationReplayLedger {
         )
         .map_err(|_| QualificationReplayLedgerError)?;
         connection
+            .busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(|_| QualificationReplayLedgerError)?;
+        connection
             .execute_batch("BEGIN IMMEDIATE; ROLLBACK")
             .map_err(|_| QualificationReplayLedgerError)?;
         root.verify_journal_recovered(journal)?;
@@ -158,6 +165,11 @@ impl QualificationReplayLedger {
         {
             return Err(QualificationReplayLedgerError);
         }
+        bootstrap_reservations::reject_reserved_fault(
+            &transaction,
+            record.context_id,
+            record.context_nonce,
+        )?;
         for (domain, key) in [
             (1_i64, record.context_id),
             (2_i64, record.context_nonce),
