@@ -7,7 +7,8 @@ Usage: scripts/desktop/dev-signed-run.sh [--profile PATH] [--no-run]
 
 Build the debug desktop binary, assemble a minimal .app bundle with the
 entitlements and provisioning profile required by the DataProtection
-keychain (Secure Enclave seal key), and launch it.
+keychain (Secure Enclave seal key), stage the bundled runtime (runned
+daemon + runne CLI) into the bundle, and launch it.
 
 Options:
   --profile PATH  Apple-signed Developer ID provisioning profile authorizing
@@ -53,13 +54,21 @@ cd "$repo_root"
 
 export CARGO_PROFILE_DEV_DEBUG="${CARGO_PROFILE_DEV_DEBUG:-0}"
 
-cargo build -p runne-desktop
+cargo build -p runne-desktop -p runne-daemon -p runne-cli
 
 binary="target/debug/runne-desktop"
 if [[ ! -f "$binary" ]]; then
   echo "error: built desktop binary not found: $binary" >&2
   exit 1
 fi
+
+runtime_bins=(target/debug/runned target/debug/runne)
+for rt in "${runtime_bins[@]}"; do
+  if [[ ! -f "$rt" ]]; then
+    echo "error: built runtime binary not found: $rt" >&2
+    exit 1
+  fi
+done
 
 bundle="target/dev-bundle/RunneDev.app"
 rm -rf "$bundle"
@@ -97,6 +106,18 @@ if [[ -z "$identity" ]]; then
     exit 1
   fi
 fi
+
+# Stage the bundled runtime (runned + runne CLI) next to the desktop
+# executable so discover_bundled_runtime finds them. Nested code must be
+# signed (plain, no entitlements) before the outer bundle signature.
+for rt in "${runtime_bins[@]}"; do
+  staged="$bundle/Contents/MacOS/$(basename "$rt")"
+  install -m 0755 "$rt" "$staged"
+  codesign --sign "$identity" --force --options runtime --timestamp "$staged"
+  # NOTE: --quiet is not supported by this codesign; plain --verify is
+  # silent on success and non-zero on failure.
+  codesign --verify "$staged"
+done
 
 if [[ -n "$profile" ]]; then
   if [[ ! -f "$profile" ]]; then
