@@ -2,3 +2,4 @@ Executable=/private/var/REDACTED/Runne.app/Contents/Library/Helpers/RunneCredent
 Identifier=com.runne.credential-service
 Authority=Developer ID Application: Runne (758F9Z45SR)
 TeamIdentifier=758F9Z45SR
+CDHash=4444444444444444444444444444444444444444

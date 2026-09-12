@@ -18,21 +18,46 @@ sys.path.insert(0, str(PACKAGE))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from codec import Rejected, canonical, digest, load_json
 from contract import DEPLOYMENT, ROLE_PATHS
-from native_checks import ARTIFACTS, _entitlements, _identity, _symbols, verify_roles
+from native_checks import ARTIFACTS, _entitlements, _identities, _identity, _symbols, _verify_code, verify_roles
 from vector_harness import evaluate
 from conformance_support import _hash, _vector
 
 
 class NativeConformanceTests(unittest.TestCase):
     def test_native_measurements_require_exact_typed_identity_and_entitlements(self) -> None:
-        from codec import Rejected
-        _identity("Authority=Developer ID Application: Runne (758F9Z45SR)\nIdentifier=runne\nTeamIdentifier=758F9Z45SR", "writer")
-        with self.assertRaises(Rejected): _identity("Authority=Developer ID Application: Runne (758F9Z45SR)\nIdentifier=runne.extra\nTeamIdentifier=758F9Z45SR", "writer")
+        expected = {"identifier":"runne", "teamIdentifier":"758F9Z45SR", "cdhash":"2" * 40}
+        measured = "Authority=Developer ID Application: Runne (758F9Z45SR)\nIdentifier=runne\nTeamIdentifier=758F9Z45SR\nCDHash=" + "2" * 40
+        _identity(measured, "writer", expected)
+        with self.assertRaises(Rejected):
+            _identity(measured.replace("2" * 40, "3" * 40), "writer", expected)
+        with self.assertRaises(Rejected):
+            _identity(measured.replace("Developer ID Application", "Apple Development"), "writer", expected)
+        identities = {
+            role: {"identifier": identifier, "teamIdentifier":"758F9Z45SR", "cdhash":str(index + 1) * 40}
+            for index, (role, identifier) in enumerate({"desktop":"com.runne.desktop", "writer":"runne", "daemon":"runned", "service":"com.runne.credential-service"}.items())
+        }
+        identities["writer"]["identifier"] = 'runne" or true'
+        with self.assertRaises(Rejected):
+            _identities(identities)
         plist = "<plist version=\"1.0\"><dict></dict></plist>"
         _entitlements(plist, "writer")
         with self.assertRaises(Rejected): _entitlements("<plist version=\"1.0\"><dict><key>extra</key><true/></dict></plist>", "writer")
         _symbols("                 U _SecItemCopyMatching")
         with self.assertRaises(Rejected): _symbols("                 U _SecKeychainOpen")
+
+    def test_native_requirement_is_pinned_and_invalid_signature_is_rejected(self) -> None:
+        import native_checks
+        from unittest.mock import patch
+        identity = {"identifier":"runne", "teamIdentifier":"758F9Z45SR", "cdhash":"2" * 40}
+        with patch.object(native_checks, "_run") as run:
+            _verify_code(Path("/protected/Runne.app/Contents/MacOS/runne"), identity)
+            command = run.call_args.args[0]
+            self.assertIn("--strict", command)
+            self.assertEqual(command[-2:], ["--", "/protected/Runne.app/Contents/MacOS/runne"])
+            self.assertIn('-R=identifier "runne" and anchor apple generic and certificate leaf[subject.OU] = "758F9Z45SR" and cdhash H"' + "2" * 40 + '"', command)
+        with patch.object(native_checks, "_run", side_effect=Rejected("native code inspection rejected")):
+            with self.assertRaises(Rejected):
+                _verify_code(Path("/protected/Runne.app/Contents/MacOS/runne"), identity)
 
     def test_native_launch_agent_profile_and_notarization_parsers(self) -> None:
         import native_checks
@@ -166,7 +191,9 @@ class NativeConformanceTests(unittest.TestCase):
             desktop = package / "Contents/embedded.provisionprofile"; desktop.parent.mkdir(parents=True, exist_ok=True); desktop.write_bytes((fixtures / "desktop.mobileprovision").read_bytes())
             digest_file = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
             tuple_value = {name: digest_file(package / relative) for name, relative in ARTIFACTS.items()}
+            commands: list[list[str]] = []
             def output(command: list[str]) -> str:
+                commands.append(command)
                 target = Path(command[-1])
                 if command[0].endswith("security"): return target.read_text()
                 if command[0].endswith("spctl"): return (fixtures / "spctl.txt").read_text()
@@ -175,8 +202,22 @@ class NativeConformanceTests(unittest.TestCase):
                 return (fixtures / (f"entitlements-{role}.plist" if "--entitlements" in command else f"codesign-{role}.txt")).read_text()
             original, original_digest = native_checks._run, native_checks.file_digest
             native_checks._run, native_checks.file_digest = output, digest_file
-            try: verify_roles(package, tuple_value)
+            identities = {
+                role: {"identifier": native_checks.IDENTIFIERS[role], "teamIdentifier": "758F9Z45SR", "cdhash": str(index + 1) * 40}
+                for index, role in enumerate(ROLE_PATHS)
+            }
+            try: verify_roles(package, tuple_value, identities)
             finally: native_checks._run, native_checks.file_digest = original, original_digest
+            self.assertTrue(any(command[:4] == ["/usr/bin/codesign", "--display", "--verbose=4", "--"] for command in commands))
+
+    def test_layout_matches_tuple_v3_producer(self) -> None:
+        self.assertEqual(ROLE_PATHS, {
+            "desktop":"Contents/MacOS/runne-desktop",
+            "writer":"Contents/MacOS/runne",
+            "daemon":"Contents/MacOS/runned",
+            "service":"Contents/Library/Helpers/RunneCredentialService.app/Contents/MacOS/runne-credential-service",
+        })
+        self.assertEqual(ARTIFACTS["contract_sha256"], Path("Contents/Resources/contracts/gocode-ui-client-2/bundle.json"))
 
     def test_signer_emits_an_envelope_from_the_completed_controller_lifecycle(self) -> None:
         from signer import issue

@@ -54,7 +54,7 @@ def _verify(policy_value: object, root: Path, now: datetime, verifier: Path,
     if row["runner"]["workflow_run_id"] != envelope["workflow_run_id"]:
         raise Rejected("row workflow identity differs from envelope")
     snapshot, package_subject, bundle = _manifest(manifest, root, row, tuples, Path(policy["package_root"]), production)
-    if production: verify_roles(Path(policy["package_root"]), row["tuple"])
+    if production: verify_roles(Path(policy["package_root"]), row["tuple"], row["code_identities"])
     _envelope(envelope, row, tuples, manifest, conformance, transcript, service, lifecycle, policy, now)
     _conformance(conformance, manifest, transcript, service, lifecycle, policy); _lifecycle(lifecycle, envelope, snapshot, package_subject, bundle, policy, manifest)
     _transcript(transcript, policy); _service(service)

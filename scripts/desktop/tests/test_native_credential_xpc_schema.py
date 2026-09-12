@@ -89,6 +89,11 @@ class XpcSchemaTests(unittest.TestCase):
             "remote_network": lambda row: row["selectors"]["remote_verify_after_local"].update(network_attempts=0),
             "code_identity_role": lambda row: row["code_identities"]["desktop"].update(role="writer"),
             "code_identity_identifier": lambda row: row["code_identities"]["desktop"].update(identifier="runned"),
+            "code_identity_team": lambda row: row["code_identities"]["desktop"].update(teamIdentifier="AAAAAAAAAA"),
+            "code_identity_cdhash": lambda row: row["code_identities"]["desktop"].update(cdhash="a" * 39),
+            "code_identity_cdhash_upper": lambda row: row["code_identities"]["desktop"].update(cdhash="A" * 40),
+            "code_identity_cdhash_newline": lambda row: row["code_identities"]["desktop"].update(cdhash="a" * 40 + "\n"),
+            "code_identity_requirement": lambda row: row["code_identities"]["desktop"].update(requirement="anchor apple generic"),
             "nested_selector": lambda row: row["selectors"]["clean_install"]["case_receipt"].update(selector="rotation"),
         }
         for name, mutate in cases.items():

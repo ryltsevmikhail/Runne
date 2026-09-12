@@ -13,8 +13,8 @@ SELECTORS = frozenset({"clean_install","n_to_n_plus_1","rollback","mixed_child_m
 ROW = frozenset({"platform","architecture","os_version","disposition","tuple","signing","code_identities","runner","native_store","artifact_scan","selectors","deployment"})
 STORE = {"access_group":f"{TEAM}.{SERVICE}","data_protection_keychain":True,"accessibility":"when_unlocked_this_device_only","synchronizable":False,"file_keychain":False,"environment_keychain":False,"ksec_use_keychain":False,"legacy_acl":False}
 ROLE_PATHS = {"desktop":"Contents/MacOS/runne-desktop",
-              "writer":"Contents/MacOS/runne-aarch64-apple-darwin",
-              "daemon":"Contents/MacOS/runned-aarch64-apple-darwin",
+              "writer":"Contents/MacOS/runne",
+              "daemon":"Contents/MacOS/runned",
               "service":"Contents/Library/Helpers/RunneCredentialService.app/Contents/MacOS/runne-credential-service"}
 CANARY = "runne/native-qualification-export-canary/v1"
 
@@ -76,13 +76,12 @@ def _deployment(value: object) -> None:
 
 
 def _code_identities(value: object, tuple_value: dict[str, object]) -> None:
-    identifiers = {"desktop":"com.runne.desktop","writer":"runne","daemon":"runned","service":SERVICE}
+    identifiers = {"desktop":"com.runne.desktop", "writer":"runne", "daemon":"runned", "service":SERVICE}
+    fields = {"identifier", "teamIdentifier", "cdhash"}
     if not isinstance(value, dict) or set(value) != set(identifiers): _reject("code identities are incomplete")
     for role, identifier in identifiers.items():
-        expected = {"authority":"Developer ID Application","binary_sha256":tuple_value[f"{role}_sha256"],
-                    "identifier":identifier,"notarized":True,"role":role,"team_id":TEAM}
         observed = value.get(role)
-        if not isinstance(observed, dict) or canonical(observed) != canonical(expected) or tuple_value[f"{role}_code_identity_sha256"] != digest(expected):
+        if not isinstance(observed, dict) or set(observed) != fields or observed.get("identifier") != identifier or observed.get("teamIdentifier") != TEAM or not isinstance(observed.get("cdhash"), str) or re.fullmatch(r"[0-9a-f]{40}", observed["cdhash"]) is None or tuple_value[f"{role}_code_identity_sha256"] != digest(observed):
             _reject("code identity differs from qualified tuple")
 
 

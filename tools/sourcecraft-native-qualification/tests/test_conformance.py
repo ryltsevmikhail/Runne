@@ -48,7 +48,13 @@ class ConformanceTests(unittest.TestCase):
         command = [sys.executable, str(PACKAGE / "vector_harness.py"), "--vector"]
         for positive in positives:
             self.assertEqual(subprocess.run(command + [str(positive)], capture_output=True, text=True, check=False).returncode, 0)
-        for name in ("negative-row-workflow-v2.json", "negative-selector-fact-v2.json"):
+        negatives = {
+            "negative-row-workflow-v2.json":"row workflow identity",
+            "negative-selector-fact-v2.json":"selector semantic receipt",
+        }
+        for name, reason in negatives.items():
+            vector = json.loads((vectors / name).read_text())
+            with self.assertRaisesRegex(Rejected, reason): evaluate(vector)
             self.assertEqual(subprocess.run(command + [str(vectors / name)], capture_output=True, text=True, check=False).returncode, 1)
 
     def test_adversarial_rows_and_receipts_are_rejected(self) -> None:

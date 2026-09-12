@@ -43,7 +43,7 @@ def _resign(value: dict[str, object], *, refresh_inventory: bool = True) -> None
     assert isinstance(identities, dict)
     for role, path in ROLE_PATHS.items():
         identity = identities[role]; assert isinstance(identity, dict)
-        identity["binary_sha256"] = hashes[path]; tuple_value[f"{role}_sha256"] = hashes[path]
+        tuple_value[f"{role}_sha256"] = hashes[path]
         tuple_value[f"{role}_code_identity_sha256"] = digest(identity)
     tuple_value["tuple_sha256"] = tuple_digest(tuple_value)
     roles = files["artifact-manifest.json"]["role_measurements"]
@@ -93,7 +93,7 @@ def _vector() -> dict[str, object]:
     role_measurements = {role:{"sha256":package_hashes[path],"size":len(package_bytes[path]),"macho_magic":"cffaedfe","architecture":"arm64","canary_matches":0}
                          for role,path in ROLE_PATHS.items()}
     tuple_value = {name:_hash(name) for name in TUPLE}; tuple_value.update(candidate_sha256=policy["candidate_sha256"], release_tuple_v3_sha256=policy["release_tuple_v3_sha256"], deployment_sha256=digest(DEPLOYMENT))
-    identities = {role:{"authority":"Developer ID Application","binary_sha256":package_hashes[ROLE_PATHS[role]],"identifier":{"desktop":"com.runne.desktop","writer":"runne","daemon":"runned","service":"com.runne.credential-service"}[role],"notarized":True,"role":role,"team_id":"758F9Z45SR"} for role in ("desktop","writer","daemon","service")}
+    identities = {role:{"identifier":{"desktop":"com.runne.desktop","writer":"runne","daemon":"runned","service":"com.runne.credential-service"}[role],"teamIdentifier":"758F9Z45SR","cdhash":str(index + 1) * 40} for index,role in enumerate(("desktop","writer","daemon","service"))}
     for role in identities: tuple_value[f"{role}_sha256"] = package_hashes[ROLE_PATHS[role]]; tuple_value[f"{role}_code_identity_sha256"] = digest(identities[role])
     tuple_value["tuple_sha256"] = tuple_digest(tuple_value)
     selectors = {}

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+import re
 
 from .macos_bindings import canonical_digest
 
@@ -27,16 +28,14 @@ def code_identity_errors(value: object, tuple_value: object) -> list[str]:
     if set(value) != set(ROLE_IDENTIFIERS):
         return ["code identity receipts are incomplete"]
     for role, identifier in ROLE_IDENTIFIERS.items():
-        receipt = {
-            "authority": "Developer ID Application",
-            "binary_sha256": tuple_value.get(f"{role}_sha256"),
-            "identifier": identifier,
-            "notarized": True,
-            "role": role,
-            "team_id": TEAM_ID,
-        }
         observed = value.get(role)
-        if not isinstance(observed, dict) or type(observed.get("notarized")) is not bool or observed != receipt or tuple_value.get(f"{role}_code_identity_sha256") != canonical_digest(receipt):
+        if not isinstance(observed, dict) or set(observed) != {"identifier", "teamIdentifier", "cdhash"}:
+            return ["code identity receipts are not exact V3 identities"]
+        if observed["identifier"] != identifier or observed["teamIdentifier"] != TEAM_ID:
+            return ["code identity role or team differs"]
+        if not isinstance(observed["cdhash"], str) or not re.fullmatch(r"[0-9a-f]{40}", observed["cdhash"]):
+            return ["code identity cdhash is invalid"]
+        if tuple_value.get(f"{role}_code_identity_sha256") != canonical_digest(observed):
             return ["code identity receipts differ from the release tuple"]
     return []
 

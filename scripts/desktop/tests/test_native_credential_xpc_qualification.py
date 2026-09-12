@@ -67,8 +67,8 @@ def _row() -> dict[str, object]:
     }
     code_identities = {
         role: {
-            "authority": "Developer ID Application", "binary_sha256": tuple_values[f"{role}_sha256"],
-            "identifier": identifier, "notarized": True, "role": role, "team_id": TEAM_ID,
+            "identifier": identifier, "teamIdentifier": TEAM_ID,
+            "cdhash": _digest(f"{role}-cdhash")[:40],
         }
         for role, identifier in ROLE_IDENTIFIERS.items()
     }
@@ -200,7 +200,7 @@ class MacosXpcQualificationTests(unittest.TestCase):
 
     def test_boolean_integer_substitutes_are_rejected_by_candidate_and_protected_contract(self) -> None:
         cases = {
-            "code_identity": lambda row: row["code_identities"]["desktop"].update(notarized=1),
+            "code_identity": lambda row: row["code_identities"]["desktop"].update(cdhash=1),
             "selector_terminal": lambda row: row["selectors"]["clean_install"]["terminal_state"].update(cleanup_verified=1),
             "selector_namespace": lambda row: row["selectors"]["clean_install"]["namespace"].update(exact_cleanup=1),
             "selector_ordinal": lambda row: row["selectors"]["account_only_mismatch_denied"]["case_receipt"].update(ordinal=False),
