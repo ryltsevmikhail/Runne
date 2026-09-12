@@ -28,7 +28,7 @@ include!("paths/fs.rs");
 pub(crate) struct NativeEnrollmentArtifactPathsV1 {
     pub(super) desktop: PathBuf,
     writer: PathBuf,
-    application: PathBuf,
+    pub(in crate::updater_metadata) application: PathBuf,
     #[cfg(unix)]
     root: File,
     #[cfg(unix)]

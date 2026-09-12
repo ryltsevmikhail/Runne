@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+#[path = "bootstrap_gui_executor/launch.rs"]
+mod launch;
 #[path = "bootstrap_gui_executor/root_artifact.rs"]
 pub(super) mod root_artifact;
 use root_artifact::RootBootstrapArtifact;

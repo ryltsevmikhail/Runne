@@ -4547,6 +4547,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "runne-qualification-gui-executor"
+version = "0.0.3"
+dependencies = [
+ "runne-api",
+ "runne-macos-xpc",
+ "runne-platform-desktop",
+ "sha2",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "runne-qualification-root-service"
 version = "0.0.3"
 dependencies = [
