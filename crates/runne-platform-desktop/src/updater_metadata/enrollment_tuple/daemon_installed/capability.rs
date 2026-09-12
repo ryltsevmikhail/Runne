@@ -211,3 +211,29 @@ fn now() -> Option<u64> {
         .ok()
         .map(|duration| duration.as_secs())
 }
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+impl crate::UpdateCoordinator {
+    /// Opens local installed admission without requiring a remote feed endpoint.
+    /// Trust and release identity are verified from the running signed package.
+    #[must_use]
+    pub fn for_current_installed_release(profile_directory: &Path) -> Option<Self> {
+        let paths = NativeEnrollmentArtifactPathsV1::resolve_installed().ok()?;
+        let policy = compiled_policy()?;
+        let trust = crate::CompiledUpdateTrustRootV2::load()?.into_trust_root();
+        let admission = verified_admission(profile_directory, &paths, &trust, &policy)?;
+        qualified_admission(&admission)?;
+        if !CurrentDesktopIdentity.confirm(&paths, &admission) { return None; }
+        let measured = paths.measure().ok()?;
+        let (runtime_digest, bundle_sha256) = measured.daemon_and_contract_digests();
+        let coordinator = Self::new(trust, crate::UpdateTargetBindingConfig {
+            product_id: "com.runne.desktop".into(), platform: "macos".into(),
+            arch: "arm64".into(), min_os: "macos-13".into(),
+            profile_id: policy.profile_id.into(), bundle_sha256: bundle_sha256.into(),
+            runtime_version: policy.runtime_version.into(), runtime_digest: runtime_digest.into(),
+            channel: policy.channel.into(),
+        }, profile_directory).ok()?;
+        coordinator.prepare_installed_native_enrollment().ok()??;
+        Some(coordinator)
+    }
+}

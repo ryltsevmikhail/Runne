@@ -125,8 +125,8 @@ async fn test_only_enrollment_updater(
 ) -> TestOnlyEnrollmentUpdater {
     let (coordinator, confirmed, revalidation) = fixture.into_parts();
     let updater = std::sync::Arc::new(tokio::sync::Mutex::new(CompiledUpdater {
-        endpoint: "https://updates.example.test",
-        rollback_floor: "1.0.0",
+        endpoint: None,
+        rollback_floor: None,
         coordinator,
     }));
     TestOnlyEnrollmentUpdater {

@@ -5,14 +5,26 @@ use runne_platform_desktop::{
 };
 
 pub struct CompiledUpdater {
-    pub(crate) endpoint: &'static str,
-    pub(crate) rollback_floor: &'static str,
+    pub(crate) endpoint: Option<&'static str>,
+    pub(crate) rollback_floor: Option<&'static str>,
     pub(crate) coordinator: UpdateCoordinator,
 }
 
 impl CompiledUpdater {
     #[must_use]
     pub fn load(profile_directory: &Path) -> Option<Self> {
+        Self::load_remote(profile_directory).or_else(|| {
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            { Some(Self {
+                endpoint: None, rollback_floor: None,
+                coordinator: UpdateCoordinator::for_current_installed_release(profile_directory)?,
+            }) }
+            #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+            { None }
+        })
+    }
+
+    fn load_remote(profile_directory: &Path) -> Option<Self> {
         let endpoint = option_env!("RUNNE_UPDATE_METADATA_ENDPOINT")?;
         let rollback_floor = option_env!("RUNNE_UPDATE_ROLLBACK_FLOOR")?;
         let profile_id = option_env!("RUNNE_UPDATE_PROFILE_ID")?;
@@ -47,8 +59,8 @@ impl CompiledUpdater {
         )
         .ok()?;
         Some(Self {
-            endpoint,
-            rollback_floor,
+            endpoint: Some(endpoint),
+            rollback_floor: Some(rollback_floor),
             coordinator,
         })
     }

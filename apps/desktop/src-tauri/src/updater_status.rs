@@ -93,10 +93,10 @@ impl UpdateStatusStore {
         let candidate = updater
             .coordinator
             .check(
-                updater.endpoint,
+                updater.endpoint.ok_or(())?,
                 unix_now(),
                 env!("CARGO_PKG_VERSION"),
-                updater.rollback_floor,
+                updater.rollback_floor.ok_or(())?,
             )
             .await
             .map_err(|_| ())?;
