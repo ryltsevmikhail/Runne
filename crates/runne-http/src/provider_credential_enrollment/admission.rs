@@ -1,17 +1,10 @@
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the protected V2 router remains unmounted until qualified admission is composed"
-    )
-)]
-
 use std::sync::{Arc, Mutex};
 
 use runne_api::{
     BeginProviderCredentialEnrollment, ProviderCredentialBaseRequestAuthority,
     ProviderCredentialCommandContext, ProviderCredentialEnrollmentHostError,
-    ProviderCredentialIntentConsumptionProof, VerifyProviderCredential,
+    ProviderCredentialIntentConsumptionProof, ProviderCredentialOperationHandleV2,
+    ProviderCredentialProviderV2, VerifyProviderCredential,
 };
 
 /// Daemon-owned resolver from authenticated session plus parsed HTTP metadata.
@@ -26,6 +19,20 @@ pub trait ProviderCredentialEnrollmentHttpAdmissionResolver: Send + Sync {
         &self,
         protected_session_id: [u8; 16],
         command: &VerifyProviderCredential,
+    ) -> Result<Arc<ProviderCredentialEnrollmentHttpAdmission>, ProviderCredentialEnrollmentHostError>;
+
+    /// Derives one server-side base admission for an authenticated status read.
+    fn resolve_status(
+        &self,
+        protected_session_id: [u8; 16],
+        provider: &ProviderCredentialProviderV2,
+    ) -> Result<Arc<ProviderCredentialEnrollmentHttpAdmission>, ProviderCredentialEnrollmentHostError>;
+
+    /// Derives one server-side base admission for an authenticated resume.
+    fn resolve_resume(
+        &self,
+        protected_session_id: [u8; 16],
+        operation_id: ProviderCredentialOperationHandleV2,
     ) -> Result<Arc<ProviderCredentialEnrollmentHttpAdmission>, ProviderCredentialEnrollmentHostError>;
 }
 

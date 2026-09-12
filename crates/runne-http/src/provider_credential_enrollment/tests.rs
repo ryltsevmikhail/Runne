@@ -55,6 +55,30 @@ impl ProviderCredentialEnrollmentHttpAdmissionResolver for Resolver {
     > {
         Err(runne_api::ProviderCredentialEnrollmentHostError::AccessDenied)
     }
+
+    fn resolve_status(
+        &self,
+        session: [u8; 16],
+        _: &ProviderCredentialProviderV2,
+    ) -> Result<
+        Arc<ProviderCredentialEnrollmentHttpAdmission>,
+        runne_api::ProviderCredentialEnrollmentHostError,
+    > {
+        (session == [5; 16])
+            .then(base_admission)
+            .ok_or(runne_api::ProviderCredentialEnrollmentHostError::AccessDenied)
+    }
+
+    fn resolve_resume(
+        &self,
+        _: [u8; 16],
+        _: ProviderCredentialOperationHandleV2,
+    ) -> Result<
+        Arc<ProviderCredentialEnrollmentHttpAdmission>,
+        runne_api::ProviderCredentialEnrollmentHostError,
+    > {
+        Err(runne_api::ProviderCredentialEnrollmentHostError::AccessDenied)
+    }
 }
 
 struct Host {
@@ -273,4 +297,46 @@ async fn admitted_status_is_dynamically_delegated_to_the_host() {
 
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+fn resolver_router() -> (Router, Arc<AtomicUsize>) {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let router = provider_credential_enrollment_router(
+        ProviderCredentialEnrollmentHttpState::with_admission_resolver(
+            Host {
+                calls: Arc::clone(&calls),
+            },
+            Resolver,
+        ),
+    );
+    (router, calls)
+}
+
+#[tokio::test]
+async fn daemon_resolver_derives_status_from_the_authenticated_session() {
+    let (router, calls) = resolver_router();
+    let mut request = Request::get("/v2/providers/openai/credential-enrollment")
+        .body(Body::empty())
+        .unwrap();
+    request
+        .extensions_mut()
+        .insert(resolver_support::authenticated_session());
+
+    let response = router.oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn resolver_status_fails_closed_without_an_authenticated_session() {
+    let (router, calls) = resolver_router();
+    let request = Request::get("/v2/providers/openai/credential-enrollment")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = router.oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
