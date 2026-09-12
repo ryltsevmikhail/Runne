@@ -30,7 +30,7 @@ pub use enrollment_daemon_installed::VerifiedDaemonNativeEnrollmentPrepare;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use enrollment_daemon_installed::{
     QualificationAdmissionError, VerifiedInstalledEnrollmentMeasurementFacts,
-    VerifiedInstalledEnrollmentCapability,
+    VerifiedInstalledEnrollmentCapability, VerifiedInstalledQualificationBootstrapCandidate,
 };
 #[path = "enrollment_tuple/daemon_peer.rs"]
 mod enrollment_daemon_peer;

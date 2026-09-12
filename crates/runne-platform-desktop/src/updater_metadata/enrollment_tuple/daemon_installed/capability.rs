@@ -172,7 +172,7 @@ impl DaemonIdentityVerifier for CurrentDesktopIdentity {
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-fn authenticated_desktop_matches(
+pub(super) fn authenticated_desktop_matches(
     paths: &NativeEnrollmentArtifactPathsV1,
     admission: &NativeEnrollmentTupleAdmission,
     peer: &MacOsLocalPeerProcessIdentity,
@@ -188,7 +188,7 @@ fn authenticated_desktop_matches(
         && peer.revalidate_same_peer(stream).is_ok()
 }
 
-fn qualified_admission(admission: &NativeEnrollmentTupleAdmission) -> Option<()> {
+pub(super) fn qualified_admission(admission: &NativeEnrollmentTupleAdmission) -> Option<()> {
     admission.raw_v3_tuple_sha256?;
     admission.qualification_candidate_v3.as_ref()?;
     admission.candidate_source_sha256?;

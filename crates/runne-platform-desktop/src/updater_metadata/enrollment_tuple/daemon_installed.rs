@@ -19,12 +19,17 @@ pub use measurement_facts::{
 #[path = "daemon_installed/capability.rs"]
 mod capability;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[path = "daemon_installed/bootstrap_candidate.rs"]
+mod bootstrap_candidate;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[path = "daemon_installed/staged_identity.rs"]
 mod staged_identity;
 #[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
 include!("daemon_installed/verification.rs");
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use capability::VerifiedInstalledEnrollmentCapability;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub use bootstrap_candidate::VerifiedInstalledQualificationBootstrapCandidate;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(crate) use staged_identity::CurrentStagedDaemonIdentity;
 
