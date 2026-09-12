@@ -87,20 +87,46 @@ impl ProtectedDaemonLaunch {
     where
         F: FnMut() -> Result<u64, LaunchAuthorityError>,
     {
-        let frame = channel.read_frame()?;
-        let mut request = DaemonLaunchRequest::decode_frame(&frame)?;
-        let executable = ExecutableIdentityV1::measure(executable_path)?;
-        let profile = expected_profile()?;
-        let provider_activation = request.validate(
-            now_unix_millis()?,
-            &LaunchAuthorityValidationV1 {
-                principal_id: LOCAL_PRINCIPAL,
-                profile: &profile,
-                executable: &executable,
-            },
-        )?;
-        let canonical_root = validate_runtime_root(request.runtime_root())?;
+        let frame = channel
+            .read_frame()
+            .inspect_err(|error| eprintln!("runne-child-diag: read_frame failed: {error:?}"))?;
+        let mut request = DaemonLaunchRequest::decode_frame(&frame).inspect_err(|error| {
+            eprintln!("runne-child-diag: decode_frame failed: {error:?}");
+        })?;
+        let executable = ExecutableIdentityV1::measure(executable_path).inspect_err(|error| {
+            eprintln!("runne-child-diag: measure failed: {error:?}");
+        })?;
+        let profile = expected_profile().inspect_err(|error| {
+            eprintln!("runne-child-diag: expected_profile failed: {error:?}");
+        })?;
+        let provider_activation = request
+            .validate(
+                now_unix_millis()?,
+                &LaunchAuthorityValidationV1 {
+                    principal_id: LOCAL_PRINCIPAL,
+                    profile: &profile,
+                    executable: &executable,
+                },
+            )
+            .inspect_err(|error| {
+                eprintln!("runne-child-diag: validate failed: {error:?}");
+                eprintln!(
+                    "runne-child-diag: request launch_authority_id={:?} desktop_host_instance_id={:?} runtime_root={:?} disposition={:?}",
+                    request.launch_authority_id(),
+                    request.desktop_host_instance_id(),
+                    request.runtime_root(),
+                    request.activation_disposition()
+                );
+            })?;
+        let canonical_root = validate_runtime_root(request.runtime_root()).inspect_err(|error| {
+            eprintln!("runne-child-diag: validate_runtime_root failed: {error:?}");
+        })?;
         if canonical_root != request.runtime_root() {
+            eprintln!(
+                "runne-child-diag: canonical mismatch canonical={:?} requested={:?}",
+                canonical_root,
+                request.runtime_root()
+            );
             return Err(LaunchAuthorityError::InvalidContract);
         }
         let mut defaults = BuiltInDefaults::new(&canonical_root);

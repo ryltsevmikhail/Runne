@@ -79,6 +79,7 @@ impl DevelopmentBundledRuntimeLauncher {
         controls: &mut LaunchTestControls,
     ) -> Result<ProtectedBundledRuntimeProcess, ProtectedBundledRuntimeError> {
         let executable_path = validate_executable_path(spec.executable())?;
+        eprintln!("runne-launch-diag: enter exec={:?} len={}", executable_path.display(), std::fs::metadata(&executable_path).map(|m| m.len()).unwrap_or(0));
         if executable_path != spec.executable() {
             return Err(ProtectedBundledRuntimeError::ExecutableIdentityMismatch);
         }
@@ -88,7 +89,12 @@ impl DevelopmentBundledRuntimeLauncher {
         }
         let current_source = ExecutableIdentityV1::measure(&executable_path)
             .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
+        let hex_short = |bytes: &[u8; 32]| -> String {
+            bytes[..8].iter().map(|byte| format!("{byte:02x}")).collect()
+        };
+        eprintln!("runne-launch-diag: current_sha={} trusted_sha={} current_path_sha={} trusted_path_sha={} current_len={} trusted_len={}", hex_short(current_source.executable_sha256()), hex_short(spec.trusted_source_identity().executable_sha256()), hex_short(current_source.canonical_path_sha256()), hex_short(spec.trusted_source_identity().canonical_path_sha256()), current_source.byte_length(), spec.trusted_source_identity().byte_length());
         if &current_source != spec.trusted_source_identity() {
+            eprintln!("runne-launch-diag: IDENTITY MISMATCH at source comparison");
             return Err(ProtectedBundledRuntimeError::ExecutableIdentityMismatch);
         }
         let profile = expected_profile()?;
@@ -97,6 +103,7 @@ impl DevelopmentBundledRuntimeLauncher {
             &state_store, &executable_path, spec.trusted_source_identity(),
             spec.provider_activation().is_some(),
         )?;
+        eprintln!("runne-launch-diag: staged ok path={:?}", launch_executable_path.display().to_string());
         let stable = state_store.load_stable()?;
         let pending = state_store.load_pending()?;
 
@@ -181,7 +188,14 @@ impl DevelopmentBundledRuntimeLauncher {
         if controls.capture_output {
             command.stdout(Stdio::piped()).stderr(Stdio::piped());
         } else {
-            command.stdout(Stdio::null()).stderr(Stdio::null());
+            // TEMP diag: capture child stderr (protected-activation investigation)
+            command.stdout(Stdio::null()).stderr(
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open("/tmp/runne-live/runned-child.err")
+                    .map_or_else(|_| Stdio::null(), Stdio::from),
+            );
         }
         let child = command
             .spawn()
@@ -200,6 +214,7 @@ impl DevelopmentBundledRuntimeLauncher {
         let result = (|| {
             let spawned_identity = ExecutableIdentityV1::measure(&launch_executable_path)
                 .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
+            eprintln!("runne-launch-diag: spawned_sha={} spawned_path_sha={} spawned_len={}", hex_short(spawned_identity.executable_sha256()), hex_short(spawned_identity.canonical_path_sha256()), spawned_identity.byte_length());
             if spawned_identity != *request.executable() {
                 return Err(ProtectedBundledRuntimeError::ExecutableIdentityMismatch);
             }

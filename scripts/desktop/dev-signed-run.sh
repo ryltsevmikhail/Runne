@@ -22,6 +22,7 @@ Options:
                         credential-service (default: ~/Downloads/
                         Runne_Credential_Service_Developer_ID.provisionprofile).
   --no-run        Build and assemble the bundle; do not launch.
+  --reset-runtime  Clear derived bundled-runtime state (activation + daemon session) before launch; required after rebuilding the signed binaries, because their identity change invalidates the previous activation
   -h, --help      Show this help
 
 Environment:
@@ -40,6 +41,7 @@ USAGE
 
 profile=""
 no_run=0
+reset_runtime=0
 credential_service=0
 cs_profile=""
 
@@ -51,6 +53,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --no-run) no_run=1; shift ;;
+    --reset-runtime) reset_runtime=1; shift ;;
     --credential-service) credential_service=1; shift ;;
     --credential-service-profile)
       if [[ $# -lt 2 ]]; then echo "error: --credential-service-profile requires a value" >&2; exit 2; fi
@@ -181,6 +184,13 @@ provisioning profile. The DataProtection keychain is unavailable, so the
 app will refuse to open ("anchored mutation admission is unavailable").
 This mode is only useful for non-keychain checks.
 WARNING
+fi
+
+if [[ "$reset_runtime" -eq 1 ]]; then
+  bundled_runtime_state="$HOME/Library/Application Support/com.runne.desktop/bundled-runtime"
+  # Clear only the two derived state dirs; never touch bundled-runtime itself.
+  rm -rf "$bundled_runtime_state/.desktop-protected-activation" "$bundled_runtime_state/runne-daemon"
+  echo "Runtime state reset: activation + daemon session cleared"
 fi
 
 if [[ "$no_run" -eq 1 ]]; then
