@@ -4,16 +4,28 @@ from __future__ import annotations
 import plistlib
 import re
 import subprocess
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+from xml.parsers.expat import ExpatError
 
 from codec import Rejected, file_digest
 from contract import DEPLOYMENT, ROLE_PATHS, TEAM
+from profile_grants import validate as validate_profile_grant
 
 IDENTIFIERS = {"desktop":"com.runne.desktop", "writer":"runne", "daemon":"runned", "service":"com.runne.credential-service"}
 ROOT = Path("Contents/Resources/native-enrollment")
 ARTIFACTS = {"launch_agent_plist_sha256":Path("Contents/Library/LaunchAgents/com.runne.credential-service.plist"), "entitlements_sha256":ROOT / "credential-service.entitlements.plist", "provisioning_sha256":Path("Contents/Library/Helpers/RunneCredentialService.app/Contents/embedded.provisionprofile"), "protocol_sha256":ROOT / "xpc-protocol-v1.json", "contract_sha256":Path("Contents/Resources/contracts/gocode-ui-client-2/bundle.json")}
 LEGACY_KEYCHAIN_SYMBOLS = frozenset({"SecKeychainOpen", "SecKeychainCreate", "SecKeychainDelete", "SecKeychainItemCopyAccess", "SecKeychainItemCreateFromContent", "SecKeychainItemCopyContent", "SecKeychainItemCopyKeychain", "SecKeychainItemModifyAttributesAndData", "SecKeychainSearchCreateFromAttributes"})
+
+
+@dataclass(frozen=True)
+class CommandOutput:
+    stdout: str
+    stderr: str
+
+    def combined(self) -> str:
+        return self.stdout + self.stderr
 
 
 def verify_roles(package: Path, tuple_value: object, code_identities: object,
@@ -27,10 +39,10 @@ def verify_roles(package: Path, tuple_value: object, code_identities: object,
     for role, relative in ROLE_PATHS.items():
         target = package / relative
         _verify_code(target, identities[role])
-        _identity(_run(["/usr/bin/codesign", "--display", "--verbose=4", "--", str(target)]), role, identities[role])
-        _entitlements(_run(["/usr/bin/codesign", "-d", "--entitlements", ":-", str(target)]), role)
-        _notarized(_run(["/usr/sbin/spctl", "--assess", "--type", "execute", "--verbose=4", str(target)]))
-        _symbols(_run(["/usr/bin/nm", "-u", str(target)]))
+        _identity(_run(["/usr/bin/codesign", "--display", "--verbose=4", "--", str(target)]).combined(), role, identities[role])
+        _entitlements(_run(["/usr/bin/codesign", "--display", "--entitlements", "-", "--xml", "--", str(target)]).stdout, role)
+        _notarized(_run(["/usr/sbin/spctl", "--assess", "--type", "execute", "--verbose=4", str(target)]).combined())
+        _symbols(_run(["/usr/bin/nm", "-u", str(target)]).combined())
     _profile(package / "Contents/embedded.provisionprofile", "desktop", now)
 
 
@@ -74,25 +86,17 @@ def _exact_line(output: str, prefix: str) -> str:
 
 
 def _entitlements(output: str, role: str) -> None:
+    if DEPLOYMENT["entitlements"][role] == {} and output == "":
+        return
     try: value = plistlib.loads(output[output.index("<plist"):].encode())
-    except (ValueError, plistlib.InvalidFileException): raise Rejected("entitlements measurement differs") from None
+    except (ExpatError, ValueError, plistlib.InvalidFileException): raise Rejected("entitlements measurement differs") from None
     if value != DEPLOYMENT["entitlements"][role]: raise Rejected("entitlements measurement differs")
 
 
 def _profile(path: Path, role: str, now: datetime | None = None) -> None:
-    try: value = plistlib.loads(_run(["/usr/bin/security", "cms", "-D", "-i", str(path)]).encode())
-    except (ValueError, plistlib.InvalidFileException): raise Rejected("provisioning measurement differs") from None
-    expected = {"application-identifier":f"{TEAM}.{IDENTIFIERS[role]}", "com.apple.developer.team-identifier":TEAM, "get-task-allow":False, "keychain-access-groups":[f"{TEAM}.{IDENTIFIERS[role]}"]}
-    metadata = {"ApplicationIdentifierPrefix":[TEAM], "Platform":["OSX"], "ProvisionsAllDevices":True, "TeamIdentifier":[TEAM]}
-    if not isinstance(value, dict): raise Rejected("provisioning measurement differs")
-    dates = value.get("CreationDate"), value.get("ExpirationDate")
-    if value.get("Entitlements") != expected or any(value.get(key) != item for key,item in metadata.items()) or value.get("Name") != f"Runne {role.title()} Distribution" or not isinstance(value.get("UUID"), str) or not isinstance(value.get("TimeToLive"), int) or value["TimeToLive"] <= 0 or not isinstance(dates[0], datetime) or not isinstance(dates[1], datetime): raise Rejected("provisioning measurement differs")
-    created, expires = (_utc(dates[0]), _utc(dates[1])); observed = _utc(now or datetime.now(timezone.utc))
-    if created >= expires or not created <= observed < expires or expires - created > timedelta(days=value["TimeToLive"]): raise Rejected("provisioning measurement differs")
-
-
-def _utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+    try: value = plistlib.loads(_run(["/usr/bin/security", "cms", "-D", "-i", str(path)]).stdout.encode())
+    except (ExpatError, ValueError, plistlib.InvalidFileException): raise Rejected("provisioning measurement differs") from None
+    validate_profile_grant(value, f"{TEAM}.{IDENTIFIERS[role]}", DEPLOYMENT["entitlements"][role], TEAM, now)
 
 
 def _launch_agent(path: Path) -> None:
@@ -121,8 +125,8 @@ def _lines(output: str) -> dict[str, str]:
     return values
 
 
-def _run(command: list[str]) -> str:
+def _run(command: list[str]) -> CommandOutput:
     try: result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=15, check=False, env={"PATH":"/usr/bin:/bin"})
     except (OSError, subprocess.TimeoutExpired): raise Rejected("native code inspection is unavailable") from None
     if result.returncode != 0: raise Rejected("native code inspection rejected")
-    return result.stdout + result.stderr
+    return CommandOutput(result.stdout, result.stderr)

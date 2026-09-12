@@ -17,7 +17,7 @@ LEDGER_ROOT = PRIVATE_ROOT / "var/db/gocode/sourcecraft-native-qualification/rep
 RUNNE_REPOSITORY = "https://git@git.sourcecraft.dev/ryltsevmg/runne.git"
 RUNNE_WORKFLOW = "desktop-qualification"
 EVIDENCE_SIGNER = Path("/opt/gocode/sourcecraft/bin/sourcecraft-native-qualification-sign-evidence")
-MODULES = frozenset({"codec.py","contract.py","controller.py","ed25519_verify.py","native_checks.py","package_subject.py","policy.py","process_control.py","signer.py","signer_broker.py","verifier.py"})
+MODULES = frozenset({"codec.py","contract.py","controller.py","ed25519_verify.py","native_checks.py","package_subject.py","policy.py","process_control.py","profile_grants.py","signer.py","signer_broker.py","verifier.py"})
 FIELDS = {"schema_version","policy_id","repository","workflow","job","protected_ref","source_revision","candidate_sha256","release_tuple_v3_sha256","candidate_root","package_root","controller","verifier","native_executor","attestation_verifier","evidence_signer","signer_broker","authority_modules","evidence_authority","writer_profile","test_only"}
 
 
