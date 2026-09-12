@@ -14,6 +14,13 @@ Options:
   --profile PATH  Apple-signed Developer ID provisioning profile authorizing
                   keychain-access-groups; copied to
                   Contents/embedded.provisionprofile. Required for launch.
+  --credential-service  Stage the credential-service helper, its LaunchAgent
+                        plist, and the native-enrollment JSONs into the bundle
+                        (helper is signed before the outer bundle signature).
+  --credential-service-profile PATH
+                        Developer ID provisioning profile for com.runne.
+                        credential-service (default: ~/Downloads/
+                        Runne_Credential_Service_Developer_ID.provisionprofile).
   --no-run        Build and assemble the bundle; do not launch.
   -h, --help      Show this help
 
@@ -33,6 +40,8 @@ USAGE
 
 profile=""
 no_run=0
+credential_service=0
+cs_profile=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -42,6 +51,10 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --no-run) no_run=1; shift ;;
+    --credential-service) credential_service=1; shift ;;
+    --credential-service-profile)
+      if [[ $# -lt 2 ]]; then echo "error: --credential-service-profile requires a value" >&2; exit 2; fi
+      cs_profile="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     --) shift; break ;;
     -*) echo "error: unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -120,6 +133,31 @@ for rt in "${runtime_bins[@]}"; do
   # silent on success and non-zero on failure.
   codesign --verify "$staged"
 done
+
+# Stage the credential-service helper (packaging parity with the release bundle
+# layout in tauri.conf.json bundle.macOS.files); signed before the outer signature.
+if [[ "$credential_service" -eq 1 ]]; then
+  staged_helper="apps/desktop/src-tauri/macos/credential-service/staged/RunneCredentialService.app"
+  helper="$bundle/Contents/Library/Helpers/RunneCredentialService.app"
+  [[ -d "$staged_helper" ]] || { echo "error: staged credential-service helper not found: $staged_helper (run: pnpm --filter @runne/desktop stage:credential-service)" >&2; exit 1; }
+  rm -rf "$helper"; mkdir -p "$bundle/Contents/Library/Helpers"; cp -R "$staged_helper" "$helper"
+  cs_default="$HOME/Downloads/Runne_Credential_Service_Developer_ID.provisionprofile"
+  if [[ -z "$cs_profile" && -f "$cs_default" ]]; then cs_profile="$cs_default"; fi
+  if [[ -n "$cs_profile" ]]; then
+    [[ -f "$cs_profile" ]] || { echo "error: credential-service provisioning profile not found: $cs_profile" >&2; exit 1; }
+    cp "$cs_profile" "$helper/Contents/embedded.provisionprofile"
+    codesign --sign "$identity" --force --options runtime --timestamp \
+      --entitlements apps/desktop/src-tauri/macos/credential-service.entitlements "$helper"
+  else
+    echo "warning: no credential-service provisioning profile (default: $cs_default); signing the helper WITHOUT entitlements/profile: it will not be admitted by the daemon's XPC identity checks (packaging parity only)" >&2
+    codesign --sign "$identity" --force --options runtime --timestamp "$helper"
+  fi
+  codesign --verify "$helper"
+  mkdir -p "$bundle/Contents/Library/LaunchAgents" "$bundle/Contents/Resources/native-enrollment"
+  install -m 0644 apps/desktop/src-tauri/macos/com.runne.credential-service.plist "$bundle/Contents/Library/LaunchAgents/com.runne.credential-service.plist"
+  install -m 0644 apps/desktop/src-tauri/macos/native-enrollment/staged/xpc-protocol-v1.json "$bundle/Contents/Resources/native-enrollment/xpc-protocol-v1.json"
+  install -m 0644 apps/desktop/src-tauri/macos/native-enrollment/staged/release-candidate-binding.json "$bundle/Contents/Resources/native-enrollment/release-candidate-binding.json"
+fi
 
 if [[ -n "$profile" ]]; then
   if [[ ! -f "$profile" ]]; then
