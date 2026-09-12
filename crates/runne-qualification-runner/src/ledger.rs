@@ -214,6 +214,10 @@ impl QualificationReplayLedger {
         }
         #[cfg(unix)]
         if self.root.verify_database_path().is_err()
+            || self
+                .root
+                .verify_database_witness(&self.database_witness)
+                .is_err()
             || path_database_identity(&self.root.path.join(crate::path_guard::DATABASE_NAME)).ok()
                 != Some(self.database_identity)
             || file_database_identity(&self.database_witness).ok() != Some(self.database_identity)

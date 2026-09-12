@@ -12,6 +12,7 @@ mod bootstrap_policy;
 mod bootstrap_verification;
 mod bootstrap_wire;
 mod compiled_policy;
+mod compiled_policy_match;
 mod context_model;
 mod context_policy;
 mod context_relay;
@@ -39,6 +40,7 @@ pub use bootstrap_model::{
 };
 pub use bootstrap_pending::PendingQualificationRunBootstrapProof;
 pub use bootstrap_verification::QualificationRunBootstrapVerifier;
+pub use compiled_policy_match::qualification_bootstrap_compiled_authorities_match;
 pub use context_model::{
     QualificationRunContextError, QualificationRunContextExpectation, QualificationScenario,
     VerifiedQualificationRunContext,

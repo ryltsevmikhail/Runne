@@ -62,22 +62,23 @@ fn complete_expectation_mints_exact_fence_facts_once() {
 
 #[test]
 fn complete_expectation_rejects_every_independent_context_binding() {
+    type ContextMutation = (&'static str, fn(&mut Value));
     let expected = expected_for_ticket(|_| {});
-    let cases: [(&str, fn(&mut Value)); 5] = [
+    let cases: [ContextMutation; 5] = [
         ("source", |context| {
-            context["source_revision"] = json!("ee".repeat(20))
+            context["source_revision"] = json!("ee".repeat(20));
         }),
         ("workflow", |context| {
-            context["workflow_run_id"] = json!("run-43")
+            context["workflow_run_id"] = json!("run-43");
         }),
         ("namespace", |context| {
-            context["namespace_sha256"] = json!("ee".repeat(32))
+            context["namespace_sha256"] = json!("ee".repeat(32));
         }),
         ("candidate", |context| {
-            context["candidate_sha256"] = json!("ee".repeat(32))
+            context["candidate_sha256"] = json!("ee".repeat(32));
         }),
         ("raw tuple", |context| {
-            context["release_tuple_v3_sha256"] = json!("ee".repeat(32))
+            context["release_tuple_v3_sha256"] = json!("ee".repeat(32));
         }),
     ];
     for (name, change) in cases {

@@ -1,3 +1,4 @@
+mod compiled_policy_match;
 mod admission;
 mod admission_verification;
 mod bootstrap;

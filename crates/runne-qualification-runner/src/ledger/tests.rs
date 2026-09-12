@@ -17,6 +17,10 @@ use tempfile::TempDir;
 use super::QualificationReplayLedger;
 use crate::CanonicalRunBinding;
 
+#[cfg(target_os = "macos")]
+#[path = "tests/macos_acl.rs"]
+mod macos_acl;
+
 fn uid() -> u32 {
     rustix::process::geteuid().as_raw()
 }
@@ -264,4 +268,18 @@ fn private_path_guards_reject_symlinks_hardlinks_modes_and_owner_mismatch() {
         QualificationReplayLedger::open_for_test(database_root.path(), uid().saturating_add(1))
             .is_err()
     );
+}
+
+#[test]
+fn existing_database_fifo_is_rejected_without_opening_a_blocking_reader() {
+    let root = private_root();
+    let database = root.path().join(crate::path_guard::DATABASE_NAME);
+    assert!(
+        std::process::Command::new("/usr/bin/mkfifo")
+            .arg(&database)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(QualificationReplayLedger::open_for_test(root.path(), uid()).is_err());
 }

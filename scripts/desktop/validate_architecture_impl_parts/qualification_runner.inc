@@ -1,6 +1,6 @@
 """Keep durable runner persistence outside application/runtime ownership."""
 QUALIFICATION_RUNNER_PACKAGE = "runne-qualification-runner"
-ALLOWED_RUST_DEPENDENCIES[QUALIFICATION_RUNNER_PACKAGE] = {NATIVE_QUALIFICATION_PACKAGE, "runne-sqlite-native-identity", "runne-sqlite-handle-identity"}
+ALLOWED_RUST_DEPENDENCIES[QUALIFICATION_RUNNER_PACKAGE] = {NATIVE_QUALIFICATION_PACKAGE, "runne-sqlite-native-identity", "runne-sqlite-handle-identity", "runne-macos-file-security"}
 
 
 def find_qualification_runner_dependency_violations(packages: list[dict]) -> list[str]:
@@ -12,6 +12,7 @@ def find_qualification_runner_dependency_violations(packages: list[dict]) -> lis
         "runne-native-qualification": ("*", (), True, None),
         "runne-sqlite-native-identity": ("*", (), True, None),
         "runne-sqlite-handle-identity": ("*", (), True, None),
+        "runne-macos-file-security": ("*", (), True, 'cfg(target_os = "macos")'),
         "rusqlite": ("=0.34.0", ("bundled",), True, None),
         "rustix": ("=1.1.4", ("fs", "process"), True, "cfg(unix)"),
     }

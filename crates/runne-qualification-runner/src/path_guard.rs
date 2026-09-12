@@ -1,7 +1,7 @@
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 
-use rustix::fs::{self, FileType, Mode, OFlags, CWD};
+use rustix::fs::{self, CWD, FileType, Mode, OFlags};
 use rustix::io::Errno;
 
 #[cfg(test)]
@@ -35,7 +35,9 @@ struct DirectoryIdentity {
 }
 
 pub fn production_root() -> Result<GuardedRoot, QualificationReplayLedgerError> {
-    let private = open_directory(CWD, Path::new("/private"))?;
+    let root = open_directory(CWD, Path::new("/"))?;
+    verify_system_directory(&root)?;
+    let private = open_directory(&root, "private")?;
     verify_system_directory(&private)?;
     let var = open_directory(&private, "var")?;
     verify_system_directory(&var)?;
@@ -56,7 +58,7 @@ pub fn test_root(path: &Path, uid: u32) -> Result<GuardedRoot, QualificationRepl
 
 impl GuardedRoot {
     pub fn open_database(&self) -> Result<OpenedDatabase, QualificationReplayLedgerError> {
-        let flags = OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOFOLLOW;
+        let flags = OFlags::RDWR | OFlags::NONBLOCK | OFlags::CLOEXEC | OFlags::NOFOLLOW;
         let (file, created) = match fs::openat(
             &self.fd,
             DATABASE_NAME,
@@ -88,7 +90,7 @@ impl GuardedRoot {
         let file = fs::openat(
             &self.fd,
             DATABASE_NAME,
-            OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+            OFlags::RDONLY | OFlags::NONBLOCK | OFlags::CLOEXEC | OFlags::NOFOLLOW,
             Mode::empty(),
         )
         .map_err(|_| QualificationReplayLedgerError)?;
@@ -96,6 +98,7 @@ impl GuardedRoot {
     }
 
     pub fn verify_current(&self) -> Result<(), QualificationReplayLedgerError> {
+        verify_private_directory(&self.fd, self.uid)?;
         let current = if self.production {
             open_existing_production_root()?
         } else {
@@ -106,6 +109,13 @@ impl GuardedRoot {
         (directory_identity(&current)? == self.identity)
             .then_some(())
             .ok_or(QualificationReplayLedgerError)
+    }
+
+    pub fn verify_database_witness(
+        &self,
+        fd: impl rustix::fd::AsFd,
+    ) -> Result<(), QualificationReplayLedgerError> {
+        verify_database(fd, self.uid)
     }
 }
 
@@ -153,7 +163,9 @@ fn guarded_root(
 }
 
 fn open_existing_production_root() -> Result<OwnedFd, QualificationReplayLedgerError> {
-    let private = open_directory(CWD, Path::new("/private"))?;
+    let root = open_directory(CWD, Path::new("/"))?;
+    verify_system_directory(&root)?;
+    let private = open_directory(&root, "private")?;
     verify_system_directory(&private)?;
     let var = open_directory(&private, "var")?;
     verify_system_directory(&var)?;
@@ -197,7 +209,10 @@ pub fn fail_next_sync() {
     FAIL_NEXT_SYNC.with(|fail| fail.set(true));
 }
 
-fn verify_system_directory(fd: &OwnedFd) -> Result<(), QualificationReplayLedgerError> {
+fn verify_system_directory(
+    fd: impl rustix::fd::AsFd,
+) -> Result<(), QualificationReplayLedgerError> {
+    require_no_extended_acl(fd.as_fd())?;
     let stat = fs::fstat(fd).map_err(|_| QualificationReplayLedgerError)?;
     if FileType::from_raw_mode(stat.st_mode) != FileType::Directory
         || stat.st_uid != 0
@@ -208,7 +223,11 @@ fn verify_system_directory(fd: &OwnedFd) -> Result<(), QualificationReplayLedger
     Ok(())
 }
 
-fn verify_private_directory(fd: &OwnedFd, uid: u32) -> Result<(), QualificationReplayLedgerError> {
+fn verify_private_directory(
+    fd: impl rustix::fd::AsFd,
+    uid: u32,
+) -> Result<(), QualificationReplayLedgerError> {
+    require_no_extended_acl(fd.as_fd())?;
     let stat = fs::fstat(fd).map_err(|_| QualificationReplayLedgerError)?;
     if FileType::from_raw_mode(stat.st_mode) != FileType::Directory
         || stat.st_uid != uid
@@ -219,7 +238,11 @@ fn verify_private_directory(fd: &OwnedFd, uid: u32) -> Result<(), QualificationR
     Ok(())
 }
 
-fn verify_database(fd: &OwnedFd, uid: u32) -> Result<(), QualificationReplayLedgerError> {
+fn verify_database(
+    fd: impl rustix::fd::AsFd,
+    uid: u32,
+) -> Result<(), QualificationReplayLedgerError> {
+    require_no_extended_acl(fd.as_fd())?;
     let stat = fs::fstat(fd).map_err(|_| QualificationReplayLedgerError)?;
     if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile
         || stat.st_uid != uid
@@ -228,5 +251,20 @@ fn verify_database(fd: &OwnedFd, uid: u32) -> Result<(), QualificationReplayLedg
     {
         return Err(QualificationReplayLedgerError);
     }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn require_no_extended_acl(
+    fd: std::os::fd::BorrowedFd<'_>,
+) -> Result<(), QualificationReplayLedgerError> {
+    runne_macos_file_security::require_no_extended_acl(fd)
+        .map_err(|_| QualificationReplayLedgerError)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn require_no_extended_acl(
+    _: std::os::fd::BorrowedFd<'_>,
+) -> Result<(), QualificationReplayLedgerError> {
     Ok(())
 }

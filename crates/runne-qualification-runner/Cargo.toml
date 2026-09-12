@@ -14,6 +14,9 @@ rusqlite.workspace = true
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "=1.1.4", features = ["fs", "process"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+runne-macos-file-security = { path = "../runne-macos-file-security" }
+
 [dev-dependencies]
 base64.workspace = true
 ed25519-dalek.workspace = true

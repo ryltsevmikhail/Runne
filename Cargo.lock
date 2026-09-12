@@ -4552,6 +4552,7 @@ dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
  "hex",
+ "runne-macos-file-security",
  "runne-native-qualification",
  "runne-sqlite-handle-identity",
  "runne-sqlite-native-identity",

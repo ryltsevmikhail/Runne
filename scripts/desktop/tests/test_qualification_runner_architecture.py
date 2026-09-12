@@ -23,6 +23,7 @@ def packages():
             dependency("runne-native-qualification", "*"),
             dependency("runne-sqlite-native-identity", "*"),
             dependency("runne-sqlite-handle-identity", "*"),
+            dependency("runne-macos-file-security", "*", target='cfg(target_os = "macos")'),
             dependency("rusqlite", "=0.34.0", ("bundled",)),
             dependency("rustix", "=1.1.4", ("fs", "process"), "cfg(unix)"),
         ]},
