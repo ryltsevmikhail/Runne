@@ -44,8 +44,7 @@ def validate_row(row: object, tuples: object, policy: dict[str, object]) -> None
     if not isinstance(tuples, dict) or set(tuples) != {"arm64"} or row.get("tuple") != tuples.get("arm64"):
         _reject("expected tuple is invalid")
     _tuple(row["tuple"], policy)
-    if row.get("deployment") != DEPLOYMENT:
-        _reject("deployment is invalid")
+    _deployment(row.get("deployment"))
     _signing(row.get("signing")); _code_identities(row.get("code_identities"), row["tuple"])
     _runner(row.get("runner")); _store(row.get("native_store"))
     _scan(row.get("artifact_scan")); _selectors(row.get("selectors"), row["runner"]["workflow_run_id"]); _forbidden(row)
@@ -71,13 +70,19 @@ def _signing(value: object) -> None:
         _reject("signing evidence is invalid")
 
 
+def _deployment(value: object) -> None:
+    if not isinstance(value, dict) or canonical(value) != canonical(DEPLOYMENT):
+        _reject("deployment is invalid")
+
+
 def _code_identities(value: object, tuple_value: dict[str, object]) -> None:
     identifiers = {"desktop":"com.runne.desktop","writer":"runne","daemon":"runned","service":SERVICE}
     if not isinstance(value, dict) or set(value) != set(identifiers): _reject("code identities are incomplete")
     for role, identifier in identifiers.items():
         expected = {"authority":"Developer ID Application","binary_sha256":tuple_value[f"{role}_sha256"],
                     "identifier":identifier,"notarized":True,"role":role,"team_id":TEAM}
-        if value.get(role) != expected or tuple_value[f"{role}_code_identity_sha256"] != digest(expected):
+        observed = value.get(role)
+        if not isinstance(observed, dict) or canonical(observed) != canonical(expected) or tuple_value[f"{role}_code_identity_sha256"] != digest(expected):
             _reject("code identity differs from qualified tuple")
 
 
@@ -118,8 +123,9 @@ def _selectors(value: object, run: str) -> None:
         }
         digests = {"case_receipt":"ticket_sha256","process_signal":"process_signal_sha256",
                    "terminal_state":"terminal_state_sha256","namespace":"namespace_sha256"}
-        if any(receipt[field] != item or receipt[digests[field]] != digest(item)
-               for field, item in semantic.items()): _reject("selector semantic receipt is invalid")
+        if any(not isinstance(receipt[field], dict) or canonical(receipt[field]) != canonical(item)
+               or receipt[digests[field]] != digest(item) for field, item in semantic.items()):
+            _reject("selector semantic receipt is invalid")
     if value["local_verify_no_network"].get("status") != "verified" or value["local_verify_no_network"].get("network_attempts") != 0 or type(value["local_verify_no_network"]["network_attempts"]) is not int:
         _reject("local verification receipt is invalid")
     remote = value["remote_verify_after_local"]

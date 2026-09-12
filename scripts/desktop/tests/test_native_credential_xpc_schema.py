@@ -10,6 +10,7 @@ from scripts.desktop.native_credential_enrollment import macos
 from scripts.desktop.tests.test_native_credential_xpc_qualification import _evidence, _row, _expected
 from scripts.desktop.tests.test_native_credential_xpc_preflight import envelope, context, NOW
 from scripts.desktop.native_credential_enrollment.macos_preflight import validate_envelope
+from scripts.desktop.native_credential_enrollment.macos_preflight import PROTECTED_SUBJECT_DIGEST_FIELDS
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -29,13 +30,24 @@ class XpcSchemaTests(unittest.TestCase):
         self.evidence.validate(_evidence())
         self.envelope.validate(envelope())
 
+    def test_external_golden_row_and_envelope_match_schema(self):
+        golden = json.loads((ROOT / "docs/golden/macos-xpc-service-external-contract-v1.json").read_text())
+        files = golden["files"]
+        self.evidence.validate({
+            "schema_version": "native-credential-enrollment-evidence.v1",
+            "platform": "macos",
+            "rows": [files["macos-13-arm64.json"]],
+        })
+        self.envelope.validate(files["signed-envelope.json"])
+
     def test_envelope_schema_and_python_reject_noncanonical_signature_and_newlines(self):
         values = []
         value = envelope()
         value["signature"]["value"] = "A" * 85 + "B=="
         values.append(value)
         for key in ("source_revision", "workflow_run_id", "namespace_sha256", "signer_key_id",
-                    "row_sha256", "expected_tuples_sha256", "started_at", "finished_at"):
+                    "row_sha256", "expected_tuples_sha256", *PROTECTED_SUBJECT_DIGEST_FIELDS,
+                    "started_at", "finished_at"):
             value = envelope()
             value[key] += "\n"
             values.append(value)
@@ -67,6 +79,24 @@ class XpcSchemaTests(unittest.TestCase):
                 value = _evidence()
                 value["rows"][0]["selectors"][selector]["status"] = status
                 self.assertFalse(self.evidence.is_valid(value), selector)
+
+    def test_schema_rejects_cross_variant_receipts_and_misbound_nested_identity(self):
+        cases = {
+            "ordinary_network": lambda row: row["selectors"]["clean_install"].update(network_attempts=0),
+            "local_remote": lambda row: row["selectors"]["local_verify_no_network"].update(
+                local_verification="verified", retry_count=0
+            ),
+            "remote_network": lambda row: row["selectors"]["remote_verify_after_local"].update(network_attempts=0),
+            "code_identity_role": lambda row: row["code_identities"]["desktop"].update(role="writer"),
+            "code_identity_identifier": lambda row: row["code_identities"]["desktop"].update(identifier="runned"),
+            "nested_selector": lambda row: row["selectors"]["clean_install"]["case_receipt"].update(selector="rotation"),
+        }
+        for name, mutate in cases.items():
+            with self.subTest(name=name):
+                value = _evidence()
+                mutate(value["rows"][0])
+                self.assertTrue(macos.validate_row(value["rows"][0]))
+                self.assertFalse(self.evidence.is_valid(value))
 
     def test_each_tuple_field_and_deployment_metadata_required(self):
         for field in _evidence()["rows"][0]["tuple"]:

@@ -4,16 +4,46 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 from scripts.desktop.native_credential_enrollment import macos
 from scripts.desktop.native_credential_enrollment.macos_bindings import DEPLOYMENT, canonical_digest
+from scripts.desktop.native_credential_enrollment.macos_receipts import CANARY_DIGEST, ROLE_IDENTIFIERS, TEAM_ID
 from scripts.desktop.native_credential_enrollment_probe import validate_evidence
+
+ROOT = Path(__file__).resolve().parents[3]
+PROTECTED_PACKAGE = ROOT / "tools" / "sourcecraft-native-qualification"
+if str(PROTECTED_PACKAGE) not in sys.path:
+    sys.path.insert(0, str(PROTECTED_PACKAGE))
+from codec import Rejected
+from contract import validate_row as validate_protected_row
 
 
 def _digest(seed: str) -> str:
     return hashlib.sha256(seed.encode("ascii")).hexdigest()
+
+
+def _selector(name: str, run: str) -> dict[str, object]:
+    status = "unsupported" if name == "remote_verify_after_local" else "verified"
+    case = {"ordinal": sorted(macos.REQUIRED_SELECTORS).index(name), "selector": name, "workflow_run_id": run}
+    process = {"outcome": status, "selector": name}
+    terminal = {"cleanup_verified": True, "selector": name, "state": status}
+    namespace = {"exact_cleanup": True, "selector": name}
+    receipt = {
+        "status": status, "workflow_run_id": run, "case_receipt": case,
+        "process_signal": process, "terminal_state": terminal, "namespace": namespace,
+        "ticket_sha256": canonical_digest(case), "process_signal_sha256": canonical_digest(process),
+        "terminal_state_sha256": canonical_digest(terminal), "namespace_sha256": canonical_digest(namespace),
+    }
+    if name == "local_verify_no_network":
+        receipt["network_attempts"] = 0
+    if name == "remote_verify_after_local":
+        receipt.update(local_verification="verified", retry_count=0)
+    return receipt
 
 
 def _row() -> dict[str, object]:
@@ -35,11 +65,17 @@ def _row() -> dict[str, object]:
         "daemon_code_identity_sha256": _digest("daemon-code-identity"),
         "service_code_identity_sha256": _digest("service-code-identity"),
     }
-    selectors = {name: {"status": "verified"} for name in macos.REQUIRED_SELECTORS}
-    selectors["local_verify_no_network"] = {"status": "verified", "network_attempts": 0}
-    selectors["remote_verify_after_local"] = {
-        "status": "unsupported", "local_verification": "verified", "retry_count": 0,
+    code_identities = {
+        role: {
+            "authority": "Developer ID Application", "binary_sha256": tuple_values[f"{role}_sha256"],
+            "identifier": identifier, "notarized": True, "role": role, "team_id": TEAM_ID,
+        }
+        for role, identifier in ROLE_IDENTIFIERS.items()
     }
+    for role, receipt in code_identities.items():
+        tuple_values[f"{role}_code_identity_sha256"] = canonical_digest(receipt)
+    run = "isolated-macos-run-1"
+    selectors = {name: _selector(name, run) for name in macos.REQUIRED_SELECTORS}
     return {
         "platform": "macos",
         "architecture": "arm64",
@@ -47,6 +83,7 @@ def _row() -> dict[str, object]:
         "disposition": "verified",
         "deployment": copy.deepcopy(DEPLOYMENT),
         "tuple": {**tuple_values, "tuple_sha256": macos.tuple_digest(tuple_values)},
+        "code_identities": code_identities,
         "signing": {
             "profile": "developer_id", "notarized": True, "ad_hoc": False,
             "team_id": "758F9Z45SR",
@@ -60,7 +97,7 @@ def _row() -> dict[str, object]:
             },
         },
         "runner": {
-            "workflow_run_id": "isolated-macos-run-1", "attestation_verified": True,
+            "workflow_run_id": run, "attestation_verified": True,
             "freshness_verified": True, "isolated_disposable_user": True,
             "icloud_data_present": False, "user_keychain_data_present": False,
         },
@@ -74,7 +111,10 @@ def _row() -> dict[str, object]:
             "ksec_use_keychain": False,
             "legacy_acl": False,
         },
-        "artifact_scan": {"files_scanned": 8, "sensitive_value_matches": 0},
+        "artifact_scan": {
+            "files_scanned": 8, "sensitive_value_matches": 0,
+            "scan_subject_sha256": _digest("scan-subject"), "canary_sha256": CANARY_DIGEST,
+        },
         "selectors": selectors,
     }
 
@@ -93,8 +133,7 @@ def _expected() -> dict[str, object]:
 
 class MacosXpcQualificationTests(unittest.TestCase):
     def test_schema_requires_signed_xpc_dpk_bindings(self) -> None:
-        root = Path(__file__).resolve().parents[3]
-        schema = json.loads((root / "docs/schemas/native-credential-enrollment-evidence-v1.schema.json").read_text())
+        schema = json.loads((ROOT / "docs/schemas/native-credential-enrollment-evidence-v1.schema.json").read_text())
         definition = schema["$defs"]["macos_row"]
         self.assertEqual(set(definition["required"]), set(_row()))
         self.assertEqual(set(definition["properties"]["tuple"]["required"]), set(_row()["tuple"]))
@@ -103,8 +142,8 @@ class MacosXpcQualificationTests(unittest.TestCase):
             macos.REQUIRED_SELECTORS,
         )
         store = definition["properties"]["native_store"]["properties"]
-        self.assertEqual(store["data_protection_keychain"], {"const": True})
-        self.assertEqual(store["file_keychain"], {"const": False})
+        self.assertEqual(store["data_protection_keychain"], {"type": "boolean", "const": True})
+        self.assertEqual(store["file_keychain"], {"type": "boolean", "const": False})
         self.assertEqual(store["accessibility"], {"const": "when_unlocked_this_device_only"})
 
     def test_exact_signed_isolated_dpk_row_is_structurally_valid(self) -> None:
@@ -121,6 +160,7 @@ class MacosXpcQualificationTests(unittest.TestCase):
             ),
             "malformed_identities": lambda row: row["signing"].update(application_identifiers=[]),
             "stale": lambda row: row["runner"].update(freshness_verified=False),
+            "unattested": lambda row: row["runner"].update(attestation_verified=False),
             "sensitive_artifact": lambda row: row["artifact_scan"].update(
                 sensitive_value_matches=1
             ),
@@ -157,6 +197,55 @@ class MacosXpcQualificationTests(unittest.TestCase):
                 value = _evidence()
                 mutate(value["rows"][0])
                 self.assertTrue(validate_evidence(value, "macos", _expected()))
+
+    def test_boolean_integer_substitutes_are_rejected_by_candidate_and_protected_contract(self) -> None:
+        cases = {
+            "code_identity": lambda row: row["code_identities"]["desktop"].update(notarized=1),
+            "selector_terminal": lambda row: row["selectors"]["clean_install"]["terminal_state"].update(cleanup_verified=1),
+            "selector_namespace": lambda row: row["selectors"]["clean_install"]["namespace"].update(exact_cleanup=1),
+            "selector_ordinal": lambda row: row["selectors"]["account_only_mismatch_denied"]["case_receipt"].update(ordinal=False),
+            "deployment_keep_alive": lambda row: row["deployment"].update(keep_alive=0),
+            "deployment_mach_service": lambda row: row["deployment"]["mach_services"].update(
+                {"com.runne.credential-service.desktop.v1": 1}
+            ),
+        }
+        for name, mutate in cases.items():
+            with self.subTest(name=name):
+                row = _row()
+                mutate(row)
+                self.assertTrue(macos.validate_row(row))
+                policy = {
+                    "candidate_sha256": row["tuple"]["candidate_sha256"],
+                    "release_tuple_v3_sha256": row["tuple"]["release_tuple_v3_sha256"],
+                }
+                with self.assertRaises(Rejected):
+                    validate_protected_row(row, {"arm64": row["tuple"]}, policy)
+
+    def test_malformed_nested_receipts_return_redacted_errors_in_public_and_cli_paths(self) -> None:
+        for field, malformed in (("terminal_state", None), ("terminal_state", 1), ("namespace", [])):
+            with self.subTest(field=field, malformed=repr(malformed)):
+                value = _evidence()
+                value["rows"][0]["selectors"]["clean_install"][field] = malformed
+                self.assertTrue(validate_evidence(value, "macos", _expected()))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            row = _row()
+            row["selectors"]["clean_install"]["terminal_state"] = None
+            (root / "macos-13-arm64.json").write_text(json.dumps(row))
+            tuples = root / "expected-tuples.json"
+            tuples.write_text(json.dumps(_expected()))
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/desktop/native_credential_enrollment_probe.py"),
+                 "validate", "--platform", "macos", "--evidence-root", str(root),
+                 "--expected-tuples", str(tuples)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 1, result.stderr)
+            report = json.loads(result.stdout)
+            self.assertFalse(report["qualified"])
+            self.assertFalse(report["structurally_valid"])
+            self.assertTrue(report["errors"])
+            self.assertNotIn("None", result.stdout + result.stderr)
 
     def test_native_store_rejects_numeric_boolean_substitutes(self) -> None:
         fields = {

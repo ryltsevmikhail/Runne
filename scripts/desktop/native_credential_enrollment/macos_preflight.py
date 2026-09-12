@@ -14,7 +14,11 @@ from .evidence_io import shape_errors
 from .macos_bindings import canonical_digest
 
 CONTEXT_FIELDS = {"source_revision", "workflow_run_id", "namespace_sha256", "signer_key_id"}
-ENVELOPE_FIELDS = CONTEXT_FIELDS | {
+PROTECTED_SUBJECT_DIGEST_FIELDS = {
+    "artifact_manifest_sha256", "conformance_sha256", "writer_transcript_sha256",
+    "service_admission_sha256", "controller_lifecycle_sha256",
+}
+ENVELOPE_FIELDS = CONTEXT_FIELDS | PROTECTED_SUBJECT_DIGEST_FIELDS | {
     "schema_version", "row_sha256", "expected_tuples_sha256", "started_at",
     "finished_at", "cleanup_verified", "signature",
 }
@@ -61,6 +65,8 @@ def validate_envelope(
         return ["signed envelope and row workflow identities differ"]
     if value["row_sha256"] != canonical_digest(row) or value["expected_tuples_sha256"] != canonical_digest(expected_tuples):
         return ["signed envelope subject digest mismatch"]
+    if any(not macos._sha256(value[field]) for field in PROTECTED_SUBJECT_DIGEST_FIELDS):
+        return ["signed envelope protected subject digest is invalid"]
     if value["cleanup_verified"] is not True:
         return ["terminal exact-namespace cleanup is missing"]
     errors.extend(_signature_shape_errors(value["signature"]))
