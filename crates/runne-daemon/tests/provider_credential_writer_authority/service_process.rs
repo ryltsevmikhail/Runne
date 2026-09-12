@@ -103,12 +103,25 @@ impl TemporaryCredentialService {
         let uid = command_output("/usr/bin/id", &["-u"]).ok_or("service-uid")?;
         let domain = format!("gui/{}", uid.trim());
         let service = format!("{domain}/{LABEL}");
-        let existing = Command::new("/bin/launchctl")
+        let mut exclusivity = Command::new("/bin/launchctl")
             .args(["print", &service])
             .output()
             .map_err(|_| "service-presence-command")?;
-        if existing.status.success() || !not_found(&existing.stderr) {
-            return Err("service-label-not-exclusively-available");
+        // A task killed by its timeout skips teardown and leaves the
+        // registered fixture service behind, so the first bootstrap after a
+        // kill would fail forever. The leftover belongs to a dead fixture
+        // (RunAtLoad=false, KeepAlive=false), so boot it out once and retry.
+        if exclusivity.status.success() || !not_found(&exclusivity.stderr) {
+            let _ = Command::new("/bin/launchctl")
+                .args(["bootout", &service])
+                .status();
+            exclusivity = Command::new("/bin/launchctl")
+                .args(["print", &service])
+                .output()
+                .map_err(|_| "service-presence-command")?;
+            if exclusivity.status.success() || !not_found(&exclusivity.stderr) {
+                return Err("service-label-not-exclusively-available");
+            }
         }
         let plist = root.join("credential-service.test.plist");
         fs::write(&plist, launch_agent_plist(home, keychain, executable, root))

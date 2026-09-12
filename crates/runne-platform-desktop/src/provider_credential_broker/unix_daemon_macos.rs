@@ -53,11 +53,13 @@ pub(super) fn spawn_macos_prepared_writer(
             )
         })
         .and_then(|()| {
+            let stderr_target =
+                test_writer_stderr_target().unwrap_or_else(|| CString::new("/dev/null").unwrap());
             actions.add_open(
                 libc::STDERR_FILENO,
-                "/dev/null",
-                OFlag::O_WRONLY,
-                Mode::empty(),
+                stderr_target.as_c_str(),
+                OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_APPEND,
+                Mode::from_bits_retain(0o600),
             )
         })
         .map_err(|_| BrokerHandoffError::Unavailable)?;
@@ -84,6 +86,22 @@ pub(super) fn spawn_macos_prepared_writer(
     drop(transport);
     let pid = spawned?;
     UnixRetainedWriterProcess::from_pid(pid).map(|process| (process, secret_writer))
+}
+
+/// In the local native enrollment test mode the writer's stderr is captured
+/// to an append-only log so its startup diagnostics survive the fixture
+/// teardown; production keeps /dev/null.
+#[cfg(feature = "test-support")]
+fn test_writer_stderr_target() -> Option<CString> {
+    if !runne_api::test_support::local_native_enrollment_enabled() {
+        return None;
+    }
+    CString::new("/tmp/runne-slice-e-writer-stderr.log").ok()
+}
+
+#[cfg(not(feature = "test-support"))]
+fn test_writer_stderr_target() -> Option<CString> {
+    None
 }
 
 fn local_writer_environment() -> Result<Vec<CString>, BrokerHandoffError> {

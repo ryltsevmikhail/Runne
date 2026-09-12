@@ -59,14 +59,37 @@ fn run_provider_credential_broker(mut arguments: VecDeque<OsString>) -> Result<(
     expect_end(&arguments)?;
     #[cfg(target_os = "macos")]
     {
+        #[cfg(feature = "local-native-enrollment-test")]
+        let report = |stage: &'static str| {
+            eprintln!("writer-stage={stage}");
+        };
+        #[cfg(feature = "local-native-enrollment-test")]
+        let report_failed = |stage: &'static str| {
+            eprintln!("writer-stage-failed={stage}");
+        };
+        #[cfg(not(feature = "local-native-enrollment-test"))]
+        let report = |stage: &'static str| {
+            let _ = stage;
+        };
+        #[cfg(not(feature = "local-native-enrollment-test"))]
+        let report_failed = |stage: &'static str| {
+            let _ = stage;
+        };
+        report("secret-inspect");
         let secret = channel::InheritedSecretInputSlot::inspect()
+            .inspect_err(|_| report_failed("secret-inspect"))
             .map_err(|_| CliError::CredentialOperation)?;
+        report("endpoint-receive");
         let handoff = runne_native_enrollment_authority::UntrustedProviderCredentialWriterEndpointHandoffV1::receive_from_stdin()
+            .inspect_err(|_| report_failed("endpoint-receive"))
             .map_err(|_| CliError::CredentialOperation)?;
+        report("session-observe");
         let pinned = handoff
             .observe_current_pinned_writer_session()
+            .inspect_err(|_| report_failed("session-observe"))
             .map_err(|_| CliError::CredentialOperation)?;
-        run::run_authenticated_writer(pinned, secret)
+        report("authenticated-run");
+        run::run_authenticated_writer(pinned, secret).inspect_err(|_| report_failed("authenticated-run"))
     }
     #[cfg(not(target_os = "macos"))]
     {
