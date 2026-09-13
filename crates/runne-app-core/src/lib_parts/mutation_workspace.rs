@@ -5,7 +5,7 @@ impl AppCore {
         prepared.possible_send
     }
 
-    /// Pre-anchors the two exact native Workspace mutations under one gate.
+    /// Pre-anchors the exact native Workspace mutations under one gate.
     ///
     /// # Errors
     ///
@@ -27,7 +27,7 @@ impl AppCore {
             .get_workspace(workspace_id)
             .await
             .map_err(|_| AppCoreError::RuntimeUnavailable)?;
-        if workspace.version() != expected_version || workspace.is_open() {
+        if workspace.version() != expected_version {
             return Err(AppCoreError::InvalidMutation);
         }
         let bind = self.prepare_mutation_under_operation(workspace_request(
@@ -39,14 +39,20 @@ impl AppCore {
                 admission_digest: admission.admission_digest(),
             },
         )?)?;
-        let open = self.prepare_mutation_under_operation(workspace_request(
-            runne_local_store::MutationOperation::WorkspaceOpen,
-            workspace_id,
-            expected_version
-                .checked_add(1)
-                .ok_or(AppCoreError::InvalidMutation)?,
-            CanonicalMutationCommand::OpenWorkspace { workspace_id },
-        )?)?;
+        let open = (!workspace.is_open())
+            .then(|| {
+                workspace_request(
+                    runne_local_store::MutationOperation::WorkspaceOpen,
+                    workspace_id,
+                    expected_version
+                        .checked_add(1)
+                        .ok_or(AppCoreError::InvalidMutation)?,
+                    CanonicalMutationCommand::OpenWorkspace { workspace_id },
+                )
+            })
+            .transpose()?
+            .map(|request| self.prepare_mutation_under_operation(request))
+            .transpose()?;
         let finalized = FinalizedRootAdmission {
             admission,
             runtime_identity: bind.runtime_identity.clone(),
@@ -62,26 +68,30 @@ impl AppCore {
             possible_send: false,
         })
     }
-    /// Dispatches the anchored bind and open without exposing the bind ACK.
+    /// Dispatches the anchored bind and, when needed, open without exposing the bind ACK.
     ///
     /// # Errors
     ///
     /// Returns a redacted lifecycle disposition that lets the host reap only
     /// before a bind can have been sent.
+    #[allow(clippy::too_many_lines)]
     pub async fn dispatch_prepared_workspace_open(
         &self,
         prepared: &mut PreparedWorkspaceOpen,
     ) -> Result<runne_runtime_client::WorkspaceSnapshotDto, NativeMutationFailure> {
         let (bind, open, possible_send) = prepared.parts_and_possible_send_mut();
         let _operation = self.runtime_operation.lock().await;
-        let workspace_id = match &open.request.semantic_command {
-            CanonicalMutationCommand::OpenWorkspace { workspace_id } => *workspace_id,
+        let workspace_id = match &bind.request.semantic_command {
+            CanonicalMutationCommand::BindWorkspaceRoot { workspace_id, .. } => *workspace_id,
             _ => {
                 return Err(NativeMutationFailure::new(
                     NativeAuthorityDisposition::ReapBeforeDispatch,
                 ));
             }
         };
+        Self::validate_finalized_root_binding(bind).map_err(|_| {
+            NativeMutationFailure::new(NativeAuthorityDisposition::ReapBeforeDispatch)
+        })?;
         let bind_version = bind
             .request
             .expected_version
@@ -89,14 +99,17 @@ impl AppCore {
             .ok_or_else(|| {
                 NativeMutationFailure::new(NativeAuthorityDisposition::ReapBeforeDispatch)
             })?;
-        let open_version = bind_version.checked_add(1).ok_or_else(|| {
-            NativeMutationFailure::new(NativeAuthorityDisposition::ReapBeforeDispatch)
-        })?;
         self.refresh_reconciling_lease(bind).map_err(|_| {
             NativeMutationFailure::new(NativeAuthorityDisposition::ReapBeforeDispatch)
         })?;
         let bind_ack = self
-            .dispatch_prepared_mutation_under_operation(bind, Some(possible_send), false, true, false)
+            .dispatch_prepared_mutation_under_operation(
+                bind,
+                Some(possible_send),
+                false,
+                true,
+                false,
+            )
             .await
             .map_err(|_| {
                 NativeMutationFailure::new(if *possible_send {
@@ -114,30 +127,42 @@ impl AppCore {
                 ));
             }
         }
-        self.admit_unstarted_composite_successor(bind, open)
-            .map_err(|_| {
+        let (final_version, identity, epoch) = if let Some(open) = open {
+            let open_version = bind_version.checked_add(1).ok_or_else(|| {
                 NativeMutationFailure::new(NativeAuthorityDisposition::ReleaseWithoutReap)
             })?;
-        self.refresh_reconciling_lease(open).map_err(|_| {
-            NativeMutationFailure::new(NativeAuthorityDisposition::ReleaseWithoutReap)
-        })?;
-        let open_ack = self
-            .dispatch_prepared_mutation_under_operation(open, Some(possible_send), true, true, false)
-            .await
-            .map_err(|_| {
+            self.admit_unstarted_composite_successor(bind, open)
+                .map_err(|_| {
+                    NativeMutationFailure::new(NativeAuthorityDisposition::ReleaseWithoutReap)
+                })?;
+            self.refresh_reconciling_lease(open).map_err(|_| {
                 NativeMutationFailure::new(NativeAuthorityDisposition::ReleaseWithoutReap)
             })?;
-        match &open_ack {
-            MutationDispatchResult::Workspace(ack)
-                if ack.workspace_id() == workspace_id && ack.new_version() == open_version => {}
-            _ => {
-                return Err(NativeMutationFailure::new(
-                    NativeAuthorityDisposition::ReleaseWithoutReap,
-                ));
+            let open_ack = self
+                .dispatch_prepared_mutation_under_operation(
+                    open,
+                    Some(possible_send),
+                    true,
+                    true,
+                    false,
+                )
+                .await
+                .map_err(|_| {
+                    NativeMutationFailure::new(NativeAuthorityDisposition::ReleaseWithoutReap)
+                })?;
+            match &open_ack {
+                MutationDispatchResult::Workspace(ack)
+                    if ack.workspace_id() == workspace_id && ack.new_version() == open_version => {}
+                _ => {
+                    return Err(NativeMutationFailure::new(
+                        NativeAuthorityDisposition::ReleaseWithoutReap,
+                    ));
+                }
             }
-        }
-        let identity = open.runtime_identity.clone();
-        let epoch = open.gate_epoch;
+            (open_version, open.runtime_identity.clone(), open.gate_epoch)
+        } else {
+            (bind_version, bind.runtime_identity.clone(), bind.gate_epoch)
+        };
         let result = self
             .final_dispatch_client_for_identity(&identity, epoch)
             .map_err(|_| {
@@ -152,7 +177,7 @@ impl AppCore {
         };
         if snapshot.id() != workspace_id
             || !snapshot.is_open()
-            || snapshot.version() != open_version
+            || snapshot.version() != final_version
         {
             return Err(NativeMutationFailure::new(
                 NativeAuthorityDisposition::ReleaseWithoutReap,
@@ -167,17 +192,37 @@ impl AppCore {
         bind: &PreparedMutationLease,
         open: &mut PreparedMutationLease,
     ) -> Result<(), AppCoreError> {
-        if open.anchored_record.disposition()
-            != runne_local_store::ClientMutationDisposition::Prepared
-            || bind.runtime_identity != open.runtime_identity
+        let CanonicalMutationCommand::BindWorkspaceRoot { workspace_id, .. } =
+            &bind.request.semantic_command
+        else {
+            return Err(AppCoreError::InvalidMutation);
+        };
+        let CanonicalMutationCommand::OpenWorkspace {
+            workspace_id: open_workspace_id,
+        } = &open.request.semantic_command
+        else {
+            return Err(AppCoreError::InvalidMutation);
+        };
+        if bind.runtime_identity != open.runtime_identity
+            || workspace_id != open_workspace_id
+            || open.request.expected_version
+                != bind
+                    .request
+                    .expected_version
+                    .checked_add(1)
+                    .ok_or(AppCoreError::InvalidMutation)?
         {
-            return Ok(());
+            return Err(AppCoreError::InvalidMutation);
         }
-        let client = self.live_runtime_client()?;
-        (replay::StableRuntimeIdentity::from_client(&client) == open.runtime_identity)
-            .then_some(())
-            .ok_or(AppCoreError::RuntimeUnavailable)?;
-        open.gate_epoch = self.mutation_gate_epoch.load(Ordering::Acquire);
+        if open.anchored_record.disposition()
+            == runne_local_store::ClientMutationDisposition::Prepared
+        {
+            let client = self.live_runtime_client()?;
+            (replay::StableRuntimeIdentity::from_client(&client) == open.runtime_identity)
+                .then_some(())
+                .ok_or(AppCoreError::RuntimeUnavailable)?;
+            open.gate_epoch = self.mutation_gate_epoch.load(Ordering::Acquire);
+        }
         Ok(())
     }
 
@@ -191,37 +236,4 @@ impl AppCore {
             .ok_or(AppCoreError::RuntimeUnavailable)
     }
 }
-const fn binding_digest(command: &CanonicalMutationCommand) -> Result<[u8; 32], AppCoreError> {
-    match command {
-        CanonicalMutationCommand::BindWorkspaceRoot {
-            admission_digest, ..
-        } => Ok(*admission_digest),
-        _ => Err(AppCoreError::InvalidMutation),
-    }
-}
-fn workspace_request(
-    operation: runne_local_store::MutationOperation,
-    workspace_id: CanonicalId,
-    expected_version: u64,
-    semantic_command: CanonicalMutationCommand,
-) -> Result<MutationRequest, AppCoreError> {
-    let command_id = CanonicalId::now_v7();
-    let idempotency_key = command_id.to_string();
-    let identity = CommandIdentity::new(command_id, idempotency_key.clone())
-        .map_err(|_| AppCoreError::InvalidMutation)?;
-    let target = MutationTarget::try_new(
-        operation,
-        runne_local_store::MutationTargetKind::Workspace,
-        runne_local_store::BoundedCanonicalId::parse(workspace_id.to_string().as_bytes())
-            .map_err(|_| AppCoreError::InvalidMutation)?,
-    )
-    .map_err(|_| AppCoreError::InvalidMutation)?;
-    Ok(MutationRequest::for_conversation(
-        operation,
-        target,
-        expected_version,
-        semantic_command,
-        identity,
-        idempotency_key,
-    ))
-}
+include!("mutation_workspace/admission.rs");

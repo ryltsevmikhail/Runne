@@ -18,12 +18,12 @@ struct FinalizedRootAdmission {
     admission_digest: [u8; 32],
 }
 
-/// Move-only neutral host handoff for the bind-then-open workspace mutation.
+/// Move-only neutral host handoff for the bind-then-optional-open workspace mutation.
 /// It intentionally carries no platform path, handle, renderer reference, or
 /// transport token.
 pub struct PreparedWorkspaceOpen {
     bind: PreparedMutationLease,
-    open: PreparedMutationLease,
+    open: Option<PreparedMutationLease>,
     possible_send: bool,
 }
 
@@ -38,10 +38,10 @@ impl PreparedWorkspaceOpen {
         &mut self,
     ) -> (
         &mut PreparedMutationLease,
-        &mut PreparedMutationLease,
+        Option<&mut PreparedMutationLease>,
         &mut bool,
     ) {
-        (&mut self.bind, &mut self.open, &mut self.possible_send)
+        (&mut self.bind, self.open.as_mut(), &mut self.possible_send)
     }
 }
 

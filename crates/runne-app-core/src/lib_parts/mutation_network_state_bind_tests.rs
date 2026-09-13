@@ -13,7 +13,7 @@ async fn protected_bind_exercises_all_reconciliation_branches_without_carrier_fa
         let server = tokio::spawn(workspace_server(listener, replies, expected));
         let directory = tempfile::tempdir().expect("directory");
         let core = protected_workspace_core(&origin, &directory).await;
-        let mut prepared = core.prepare_open_selected_workspace(WORKSPACE_ID.parse().expect("workspace"), 1, protected_admission()).await.expect("prepare");
+        let mut prepared = core.prepare_open_selected_workspace(WORKSPACE_ID.parse().expect("workspace"), 1, protected_admission(1)).await.expect("prepare");
         let (bind, _, _) = prepared.parts_and_possible_send_mut();
         if index == 1 || index == 2 {
             core.transition_v7_under_operation(bind, runne_local_store::V7MutationTransition::Dispatching { timestamp: 1 }).expect("dispatching");
@@ -45,7 +45,7 @@ async fn protected_bind_ncr_resends_once_with_the_retained_carrier_then_exhausts
     ], 5));
     let directory = tempfile::tempdir().expect("directory");
     let core = protected_workspace_core(&origin, &directory).await;
-    let mut prepared = core.prepare_open_selected_workspace(WORKSPACE_ID.parse().expect("workspace"), 1, protected_admission()).await.expect("prepare");
+    let mut prepared = core.prepare_open_selected_workspace(WORKSPACE_ID.parse().expect("workspace"), 1, protected_admission(1)).await.expect("prepare");
     let (bind, _, _) = prepared.parts_and_possible_send_mut();
     assert!(matches!(core.dispatch_prepared_mutation_under_operation(bind, None, false, false, false).await, Err(AppCoreError::RuntimeUnavailable)));
     assert!(matches!(core.dispatch_prepared_mutation_under_operation(bind, None, false, false, false).await, Err(AppCoreError::RuntimeUnavailable)));
@@ -84,7 +84,7 @@ async fn protected_bind_possible_send_loss_reconciles_without_a_blind_resend() {
     });
     let directory = tempfile::tempdir().expect("directory");
     let core = protected_workspace_core(&origin, &directory).await;
-    let mut prepared = core.prepare_open_selected_workspace(WORKSPACE_ID.parse().expect("workspace"), 1, protected_admission()).await.expect("prepare");
+    let mut prepared = core.prepare_open_selected_workspace(WORKSPACE_ID.parse().expect("workspace"), 1, protected_admission(1)).await.expect("prepare");
     let (bind, _, _) = prepared.parts_and_possible_send_mut();
     assert!(matches!(core.dispatch_prepared_mutation_under_operation(bind, None, false, false, false).await, Err(AppCoreError::RuntimeUnavailable)));
     let (snapshot, sent, reconcile) = server.await.expect("server");
