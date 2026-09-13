@@ -253,8 +253,9 @@ pub(super) fn upgraded_v25_for_provider(
              DROP TABLE provider_online_dispatch_issuance_evidence;
              DROP TABLE provider_online_credential_effect_bindings;
              DELETE FROM schema_version WHERE version >= 26;",
-        )
+    )
         .unwrap();
+    crate::schema::restore_v18_project_workspace_receipt_for_test(&connection).unwrap();
     crate::schema::restore_v25_credential_triggers_for_test(&connection).unwrap();
     assert_eq!(
         connection

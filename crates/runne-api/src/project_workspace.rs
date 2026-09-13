@@ -54,6 +54,12 @@ pub struct ExistingProjectCommand {
     pub project_id: ProjectId,
     pub expected_version: u64,
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenameProjectCommand {
+    pub project_id: ProjectId,
+    pub expected_version: u64,
+    pub display_name: ProjectWorkspaceDisplayNameInput,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExistingWorkspaceCommand {
     pub workspace_id: WorkspaceId,
@@ -128,6 +134,11 @@ pub trait ProjectWorkspaceCommandHostPort: Send + Sync {
         &self,
         context: ProjectCommandContext,
         command: ExistingProjectCommand,
+    ) -> impl std::future::Future<Output = Result<ProjectCommandAck, ProjectWorkspaceHostError>> + Send;
+    fn rename_project(
+        &self,
+        context: ProjectCommandContext,
+        command: RenameProjectCommand,
     ) -> impl std::future::Future<Output = Result<ProjectCommandAck, ProjectWorkspaceHostError>> + Send;
     fn delete_project(
         &self,

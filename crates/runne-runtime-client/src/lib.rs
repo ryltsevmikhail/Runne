@@ -37,8 +37,8 @@ pub use canonical::{
 pub use canonical::{
     BindWorkspaceRootRequest, CreateProjectRequest, CreateWorkspaceRequest, ExistingProjectRequest,
     ExistingWorkspaceRequest, ProjectCommandAcknowledgement, ProjectPageCursor, ProjectPageDto,
-    ProjectSnapshotDto, ProtectedRootAdmission, WorkspaceCommandAcknowledgement,
-    WorkspacePageCursor, WorkspacePageDto, WorkspaceSnapshotDto,
+    ProjectSnapshotDto, ProtectedRootAdmission, RenameProjectRequest,
+    WorkspaceCommandAcknowledgement, WorkspacePageCursor, WorkspacePageDto, WorkspaceSnapshotDto,
 };
 pub use canonical::{CommandReconciliationDisposition, CommandReconciliationRequest};
 pub use canonical::{ConversationGenerationFailureReason, ConversationTextRejection};

@@ -47,6 +47,12 @@ impl CommandReconciliationHostPort for OutcomeHost {
                     new_version: 2,
                 })
             }
+            CommandReconciliationWitnessRef::RenameProject { project_id, .. } => {
+                AuthoritativeCommandOutcome::project_renamed(ProjectCommandAck {
+                    project_id,
+                    new_version: 2,
+                })
+            }
             CommandReconciliationWitnessRef::CreateWorkspace { workspace_id, .. } => {
                 AuthoritativeCommandOutcome::workspace_created(WorkspaceCommandAck {
                     workspace_id,
@@ -83,7 +89,7 @@ impl CommandReconciliationHostPort for OutcomeHost {
 }
 
 #[tokio::test]
-async fn seven_non_text_operations_have_exact_closed_response_bodies() {
+async fn eight_non_text_operations_have_exact_closed_response_bodies() {
     let digest = "07".repeat(32);
     let cases = [
         (
@@ -108,6 +114,14 @@ async fn seven_non_text_operations_have_exact_closed_response_bodies() {
             ),
             format!(
                 r#"{{"disposition":"durably_recorded","outcome":{{"operation":"delete_project","projectId":"{PROJECT}","newVersion":2}}}}"#
+            ),
+        ),
+        (
+            format!(
+                r#"{{"operation":"rename_project","projectId":"{PROJECT}","expectedVersion":1,"displayName":"Renamed"}}"#
+            ),
+            format!(
+                r#"{{"disposition":"durably_recorded","outcome":{{"operation":"rename_project","projectId":"{PROJECT}","newVersion":2}}}}"#
             ),
         ),
         (

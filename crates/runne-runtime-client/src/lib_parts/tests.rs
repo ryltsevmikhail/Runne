@@ -219,6 +219,7 @@ fn supported_capability_profiles_are_exactly_ordered() {
             "project.get.v1",
             "project.create.v1",
             "project.archive.v1",
+            "project.rename.v1",
             "project.restore.v1",
             "project.delete.v1",
             "workspace.list.v1",

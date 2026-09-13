@@ -74,7 +74,7 @@ impl AppCore {
     ) -> Result<MutationDispatchResult, AppCoreError> {
         use runne_runtime_client::CommandReconciliationOutcome as Outcome;
         match outcome {
-            Outcome::ProjectCreated(value) | Outcome::ProjectArchived(value) | Outcome::ProjectDeleted(value) => Ok(MutationDispatchResult::Project(value.clone())),
+            Outcome::ProjectRenamed(value) | Outcome::ProjectCreated(value) | Outcome::ProjectArchived(value) | Outcome::ProjectDeleted(value) => Ok(MutationDispatchResult::Project(value.clone())),
             Outcome::WorkspaceCreated(value) | Outcome::WorkspaceRootBound(value) | Outcome::WorkspaceOpened(value) => Ok(MutationDispatchResult::Workspace(value.clone())),
             Outcome::ConversationCreated(value) => Ok(MutationDispatchResult::ConversationCreated(value.clone())),
             Outcome::ConversationTextCompleted(value) => Ok(MutationDispatchResult::TextGenerated((**value).clone())),

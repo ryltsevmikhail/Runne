@@ -16,6 +16,7 @@ fn project_workspace_openapi_is_structurally_exact_for_all_operations() {
         "202", "400", "401", "404", "405", "409", "413", "500", "503",
     ];
     let matrix = [
+        ("post", "/v1/projects/{projectId}/rename", "projectAck", Some("projectRename")),
         ("get", "/v1/projects", "projectPage", None),
         ("post", "/v1/projects", "projectAck", Some("projectCreate")),
         ("get", "/v1/projects/{projectId}", "project", None),
@@ -112,7 +113,7 @@ fn project_workspace_openapi_is_structurally_exact_for_all_operations() {
         .flat_map(|(_, item)| item.as_object().unwrap().iter())
         .filter(|(key, _)| matches!(key.as_str(), "get" | "post" | "delete"))
         .count();
-    assert_eq!(operations, 16);
+    assert_eq!(operations, 17);
 }
 
 fn assert_template_parameters(path: &str, path_item: &Value, operation: &Value) {

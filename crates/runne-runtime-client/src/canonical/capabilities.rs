@@ -19,6 +19,7 @@ pub const REQUIRED_RUNTIME_CAPABILITIES: &[&str] = &[
     "project.get.v1",
     "project.create.v1",
     "project.archive.v1",
+    "project.rename.v1",
     "project.restore.v1",
     "project.delete.v1",
     "workspace.list.v1",
@@ -48,6 +49,7 @@ pub const PROTECTED_RUNTIME_CAPABILITIES: &[&str] = &[
     "project.get.v1",
     "project.create.v1",
     "project.archive.v1",
+    "project.rename.v1",
     "project.restore.v1",
     "project.delete.v1",
     "workspace.list.v1",
@@ -82,6 +84,7 @@ pub const ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES: &[&str] = &[
     "project.get.v1",
     "project.create.v1",
     "project.archive.v1",
+    "project.rename.v1",
     "project.restore.v1",
     "project.delete.v1",
     "workspace.list.v1",
@@ -110,7 +113,7 @@ pub fn is_supported_capability_profile(values: &[String]) -> bool {
     })
 }
 
-pub(crate) fn is_enrollment_qualified_capability_profile(values: &[String]) -> bool {
+pub fn is_enrollment_qualified_capability_profile(values: &[String]) -> bool {
     values
         .iter()
         .map(String::as_str)

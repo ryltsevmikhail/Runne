@@ -13,6 +13,10 @@ pub enum CanonicalMutationOutcome {
         project_id: BoundedCanonicalId,
         new_version: u64,
     },
+    ProjectRename {
+        project_id: BoundedCanonicalId,
+        new_version: u64,
+    },
     ProjectArchive {
         project_id: BoundedCanonicalId,
         new_version: u64,
@@ -116,6 +120,10 @@ impl CanonicalMutationOutcome {
                 project_id,
                 new_version,
             } => simple(&mut value, 1, project_id, *new_version)?,
+            Self::ProjectRename {
+                project_id,
+                new_version,
+            } => simple(&mut value, 11, project_id, *new_version)?,
             Self::ProjectArchive {
                 project_id,
                 new_version,
@@ -205,6 +213,7 @@ impl CanonicalMutationOutcome {
             return Err(SecurityStateError::InvalidTransition);
         }
         let outcome = match codec::byte(&mut input)? {
+            11 => project(&mut input, 11)?,
             1 => project(&mut input, 1)?,
             2 => project(&mut input, 2)?,
             3 => project(&mut input, 3)?,
@@ -257,42 +266,7 @@ fn simple(
     output.extend(version_value.to_be_bytes());
     Ok(())
 }
-fn project(input: &mut &[u8], tag: u8) -> Result<CanonicalMutationOutcome, SecurityStateError> {
-    let id = codec::id(input)?;
-    let new_version = version(input)?;
-    Ok(match tag {
-        1 => CanonicalMutationOutcome::ProjectCreate {
-            project_id: id,
-            new_version,
-        },
-        2 => CanonicalMutationOutcome::ProjectArchive {
-            project_id: id,
-            new_version,
-        },
-        _ => CanonicalMutationOutcome::ProjectDelete {
-            project_id: id,
-            new_version,
-        },
-    })
-}
-fn workspace(input: &mut &[u8], tag: u8) -> Result<CanonicalMutationOutcome, SecurityStateError> {
-    let id = codec::id(input)?;
-    let new_version = version(input)?;
-    Ok(match tag {
-        4 => CanonicalMutationOutcome::WorkspaceCreate {
-            workspace_id: id,
-            new_version,
-        },
-        5 => CanonicalMutationOutcome::WorkspaceBindRoot {
-            workspace_id: id,
-            new_version,
-        },
-        _ => CanonicalMutationOutcome::WorkspaceOpen {
-            workspace_id: id,
-            new_version,
-        },
-    })
-}
+include!("outcome/simple_decode.rs");
 fn valid_version(value: u64) -> Result<u64, SecurityStateError> {
     (value != 0)
         .then_some(value)

@@ -21,7 +21,7 @@ fn command_matches(request: &MutationRequest) -> bool {
     use runne_local_store::MutationOperation as Operation;
     match (&request.operation, &request.target, &request.semantic_command) {
         (Operation::ProjectCreate, target, CanonicalMutationCommand::CreateProject { project_id, .. }) => request.expected_version == 0 && target_matches(target, *project_id),
-        (Operation::ProjectArchive, target, CanonicalMutationCommand::ArchiveProject { project_id }) | (Operation::ProjectDelete, target, CanonicalMutationCommand::DeleteProject { project_id }) => request.expected_version != 0 && target_matches(target, *project_id),
+        (Operation::ProjectRename, target, CanonicalMutationCommand::RenameProject { project_id, .. }) | (Operation::ProjectArchive, target, CanonicalMutationCommand::ArchiveProject { project_id }) | (Operation::ProjectDelete, target, CanonicalMutationCommand::DeleteProject { project_id }) => request.expected_version != 0 && target_matches(target, *project_id),
         (Operation::WorkspaceCreate, target, CanonicalMutationCommand::CreateWorkspace { workspace_id, .. }) => request.expected_version == 0 && target_matches(target, *workspace_id),
         (Operation::WorkspaceBindRoot, target, CanonicalMutationCommand::BindWorkspaceRoot { workspace_id, .. }) | (Operation::WorkspaceOpen, target, CanonicalMutationCommand::OpenWorkspace { workspace_id }) => request.expected_version != 0 && target_matches(target, *workspace_id),
         (Operation::ConversationCreate, target, CanonicalMutationCommand::CreateConversation { conversation_id, .. }) => request.expected_version == 0 && target_matches(target, *conversation_id),

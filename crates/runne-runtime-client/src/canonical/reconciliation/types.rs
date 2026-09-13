@@ -1,9 +1,9 @@
+use super::ApprovalDecisionAcknowledgementDto;
+use super::TaskRunCancellationAcknowledgement;
 use super::{
     CanonicalId, ConversationCreated, ConversationMessage, ConversationTextResult,
     ProjectCommandAcknowledgement, WorkspaceCommandAcknowledgement,
 };
-use super::TaskRunCancellationAcknowledgement;
-use super::ApprovalDecisionAcknowledgementDto;
 
 /// Closed result of one authoritative reconciliation observation.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -19,6 +19,7 @@ pub enum CommandReconciliationOutcome {
     ProjectCreated(ProjectCommandAcknowledgement),
     ProjectArchived(ProjectCommandAcknowledgement),
     ProjectDeleted(ProjectCommandAcknowledgement),
+    ProjectRenamed(ProjectCommandAcknowledgement),
     WorkspaceCreated(WorkspaceCommandAcknowledgement),
     WorkspaceRootBound(WorkspaceCommandAcknowledgement),
     WorkspaceOpened(WorkspaceCommandAcknowledgement),

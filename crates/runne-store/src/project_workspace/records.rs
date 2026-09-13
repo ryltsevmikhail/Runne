@@ -31,19 +31,10 @@ fn rehydrate_project(
     let id = ProjectId::from_bytes(id.try_into().map_err(|_| Error::InvariantViolation)?);
     let name = ProjectWorkspaceDisplayName::new(name).map_err(|_| Error::InvariantViolation)?;
     let version = u64::try_from(version).map_err(|_| Error::InvariantViolation)?;
-    if version == 0 || version > MAX_REHYDRATED_VERSION || archived != i64::from(version % 2 == 0) {
+    if version == 0 || version > MAX_REHYDRATED_VERSION || !matches!(archived, 0 | 1) {
         return Err(Error::InvariantViolation);
     }
-    let mut project = Project::create(id, name);
-    for _ in 1..version {
-        if project.archived() {
-            project.restore()
-        } else {
-            project.archive()
-        }
-        .map_err(|_| Error::InvariantViolation)?;
-    }
-    Ok(project)
+    Project::rehydrate(id, name, version, archived == 1).map_err(|_| Error::InvariantViolation)
 }
 
 fn rehydrate_workspace(

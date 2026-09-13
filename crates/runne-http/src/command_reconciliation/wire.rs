@@ -25,6 +25,11 @@ pub(super) enum ReconciliationBody {
         project_id: String,
         expected_version: u64,
     },
+    RenameProject {
+        project_id: String,
+        expected_version: u64,
+        display_name: String,
+    },
     CreateWorkspace {
         workspace_id: String,
         project_id: String,
@@ -80,6 +85,15 @@ impl ReconciliationBody {
             } => Some(CommandReconciliationWitness::delete_project(
                 project(&project_id)?,
                 version(expected_version)?,
+            )),
+            Self::RenameProject {
+                project_id,
+                expected_version,
+                display_name,
+            } => Some(CommandReconciliationWitness::rename_project(
+                project(&project_id)?,
+                version(expected_version)?,
+                name(display_name)?,
             )),
             Self::CreateWorkspace {
                 workspace_id,

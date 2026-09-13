@@ -28,7 +28,7 @@ fn conversation_id() -> ConversationId {
 }
 
 #[test]
-fn reconciliation_context_owns_identity_and_witnesses_cover_exactly_eight_commands() {
+fn reconciliation_context_owns_identity_and_witnesses_cover_exactly_nine_commands() {
     let context = CommandReconciliationContext::new(
         command_id(),
         IdempotencyKey::new("reconcile-key").unwrap(),
@@ -41,6 +41,7 @@ fn reconciliation_context_owns_identity_and_witnesses_cover_exactly_eight_comman
         CommandReconciliationWitness::create_project(project_id(), name("Project")),
         CommandReconciliationWitness::archive_project(project_id(), 1),
         CommandReconciliationWitness::delete_project(project_id(), 1),
+        CommandReconciliationWitness::rename_project(project_id(), 1, name("Renamed")),
         CommandReconciliationWitness::create_workspace(
             workspace_id(),
             project_id(),
@@ -62,6 +63,7 @@ fn reconciliation_context_owns_identity_and_witnesses_cover_exactly_eight_comman
             ReconciliationOperation::CreateProject,
             ReconciliationOperation::ArchiveProject,
             ReconciliationOperation::DeleteProject,
+            ReconciliationOperation::RenameProject,
             ReconciliationOperation::CreateWorkspace,
             ReconciliationOperation::BindWorkspaceRoot,
             ReconciliationOperation::OpenWorkspace,

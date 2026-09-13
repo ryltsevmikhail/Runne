@@ -16,8 +16,8 @@
       "oneOf": [
         {
           "items": false,
-          "maxItems": 25,
-          "minItems": 25,
+          "maxItems": 26,
+          "minItems": 26,
           "prefixItems": [
             {
               "const": "conversation.create.v1",
@@ -93,6 +93,10 @@
             },
             {
               "const": "project.archive.v1",
+              "type": "string"
+            },
+            {
+              "const": "project.rename.v1",
               "type": "string"
             },
             {
@@ -124,8 +128,8 @@
         },
         {
           "items": false,
-          "maxItems": 29,
-          "minItems": 29,
+          "maxItems": 30,
+          "minItems": 30,
           "prefixItems": [
             {
               "const": "conversation.create.v1",
@@ -201,6 +205,10 @@
             },
             {
               "const": "project.archive.v1",
+              "type": "string"
+            },
+            {
+              "const": "project.rename.v1",
               "type": "string"
             },
             {

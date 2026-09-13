@@ -14,6 +14,7 @@ enum Witness {
     CreateProject(ProjectId, ProjectWorkspaceDisplayNameInput),
     ArchiveProject(ProjectId, u64),
     DeleteProject(ProjectId, u64),
+    RenameProject(ProjectId, u64, ProjectWorkspaceDisplayNameInput),
     CreateWorkspace(WorkspaceId, ProjectId, ProjectWorkspaceDisplayNameInput),
     BindWorkspaceRoot(WorkspaceId, u64, [u8; 32]),
     OpenWorkspace(WorkspaceId, u64),
@@ -42,6 +43,17 @@ impl CommandReconciliationWitness {
     pub const fn delete_project(id: ProjectId, version: u64) -> Self {
         Self {
             inner: Witness::DeleteProject(id, version),
+        }
+    }
+
+    #[must_use]
+    pub const fn rename_project(
+        id: ProjectId,
+        version: u64,
+        name: ProjectWorkspaceDisplayNameInput,
+    ) -> Self {
+        Self {
+            inner: Witness::RenameProject(id, version, name),
         }
     }
 
@@ -122,6 +134,7 @@ impl CommandReconciliationWitness {
             Witness::CreateProject(..) => ReconciliationOperation::CreateProject,
             Witness::ArchiveProject(..) => ReconciliationOperation::ArchiveProject,
             Witness::DeleteProject(..) => ReconciliationOperation::DeleteProject,
+            Witness::RenameProject(..) => ReconciliationOperation::RenameProject,
             Witness::CreateWorkspace(..) => ReconciliationOperation::CreateWorkspace,
             Witness::BindWorkspaceRoot(..) => ReconciliationOperation::BindWorkspaceRoot,
             Witness::OpenWorkspace(..) => ReconciliationOperation::OpenWorkspace,
@@ -151,6 +164,13 @@ impl CommandReconciliationWitness {
                 CommandReconciliationWitnessRef::DeleteProject {
                     project_id: *id,
                     expected_version: *expected_version,
+                }
+            }
+            Witness::RenameProject(id, expected_version, display_name) => {
+                CommandReconciliationWitnessRef::RenameProject {
+                    project_id: *id,
+                    expected_version: *expected_version,
+                    display_name,
                 }
             }
             Witness::CreateWorkspace(id, project_id, name) => {
@@ -225,6 +245,11 @@ pub enum CommandReconciliationWitnessRef<'a> {
     DeleteProject {
         project_id: ProjectId,
         expected_version: u64,
+    },
+    RenameProject {
+        project_id: ProjectId,
+        expected_version: u64,
+        display_name: &'a ProjectWorkspaceDisplayNameInput,
     },
     CreateWorkspace {
         workspace_id: WorkspaceId,

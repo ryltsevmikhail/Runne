@@ -25,6 +25,12 @@ pub(super) struct ExistingWire {
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub(super) struct RenameProjectWire {
+    pub expected_version: u64,
+    pub display_name: String,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct RootBindingWire<'a> {
     pub expected_version: u64,
     pub root_admission: &'a runne_api::ProtectedRootBindTransport,

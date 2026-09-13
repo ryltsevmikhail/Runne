@@ -2,7 +2,8 @@ use super::{RuntimeProjectWorkspaceHost, types::WorkItem};
 use runne_api::{
     BindWorkspaceRootCommand, CreateProjectCommand, CreateWorkspaceCommand, ExistingProjectCommand,
     ExistingWorkspaceCommand, ProjectCommandAck, ProjectCommandContext,
-    ProjectWorkspaceCommandHostPort, ProjectWorkspaceHostError, WorkspaceCommandAck,
+    ProjectWorkspaceCommandHostPort, ProjectWorkspaceHostError, RenameProjectCommand,
+    WorkspaceCommandAck,
 };
 use runne_application::ports::{
     CurrentRootAdmissionContext, ProjectWorkspaceRepository, RootAdmissionVerifier,
@@ -33,6 +34,14 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
         command: ExistingProjectCommand,
     ) -> Result<ProjectCommandAck, ProjectWorkspaceHostError> {
         self.submit(|reply| WorkItem::RestoreProject(context, command, reply))
+            .await
+    }
+    async fn rename_project(
+        &self,
+        context: ProjectCommandContext,
+        command: RenameProjectCommand,
+    ) -> Result<ProjectCommandAck, ProjectWorkspaceHostError> {
+        self.submit(|reply| WorkItem::RenameProject(context, command, reply))
             .await
     }
     async fn delete_project(

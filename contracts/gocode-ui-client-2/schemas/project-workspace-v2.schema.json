@@ -139,6 +139,29 @@
       ],
       "type": "object"
     },
+    "projectRename": {
+      "additionalProperties": false,
+      "properties": {
+        "displayName": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[^\u0000-\u001f-­؀-؅؜۝܏࢐-࢑࣢᠎​-‏‪-‮⁠-⁤⁦-⁯﻿￹-￻𑂽𑃍𓐰-𓐿𛲠-𛲣𝅳-𝅺󠀁󠀠-󠁿]*$",
+          "type": "string",
+          "x-gocode-displayNamePolicy": "project-workspace-v1",
+          "x-gocode-maxUtf8Bytes": 256
+        },
+        "expectedVersion": {
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "expectedVersion",
+        "displayName"
+      ],
+      "type": "object"
+    },
     "rootBind": {
       "additionalProperties": false,
       "properties": {

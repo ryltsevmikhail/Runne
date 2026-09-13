@@ -5,6 +5,7 @@ use runne_api::{
     ExistingProjectCommand, ExistingWorkspaceCommand, ProjectCommandAck, ProjectCommandContext,
     ProjectPage, ProjectPageRequest, ProjectQueryContext, ProjectSnapshot,
     ProjectWorkspaceCommandHostPort, ProjectWorkspaceHostError, ProjectWorkspaceQueryHostPort,
+    RenameProjectCommand,
     WorkspaceCommandAck, WorkspacePage, WorkspacePageRequest, WorkspaceSnapshot,
 };
 use runne_domain::id::{ProjectId, WorkspaceId};
@@ -49,6 +50,9 @@ impl ProjectWorkspaceCommandHostPort for UnavailableHost {
         _: ProjectCommandContext,
         _: ExistingProjectCommand,
     ) -> Result<ProjectCommandAck, ProjectWorkspaceHostError> {
+        Err(ProjectWorkspaceHostError::Unavailable)
+    }
+    async fn rename_project(&self, _: ProjectCommandContext, _: RenameProjectCommand) -> Result<ProjectCommandAck, ProjectWorkspaceHostError> {
         Err(ProjectWorkspaceHostError::Unavailable)
     }
     async fn create_workspace(
@@ -120,6 +124,9 @@ fn app() -> axum::Router {
 fn authorized(request: http::request::Builder) -> http::request::Builder {
     request.header("authorization", format!("Bearer {}", hex::encode(TOKEN)))
 }
+
+#[path = "project_workspace/rename.rs"]
+mod rename;
 
 #[tokio::test]
 async fn project_workspace_routes_reject_invalid_pages_and_unknown_bodies() {

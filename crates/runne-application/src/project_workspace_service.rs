@@ -6,8 +6,8 @@ use crate::ports::{
 use runne_api::{
     BindWorkspaceRootCommand, CreateProjectCommand, CreateWorkspaceCommand, ExistingProjectCommand,
     ExistingWorkspaceCommand, ProjectCommandAck, ProjectCommandContext, ProjectPage,
-    ProjectPageRequest, ProjectQueryContext, ProjectSnapshot, WorkspaceCommandAck, WorkspacePage,
-    WorkspacePageRequest, WorkspaceSnapshot,
+    ProjectPageRequest, ProjectQueryContext, ProjectSnapshot, RenameProjectCommand,
+    WorkspaceCommandAck, WorkspacePage, WorkspacePageRequest, WorkspaceSnapshot,
 };
 use runne_domain::project_workspace::{Project, Workspace};
 mod root_admission;
@@ -88,6 +88,27 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
                 &context.idempotency_key,
                 command.project_id,
                 command.expected_version,
+            )
+            .map_err(map_error)?;
+        Ok(ProjectCommandAck {
+            project_id: project.id(),
+            new_version: project.version(),
+        })
+    }
+    pub fn rename_project(
+        &self,
+        context: ProjectCommandContext,
+        command: RenameProjectCommand,
+    ) -> Result<ProjectCommandAck, ProjectWorkspaceServiceError> {
+        let project = self
+            .repository
+            .rename_project(
+                context.principal.as_str(),
+                context.command_id,
+                &context.idempotency_key,
+                command.project_id,
+                command.expected_version,
+                command.display_name.into_domain(),
             )
             .map_err(map_error)?;
         Ok(ProjectCommandAck {

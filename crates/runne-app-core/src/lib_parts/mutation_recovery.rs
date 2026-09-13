@@ -161,6 +161,7 @@ fn recovery_request(
     };
     let command = match evidence.normalized_command() {
         Command::CreateProject { project_id, display_name } => CanonicalMutationCommand::CreateProject { project_id: id(project_id)?, display_name: display_name.clone() },
+        Command::RenameProject { project_id, display_name, .. } => CanonicalMutationCommand::RenameProject { project_id: id(project_id)?, display_name: display_name.clone() },
         Command::ArchiveProject { project_id, .. } => CanonicalMutationCommand::ArchiveProject { project_id: id(project_id)? },
         Command::DeleteProject { project_id, .. } => CanonicalMutationCommand::DeleteProject { project_id: id(project_id)? },
         Command::CreateWorkspace { workspace_id, project_id, display_name } => CanonicalMutationCommand::CreateWorkspace { workspace_id: id(workspace_id)?, project_id: id(project_id)?, display_name: display_name.clone() },

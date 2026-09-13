@@ -16,7 +16,7 @@ pub const GENERATOR_SCHEMA_VERSION: u32 = 1;
 ///
 /// Updated only by the authoritative contract generator.
 pub const PUBLISHED_BUNDLE_HASH: &str =
-    "0ba6f71a5fde9f735d2d03c9bec014acd5958f578ed431b904d038ff8093d4fe";
+    "2120239d6f11db7fbd6ac61360dd677ac92d6b7f7b52e15cfee3816b0795222a";
 
 /// Exact additive command/query and Aggregate replay surface mounted by the
 /// current local daemon.
@@ -40,6 +40,7 @@ pub const PUBLISHED_RUNTIME_CAPABILITIES: &[&str] = &[
     "project.get.v1",
     "project.create.v1",
     "project.archive.v1",
+    "project.rename.v1",
     "project.restore.v1",
     "project.delete.v1",
     "workspace.list.v1",
@@ -74,6 +75,7 @@ pub const ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES: &[&str] = &[
     "project.get.v1",
     "project.create.v1",
     "project.archive.v1",
+    "project.rename.v1",
     "project.restore.v1",
     "project.delete.v1",
     "workspace.list.v1",
@@ -108,6 +110,7 @@ pub const BASE_RUNTIME_CAPABILITIES: &[&str] = &[
     "project.get.v1",
     "project.create.v1",
     "project.archive.v1",
+    "project.rename.v1",
     "project.restore.v1",
     "project.delete.v1",
     "workspace.list.v1",
@@ -137,6 +140,7 @@ pub const RUNTIME_CAPABILITY_CATALOG: &[&str] = &[
     "project.get.v1",
     "project.create.v1",
     "project.archive.v1",
+    "project.rename.v1",
     "project.restore.v1",
     "project.delete.v1",
     "workspace.list.v1",
@@ -176,6 +180,7 @@ mod tests {
             "project.get.v1",
             "project.create.v1",
             "project.archive.v1",
+            "project.rename.v1",
             "project.restore.v1",
             "project.delete.v1",
             "workspace.list.v1",

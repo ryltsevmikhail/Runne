@@ -67,6 +67,10 @@ where
             post(handlers::restore_project::<H>),
         )
         .route(
+            "/v1/projects/{project_id}/rename",
+            post(handlers::rename_project::<H>),
+        )
+        .route(
             "/v1/projects/{project_id}/workspaces",
             get(handlers::list_workspaces::<H>).post(handlers::create_workspace::<H>),
         )

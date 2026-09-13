@@ -44,6 +44,7 @@ enum Outcome {
     ProjectCreated(ProjectCommandAck),
     ProjectArchived(ProjectCommandAck),
     ProjectDeleted(ProjectCommandAck),
+    ProjectRenamed(ProjectCommandAck),
     WorkspaceCreated(WorkspaceCommandAck),
     WorkspaceRootBound(WorkspaceCommandAck),
     WorkspaceOpened(WorkspaceCommandAck),
@@ -70,6 +71,12 @@ impl AuthoritativeCommandOutcome {
     pub const fn project_deleted(value: ProjectCommandAck) -> Self {
         Self {
             inner: Outcome::ProjectDeleted(value),
+        }
+    }
+    #[must_use]
+    pub const fn project_renamed(value: ProjectCommandAck) -> Self {
+        Self {
+            inner: Outcome::ProjectRenamed(value),
         }
     }
     #[must_use]
@@ -121,6 +128,7 @@ impl AuthoritativeCommandOutcome {
             Outcome::ProjectCreated(_) => ReconciliationOperation::CreateProject,
             Outcome::ProjectArchived(_) => ReconciliationOperation::ArchiveProject,
             Outcome::ProjectDeleted(_) => ReconciliationOperation::DeleteProject,
+            Outcome::ProjectRenamed(_) => ReconciliationOperation::RenameProject,
             Outcome::WorkspaceCreated(_) => ReconciliationOperation::CreateWorkspace,
             Outcome::WorkspaceRootBound(_) => ReconciliationOperation::BindWorkspaceRoot,
             Outcome::WorkspaceOpened(_) => ReconciliationOperation::OpenWorkspace,
@@ -138,6 +146,7 @@ impl AuthoritativeCommandOutcome {
                 AuthoritativeCommandOutcomeRef::ProjectArchived(value)
             }
             Outcome::ProjectDeleted(value) => AuthoritativeCommandOutcomeRef::ProjectDeleted(value),
+            Outcome::ProjectRenamed(value) => AuthoritativeCommandOutcomeRef::ProjectRenamed(value),
             Outcome::WorkspaceCreated(value) => {
                 AuthoritativeCommandOutcomeRef::WorkspaceCreated(value)
             }
@@ -168,6 +177,7 @@ pub enum AuthoritativeCommandOutcomeRef<'a> {
     ProjectCreated(&'a ProjectCommandAck),
     ProjectArchived(&'a ProjectCommandAck),
     ProjectDeleted(&'a ProjectCommandAck),
+    ProjectRenamed(&'a ProjectCommandAck),
     WorkspaceCreated(&'a WorkspaceCommandAck),
     WorkspaceRootBound(&'a WorkspaceCommandAck),
     WorkspaceOpened(&'a WorkspaceCommandAck),

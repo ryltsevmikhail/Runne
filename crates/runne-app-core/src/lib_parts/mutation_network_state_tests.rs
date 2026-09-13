@@ -52,6 +52,7 @@ async fn each_non_bind_command_exercises_all_read_only_reconciliation_branches()
     let (project, workspace, conversation) = matrix_values();
     let cases = [
         NetworkMutationCase::CreateProject,
+        NetworkMutationCase::RenameProject,
         NetworkMutationCase::ArchiveProject,
         NetworkMutationCase::DeleteProject,
         NetworkMutationCase::CreateWorkspace,
@@ -130,7 +131,7 @@ async fn each_non_bind_command_exercises_all_read_only_reconciliation_branches()
 
         let (_, ack_status, ack, durable) = case.wire(project, workspace, conversation);
         let wrong = match case {
-            NetworkMutationCase::CreateProject | NetworkMutationCase::ArchiveProject | NetworkMutationCase::DeleteProject => "018f2e3a-7000-7000-8000-000000000921",
+            NetworkMutationCase::RenameProject | NetworkMutationCase::CreateProject | NetworkMutationCase::ArchiveProject | NetworkMutationCase::DeleteProject => "018f2e3a-7000-7000-8000-000000000921",
             NetworkMutationCase::CreateWorkspace | NetworkMutationCase::OpenWorkspace => "018f2e3a-7000-7000-8000-000000000922",
             NetworkMutationCase::CreateConversation | NetworkMutationCase::GenerateCompleted => "018f2e3a-7000-7000-8000-000000000923",
             _ => unreachable!(),
@@ -186,6 +187,7 @@ async fn each_non_bind_possible_send_loss_reconciles_without_a_blind_resend() {
     let (project, workspace, conversation) = matrix_values();
     let cases = [
         NetworkMutationCase::CreateProject,
+        NetworkMutationCase::RenameProject,
         NetworkMutationCase::ArchiveProject,
         NetworkMutationCase::DeleteProject,
         NetworkMutationCase::CreateWorkspace,

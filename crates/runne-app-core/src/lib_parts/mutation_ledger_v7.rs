@@ -10,6 +10,7 @@ impl MutationRequest {
                 Command::create_project(id(*project_id)?, display_name.clone())
                     .map_err(|_| AppCoreError::InvalidMutation)
             }
+            CanonicalMutationCommand::RenameProject { project_id, display_name } => Ok(Command::RenameProject { project_id: id(*project_id)?, expected_version: self.expected_version, display_name: display_name.clone() }),
             CanonicalMutationCommand::ArchiveProject { project_id } => Ok(Command::ArchiveProject {
                 project_id: id(*project_id)?,
                 expected_version: self.expected_version,

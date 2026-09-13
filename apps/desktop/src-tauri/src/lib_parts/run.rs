@@ -36,8 +36,8 @@ fn handle_window_event(window: &tauri::Window, event: &WindowEvent) {
                 intents.invalidate_window(window.label());
             }
             if let Some(intents) = window
-                .try_state::<crate::provider_credential_enrollment::CredentialIntentRegistry>()
-            {
+                .try_state::<crate::provider_credential_enrollment::CredentialIntentRegistry>(
+            ) {
                 intents.invalidate_window(window.label());
             }
         }
@@ -153,7 +153,10 @@ fn handle_run_event(app: &tauri::AppHandle, event: &RunEvent) {
 /// # Panics
 ///
 /// Panics when native desktop initialization or the event loop fails.
-#[allow(clippy::too_many_lines, reason = "the Tauri builder is kept together as one declarative registration list")]
+#[allow(
+    clippy::too_many_lines,
+    reason = "the Tauri builder is kept together as one declarative registration list"
+)]
 pub fn run() {
     let activations = crate::external_activation::ActivationManager::default();
     let second_instance_activations = activations.clone();
@@ -214,6 +217,7 @@ pub fn run() {
             open_runtime_workspace,
             get_project,
             get_canonical_project,
+            rename_runtime_project,
             get_workspace,
             get_canonical_workspace,
             list_workspace_files,

@@ -16,6 +16,7 @@ impl AppCore {
             CanonicalMutationCommand::CancelTaskRun { .. } => self.send_task_run_cancel(&client, lease).await,
             CanonicalMutationCommand::ApprovalRespond { .. } => self.send_approval(&client, lease).await,
             CanonicalMutationCommand::CreateProject { .. }
+            | CanonicalMutationCommand::RenameProject { .. }
             | CanonicalMutationCommand::ArchiveProject { .. }
             | CanonicalMutationCommand::DeleteProject { .. } => self.send_project(&client, lease).await,
             CanonicalMutationCommand::CreateWorkspace { .. }
@@ -61,6 +62,7 @@ impl AppCore {
         let request = |id| ExistingProjectRequest::new(lease.request.command_identity.clone(), id, lease.request.expected_version).map_err(|_| AppCoreError::InvalidMutation);
         match &lease.request.semantic_command {
             CanonicalMutationCommand::CreateProject { project_id, display_name } => client.create_project(CreateProjectRequest::new(lease.request.command_identity.clone(), *project_id, display_name).map_err(|_| AppCoreError::InvalidMutation)?).await.map(MutationDispatchResult::Project).map_err(unavailable),
+            CanonicalMutationCommand::RenameProject { project_id, display_name } => client.rename_project(runne_runtime_client::RenameProjectRequest::new(lease.request.command_identity.clone(), *project_id, lease.request.expected_version, display_name.clone()).map_err(|_| AppCoreError::InvalidMutation)?).await.map(MutationDispatchResult::Project).map_err(unavailable),
             CanonicalMutationCommand::ArchiveProject { project_id } => client.archive_project(request(*project_id)?).await.map(MutationDispatchResult::Project).map_err(unavailable),
             CanonicalMutationCommand::DeleteProject { project_id } => client.delete_project(request(*project_id)?).await.map(MutationDispatchResult::Project).map_err(unavailable),
             _ => Err(AppCoreError::InvalidMutation),

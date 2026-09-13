@@ -2,6 +2,7 @@
 enum NetworkMutationCase {
     CreateProject,
     ArchiveProject,
+    RenameProject,
     DeleteProject,
     CreateWorkspace,
     OpenWorkspace,
@@ -15,6 +16,7 @@ impl NetworkMutationCase {
     fn request(self, project: CanonicalId, workspace: CanonicalId, conversation: CanonicalId) -> MutationRequest {
         match self {
             Self::CreateProject => MutationRequest::create_project(project, "Project".into()),
+            Self::RenameProject => MutationRequest::rename_project(project, 1, "Renamed".into()),
             Self::ArchiveProject => MutationRequest::archive_project(project, 1),
             Self::DeleteProject => MutationRequest::delete_project(project, 1),
             Self::CreateWorkspace => MutationRequest::create_workspace(project, workspace, "Workspace".into()),
@@ -55,6 +57,7 @@ impl NetworkMutationCase {
         };
         match self {
             Self::CreateProject => ("POST /v1/projects HTTP/1.1".into(), 202, format!(r#"{{"projectId":"{project}","newVersion":1}}"#), format!(r#"{{"disposition":"durably_recorded","outcome":{{"operation":"create_project","projectId":"{project}","newVersion":1}}}}"#)),
+            Self::RenameProject => (format!("POST /v1/projects/{project}/rename HTTP/1.1"), 202, format!(r#"{{"projectId":"{project}","newVersion":2}}"#), format!(r#"{{"disposition":"durably_recorded","outcome":{{"operation":"rename_project","projectId":"{project}","newVersion":2}}}}"#)),
             Self::ArchiveProject => (format!("POST /v1/projects/{project}/archive HTTP/1.1"), 202, format!(r#"{{"projectId":"{project}","newVersion":2}}"#), format!(r#"{{"disposition":"durably_recorded","outcome":{{"operation":"archive_project","projectId":"{project}","newVersion":2}}}}"#)),
             Self::DeleteProject => (format!("DELETE /v1/projects/{project} HTTP/1.1"), 202, format!(r#"{{"projectId":"{project}","newVersion":2}}"#), format!(r#"{{"disposition":"durably_recorded","outcome":{{"operation":"delete_project","projectId":"{project}","newVersion":2}}}}"#)),
             Self::CreateWorkspace => (format!("POST /v1/projects/{project}/workspaces HTTP/1.1"), 202, format!(r#"{{"workspaceId":"{workspace}","newVersion":1}}"#), format!(r#"{{"disposition":"durably_recorded","outcome":{{"operation":"create_workspace","workspaceId":"{workspace}","newVersion":1}}}}"#)),
@@ -67,7 +70,7 @@ impl NetworkMutationCase {
     }
 
     const fn expects_success(self) -> bool {
-        matches!(self, Self::CreateProject | Self::ArchiveProject | Self::DeleteProject | Self::CreateWorkspace | Self::OpenWorkspace | Self::CreateConversation | Self::GenerateCompleted)
+        matches!(self, Self::CreateProject | Self::RenameProject | Self::ArchiveProject | Self::DeleteProject | Self::CreateWorkspace | Self::OpenWorkspace | Self::CreateConversation | Self::GenerateCompleted)
     }
 }
 
@@ -77,7 +80,7 @@ async fn every_non_bind_mutation_posts_once_then_persists_typed_durable_reconcil
     let project = CanonicalId::parse("018f2e3a-7000-7000-8000-000000000911").expect("project");
     let workspace = CanonicalId::parse("018f2e3a-7000-7000-8000-000000000912").expect("workspace");
     let conversation = CanonicalId::parse("018f2e3a-7000-7000-8000-000000000913").expect("conversation");
-    for case in [NetworkMutationCase::CreateProject, NetworkMutationCase::ArchiveProject, NetworkMutationCase::DeleteProject, NetworkMutationCase::CreateWorkspace, NetworkMutationCase::OpenWorkspace, NetworkMutationCase::CreateConversation, NetworkMutationCase::GenerateCompleted, NetworkMutationCase::GenerateRejected, NetworkMutationCase::GenerateProhibited] {
+    for case in [NetworkMutationCase::RenameProject, NetworkMutationCase::CreateProject, NetworkMutationCase::ArchiveProject, NetworkMutationCase::DeleteProject, NetworkMutationCase::CreateWorkspace, NetworkMutationCase::OpenWorkspace, NetworkMutationCase::CreateConversation, NetworkMutationCase::GenerateCompleted, NetworkMutationCase::GenerateRejected, NetworkMutationCase::GenerateProhibited] {
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.expect("listener");
         let origin = format!("http://{}", listener.local_addr().expect("address"));
         let (path, ack_status, ack, durable) = case.wire(project, workspace, conversation);

@@ -56,15 +56,15 @@ fn corrupt_v24_catalog_is_rejected_before_open() {
     let conn = Connection::open_in_memory().unwrap();
     initialize_released_v23(&conn);
     apply_migrations(&conn).unwrap();
-    assert_eq!(CURRENT_SCHEMA_VERSION, 35);
-    assert!(v35_matches(&conn, 35).unwrap());
+    assert_eq!(CURRENT_SCHEMA_VERSION, 36);
+    assert!(project_workspace_schema::v36_matches(&conn, 36).unwrap());
     conn.execute_batch("DROP TABLE provider_credential_operations;")
         .unwrap();
     assert!(classify_existing_connection(&conn).is_err());
 }
 
 #[test]
-fn v23_to_v35_catalog_reopens_after_restart() {
+fn v23_to_v36_catalog_reopens_after_restart() {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.path().join("v23-to-v24.sqlite");
     let conn = Connection::open(&path).unwrap();
@@ -74,10 +74,10 @@ fn v23_to_v35_catalog_reopens_after_restart() {
     assert_eq!(current_schema_marker(&conn), 27);
     assert!(v27_matches(&conn, 27).unwrap());
     apply_migrations(&conn).unwrap();
-    assert_eq!(current_schema_marker(&conn), 35);
+    assert_eq!(current_schema_marker(&conn), 36);
     drop(conn);
     let reopened = Connection::open(&path).unwrap();
-    assert!(v35_matches(&reopened, 35).unwrap());
+    assert!(project_workspace_schema::v36_matches(&reopened, 36).unwrap());
 }
 
 #[test]
@@ -98,8 +98,8 @@ fn interrupted_v24_migration_recovers_from_v23() {
             .is_err()
     );
     apply_migrations(&conn).unwrap();
-    assert_eq!(current_schema_marker(&conn), 35);
-    assert!(v35_matches(&conn, 35).unwrap());
+    assert_eq!(current_schema_marker(&conn), 36);
+    assert!(project_workspace_schema::v36_matches(&conn, 36).unwrap());
 }
 
 #[test]
