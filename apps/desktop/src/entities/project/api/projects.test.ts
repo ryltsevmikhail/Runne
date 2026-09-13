@@ -6,6 +6,7 @@ import {
   listProjects,
   prepareSelectedWorkspace,
   openSelectedWorkspace,
+  retryOpenSelectedWorkspace,
   requestDirectorySelection,
 } from './projects'
 
@@ -48,7 +49,13 @@ describe('project IPC adapter', () => {
     }, async (command, args) => {
       expect(command).toBe('prepare_selected_workspace')
       expect(args).toEqual({
-        request: expect.objectContaining({ selection: 'a'.repeat(64), expectedVersion: 3 }),
+        request: {
+          selection: 'a'.repeat(64),
+          rendererGeneration: 7,
+          requestId: 'request-1',
+          workspaceId: '01890e00-0000-7000-8000-000000000001',
+          expectedVersion: 3,
+        },
       })
       return { reference: 'b'.repeat(64), summary: { displayName: 'Selected folder' } }
     })
@@ -72,6 +79,24 @@ describe('project IPC adapter', () => {
       })
       return undefined
     })
+  })
+
+  it('sends retry with the exact original prepared request shape', async () => {
+    const calls: Array<[string, Record<string, unknown> | undefined]> = []
+    const request = {
+      prepared: 'b'.repeat(64),
+      requestId: 'request-1',
+      rendererGeneration: 7,
+    }
+
+    await retryOpenSelectedWorkspace(request, async (command, args) => {
+      calls.push([command, args])
+      return undefined
+    })
+
+    expect(calls).toEqual([
+      ['retry_open_selected_workspace', { request }],
+    ])
   })
 
   it('rejects malformed host generations and prepared path leaks', async () => {
