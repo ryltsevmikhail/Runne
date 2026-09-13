@@ -107,11 +107,27 @@ function enrollNote(providerId: ProviderStatusSnapshot['providerId']): string | 
   return isCredentialProvider(providerId) ? enrollNotes.value[providerId] : undefined
 }
 
-async function expectedLifecycleRevision(provider: ProviderCredentialProvider): Promise<number> {
+function hasCredential(providerId: ProviderStatusSnapshot['providerId']): boolean {
+  return credentialStatus(providerId)?.credentialState === 'configured'
+}
+
+function credentialBusy(providerId: ProviderStatusSnapshot['providerId']): boolean {
+  const status = credentialStatus(providerId)
+  return isEnrolling(providerId) || status?.pendingOperation != null || status?.cleanupPending === true
+}
+
+function pairLabel(providerId: ProviderStatusSnapshot['providerId']): string {
+  return translate(hasCredential(providerId) ? 'providers.rotateCredential' : 'providers.enrollCredential')
+}
+
+async function expectedLifecycleRevision(provider: ProviderCredentialProvider, action: 'pair' | 'revoke'): Promise<number> {
   const known = credentialStatuses.value[provider]
-  if (known !== undefined) return known.lifecycleRevision
+  if (action === 'pair' && known !== undefined) return known.lifecycleRevision
   const fresh = await credentialLoader()(provider)
   credentialStatuses.value = { ...credentialStatuses.value, [provider]: fresh }
+  if (action === 'revoke' && (fresh.credentialState !== 'configured' || fresh.pendingOperation !== null || fresh.cleanupPending)) {
+    throw { code: 'provider_credential_state_changed' }
+  }
   return fresh.lifecycleRevision
 }
 
@@ -127,29 +143,30 @@ function enrollErrorCode(error: unknown): string {
   }
 }
 
-async function enrollCredential(providerId: ProviderStatusSnapshot['providerId']) {
-  if (!isCredentialProvider(providerId) || enrolling.value[providerId] === true) return
+async function changeCredential(providerId: ProviderStatusSnapshot['providerId'], action: 'pair' | 'revoke') {
+  if (!isCredentialProvider(providerId) || credentialBusy(providerId)) return
+  if (action === 'revoke' && !hasCredential(providerId)) return
   const provider: ProviderCredentialProvider = providerId
   enrolling.value[provider] = true
   enrollNotes.value[provider] = undefined
   try {
     const generation = await currentRendererGeneration(props.acquireGeneration ?? acquireRendererGeneration)
-    const expectedRevision = await expectedLifecycleRevision(provider)
+    const expectedRevision = await expectedLifecycleRevision(provider, action)
     const request = props.requestCredentialIntent ?? defaultRequestCredentialIntent
-    const disposition = await request(provider, 'pair', expectedRevision, generation)
+    const disposition = await request(provider, action, expectedRevision, generation)
     if (disposition === 'completed') {
-      enrollNotes.value[provider] = translate('providers.enrollSucceeded')
+      enrollNotes.value[provider] = translate(action === 'revoke' ? 'providers.revokeSucceeded' : 'providers.enrollSucceeded')
       await loadStatuses()
     }
     else if (disposition === 'pending') {
-      enrollNotes.value[provider] = translate('providers.enrollPending')
+      enrollNotes.value[provider] = translate(action === 'revoke' ? 'providers.revokePending' : 'providers.enrollPending')
     }
     else {
-      enrollNotes.value[provider] = translate('providers.enrollFailed', { code: disposition })
+      enrollNotes.value[provider] = translate(action === 'revoke' ? 'providers.revokeFailed' : 'providers.enrollFailed', { code: disposition })
     }
   }
   catch (error) {
-    enrollNotes.value[provider] = translate('providers.enrollFailed', {
+    enrollNotes.value[provider] = translate(action === 'revoke' ? 'providers.revokeFailed' : 'providers.enrollFailed', {
       code: enrollErrorCode(error),
     })
   }
@@ -192,11 +209,20 @@ onMounted(() => {
         <template v-if="isCredentialProvider(status.providerId)">
           <button
             type="button"
-            :aria-label="`${translate('providers.enrollCredential')} (${status.providerId})`"
-            :disabled="isEnrolling(status.providerId)"
-            @click="enrollCredential(status.providerId)"
+            :aria-label="`${pairLabel(status.providerId)} (${status.providerId})`"
+            :disabled="credentialBusy(status.providerId)"
+            @click="changeCredential(status.providerId, 'pair')"
           >
-            {{ translate('providers.enrollCredential') }}
+            {{ pairLabel(status.providerId) }}
+          </button>
+          <button
+            v-if="hasCredential(status.providerId)"
+            type="button"
+            :aria-label="`${translate('providers.revokeCredential')} (${status.providerId})`"
+            :disabled="credentialBusy(status.providerId)"
+            @click="changeCredential(status.providerId, 'revoke')"
+          >
+            {{ translate('providers.revokeCredential') }}
           </button>
           <span
             v-if="enrollNote(status.providerId)"

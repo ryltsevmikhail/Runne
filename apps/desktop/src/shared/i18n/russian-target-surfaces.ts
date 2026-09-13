@@ -1,6 +1,11 @@
 import englishTargetSurfaces from './english-target-surfaces'
 
 const targetSurfaces: Record<keyof typeof englishTargetSurfaces, string> = {
+  'providers.rotateCredential': 'Заменить ключ',
+  'providers.revokeCredential': 'Отозвать ключ',
+  'providers.revokeSucceeded': 'Ключ отозван',
+  'providers.revokePending': 'Ключ отзывается',
+  'providers.revokeFailed': 'Не удалось отозвать ключ: {code}',
   'openProject.selectionFailed': 'Не удалось подтвердить доступ к папке. Оставьте Runne в фокусе и выберите папку снова.',
   'openProject.creationFailed': 'Runtime не смог создать проект или рабочую область.',
   'openProject.workspaceFailed': 'Проект создан, но подключить его папку не удалось.',

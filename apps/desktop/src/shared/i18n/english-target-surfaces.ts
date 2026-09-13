@@ -1,4 +1,9 @@
 const targetSurfaces = {
+  'providers.rotateCredential': 'Rotate credential',
+  'providers.revokeCredential': 'Revoke credential',
+  'providers.revokeSucceeded': 'Credential revoked',
+  'providers.revokePending': 'Revocation in progress',
+  'providers.revokeFailed': 'Revocation failed: {code}',
   'openProject.selectionFailed': 'Folder access could not be confirmed. Keep Runne focused and select the folder again.',
   'openProject.creationFailed': 'The runtime could not create the project or workspace.',
   'openProject.workspaceFailed': 'The project was created, but its folder could not be connected.',

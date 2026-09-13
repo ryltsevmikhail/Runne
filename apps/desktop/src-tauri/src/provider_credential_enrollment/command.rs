@@ -20,8 +20,12 @@ pub struct CredentialIntentIpc {
 }
 
 impl CredentialIntentIpc {
-    pub(crate) const fn supported_d1_1a(self) -> bool {
-        matches!(self.action, ProviderCredentialEnrollmentActionV2::Pair)
+    pub(crate) const fn supported_enrollment_action(self) -> bool {
+        matches!(
+            self.action,
+            ProviderCredentialEnrollmentActionV2::Pair
+                | ProviderCredentialEnrollmentActionV2::Revoke
+        )
     }
 
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -174,28 +178,43 @@ mod tests {
     }
 
     #[test]
-    fn d1_1a_rejects_revoke_and_migration_before_native_work() {
-        for action in [
-            ProviderCredentialEnrollmentActionV2::Revoke,
-            ProviderCredentialEnrollmentActionV2::MigrateLegacy,
+    fn action_gate_allows_pair_and_revoke_for_both_closed_providers() {
+        for provider in [
+            ProviderCredentialProviderV2::OpenAi,
+            ProviderCredentialProviderV2::DeepSeek,
         ] {
-            assert!(
-                !CredentialIntentIpc {
-                    provider: ProviderCredentialProviderV2::OpenAi,
-                    action,
-                    expected_revision: 7,
-                    renderer_generation: 4,
-                    verification_kind: None,
-                }
-                .supported_d1_1a()
-            );
+            for action in [
+                ProviderCredentialEnrollmentActionV2::Pair,
+                ProviderCredentialEnrollmentActionV2::Revoke,
+            ] {
+                assert!(
+                    CredentialIntentIpc {
+                        provider,
+                        action,
+                        expected_revision: 7,
+                        renderer_generation: 4,
+                        verification_kind: None,
+                    }
+                    .supported_enrollment_action()
+                );
+            }
         }
+        assert!(
+            !CredentialIntentIpc {
+                provider: ProviderCredentialProviderV2::OpenAi,
+                action: ProviderCredentialEnrollmentActionV2::MigrateLegacy,
+                expected_revision: 7,
+                renderer_generation: 4,
+                verification_kind: None,
+            }
+            .supported_enrollment_action()
+        );
     }
 
     #[test]
-    fn unsupported_action_gate_precedes_prompt_transition_and_writer() {
+    fn action_gate_precedes_prompt_transition_and_writer() {
         let source = include_str!("dispatch.rs");
-        let gate = source.find("run_after_pair_gate(request").unwrap();
+        let gate = source.find("run_after_action_gate(request").unwrap();
         for later in [
             "prepare_installed_native_enrollment",
             "prompt.prompt",
@@ -210,17 +229,29 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_action_dependency_gate_invokes_no_native_work() {
+    fn invalid_or_unsupported_action_gate_invokes_no_native_work() {
         let prompt = std::cell::Cell::new(0);
         let spawn = std::cell::Cell::new(0);
         let request = CredentialIntentIpc {
             provider: ProviderCredentialProviderV2::OpenAi,
-            action: ProviderCredentialEnrollmentActionV2::Revoke,
+            action: ProviderCredentialEnrollmentActionV2::MigrateLegacy,
             expected_revision: 7,
             renderer_generation: 4,
             verification_kind: None,
         };
-        let result = super::super::dispatch::run_after_pair_gate(request, || {
+        let result = super::super::dispatch::run_after_action_gate(request, || {
+            prompt.set(prompt.get() + 1);
+            spawn.set(spawn.get() + 1);
+        });
+        assert!(result.is_err());
+        assert_eq!((prompt.get(), spawn.get()), (0, 0));
+
+        let invalid = CredentialIntentIpc {
+            action: ProviderCredentialEnrollmentActionV2::Pair,
+            renderer_generation: 0,
+            ..request
+        };
+        let result = super::super::dispatch::run_after_action_gate(invalid, || {
             prompt.set(prompt.get() + 1);
             spawn.set(spawn.get() + 1);
         });
