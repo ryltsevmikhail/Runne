@@ -110,6 +110,25 @@ async fn cli_creates_sends_and_reads_a_conversation_through_the_real_daemon() {
     assert_eq!(messages["messages"][0]["role"], "user");
     assert_eq!(messages["messages"][1]["role"], "assistant");
 
+    // The doctor report always prints to stdout (exit code may be non-zero
+    // when checks fail), and JSON clients still receive typed `data`.
+    let doctor = run_cli([
+        "--format",
+        "json",
+        "--profile",
+        profile.to_str().expect("profile path"),
+        "doctor",
+    ])
+    .await;
+    let doctor_data = parse_typed_success_data(&doctor, "doctor");
+    assert!(doctor_data["overall_status"].is_string());
+    assert!(
+        !doctor_data["checks"]
+            .as_array()
+            .expect("doctor checks array")
+            .is_empty()
+    );
+
     stop.send(()).expect("stop daemon");
     tokio::time::timeout(Duration::from_secs(15), daemon)
         .await
@@ -118,17 +137,23 @@ async fn cli_creates_sends_and_reads_a_conversation_through_the_real_daemon() {
         .expect("daemon shutdown");
 }
 
-fn parse_messages_output(output: &std::process::Output) -> serde_json::Value {
+/// JSON clients perform exactly one parse: `data` must be the typed payload,
+/// never a pre-serialized JSON string such as `data.output = "{...}"`.
+fn parse_typed_success_data(output: &std::process::Output, command: &str) -> serde_json::Value {
     let envelope: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("messages JSON");
-    assert_eq!(envelope["schemaVersion"], 1);
-    assert_eq!(envelope["ok"], true);
-    serde_json::from_str(
-        envelope["data"]["output"]
-            .as_str()
-            .expect("messages JSON output"),
-    )
-    .expect("messages JSON payload")
+        serde_json::from_slice(&output.stdout).expect("one-parse JSON envelope");
+    assert_eq!(envelope["schemaVersion"], 1, "{command}");
+    assert_eq!(envelope["ok"], true, "{command}");
+    let data = &envelope["data"];
+    assert!(
+        data.get("output").is_none(),
+        "{command}: stringly data.output payload is forbidden"
+    );
+    data.clone()
+}
+
+fn parse_messages_output(output: &std::process::Output) -> serde_json::Value {
+    parse_typed_success_data(output, "conversation messages")
 }
 
 #[tokio::test]

@@ -286,3 +286,6 @@ fn messages_json_format_returns_json() {
 }
 
 include!("cli_foundation_completion.inc");
+
+#[path = "cli_foundation/format_and_exit.rs"]
+mod format_and_exit;

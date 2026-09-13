@@ -44,6 +44,59 @@ impl OutputFormat {
     }
 }
 
+/// Typed command output produced by one command and rendered exactly once at
+/// the process boundary (`render_command_output`).
+///
+/// The JSON rendering of the [`Self::Text`] variant is the `output` string
+/// field of `data` and is reserved for plain (non-JSON) payloads such as
+/// identifiers and single-word outcomes. Structured payloads must use
+/// [`Self::Typed`] so JSON clients parse `data` directly; pre-serialized JSON
+/// as a string payload is forbidden.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommandOutput {
+    /// Plain text payload shared by the text and JSON renderings.
+    Text(String),
+    /// Human-readable text rendering plus the typed JSON `data` payload.
+    Typed {
+        text: String,
+        data: serde_json::Value,
+    },
+}
+
+impl CommandOutput {
+    /// Creates a plain text output.
+    #[must_use]
+    pub fn text(payload: impl Into<String>) -> Self {
+        Self::Text(payload.into())
+    }
+
+    /// Creates a typed output with its human-readable text rendering.
+    #[must_use]
+    pub fn typed(text: impl Into<String>, data: serde_json::Value) -> Self {
+        Self::Typed {
+            text: text.into(),
+            data,
+        }
+    }
+
+    /// Returns the text-format rendering without the trailing newline.
+    #[must_use]
+    pub fn render_text(&self) -> &str {
+        match self {
+            Self::Text(text) | Self::Typed { text, .. } => text,
+        }
+    }
+
+    /// Returns the typed JSON `data` payload; never a pre-serialized JSON string.
+    #[must_use]
+    pub fn data_value(&self) -> serde_json::Value {
+        match self {
+            Self::Text(text) => serde_json::json!({ "output": text }),
+            Self::Typed { data, .. } => data.clone(),
+        }
+    }
+}
+
 /// Successful response envelope.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
