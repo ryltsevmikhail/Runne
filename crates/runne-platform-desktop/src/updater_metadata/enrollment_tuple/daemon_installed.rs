@@ -29,7 +29,9 @@ include!("daemon_installed/verification.rs");
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use capability::VerifiedInstalledEnrollmentCapability;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-pub use bootstrap_candidate::VerifiedInstalledQualificationBootstrapCandidate;
+pub use bootstrap_candidate::{
+    VerifiedInstalledQualificationBootstrapCandidate, VerifiedRuntimeQualificationAcknowledgement,
+};
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(crate) use staged_identity::CurrentStagedDaemonIdentity;
 
