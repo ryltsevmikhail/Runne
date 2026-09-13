@@ -3,7 +3,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { defineComponent, h, shallowRef, type Ref } from 'vue'
 import { describe, expect, it } from 'vitest'
 
-import { provideRuntimeSession, type RuntimeSessionContext, type RuntimeSessionSnapshot } from '@/app/providers/runtime-session'
+import { createRuntimeSessionContext, createRuntimeSessionController, provideRuntimeSession, type RuntimeSessionContext, type RuntimeSessionSnapshot } from '@/app/providers/runtime-session'
 import ProjectsPage from './ProjectsPage.vue'
 
 const project = {
@@ -59,6 +59,37 @@ function createTestRouter() {
 }
 
 describe('projects page', () => {
+  it('reauthenticates a stale session before loading projects on retry', async () => {
+    const router = createTestRouter()
+    await router.push('/')
+    let connects = 0
+    const context = createRuntimeSessionContext(createRuntimeSessionController({
+      connect: async () => ++connects === 1 ? 'reconnecting' : 'live',
+      loadBootstrap: async () => ({ runtime: 'live' }),
+    }))
+    await context.connect()
+    context.observeBootstrap({ runtime: 'live' })
+    let loads = 0
+    const Harness = defineComponent({
+      setup() {
+        provideRuntimeSession(context)
+        return () => h(ProjectsPage, {
+          loadProjects: async () => { loads += 1; return [project] },
+        })
+      },
+    })
+    const wrapper = mount(Harness, { global: { plugins: [router] } })
+    await flushPromises()
+    expect(context.snapshot.value.canMutate).toBe(false)
+    expect(loads).toBe(0)
+    await wrapper.get('[role="alert"] button').trigger('click')
+    await flushPromises()
+    expect(connects).toBe(2)
+    expect(loads).toBe(1)
+    expect(wrapper.text()).toContain('gocode-ui')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+  })
+
   it('waits for the injected runtime session before loading canonical projects', async () => {
     const router = createTestRouter()
     await router.push('/')

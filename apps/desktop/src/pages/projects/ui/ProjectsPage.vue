@@ -23,6 +23,22 @@ const loading = ref(true)
 const error = ref<LocaleKey | null>(null)
 const runtimeSession = tryUseRuntimeSession()
 const runtimeStatus = computed(() => runtimeSession?.snapshot.value.status ?? 'unavailable')
+const retrying = ref(false)
+
+async function retryProjects() {
+  if (retrying.value || runtimeSession === undefined) return
+  retrying.value = true
+  try {
+    if (runtimeStatus.value === 'live') await refreshProjects()
+    else await runtimeSession.retry()
+  }
+  catch {
+    error.value = 'projects.runtimeUnavailable'
+  }
+  finally {
+    retrying.value = false
+  }
+}
 
 async function refreshProjects() {
   error.value = null
@@ -170,6 +186,13 @@ async function openProjectDetails(project: CanonicalProject) {
       <p v-if="error !== null">
         {{ translate(error) }}
       </p>
+      <GcButton
+        v-if="runtimeSession !== undefined"
+        :disabled="retrying"
+        @click="retryProjects"
+      >
+        {{ translate('settings.retry') }}
+      </GcButton>
     </footer>
 
     <footer

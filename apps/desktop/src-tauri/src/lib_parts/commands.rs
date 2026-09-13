@@ -158,7 +158,7 @@ fn acquire_renderer_generation(
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
-fn request_directory_selection(
+async fn request_directory_selection(
     window: WebviewWindow,
     selections: State<'_, DirectorySelectionManager>,
     renderer_generation: u64,
@@ -170,13 +170,18 @@ fn request_directory_selection(
     {
         return Err(IpcError { code: "directory_selection_rejected" });
     }
-    let selected = window
+    let picker = selections.reserve_picker(label, renderer_generation)
+        .map_err(|_| IpcError { code: "directory_selection_rejected" })?;
+    let (selection_sender, selection_receiver) = tokio::sync::oneshot::channel();
+    window
         .app_handle()
         .dialog()
         .file()
         .set_parent(&window)
         .set_title("Open local project")
-        .blocking_pick_folder();
+        .pick_folder(move |selected| { let _ = selection_sender.send((selected, picker)); });
+    let (selected, _picker) = selection_receiver.await
+        .map_err(|_| IpcError { code: "directory_selection_rejected" })?;
     let Some(selected) = selected else { return Ok(None) };
     if !window.is_focused().map_err(|_| IpcError { code: "directory_selection_rejected" })?
         || selections.renderer_generations().current(label).ok() != Some(renderer_generation)
@@ -186,6 +191,9 @@ fn request_directory_selection(
     let path = std::fs::canonicalize(&selected.into_path().map_err(|_| IpcError { code: "directory_selection_rejected" })?).map_err(|_| IpcError { code: "directory_selection_rejected" })?;
     let root = VerifiedRootHandle::open(&path)
         .map_err(|_| IpcError { code: "directory_selection_rejected" })?;
+    if !window.is_focused().map_err(|_| IpcError { code: "directory_selection_rejected" })? {
+        return Err(IpcError { code: "directory_selection_rejected" });
+    }
     selections
         .issue(label, renderer_generation, &request_id, root, std::time::Instant::now())
         .map(DirectorySelectionResponse::new)

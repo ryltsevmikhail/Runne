@@ -12,6 +12,12 @@ use crate::prepared_workspace::PreparedWorkspaceManager;
 use crate::renderer_generation::{
     DirectorySelectionState, RendererGenerationManager, SharedSelectionState,
 };
+
+#[path = "directory_selection_parts/picker.rs"]
+mod picker;
+
+use picker::{PickerReservationLease, PickerReservationState};
+
 const MAX_BINDING_BYTES: usize = 128;
 pub const MAX_SELECTIONS: usize = 64;
 const MAX_SELECTION_TTL: Duration = Duration::from_secs(30);
@@ -67,6 +73,7 @@ pub struct SelectionEntry {
 pub struct DirectorySelectionManager {
     ttl: Duration,
     state: SharedSelectionState,
+    picker_reservations: PickerReservationState,
 }
 
 impl DirectorySelectionManager {
@@ -91,6 +98,7 @@ impl DirectorySelectionManager {
                 #[cfg(test)]
                 expiry_sweeper_start_fails_for_test: false,
             })),
+            picker_reservations: PickerReservationState::new(),
         })
     }
 
@@ -102,6 +110,33 @@ impl DirectorySelectionManager {
 
     pub fn prepared_workspaces(&self) -> PreparedWorkspaceManager {
         PreparedWorkspaceManager::from_shared_state(Arc::clone(&self.state))
+    }
+
+    /// Reserves the native picker for one current renderer window generation.
+    ///
+    /// The returned lease is intentionally move-only. Its drop releases the
+    /// reservation only after the native dialog callback has completed.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error for stale or unknown generations, an invalid
+    /// label, an already pending picker, capacity exhaustion, or poisoned state.
+    pub(crate) fn reserve_picker(
+        &self,
+        window: &str,
+        expected_generation: u64,
+    ) -> Result<PickerReservationLease, SelectionError> {
+        if !valid_binding(window) {
+            return Err(SelectionError);
+        }
+        let state = self.state.lock().map_err(|_| SelectionError)?;
+        let generation = state
+            .existing_generation(window)
+            .map_err(|_| SelectionError)?;
+        if generation != expected_generation {
+            return Err(SelectionError);
+        }
+        PickerReservationLease::reserve(&self.picker_reservations, window)
     }
 
     /// Retains a verified handle at the authoritative current generation.
