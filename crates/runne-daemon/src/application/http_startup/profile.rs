@@ -1,6 +1,7 @@
 use super::*;
 
 pub(super) fn runtime_profile(
+    version: &'static str,
     provider_service: Option<Arc<DaemonCanonicalProviderService>>,
     provider_activation: &ProviderActivation,
     provider_readiness: runne_api::ProviderActivationReadinessV1,
@@ -9,7 +10,7 @@ pub(super) fn runtime_profile(
     let runtime_profile_state = RuntimeProfileHttpState::new(
         runne_runtime::bundle::BUNDLE_ID,
         runne_runtime::bundle::PUBLISHED_BUNDLE_HASH,
-        env!("CARGO_PKG_VERSION"),
+        version,
         runtime_capabilities,
     );
     match provider_service {

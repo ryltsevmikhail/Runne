@@ -177,6 +177,7 @@ pub(super) async fn start_http_and_runtime(
     #[cfg(feature = "desktop-protected")]
     let root_control = command_hosts.root_control.clone();
     let runtime_profile_state = profile::runtime_profile(
+        env!("CARGO_PKG_VERSION"),
         provider_service.clone(),
         &provider_activation,
         provider_readiness,
