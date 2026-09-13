@@ -2,7 +2,6 @@
 import {
   Activity,
   ChevronLeft,
-  CircleHelp,
   FolderKanban,
   History,
   Moon,
@@ -32,6 +31,7 @@ import type {
   RuntimeLifecycleStatus,
   RuntimeMode,
 } from '@/shared/api/platform/bootstrap'
+import { SidebarProjects } from '@/widgets/sidebar-projects'
 import { DesktopTitleBar } from '@/widgets/desktop-title-bar'
 import { RuntimeStatus } from '@/widgets/runtime-status'
 import {
@@ -54,9 +54,20 @@ const runtimeMode = ref<RuntimeMode>('external_local')
 const runtimeLifecycle = ref<RuntimeLifecycleStatus>('external')
 const runtimeFailure = ref<RuntimeFailureCode | null>(null)
 const activationNotice = ref<string | null>(null)
-const sidebarCollapsed = ref(false)
+const sidebarCollapsed = ref(window.matchMedia?.('(max-width: 1023px)').matches ?? false)
 const route = useRoute()
 const router = useRouter()
+watch(() => route.fullPath, () => {
+  if (!window.matchMedia?.('(max-width: 1023px)').matches) return
+  // Keep the project tree open while a project is selected. On narrow windows
+  // this is the only place where archived projects and their workspace choices
+  // remain visible after the intermediate project route redirects home.
+  if (route.name === 'projects' && typeof route.query.project === 'string' && route.query.project.length > 0) {
+    sidebarCollapsed.value = false
+    return
+  }
+  sidebarCollapsed.value = true
+}, { immediate: true })
 const runtimeSession = createRuntimeSessionContext(createRuntimeSessionController({
   connect: connectRuntime,
   loadBootstrap,
@@ -200,6 +211,7 @@ async function navigateSidebar(id: string) {
     <aside
       class="sidebar"
       :class="{ 'sidebar--collapsed': sidebarCollapsed }"
+      @keydown.esc="sidebarCollapsed = true"
     >
       <GcSidebar
         class="app-sidebar-navigation"
@@ -209,6 +221,12 @@ async function navigateSidebar(id: string) {
         :aria-label="translate('navigation.primary')"
         @navigate="navigateSidebar"
       >
+        <template #after-item="{ item }">
+          <SidebarProjects
+            v-if="item.id === 'projects'"
+            :collapsed="sidebarCollapsed"
+          />
+        </template>
         <template #actions>
           <button
             class="icon-button collapse-button"
@@ -250,17 +268,6 @@ async function navigateSidebar(id: string) {
               aria-hidden="true"
             />
           </RouterLink>
-          <button
-            class="icon-button"
-            type="button"
-            :aria-label="translate('navigation.help')"
-            :title="translate('navigation.help')"
-          >
-            <CircleHelp
-              :size="16"
-              aria-hidden="true"
-            />
-          </button>
           <button
             class="icon-button"
             type="button"

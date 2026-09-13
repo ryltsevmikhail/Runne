@@ -5,7 +5,6 @@ import { DevicesPage } from '@/pages/devices'
 import { AppearancePage } from '@/pages/appearance'
 import { ApprovalsPage } from '@/pages/approvals'
 import { OpenProjectPage } from '@/pages/open-project'
-import { ProjectDetailsPage } from '@/pages/project-details'
 import { ProjectsPage } from '@/pages/projects'
 import { ProvidersPage } from '@/pages/providers'
 import { RecoveryPage } from '@/pages/recovery'
@@ -46,7 +45,7 @@ export const routes: RouteRecordRaw[] = [
   {
     path: '/projects/:projectId',
     name: 'project-details',
-    component: ProjectDetailsPage,
+    redirect: to => ({ path: '/', query: { project: String(to.params.projectId) } }),
   },
   {
     path: '/workspaces/:workspaceId',

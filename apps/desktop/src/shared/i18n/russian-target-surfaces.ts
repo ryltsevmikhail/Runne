@@ -1,6 +1,14 @@
 import englishTargetSurfaces from './english-target-surfaces'
 
 const targetSurfaces: Record<keyof typeof englishTargetSurfaces, string> = {
+  'projects.rename': 'Переименовать проект',
+  'projects.name': 'Название проекта',
+  'projects.save': 'Сохранить',
+  'projects.cancel': 'Отмена',
+  'projects.renameFailed': 'Не удалось переименовать проект. Обновите страницу и повторите попытку.',
+  'projects.sidebarHint': 'Выберите проект в боковой панели или откройте локальную папку.',
+  'projects.openWorkspaceFailed': 'Не удалось открыть рабочую область.',
+  'projects.manageProject': 'Управлять проектом',
   'providers.rotateCredential': 'Заменить ключ',
   'providers.revokeCredential': 'Отозвать ключ',
   'providers.revokeSucceeded': 'Ключ отозван',
@@ -11,6 +19,7 @@ const targetSurfaces: Record<keyof typeof englishTargetSurfaces, string> = {
   'openProject.workspaceFailed': 'Проект создан, но подключить его папку не удалось.',
   'targetCapability.unavailable': 'Capability runtime недоступна',
   'targetCapability.unavailableDescription': 'Для этого экрана нужна capability runtime {capability}.',
+  'targetCapability.identifier': 'Идентификатор capability',
   'taskRunInventory.navigation': 'Запуски задач',
   'taskRunInventory.title': 'Запуски задач',
   'taskRunInventory.subtitle': 'История выполнения между проектами и агентами',

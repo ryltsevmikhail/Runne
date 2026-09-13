@@ -56,30 +56,38 @@ defineEmits<{
       </button>
       <slot name="actions" />
     </div>
-    <button
+    <template
       v-for="item in items"
       :key="item.id"
-      :class="['gc-sidebar-item', { 'gc-sidebar-item--active': item.id === activeItem }]"
-      type="button"
-      :aria-label="item.label"
-      @click="$emit('navigate', item.id)"
     >
-      <component
-        v-if="item.icon"
-        :is="item.icon"
-        class="gc-sidebar-icon"
-        :size="18"
-        aria-hidden="true"
+      <button
+        :data-nav-id="item.id"
+        :class="['gc-sidebar-item', { 'gc-sidebar-item--active': item.id === activeItem }]"
+        type="button"
+        :aria-label="item.label"
+        @click="$emit('navigate', item.id)"
+      >
+        <component
+          :is="item.icon"
+          v-if="item.icon"
+          class="gc-sidebar-icon"
+          :size="18"
+          aria-hidden="true"
+        />
+        <span
+          v-if="!collapsed"
+          class="gc-sidebar-label"
+        >{{ item.label }}</span>
+        <span
+          v-if="!collapsed && item.badge"
+          class="gc-sidebar-badge"
+        >{{ item.badge }}</span>
+      </button>
+      <slot
+        name="after-item"
+        :item="item"
       />
-      <span
-        v-if="!collapsed"
-        class="gc-sidebar-label"
-      >{{ item.label }}</span>
-      <span
-        v-if="!collapsed && item.badge"
-        class="gc-sidebar-badge"
-      >{{ item.badge }}</span>
-    </button>
+    </template>
   </nav>
 </template>
 

@@ -29,72 +29,22 @@
   justify-content: center;
 }
 
+ .sidebar--collapsed .app-sidebar-navigation.gc-sidebar .gc-sidebar-brand-header {
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
+
 @media (max-width: 1023px) {
-  .app-shell {
-    grid-template-columns: 48px minmax(0, 1fr);
-  }
-
-  .sidebar {
-    padding-inline: 4px;
-  }
-
-  .brand-lockup,
-  .nav-label,
-  .nav-item span,
-  .status-copy {
-    display: none;
-  }
-
-  .brand-icon {
-    display: block;
-  }
-
-  .sidebar-header,
-  .nav-item,
-  .runtime-status {
-    justify-content: center;
-  }
-
-  .app-sidebar-navigation.gc-sidebar .gc-sidebar-brand-header {
-    flex-direction: column;
-    justify-content: center;
-    gap: 4px;
-  }
-
-  .app-sidebar-navigation.gc-sidebar .gc-sidebar-brand-lockup {
-    display: none;
-  }
-
-  .app-sidebar-navigation.gc-sidebar .gc-sidebar-brand-glyph-shell {
-    display: block;
-  }
-
-  .app-sidebar-navigation.gc-sidebar .gc-sidebar-item {
-    justify-content: center;
-    padding-inline: 0;
-  }
-
-  .app-sidebar-navigation.gc-sidebar .gc-sidebar-label,
-  .app-sidebar-navigation.gc-sidebar .gc-sidebar-badge {
+  .app-shell { grid-template-columns: 48px minmax(0, 1fr); }
+  .app-shell:not(.app-shell--collapsed) > .sidebar {
     position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-
-  .workspace {
-    padding: 26px;
-  }
-
-  .workspace-panels {
-    grid-template-columns: 180px minmax(320px, 1fr);
-  }
-
-  .workspace-panel--details {
-    display: none;
+    z-index: 5;
+    top: 38px;
+    bottom: 0;
+    left: 0;
+    width: min(260px, calc(100vw - 48px));
+    box-shadow: 8px 0 24px #0003;
   }
 }
 

@@ -157,7 +157,8 @@ describe('desktop application shell', () => {
 
     const titleBar = wrapper.get('.desktop-title-bar')
     expect(titleBar.attributes('data-tauri-drag-region')).toBe('deep')
-    expect(titleBar.get('.gc-title-bar-logo').attributes('alt')).toBe('Runne')
+    expect(titleBar.find('.gc-title-bar-logo').exists()).toBe(false)
+    expect(wrapper.get('.gc-sidebar-brand-lockup').attributes('alt')).toBe('Runne')
   })
 
   it('collapses the desktop navigation without hiding its accessible name', async () => {
@@ -196,6 +197,64 @@ describe('desktop application shell', () => {
 
     expect(wrapper.get('aside').classes()).not.toContain('sidebar--collapsed')
     expect(wrapper.find('[aria-label="Collapse sidebar"]').exists()).toBe(true)
+  })
+
+  it('keeps the project tree open for a selected project on a narrow window', async () => {
+    const previousMatchMedia = window.matchMedia
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn(() => ({ matches: true, addListener: vi.fn(), removeListener: vi.fn() })),
+    })
+    try {
+      const router = createRouter({
+        history: createMemoryHistory(),
+        routes,
+      })
+      await router.push('/')
+      await router.isReady()
+
+      const wrapper = mount(App, {
+        global: { plugins: [router] },
+      })
+
+      await wrapper.get('[aria-label="Expand sidebar"]').trigger('click')
+      await router.push({ name: 'projects', query: { project: '01890e00-0000-7000-8000-000000000001' } })
+      await flushPromises()
+
+      expect(wrapper.get('aside').classes()).not.toContain('sidebar--collapsed')
+    } finally {
+      Object.defineProperty(window, 'matchMedia', { configurable: true, value: previousMatchMedia })
+    }
+  })
+
+  it('reopens the project tree when a narrow workspace returns to its project', async () => {
+    const previousMatchMedia = window.matchMedia
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn(() => ({ matches: true, addListener: vi.fn(), removeListener: vi.fn() })),
+    })
+    try {
+      const router = createRouter({
+        history: createMemoryHistory(),
+        routes,
+      })
+      await router.push({ name: 'workspace', params: { workspaceId: '01890e00-0000-7000-8000-000000000002' } })
+      await router.isReady()
+
+      const wrapper = mount(App, {
+        global: { plugins: [router] },
+      })
+
+      expect(wrapper.get('aside').classes()).toContain('sidebar--collapsed')
+      await router.push({ name: 'project-details', params: { projectId: '01890e00-0000-7000-8000-000000000001' } })
+      await flushPromises()
+
+      expect(router.currentRoute.value.name).toBe('projects')
+      expect(router.currentRoute.value.query.project).toBe('01890e00-0000-7000-8000-000000000001')
+      expect(wrapper.get('aside').classes()).not.toContain('sidebar--collapsed')
+    } finally {
+      Object.defineProperty(window, 'matchMedia', { configurable: true, value: previousMatchMedia })
+    }
   })
 
   it('links the diagnostics action to the documented local route', async () => {

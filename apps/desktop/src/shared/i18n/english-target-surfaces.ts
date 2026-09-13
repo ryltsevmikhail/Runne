@@ -1,4 +1,13 @@
 const targetSurfaces = {
+  'projects.rename': 'Rename project',
+  'projects.name': 'Project name',
+  'projects.save': 'Save',
+  'projects.cancel': 'Cancel',
+  'projects.renameFailed': 'Could not rename the project. Refresh and try again.',
+
+  'projects.sidebarHint': 'Choose a project in the sidebar, or open a local folder.',
+  'projects.openWorkspaceFailed': 'The workspace could not be opened.',
+  'projects.manageProject': 'Manage project',
   'providers.rotateCredential': 'Rotate credential',
   'providers.revokeCredential': 'Revoke credential',
   'providers.revokeSucceeded': 'Credential revoked',
@@ -9,6 +18,7 @@ const targetSurfaces = {
   'openProject.workspaceFailed': 'The project was created, but its folder could not be connected.',
   'targetCapability.unavailable': 'Runtime capability unavailable',
   'targetCapability.unavailableDescription': 'This screen requires the {capability} runtime capability.',
+  'targetCapability.identifier': 'Capability ID',
   'taskRunInventory.navigation': 'Task runs',
   'taskRunInventory.title': 'Task runs',
   'taskRunInventory.subtitle': 'Execution history across projects and agents',

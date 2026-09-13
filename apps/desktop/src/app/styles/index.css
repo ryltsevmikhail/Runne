@@ -13,3 +13,5 @@
 @import "./runtime-configuration.css";
 @import "./conversation-target.css";
 @import "./responsive.css";
+
+@import "./compact.css";

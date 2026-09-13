@@ -5,25 +5,24 @@ import { currentLocale } from '@/shared/i18n'
 import ConversationCapabilityControls from './ConversationCapabilityControls.vue'
 
 describe('ConversationCapabilityControls', () => {
-  it('renders unavailable presentation controls without capability values or events', () => {
+  it('keeps unavailable controls out of the composer by default', () => {
     const wrapper = mount(ConversationCapabilityControls)
-    const controls = wrapper.findAll('button')
 
     expect(wrapper.get('[data-capability="conversation-controls"]').text()).toContain('unavailable')
-    expect(controls).toHaveLength(5)
-    expect(controls.every(control => control.attributes('disabled') !== undefined)).toBe(true)
+    expect(wrapper.get('details').attributes('open')).toBeUndefined()
+    expect(wrapper.findAll('button')).toHaveLength(0)
     expect(wrapper.text()).not.toMatch(/Builder|Reviewer|Claude|GPT|\d+%|\d+k/)
     expect(wrapper.emitted()).toEqual({})
   })
 
-  it('describes every unavailable control with the visible explanation', () => {
+  it('discloses the concise runtime capability explanation on demand', async () => {
     const wrapper = mount(ConversationCapabilityControls)
-    const description = wrapper.get('#conversation-controls-unavailable')
+    const summary = wrapper.get('summary')
 
-    expect(description.isVisible()).toBe(true)
-    expect(description.text()).toContain('unavailable')
-    expect(wrapper.findAll('button').every(control =>
-      control.attributes('aria-describedby') === description.attributes('id'))).toBe(true)
+    expect(summary.text()).toContain('unavailable')
+    expect(wrapper.get('.conversation-capability-controls__description').isVisible()).toBe(false)
+    await summary.trigger('click')
+    expect(wrapper.get('.conversation-capability-controls__description').isVisible()).toBe(true)
   })
 
   it('localizes unavailable controls and their accessible names in Russian', () => {
@@ -33,7 +32,7 @@ describe('ConversationCapabilityControls', () => {
       const wrapper = mount(ConversationCapabilityControls)
 
       expect(wrapper.text()).toContain('недоступны')
-      expect(wrapper.get('button').attributes('aria-label')).toBe('Команды недоступны')
+      expect(wrapper.get('summary').text()).toContain('недоступны')
     } finally {
       currentLocale.value = previousLocale
     }

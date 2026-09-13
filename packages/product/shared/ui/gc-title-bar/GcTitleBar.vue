@@ -2,7 +2,7 @@
 import primaryLogo from '../assets/runne-primary-logo.svg'
 import primaryLogoLight from '../assets/runne-primary-logo-light.svg'
 
-defineProps<{ nativeWindowControls?: boolean }>()
+defineProps<{ nativeWindowControls?: boolean; hideBrand?: boolean }>()
 </script>
 
 <template>
@@ -13,7 +13,7 @@ defineProps<{ nativeWindowControls?: boolean }>()
       <span class="gc-title-bar-dot gc-title-bar-dot--minimize" />
       <span class="gc-title-bar-dot gc-title-bar-dot--maximize" />
     </div>
-    <div class="gc-title-bar-brand">
+    <div v-if="!hideBrand" class="gc-title-bar-brand">
       <slot name="brand">
         <img
           class="gc-title-bar-logo gc-title-bar-logo--dark"

@@ -188,17 +188,34 @@ onMounted(() => {
     title-key="settings.providers"
     :adapter="props.adapter"
   />
-  <section v-else-if="loading" aria-live="polite">
+  <section
+    v-else-if="loading"
+    class="providers-page"
+    aria-live="polite"
+  >
     <h1>{{ translate('providers.loading') }}</h1>
   </section>
-  <section v-else-if="failed || statuses === null" role="alert">
+  <section
+    v-else-if="failed || statuses === null"
+    class="providers-page"
+    role="alert"
+  >
     <h1>{{ translate('providers.unavailable') }}</h1>
     <p>{{ translate('providers.unavailableMessage') }}</p>
   </section>
-  <section v-else aria-labelledby="providers-title">
-    <h1 id="providers-title">{{ translate('settings.providers') }}</h1>
+  <section
+    v-else
+    class="providers-page"
+    aria-labelledby="providers-title"
+  >
+    <h1 id="providers-title">
+      {{ translate('settings.providers') }}
+    </h1>
     <ul>
-      <li v-for="status in statuses" :key="status.providerId">
+      <li
+        v-for="status in statuses"
+        :key="status.providerId"
+      >
         <strong>{{ status.providerId }}</strong>
         <span>{{ status.selected ? translate('providers.selected') : translate('providers.notSelected') }}</span>
         <span>{{ status.readiness }}</span>

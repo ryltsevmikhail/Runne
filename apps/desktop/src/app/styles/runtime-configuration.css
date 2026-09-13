@@ -4,17 +4,15 @@
   min-width: 0;
   min-height: calc(100vh - 44px);
   overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--runne-radius-lg);
   background: var(--surface);
 }
 
 .runtime-configuration-page__header {
   display: flex;
-  min-height: 68px;
+  min-height: 54px;
   align-items: center;
-  gap: var(--runne-space-lg);
-  padding: 0 28px;
+  gap: var(--runne-space-md);
+  padding: 0 20px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -23,7 +21,7 @@
 .runtime-configuration-page__header h1 {
   margin: 0;
   color: var(--text);
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 650;
   letter-spacing: -.02em;
 }
@@ -31,29 +29,30 @@
 .runtime-configuration-page__header p {
   margin: 3px 0 0;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .runtime-configuration-page__badge {
-  padding: 5px 9px;
+  padding: 3px 7px;
   border: 1px solid var(--runne-accent);
-  border-radius: var(--runne-radius-sm);
+  border-radius: 4px;
   color: var(--runne-accent);
   font-family: var(--runne-font-mono);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
 }
 
 .runtime-configuration-page__header button {
   display: inline-flex;
-  height: 38px;
+  height: 32px;
   align-items: center;
   gap: 8px;
-  padding: 0 15px;
+  padding: 0 10px;
   border: 0;
-  border-radius: var(--runne-radius-sm);
+  border: 1px solid var(--border);
+  border-radius: 4px;
   color: var(--text-muted);
-  background: var(--surface-hover);
+  background: transparent;
   font: inherit;
   font-size: 13px;
   font-weight: 650;
@@ -63,38 +62,35 @@
 
 .runtime-configuration-page__content {
   display: grid;
-  gap: var(--runne-space-lg);
-  padding: 28px;
+  gap: var(--runne-space-md);
+  padding: 20px;
 }
 
 .runtime-configuration-page__ownership-notice {
-  padding: var(--runne-space-md);
+  padding: 10px 12px;
   border-left: 3px solid var(--runne-accent);
   color: var(--text);
-  background: var(--surface-hover);
   font-size: 13px;
 }
 
 .runtime-configuration-page__columns {
   display: grid;
   grid-template-columns: minmax(220px, .75fr) minmax(0, 2fr);
-  gap: var(--runne-space-lg);
+  gap: var(--runne-space-md);
 }
 
 .runtime-configuration-page__categories {
   display: grid;
   align-content: start;
-  gap: 4px;
-  padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--runne-radius-md);
+  gap: 0;
+  border-top: 1px solid var(--border);
 }
 
 .runtime-configuration-page__categories button {
-  min-height: 40px;
-  padding: 0 var(--runne-space-md);
+  min-height: 34px;
+  padding: 0 8px;
   border: 0;
-  border-radius: var(--runne-radius-sm);
+  border-bottom: 1px solid var(--border);
   color: var(--text-muted);
   background: transparent;
   font: inherit;
@@ -109,20 +105,21 @@
   background: var(--surface-hover);
 }
 
-.runtime-configuration-page__category--focused { box-shadow: inset 3px 0 var(--runne-accent); }
+.runtime-configuration-page__category--focused { box-shadow: inset 2px 0 var(--runne-accent); }
+.runtime-configuration-page__categories button:focus-visible,
+.runtime-configuration-page__header button:focus-visible { outline: 2px solid var(--runne-accent); outline-offset: -2px; }
 
 .runtime-configuration-page__detail {
-  min-height: 214px;
-  padding: var(--runne-space-xl);
-  border: 1px solid var(--border);
-  border-radius: var(--runne-radius-md);
-  background: var(--surface);
+  min-height: 148px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
 .runtime-configuration-page__detail h2 {
   margin: 0;
   color: var(--text);
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .runtime-configuration-page__detail p,

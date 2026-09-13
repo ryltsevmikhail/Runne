@@ -40,18 +40,20 @@ defineEmits<{
 }
 
 .gc-button--md {
-  padding: 8px 16px;
-  font-size: 14px;
+  min-height: 32px;
+  padding: 5px 10px;
+  font-size: 13px;
   line-height: 1.4;
 }
 
 .gc-button--sm {
-  padding: 4px 12px;
+  min-height: 28px;
+  padding: 3px 8px;
   font-size: 13px;
   line-height: 1.3;
 }
 
-/* Primary: accent fill, Graphite text (Pen authority) */
+/* Primary action uses the shared semantic accent. */
 .gc-button--primary {
   background: var(--runne-accent);
   color: var(--runne-text-on-accent);
@@ -80,6 +82,16 @@ defineEmits<{
 }
 .gc-button--secondary:hover {
   border-color: var(--runne-text-secondary);
+}
+
+ .gc-button:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
+.gc-button:focus-visible {
+  outline: 2px solid var(--runne-accent);
+  outline-offset: 3px;
 }
 
 /* Disabled */

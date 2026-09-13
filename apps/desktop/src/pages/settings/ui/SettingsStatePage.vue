@@ -48,6 +48,7 @@ onMounted(async () => {
 <template>
   <section
     v-if="loading"
+    class="settings-state-page settings-state-page--loading"
     aria-live="polite"
   >
     <h1>{{ translate('settings.loading', { page: displayTitle.toLowerCase() }) }}</h1>
@@ -55,6 +56,7 @@ onMounted(async () => {
 
   <section
     v-else-if="snapshot?.kind === 'unavailable'"
+    class="settings-state-page settings-state-page--unavailable"
     role="alert"
   >
     <h1>{{ displayTitle }}</h1>
@@ -63,21 +65,26 @@ onMounted(async () => {
 
   <section
     v-else-if="snapshot?.kind === 'recovery'"
+    class="settings-state-page settings-state-page--recovery"
     role="status"
   >
     <h1>{{ displayTitle }}</h1>
     <p>{{ snapshot.message }}</p>
     <button
       type="button"
+      class="settings-state-page__retry"
       @click="recover"
     >
       {{ translate('settings.retry') }}
     </button>
   </section>
 
-  <section v-else>
+  <section
+    v-else
+    class="settings-state-page"
+  >
     <h1>{{ displayTitle }}</h1>
-    <dl>
+    <dl class="settings-state-page__facts">
       <div
         v-for="item in snapshot?.items"
         :key="item.label"
