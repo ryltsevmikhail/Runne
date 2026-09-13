@@ -3,6 +3,7 @@ import {
   createCanonicalProject,
   createCanonicalWorkspace,
   openSelectedWorkspace,
+  retryOpenSelectedWorkspace,
   prepareSelectedWorkspace,
   requestDirectorySelection,
   type DirectorySelection,
@@ -68,6 +69,77 @@ export async function selectAndPrepareLocalProject(
     workspaceId,
     expectedVersion,
   })
+}
+
+export interface WorkspaceOpenAttemptBinding {
+  readonly workspaceId: string
+  readonly prepared: string
+  readonly requestId: string
+  readonly rendererGeneration: number
+}
+
+export class RetryableWorkspaceOpen extends Error {
+  readonly binding: WorkspaceOpenAttemptBinding
+  readonly #retry: () => Promise<PreparedWorkspace>
+
+  constructor(binding: WorkspaceOpenAttemptBinding, retry: () => Promise<PreparedWorkspace>) {
+    super('Workspace connection can be retried')
+    this.binding = Object.freeze({ ...binding })
+    this.#retry = retry
+  }
+
+  retry(): Promise<PreparedWorkspace> { return this.#retry() }
+}
+
+async function dispatchExistingWorkspace(
+  prepared: PreparedWorkspace,
+  request: Parameters<OpenWorkspace>[0],
+  workspaceId: string,
+  dispatch: OpenWorkspace,
+  retry: OpenWorkspace,
+): Promise<PreparedWorkspace> {
+  try {
+    await dispatch(request)
+    return prepared
+  }
+  catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error
+      && error.code === 'prepared_workspace_retryable') {
+      const binding: WorkspaceOpenAttemptBinding = Object.freeze({
+        workspaceId,
+        prepared: prepared.reference,
+        requestId: request.requestId,
+        rendererGeneration: request.rendererGeneration,
+      })
+      throw new RetryableWorkspaceOpen(
+        binding,
+        () => dispatchExistingWorkspace(prepared, request, workspaceId, retry, retry),
+      )
+    }
+    throw new LocalProjectOpenError('workspace')
+  }
+}
+
+export async function selectAndOpenExistingWorkspace(
+  workspaceId: string,
+  expectedVersion: number,
+  acquire: AcquireGeneration = acquireRendererGeneration,
+  select: SelectDirectory = requestDirectorySelection,
+  prepare: PrepareWorkspace = prepareSelectedWorkspace,
+  open: OpenWorkspace = openSelectedWorkspace,
+  retry: OpenWorkspace = retryOpenSelectedWorkspace,
+): Promise<PreparedWorkspace | null> {
+  const generation = await atStage('selection', () => currentRendererGeneration(acquire))
+  const requestId = crypto.randomUUID()
+  const selection = await atStage('selection', () => select(requestId, generation))
+  if (selection === null) return null
+  const prepared = await atStage('workspace', () => prepare({
+    selection: selection.reference, rendererGeneration: generation, requestId,
+    workspaceId, expectedVersion,
+  }))
+  return dispatchExistingWorkspace(prepared, {
+    prepared: prepared.reference, rendererGeneration: generation, requestId,
+  }, workspaceId, open, retry)
 }
 
 export async function selectAndCreateLocalProject(
