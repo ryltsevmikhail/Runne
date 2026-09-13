@@ -59,7 +59,7 @@ fn broker_process_outcome(result: Result<(), CliError>) -> ProcessOutcome {
 
 async fn run_after_broker_bootstrap(
     arguments: Vec<OsString>,
-) -> (Result<String, CliError>, OutputFormat) {
+) -> (Result<CommandOutput, CliError>, OutputFormat) {
     match parse_global_options(arguments) {
         Ok(state) => {
             let format = state.format;
@@ -110,24 +110,16 @@ pub struct ProcessOutcome {
     pub exit_code: i32,
 }
 
-fn process_outcome(result: Result<String, CliError>, format: OutputFormat) -> ProcessOutcome {
+fn process_outcome(
+    result: Result<CommandOutput, CliError>,
+    format: OutputFormat,
+) -> ProcessOutcome {
     match result {
-        Ok(stdout) => {
-            let output = match format {
-                OutputFormat::Text => format!("{stdout}\n"),
-                OutputFormat::Json => {
-                    let envelope = SuccessEnvelope::new(serde_json::json!({
-                        "output": stdout
-                    }));
-                    format!("{}\n", serde_json::to_string(&envelope).unwrap_or_default())
-                }
-            };
-            ProcessOutcome {
-                stdout: output,
-                stderr: String::new(),
-                exit_code: 0,
-            }
-        }
+        Ok(output) => ProcessOutcome {
+            stdout: render_command_output(&output, format),
+            stderr: String::new(),
+            exit_code: 0,
+        },
         Err(error) => {
             let exit_code = error.exit_code();
 
@@ -140,18 +132,11 @@ fn process_outcome(result: Result<String, CliError>, format: OutputFormat) -> Pr
                         exit_code,
                     };
                 }
-                CliError::HealthNonHealthy(stdout) | CliError::DoctorNonHealthy(stdout) => {
-                    let stdout = match format {
-                        OutputFormat::Text => format!("{stdout}\n"),
-                        OutputFormat::Json => {
-                            let envelope = SuccessEnvelope::new(serde_json::json!({
-                                "output": stdout
-                            }));
-                            format!("{}\n", serde_json::to_string(&envelope).unwrap_or_default())
-                        }
-                    };
+                // Non-healthy reports always print the full report to stdout;
+                // only the exit code signals the failing outcome.
+                CliError::HealthNonHealthy(output) | CliError::DoctorNonHealthy(output) => {
                     return ProcessOutcome {
-                        stdout,
+                        stdout: render_command_output(output, format),
                         stderr: String::new(),
                         exit_code,
                     };
@@ -174,6 +159,19 @@ fn process_outcome(result: Result<String, CliError>, format: OutputFormat) -> Pr
                 stderr,
                 exit_code,
             }
+        }
+    }
+}
+
+/// The single render point for command output: each command payload is
+/// rendered exactly once, either as text or as the typed `data` of the JSON
+/// envelope.
+fn render_command_output(output: &CommandOutput, format: OutputFormat) -> String {
+    match format {
+        OutputFormat::Text => format!("{}\n", output.render_text()),
+        OutputFormat::Json => {
+            let envelope = SuccessEnvelope::new(output.data_value());
+            format!("{}\n", serde_json::to_string(&envelope).unwrap_or_default())
         }
     }
 }

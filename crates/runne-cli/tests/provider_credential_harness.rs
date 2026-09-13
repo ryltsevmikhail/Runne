@@ -43,16 +43,28 @@ enum OutputFormat {
     Text,
 }
 
+/// Mirror of the binary's typed command output; the credential surface only
+/// produces plain text payloads.
+enum CommandOutput {
+    Text(String),
+}
+
+impl CommandOutput {
+    fn text(payload: impl Into<String>) -> Self {
+        Self::Text(payload.into())
+    }
+}
+
 struct ProcessOutcome {
     stdout: String,
     stderr: String,
     exit_code: i32,
 }
 
-fn process_outcome(result: Result<String, CliError>, _: OutputFormat) -> ProcessOutcome {
+fn process_outcome(result: Result<CommandOutput, CliError>, _: OutputFormat) -> ProcessOutcome {
     match result {
-        Ok(stdout) => ProcessOutcome {
-            stdout: format!("{stdout}\n"),
+        Ok(CommandOutput::Text(text)) => ProcessOutcome {
+            stdout: format!("{text}\n"),
             stderr: String::new(),
             exit_code: 0,
         },

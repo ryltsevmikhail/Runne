@@ -105,7 +105,7 @@ fn credential_execution_uses_closed_outputs_and_redacts_backend_errors() {
             true
         )
         .unwrap(),
-        "configured"
+        CommandOutput::text("configured")
     );
     assert!(matches!(
         execute_provider_credential_on_platform(
@@ -136,6 +136,54 @@ fn credential_execution_uses_closed_outputs_and_redacts_backend_errors() {
 
 fn args(values: &[&str]) -> VecDeque<OsString> {
     values.iter().map(OsString::from).collect()
+}
+
+#[test]
+fn credential_status_unsupported_outcome_is_rejected_not_exit_zero() {
+    let resolver = FakeResolver::new();
+    let mut backend = FakeBackend::default();
+    backend.unsupported = true;
+    let mut input = std::io::Cursor::new(b"sentinel-marker".to_vec());
+    assert!(matches!(
+        execute_provider_credential_on_platform(
+            ProviderCredentialCommand::Status(ProviderCredentialId::OpenAi),
+            &mut input,
+            false,
+            &mut backend,
+            &resolver,
+            true
+        ),
+        Err(CliError::UnsupportedCredentialBackend)
+    ));
+    assert_eq!(
+        input.position(),
+        0,
+        "stdin must not be read for the rejection"
+    );
+}
+
+#[test]
+fn credential_status_without_native_backend_is_rejected_before_stdin_is_read() {
+    let resolver = FakeResolver::new();
+    let mut backend = FakeBackend::default();
+    backend.configured = true;
+    let mut input = std::io::Cursor::new(b"sentinel-marker".to_vec());
+    assert!(matches!(
+        execute_provider_credential_on_platform(
+            ProviderCredentialCommand::Status(ProviderCredentialId::OpenAi),
+            &mut input,
+            false,
+            &mut backend,
+            &resolver,
+            false
+        ),
+        Err(CliError::UnsupportedCredentialBackend)
+    ));
+    assert_eq!(
+        input.position(),
+        0,
+        "stdin must not be read for the rejection"
+    );
 }
 
 struct FakeResolver {
@@ -175,6 +223,7 @@ impl CredentialIdentityResolver for FakeResolver {
 struct FakeBackend {
     configured: bool,
     failure: bool,
+    unsupported: bool,
 }
 
 impl CredentialBackend for FakeBackend {
@@ -185,6 +234,9 @@ impl CredentialBackend for FakeBackend {
     ) -> Result<CredentialOutcome, SecureStoreError> {
         if self.failure {
             return Err(SecureStoreError::OperationFailed("backend-detail".into()));
+        }
+        if self.unsupported {
+            return Ok(CredentialOutcome::Unsupported);
         }
         Ok(if self.configured {
             CredentialOutcome::Configured
@@ -203,7 +255,7 @@ async fn broker_mode_is_not_reachable_from_async_dispatch() {
             OutputFormat::Text
         )
         .await,
-        Err(CliError::Usage)
+        Err(CliError::UnknownCommand(_))
     ));
     assert!(matches!(
         run(
@@ -214,7 +266,7 @@ async fn broker_mode_is_not_reachable_from_async_dispatch() {
             OutputFormat::Text,
         )
         .await,
-        Err(CliError::Usage)
+        Err(CliError::UnknownCommand(_))
     ));
 }
 

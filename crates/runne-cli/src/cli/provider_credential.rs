@@ -77,7 +77,7 @@ fn packaged_daemon_path(writer: &std::path::Path) -> Result<std::path::PathBuf, 
         .ok_or(CliError::CredentialOperation)
 }
 
-fn run_provider_credential(arguments: VecDeque<OsString>) -> Result<String, CliError> {
+fn run_provider_credential(arguments: VecDeque<OsString>) -> Result<CommandOutput, CliError> {
     let mut backend = NativeProviderCredentialStore::new();
     run_provider_credential_with(
         arguments,
@@ -96,7 +96,7 @@ fn run_provider_credential_with(
     backend: &mut impl CredentialBackend,
     resolver: &impl CredentialIdentityResolver,
     native_backend_supported: bool,
-) -> Result<String, CliError> {
+) -> Result<CommandOutput, CliError> {
     let command = parse_provider_credential(arguments)?;
     execute_provider_credential_on_platform(
         command,
@@ -174,7 +174,7 @@ fn execute_provider_credential_on_platform(
     backend: &mut impl CredentialBackend,
     resolver: &impl CredentialIdentityResolver,
     native_backend_supported: bool,
-) -> Result<String, CliError> {
+) -> Result<CommandOutput, CliError> {
     match command {
         ProviderCredentialCommand::Set(_) | ProviderCredentialCommand::Delete(_) => {
             let _ = (
@@ -187,14 +187,19 @@ fn execute_provider_credential_on_platform(
             Err(CliError::UnsupportedCredentialBackend)
         }
         ProviderCredentialCommand::Status(id) => {
+            // Unsupported provider/capability is a rejection before any input
+            // is read; it must never render as a success outcome (exit 0).
             if !native_backend_supported {
-                return Ok(CredentialOutcome::Unsupported.stdout().to_owned());
+                return Err(CliError::UnsupportedCredentialBackend);
             }
             let access = resolver.resolve()?;
-            backend
+            match backend
                 .status(id, &access)
-                .map(|outcome| outcome.stdout().to_owned())
-                .map_err(|error| map_credential_error(&error))
+                .map_err(|error| map_credential_error(&error))?
+            {
+                CredentialOutcome::Unsupported => Err(CliError::UnsupportedCredentialBackend),
+                outcome => Ok(CommandOutput::text(outcome.stdout())),
+            }
         }
     }
 }

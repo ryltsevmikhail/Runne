@@ -45,15 +45,15 @@ fn new_command_identity() -> Result<CommandIdentity, CliError> {
     CommandIdentity::new(command_id, command_id.to_string()).map_err(CliError::Api)
 }
 
-async fn run(arguments: Vec<OsString>, format: OutputFormat) -> Result<String, CliError> {
+async fn run(arguments: Vec<OsString>, format: OutputFormat) -> Result<CommandOutput, CliError> {
     let mut arguments = VecDeque::from(arguments);
     // Check for top-level --help/-h/--version/-V before any command dispatch
     check_top_level_flags(&mut arguments)?;
     if peek(&arguments) == Some("authority") {
-        return authority::run(arguments);
+        return authority::run(arguments).map(CommandOutput::text);
     }
     if peek(&arguments) == Some("release") {
-        return release::run(arguments);
+        return release::run(arguments).map(CommandOutput::text);
     }
     if peek(&arguments) == Some("provider") {
         return run_provider_credential(arguments);
@@ -81,22 +81,21 @@ async fn dispatch_command(
     profile_path: Option<PathBuf>,
     arguments: VecDeque<OsString>,
     format: OutputFormat,
-) -> Result<String, CliError> {
+) -> Result<CommandOutput, CliError> {
     match command.as_str() {
-        "conversation" => run_conversation(profile_path, arguments, format).await,
-        "status" => run_status_command(profile_path, arguments).await,
-        "health" => run_health_command(profile_path, arguments, format).await,
-        "doctor" => run_doctor_command(profile_path, arguments).await,
-        "completion" => run_completion_command(arguments),
-        _ => Err(CliError::Usage),
+        "conversation" => run_conversation(profile_path, arguments).await,
+        "status" => run_status_command(profile_path, arguments).await.map(CommandOutput::text),
+        "health" => run_health_command(profile_path, arguments).await,
+        "doctor" => run_doctor_command(profile_path, arguments, format).await,
+        "completion" => run_completion_command(arguments).map(CommandOutput::text),
+        _ => Err(CliError::UnknownCommand(command)),
     }
 }
 
 async fn run_conversation(
     profile_path: Option<PathBuf>,
     mut arguments: VecDeque<OsString>,
-    format: OutputFormat,
-) -> Result<String, CliError> {
+) -> Result<CommandOutput, CliError> {
     let profile_path = profile_path
         .or_else(|| default_local_profile_path().ok())
         .ok_or(CliError::Profile)?;
@@ -141,7 +140,7 @@ async fn run_conversation(
                 ))
                 .await
                 .map_err(CliError::Api)?;
-            Ok(created.conversation_id.to_string())
+            Ok(CommandOutput::text(created.conversation_id.to_string()))
         }
         ConversationCommand::Send {
             conversation_id,
@@ -160,7 +159,7 @@ async fn run_conversation(
                 )
                 .await
                 .map_err(CliError::Api)?;
-            Ok(generated.assistant_message.text)
+            Ok(CommandOutput::text(generated.assistant_message.text))
         }
         ConversationCommand::Messages { conversation_id } => {
             let messages = client
@@ -168,10 +167,10 @@ async fn run_conversation(
                 .await
                 .map_err(CliError::Api)?;
 
-            match format {
-                OutputFormat::Text => Ok(format_messages_text(&messages)),
-                OutputFormat::Json => Ok(format_messages_json(&messages)),
-            }
+            Ok(CommandOutput::typed(
+                format_messages_text(&messages),
+                messages_json_data(&messages),
+            ))
         }
     }
 }
@@ -198,8 +197,7 @@ async fn run_status_command(
 async fn run_health_command(
     profile_path: Option<PathBuf>,
     arguments: VecDeque<OsString>,
-    format: OutputFormat,
-) -> Result<String, CliError> {
+) -> Result<CommandOutput, CliError> {
     // Check for --help
     if peek(&arguments).is_some_and(|s| s == "--help" || s == "-h") {
         return Err(CliError::Help(HEALTH_HELP.to_owned()));
@@ -210,20 +208,21 @@ async fn run_health_command(
         HealthError::ProfileIncompatible => CliError::ProfileIncompatible,
         HealthError::ConnectionFailed | HealthError::HealthCheckFailed => CliError::Runtime,
     })?;
-    health_command_output(&health_info, format)
+    health_command_output(&health_info)
 }
 
 async fn run_doctor_command(
     profile_path: Option<PathBuf>,
     arguments: VecDeque<OsString>,
-) -> Result<String, CliError> {
+    format: OutputFormat,
+) -> Result<CommandOutput, CliError> {
     // Check for --help
     if peek(&arguments).is_some_and(|s| s == "--help" || s == "-h") {
         return Err(CliError::Help(DOCTOR_HELP.to_owned()));
     }
     expect_end(&arguments)?;
     let report = run_doctor(profile_path).await?;
-    let output = format_diagnostic_report(&report, OutputFormat::Text);
+    let output = format_diagnostic_report(&report, format);
 
     // Always print the full report; failing checks only change the exit code.
     if report.overall_status == CheckStatus::Error {
