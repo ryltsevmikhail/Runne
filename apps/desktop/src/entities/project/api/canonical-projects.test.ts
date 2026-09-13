@@ -52,7 +52,7 @@ describe('canonical project IPC adapter', () => {
   it('creates a canonical workspace through a typed runtime mutation', async () => {
     const ack = await createCanonicalWorkspace(project.projectId, 'docs', async (command, args) => {
       expect(command).toBe('create_runtime_workspace')
-      expect(args).toEqual({ projectId: project.projectId, displayName: 'docs' })
+      expect(args).toEqual({ request: { projectId: project.projectId, displayName: 'docs' } })
       return { workspaceId: workspace.workspaceId, newVersion: 1 }
     })
 
@@ -62,7 +62,7 @@ describe('canonical project IPC adapter', () => {
   it('creates a canonical project through a host-generated opaque ID', async () => {
     const ack = await createCanonicalProject('selected-folder', async (command, args) => {
       expect(command).toBe('create_runtime_project')
-      expect(args).toEqual({ displayName: 'selected-folder' })
+      expect(args).toEqual({ request: { displayName: 'selected-folder' } })
       return { projectId: project.projectId, newVersion: 1 }
     })
 
@@ -72,7 +72,7 @@ describe('canonical project IPC adapter', () => {
   it('opens a closed canonical workspace at its exact version', async () => {
     const ack = await openCanonicalWorkspace(workspace.workspaceId, workspace.version, async (command, args) => {
       expect(command).toBe('open_runtime_workspace')
-      expect(args).toEqual({ workspaceId: workspace.workspaceId, expectedVersion: workspace.version })
+      expect(args).toEqual({ request: { workspaceId: workspace.workspaceId, expectedVersion: workspace.version } })
       return { workspaceId: workspace.workspaceId, newVersion: workspace.version + 1 }
     })
 

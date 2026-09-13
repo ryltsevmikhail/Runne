@@ -1,4 +1,7 @@
 const targetSurfaces = {
+  'openProject.selectionFailed': 'Folder access could not be confirmed. Keep Runne focused and select the folder again.',
+  'openProject.creationFailed': 'The runtime could not create the project or workspace.',
+  'openProject.workspaceFailed': 'The project was created, but its folder could not be connected.',
   'targetCapability.unavailable': 'Runtime capability unavailable',
   'targetCapability.unavailableDescription': 'This screen requires the {capability} runtime capability.',
   'taskRunInventory.navigation': 'Task runs',

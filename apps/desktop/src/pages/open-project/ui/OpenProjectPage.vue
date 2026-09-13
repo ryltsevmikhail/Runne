@@ -2,7 +2,7 @@
 import { ArrowRight, FolderOpen, Info } from 'lucide-vue-next'
 import { ref } from 'vue'
 
-import { selectAndCreateLocalProject, type LocalProjectOpenResult } from '@/features/open-local-project'
+import { LocalProjectOpenError, selectAndCreateLocalProject, type LocalProjectOpenResult } from '@/features/open-local-project'
 import { translate } from '@/shared/i18n'
 import { useRouter } from 'vue-router'
 
@@ -30,8 +30,9 @@ async function chooseFolder() {
       })
     }
   }
-  catch {
-    error.value = translate('openProject.openFailed')
+  catch (failure) {
+    error.value = translate(failure instanceof LocalProjectOpenError
+      ? `openProject.${failure.stage}Failed` : 'openProject.openFailed')
   }
   finally {
     opening.value = false

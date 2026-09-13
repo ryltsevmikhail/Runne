@@ -91,10 +91,12 @@ impl TaskRunSubscriptionManager {
 
     pub fn cancel_window(&self, window_label: &str) {
         let ids = self.registry.lock().map_or_else(|_| Vec::new(), |registry| registry.subscriptions.iter().filter(|(_, record)| record.window_label == window_label).map(|(id, _)| id.clone()).collect());
+        let runtime = tokio::runtime::Handle::try_current()
+            .unwrap_or_else(|_| tauri::async_runtime::handle().inner().clone());
         for id in ids {
             let manager = self.clone();
             let label = window_label.to_owned();
-            tokio::spawn(async move { let _ = manager.cancel(&label, &id).await; });
+            runtime.spawn(async move { let _ = manager.cancel(&label, &id).await; });
         }
     }
 

@@ -1,6 +1,9 @@
 import englishTargetSurfaces from './english-target-surfaces'
 
 const targetSurfaces: Record<keyof typeof englishTargetSurfaces, string> = {
+  'openProject.selectionFailed': 'Не удалось подтвердить доступ к папке. Оставьте Runne в фокусе и выберите папку снова.',
+  'openProject.creationFailed': 'Runtime не смог создать проект или рабочую область.',
+  'openProject.workspaceFailed': 'Проект создан, но подключить его папку не удалось.',
   'targetCapability.unavailable': 'Capability runtime недоступна',
   'targetCapability.unavailableDescription': 'Для этого экрана нужна capability runtime {capability}.',
   'taskRunInventory.navigation': 'Запуски задач',

@@ -1,4 +1,5 @@
 export {
+  LocalProjectOpenError,
   selectAndCreateLocalProject,
   selectAndOpenLocalProject,
   selectAndPrepareLocalProject,

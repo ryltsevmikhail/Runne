@@ -66,7 +66,7 @@ export async function createCanonicalWorkspace(
   if (!isCanonicalRuntimeId(projectId) || !displayNameValue(displayName)) {
     throw new Error('Invalid canonical workspace mutation')
   }
-  const value = await invoke('create_runtime_workspace', { projectId, displayName })
+  const value = await invoke('create_runtime_workspace', { request: { projectId, displayName } })
   if (!isCanonicalWorkspaceMutationAck(value)) {
     throw new Error('Invalid canonical workspace mutation response')
   }
@@ -81,7 +81,7 @@ export async function openCanonicalWorkspace(
   if (!isCanonicalRuntimeId(workspaceId) || !version(expectedVersion)) {
     throw new Error('Invalid canonical workspace mutation')
   }
-  const value = await invoke('open_runtime_workspace', { workspaceId, expectedVersion })
+  const value = await invoke('open_runtime_workspace', { request: { workspaceId, expectedVersion } })
   if (!isCanonicalWorkspaceMutationAck(value) || value.workspaceId !== workspaceId) {
     throw new Error('Invalid canonical workspace mutation response')
   }
@@ -95,7 +95,7 @@ export async function createCanonicalProject(
   if (!displayNameValue(displayName)) {
     throw new Error('Invalid canonical project mutation')
   }
-  const value = await invoke('create_runtime_project', { displayName })
+  const value = await invoke('create_runtime_project', { request: { displayName } })
   if (!isCanonicalProjectMutationAck(value)) {
     throw new Error('Invalid canonical project mutation response')
   }

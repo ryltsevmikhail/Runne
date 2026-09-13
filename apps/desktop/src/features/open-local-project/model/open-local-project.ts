@@ -22,6 +22,17 @@ export interface LocalProjectOpenResult {
   readonly workspaceId: string
 }
 
+export class LocalProjectOpenError extends Error {
+  constructor(readonly stage: 'selection' | 'creation' | 'workspace') {
+    super('Local project could not be opened')
+  }
+}
+
+async function atStage<T>(stage: LocalProjectOpenError['stage'], operation: () => Promise<T>): Promise<T> {
+  try { return await operation() }
+  catch { throw new LocalProjectOpenError(stage) }
+}
+
 let rendererGeneration: number | null = null
 
 async function currentRendererGeneration(acquire: AcquireGeneration): Promise<number> {
@@ -67,26 +78,26 @@ export async function selectAndCreateLocalProject(
   prepare: PrepareWorkspace = prepareSelectedWorkspace,
   open: OpenWorkspace = openSelectedWorkspace,
 ): Promise<LocalProjectOpenResult | null> {
-  const generation = await currentRendererGeneration(acquire)
+  const generation = await atStage('selection', () => currentRendererGeneration(acquire))
   const requestId = crypto.randomUUID()
-  const selection = await select(requestId, generation)
+  const selection = await atStage('selection', () => select(requestId, generation))
   if (selection === null) {
     return null
   }
   const displayName = 'Selected folder'
-  const project = await createProject(displayName)
-  const workspace = await createWorkspace(project.projectId, displayName)
-  const prepared = await prepare({
+  const project = await atStage('creation', () => createProject(displayName))
+  const workspace = await atStage('creation', () => createWorkspace(project.projectId, displayName))
+  const prepared = await atStage('workspace', () => prepare({
     selection: selection.reference,
     rendererGeneration: generation,
     requestId,
     workspaceId: workspace.workspaceId,
     expectedVersion: workspace.newVersion,
-  })
-  await open({
+  }))
+  await atStage('workspace', () => open({
     prepared: prepared.reference,
     rendererGeneration: generation,
     requestId,
-  })
+  }))
   return { projectId: project.projectId, workspaceId: workspace.workspaceId }
 }

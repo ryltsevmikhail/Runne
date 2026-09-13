@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  LocalProjectOpenError,
   selectAndCreateLocalProject,
   selectAndOpenLocalProject,
   selectAndPrepareLocalProject,
@@ -9,6 +10,26 @@ import {
 const selection = { reference: 'a'.repeat(64) } as const
 
 describe('open local project', () => {
+  it.each(['selection', 'creation', 'workspace'] as const)('reports %s failure without exposing native error data', async stage => {
+    const fail = async () => { throw new Error('/private/owner/secret') }
+    try {
+      await selectAndCreateLocalProject(
+        async () => 7,
+        stage === 'selection' ? fail : async () => selection,
+        stage === 'creation' ? fail : async () => ({ projectId: 'project', newVersion: 1 }),
+        async () => ({ workspaceId: 'workspace', newVersion: 1 }),
+        fail,
+      )
+      expect.unreachable()
+    }
+    catch (error) {
+      expect(error).toBeInstanceOf(LocalProjectOpenError)
+      expect(error).toMatchObject({ stage })
+      expect(String(error)).not.toContain('/private/')
+      expect(error).not.toHaveProperty('cause')
+    }
+  })
+
   it('gets a host-issued generation before requesting an opaque selection', async () => {
     const opened = await selectAndOpenLocalProject(async () => {
       return 7
