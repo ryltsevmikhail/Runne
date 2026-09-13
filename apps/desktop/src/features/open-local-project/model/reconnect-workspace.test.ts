@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { RetryableWorkspaceOpen, selectAndOpenExistingWorkspace } from './open-local-project'
+import {
+  LocalProjectOpenError,
+  RetryableWorkspaceOpen,
+  selectAndOpenExistingWorkspace,
+} from './open-local-project'
 
 describe('reconnect existing workspace', () => {
   it('retains the exact native attempt across a lost acknowledgement', async () => {
@@ -81,6 +85,109 @@ describe('reconnect existing workspace', () => {
     expect(prepare).toHaveBeenCalledTimes(1)
     expect(retry).toHaveBeenCalledTimes(2)
     expect(retry.mock.calls[0]).toEqual(retry.mock.calls[1])
+  })
+
+  it('rebuilds retry arguments from the original binding after dispatch mutation', async () => {
+    const select = vi.fn(async () => ({ reference: 'a'.repeat(64) }))
+    const prepare = vi.fn(async () => ({
+      reference: 'b'.repeat(64),
+      summary: { displayName: 'Selected folder' as const },
+    }))
+    const open = vi.fn(async request => {
+      Object.assign(request, {
+        prepared: 'c'.repeat(64),
+        requestId: 'mutated-request',
+        rendererGeneration: 99,
+      })
+      throw { code: 'prepared_workspace_retryable' }
+    })
+    const retry = vi.fn(async () => {})
+
+    let error!: RetryableWorkspaceOpen
+    try {
+      await selectAndOpenExistingWorkspace('workspace', 2, async () => 7, select, prepare, open, retry)
+      expect.unreachable()
+    }
+    catch (caught) {
+      error = caught as RetryableWorkspaceOpen
+    }
+
+    await error.retry()
+
+    expect(error.binding).toMatchObject({
+      workspaceId: 'workspace',
+      prepared: 'b'.repeat(64),
+      requestId: expect.any(String),
+      rendererGeneration: 7,
+    })
+    expect(retry).toHaveBeenCalledWith({
+      prepared: 'b'.repeat(64),
+      requestId: error.binding.requestId,
+      rendererGeneration: 7,
+    })
+  })
+
+  it('keeps the prepared identity when its result alias is mutated during dispatch', async () => {
+    const prepared = {
+      reference: 'b'.repeat(64),
+      summary: { displayName: 'Selected folder' as const },
+    }
+    const prepare = vi.fn(async () => prepared)
+    const open = vi.fn(async () => {
+      prepared.reference = 'c'.repeat(64)
+      throw { code: 'prepared_workspace_retryable' }
+    })
+    const retry = vi.fn(async () => {})
+
+    let error!: RetryableWorkspaceOpen
+    try {
+      await selectAndOpenExistingWorkspace('workspace', 2, async () => 7,
+        async () => ({ reference: 'a'.repeat(64) }), prepare, open, retry)
+      expect.unreachable()
+    }
+    catch (caught) {
+      error = caught as RetryableWorkspaceOpen
+    }
+
+    await error.retry()
+
+    expect(error.binding.prepared).toBe('b'.repeat(64))
+    expect(retry).toHaveBeenCalledWith({
+      prepared: 'b'.repeat(64),
+      requestId: error.binding.requestId,
+      rendererGeneration: 7,
+    })
+  })
+
+  it('does not continue for a non-exact initial retryable code', async () => {
+    const open = vi.fn(async () => { throw { code: 'prepared_workspace_retryable_extra' } })
+
+    await expect(selectAndOpenExistingWorkspace('workspace', 2, async () => 7,
+      async () => ({ reference: 'a'.repeat(64) }),
+      async () => ({ reference: 'b'.repeat(64), summary: { displayName: 'Selected folder' as const } }),
+      open,
+    )).rejects.toBeInstanceOf(LocalProjectOpenError)
+  })
+
+  it('stops after the first retry when its failure code is not exact', async () => {
+    const open = vi.fn(async () => { throw { code: 'prepared_workspace_retryable' } })
+    const retry = vi.fn(async () => { throw { code: 'prepared_workspace_retryable_extra' } })
+    let error!: RetryableWorkspaceOpen
+
+    try {
+      await selectAndOpenExistingWorkspace('workspace', 2, async () => 7,
+        async () => ({ reference: 'a'.repeat(64) }),
+        async () => ({ reference: 'b'.repeat(64), summary: { displayName: 'Selected folder' as const } }),
+        open, retry,
+      )
+      expect.unreachable()
+    }
+    catch (caught) {
+      error = caught as RetryableWorkspaceOpen
+    }
+
+    await expect(error.retry()).rejects.toBeInstanceOf(LocalProjectOpenError)
+    expect(retry).toHaveBeenCalledTimes(1)
   })
 
   it('does not prepare or open after cancellation', async () => {

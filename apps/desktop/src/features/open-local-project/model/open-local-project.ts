@@ -92,28 +92,25 @@ export class RetryableWorkspaceOpen extends Error {
 }
 
 async function dispatchExistingWorkspace(
+  binding: WorkspaceOpenAttemptBinding,
   prepared: PreparedWorkspace,
-  request: Parameters<OpenWorkspace>[0],
-  workspaceId: string,
   dispatch: OpenWorkspace,
   retry: OpenWorkspace,
 ): Promise<PreparedWorkspace> {
   try {
-    await dispatch(request)
+    await dispatch({
+      prepared: binding.prepared,
+      rendererGeneration: binding.rendererGeneration,
+      requestId: binding.requestId,
+    })
     return prepared
   }
   catch (error) {
     if (typeof error === 'object' && error !== null && 'code' in error
       && error.code === 'prepared_workspace_retryable') {
-      const binding: WorkspaceOpenAttemptBinding = Object.freeze({
-        workspaceId,
-        prepared: prepared.reference,
-        requestId: request.requestId,
-        rendererGeneration: request.rendererGeneration,
-      })
       throw new RetryableWorkspaceOpen(
         binding,
-        () => dispatchExistingWorkspace(prepared, request, workspaceId, retry, retry),
+        () => dispatchExistingWorkspace(binding, prepared, retry, retry),
       )
     }
     throw new LocalProjectOpenError('workspace')
@@ -137,9 +134,11 @@ export async function selectAndOpenExistingWorkspace(
     selection: selection.reference, rendererGeneration: generation, requestId,
     workspaceId, expectedVersion,
   }))
-  return dispatchExistingWorkspace(prepared, {
+  const binding: WorkspaceOpenAttemptBinding = Object.freeze({
+    workspaceId,
     prepared: prepared.reference, rendererGeneration: generation, requestId,
-  }, workspaceId, open, retry)
+  })
+  return dispatchExistingWorkspace(binding, prepared, open, retry)
 }
 
 export async function selectAndCreateLocalProject(
