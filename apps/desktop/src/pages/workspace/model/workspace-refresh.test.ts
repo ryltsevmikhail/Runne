@@ -21,6 +21,8 @@ function deferred<T>() {
 }
 
 const emptyDiff = async () => ({ path: '', kind: 'modified' as const, hunks: [], truncated: false })
+const changeFixture = { path: 'src/main.ts', kind: 'modified' as const, additions: 1, deletions: 0 }
+const diffFixture = { path: 'src/main.ts', kind: 'modified' as const, hunks: [], truncated: false }
 
 describe('workspace refresh controller', () => {
   it('keeps same workspace projection while a refresh is pending', async () => {
@@ -69,5 +71,88 @@ describe('workspace refresh controller', () => {
     expect(controller.project.value).toBeNull()
     expect(filesCalls).toBe(0)
     expect(changesCalls).toBe(0)
+  })
+
+  it('clears superseded diff loading when the next same-id load has no changes', async () => {
+    const oldDiff = deferred<typeof diffFixture>()
+    const diffStarted = deferred<undefined>()
+    let changesCalls = 0
+    const controller = createWorkspaceRefreshController({
+      loadProject: async () => projectFixture,
+      loadFiles: async () => ({ items: [] as const }),
+      loadChanges: async () => ({ items: ++changesCalls === 1 ? [changeFixture] : [] }),
+      loadDiff: async () => {
+        diffStarted.resolve(undefined)
+        return oldDiff.promise
+      },
+    })
+    const firstLoad = controller.load(WORKSPACE_ID)
+    await diffStarted.promise
+    expect(controller.diffLoading.value).toBe(true)
+    const secondLoad = controller.load(WORKSPACE_ID)
+    await secondLoad
+    expect(controller.changes.value).toEqual([])
+    expect(controller.selectedPath.value).toBeNull()
+    expect(controller.selectedDiff.value).toBeNull()
+    expect(controller.diffLoading.value).toBe(false)
+    oldDiff.resolve(diffFixture)
+    await firstLoad
+    expect(controller.selectedDiff.value).toBeNull()
+  })
+
+  it('clears superseded files loading when the next same-id project load fails', async () => {
+    const oldFiles = deferred<{ readonly items: readonly [] }>()
+    const filesStarted = deferred<undefined>()
+    let projectCalls = 0
+    const controller = createWorkspaceRefreshController({
+      loadProject: async () => {
+        if (++projectCalls === 1) return projectFixture
+        throw new Error('project unavailable')
+      },
+      loadFiles: async () => {
+        filesStarted.resolve(undefined)
+        return oldFiles.promise
+      },
+      loadChanges: async () => ({ items: [] as const }),
+      loadDiff: emptyDiff,
+    })
+    const firstLoad = controller.load(WORKSPACE_ID)
+    await filesStarted.promise
+    expect(controller.filesLoading.value).toBe(true)
+    const secondLoad = controller.load(WORKSPACE_ID)
+    await secondLoad
+    expect(controller.project.value).toBe(projectFixture)
+    expect(controller.error.value).toBe(true)
+    expect(controller.filesLoading.value).toBe(false)
+    oldFiles.resolve({ items: [] })
+    await firstLoad
+  })
+
+  it('clears superseded changes loading when the next same-id project load fails', async () => {
+    const oldChanges = deferred<{ readonly items: readonly [] }>()
+    const changesStarted = deferred<undefined>()
+    let projectCalls = 0
+    const controller = createWorkspaceRefreshController({
+      loadProject: async () => {
+        if (++projectCalls === 1) return projectFixture
+        throw new Error('project unavailable')
+      },
+      loadFiles: async () => ({ items: [] as const }),
+      loadChanges: async () => {
+        changesStarted.resolve(undefined)
+        return oldChanges.promise
+      },
+      loadDiff: emptyDiff,
+    })
+    const firstLoad = controller.load(WORKSPACE_ID)
+    await changesStarted.promise
+    expect(controller.changesLoading.value).toBe(true)
+    const secondLoad = controller.load(WORKSPACE_ID)
+    await secondLoad
+    expect(controller.project.value).toBe(projectFixture)
+    expect(controller.error.value).toBe(true)
+    expect(controller.changesLoading.value).toBe(false)
+    oldChanges.resolve({ items: [] })
+    await firstLoad
   })
 })

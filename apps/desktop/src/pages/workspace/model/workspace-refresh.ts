@@ -70,6 +70,9 @@ export function createWorkspaceRefreshController(
     const token = Object.freeze({ workspaceId, generation })
     error.value = false
     loading.value = true
+    filesLoading.value = false
+    changesLoading.value = false
+    diffLoading.value = false
     diffGeneration += 1
     if (!isCanonicalRuntimeId(workspaceId)) {
       if (current(token)) {

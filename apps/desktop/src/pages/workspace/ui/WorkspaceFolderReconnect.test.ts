@@ -10,6 +10,13 @@ vi.mock('@/features/open-local-project', async importOriginal => ({
   selectAndOpenExistingWorkspace: api.connect,
 }))
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+  return { promise, resolve, reject }
+}
+
 describe('workspace folder reconnect', () => {
   beforeEach(() => {
     vi.resetAllMocks()
@@ -48,6 +55,30 @@ describe('workspace folder reconnect', () => {
     await flushPromises()
     expect(wrapper.emitted('retryable')?.[0]).toEqual([error, 'existing', 3])
     await wrapper.setProps({ pending: error })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(retry).toHaveBeenCalledTimes(1)
+    expect(api.load).toHaveBeenCalledTimes(1)
+    expect(api.connect).toHaveBeenCalledTimes(1)
+    expect(wrapper.emitted('connected')).toEqual([['existing', 3]])
+  })
+
+  it('retains the same retry binding when disabled before a retryable rejection', async () => {
+    const native = deferred<never>()
+    const retry = vi.fn(async () => ({ reference: 'opaque', summary: { displayName: 'Selected folder' as const } }))
+    const error = new RetryableWorkspaceOpen({
+      workspaceId: 'existing', prepared: 'b'.repeat(64), requestId: 'request-1', rendererGeneration: 7,
+    }, retry)
+    api.connect.mockReturnValue(native.promise)
+    const wrapper = render()
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    await wrapper.setProps({ disabled: true })
+    native.reject(error)
+    await flushPromises()
+    expect(wrapper.emitted('retryable')).toEqual([[error, 'existing', 3]])
+    expect(wrapper.emitted('connected')).toBeUndefined()
+    await wrapper.setProps({ disabled: false, pending: error })
     await wrapper.get('button').trigger('click')
     await flushPromises()
     expect(retry).toHaveBeenCalledTimes(1)

@@ -35,24 +35,24 @@ async function connect(): Promise<void> {
     && sequence === operationSequence
     && props.workspaceId === workspaceId
     && props.viewGeneration === viewGeneration
-    && !props.disabled
+  const canMutate = () => current() && !props.disabled
   busy.value = true
   failed.value = false
   try {
     if (props.pending !== null) {
       await props.pending.retry()
-      if (current()) emit('connected', workspaceId, viewGeneration)
+      if (canMutate()) emit('connected', workspaceId, viewGeneration)
       return
     }
     const snapshot = await getCanonicalWorkspace(workspaceId)
-    if (!current()) return
+    if (!canMutate()) return
     const result = await selectAndOpenExistingWorkspace(workspaceId, snapshot.version)
-    if (current() && result !== null) emit('connected', workspaceId, viewGeneration)
+    if (canMutate() && result !== null) emit('connected', workspaceId, viewGeneration)
   }
   catch (error) {
     if (!current()) return
     if (error instanceof RetryableWorkspaceOpen) emit('retryable', error, workspaceId, viewGeneration)
-    else { failed.value = true; emit('failed', workspaceId, viewGeneration) }
+    else if (canMutate()) { failed.value = true; emit('failed', workspaceId, viewGeneration) }
   }
   finally {
     if (mounted && sequence === operationSequence) busy.value = false
