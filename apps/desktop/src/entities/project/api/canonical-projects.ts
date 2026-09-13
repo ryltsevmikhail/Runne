@@ -1,4 +1,7 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
+import { ref } from 'vue'
+
+export const projectsRevision = ref(0)
 
 import { isCanonicalRuntimeId } from './projects'
 
@@ -175,4 +178,24 @@ function isCanonicalProjectMutationAck(value: unknown): value is CanonicalProjec
 
 function version(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+}
+
+export async function renameCanonicalProject(
+  projectId: string,
+  expectedVersion: number,
+  displayName: string,
+  invoke: Invoke = tauriInvoke,
+): Promise<CanonicalProjectMutationAck> {
+  if (!isCanonicalRuntimeId(projectId) || !version(expectedVersion)
+    || !displayNameValue(displayName) || !displayName.trim()
+    || new TextEncoder().encode(displayName).length > 256) {
+    throw new Error('Invalid canonical project rename')
+  }
+  const value = await invoke('rename_runtime_project', { request: { projectId, expectedVersion, displayName } })
+  if (!isCanonicalProjectMutationAck(value) || value.projectId !== projectId
+    || value.newVersion !== expectedVersion + 1) {
+    throw new Error('Invalid canonical project rename response')
+  }
+  projectsRevision.value += 1
+  return value
 }

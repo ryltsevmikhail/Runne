@@ -1,18 +1,20 @@
 <script setup lang="ts">
-import { GcAlert, GcButton } from '@runne/product/shared/ui'
+import { GcAlert, GcButton, GcDialog } from '@runne/product/shared/ui'
+import { isTauri } from '@tauri-apps/api/core'
 import { ArrowRight, FolderOpen } from 'lucide-vue-next'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import type { CanonicalProjectDetails, CanonicalProjectDestructiveOperation, CanonicalWorkspaceMutationAck } from '@/entities/project'
-import { createCanonicalWorkspace, executeCanonicalProjectDestructiveAction, getCanonicalProject, isCanonicalRuntimeId, openCanonicalWorkspace } from '@/entities/project'
+import type { CanonicalProjectDetails, CanonicalProjectDestructiveOperation, CanonicalProjectDestructiveOutcome, CanonicalWorkspaceMutationAck } from '@/entities/project'
+import { renameCanonicalProject, createCanonicalWorkspace, executeCanonicalProjectDestructiveAction, getCanonicalProject, isCanonicalRuntimeId, openCanonicalWorkspace } from '@/entities/project'
 import { tryUseRuntimeSession } from '@/app/providers/runtime-session'
 import { translate } from '@/shared/i18n'
+import { ProjectActionsMenu, RenameProjectDialog } from '@/features/manage-project'
 
 type LoadProject = (id: string) => Promise<CanonicalProjectDetails>
 type CreateWorkspace = (projectId: string, displayName: string) => Promise<CanonicalWorkspaceMutationAck>
 type OpenWorkspace = (workspaceId: string, expectedVersion: number) => Promise<CanonicalWorkspaceMutationAck>
-type DestructiveProjectAction = (projectId: string, expectedVersion: number, operation: CanonicalProjectDestructiveOperation) => Promise<void>
+type DestructiveProjectAction = (projectId: string, expectedVersion: number, operation: CanonicalProjectDestructiveOperation) => Promise<CanonicalProjectDestructiveOutcome | void>
 
 const props = withDefaults(defineProps<{
   loadProject?: LoadProject
@@ -30,17 +32,38 @@ const route = useRoute()
 const router = useRouter()
 const details = ref<CanonicalProjectDetails | null>(null)
 const loading = ref(true)
+const renaming = ref(false)
+const actionsMenu = ref<InstanceType<typeof ProjectActionsMenu>>()
+async function closeRename() { renaming.value = false; await nextTick(); actionsMenu.value?.focus() }
 const error = ref(false)
 const creatingWorkspace = ref(false)
 const createWorkspaceError = ref(false)
 const openWorkspaceError = ref(false)
 const openingWorkspaceId = ref<string | null>(null)
 const destructiveOperation = ref<CanonicalProjectDestructiveOperation | null>(null)
+const destructiveConfirmation = ref<CanonicalProjectDestructiveOperation | null>(null)
 const destructiveError = ref(false)
 const runtimeSession = tryUseRuntimeSession()
 const runtimeStatus = computed(() => runtimeSession?.snapshot.value.status ?? 'unavailable')
+let generation = 0
+let navigationGeneration = 0
+onBeforeUnmount(() => {
+  generation += 1
+  navigationGeneration += 1
+})
+
+function currentProjectId() {
+  return typeof route.params.projectId === 'string' ? route.params.projectId : ''
+}
+
+function isCurrentNavigation(token: number, projectId: string) {
+  return token === navigationGeneration
+    && currentProjectId() === projectId
+    && runtimeStatus.value === 'live'
+}
 
 async function refreshProject() {
+  const request = ++generation
   error.value = false
   loading.value = true
   const id = typeof route.params.projectId === 'string' ? route.params.projectId : ''
@@ -50,17 +73,26 @@ async function refreshProject() {
     return
   }
   try {
-    details.value = await props.loadProject(id)
+    const result = await props.loadProject(id)
+    if (request === generation && route.params.projectId === id) details.value = result
   }
   catch {
-    error.value = true
+    if (request === generation) error.value = true
   }
   finally {
-    loading.value = false
+    if (request === generation) loading.value = false
   }
 }
 
-watch(runtimeStatus, status => {
+watch([runtimeStatus, () => route.params.projectId], ([status]) => {
+  navigationGeneration += 1
+  generation += 1
+  renaming.value = false
+  openingWorkspaceId.value = null
+  creatingWorkspace.value = false
+  destructiveOperation.value = null
+  destructiveConfirmation.value = null
+  details.value = null
   if (runtimeSession === undefined) {
     error.value = true
     loading.value = false
@@ -76,69 +108,109 @@ watch(runtimeStatus, status => {
 }, { immediate: true })
 
 async function openWorkspace(workspaceId: string) {
+  const projectId = currentProjectId()
+  const token = navigationGeneration
   const selected = details.value?.workspaces.find(workspace => workspace.workspaceId === workspaceId)
-  if (selected === undefined || runtimeStatus.value !== 'live' || openingWorkspaceId.value !== null) return
+  if (selected === undefined || !isCurrentNavigation(token, projectId) || openingWorkspaceId.value !== null) return
   openWorkspaceError.value = false
   openingWorkspaceId.value = workspaceId
   try {
     if (!selected.open) {
       await props.openWorkspaceMutation(workspaceId, selected.version)
+      if (!isCurrentNavigation(token, projectId)) return
       await refreshProject()
+      if (!isCurrentNavigation(token, projectId)) return
     }
+    if (!isCurrentNavigation(token, projectId)) return
+    await router.push({
+      name: 'workspace',
+      params: { workspaceId },
+    })
   }
   catch {
-    openWorkspaceError.value = true
-    return
+    if (isCurrentNavigation(token, projectId)) openWorkspaceError.value = true
   }
   finally {
-    openingWorkspaceId.value = null
+    if (token === navigationGeneration && openingWorkspaceId.value === workspaceId) openingWorkspaceId.value = null
   }
-  await router.push({
-    name: 'workspace',
-    params: { workspaceId },
-  })
 }
 
 async function createWorkspace() {
-  const id = typeof route.params.projectId === 'string' ? route.params.projectId : ''
-  if (!isCanonicalRuntimeId(id) || runtimeStatus.value !== 'live' || creatingWorkspace.value) return
+  const id = currentProjectId()
+  const token = navigationGeneration
+  if (!isCanonicalRuntimeId(id) || !isCurrentNavigation(token, id) || creatingWorkspace.value) return
   creatingWorkspace.value = true
   createWorkspaceError.value = false
   try {
     await props.createWorkspaceMutation(id, 'Workspace')
+    if (!isCurrentNavigation(token, id)) return
     await refreshProject()
+    if (!isCurrentNavigation(token, id)) return
   }
   catch {
-    createWorkspaceError.value = true
+    if (isCurrentNavigation(token, id)) createWorkspaceError.value = true
   }
   finally {
-    creatingWorkspace.value = false
+    if (token === navigationGeneration) creatingWorkspace.value = false
   }
 }
 
-async function executeDestructiveAction(operation: CanonicalProjectDestructiveOperation) {
-  const id = typeof route.params.projectId === 'string' ? route.params.projectId : ''
+async function runDestructiveAction(operation: CanonicalProjectDestructiveOperation) {
+  const id = currentProjectId()
+  const token = navigationGeneration
   const project = details.value?.project
-  if (!isCanonicalRuntimeId(id) || project === undefined || runtimeStatus.value !== 'live' || destructiveOperation.value !== null) return
+  if (!isCanonicalRuntimeId(id) || project === undefined || !isCurrentNavigation(token, id) || destructiveOperation.value !== null) return
   destructiveError.value = false
   destructiveOperation.value = operation
   try {
-    await props.destructiveProjectAction(id, project.version, operation)
+    const outcome = await props.destructiveProjectAction(id, project.version, operation)
+    if (outcome === 'cancelled') return
+    if (!isCurrentNavigation(token, id)) return
     if (operation === 'delete') {
       await returnToProjects()
     }
     else {
       await refreshProject()
+      if (!isCurrentNavigation(token, id)) return
     }
   }
   catch {
-    destructiveError.value = true
+    if (isCurrentNavigation(token, id)) destructiveError.value = true
   }
   finally {
-    destructiveOperation.value = null
+    if (token === navigationGeneration) destructiveOperation.value = null
   }
 }
+async function executeDestructiveAction(operation: CanonicalProjectDestructiveOperation) {
+  if (!isTauri()) {
+    destructiveConfirmation.value = operation
+    return
+  }
+  await runDestructiveAction(operation)
+}
+async function confirmDestructiveAction() {
+  const operation = destructiveConfirmation.value
+  if (operation === null) return
+  destructiveConfirmation.value = null
+  await runDestructiveAction(operation)
+}
+async function cancelDestructiveAction() {
+  destructiveConfirmation.value = null
+  await nextTick()
+  actionsMenu.value?.focus()
+}
 
+async function renameProject(name: string) {
+  const project = details.value?.project
+  const token = navigationGeneration
+  if (!project || project.projectId !== currentProjectId() || !isCurrentNavigation(token, project.projectId)) throw new Error('Unavailable')
+  await renameCanonicalProject(project.projectId, project.version, name)
+  if (!isCurrentNavigation(token, project.projectId)) return
+  renaming.value = false
+  await refreshProject()
+  if (!isCurrentNavigation(token, project.projectId)) return
+  await closeRename()
+}
 async function returnToProjects() {
   await router.push('/')
 }
@@ -152,7 +224,6 @@ async function returnToProjects() {
   >
     <h1>{{ translate('projectDetails.loading') }}</h1>
   </section>
-
   <section
     v-else-if="error || details === null"
     class="empty-state"
@@ -171,8 +242,10 @@ async function returnToProjects() {
       {{ translate('projectDetails.back') }}
     </GcButton>
   </section>
-
-  <section v-else-if="details !== null" aria-labelledby="project-title">
+  <section
+    v-else-if="details !== null"
+    aria-labelledby="project-title"
+  >
     <header class="page-header">
       <div>
         <span class="workspace-kicker">{{ translate('projectDetails.kicker') }}</span>
@@ -180,41 +253,66 @@ async function returnToProjects() {
           {{ details.project.displayName }}
         </h1>
         <p>{{ translate('projectDetails.version', { version: details.project.version }) }}</p>
-        <p class="runtime-summary">{{ translate('projectDetails.runtimeSummary', { status: runtimeStatus }) }}</p>
+        <p class="runtime-summary">
+          {{ translate('projectDetails.runtimeSummary', { status: runtimeStatus }) }}
+        </p>
       </div>
-      <div class="project-actions">
-        <GcButton
-          v-if="!details.project.archived"
-          variant="secondary"
-          :aria-label="translate('projectDetails.archiveProject')"
-          :disabled="runtimeStatus !== 'live' || destructiveOperation !== null"
-          @click="executeDestructiveAction('archive')"
-        >
-          {{ destructiveOperation === 'archive' ? translate('projectDetails.archivingProject') : translate('projectDetails.archiveProject') }}
-        </GcButton>
-        <GcButton
-          variant="delete"
-          :aria-label="translate('projectDetails.deleteProject')"
-          :disabled="runtimeStatus !== 'live' || destructiveOperation !== null"
-          @click="executeDestructiveAction('delete')"
-        >
-          {{ destructiveOperation === 'delete' ? translate('projectDetails.deletingProject') : translate('projectDetails.deleteProject') }}
-        </GcButton>
-      </div>
+      <ProjectActionsMenu
+        ref="actionsMenu"
+        :archived="details.project.archived"
+        :disabled="runtimeStatus !== 'live' || destructiveOperation !== null || destructiveConfirmation !== null"
+        @action="executeDestructiveAction"
+        @rename="renaming = true"
+      />
     </header>
-    <p v-if="destructiveError" role="alert">{{ translate('projectDetails.destructiveActionFailed') }}</p>
-
-    <GcAlert v-if="details.project.archived" level="warning" :title="translate('projectDetails.archived')">
+    <GcDialog
+      v-if="destructiveConfirmation !== null"
+      :open="true"
+      :title="translate(destructiveConfirmation === 'delete' ? 'projects.confirmDeleteTitle' : 'projects.confirmArchiveTitle')"
+      :description="translate(destructiveConfirmation === 'delete' ? 'projects.confirmDeleteMessage' : 'projects.confirmArchiveMessage', { name: details.project.displayName })"
+      :confirm-label="translate('projects.confirm')"
+      :cancel-label="translate('projects.cancel')"
+      :danger="destructiveConfirmation === 'delete'"
+      @confirm="confirmDestructiveAction"
+      @cancel="cancelDestructiveAction"
+    />
+    <RenameProjectDialog
+      v-if="renaming"
+      :name="details.project.displayName"
+      :save="renameProject"
+      @close="closeRename"
+    />
+    <p
+      v-if="destructiveError"
+      role="alert"
+    >
+      {{ translate('projectDetails.destructiveActionFailed') }}
+    </p>
+    <GcAlert
+      v-if="details.project.archived"
+      level="warning"
+      :title="translate('projectDetails.archived')"
+    >
       {{ translate('projectDetails.archivedMessage') }}
     </GcAlert>
-
-    <div v-else class="content-section">
+    <div
+      v-else
+      class="content-section"
+    >
       <div class="section-heading">
         <h2>{{ translate('projectDetails.workspaces') }}</h2>
         <span>{{ translate('projectDetails.runtime') }}</span>
       </div>
-      <p v-if="openWorkspaceError" role="alert">{{ translate('projectDetails.openWorkspaceFailed') }}</p>
-      <div v-if="details.workspaces.length === 0" class="content-section">
+      <p
+        v-if="openWorkspaceError"
+        role="alert"
+      >
+        {{ translate('projectDetails.openWorkspaceFailed') }}
+      </p>
+      <div
+        v-if="details.workspaces.length === 0"
+        class="content-section"
+      >
         <p>{{ translate('projectDetails.noWorkspaces') }}</p>
         <GcButton
           :aria-label="translate('projectDetails.createWorkspace')"
@@ -223,7 +321,12 @@ async function returnToProjects() {
         >
           {{ creatingWorkspace ? translate('projectDetails.creatingWorkspace') : translate('projectDetails.createWorkspace') }}
         </GcButton>
-        <p v-if="createWorkspaceError" role="alert">{{ translate('projectDetails.createWorkspaceFailed') }}</p>
+        <p
+          v-if="createWorkspaceError"
+          role="alert"
+        >
+          {{ translate('projectDetails.createWorkspaceFailed') }}
+        </p>
       </div>
       <button
         v-for="workspace in details.workspaces"

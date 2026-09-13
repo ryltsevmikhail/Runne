@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ArrowRight, FolderOpen, Info } from 'lucide-vue-next'
-import { ref } from 'vue'
+import { GcButton } from '@runne/product/shared/ui'
+import { FolderOpen } from 'lucide-vue-next'
+import { onBeforeUnmount, ref, watch } from 'vue'
 
 import { LocalProjectOpenError, selectAndCreateLocalProject, type LocalProjectOpenResult } from '@/features/open-local-project'
 import { translate } from '@/shared/i18n'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 type OpenProject = () => Promise<LocalProjectOpenResult | null>
 
@@ -15,15 +16,25 @@ const props = withDefaults(defineProps<{
 })
 
 const router = useRouter()
+const route = useRoute()
 const opening = ref(false)
 const error = ref<string | null>(null)
+let requestGeneration = 0
+let alive = true
+onBeforeUnmount(() => {
+  alive = false
+  requestGeneration += 1
+})
+watch(() => route.fullPath, () => { requestGeneration += 1 })
 
 async function chooseFolder() {
+  const generation = ++requestGeneration
+  const routeAtStart = route.fullPath
   opening.value = true
   error.value = null
   try {
     const opened = await props.openProject()
-    if (opened !== null) {
+    if (alive && generation === requestGeneration && route.fullPath === routeAtStart && opened !== null) {
       await router.push({
         name: 'workspace',
         params: { workspaceId: opened.workspaceId },
@@ -31,11 +42,13 @@ async function chooseFolder() {
     }
   }
   catch (failure) {
-    error.value = translate(failure instanceof LocalProjectOpenError
-      ? `openProject.${failure.stage}Failed` : 'openProject.openFailed')
+    if (alive && generation === requestGeneration && route.fullPath === routeAtStart) {
+      error.value = translate(failure instanceof LocalProjectOpenError
+        ? `openProject.${failure.stage}Failed` : 'openProject.openFailed')
+    }
   }
   finally {
-    opening.value = false
+    if (alive && generation === requestGeneration) opening.value = false
   }
 }
 </script>
@@ -47,46 +60,25 @@ async function chooseFolder() {
   >
     <div class="open-project-page__content">
       <header class="open-project-page__header">
-        <p class="eyebrow">
-          {{ translate('openProject.localProject') }}
-        </p>
         <h1 id="open-project-title">
           {{ translate('openProject.title') }}
         </h1>
         <p>{{ translate('openProject.description') }}</p>
       </header>
 
-      <button
-        class="project-card project-card--open open-project-page__choose-card"
-        type="button"
+      <GcButton
+        class="open-project-page__choose-button"
+        size="sm"
         :aria-label="translate('openProject.chooseFolder')"
         :disabled="opening"
         @click="chooseFolder"
       >
-        <span class="projects-card-icon">
-          <FolderOpen
-            :size="21"
-            aria-hidden="true"
-          />
-        </span>
-        <span class="project-copy">
-          <strong>{{ opening ? translate('openProject.opening') : translate('openProject.chooseFolderAction') }}</strong>
-          <small>{{ translate('openProject.folderOnDevice') }}</small>
-        </span>
-        <ArrowRight
-          class="projects-card-arrow"
-          :size="19"
-          aria-hidden="true"
-        />
-      </button>
-
-      <aside class="open-project-page__privacy">
-        <Info
+        <FolderOpen
           :size="16"
           aria-hidden="true"
         />
-        <span>{{ translate('openProject.folderOnDevice') }}</span>
-      </aside>
+        {{ opening ? translate('openProject.opening') : translate('openProject.chooseFolderAction') }}
+      </GcButton>
 
       <p
         v-if="error"

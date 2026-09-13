@@ -5,6 +5,7 @@ export {
   listProjects,
   acquireRendererGeneration,
   openSelectedWorkspace,
+  retryOpenSelectedWorkspace,
   prepareSelectedWorkspace,
   requestDirectorySelection,
   type DirectorySelection,
@@ -15,6 +16,8 @@ export {
 } from './api/projects'
 export {
   getCanonicalProject,
+  renameCanonicalProject,
+  projectsRevision,
   getCanonicalWorkspace,
   createCanonicalProject,
   createCanonicalWorkspace,
@@ -29,4 +32,5 @@ export {
 export {
   executeCanonicalProjectDestructiveAction,
   type CanonicalProjectDestructiveOperation,
+  type CanonicalProjectDestructiveOutcome,
 } from './api/destructive'

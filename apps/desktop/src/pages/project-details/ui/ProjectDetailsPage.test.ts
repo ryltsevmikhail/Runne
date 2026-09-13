@@ -173,6 +173,53 @@ describe('project details page', () => {
     expect(router.currentRoute.value.fullPath).toBe(`/workspaces/${closedWorkspace.workspaceId}`)
   })
 
+  it('does not route to a workspace after leaving the project while it is opening', async () => {
+    const closedWorkspace = { ...workspace, open: false } as const
+    let resolveOpen: ((value: { workspaceId: string; newVersion: number }) => void) | undefined
+    const { router, wrapper } = await mountPage(
+      async () => ({ project, workspaces: [closedWorkspace] }),
+      undefined,
+      () => new Promise(resolve => { resolveOpen = resolve }),
+    )
+
+    await wrapper.get('[aria-label="Open workspace gocode-ui"]').trigger('click')
+    await flushPromises()
+    await router.push('/')
+    resolveOpen?.({ workspaceId: closedWorkspace.workspaceId, newVersion: closedWorkspace.version + 1 })
+    await flushPromises()
+
+    expect(router.currentRoute.value.fullPath).toBe('/')
+  })
+
+  it('keeps the current project route when a previous workspace open resolves late', async () => {
+    const otherProject = { ...project, projectId: '01890e00-0000-7000-8000-000000000009', displayName: 'Other' } as const
+    const otherWorkspace = { ...workspace, projectId: otherProject.projectId, workspaceId: '01890e00-0000-7000-8000-000000000010', open: true } as const
+    let resolveOpen: ((value: { workspaceId: string; newVersion: number }) => void) | undefined
+    let reads = 0
+    const { router, wrapper } = await mountPage(
+      async id => {
+        reads += 1
+        return id === otherProject.projectId
+          ? { project: otherProject, workspaces: [otherWorkspace] }
+          : { project, workspaces: [{ ...workspace, open: false }] }
+      },
+      undefined,
+      () => new Promise(resolve => { resolveOpen = resolve }),
+    )
+
+    await wrapper.get('[aria-label="Open workspace gocode-ui"]').trigger('click')
+    await flushPromises()
+    await router.push(`/projects/${otherProject.projectId}`)
+    await flushPromises()
+    const readsAfterNavigation = reads
+    resolveOpen?.({ workspaceId: workspace.workspaceId, newVersion: workspace.version + 1 })
+    await flushPromises()
+
+    expect(router.currentRoute.value.fullPath).toBe(`/projects/${otherProject.projectId}`)
+    expect(wrapper.get('h1').text()).toBe('Other')
+    expect(reads).toBe(readsAfterNavigation)
+  })
+
   it('fails closed when the project is unavailable', async () => {
     const { wrapper } = await mountPage(async () => {
       throw new Error('unavailable')
@@ -193,10 +240,79 @@ describe('project details page', () => {
       },
     )
 
+    await wrapper.get('[aria-label="Manage project"]').trigger('click')
     await wrapper.get('[aria-label="Archive project"]').trigger('click')
+    expect(action).toBeNull()
+    const cancel = document.body.querySelector('.gc-dialog-btn--cancel') as HTMLButtonElement | null
+    expect(cancel).not.toBeNull()
+    expect(document.activeElement).toBe(cancel)
+    cancel?.click()
+    await flushPromises()
+    expect(action).toBeNull()
+
+    await wrapper.get('[aria-label="Manage project"]').trigger('click')
+    await wrapper.get('[aria-label="Archive project"]').trigger('click')
+    const confirm = document.body.querySelector('.gc-dialog-btn:not(.gc-dialog-btn--cancel)') as HTMLButtonElement | null
+    expect(confirm).not.toBeNull()
+    confirm?.click()
     await flushPromises()
 
     expect(action).toEqual([project.projectId, project.version, 'archive'])
+  })
+
+  it('does not redirect after a stale delete completion changes the project route', async () => {
+    const otherProject = { ...project, projectId: '01890e00-0000-7000-8000-000000000009', displayName: 'Other' } as const
+    let resolveDelete: (() => void) | undefined
+    let reads = 0
+    const { router, wrapper } = await mountPage(
+      async id => {
+        reads += 1
+        return id === otherProject.projectId
+          ? { project: otherProject, workspaces: [] }
+          : details
+      },
+      undefined,
+      undefined,
+      async () => new Promise<void>(resolve => { resolveDelete = resolve }),
+    )
+
+    await wrapper.get('[aria-label="Manage project"]').trigger('click')
+    await wrapper.get('[aria-label="Delete project"]').trigger('click')
+    const confirm = document.body.querySelector('.gc-dialog-btn:not(.gc-dialog-btn--cancel)') as HTMLButtonElement | null
+    expect(confirm).not.toBeNull()
+    confirm?.click()
+    await flushPromises()
+
+    await router.push(`/projects/${otherProject.projectId}`)
+    await flushPromises()
+    const readsAfterNavigation = reads
+    resolveDelete?.()
+    await flushPromises()
+
+    expect(router.currentRoute.value.fullPath).toBe(`/projects/${otherProject.projectId}`)
+    expect(wrapper.get('h1').text()).toBe('Other')
+    expect(reads).toBe(readsAfterNavigation)
+  })
+
+  it('reloads on project navigation and discards a late previous project response', async () => {
+    const other = { ...project, projectId: '01890e00-0000-7000-8000-000000000009', displayName: 'Other' }
+    let resolveOld: ((value: CanonicalProjectDetails) => void) | undefined
+    let reads = 0
+    const { wrapper, router } = await mountPage(async id => {
+      if (id === other.projectId) return { project: other, workspaces: [] }
+      if (++reads === 1) return details
+      return new Promise(resolve => { resolveOld = resolve })
+    })
+    await router.push(`/projects/${other.projectId}`)
+    await flushPromises()
+    expect(wrapper.get('h1').text()).toBe('Other')
+    await router.push(`/projects/${project.projectId}`)
+    await flushPromises()
+    await router.push(`/projects/${other.projectId}`)
+    await flushPromises()
+    resolveOld?.(details)
+    await flushPromises()
+    expect(wrapper.get('h1').text()).toBe('Other')
   })
 
   it('fails closed without a runtime session provider', async () => {

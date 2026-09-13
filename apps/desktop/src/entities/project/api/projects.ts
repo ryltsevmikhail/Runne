@@ -70,6 +70,13 @@ export async function openSelectedWorkspace(
   await invoke('open_selected_workspace', { request })
 }
 
+export async function retryOpenSelectedWorkspace(
+  request: PreparedWorkspaceOpenRequest,
+  invoke: Invoke = tauriInvoke,
+): Promise<void> {
+  await invoke('retry_open_selected_workspace', { request })
+}
+
 export async function requestDirectorySelection(
   requestId: string,
   rendererGeneration: number,
