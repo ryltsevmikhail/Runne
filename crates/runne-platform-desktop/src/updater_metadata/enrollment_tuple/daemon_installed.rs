@@ -31,6 +31,7 @@ pub use capability::VerifiedInstalledEnrollmentCapability;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use bootstrap_candidate::{
     VerifiedInstalledQualificationBootstrapCandidate, VerifiedRuntimeQualificationAcknowledgement,
+    VerifiedQualificationRunTransport,
 };
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(crate) use staged_identity::CurrentStagedDaemonIdentity;

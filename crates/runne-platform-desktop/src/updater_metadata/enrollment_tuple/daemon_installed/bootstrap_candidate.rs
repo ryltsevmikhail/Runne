@@ -9,7 +9,7 @@ use runne_macos_process_identity::MacOsLocalPeerProcessIdentity;
 
 #[path = "bootstrap_candidate/acknowledgement.rs"]
 mod acknowledgement;
-pub use acknowledgement::VerifiedRuntimeQualificationAcknowledgement;
+pub use acknowledgement::{VerifiedQualificationRunTransport, VerifiedRuntimeQualificationAcknowledgement};
 
 use super::capability::authenticated_desktop_matches;
 use super::{

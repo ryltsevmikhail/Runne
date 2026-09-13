@@ -31,7 +31,7 @@ pub use enrollment_daemon_installed::VerifiedDaemonNativeEnrollmentPrepare;
 pub use enrollment_daemon_installed::{
     QualificationAdmissionError, VerifiedInstalledEnrollmentMeasurementFacts,
     VerifiedInstalledEnrollmentCapability, VerifiedInstalledQualificationBootstrapCandidate,
-    VerifiedRuntimeQualificationAcknowledgement,
+    VerifiedRuntimeQualificationAcknowledgement, VerifiedQualificationRunTransport,
 };
 #[path = "enrollment_tuple/daemon_peer.rs"]
 mod enrollment_daemon_peer;

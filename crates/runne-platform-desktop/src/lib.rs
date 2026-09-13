@@ -138,7 +138,7 @@ pub use updater_metadata::{
     VerifiedDesktopQualificationOffer, VerifiedInstalledEnrollmentCapability,
     VerifiedInstalledEnrollmentMeasurementFacts, VerifiedInstalledQualificationBootstrapCandidate,
     VerifiedInstalledQualificationBootstrapDesktop, VerifiedInstalledQualificationGuiExecutor,
-    VerifiedRuntimeQualificationAcknowledgement,
+    VerifiedRuntimeQualificationAcknowledgement, VerifiedQualificationRunTransport,
 };
 pub use updater_trust::{UpdateTrustError, UpdateTrustJournal, UpdateTrustState};
 
