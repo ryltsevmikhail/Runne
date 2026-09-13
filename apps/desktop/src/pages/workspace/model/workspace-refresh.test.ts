@@ -100,6 +100,64 @@ describe('workspace refresh controller', () => {
     expect(controller.selectedDiff.value).toBeNull()
   })
 
+  it.each(['empty', 'error'] as const)(
+    'clears diff loading after a same-id refresh invalidates a user diff (%s)',
+    async outcome => {
+      const oldDiff = deferred<typeof diffFixture>()
+      const diffStarted = deferred<undefined>()
+      const changesStarted = deferred<undefined>()
+      const refreshedChanges = deferred<{ readonly items: readonly [] }>()
+      const secondProject = deferred<CanonicalWorkspace>()
+      let changesCalls = 0
+      let diffCalls = 0
+      let projectCalls = 0
+      const controller = createWorkspaceRefreshController({
+        loadProject: async () => {
+          if (++projectCalls === 1) return projectFixture
+          return secondProject.promise
+        },
+        loadFiles: async () => ({ items: [] as const }),
+        loadChanges: async () => {
+          if (++changesCalls === 1) return { items: [changeFixture] }
+          changesStarted.resolve(undefined)
+          const next = await refreshedChanges.promise
+          if (outcome === 'error') throw new Error('changes unavailable')
+          return next
+        },
+        loadDiff: async () => {
+          if (++diffCalls === 1) return diffFixture
+          diffStarted.resolve(undefined)
+          return oldDiff.promise
+        },
+      })
+
+      await controller.load(WORKSPACE_ID)
+      expect(controller.changes.value).toEqual([changeFixture])
+      expect(controller.selectedDiff.value).toBe(diffFixture)
+
+      const refresh = controller.load(WORKSPACE_ID)
+      expect(controller.changes.value).toEqual([changeFixture])
+      expect(controller.selectedPath.value).toBe(changeFixture.path)
+      expect(controller.selectedDiff.value).toBe(diffFixture)
+      const selection = controller.selectChange(WORKSPACE_ID, changeFixture.path)
+      await diffStarted.promise
+      expect(controller.diffLoading.value).toBe(true)
+      secondProject.resolve(projectFixture)
+      await changesStarted.promise
+
+      if (outcome === 'error') refreshedChanges.reject(new Error('refresh failed'))
+      else refreshedChanges.resolve({ items: [] })
+      await refresh
+      oldDiff.resolve(diffFixture)
+      await selection
+
+      expect(controller.changes.value).toEqual([])
+      expect(controller.selectedPath.value).toBeNull()
+      expect(controller.selectedDiff.value).toBeNull()
+      expect(controller.diffLoading.value).toBe(false)
+    },
+  )
+
   it('clears superseded files loading when the next same-id project load fails', async () => {
     const oldFiles = deferred<{ readonly items: readonly [] }>()
     const filesStarted = deferred<undefined>()

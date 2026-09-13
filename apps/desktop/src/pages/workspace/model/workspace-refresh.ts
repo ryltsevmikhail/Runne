@@ -119,6 +119,7 @@ export function createWorkspaceRefreshController(
   async function refreshChanges(token: RefreshToken): Promise<void> {
     if (!current(token)) return
     diffGeneration += 1
+    diffLoading.value = false
     changesLoading.value = true
     changesError.value = false
     try {
