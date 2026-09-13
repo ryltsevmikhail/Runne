@@ -134,9 +134,9 @@ pub use updater_metadata::{
 };
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use updater_metadata::{
-    QualificationAdmissionError, VerifiedDesktopQualificationOffer,
-    VerifiedInstalledEnrollmentCapability, VerifiedInstalledEnrollmentMeasurementFacts,
-    VerifiedInstalledQualificationBootstrapCandidate,
+    PreparedDesktopQualificationRun, QualificationAdmissionError,
+    VerifiedDesktopQualificationOffer, VerifiedInstalledEnrollmentCapability,
+    VerifiedInstalledEnrollmentMeasurementFacts, VerifiedInstalledQualificationBootstrapCandidate,
     VerifiedInstalledQualificationBootstrapDesktop, VerifiedInstalledQualificationGuiExecutor,
 };
 pub use updater_trust::{UpdateTrustError, UpdateTrustJournal, UpdateTrustState};

@@ -83,7 +83,8 @@ pub use bootstrap_client_pins::VerifiedQualificationBootstrapClientPins;
 mod bootstrap_desktop;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use bootstrap_desktop::{
-    VerifiedDesktopQualificationOffer, VerifiedInstalledQualificationBootstrapDesktop,
+    PreparedDesktopQualificationRun, VerifiedDesktopQualificationOffer,
+    VerifiedInstalledQualificationBootstrapDesktop,
 };
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[path = "updater_metadata/enrollment_tuple/bootstrap_gui_executor.rs"]

@@ -4,6 +4,7 @@ mod model;
 mod reply_wire;
 mod request_wire;
 mod root_service_messages;
+mod run_directory;
 
 pub use messages::{
     BootstrapAck, BootstrapControlReply, BootstrapControlRequest, RootConsumeRequest,

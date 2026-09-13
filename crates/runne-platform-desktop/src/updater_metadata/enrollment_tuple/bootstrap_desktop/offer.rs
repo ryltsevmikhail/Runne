@@ -11,6 +11,10 @@ use zeroize::Zeroizing;
 
 use super::VerifiedInstalledQualificationBootstrapDesktop;
 
+#[path = "offer/preparation.rs"]
+mod preparation;
+pub use preparation::PreparedDesktopQualificationRun;
+
 const OFFER_EXCHANGE_LIMIT: Duration = Duration::from_mins(15);
 
 /// Opaque desktop offer retained with the admitted package and XPC connection.

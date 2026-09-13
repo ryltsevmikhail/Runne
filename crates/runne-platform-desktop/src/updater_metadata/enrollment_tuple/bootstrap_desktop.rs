@@ -47,7 +47,10 @@ pub struct VerifiedInstalledQualificationBootstrapDesktop {
 #[path = "bootstrap_desktop/offer.rs"]
 mod offer;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-pub use offer::VerifiedDesktopQualificationOffer;
+#[path = "bootstrap_desktop/run_root.rs"]
+mod run_root;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub use offer::{PreparedDesktopQualificationRun, VerifiedDesktopQualificationOffer};
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 impl VerifiedInstalledQualificationBootstrapDesktop {
