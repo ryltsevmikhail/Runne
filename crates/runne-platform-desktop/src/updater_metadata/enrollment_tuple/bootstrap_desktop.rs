@@ -44,6 +44,12 @@ pub struct VerifiedInstalledQualificationBootstrapDesktop {
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[path = "bootstrap_desktop/offer.rs"]
+mod offer;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub use offer::VerifiedDesktopQualificationOffer;
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 impl VerifiedInstalledQualificationBootstrapDesktop {
     /// Admits only the current signed desktop package and its committed journals.
     #[must_use]

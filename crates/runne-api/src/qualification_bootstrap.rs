@@ -1,3 +1,4 @@
+mod activation_prelude;
 mod messages;
 mod model;
 mod reply_wire;
@@ -19,3 +20,6 @@ pub use root_service_messages::{
 
 #[cfg(test)]
 mod tests;
+pub use activation_prelude::{
+    decode_qualification_bootstrap_prelude, encode_qualification_bootstrap_prelude,
+};

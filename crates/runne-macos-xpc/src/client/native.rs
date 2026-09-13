@@ -1,9 +1,9 @@
 use std::panic::AssertUnwindSafe;
 use std::ptr::NonNull;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
-use block2::{ManualBlockEncoding, RcBlock};
+use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::{AnyThread, msg_send};
 use objc2_foundation::{NSData, NSError, NSString, NSXPCConnection, NSXPCConnectionOptions};
@@ -14,6 +14,11 @@ use zeroize::Zeroizing;
 use crate::{CredentialServiceEndpointConfiguration, CredentialServiceXpcError};
 mod domain;
 use domain::NativeXpcDomain;
+mod revalidation;
+use revalidation::{
+    ConnectionEvent, PeerObservation, ReplyBlockEncoding, ReplyResult, ReplySlot, close_slot,
+    new_reply_slot, send_once,
+};
 
 #[derive(Clone, Copy)]
 #[allow(clippy::redundant_pub_crate)]
@@ -22,32 +27,13 @@ pub(crate) struct NativePeerBinding {
     pub(crate) expected_audit_session: i32,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ConnectionEvent {
-    Active,
-    Interrupted,
-    Invalidated,
-}
-
-type ReplyResult = Result<Zeroizing<Vec<u8>>, CredentialServiceXpcError>;
-type ReplySlot = Arc<Mutex<Option<oneshot::Sender<ReplyResult>>>>;
-
-struct ReplyBlockEncoding;
-
-// SAFETY: On 64-bit macOS this is the clang ABI encoding for
-// `void (^)(NSData *)`, including the hidden block object at offset zero.
-unsafe impl ManualBlockEncoding for ReplyBlockEncoding {
-    type Arguments = (*mut NSData,);
-    type Return = ();
-    const ENCODING_CSTR: &'static core::ffi::CStr = c"v16@?0@8";
-}
-
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) struct NativeClient {
     connection: Retained<NSXPCConnection>,
     events: watch::Sender<ConnectionEvent>,
     domain: NativeXpcDomain,
     peer_binding: Option<NativePeerBinding>,
+    observation: Arc<PeerObservation>,
 }
 
 // SAFETY: Apple documents NSXPCConnection as thread-safe. All callbacks carry
@@ -137,12 +123,22 @@ impl NativeClient {
         );
         connection.setRemoteObjectInterface(Some(&target.domain().interface()));
         let (events, _) = watch::channel(ConnectionEvent::Active);
+        let observation = Arc::new(PeerObservation::new());
+        let qualification_connection = peer_binding.is_some();
         let interrupted = events.clone();
+        let interrupted_observation = Arc::clone(&observation);
         connection.setInterruptionHandler(Some(&RcBlock::new(move || {
+            if qualification_connection {
+                interrupted_observation.mark_terminal();
+            }
             interrupted.send_replace(ConnectionEvent::Interrupted);
         })));
         let invalidated = events.clone();
+        let invalidated_observation = Arc::clone(&observation);
         connection.setInvalidationHandler(Some(&RcBlock::new(move || {
+            if qualification_connection {
+                invalidated_observation.mark_terminal();
+            }
             invalidated.send_replace(ConnectionEvent::Invalidated);
         })));
         connection.setCodeSigningRequirement(&requirement);
@@ -152,6 +148,7 @@ impl NativeClient {
             events,
             domain: target.domain(),
             peer_binding,
+            observation,
         }
     }
 
@@ -215,86 +212,73 @@ impl NativeClient {
             return Err(CredentialServiceXpcError::TimedOut);
         }
         let data = self.domain.request_data(request);
-        let (sender, receiver) = oneshot::channel();
-        let slot = Arc::new(Mutex::new(Some(sender)));
+        let (receiver, slot) = new_reply_slot();
         let error_slot = Arc::clone(&slot);
+        let error_observation = Arc::clone(&self.observation);
+        let error_connection = self.connection.clone();
+        let qualification_connection = self.peer_binding.is_some();
         let error = RcBlock::new(move |_error: NonNull<NSError>| {
+            if qualification_connection {
+                error_observation.mark_terminal();
+                error_connection.invalidate();
+            }
             send_once(&error_slot, Err(CredentialServiceXpcError::OutcomeUnknown));
         });
         let proxy = self.connection.remoteObjectProxyWithErrorHandler(&error);
         let reply_slot = Arc::clone(&slot);
         let reply_connection = self.connection.clone();
         let peer_binding = self.peer_binding;
+        let reply_observation = Arc::clone(&self.observation);
         let domain = self.domain;
         let reply =
             RcBlock::with_encoding::<_, _, _, ReplyBlockEncoding>(move |data: *mut NSData| {
                 let result = NonNull::new(data)
                     .ok_or(CredentialServiceXpcError::OutcomeUnknown)
                     .and_then(|data| {
-                        if peer_binding.is_some_and(|binding| {
-                            assert_peer_binding(&reply_connection, binding).is_err()
-                        }) {
-                            Err(CredentialServiceXpcError::OutcomeUnknown)
-                        } else {
-                            domain.copy_reply(unsafe { data.as_ref() })
+                        if let Some(binding) = peer_binding {
+                            revalidation::assert_peer_binding(&reply_connection, binding)
+                                .map_err(|_| CredentialServiceXpcError::OutcomeUnknown)?;
                         }
+                        domain.copy_reply(unsafe { data.as_ref() })
                     });
+                if peer_binding.is_some() {
+                    if result.is_ok() {
+                        reply_observation.observe_verified_reply();
+                    } else {
+                        reply_observation.mark_terminal();
+                        reply_connection.invalidate();
+                    }
+                }
                 send_once(&reply_slot, result);
             });
-        objc2::exception::catch(AssertUnwindSafe(|| {
+        if objc2::exception::catch(AssertUnwindSafe(|| {
             // SAFETY: proxy implements the registered one-NSData request/reply protocol.
             let _: () = unsafe { msg_send![&*proxy, exchange: &*data, reply: &*reply] };
         }))
-        .map_err(|_| CredentialServiceXpcError::OutcomeUnknown)?;
+        .is_err()
+        {
+            if self.peer_binding.is_some() {
+                self.observation.mark_terminal();
+                self.connection.invalidate();
+            }
+            return Err(CredentialServiceXpcError::OutcomeUnknown);
+        }
         Ok((receiver, slot))
     }
-}
 
-impl NativeClient {
     pub(crate) fn invalidate(&self) {
+        if self.peer_binding.is_some() {
+            self.observation.mark_terminal();
+        }
         self.connection.invalidate();
     }
-}
-
-fn assert_peer_binding(
-    connection: &NSXPCConnection,
-    binding: NativePeerBinding,
-) -> Result<(), CredentialServiceXpcError> {
-    if connection.effectiveUserIdentifier() != binding.expected_euid
-        || audit_session_identifier(connection) != binding.expected_audit_session
-    {
-        connection.invalidate();
-        return Err(CredentialServiceXpcError::Rejected);
-    }
-    Ok(())
-}
-
-fn audit_session_identifier(connection: &NSXPCConnection) -> i32 {
-    unsafe extern "C" {
-        fn runne_xpc_audit_session_identifier(connection: *const NSXPCConnection) -> i32;
-    }
-    // SAFETY: the shim invokes Foundation's public readonly property on a live connection.
-    unsafe { runne_xpc_audit_session_identifier(std::ptr::from_ref(connection)) }
 }
 
 impl Drop for NativeClient {
     fn drop(&mut self) {
+        if self.peer_binding.is_some() {
+            self.observation.mark_terminal();
+        }
         self.connection.invalidate();
     }
-}
-
-fn send_once(slot: &ReplySlot, result: ReplyResult) {
-    let sender = slot
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .take();
-    if let Some(sender) = sender {
-        let _ = sender.send(result);
-    }
-}
-
-fn close_slot(slot: &ReplySlot) {
-    slot.lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .take();
 }

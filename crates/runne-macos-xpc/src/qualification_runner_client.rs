@@ -82,6 +82,9 @@ impl QualificationRunnerXpcClient {
         #[cfg(target_os = "macos")]
         {
             let mut terminal_guard = QualificationRunnerDispatchGuard::new(&self.native);
+            self.native
+                .begin_qualification_exchange(deadline)
+                .map_err(map_error)?;
             let context =
                 runne_platform_ports::credential_service::CredentialServiceCallContext::new(
                     deadline,
@@ -92,6 +95,9 @@ impl QualificationRunnerXpcClient {
                 .exchange(request.into_zeroizing(), context)
                 .await
                 .map_err(map_error)?;
+            self.native
+                .revalidate_qualification_peer(deadline)
+                .map_err(map_error)?;
             let reply = QualificationRunnerReply::from_zeroizing(bytes)?;
             terminal_guard.disarm();
             Ok(reply)
@@ -99,6 +105,27 @@ impl QualificationRunnerXpcClient {
         #[cfg(not(target_os = "macos"))]
         {
             let _ = (self, request, deadline);
+            Err(QualificationRunnerXpcError::Unsupported)
+        }
+    }
+
+    /// Revalidates the peer observed by a successful prior native reply.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a client without an observed peer-verified reply, an inactive
+    /// connection, a changed peer identity, or an expired deadline. Any error
+    /// leaves this client terminal.
+    pub fn revalidate_peer(&self, deadline: Instant) -> Result<(), QualificationRunnerXpcError> {
+        #[cfg(target_os = "macos")]
+        {
+            self.native
+                .revalidate_qualification_peer(deadline)
+                .map_err(map_error)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (self, deadline);
             Err(QualificationRunnerXpcError::Unsupported)
         }
     }
