@@ -78,62 +78,63 @@ const {
       </GcButton>
     </div>
 
-    <template v-else>
-      <div class="conversation-chat__timeline">
-        <div
-          v-if="statusCopy !== null"
-          class="conversation-chat__recovery"
-          role="status"
+    <div
+      v-else
+      class="conversation-chat__timeline"
+    >
+      <div
+        v-if="statusCopy !== null"
+        class="conversation-chat__recovery"
+        role="status"
+      >
+        <span>{{ statusCopy }}</span>
+        <GcButton
+          v-if="recovery === 'resync_required'"
+          name="resync-conversation"
+          size="sm"
+          variant="secondary"
+          :disabled="disabled || !canResync"
+          @click="resyncConversation"
         >
-          <span>{{ statusCopy }}</span>
-          <GcButton
-            v-if="recovery === 'resync_required'"
-            name="resync-conversation"
-            size="sm"
-            variant="secondary"
-            :disabled="!canResync"
-            @click="resyncConversation"
-          >
-            {{ resyncing ? translate('conversation.resyncing') : translate('conversation.resync') }}
-          </GcButton>
-        </div>
-        <ol
-          class="conversation-chat__messages"
-          :aria-label="translate('conversation.messages')"
-          aria-live="polite"
-        >
-          <li
-            v-for="message in snapshot?.messages ?? []"
-            :key="message.messageId"
-            class="conversation-chat__message"
-            :class="`conversation-chat__message--${message.role}`"
-            :data-message-id="message.messageId"
-            :data-message-role="message.role"
-          >
-            <span class="conversation-chat__role">
-              {{ message.role === 'user' ? translate('conversation.you') : 'Runne' }}
-            </span>
-            <p>{{ message.text }}</p>
-          </li>
-          <li
-            v-if="snapshot?.messages.length === 0"
-            class="conversation-chat__empty"
-          >
-            {{ translate('conversation.empty') }}
-          </li>
-        </ol>
+          {{ resyncing ? translate('conversation.resyncing') : translate('conversation.resync') }}
+        </GcButton>
       </div>
+      <ol
+        class="conversation-chat__messages"
+        :aria-label="translate('conversation.messages')"
+        aria-live="polite"
+      >
+        <li
+          v-for="message in snapshot?.messages ?? []"
+          :key="message.messageId"
+          class="conversation-chat__message"
+          :class="`conversation-chat__message--${message.role}`"
+          :data-message-id="message.messageId"
+          :data-message-role="message.role"
+        >
+          <span class="conversation-chat__role">
+            {{ message.role === 'user' ? translate('conversation.you') : 'Runne' }}
+          </span>
+          <p>{{ message.text }}</p>
+        </li>
+        <li
+          v-if="snapshot?.messages.length === 0"
+          class="conversation-chat__empty"
+        >
+          {{ translate('conversation.empty') }}
+        </li>
+      </ol>
+    </div>
 
-      <div class="conversation-chat__composer">
-        <ConversationCapabilityControls />
-        <SubmitPrompt
-          v-model="draft"
-          :disabled="!canCompose"
-          :pending="sending"
-          @submit="submitMessage"
-        />
-      </div>
-    </template>
+    <div class="conversation-chat__composer">
+      <ConversationCapabilityControls />
+      <SubmitPrompt
+        v-model="draft"
+        :disabled="disabled || !canCompose"
+        :pending="sending"
+        @submit="submitMessage"
+      />
+    </div>
   </section>
 </template>
 
@@ -152,8 +153,8 @@ const {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--runne-space-lg);
-  padding: var(--runne-space-md) var(--runne-space-lg);
+  gap: var(--runne-space-md);
+  padding: var(--runne-space-sm) var(--runne-space-md);
   border-bottom: 1px solid var(--runne-border);
 }
 
@@ -168,7 +169,7 @@ const {
 
 .conversation-chat__header h2 {
   margin: 3px 0 0;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .conversation-chat__runtime {
@@ -192,7 +193,7 @@ const {
   justify-content: space-between;
   gap: var(--runne-space-md);
   margin: 0;
-  padding: var(--runne-space-xs) var(--runne-space-lg);
+  padding: var(--runne-space-xs) var(--runne-space-md);
   border-bottom: 1px solid var(--runne-border);
   color: var(--runne-ui-muted);
   font-size: 11px;
@@ -202,31 +203,31 @@ const {
   display: flex;
   min-height: 0;
   flex-direction: column;
-  gap: var(--runne-space-md);
+  gap: var(--runne-space-sm);
   overflow-y: auto;
   margin: 0;
-  padding: var(--runne-space-lg);
+  padding: var(--runne-space-md);
   list-style: none;
 }
 
 .conversation-chat__message {
-  max-width: 82%;
-  padding: var(--runne-space-md);
-  border: 1px solid var(--runne-border);
-  border-radius: var(--runne-radius-lg);
-  background: var(--runne-surface-raised);
+  max-width: min(88%, 72ch);
+  padding: var(--runne-space-sm) var(--runne-space-md);
+  border: 1px solid transparent;
+  border-radius: var(--runne-radius-md);
 }
 
 .conversation-chat__message--user {
   align-self: flex-end;
   border-color: color-mix(in srgb, var(--runne-accent) 35%, var(--runne-border));
+  background: var(--runne-surface-raised);
 }
 
 .conversation-chat__message p {
   margin: var(--runne-space-xs) 0 0;
   color: var(--runne-text-primary);
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -246,11 +247,34 @@ const {
 .conversation-chat__composer {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--runne-space-md);
-  padding: var(--runne-space-md) var(--runne-space-lg);
+  gap: 0;
   border-top: 1px solid var(--runne-border);
   background: var(--runne-surface);
 }
 
-.conversation-chat__composer > .conversation-capability-controls { grid-column: 1 / -1; }
+.conversation-chat__composer :deep(.submit-prompt) {
+  gap: var(--runne-space-sm);
+  padding: var(--runne-space-sm) var(--runne-space-md);
+  border: 0;
+}
+
+.conversation-chat__composer :deep(.gc-input-label) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.conversation-chat__composer :deep(.gc-textarea) {
+  height: 72px;
+  min-height: 72px;
+  max-height: 72px;
+  resize: none;
+  overflow-y: auto;
+  padding: var(--runne-space-sm) var(--runne-space-md);
+  font-size: 13px;
+}
 </style>

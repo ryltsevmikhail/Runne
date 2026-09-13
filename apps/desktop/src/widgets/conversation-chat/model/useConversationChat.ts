@@ -26,6 +26,7 @@ export type SubscribeConversation = (
 
 export interface ConversationChatOptions {
   workspaceId: string
+  disabled?: boolean | undefined
   connect?: Connect | undefined
   openConversation?: OpenConversation | undefined
   subscribeConversation?: SubscribeConversation | undefined
@@ -66,17 +67,20 @@ export function useConversationChat(options: ConversationChatOptions) {
   let disposed = false
   const recovery = computed(() => snapshot.value?.recovery ?? 'live')
   const canCompose = computed(() => (
-    runtimeState.value === 'live'
+    options.disabled !== true
+    && runtimeState.value === 'live'
     && recovery.value === 'live'
     && !loading.value
     && !sending.value
+    && !unavailable.value
   ))
   const canSend = computed(() => (
     canCompose.value
     && draft.value.length > 0
   ))
   const canResync = computed(() => (
-    recovery.value === 'resync_required'
+    options.disabled !== true
+    && recovery.value === 'resync_required'
     && session !== null
     && !loading.value
     && !resyncing.value

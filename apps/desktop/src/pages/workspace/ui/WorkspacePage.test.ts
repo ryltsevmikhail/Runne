@@ -1,11 +1,13 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { defineComponent, h, shallowRef, type Ref } from 'vue'
-import { describe, expect, it } from 'vitest'
+import { defineComponent, h, shallowRef, type Component, type Ref } from 'vue'
+import { describe, expect, it, vi } from 'vitest'
 
 import { provideRuntimeSession, type RuntimeSessionContext, type RuntimeSessionSnapshot } from '@/app/providers/runtime-session'
+import type { CanonicalWorkspace } from '@/entities/project'
 import type { WorkspaceFileEntry } from '@/entities/file-tree'
 import { currentLocale } from '@/shared/i18n'
+import type { WorkspaceRefreshLoaders } from '../model/workspace-refresh'
 import WorkspacePage from './WorkspacePage.vue'
 
 const project = {
@@ -16,25 +18,53 @@ const project = {
   open: true,
 } as const
 
-function liveContext(): RuntimeSessionContext {
+const projectA = project
+const projectB = {
+  ...project,
+  workspaceId: '01890e00-0000-7000-8000-000000000003',
+  displayName: 'runne-cli',
+} as const
+const WORKSPACE_A = projectA.workspaceId
+const WORKSPACE_B = projectB.workspaceId
+
+type Loaders = WorkspaceRefreshLoaders
+type LoaderOverrides = Partial<Loaders> & Pick<Loaders, 'loadProject'>
+
+const emptyFiles: Loaders['loadFiles'] = async () => ({ items: [] })
+const emptyChanges: Loaders['loadChanges'] = async () => ({ items: [] })
+const emptyDiff: Loaders['loadDiff'] = async () => ({ path: '', kind: 'modified', hunks: [], truncated: false })
+
+function mutableRuntimeContext() {
   const snapshot = shallowRef<RuntimeSessionSnapshot>({
     runtime: 'live', status: 'live', canMutate: true,
   })
-  return {
+  const context: RuntimeSessionContext = {
     snapshot: snapshot as Readonly<Ref<RuntimeSessionSnapshot>>,
     connect: async () => snapshot.value,
     retry: async () => snapshot.value,
     close: async () => {},
     observeBootstrap: () => snapshot.value,
   }
+  return {
+    context,
+    set(next: Partial<RuntimeSessionSnapshot>) {
+      snapshot.value = { ...snapshot.value, ...next }
+    },
+  }
 }
 
-async function mountWorkspace(
-  loadProject: (id: string) => Promise<typeof project>,
-  loadFiles: (id: string, path: string, limit: number) => Promise<{
-    readonly items: readonly WorkspaceFileEntry[]
-  }> = async () => ({ items: [] }),
+async function mountPageWith(
+  loaders: LoaderOverrides,
+  runtime = mutableRuntimeContext(),
+  stubs: Record<string, Component> = {},
+  initialWorkspaceId = WORKSPACE_A,
 ) {
+  const props: Loaders = {
+    loadProject: loaders.loadProject,
+    loadFiles: loaders.loadFiles ?? emptyFiles,
+    loadChanges: loaders.loadChanges ?? emptyChanges,
+    loadDiff: loaders.loadDiff ?? emptyDiff,
+  }
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -43,17 +73,26 @@ async function mountWorkspace(
       { path: '/workspaces/:workspaceId', name: 'workspace', component: WorkspacePage },
     ],
   })
-  await router.push(`/workspaces/${project.workspaceId}`)
+  await router.push(`/workspaces/${initialWorkspaceId}`)
   await router.isReady()
   const Harness = defineComponent({
     setup() {
-      provideRuntimeSession(liveContext())
-      return () => h(WorkspacePage, { loadProject, loadFiles })
+      provideRuntimeSession(runtime.context)
+      return () => h(WorkspacePage, props)
     },
   })
-  const wrapper = mount(Harness, { global: { plugins: [router] } })
+  const wrapper = mount(Harness, { global: { plugins: [router], stubs } })
   await flushPromises()
-  return wrapper
+  return { wrapper, router, runtime }
+}
+
+async function mountWorkspace(
+  loadProject: (id: string) => Promise<CanonicalWorkspace>,
+  loadFiles: (id: string, path: string, limit: number) => Promise<{
+    readonly items: readonly WorkspaceFileEntry[]
+  }> = async () => ({ items: [] }),
+) {
+  return (await mountPageWith({ loadProject, loadFiles })).wrapper
 }
 
 describe('workspace page', () => {
@@ -137,6 +176,9 @@ describe('workspace page', () => {
           requests += 1
           return project
         },
+        loadFiles: emptyFiles,
+        loadChanges: emptyChanges,
+        loadDiff: emptyDiff,
       },
       global: { plugins: [router] },
     })
@@ -145,4 +187,26 @@ describe('workspace page', () => {
     expect(requests).toBe(0)
     expect(wrapper.get('[role="alert"]').text()).toContain('Project unavailable')
   })
+
+  it('reloads the workspace when the router reuses the page and ignores an older response', async () => {
+    let resolveA!: (value: typeof projectA) => void
+    const loadProject = vi.fn((id: string) => id === WORKSPACE_A
+      ? new Promise<typeof projectA>(resolve => { resolveA = resolve })
+      : Promise.resolve(projectB))
+    const loadFiles = vi.fn(emptyFiles)
+    const loadChanges = vi.fn(emptyChanges)
+    const { wrapper, router } = await mountPageWith({ loadProject, loadFiles, loadChanges })
+
+    await router.push(`/workspaces/${WORKSPACE_B}`)
+    await flushPromises()
+    expect(wrapper.get('h1').text()).toBe(projectB.displayName)
+    expect(loadProject).toHaveBeenCalledWith(WORKSPACE_B)
+
+    resolveA(projectA)
+    await flushPromises()
+    expect(wrapper.get('h1').text()).toBe(projectB.displayName)
+    expect(loadFiles).toHaveBeenCalledWith(WORKSPACE_B, '', 50)
+    expect(loadChanges).toHaveBeenCalledWith(WORKSPACE_B, 50)
+  })
+
 })
