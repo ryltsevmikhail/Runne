@@ -156,7 +156,7 @@ describe('desktop application shell', () => {
     })
 
     const titleBar = wrapper.get('.desktop-title-bar')
-    expect(titleBar.attributes('data-tauri-drag-region')).toBe('')
+    expect(titleBar.attributes('data-tauri-drag-region')).toBe('deep')
     expect(titleBar.get('.gc-title-bar-logo').attributes('alt')).toBe('Runne')
   })
 

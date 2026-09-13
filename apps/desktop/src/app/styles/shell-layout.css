@@ -1,7 +1,9 @@
 .app-shell {
   position: relative;
   display: grid;
-  min-height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr);
   grid-template-columns: 244px minmax(0, 1fr);
   gap: 8px;
   padding: 36px 8px 8px;

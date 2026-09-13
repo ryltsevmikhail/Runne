@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import primaryLogo from '../assets/runne-primary-logo.svg'
 import primaryLogoLight from '../assets/runne-primary-logo-light.svg'
+
+defineProps<{ nativeWindowControls?: boolean }>()
 </script>
 
 <template>
   <header class="gc-title-bar">
-    <div class="gc-title-bar-controls">
+    <div v-if="nativeWindowControls" class="gc-title-bar-native-controls" aria-hidden="true" />
+    <div v-else class="gc-title-bar-controls">
       <span class="gc-title-bar-dot gc-title-bar-dot--close" />
       <span class="gc-title-bar-dot gc-title-bar-dot--minimize" />
       <span class="gc-title-bar-dot gc-title-bar-dot--maximize" />
@@ -44,6 +47,10 @@ import primaryLogoLight from '../assets/runne-primary-logo-light.svg'
   display: flex;
   gap: 8px;
   -webkit-app-region: no-drag;
+}
+
+.gc-title-bar-native-controls {
+  flex: 0 0 68px;
 }
 
 .gc-title-bar-dot {

@@ -1,6 +1,6 @@
 .workspace {
   min-width: 0;
-  min-height: calc(100vh - 44px);
+  min-height: 0;
   overflow: auto;
   padding: 34px 38px;
   border: 1px solid var(--border);
