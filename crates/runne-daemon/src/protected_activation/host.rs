@@ -191,7 +191,9 @@ fn enrollment_transition_composition(
     let Ok(facts) = application.protected_enrollment_facts() else {
         return Ok(None);
     };
-    let profile_directory = enrollment_profile_directory(runtime_root);
+    let Some(profile_directory) = enrollment_profile_directory(runtime_root) else {
+        return Ok(None);
+    };
     let composition = EnrollmentControlComposition::new(
         request.clone(),
         *facts.installation.installation_identity_digest(),
@@ -201,6 +203,7 @@ fn enrollment_transition_composition(
         facts.certificate_der,
         facts.capabilities,
         profile_directory,
+        runtime_root.to_path_buf(),
         super::control_v3::macos_continuous_ticket_clock(),
         Some(facts.credential_enrollment_control),
     );
@@ -212,8 +215,8 @@ fn enrollment_transition_composition(
     target_os = "macos",
     target_arch = "aarch64"
 ))]
-fn enrollment_profile_directory(runtime_root: &Path) -> std::path::PathBuf {
-    runtime_root.to_path_buf()
+fn enrollment_profile_directory(runtime_root: &Path) -> Option<std::path::PathBuf> {
+    runtime_root.parent().map(Path::to_path_buf)
 }
 
 #[cfg(all(
@@ -223,11 +226,12 @@ fn enrollment_profile_directory(runtime_root: &Path) -> std::path::PathBuf {
     target_arch = "aarch64"
 ))]
 #[test]
-fn enrollment_composition_uses_exact_runtime_root_for_updater_journals() {
-    let runtime_root = Path::new("/private/var/runne/bundled-runtime");
+fn enrollment_composition_uses_runtime_root_parent_for_updater_journals() {
+    let profile_directory = Path::new("/private/var/runne");
+    let runtime_root = profile_directory.join("bundled-runtime");
     assert_eq!(
-        enrollment_profile_directory(runtime_root),
-        runtime_root.to_path_buf()
+        enrollment_profile_directory(&runtime_root),
+        Some(profile_directory.to_path_buf())
     );
 }
 

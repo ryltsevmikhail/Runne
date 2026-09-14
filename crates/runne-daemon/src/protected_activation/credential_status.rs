@@ -22,7 +22,7 @@ pub(super) fn respond(
     let native =
         runne_platform_desktop::VerifiedDaemonNativeEnrollmentPrepare::verify_current_for_peer(
             &composition.profile_directory,
-            &composition.profile_directory,
+            &composition.runtime_root,
             claims,
             channel.unix_stream(),
         )

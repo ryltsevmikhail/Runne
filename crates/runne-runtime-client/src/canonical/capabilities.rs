@@ -169,7 +169,6 @@ fn nonempty_identity(session: &RuntimeSessionInfo) -> bool {
     .into_iter()
     .all(|value| !value.is_empty())
         && session.launch_generation != 0
-        && session.authorization_epoch != 0
 }
 
 #[cfg(test)]
