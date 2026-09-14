@@ -33,11 +33,6 @@ pub fn outcome() -> ProcessOutcome {
             stderr: String::new(),
             exit_code: 0,
         },
-        Err(ProbeError::Populate(status)) => ProcessOutcome {
-            stdout: String::new(),
-            stderr: format!("persistent-reference-probe-populate-status:{status}\n"),
-            exit_code: 1,
-        },
         Err(ProbeError::Closed(stage)) => ProcessOutcome {
             stdout: String::new(),
             stderr: format!("persistent-reference-probe-closed-stage:{stage}\n"),
@@ -48,7 +43,6 @@ pub fn outcome() -> ProcessOutcome {
 
 enum ProbeError {
     Closed(&'static str),
-    Populate(i32),
 }
 
 fn run() -> Result<(), ProbeError> {
@@ -68,27 +62,24 @@ fn run() -> Result<(), ProbeError> {
         runne_macos_keychain_acl::ExactKeychainAccess::new(fixture.writer(), fixture.reader())
             .map_err(|_| ProbeError::Closed("access"))?;
     let metadata = metadata();
-    let item = runne_macos_keychain_acl::create_empty_generic_password(
-        &keychain, SERVICE, ACCOUNT, &metadata, &access,
+    // macOS 27 erases a saved item's partition ACL on the first
+    // `SecKeychainItemModifyAttributesAndData`, so the marker material is
+    // written in the same atomic creation step. `finalize` verifies the saved
+    // item's full partition and owner ACL and deletes it on failure, so the
+    // probe never leaves unverified material behind.
+    let item = runne_macos_keychain_acl::create_populated_generic_password(
+        &keychain, SERVICE, ACCOUNT, &metadata, MARKER, &access,
     )
     .map_err(|_| ProbeError::Closed("item-create"))?;
-    let mut item = item.finalize(&access).map_err(|error| match error {
+    let item = item.finalize(&access).map_err(|error| match error {
         runne_macos_keychain_acl::KeychainAclError::AccessDenied => {
             ProbeError::Closed("item-finalize-access-denied")
         }
         _ => ProbeError::Closed("item-finalize"),
     })?;
-    let reference = (|| {
-        runne_macos_keychain_acl::verify_item_access(&item, access.digest())
-            .map_err(|_| ProbeError::Closed("item-verify-before-populate"))?;
-        runne_macos_keychain_acl::set_item_password_with_status(&mut item, MARKER)
-            .map_err(ProbeError::Populate)?;
-        runne_macos_keychain_acl::verify_item_access(&item, access.digest())
-            .map_err(|_| ProbeError::Closed("item-verify-after-populate"))?;
-        runne_macos_keychain_acl::create_persistent_reference(&item)
-            .map(runne_macos_keychain_acl::PersistentKeychainReference::into_bytes)
-            .map_err(|_| ProbeError::Closed("persistent-reference-create"))
-    })();
+    let reference = runne_macos_keychain_acl::create_persistent_reference(&item)
+        .map(runne_macos_keychain_acl::PersistentKeychainReference::into_bytes)
+        .map_err(|_| ProbeError::Closed("persistent-reference-create"));
     match reference {
         Ok(reference) => match send_record(&reference) {
             Ok(()) => Ok(()),

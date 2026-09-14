@@ -9,7 +9,7 @@ fn copy_partition_ids(access: &SecAccess) -> Result<Vec<String>, KeychainAclErro
         return Err(KeychainAclError::AccessDenied);
     }
     let list = unsafe { CFArray::<CFType>::wrap_under_create_rule(list) };
-    let mut partition = None;
+    let mut ids = Vec::new();
     let mut default_owner_entries = 0;
     for acl in list.iter() {
         match copy_acl_record(&acl)? {
@@ -22,12 +22,13 @@ fn copy_partition_ids(access: &SecAccess) -> Result<Vec<String>, KeychainAclErro
                 let description = contents
                     .description
                     .ok_or(KeychainAclError::AccessDenied)?;
-                if partition
-                    .replace(parse_partition_ids(&description.to_string())?)
-                    .is_some()
-                {
-                    return Err(KeychainAclError::AccessDenied);
-                }
+                // macOS 27 saves the partition authorization split across
+                // several records (for example one carrying every enrolled
+                // id and one carrying a subset). The effective partition set
+                // is the union over all well-formed records, and the caller
+                // still requires it to equal the enrolled set exactly, so any
+                // unexpected id remains a hard rejection.
+                ids.extend(parse_partition_ids(&description.to_string())?);
             }
             AclRecord::RootOwner(RootOwnerAcl::Default) => default_owner_entries += 1,
             AclRecord::RootOwner(RootOwnerAcl::ChangeAcl) => {
@@ -38,9 +39,11 @@ fn copy_partition_ids(access: &SecAccess) -> Result<Vec<String>, KeychainAclErro
     if default_owner_entries > 1 {
         return Err(KeychainAclError::AccessDenied);
     }
-    let mut ids = partition.ok_or(KeychainAclError::AccessDenied)?;
     ids.sort_unstable();
     ids.dedup();
+    if ids.is_empty() {
+        return Err(KeychainAclError::AccessDenied);
+    }
     Ok(ids)
 }
 

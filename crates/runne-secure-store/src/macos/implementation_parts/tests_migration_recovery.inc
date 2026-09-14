@@ -112,11 +112,11 @@
             CredentialMigrationFailpoint::ReplacementWritten,
         ] {
             let (store, _cleanup) = unique_provider_store(match failpoint {
-                CredentialMigrationFailpoint::BackupEmptyWritten => "recover-after-empty-backup",
+                CredentialMigrationFailpoint::BackupEmptyWritten => "recover-after-backup-write",
                 CredentialMigrationFailpoint::BackupWritten => "recover-after-backup",
                 CredentialMigrationFailpoint::PrimaryDeleted => "recover-after-delete",
                 CredentialMigrationFailpoint::ReplacementEmptyWritten => {
-                    "recover-after-empty-replacement"
+                    "recover-after-replacement-write"
                 }
                 CredentialMigrationFailpoint::ReplacementWritten => "recover-after-replacement",
             });
@@ -168,11 +168,7 @@
                 &current_policy,
                 &replacement_policy,
             );
-            if matches!(
-                failpoint,
-                CredentialMigrationFailpoint::PrimaryDeleted
-                    | CredentialMigrationFailpoint::ReplacementEmptyWritten
-            ) {
+            if matches!(failpoint, CredentialMigrationFailpoint::PrimaryDeleted) {
                 assert_eq!(
                     first_recovery,
                     Err(SecureStoreError::CredentialMigrationIncomplete)
@@ -185,6 +181,10 @@
                     )
                     .unwrap();
             } else {
+                // The atomic populated write leaves either a fully proven
+                // backup or a fully proven replacement, so one recovery
+                // migration completes; only a missing primary needs the
+                // backup renamed first.
                 first_recovery.unwrap();
             }
             assert_eq!(

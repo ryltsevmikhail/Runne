@@ -79,13 +79,24 @@ fn matching_opaque_shape(access: &SecAccess, authorization: CFStringRef) -> (usi
 }
 
 fn repurpose_empty_owner_acl(access: &SecAccess, authorization: CFStringRef) {
+    repurpose_empty_owner_acl_with_authorizations(access, &[authorization]);
+}
+
+fn repurpose_empty_owner_acl_with_authorizations(
+    access: &SecAccess,
+    authorizations: &[CFStringRef],
+) {
     let mut empty = opaque_acl_records(access)
         .into_iter()
         .filter(|acl| opaque_authorizations(acl).is_empty());
     let acl = empty.next().expect("one empty owner ACL");
     assert!(empty.next().is_none());
-    let authorization = unsafe { CFString::wrap_under_get_rule(authorization) };
-    let authorizations = CFArray::from_CFTypes(&[authorization]);
+    let authorizations = CFArray::from_CFTypes(
+        &authorizations
+            .iter()
+            .map(|authorization| unsafe { CFString::wrap_under_get_rule(*authorization) })
+            .collect::<Vec<_>>(),
+    );
     assert_eq!(
         unsafe {
             SecACLUpdateAuthorizations(
@@ -237,12 +248,30 @@ fn partition_rejects_an_unexpected_opaque_acl() {
 }
 
 #[test]
-fn opaque_any_authorization_is_not_accepted_as_a_default_owner() {
+fn saved_owner_acl_single_any_authorization_is_the_default_form() {
     let current = std::env::current_exe().unwrap();
     let exact = ExactKeychainAccess::new(&current, &current).unwrap();
     repurpose_empty_owner_acl(&exact.creation_access, unsafe {
         kSecACLAuthorizationAny
     });
+    // macOS 27 stores the no-applications owner record with a single `Any`
+    // authorization; verification must treat it as the Default owner form.
+    assert_eq!(
+        verify_decrypt_access(&exact.creation_access),
+        Ok(exact.trusted_digest),
+    );
+}
+
+#[test]
+fn owner_acl_with_any_plus_another_authorization_is_rejected() {
+    let current = std::env::current_exe().unwrap();
+    let exact = ExactKeychainAccess::new(&current, &current).unwrap();
+    repurpose_empty_owner_acl_with_authorizations(
+        &exact.creation_access,
+        &[unsafe { kSecACLAuthorizationAny }, unsafe {
+            kSecACLAuthorizationChangeOwner
+        }],
+    );
     assert_eq!(
         verify_decrypt_access(&exact.creation_access),
         Err(KeychainAclError::AccessDenied),

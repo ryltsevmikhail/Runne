@@ -45,7 +45,11 @@ pub fn rename_item_service(item: &SecKeychainItem, service: &str) -> Result<(), 
 
 /// Atomically replaces only the non-secret generic metadata attribute.
 ///
-/// Password bytes and ACL are left unchanged.
+/// Password bytes and ACL are left unchanged by this call itself, but macOS 27
+/// normalizes the saved item on any `SecKeychainItemModifyAttributesAndData`
+/// and erases its partition ACL record irreversibly. Store flows must not use
+/// this on an item whose partition ACL is still relied upon; recreate the item
+/// with [`create_populated_generic_password`] instead.
 ///
 /// # Errors
 ///
