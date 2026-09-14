@@ -6,7 +6,7 @@ use runne_app_core::test_support::open_protected_bundled_workspace_core;
 use tokio::{io::AsyncReadExt, net::TcpListener, sync::Notify};
 
 use super::*;
-use crate::directory_selection_test_support::test_admission;
+use crate::directory_selection_test_support::test_admission_for;
 
 const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-0000000008c1";
 
@@ -107,7 +107,7 @@ async fn pre_send_cancellation_reaps_once_and_holds_permit_until_async_reaper_fi
         .commit(
             &reference,
             crate::directory_selection_test_support::test_root_handle(root.path()),
-            test_admission(),
+            test_admission_for(WORKSPACE_ID.parse().expect("workspace"), 1),
             &mut permit,
             Instant::now(),
         )

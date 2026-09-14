@@ -10,7 +10,7 @@ use tokio::{
 };
 
 use super::*;
-use crate::directory_selection_test_support::test_admission;
+use crate::directory_selection_test_support::test_admission_for;
 
 const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-000000000881";
 const PROJECT_ID: &str = "018f2e3a-7000-7000-8000-000000000882";
@@ -137,7 +137,7 @@ async fn cancellation_after_possible_bind_send_retains_the_exact_child_for_retry
         .commit(
             &reference,
             crate::directory_selection_test_support::test_root_handle(root.path()),
-            test_admission(),
+            test_admission_for(WORKSPACE_ID.parse().expect("workspace"), 1),
             &mut permit,
             Instant::now(),
         )
@@ -203,7 +203,7 @@ async fn initial_and_retry_are_single_attempt_exact_bindings() {
         .commit(
             &reference,
             crate::directory_selection_test_support::test_root_handle(directory.path()),
-            test_admission(),
+            test_admission_for(WORKSPACE_ID.parse().expect("workspace"), 1),
             &mut permit,
             Instant::now(),
         )

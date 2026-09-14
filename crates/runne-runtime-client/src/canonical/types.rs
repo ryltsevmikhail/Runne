@@ -62,6 +62,17 @@ impl<'de> Deserialize<'de> for CanonicalId {
     }
 }
 
+impl TryFrom<runne_api::WorkspaceId> for CanonicalId {
+    type Error = RuntimeApiError;
+
+    fn try_from(value: runne_api::WorkspaceId) -> Result<Self, Self::Error> {
+        let uuid = uuid::Uuid::from_bytes(value.into_bytes());
+        (uuid.get_version_num() == 7 && uuid.get_variant() == uuid::Variant::RFC4122)
+            .then_some(Self(uuid))
+            .ok_or_else(|| RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest))
+    }
+}
+
 /// Command identity and opaque idempotency key.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommandIdentity {

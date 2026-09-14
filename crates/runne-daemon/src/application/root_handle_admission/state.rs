@@ -9,6 +9,7 @@ struct Pending {
     workspace: runne_domain::id::WorkspaceId,
     version: u64,
     identity: [u8; 32],
+    offer_digest: [u8; 32],
     digest: [u8; 32],
     expires_at: u64,
     baseline: WorkspaceBaseline,

@@ -176,6 +176,15 @@ pub mod test_support {
         RootHandleAdmission::from_verified_bytes(vec![1; ROOT_HANDLE_ADMISSION_V3_BYTES])
             .expect("fixed test admission")
     }
+    /// Extracts signed claims of an untrusted admission for verifier-bound tests.
+    pub fn verify_untrusted(
+        authenticator: &RootAdmissionAuthenticator,
+        admission: &RootHandleAdmission,
+    ) -> VerifiedRootAdmissionClaims {
+        authenticator
+            .verify_ref(admission)
+            .expect("signed test admission")
+    }
     #[allow(clippy::too_many_arguments)]
     pub fn claims(
         context: RootAdmissionVerificationContext,

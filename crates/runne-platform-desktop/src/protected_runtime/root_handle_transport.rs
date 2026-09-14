@@ -118,9 +118,12 @@ impl ProtectedBundledRuntimeProcess {
         let runne_api::VerifiedRootHandleControlFrame::Result(result) = result else {
             return Err(ProtectedBundledRuntimeError::LaunchAuthority(LaunchAuthorityError::InvalidContract));
         };
-        let accepted = result.accepted();
-        let admission = result.into_protected_admission();
-        if !accepted || admission.is_none() {
+        let admission_authenticator =
+            runne_api::RootAdmissionAuthenticator::from_protected_activation(&self.keys);
+        let admission = result
+            .into_protected_admission(&admission_authenticator, offer_digest)
+            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        if admission.is_none() {
             self.root_control_sequence = sequence + 2;
             return Ok(None);
         }

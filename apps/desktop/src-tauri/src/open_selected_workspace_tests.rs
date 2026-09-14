@@ -9,7 +9,7 @@ use tokio::{
 };
 
 use super::*;
-use crate::directory_selection_test_support::test_admission;
+use crate::directory_selection_test_support::test_admission_for;
 
 pub const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-000000000861";
 pub const PROJECT_ID: &str = "018f2e3a-7000-7000-8000-000000000862";
@@ -163,7 +163,7 @@ async fn prepared_value(
         .commit(
             &reference,
             root,
-            test_admission(),
+            test_admission_for(WORKSPACE_ID.parse().expect("workspace"), 1),
             &mut permit,
             Instant::now(),
         )

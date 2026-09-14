@@ -3,9 +3,7 @@
 #[cfg(feature = "desktop-protected")]
 use crate::application::root_handle_admission::RootHandleAdmissionAuthority;
 #[cfg(any(unix, windows))]
-use crate::bootstrap::{
-    BootstrapOutcome, preflight_recoverable_first_activation_sidecars,
-};
+use crate::bootstrap::{BootstrapOutcome, preflight_recoverable_first_activation_sidecars};
 #[cfg(any(unix, windows))]
 use crate::config::{BuiltInDefaults, ConfigurationSnapshot};
 #[cfg(any(unix, windows))]

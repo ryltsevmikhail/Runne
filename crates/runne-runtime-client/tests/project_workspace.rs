@@ -173,22 +173,24 @@ async fn root_bind_uses_only_the_wrapper_transport_serializer() {
     )
     .unwrap();
     let offer = RootHandleTransferOffer::new(context.clone(), 1, &keys).unwrap();
-    let admission = RootAdmissionAuthenticator::from_protected_activation(
+    let admission_keys = RootAdmissionAuthenticator::from_protected_activation(
         &LaunchSecret::from_bytes([8; 32]).unwrap().derive_keys(),
-    )
-    .issue(
-        RootAdmissionRequest::new(
-            RootAdmissionVerificationContext::new([1; 32], [2; 16], 1, [3; 32], 3, 1, 100).unwrap(),
-            workspace,
-            1,
-            [4; 32],
-            offer.digest(),
-            [5; 16],
-            30_100,
+    );
+    let admission = admission_keys
+        .issue(
+            RootAdmissionRequest::new(
+                RootAdmissionVerificationContext::new([1; 32], [2; 16], 1, [3; 32], 3, 1, 100)
+                    .unwrap(),
+                workspace,
+                1,
+                [4; 32],
+                offer.digest(),
+                [5; 16],
+                30_100,
+            )
+            .unwrap(),
         )
-        .unwrap(),
-    )
-    .unwrap();
+        .unwrap();
     let result = RootHandleTransferResult::admitted(
         &RootHandleTransferReady::new(&offer, &keys),
         admission,
@@ -206,7 +208,10 @@ async fn root_bind_uses_only_the_wrapper_transport_serializer() {
     else {
         unreachable!()
     };
-    let admission = result.into_protected_admission().unwrap();
+    let admission = result
+        .into_protected_admission(&admission_keys, offer.digest())
+        .unwrap()
+        .expect("provenance admission");
     let admission = ProtectedRootAdmission::from_verified(admission).unwrap();
     let client = mock_authenticated_runtime_client(&origin, session()).unwrap();
     assert_eq!(
@@ -220,6 +225,32 @@ async fn root_bind_uses_only_the_wrapper_transport_serializer() {
         2
     );
     server.await.unwrap();
+}
+
+#[test]
+fn workspace_id_converts_into_canonical_id_without_a_string_round_trip() {
+    use runne_api::WorkspaceId;
+    let uuid_v7_bytes = [0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 1];
+    let workspace = WorkspaceId::from_bytes(uuid_v7_bytes);
+    let converted = CanonicalId::try_from(workspace).expect("uuidv7 workspace identity");
+    assert_eq!(
+        converted,
+        CanonicalId::parse("00000000-0000-7000-8000-000000000001").expect("canonical")
+    );
+    assert_eq!(
+        CanonicalId::try_from(WorkspaceId::from_bytes([0xff; 16]))
+            .unwrap_err()
+            .kind(),
+        RuntimeApiErrorKind::InvalidRequest
+    );
+    assert_eq!(
+        CanonicalId::try_from(WorkspaceId::from_bytes([
+            0, 0, 0, 0, 0, 0, 0x70, 0, 0xc0, 0, 0, 0, 0, 0, 0, 1,
+        ]))
+        .unwrap_err()
+        .kind(),
+        RuntimeApiErrorKind::InvalidRequest
+    );
 }
 
 #[path = "project_workspace/adversarial.rs"]

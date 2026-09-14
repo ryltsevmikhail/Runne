@@ -23,6 +23,7 @@ include!("root_handle_admission/files.rs");
 include!("root_handle_admission/editor.rs");
 include!("root_handle_admission/diffs.rs");
 include!("root_handle_admission/process.rs");
+include!("root_handle_admission/verdict.rs");
 #[derive(Clone)]
 pub(crate) struct RootAdmissionGateway(Option<Arc<RootHandleAdmissionAuthority>>);
 impl RootAdmissionGateway {
@@ -138,6 +139,7 @@ impl RootHandleAdmissionAuthority {
                 workspace: transfer.workspace_id(),
                 version: transfer.expected_version(),
                 identity,
+                offer_digest: offer.digest(),
                 digest,
                 expires_at,
                 baseline,
@@ -183,7 +185,7 @@ impl RootHandleAdmissionAuthority {
             binding.ephemeral().launch_generation(),
             RootAdmissionVerificationContext::principal_digest_for(PRINCIPAL),
             3,
-            1,
+            PINNED_POLICY_VERSION,
             now,
         )
         .map_err(|_| RootAdmissionVerifierError::Unavailable)
@@ -233,6 +235,7 @@ impl RootAdmissionVerifier for RootAdmissionGateway {
             .authenticator
             .verify(admission)
             .map_err(|_| RootAdmissionVerifierError::Rejected)?;
+        // Verdicts are recomputed per command; they are never cached or memoized.
         let moment = now()?;
         let current = authority.context(moment)?;
         let mut state = authority
@@ -245,10 +248,12 @@ impl RootAdmissionVerifier for RootAdmissionGateway {
             .get(&claims.nonce())
             .ok_or(RootAdmissionVerifierError::Rejected)?;
         let matching = !state.stopped
+            && claims.context().policy_version() == PINNED_POLICY_VERSION
             && same_context(claims.context(), &current)
             && claims.workspace_id() == pending.workspace
             && claims.expected_version() == pending.version
             && claims.filesystem_identity_digest() == pending.identity
+            && claims.offer_digest() == pending.offer_digest
             && claims.admission_digest() == pending.digest
             && claims.expires_at_unix_millis() == pending.expires_at
             && pending.expires_at > moment;
@@ -271,26 +276,4 @@ impl RootAdmissionVerifier for RootAdmissionGateway {
             .then_some(claims)
             .ok_or(RootAdmissionVerifierError::Rejected)
     }
-}
-fn same_context(
-    left: &RootAdmissionVerificationContext,
-    right: &RootAdmissionVerificationContext,
-) -> bool {
-    left.authority_digest() == right.authority_digest()
-        && left.session_id() == right.session_id()
-        && left.launch_generation() == right.launch_generation()
-        && left.principal_digest() == right.principal_digest()
-        && left.capability_version() == right.capability_version()
-        && left.policy_version() == right.policy_version()
-        && left.now_unix_millis() <= right.now_unix_millis()
-}
-fn expire(state: &mut State, moment: u64) {
-    state.pending.retain(|_, item| item.expires_at > moment);
-}
-fn now() -> Result<u64, RootAdmissionVerifierError> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .and_then(|value| u64::try_from(value.as_millis()).ok())
-        .ok_or(RootAdmissionVerifierError::Unavailable)
 }

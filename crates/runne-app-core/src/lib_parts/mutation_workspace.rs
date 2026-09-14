@@ -17,10 +17,16 @@ impl AppCore {
         expected_version: u64,
         admission: runne_api::ProtectedRootHandleAdmission,
     ) -> Result<PreparedWorkspaceOpen, AppCoreError> {
-        let workspace_id = CanonicalId::parse(&workspace_id.to_string())
-            .map_err(|_| AppCoreError::InvalidMutation)?;
+        let workspace_id =
+            CanonicalId::try_from(workspace_id).map_err(|_| AppCoreError::InvalidMutation)?;
         let admission = runne_runtime_client::ProtectedRootAdmission::from_verified(admission)
             .map_err(|_| AppCoreError::InvalidMutation)?;
+        if admission.workspace_id() != workspace_id
+            || admission.expected_version() != expected_version
+        {
+            return Err(AppCoreError::InvalidMutation);
+        }
+        let admission_digest = admission.admission_digest();
         let _operation = self.runtime_operation.lock().await;
         let client = self.protected_root_bind_client()?;
         let workspace = client
@@ -36,7 +42,7 @@ impl AppCore {
             expected_version,
             CanonicalMutationCommand::BindWorkspaceRoot {
                 workspace_id,
-                admission_digest: admission.admission_digest(),
+                admission_digest,
             },
         )?)?;
         let open = (!workspace.is_open())
@@ -85,22 +91,22 @@ impl AppCore {
             CanonicalMutationCommand::BindWorkspaceRoot { workspace_id, .. } => *workspace_id,
             _ => {
                 return Err(NativeMutationFailure::new(
-                    NativeAuthorityDisposition::ReapBeforeDispatch,
+                    early_root_validation_disposition(*possible_send),
                 ));
             }
         };
         Self::validate_finalized_root_binding(bind).map_err(|_| {
-            NativeMutationFailure::new(NativeAuthorityDisposition::ReapBeforeDispatch)
+            NativeMutationFailure::new(early_root_validation_disposition(*possible_send))
         })?;
         let bind_version = bind
             .request
             .expected_version
             .checked_add(1)
             .ok_or_else(|| {
-                NativeMutationFailure::new(NativeAuthorityDisposition::ReapBeforeDispatch)
+                NativeMutationFailure::new(early_root_validation_disposition(*possible_send))
             })?;
         self.refresh_reconciling_lease(bind).map_err(|_| {
-            NativeMutationFailure::new(NativeAuthorityDisposition::ReapBeforeDispatch)
+            NativeMutationFailure::new(early_root_validation_disposition(*possible_send))
         })?;
         let bind_ack = self
             .dispatch_prepared_mutation_under_operation(
