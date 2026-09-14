@@ -248,6 +248,43 @@ fn partition_rejects_an_unexpected_opaque_acl() {
 }
 
 #[test]
+fn partition_readback_requires_homogeneous_records() {
+    let full = vec![
+        String::from("cdhash:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        String::from("cdhash:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+    ];
+    let duplicate = full.clone();
+    let subset = vec![String::from("cdhash:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")];
+    let mut foreign = full.clone();
+    foreign.push(String::from("cdhash:cccccccccccccccccccccccccccccccccccccccc"));
+
+    // macOS 27 duplicates the full record next to subset records, and
+    // decrypt enforcement requires the reader in every record, so the
+    // readback is homogeneous: duplicates of the full record pass, while
+    // a subset record, any foreign id, or no record at all is rejected.
+    assert_eq!(
+        homogeneous_partition_ids(&[full.clone(), duplicate]),
+        Ok(full.clone())
+    );
+    assert_eq!(
+        homogeneous_partition_ids(&[full.clone(), subset]),
+        Err(KeychainAclError::AccessDenied)
+    );
+    assert_eq!(
+        homogeneous_partition_ids(&[full, foreign]),
+        Err(KeychainAclError::AccessDenied)
+    );
+    assert_eq!(
+        homogeneous_partition_ids(&[]),
+        Err(KeychainAclError::AccessDenied)
+    );
+    assert_eq!(
+        homogeneous_partition_ids(&[Vec::new()]),
+        Err(KeychainAclError::AccessDenied)
+    );
+}
+
+#[test]
 fn saved_owner_acl_single_any_authorization_is_the_default_form() {
     let current = std::env::current_exe().unwrap();
     let exact = ExactKeychainAccess::new(&current, &current).unwrap();

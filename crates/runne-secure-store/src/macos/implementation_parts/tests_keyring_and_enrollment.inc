@@ -191,6 +191,11 @@
 
     #[test]
     fn provider_credential_broad_preseed_never_receives_replacement_material() {
+        if skip_if_partition_limitation(
+            "provider_credential_broad_preseed_never_receives_replacement_material",
+        ) {
+            return;
+        }
         let (store, _cleanup) = unique_provider_store("broad-preseed");
         let current = std::env::current_exe().expect("current test executable");
         let trusted_policy = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
@@ -253,6 +258,11 @@
 
     #[test]
     fn provider_credential_rejects_writer_read_and_replaced_reader_without_prompt() {
+        if skip_if_partition_limitation(
+            "provider_credential_rejects_writer_read_and_replaced_reader_without_prompt",
+        ) {
+            return;
+        }
         let (store, _cleanup) = unique_provider_store("negative-reader");
         let current = std::env::current_exe().expect("current test executable");
         let policy = ProviderCredentialAccessPolicy::new(&current, Path::new("/bin/echo")).unwrap();

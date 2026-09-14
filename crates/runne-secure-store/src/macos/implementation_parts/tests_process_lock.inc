@@ -1,5 +1,10 @@
     #[test]
     fn provider_credential_delete_is_monotonic_after_every_migration_failpoint() {
+        if skip_if_partition_limitation(
+            "provider_credential_delete_is_monotonic_after_every_migration_failpoint",
+        ) {
+            return;
+        }
         for failpoint in [
             CredentialMigrationFailpoint::BackupEmptyWritten,
             CredentialMigrationFailpoint::BackupWritten,
