@@ -5,8 +5,8 @@ use runne_api::{
     ExistingProjectCommand, ExistingWorkspaceCommand, ProjectCommandAck, ProjectCommandContext,
     ProjectPage, ProjectPageRequest, ProjectQueryContext, ProjectSnapshot,
     ProjectWorkspaceCommandHostPort, ProjectWorkspaceHostError, ProjectWorkspaceQueryHostPort,
-    RenameProjectCommand,
-    WorkspaceCommandAck, WorkspacePage, WorkspacePageRequest, WorkspaceSnapshot,
+    RenameProjectCommand, WorkspaceCommandAck, WorkspacePage, WorkspacePageRequest,
+    WorkspaceSnapshot,
 };
 use runne_domain::id::{ProjectId, WorkspaceId};
 use runne_http::{
@@ -52,7 +52,11 @@ impl ProjectWorkspaceCommandHostPort for UnavailableHost {
     ) -> Result<ProjectCommandAck, ProjectWorkspaceHostError> {
         Err(ProjectWorkspaceHostError::Unavailable)
     }
-    async fn rename_project(&self, _: ProjectCommandContext, _: RenameProjectCommand) -> Result<ProjectCommandAck, ProjectWorkspaceHostError> {
+    async fn rename_project(
+        &self,
+        _: ProjectCommandContext,
+        _: RenameProjectCommand,
+    ) -> Result<ProjectCommandAck, ProjectWorkspaceHostError> {
         Err(ProjectWorkspaceHostError::Unavailable)
     }
     async fn create_workspace(

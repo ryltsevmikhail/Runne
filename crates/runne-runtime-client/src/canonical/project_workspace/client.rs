@@ -1,5 +1,3 @@
-use reqwest::{Method, header::CONTENT_TYPE};
-
 use super::{
     BindWorkspaceRootRequest, CreateProjectRequest, CreateWorkspaceRequest, ExistingProjectRequest,
     ExistingWorkspaceRequest, ProjectCommandAcknowledgement, ProjectPageCursor, ProjectPageDto,
@@ -7,9 +5,12 @@ use super::{
     WorkspacePageDto, WorkspaceSnapshotDto, wire::*,
 };
 use crate::canonical::{
-    AuthenticatedRuntimeClient, CanonicalId, RuntimeApiError, RuntimeApiErrorKind,
-    read_success_json,
+    AuthenticatedRuntimeClient, CanonicalId, RuntimeApiError, read_success_json,
 };
+use reqwest::{Method, header::CONTENT_TYPE};
+#[path = "client/errors.rs"]
+mod errors;
+use errors::{invalid_request, invalid_response, map_transport, page_limit};
 
 impl AuthenticatedRuntimeClient {
     /// Reads one principal-bound, bounded Project page.
@@ -117,8 +118,8 @@ impl AuthenticatedRuntimeClient {
                     .expected_version
                     .checked_add(1)
                     .ok_or_else(invalid_response)?)
-            .then_some(ack)
-            .ok_or_else(invalid_response)
+        .then_some(ack)
+        .ok_or_else(invalid_response)
     }
     /// Deletes one Project at its exact expected version.
     pub async fn delete_project(
@@ -295,18 +296,4 @@ impl AuthenticatedRuntimeClient {
             .await
             .map_err(map_transport)
     }
-}
-fn page_limit(limit: u16) -> Result<(), RuntimeApiError> {
-    (limit != 0 && limit <= 100)
-        .then_some(())
-        .ok_or_else(invalid_request)
-}
-fn invalid_request() -> RuntimeApiError {
-    RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest)
-}
-fn invalid_response() -> RuntimeApiError {
-    RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse)
-}
-fn map_transport(_: reqwest::Error) -> RuntimeApiError {
-    RuntimeApiError::new(RuntimeApiErrorKind::Unavailable)
 }

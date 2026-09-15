@@ -73,7 +73,6 @@ const runtimeSession = createRuntimeSessionContext(createRuntimeSessionControlle
   loadBootstrap,
 }))
 provideRuntimeSession(runtimeSession)
-
 const sidebarItems = computed(() => [
   { id: 'projects', label: translate('projects.title'), icon: FolderKanban },
   { id: 'task-runs', label: translate('taskRunInventory.navigation'), icon: History },
@@ -85,7 +84,6 @@ const activeSidebarItem = computed(() => route.path.startsWith('/settings')
 let runtimePoll: ReturnType<typeof setInterval> | undefined
 let notificationPoll: ReturnType<typeof setInterval> | undefined
 let stopExternalActivation: (() => void) | undefined
-
 function applyBootstrap(
   bootstrap: Awaited<ReturnType<typeof loadBootstrap>>,
   themeRead = captureThemeRead(),
@@ -97,7 +95,6 @@ function applyBootstrap(
   runtimeFailure.value = bootstrap.runtimeFailure
   runtimeSession.observeBootstrap(bootstrap)
 }
-
 async function refreshRuntimeStatus() {
   try {
     const themeRead = captureThemeRead()
@@ -109,7 +106,6 @@ async function refreshRuntimeStatus() {
     runtimeSession.observeBootstrap({ runtime: 'fatal' })
   }
 }
-
 async function openExternalActivation(target: ActivationTarget) {
   if (runtimeState.value !== 'live') return
   if (target.runtime !== null) {
@@ -132,7 +128,6 @@ async function openExternalActivation(target: ActivationTarget) {
     activationNotice.value = translate('activation.surfaceUnavailable')
   }
 }
-
 const pendingActivation = ref<ActivationTarget | null>(null)
 watch(runtimeState, () => {
   if (pendingActivation.value === null || runtimeState.value !== 'live') return

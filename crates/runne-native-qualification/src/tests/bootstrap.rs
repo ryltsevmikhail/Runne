@@ -1,6 +1,6 @@
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::{Signer as _, SigningKey};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
 use crate::{
@@ -203,10 +203,12 @@ fn bootstrap_proof_has_distinct_signature_domain_and_closed_json() {
 
     let mut unknown = unsigned();
     unknown["extra"] = json!(true);
-    assert!(PendingQualificationRunBootstrapProof::from_signed_bytes(
-        serde_json::to_vec(&unknown).expect("json")
-    )
-    .is_err());
+    assert!(
+        PendingQualificationRunBootstrapProof::from_signed_bytes(
+            serde_json::to_vec(&unknown).expect("json")
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -248,23 +250,25 @@ fn bootstrap_proof_rejects_zero_and_invalid_admission_windows() {
 
 #[test]
 fn bootstrap_expectation_and_unprovisioned_authority_fail_closed() {
-    assert!(QualificationRunBootstrapExpectation::new(
-        [0; 32],
-        [0xbb; 32],
-        [0xcc; 20],
-        "run-42",
-        [0xdd; 32],
-        [0xee; 32],
-        [0xff; 32],
-        [0x11; 32],
-        [0x22; 32],
-        [0x33; 32],
-        NOW,
-        NOW + 300,
-        NOW + 3600,
-        3600,
-    )
-    .is_err());
+    assert!(
+        QualificationRunBootstrapExpectation::new(
+            [0; 32],
+            [0xbb; 32],
+            [0xcc; 20],
+            "run-42",
+            [0xdd; 32],
+            [0xee; 32],
+            [0xff; 32],
+            [0x11; 32],
+            [0x22; 32],
+            [0x33; 32],
+            NOW,
+            NOW + 300,
+            NOW + 3600,
+            3600,
+        )
+        .is_err()
+    );
     let key = SigningKey::from_bytes(&[9; 32]);
     let pending = PendingQualificationRunBootstrapProof::from_signed_bytes(sign(&unsigned(), &key))
         .expect("pending");

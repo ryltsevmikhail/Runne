@@ -15,12 +15,19 @@ impl CompiledUpdater {
     pub fn load(profile_directory: &Path) -> Option<Self> {
         Self::load_remote(profile_directory).or_else(|| {
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-            { Some(Self {
-                endpoint: None, rollback_floor: None,
-                coordinator: UpdateCoordinator::for_current_installed_release(profile_directory)?,
-            }) }
+            {
+                Some(Self {
+                    endpoint: None,
+                    rollback_floor: None,
+                    coordinator: UpdateCoordinator::for_current_installed_release(
+                        profile_directory,
+                    )?,
+                })
+            }
             #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-            { None }
+            {
+                None
+            }
         })
     }
 

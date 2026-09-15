@@ -2,6 +2,7 @@ import english from './english'
 import { phase2Russian } from './phase2'
 import conversationTarget from './russian-conversation-target'
 import targetSurfaces from './russian-target-surfaces'
+import runtimeRussian from './russian-runtime'
 
 const russian: Record<keyof typeof english, string> = {
   'settings.title': 'Настройки',
@@ -276,32 +277,7 @@ const russian: Record<keyof typeof english, string> = {
   'taskRun.loading': 'Загрузка TaskRun…',
   'taskRun.requestCancellation': 'Запросить отмену',
   'taskRun.revalidate': 'Проверить TaskRun заново',
-  'runtime.failure.configuration': 'Требуется настроить провайдера',
-  'runtime.failure.protectedActivation': 'Защищённый запуск недоступен',
-  'runtime.failure.executableMissing': 'Встроенный runtime отсутствует',
-  'runtime.failure.executableMismatch': 'Проверка executable не пройдена',
-  'runtime.failure.readinessRejected': 'Проверка runtime не пройдена',
-  'runtime.failure.restartExhausted': 'Достигнут лимит перезапусков',
-  'runtime.failure.shutdownIncomplete': 'Не удалось подтвердить остановку',
-  'runtime.failure.unsupportedBackend': 'Защищённый backend не поддерживается',
-  'runtime.failure.unsafeTransport': 'Небезопасный транспорт отклонён',
-  'runtime.title.configuration': 'Требуется настроить провайдера',
-  'runtime.title.starting': 'Запуск runtime',
-  'runtime.title.ready': 'Runtime готов',
-  'runtime.title.restarting': 'Перезапуск runtime',
-  'runtime.title.degraded': 'Runtime работает в degraded-режиме',
-  'runtime.title.failed': 'Ошибка runtime',
-  'runtime.title.external': 'Внешний runtime',
-  'runtime.detail.configureProvider': 'Настройте провайдера для запуска встроенного runtime',
-  'runtime.detail.protectedActivation': 'Защищённый запуск',
-  'runtime.detail.replayResync': 'Требуется повторная синхронизация replay',
-  'runtime.detail.protectedSession': 'Защищённая сессия',
-  'runtime.detail.rotatingSession': 'Ротация сессии runtime',
-  'runtime.detail.retryingSafely': 'Безопасная повторная попытка',
-  'runtime.detail.openDiagnostics': 'Откройте диагностику для подробностей',
-  'runtime.detail.externalConnected': 'Явный режим · подключено',
-  'runtime.detail.externalConnection': 'Явный режим · {connection}',
-  'runtime.detail.unavailable': 'Runtime недоступен',
+  ...runtimeRussian,
   ...phase2Russian,
   ...conversationTarget,
   ...targetSurfaces,

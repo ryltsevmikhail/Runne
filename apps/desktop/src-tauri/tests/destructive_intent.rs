@@ -23,6 +23,7 @@ fn unpublished_destructive_operations_have_no_tauri_command() {
 #[test]
 fn destructive_surface_has_one_native_port_and_no_public_prepared_continuation() {
     let destructive = include_str!("../src/lib_parts/destructive_commands.rs");
+    let confirmation = include_str!("../src/lib_parts/destructive_commands/confirmation.rs");
     let app_core =
         include_str!("../../../../crates/runne-app-core/src/lib_parts/destructive_action.rs");
 
@@ -32,7 +33,7 @@ fn destructive_surface_has_one_native_port_and_no_public_prepared_continuation()
             .count(),
         1
     );
-    assert!(destructive.contains(".parent(&parent)"));
+    assert!(confirmation.contains(".parent(&parent)"));
     assert!(!app_core.contains("pub async fn prepare_destructive_project_action"));
     assert!(!app_core.contains("pub async fn dispatch_destructive_project_action"));
 }

@@ -13,10 +13,10 @@ use runne_security::SecretBroker;
 use runne_store::{schema::apply_migrations, store::StoreTransaction};
 use rusqlite::{Connection, params};
 
-#[path = "support/validated_reopen.rs"]
-mod validated_reopen;
 #[path = "support/v36_receipt_downgrade.rs"]
 mod v36_receipt_downgrade;
+#[path = "support/validated_reopen.rs"]
+mod validated_reopen;
 
 fn guard() -> Arc<dyn ProhibitedContentPort> {
     Arc::new(SecretBroker::new().prohibited_content_guard())

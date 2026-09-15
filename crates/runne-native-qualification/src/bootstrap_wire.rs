@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{QualificationRunBootstrapError, MAX_RUN_BOOTSTRAP_PROOF_BYTES};
+use crate::{MAX_RUN_BOOTSTRAP_PROOF_BYTES, QualificationRunBootstrapError};
 
 pub const SCHEMA_VERSION: &str = "runne/macos-xpc-dpk-run-bootstrap/v1";
 pub const SIGNATURE_DOMAIN: &[u8] = b"runne/macos-xpc-dpk-run-bootstrap/v1\0";

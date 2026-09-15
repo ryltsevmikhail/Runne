@@ -162,12 +162,25 @@ pub(super) fn v36_receipt_table_matches(connection: &Connection) -> SqliteResult
 }
 
 #[cfg(test)]
-pub(crate) fn restore_v18_project_workspace_receipt_for_test(connection: &Connection) -> SqliteResult<()> {
-    let receipt = MIGRATION_V18.split(';').map(str::trim).find(|sql| sql.starts_with("CREATE TABLE project_workspace_command_receipts ")).expect("V18 project receipt is frozen");
-    let temporary = receipt.replace("CREATE TABLE project_workspace_command_receipts", "CREATE TABLE project_workspace_command_receipts_v18");
+pub(crate) fn restore_v18_project_workspace_receipt_for_test(
+    connection: &Connection,
+) -> SqliteResult<()> {
+    let receipt = MIGRATION_V18
+        .split(';')
+        .map(str::trim)
+        .find(|sql| sql.starts_with("CREATE TABLE project_workspace_command_receipts "))
+        .expect("V18 project receipt is frozen");
+    let temporary = receipt.replace(
+        "CREATE TABLE project_workspace_command_receipts",
+        "CREATE TABLE project_workspace_command_receipts_v18",
+    );
     let transaction = Transaction::new_unchecked(connection, TransactionBehavior::Exclusive)?;
     transaction.execute_batch(&format!("DROP TRIGGER global_command_id_from_command_receipts; DROP TRIGGER global_command_id_from_project_workspace_receipts; {temporary}; INSERT INTO project_workspace_command_receipts_v18 SELECT * FROM project_workspace_command_receipts; DROP TABLE project_workspace_command_receipts; {receipt}; INSERT INTO project_workspace_command_receipts SELECT * FROM project_workspace_command_receipts_v18; DROP TABLE project_workspace_command_receipts_v18;"))?;
-    for operation in ["insert", "update", "delete"] { transaction.execute_batch(&super::v12_fence_trigger("project_workspace_command_receipts", operation).1)?; }
+    for operation in ["insert", "update", "delete"] {
+        transaction.execute_batch(
+            &super::v12_fence_trigger("project_workspace_command_receipts", operation).1,
+        )?;
+    }
     transaction.execute_batch(GLOBAL_COMMAND_RECEIPT_TRIGGER)?;
     transaction.execute_batch(GLOBAL_PROJECT_WORKSPACE_RECEIPT_TRIGGER)?;
     transaction.commit()
@@ -262,30 +275,4 @@ pub(super) fn v18_base_matches_with_additional_triggers(
     Ok(tables_match && global_command_triggers_match(connection)?)
 }
 
-fn global_command_triggers_match(connection: &Connection) -> SqliteResult<bool> {
-    [
-        (
-            "global_command_id_from_command_receipts",
-            GLOBAL_COMMAND_RECEIPT_TRIGGER,
-        ),
-        (
-            "global_command_id_from_project_workspace_receipts",
-            GLOBAL_PROJECT_WORKSPACE_RECEIPT_TRIGGER,
-        ),
-    ]
-    .into_iter()
-    .try_fold(true, |valid, (name, expected)| {
-        let actual: Option<String> = connection
-            .query_row(
-                "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?1",
-                [name],
-                |row| row.get(0),
-            )
-            .optional()?;
-        Ok(valid
-            && actual.is_some_and(|sql| {
-                super::normalize_sql(expected.trim().trim_end_matches(';'))
-                    == super::normalize_sql(&sql)
-            }))
-    })
-}
+include!("project_workspace_schema_triggers.inc");

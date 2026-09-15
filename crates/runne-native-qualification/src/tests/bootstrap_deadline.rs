@@ -52,11 +52,13 @@ fn bootstrap_expectation_requires_a_safe_bounded_run_deadline() {
             Err(QualificationRunBootstrapError::InvalidExpectation)
         ));
     }
-    assert!(expectation(
-        MAX_SAFE_JSON_INTEGER - 300,
-        MAX_SAFE_JSON_INTEGER,
-        MAX_SAFE_JSON_INTEGER,
-        300,
-    )
-    .is_ok());
+    assert!(
+        expectation(
+            MAX_SAFE_JSON_INTEGER - 300,
+            MAX_SAFE_JSON_INTEGER,
+            MAX_SAFE_JSON_INTEGER,
+            300,
+        )
+        .is_ok()
+    );
 }

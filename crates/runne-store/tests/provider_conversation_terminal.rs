@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use runne_api::CreateConversationInput;
 use runne_application::commands::BeginConversationTextInput;
 use runne_application::conversation_service::ConversationService;
@@ -25,10 +24,11 @@ use runne_security::SecretBroker;
 use runne_store::schema::apply_migrations;
 use runne_store::store::StoreTransaction;
 use rusqlite::Connection;
-#[path = "support/validated_reopen.rs"]
-mod validated_reopen;
+use std::sync::Arc;
 #[path = "support/v36_receipt_downgrade.rs"]
 mod v36_receipt_downgrade;
+#[path = "support/validated_reopen.rs"]
+mod validated_reopen;
 fn available_guard() -> Arc<dyn ProhibitedContentPort> {
     Arc::new(SecretBroker::new().prohibited_content_guard())
 }

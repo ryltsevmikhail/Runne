@@ -1,6 +1,7 @@
 import { phase2English } from './phase2'
 import conversationTarget from './english-conversation-target'
 import targetSurfaces from './english-target-surfaces'
+import runtimeEnglish from './english-runtime'
 
 const english = {
   'settings.title': 'Settings',
@@ -275,32 +276,7 @@ const english = {
   'taskRun.loading': 'Loading task run…',
   'taskRun.requestCancellation': 'Request cancellation',
   'taskRun.revalidate': 'Revalidate task run',
-  'runtime.failure.configuration': 'Provider configuration is required',
-  'runtime.failure.protectedActivation': 'Protected activation unavailable',
-  'runtime.failure.executableMissing': 'Bundled runtime is missing',
-  'runtime.failure.executableMismatch': 'Executable verification failed',
-  'runtime.failure.readinessRejected': 'Runtime verification failed',
-  'runtime.failure.restartExhausted': 'Restart limit reached',
-  'runtime.failure.shutdownIncomplete': 'Shutdown could not be confirmed',
-  'runtime.failure.unsupportedBackend': 'Protected activation is unsupported',
-  'runtime.failure.unsafeTransport': 'Unsafe transport was rejected',
-  'runtime.title.configuration': 'Provider configuration required',
-  'runtime.title.starting': 'Runtime starting',
-  'runtime.title.ready': 'Runtime ready',
-  'runtime.title.restarting': 'Runtime restarting',
-  'runtime.title.degraded': 'Runtime degraded',
-  'runtime.title.failed': 'Runtime failed',
-  'runtime.title.external': 'External runtime',
-  'runtime.detail.configureProvider': 'Configure a provider to start the bundled runtime',
-  'runtime.detail.protectedActivation': 'Protected activation',
-  'runtime.detail.replayResync': 'Replay resync required',
-  'runtime.detail.protectedSession': 'Protected session',
-  'runtime.detail.rotatingSession': 'Rotating runtime session',
-  'runtime.detail.retryingSafely': 'Retrying safely',
-  'runtime.detail.openDiagnostics': 'Open diagnostics for details',
-  'runtime.detail.externalConnected': 'Explicit mode · connected',
-  'runtime.detail.externalConnection': 'Explicit mode · {connection}',
-  'runtime.detail.unavailable': 'Runtime unavailable',
+  ...runtimeEnglish,
   ...phase2English,
   ...conversationTarget,
   ...targetSurfaces,
