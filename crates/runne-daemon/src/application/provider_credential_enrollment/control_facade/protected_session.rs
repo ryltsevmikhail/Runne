@@ -12,6 +12,7 @@ use runne_api::{
     ProviderCredentialEnrollmentHostError, ProviderCredentialOperationSnapshotV2,
     ProviderCredentialRequestAuthorityPair, ProviderCredentialRequestAuthorityVerifier,
     VerifiedProtectedCredentialEnrollmentAdmission, VerifiedProtectedCredentialEnrollmentRequest,
+    VerifyProviderCredential,
 };
 
 #[cfg(all(
@@ -74,6 +75,7 @@ pub(crate) struct DaemonProtectedCredentialEnrollmentSession {
     rendezvous: Option<DaemonOwnedUnixBrokerRendezvous>,
     pending: Option<VerifiedAdmission>,
     begun: Option<(BeginProviderCredentialEnrollment, ProviderCredentialOperationSnapshotV2)>,
+    verified: Option<(VerifyProviderCredential, ProviderCredentialOperationSnapshotV2)>,
     handoff: Option<crate::application::provider_credential_enrollment::broker::pending::PendingBrokerEndpointHandoff>,
     #[cfg(all(target_os = "macos", target_arch = "aarch64", feature = "desktop-protected"))]
     installed_facts: Option<runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts>,
@@ -125,6 +127,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
             rendezvous: Some(rendezvous),
             pending: None,
             begun: None,
+            verified: None,
             handoff: None,
             #[cfg(all(
                 target_os = "macos",
@@ -159,6 +162,10 @@ impl DaemonProtectedCredentialEnrollmentSession {
         self.begun
             .as_ref()
             .is_some_and(|(_, snapshot)| snapshot.state().terminal())
+            || self
+                .verified
+                .as_ref()
+                .is_some_and(|(_, snapshot)| snapshot.state().terminal())
     }
 
     #[cfg(all(
@@ -197,6 +204,21 @@ impl DaemonProtectedCredentialEnrollmentSession {
         self.control.publish_http_facts(facts.clone())?;
         self.http_session = facts.session;
         Ok(())
+    }
+
+    #[cfg(all(
+        test,
+        unix,
+        not(all(
+            target_os = "macos",
+            target_arch = "aarch64",
+            feature = "desktop-protected"
+        ))
+    ))]
+    pub(in crate::application::provider_credential_enrollment::control_facade) fn clear_http_facts(
+        &self,
+    ) {
+        self.control.clear_http_facts(self.http_session);
     }
 
     pub(crate) fn take_bound_broker_handoff(

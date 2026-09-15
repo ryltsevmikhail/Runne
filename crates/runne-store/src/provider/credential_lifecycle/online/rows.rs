@@ -3,8 +3,8 @@ use runne_provider::{
     CredentialBindingDigest, CredentialFence, CredentialInstallationOwnerId,
     CredentialLifecycleError, CredentialLifecycleRevision, CredentialNativeEffectDisposition,
     CredentialOperationAction, CredentialOperationId, CredentialOperationSnapshot,
-    CredentialOperationState, CredentialReadbackDisposition,
-    CredentialReadinessRevision, CredentialTerminalDisposition, CredentialVersionRef, ProviderId,
+    CredentialOperationState, CredentialReadbackDisposition, CredentialReadinessRevision,
+    CredentialTerminalDisposition, CredentialVersionRef, ProviderId,
 };
 use rusqlite::{Connection, OptionalExtension};
 
@@ -70,19 +70,20 @@ pub(super) fn snapshot(
             .map_err(|_| CredentialLifecycleError::CorruptState)
         })
         .transpose()?;
-    let mut metadata = authority.hydrate_persisted_credential_operation_metadata(
-        command,
-        IdempotencyKey::new(raw.3).map_err(|_| CredentialLifecycleError::CorruptState)?,
-        installation_owner_id,
-        revision(raw.4)?,
-        fence(raw.5)?,
-        digest(raw.11)?,
-        raw.22,
-        raw.23,
-        qualified_release_tuple_digest,
-        claimed_ticket_attempt,
-    )
-    .map_err(|_| CredentialLifecycleError::CorruptState)?;
+    let mut metadata = authority
+        .hydrate_persisted_credential_operation_metadata(
+            command,
+            IdempotencyKey::new(raw.3).map_err(|_| CredentialLifecycleError::CorruptState)?,
+            installation_owner_id,
+            revision(raw.4)?,
+            fence(raw.5)?,
+            digest(raw.11)?,
+            raw.22,
+            raw.23,
+            qualified_release_tuple_digest,
+            claimed_ticket_attempt,
+        )
+        .map_err(|_| CredentialLifecycleError::CorruptState)?;
     match (raw.12, raw.13) {
         (Some(continuation), Some(binding)) => {
             metadata = metadata.with_claim(digest(continuation)?, digest(binding)?)
@@ -130,7 +131,8 @@ pub(super) fn snapshot(
     if action == CredentialOperationAction::LegacySourceCleanup
         && let Some(binding) = super::legacy_cleanup_binding::load(
             connection, authority, operation, &provider, &metadata,
-        )? {
+        )?
+    {
         metadata = metadata.with_legacy_cleanup_binding(binding);
     }
     CredentialOperationSnapshot::new(

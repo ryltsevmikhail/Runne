@@ -15,8 +15,8 @@ use super::{
 use crate::{
     BrokeredCreateInput, BrokeredDeleteInput, BrokeredLegacySourceDeleteInput,
     BrokeredMigrateLegacyInput, BrokeredWriterIdentityMigrationInput,
-    BrokeredWriterIdentityVerificationInput, ProviderCredentialAccessPolicy,
-    ProviderCredentialMaterial, SecureStoreError,
+    BrokeredWriterIdentityVerificationInput, MAX_PROVIDER_CREDENTIAL_BYTES,
+    ProviderCredentialAccessPolicy, ProviderCredentialMaterial, SecureStoreError,
 };
 
 #[test]
@@ -75,6 +75,65 @@ fn exact_sealed_pair_reaches_native_create_with_temporary_material() {
         material.lock().unwrap().as_deref(),
         Some(b"secret".as_slice())
     );
+}
+
+#[test]
+fn oauth_pair_rewrites_only_admitted_version_before_native_create() {
+    let command = oauth_command(3, 7);
+    let binding = binding();
+    let channel = channel();
+    let (issuer, effects) = CredentialWriterAuthorityPair::new().split();
+    let native = PairNative::ready();
+    let material = native.material.clone();
+    let writer = BrokeredProviderCredentialWriterAdapter::new(effects, native, access());
+    let input = BrokeredCreateInput::new(command.clone(), binding, channel.clone()).unwrap();
+    let payload = br#"{"schema":"runne.oauth-import/v1","provider":"github-copilot","access_token":"session","refresh_token":null,"account_id":null,"expires_at_unix_seconds":4000000000}"#;
+    let fixture =
+        runne_provider::sealed_pair_for_test(&command, binding, &channel, payload.to_vec())
+            .unwrap();
+
+    writer
+        .create_sealed_exact(
+            authorization(&issuer, &command, binding, &channel),
+            input,
+            fixture.pending,
+            fixture.envelope,
+        )
+        .unwrap();
+    let stored = material.lock().unwrap().clone().unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&stored).unwrap();
+    assert_eq!(value["credential_version"], 7);
+    assert_eq!(value["provider"], "github-copilot");
+}
+
+#[path = "oauth_large_pair_tests.rs"]
+mod oauth_large_pair_tests;
+
+#[test]
+fn oauth_pair_rejects_payload_version_drift_before_native_create() {
+    let command = oauth_command(4, 7);
+    let binding = binding();
+    let channel = channel();
+    let (issuer, effects) = CredentialWriterAuthorityPair::new().split();
+    let native = PairNative::ready();
+    let creates = native.creates.clone();
+    let writer = BrokeredProviderCredentialWriterAdapter::new(effects, native, access());
+    let input = BrokeredCreateInput::new(command.clone(), binding, channel.clone()).unwrap();
+    let payload = br#"{"schema":"runne.oauth-import/v1","provider":"github-copilot","credential_version":99,"access_token":"session","refresh_token":null,"account_id":null,"expires_at_unix_seconds":4000000000}"#;
+    let fixture =
+        runne_provider::sealed_pair_for_test(&command, binding, &channel, payload.to_vec())
+            .unwrap();
+
+    assert_eq!(
+        writer.create_sealed_exact(
+            authorization(&issuer, &command, binding, &channel),
+            input,
+            fixture.pending,
+            fixture.envelope,
+        ),
+        Err(SecureStoreError::InvalidProviderCredential)
+    );
+    assert_eq!(*creates.lock().unwrap(), 0);
 }
 
 struct PairNative {
@@ -187,13 +246,19 @@ fn channel() -> BrokerChannelBinding {
         .unwrap()
 }
 fn command(id: u8) -> CredentialBrokerCommand {
-    let provider = ProviderId::new("openai").unwrap();
+    command_for_provider(id, 1, "openai")
+}
+fn oauth_command(id: u8, version: u64) -> CredentialBrokerCommand {
+    command_for_provider(id, version, "github-copilot")
+}
+fn command_for_provider(id: u8, version: u64, provider_name: &str) -> CredentialBrokerCommand {
+    let provider = ProviderId::new(provider_name).unwrap();
     CredentialBrokerCommand::new(
         CredentialOperationId::from_bytes([id; 16]).unwrap(),
         CredentialTicketAttempt::new(1).unwrap(),
         provider.clone(),
         CredentialOperationAction::Pair,
-        CredentialBrokerTarget::Version(CredentialVersionRef::new(provider, 1).unwrap()),
+        CredentialBrokerTarget::Version(CredentialVersionRef::new(provider, version).unwrap()),
         CredentialLifecycleRevision::new(1).unwrap(),
         CredentialFence::new(1).unwrap(),
         None,

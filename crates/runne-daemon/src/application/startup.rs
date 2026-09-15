@@ -15,6 +15,8 @@ impl VerifiedOwnerPrivateConfig {
         let config = load_external_config()?;
         if config.provider_activation.requires_openai_execution()
             || config.provider_activation.requires_deepseek_execution()
+            || config.provider_activation.requires_native_execution()
+            || config.provider_activation.requires_radius_execution()
         {
             let source = config
                 .provenance

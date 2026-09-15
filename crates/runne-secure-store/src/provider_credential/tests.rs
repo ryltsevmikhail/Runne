@@ -143,3 +143,24 @@ fn source_revision_v2_roundtrips_and_v1_is_unavailable() {
     );
     drop(current);
 }
+
+#[test]
+fn native_oauth_codec_has_separate_32k_bound_and_magic() {
+    let current = private_current_executable();
+    let access = ProviderCredentialAccessPolicy::new(&current.path, &current.path).unwrap();
+    let material = ProviderCredentialMaterial::new_native_oauth(vec![b'o'; 32 * 1024]).unwrap();
+    assert_eq!(material.kind(), ProviderCredentialMaterialKind::NativeOAuth);
+    let revision = ProviderCredentialSourceRevision::new([0x92; 16]).unwrap();
+    let encoded =
+        StoredProviderCredential::encode_with_revision(&material, &access, [8; 32], revision)
+            .unwrap();
+    assert_eq!(&encoded[..8], b"GCPOV1\0\0");
+    let decoded = StoredProviderCredential::decode(&encoded).unwrap();
+    assert_eq!(
+        decoded.material.kind(),
+        ProviderCredentialMaterialKind::NativeOAuth
+    );
+    assert_eq!(decoded.into_material().with_bytes(<[u8]>::len), 32 * 1024);
+    assert!(ProviderCredentialMaterial::new(vec![b'l'; 4097]).is_err());
+    drop(current);
+}

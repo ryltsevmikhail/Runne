@@ -1,10 +1,11 @@
 use runne_platform_ports::provider_credential_prompt::{
-    CredentialPromptAction, SecureCredentialMaterial, SecureCredentialPromptDisposition,
-    SecureCredentialPromptError,
+    CredentialPromptAction, CredentialPromptProvider, SecureCredentialMaterial,
+    SecureCredentialPromptDisposition, SecureCredentialPromptError,
 };
 use zeroize::Zeroizing;
 
 pub(super) fn decode_pinentry_response(
+    provider: CredentialPromptProvider,
     action: CredentialPromptAction,
     response: &[u8],
 ) -> Result<SecureCredentialPromptDisposition, SecureCredentialPromptError> {
@@ -37,7 +38,7 @@ pub(super) fn decode_pinentry_response(
                 Err(SecureCredentialPromptError::Unavailable)
             });
         } else if is_ok(line) {
-            terminal = Some(terminal_success(action, data.take()));
+            terminal = Some(terminal_success(provider, action, data.take()));
         } else {
             return Err(SecureCredentialPromptError::Rejected);
         }
@@ -46,12 +47,13 @@ pub(super) fn decode_pinentry_response(
 }
 
 fn terminal_success(
+    provider: CredentialPromptProvider,
     action: CredentialPromptAction,
     data: Option<&[u8]>,
 ) -> Result<SecureCredentialPromptDisposition, SecureCredentialPromptError> {
     if action.requires_secret() {
         let decoded = decode_percent(data.ok_or(SecureCredentialPromptError::Rejected)?)?;
-        SecureCredentialMaterial::from_zeroizing(decoded)
+        SecureCredentialMaterial::from_zeroizing_for_provider(provider, decoded)
             .map(SecureCredentialPromptDisposition::Submitted)
     } else if data.is_none() {
         Ok(SecureCredentialPromptDisposition::Confirmed)

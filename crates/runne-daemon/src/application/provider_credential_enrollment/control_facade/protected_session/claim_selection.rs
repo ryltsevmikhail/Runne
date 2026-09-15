@@ -7,6 +7,31 @@ impl DaemonProtectedCredentialEnrollmentSession {
     pub(crate) fn require_durable_terminal(
         &self,
     ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        if let Some((command, snapshot)) = &self.verified {
+            if !snapshot.state().terminal()
+                || snapshot.operation_kind()
+                    != runne_api::ProviderCredentialOperationKindV2::VerifyRemote
+                || snapshot.provider_id() != command.provider()
+            {
+                return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+            }
+            let provider = runne_provider::ProviderId::new(command.provider().as_str())
+                .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?;
+            let safe = self
+                .control
+                .store
+                .safe_snapshot(&provider)
+                .map_err(map_store)?;
+            if safe.lifecycle_revision().get() != snapshot.lifecycle_revision()
+                || safe.readiness_revision().get() != snapshot.readiness_revision()
+                || safe.verification().kind()
+                    != Some(runne_provider::CredentialVerificationKind::Remote)
+                || safe.verification().result().is_none()
+            {
+                return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+            }
+            return Ok(());
+        }
         use runne_provider::CredentialOperationState as State;
         let operation = self
             .control
@@ -29,6 +54,9 @@ impl DaemonProtectedCredentialEnrollmentSession {
     pub(super) fn take_ticket_authority(
         &mut self,
     ) -> Result<CredentialTicketAuthority, ProviderCredentialEnrollmentHostError> {
+        if self.verified.is_some() {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
         // The sticky snapshot survives carrier consumption and every failed issue.
         // Qualified sessions cannot select ordinary issue_ticket_attempt/send_issue.
         #[cfg(all(target_os = "macos", feature = "desktop-protected"))]

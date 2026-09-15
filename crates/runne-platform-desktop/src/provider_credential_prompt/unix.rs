@@ -4,15 +4,16 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use runne_platform_ports::provider_credential_prompt::{
-    CredentialPromptAction, CredentialPromptProvider, SecureCredentialPromptDisposition,
-    SecureCredentialPromptError, SecureCredentialPromptPort, SecureCredentialPromptRequest,
+    CredentialPromptAction, CredentialPromptProvider, MAX_NATIVE_OAUTH_CREDENTIAL_BYTES,
+    SecureCredentialPromptDisposition, SecureCredentialPromptError, SecureCredentialPromptPort,
+    SecureCredentialPromptRequest,
 };
 use zeroize::Zeroizing;
 
 use super::pinentry_protocol::decode_pinentry_response;
 
 const MAX_PROMPT_SECONDS: u64 = 30;
-const MAX_PINENTRY_RESPONSE_BYTES: usize = 8 * 1024;
+const MAX_PINENTRY_RESPONSE_BYTES: usize = 3 * MAX_NATIVE_OAUTH_CREDENTIAL_BYTES + 256;
 
 /// Linux host-native credential prompt backed by an injected absolute pinentry binary.
 pub struct LinuxPinentryPrompt {
@@ -80,7 +81,8 @@ impl SecureCredentialPromptPort for LinuxPinentryPrompt {
         if response.len() > MAX_PINENTRY_RESPONSE_BYTES {
             return Err(SecureCredentialPromptError::Rejected);
         }
-        let disposition = decode_pinentry_response(request.action(), &response)?;
+        let disposition =
+            decode_pinentry_response(request.provider(), request.action(), &response)?;
         if output.status.success()
             || matches!(disposition, SecureCredentialPromptDisposition::Cancelled)
         {
@@ -92,15 +94,13 @@ impl SecureCredentialPromptPort for LinuxPinentryPrompt {
 }
 
 fn prompt_command(request: SecureCredentialPromptRequest) -> String {
-    let provider = match request.provider() {
-        CredentialPromptProvider::OpenAi => "OpenAI",
-        CredentialPromptProvider::DeepSeek => "DeepSeek",
-    };
+    let provider = request.provider().label();
     let action = match request.action() {
         CredentialPromptAction::Pair => "add",
         CredentialPromptAction::Rotate => "rotate",
         CredentialPromptAction::Revoke => "revoke",
         CredentialPromptAction::MigrateLegacy => "migrate",
+        CredentialPromptAction::Verify => "verify",
     };
     let command = if request.action().requires_secret() {
         "GETPIN"

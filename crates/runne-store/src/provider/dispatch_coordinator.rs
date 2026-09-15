@@ -7,6 +7,8 @@ use runne_provider::{
     DispatchError, DispatchRequest, ProviderDispatchRepository, ProviderPort,
     ProviderPreEffectRejection, ProviderRepositoryState,
 };
+use runne_provider_quota::{RemainingState, SubscriptionBudgetAuthority};
+use std::sync::Arc;
 
 use super::{
     CredentialDispatchAuthority, MarkProviderStreaming, PreparedProviderRecord,
@@ -44,6 +46,10 @@ pub struct SqliteProviderDispatchCoordinator<'a, P: ?Sized, E: ?Sized> {
     provider: &'a P,
     effect: &'a E,
     prohibited_content: &'a dyn ProhibitedContentPort,
+    subscription_provider: bool,
+    /// Seed-then-check gate; post-response spending may overshoot by at most
+    /// the existing effect semaphore's concurrency minus one requests.
+    subscription_budget: Option<Arc<dyn SubscriptionBudgetAuthority>>,
 }
 
 impl<'a, P, E> SqliteProviderDispatchCoordinator<'a, P, E>
@@ -60,6 +66,29 @@ where
         effect: &'a E,
         prohibited_content: &'a dyn ProhibitedContentPort,
     ) -> Self {
+        Self::new_with_budget(
+            dispatch_store,
+            execution_store,
+            credential,
+            provider,
+            effect,
+            prohibited_content,
+            false,
+            None,
+        )
+    }
+
+    /// Constructs the coordinator with the durable subscription gate.
+    pub const fn new_with_budget(
+        dispatch_store: &'a SqliteProviderDispatchStore,
+        execution_store: &'a SqliteProviderExecutionStore,
+        credential: CredentialDispatchAuthority<'a>,
+        provider: &'a P,
+        effect: &'a E,
+        prohibited_content: &'a dyn ProhibitedContentPort,
+        subscription_provider: bool,
+        subscription_budget: Option<Arc<dyn SubscriptionBudgetAuthority>>,
+    ) -> Self {
         Self {
             dispatch_store,
             execution_store,
@@ -67,6 +96,8 @@ where
             provider,
             effect,
             prohibited_content,
+            subscription_provider,
+            subscription_budget,
         }
     }
 
@@ -167,6 +198,23 @@ where
             }
         };
         let (credential, effect_binding) = online.split();
+        if let Some(authority) = &self.subscription_budget {
+            if self.subscription_provider
+                && !matches!(
+                    authority.seed_and_remaining(
+                        request.call.model_ref().provider_id().as_str(),
+                        credential.version_ref().version(),
+                    ),
+                    Ok(RemainingState::Remaining(_))
+                )
+            {
+                return self.reject_before_effect(
+                    attempt_id,
+                    fencing_token,
+                    ProviderPreEffectRejection::BudgetDenied,
+                );
+            }
+        }
         let dispatch = match DispatchRequest::new(prepared, claim.clone()) {
             Ok(dispatch) => dispatch,
             Err(_) => {

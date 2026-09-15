@@ -4,10 +4,12 @@ impl StoredProviderCredential {
             return Err(SecureStoreError::CorruptProviderCredential);
         }
         let magic = &encoded[..PROVIDER_CREDENTIAL_MAGIC.len()];
-        let has_revision = if magic == PROVIDER_CREDENTIAL_MAGIC {
-            false
+        let (has_revision, kind) = if magic == PROVIDER_CREDENTIAL_MAGIC {
+            (false, ProviderCredentialMaterialKind::Legacy)
         } else if magic == PROVIDER_CREDENTIAL_V2_MAGIC {
-            true
+            (true, ProviderCredentialMaterialKind::Legacy)
+        } else if magic == PROVIDER_CREDENTIAL_OAUTH_MAGIC {
+            (true, ProviderCredentialMaterialKind::NativeOAuth)
         } else {
             return Err(SecureStoreError::CorruptProviderCredential);
         };
@@ -29,14 +31,25 @@ impl StoredProviderCredential {
         let expected_length = offset
             .checked_add(credential_length)
             .ok_or(SecureStoreError::CorruptProviderCredential)?;
+        let max_length = match kind {
+            ProviderCredentialMaterialKind::Legacy => MAX_PROVIDER_CREDENTIAL_BYTES,
+            ProviderCredentialMaterialKind::NativeOAuth => MAX_NATIVE_OAUTH_CREDENTIAL_BYTES,
+        };
         if credential_length == 0
-            || credential_length > MAX_PROVIDER_CREDENTIAL_BYTES
+            || credential_length > max_length
             || encoded.len() != expected_length
         {
             return Err(SecureStoreError::CorruptProviderCredential);
         }
-        let material = ProviderCredentialMaterial::new(encoded[offset..].to_vec())
-            .map_err(|_| SecureStoreError::CorruptProviderCredential)?;
+        let material = match kind {
+            ProviderCredentialMaterialKind::Legacy => {
+                ProviderCredentialMaterial::new(encoded[offset..].to_vec())
+            }
+            ProviderCredentialMaterialKind::NativeOAuth => {
+                ProviderCredentialMaterial::new_native_oauth(encoded[offset..].to_vec())
+            }
+        }
+        .map_err(|_| SecureStoreError::CorruptProviderCredential)?;
         Ok(Self {
             writer_identity,
             reader_identity,
@@ -72,6 +85,11 @@ impl StoredProviderCredential {
         if acl_set_digest == [0; 32] {
             return Err(SecureStoreError::CredentialAccessDenied);
         }
+        if material.kind() == ProviderCredentialMaterialKind::NativeOAuth
+            && source_revision.is_none()
+        {
+            return Err(SecureStoreError::CredentialAccessDenied);
+        }
         let credential_length = material.with_bytes(<[u8]>::len);
         let encoded_length = PROVIDER_CREDENTIAL_HEADER_BYTES
             .checked_add(source_revision.map_or(0, |_| PROVIDER_CREDENTIAL_REVISION_BYTES))
@@ -81,11 +99,15 @@ impl StoredProviderCredential {
         encoded
             .try_reserve_exact(encoded_length)
             .map_err(|_| SecureStoreError::ProviderCredentialOperationFailed)?;
-        encoded.extend_from_slice(if source_revision.is_some() {
-            PROVIDER_CREDENTIAL_V2_MAGIC
-        } else {
-            PROVIDER_CREDENTIAL_MAGIC
-        });
+        encoded.extend_from_slice(
+            if material.kind() == ProviderCredentialMaterialKind::NativeOAuth {
+                PROVIDER_CREDENTIAL_OAUTH_MAGIC
+            } else if source_revision.is_some() {
+                PROVIDER_CREDENTIAL_V2_MAGIC
+            } else {
+                PROVIDER_CREDENTIAL_MAGIC
+            },
+        );
         encode_identity(&mut encoded, access.writer_identity());
         encode_identity(&mut encoded, access.reader_identity());
         encoded.extend_from_slice(&acl_set_digest);

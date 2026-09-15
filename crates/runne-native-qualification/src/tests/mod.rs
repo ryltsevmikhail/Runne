@@ -1,8 +1,8 @@
-mod compiled_policy_match;
 mod admission;
 mod admission_verification;
 mod bootstrap;
 mod bootstrap_deadline;
+mod compiled_policy_match;
 mod context_policy_separation;
 mod context_rejection;
 mod context_success;

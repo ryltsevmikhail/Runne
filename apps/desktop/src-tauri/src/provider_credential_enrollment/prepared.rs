@@ -3,13 +3,10 @@
     allow(dead_code, unused_imports)
 )]
 use super::intent::{CredentialIntentError, NativeCredentialIntent};
-use super::{CredentialIntentIpc, CredentialIntentRegistry};
+use super::{CredentialIntentAction, CredentialIntentIpc, CredentialIntentRegistry};
 use crate::bundled_runtime::NativeCredentialEnrollmentLease;
 use crate::updater_status::enrollment::NativeInstalledEnrollmentLease;
-use runne_api::{
-    ProviderCredentialEnrollmentActionV2, ProviderCredentialProviderV2,
-    ProviderCredentialVerificationKindV2,
-};
+use runne_api::{ProviderCredentialProviderV2, ProviderCredentialVerificationKindV2};
 use runne_native_qualification::PendingQualificationAdmission;
 use runne_platform_desktop::{
     ConfirmedInstalledNativeEnrollment, SecureCredentialMaterial, SecureCredentialPromptDisposition,
@@ -170,19 +167,20 @@ impl From<CredentialIntentError> for PreparedCredentialEnrollmentError {
 }
 
 fn accepted_disposition(
-    action: ProviderCredentialEnrollmentActionV2,
+    action: CredentialIntentAction,
     disposition: SecureCredentialPromptDisposition,
 ) -> Result<(Option<SecureCredentialMaterial>, u8), PreparedCredentialEnrollmentError> {
     match (action, disposition) {
+        (CredentialIntentAction::Pair, SecureCredentialPromptDisposition::Submitted(material)) => {
+            Ok((Some(material), 1))
+        }
         (
-            ProviderCredentialEnrollmentActionV2::Pair,
-            SecureCredentialPromptDisposition::Submitted(material),
-        ) => Ok((Some(material), 1)),
-        (
-            ProviderCredentialEnrollmentActionV2::Revoke
-            | ProviderCredentialEnrollmentActionV2::MigrateLegacy,
+            CredentialIntentAction::Revoke | CredentialIntentAction::MigrateLegacy,
             SecureCredentialPromptDisposition::Confirmed,
         ) => Ok((None, 2)),
+        (CredentialIntentAction::Verify, SecureCredentialPromptDisposition::Confirmed) => {
+            Ok((None, 3))
+        }
         _ => Err(PreparedCredentialEnrollmentError),
     }
 }
@@ -221,17 +219,15 @@ fn hash_framed(hasher: &mut Sha256, value: &[u8]) {
 }
 
 const fn provider_tag(provider: ProviderCredentialProviderV2) -> u8 {
-    match provider {
-        ProviderCredentialProviderV2::OpenAi => 1,
-        ProviderCredentialProviderV2::DeepSeek => 2,
-    }
+    provider.wire_tag()
 }
 
-const fn action_tag(action: ProviderCredentialEnrollmentActionV2) -> u8 {
+const fn action_tag(action: CredentialIntentAction) -> u8 {
     match action {
-        ProviderCredentialEnrollmentActionV2::Pair => 1,
-        ProviderCredentialEnrollmentActionV2::Revoke => 2,
-        ProviderCredentialEnrollmentActionV2::MigrateLegacy => 3,
+        CredentialIntentAction::Pair => 1,
+        CredentialIntentAction::Revoke => 2,
+        CredentialIntentAction::MigrateLegacy => 3,
+        CredentialIntentAction::Verify => 4,
     }
 }
 

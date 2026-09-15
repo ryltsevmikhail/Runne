@@ -5,6 +5,7 @@ use runne_provider::{
     ProviderCall, ProviderCallDigestVersion, ProviderCallId, ProviderId, ProviderStreamId,
 };
 use runne_store::provider::PreparedProviderRecord;
+use std::borrow::Cow;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
 
@@ -139,11 +140,12 @@ impl Harness {
             prohibited_content: Arc::clone(&self.prohibited),
             profile: openai_profile(),
             adapter_factory: fixture_adapter_factory(),
-            provider_id: "openai",
-            model_id: runne_provider_openai::OPENAI_MODEL_ID,
-            model_revision: runne_provider_openai::OPENAI_MODEL_REVISION,
-            scope: "provider.openai.responses.text",
+            provider_id: Cow::Borrowed("openai"),
+            model_id: Cow::Borrowed(runne_provider_openai::OPENAI_MODEL_ID),
+            model_revision: Cow::Borrowed(runne_provider_openai::OPENAI_MODEL_REVISION),
+            scope: Cow::Borrowed("provider.openai.responses.text"),
             credential_id: ProviderCredentialId::OpenAi,
+            quota_store: Arc::new(runne_provider_quota::QuotaStateStore::new()),
             dependencies: ProtectedProviderDependencyCapsule::from_loopback_fixture(
                 effect,
                 Arc::clone(&self.keyring),

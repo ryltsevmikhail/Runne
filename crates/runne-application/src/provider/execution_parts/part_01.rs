@@ -195,7 +195,7 @@ impl ProviderTerminalPricingBinding {
             || currency.len() != 3
             || !currency.bytes().all(|byte| byte.is_ascii_uppercase())
             || reserved_output_tokens == 0
-            || reserved_cost_micros == 0
+            || (reserved_cost_micros == 0 && currency != "XXX")
             || reserved_input_tokens
                 .checked_add(reserved_output_tokens)
                 .is_none()

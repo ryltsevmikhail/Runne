@@ -6,6 +6,9 @@ use runne_platform_desktop::NativeProtectedCredentialEnrollmentBegin;
 use std::sync::Arc;
 #[path = "runner_exchange.rs"]
 mod exchange;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[path = "verification.rs"]
+mod verification;
 
 pub(in crate::provider_credential_enrollment) trait RecoverableWriterHandoff {
     type Error;
@@ -189,11 +192,19 @@ impl PreparedCredentialEnrollmentExchange {
                 Instant::now(),
             )
             .map_err(|_| PreparedCredentialEnrollmentError)?;
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        if self.request.is_verification() {
+            return verification::run(self, consumed.daemon_id());
+        }
+        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+        if self.request.is_verification() {
+            return Err(PreparedCredentialEnrollmentError);
+        }
         let command_id = uuid::Uuid::now_v7().to_string();
         let reaper_operation =
             ReaperOperationId::new(&command_id).ok_or(PreparedCredentialEnrollmentError)?;
         let command = BeginProviderCredentialEnrollment::new(
-            self.request.action,
+            exchange::api_action(self.request.action)?,
             self.request.provider,
             self.request.expected_revision,
             &command_id,
@@ -232,20 +243,30 @@ impl PreparedCredentialEnrollmentExchange {
             let relay = enrollment
                 .take_relay()
                 .ok_or(PreparedCredentialEnrollmentError)?;
-            let secret = self
+            let material = self
                 .material
                 .take()
-                .ok_or(PreparedCredentialEnrollmentError)?
-                .into_pipe_bytes()
-                .into_zeroizing();
-            handoff
+                .ok_or(PreparedCredentialEnrollmentError)?;
+            let native_oauth = matches!(
+                material.kind(),
+                runne_platform_desktop::SecureCredentialMaterialKind::NativeOAuth
+            );
+            let secret = material.into_pipe_bytes().into_zeroizing();
+            let secret_relay = handoff
                 .cleanup_mut()
                 .ok_or(PreparedCredentialEnrollmentError)?
                 .handoff
                 .take_pair_secret_relay()
-                .ok_or(PreparedCredentialEnrollmentError)?
-                .seal_and_write(&relay, secret)
-                .map_err(|_| PreparedCredentialEnrollmentError)?;
+                .ok_or(PreparedCredentialEnrollmentError)?;
+            if native_oauth {
+                secret_relay
+                    .seal_and_write_native_oauth(&relay, secret)
+                    .map_err(|_| PreparedCredentialEnrollmentError)?;
+            } else {
+                secret_relay
+                    .seal_and_write(&relay, secret)
+                    .map_err(|_| PreparedCredentialEnrollmentError)?;
+            }
             let enrollment = tauri::async_runtime::block_on(
                 runne_platform_desktop::ProtectedBundledRuntimeSupervisor::finish_protected_credential_enrollment_with_rejoin(
                     Arc::clone(&supervisor), enrollment, &relay,

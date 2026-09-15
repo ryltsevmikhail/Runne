@@ -21,7 +21,7 @@ mod service_registration;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use prepared::reconcile_startup;
 
-pub use command::CredentialIntentIpc;
+pub use command::{CredentialIntentAction, CredentialIntentIpc};
 pub use intent::CredentialIntentRegistry;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use prepared::ProtectedWriterReaperRegistry;

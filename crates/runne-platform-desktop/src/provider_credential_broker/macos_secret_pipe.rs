@@ -76,6 +76,21 @@ impl MacOsAuthenticatedPairSecretRelay {
         let envelope = self.sealer.seal(frame, credential)?;
         self.writer.write_encoded(&envelope)
     }
+
+    /// Writes one typed native OAuth envelope, preserving the legacy relay bound.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed rejection when the authenticated frame or OAuth
+    /// envelope is invalid, or unavailable when the one-shot pipe write fails.
+    pub fn seal_and_write_native_oauth(
+        self,
+        frame: &[u8],
+        credential: zeroize::Zeroizing<Vec<u8>>,
+    ) -> Result<(), BrokerHandoffError> {
+        let envelope = self.sealer.seal_native_oauth(frame, credential)?;
+        self.writer.write_encoded(&envelope)
+    }
 }
 
 impl std::fmt::Debug for PreparedMacOsPairSecretPipe {

@@ -78,6 +78,7 @@ pub(crate) mod provider_credential_verification;
 mod provider_selection;
 mod provider_startup;
 mod provider_status;
+mod quota;
 mod readiness;
 mod replay_authorization;
 #[cfg(all(feature = "test-support", feature = "desktop-protected"))]

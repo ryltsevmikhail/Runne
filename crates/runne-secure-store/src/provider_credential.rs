@@ -11,6 +11,10 @@ use crate::SecureStoreError;
 #[cfg(test)]
 pub static EXECUTABLE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
+#[path = "provider_credential/provider_id.rs"]
+mod provider_id;
+pub use provider_id::ProviderCredentialId;
+include!("provider_credential/material.rs");
 include!("provider_credential/policy.rs");
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
 include!("provider_credential/codec_layout.rs");
@@ -43,9 +47,11 @@ pub use broker::{
 pub use broker::{
     CredentialReadbackObservation, ExactAbsenceReadback, ExactVersionReadback,
     NativeLegacySourceReadback, NativeProviderCredentialReaderParts,
-    NativeProviderCredentialReaders, ProviderCredentialDispatchMaterializer,
-    ProviderCredentialDispatchRead, ProviderCredentialReadback,
-    ProviderCredentialVerificationMaterializer, ProviderCredentialVerificationReadback,
+    NativeProviderCredentialReaders, NativeProviderCredentialVerificationMaterializer,
+    ProviderCredentialDispatchMaterializer, ProviderCredentialDispatchRead,
+    ProviderCredentialReadback, ProviderCredentialVerificationMaterializer,
+    ProviderCredentialVerificationReadback, VerificationMaterializerAdapter,
+    VerificationNativeMaterializer, native_verification_materializer,
 };
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
 pub mod source_update;

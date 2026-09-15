@@ -15,6 +15,8 @@ mod admission;
 mod eligibility;
 #[path = "tests/kat.rs"]
 mod kat;
+#[path = "tests/native_oauth.rs"]
+mod native_oauth;
 #[path = "tests/publication.rs"]
 mod publication;
 #[path = "tests/relay.rs"]
@@ -269,7 +271,15 @@ fn channel_from(bytes: [u8; 32]) -> BrokerChannelBinding {
 }
 
 fn command(id: u8) -> CredentialBrokerCommand {
-    let provider = ProviderId::new("openai").unwrap();
+    command_for_provider(id, "openai")
+}
+
+fn oauth_command(id: u8) -> CredentialBrokerCommand {
+    command_for_provider(id, "openai-codex")
+}
+
+fn command_for_provider(id: u8, provider_name: &str) -> CredentialBrokerCommand {
+    let provider = ProviderId::new(provider_name).unwrap();
     CredentialBrokerCommand::new(
         CredentialOperationId::from_bytes([id; 16]).unwrap(),
         CredentialTicketAttempt::new(1).unwrap(),

@@ -1,8 +1,7 @@
 use runne_provider::{
     CompleteCredentialOperation, CredentialBindingDigest, CredentialCompletionReceipt,
     CredentialLifecycleError, CredentialLifecycleSnapshot, CredentialOperationSnapshot,
-    CredentialReadbackDisposition, CredentialReadinessObservation,
-    CredentialVersionRef,
+    CredentialReadbackDisposition, CredentialReadinessObservation, CredentialVersionRef,
 };
 use rusqlite::{OptionalExtension, Transaction, params};
 
@@ -39,14 +38,34 @@ pub(super) fn load(
         .optional()
         .map_err(map_sql)?
         .ok_or(CredentialLifecycleError::CorruptState)?;
-    let provider = runne_provider::ProviderId::new(raw.1).map_err(|_| CredentialLifecycleError::CorruptState)?;
+    let provider = runne_provider::ProviderId::new(raw.1)
+        .map_err(|_| CredentialLifecycleError::CorruptState)?;
     let target = version(&provider, raw.3, raw.4)?;
     let active = version(&provider, raw.16, raw.17)?;
-    let lifecycle = CredentialLifecycleSnapshot::new(provider.clone(), active, revision(raw.13)?, fence(raw.14)?, readiness(raw.15)?, u64::try_from(raw.18).map_err(|_| CredentialLifecycleError::CorruptState)?).map_err(|_| CredentialLifecycleError::CorruptState)?;
+    let lifecycle = CredentialLifecycleSnapshot::new(
+        provider.clone(),
+        active,
+        revision(raw.13)?,
+        fence(raw.14)?,
+        readiness(raw.15)?,
+        u64::try_from(raw.18).map_err(|_| CredentialLifecycleError::CorruptState)?,
+    )
+    .map_err(|_| CredentialLifecycleError::CorruptState)?;
     let receipt = authority.hydrate_persisted_credential_completion_receipt(
-        operation.operation_id(), owner(raw.0)?, provider, action(&raw.2)?, target, revision(raw.5)?,
-        fence(raw.6)?, attempt(raw.7)?, raw.8.map(digest).transpose()?, digest(raw.9)?,
-        readback(&raw.10)?, digest(raw.11)?, raw.12.map(operation_id).transpose()?, lifecycle,
+        operation.operation_id(),
+        owner(raw.0)?,
+        provider,
+        action(&raw.2)?,
+        target,
+        revision(raw.5)?,
+        fence(raw.6)?,
+        attempt(raw.7)?,
+        raw.8.map(digest).transpose()?,
+        digest(raw.9)?,
+        readback(&raw.10)?,
+        digest(raw.11)?,
+        raw.12.map(operation_id).transpose()?,
+        lifecycle,
     );
     validate(operation, input, &receipt)?;
     Ok(receipt)
@@ -58,13 +77,48 @@ fn hydrate(
     input: &CompleteCredentialOperation,
     authority: &runne_provider::CredentialEnrollmentStoreAuthority,
 ) -> Result<CredentialCompletionReceipt, CredentialLifecycleError> {
-    let head = load_head(transaction, operation.provider())?.ok_or(CredentialLifecycleError::CorruptState)?;
-    let lifecycle = CredentialLifecycleSnapshot::new(operation.provider().clone(), head.active, revision(head.lifecycle)?, fence(head.fence)?, readiness(head.readiness)?, u64::try_from(head.next_version).map_err(|_| CredentialLifecycleError::CorruptState)?).map_err(|_| CredentialLifecycleError::CorruptState)?;
-    let target = operation.allocated_credential_version().or(operation.target_credential_version()).cloned();
-    let tuple = operation.metadata().qualified_release_tuple_digest().ok_or(CredentialLifecycleError::CorruptState)?;
+    let head = load_head(transaction, operation.provider())?
+        .ok_or(CredentialLifecycleError::CorruptState)?;
+    let lifecycle = CredentialLifecycleSnapshot::new(
+        operation.provider().clone(),
+        head.active,
+        revision(head.lifecycle)?,
+        fence(head.fence)?,
+        readiness(head.readiness)?,
+        u64::try_from(head.next_version).map_err(|_| CredentialLifecycleError::CorruptState)?,
+    )
+    .map_err(|_| CredentialLifecycleError::CorruptState)?;
+    let target = operation
+        .allocated_credential_version()
+        .or(operation.target_credential_version())
+        .cloned();
+    let tuple = operation
+        .metadata()
+        .qualified_release_tuple_digest()
+        .ok_or(CredentialLifecycleError::CorruptState)?;
     let receipt = authority.hydrate_persisted_credential_completion_receipt(
-        operation.operation_id(), operation.installation_owner_id(), operation.provider().clone(), operation.action(), target,
-        operation.lifecycle_revision(), operation.fence(), operation.metadata().claimed_ticket_attempt().ok_or(CredentialLifecycleError::CorruptState)?, operation.metadata().migration().map(|metadata| metadata.binding_digest()), tuple, input.readback().disposition(), input.readback().observation_digest(), input.readiness_observation().map(CredentialReadinessObservation::observation_id), lifecycle,
+        operation.operation_id(),
+        operation.installation_owner_id(),
+        operation.provider().clone(),
+        operation.action(),
+        target,
+        operation.lifecycle_revision(),
+        operation.fence(),
+        operation
+            .metadata()
+            .claimed_ticket_attempt()
+            .ok_or(CredentialLifecycleError::CorruptState)?,
+        operation
+            .metadata()
+            .migration()
+            .map(|metadata| metadata.binding_digest()),
+        tuple,
+        input.readback().disposition(),
+        input.readback().observation_digest(),
+        input
+            .readiness_observation()
+            .map(CredentialReadinessObservation::observation_id),
+        lifecycle,
     );
     validate(operation, input, &receipt)?;
     Ok(receipt)
@@ -76,23 +130,43 @@ fn validate(
     receipt: &CredentialCompletionReceipt,
 ) -> Result<(), CredentialLifecycleError> {
     let observation = input.readiness_observation();
-    let legacy_source_cleanup = operation.action()
-        == runne_provider::CredentialOperationAction::LegacySourceCleanup;
-    let active = receipt.active_version().map(|version| CredentialBindingDigest::from_measured(*version.ref_digest())).transpose().map_err(|_| CredentialLifecycleError::CorruptState)?;
+    let legacy_source_cleanup =
+        operation.action() == runne_provider::CredentialOperationAction::LegacySourceCleanup;
+    let active = receipt
+        .active_version()
+        .map(|version| CredentialBindingDigest::from_measured(*version.ref_digest()))
+        .transpose()
+        .map_err(|_| CredentialLifecycleError::CorruptState)?;
     if receipt.operation_id() != operation.operation_id()
         || receipt.installation_owner_id() != operation.installation_owner_id()
         || receipt.provider() != operation.provider()
         || receipt.action() != operation.action()
-        || receipt.target() != operation.allocated_credential_version().or(operation.target_credential_version())
+        || receipt.target()
+            != operation
+                .allocated_credential_version()
+                .or(operation.target_credential_version())
         || receipt.predecessor_lifecycle_revision() != operation.lifecycle_revision()
         || receipt.predecessor_fence() != operation.fence()
-        || receipt.claimed_ticket_attempt() != operation.metadata().claimed_ticket_attempt().ok_or(CredentialLifecycleError::CorruptState)?
-        || receipt.broker_migration_binding_digest() != operation.metadata().migration().map(|metadata| metadata.binding_digest())
-        || receipt.qualified_release_tuple_digest() != operation.metadata().qualified_release_tuple_digest().ok_or(CredentialLifecycleError::CorruptState)?
+        || receipt.claimed_ticket_attempt()
+            != operation
+                .metadata()
+                .claimed_ticket_attempt()
+                .ok_or(CredentialLifecycleError::CorruptState)?
+        || receipt.broker_migration_binding_digest()
+            != operation
+                .metadata()
+                .migration()
+                .map(|metadata| metadata.binding_digest())
+        || receipt.qualified_release_tuple_digest()
+            != operation
+                .metadata()
+                .qualified_release_tuple_digest()
+                .ok_or(CredentialLifecycleError::CorruptState)?
         || receipt.readback_disposition() != input.readback().disposition()
         || receipt.readback_observation_digest() != input.readback().observation_digest()
         || (legacy_source_cleanup
-            && (receipt.lifecycle_revision().get() < receipt.predecessor_lifecycle_revision().get()
+            && (receipt.lifecycle_revision().get()
+                < receipt.predecessor_lifecycle_revision().get()
                 || receipt.fence().get() < receipt.predecessor_fence().get()
                 || operation.metadata().legacy_cleanup_binding().is_none()
                 || receipt.readiness_observation_id().is_some()
@@ -100,7 +174,7 @@ fn validate(
                 || receipt.readback_disposition() != CredentialReadbackDisposition::ExactAbsence))
         || (!legacy_source_cleanup
             && (receipt.lifecycle_revision().get()
-                    != receipt.predecessor_lifecycle_revision().get() + 1
+                != receipt.predecessor_lifecycle_revision().get() + 1
                 || receipt.fence().get() != receipt.predecessor_fence().get() + 1
                 || !observation.is_some_and(|observation| {
                     Some(observation.observation_id()) == receipt.readiness_observation_id()
@@ -118,25 +192,64 @@ fn validate(
     Ok(())
 }
 
-fn owner(value: Vec<u8>) -> Result<runne_provider::CredentialInstallationOwnerId, CredentialLifecycleError> {
-    runne_provider::CredentialInstallationOwnerId::from_bytes(value.try_into().map_err(|_| CredentialLifecycleError::CorruptState)?).map_err(|_| CredentialLifecycleError::CorruptState)
+fn owner(
+    value: Vec<u8>,
+) -> Result<runne_provider::CredentialInstallationOwnerId, CredentialLifecycleError> {
+    runne_provider::CredentialInstallationOwnerId::from_bytes(
+        value
+            .try_into()
+            .map_err(|_| CredentialLifecycleError::CorruptState)?,
+    )
+    .map_err(|_| CredentialLifecycleError::CorruptState)
 }
-fn operation_id(value: Vec<u8>) -> Result<runne_provider::CredentialOperationId, CredentialLifecycleError> {
-    runne_provider::CredentialOperationId::from_bytes(value.try_into().map_err(|_| CredentialLifecycleError::CorruptState)?).map_err(|_| CredentialLifecycleError::CorruptState)
+fn operation_id(
+    value: Vec<u8>,
+) -> Result<runne_provider::CredentialOperationId, CredentialLifecycleError> {
+    runne_provider::CredentialOperationId::from_bytes(
+        value
+            .try_into()
+            .map_err(|_| CredentialLifecycleError::CorruptState)?,
+    )
+    .map_err(|_| CredentialLifecycleError::CorruptState)
 }
-fn attempt(value: i64) -> Result<runne_provider::CredentialTicketAttempt, CredentialLifecycleError> {
-    runne_provider::CredentialTicketAttempt::new(u64::try_from(value).map_err(|_| CredentialLifecycleError::CorruptState)?).map_err(|_| CredentialLifecycleError::CorruptState)
+fn attempt(
+    value: i64,
+) -> Result<runne_provider::CredentialTicketAttempt, CredentialLifecycleError> {
+    runne_provider::CredentialTicketAttempt::new(
+        u64::try_from(value).map_err(|_| CredentialLifecycleError::CorruptState)?,
+    )
+    .map_err(|_| CredentialLifecycleError::CorruptState)
 }
-fn version(provider: &runne_provider::ProviderId, value: Option<i64>, digest: Option<Vec<u8>>) -> Result<Option<CredentialVersionRef>, CredentialLifecycleError> {
+fn version(
+    provider: &runne_provider::ProviderId,
+    value: Option<i64>,
+    digest: Option<Vec<u8>>,
+) -> Result<Option<CredentialVersionRef>, CredentialLifecycleError> {
     match (value, digest) {
-        (Some(value), Some(digest)) => { let version = CredentialVersionRef::new(provider.clone(), u64::try_from(value).map_err(|_| CredentialLifecycleError::CorruptState)?)?; (digest == version.ref_digest()).then_some(version).ok_or(CredentialLifecycleError::CorruptState).map(Some) }
+        (Some(value), Some(digest)) => {
+            let version = CredentialVersionRef::new(
+                provider.clone(),
+                u64::try_from(value).map_err(|_| CredentialLifecycleError::CorruptState)?,
+            )?;
+            (digest == version.ref_digest())
+                .then_some(version)
+                .ok_or(CredentialLifecycleError::CorruptState)
+                .map(Some)
+        }
         (None, None) => Ok(None),
         _ => Err(CredentialLifecycleError::CorruptState),
     }
 }
 fn readback(value: &str) -> Result<CredentialReadbackDisposition, CredentialLifecycleError> {
-    match value { "EXACT_VERSION" => Ok(CredentialReadbackDisposition::ExactVersion), "EXACT_ABSENCE" => Ok(CredentialReadbackDisposition::ExactAbsence), _ => Err(CredentialLifecycleError::CorruptState) }
+    match value {
+        "EXACT_VERSION" => Ok(CredentialReadbackDisposition::ExactVersion),
+        "EXACT_ABSENCE" => Ok(CredentialReadbackDisposition::ExactAbsence),
+        _ => Err(CredentialLifecycleError::CorruptState),
+    }
 }
 fn readback_sql(value: CredentialReadbackDisposition) -> &'static str {
-    match value { CredentialReadbackDisposition::ExactVersion => "EXACT_VERSION", CredentialReadbackDisposition::ExactAbsence => "EXACT_ABSENCE" }
+    match value {
+        CredentialReadbackDisposition::ExactVersion => "EXACT_VERSION",
+        CredentialReadbackDisposition::ExactAbsence => "EXACT_ABSENCE",
+    }
 }

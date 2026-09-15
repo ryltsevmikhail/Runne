@@ -6,6 +6,8 @@ import type {
   ProviderCredentialIntentDisposition,
   ProviderCredentialProjection,
   ProviderCredentialProvider,
+  ProviderCatalogSnapshot,
+  ProviderQuotaProjection,
   ProviderStatusSnapshot,
 } from '@/shared/api/platform/providers'
 
@@ -63,12 +65,16 @@ type RecordedIntent = {
 
 function mountProvidersPage(overrides: {
   loadProviderStatus?: () => Promise<readonly ProviderStatusSnapshot[]>
+  loadProviderCatalog?: () => Promise<readonly ProviderCatalogSnapshot[]>
+  loadProviderQuota?: () => Promise<readonly ProviderQuotaProjection[]>
   loadProviderCredentialEnrollmentStatus?: (provider: ProviderCredentialProvider) => Promise<ProviderCredentialProjection>
   requestCredentialIntent?: (provider: ProviderCredentialProvider, action: ProviderCredentialAction, expectedRevision: number, rendererGeneration: number) => Promise<ProviderCredentialIntentDisposition>
 } = {}) {
   return mount(ProvidersPage, {
     props: {
       loadProviderStatus: overrides.loadProviderStatus ?? vi.fn(async () => statuses),
+      loadProviderCatalog: overrides.loadProviderCatalog ?? (async () => []),
+      loadProviderQuota: overrides.loadProviderQuota ?? (async () => []),
       loadProviderCredentialEnrollmentStatus: overrides.loadProviderCredentialEnrollmentStatus
         ?? (async (provider: ProviderCredentialProvider) => credentialProjection(provider)),
       acquireGeneration: async () => 42,
@@ -85,6 +91,107 @@ describe('providers page credential enrollment', () => {
     const labels = wrapper.findAll('button').map(button => button.attributes('aria-label'))
     expect(labels).toEqual(['Enroll credential (openai)', 'Enroll credential (deepseek)'])
     expect(wrapper.text()).toContain('Enroll credential')
+  })
+
+  it('offers enrollment for the implemented extra Chat profiles', async () => {
+    const extraStatuses: readonly ProviderStatusSnapshot[] = [...statuses,
+      {
+        providerId: 'fireworks', mode: 'chat_completions', profileId: 'fireworks',
+        profileDigest: '4'.repeat(64), readiness: 'not_selected', selected: false,
+      },
+      {
+        providerId: 'mistral', mode: 'chat_completions', profileId: 'mistral',
+        profileDigest: '5'.repeat(64), readiness: 'not_selected', selected: false,
+      },
+      {
+        providerId: 'opencode-go', mode: 'chat_completions', profileId: 'opencode-go',
+        profileDigest: '6'.repeat(64), readiness: 'not_selected', selected: false,
+      },
+    ]
+    const wrapper = mountProvidersPage({ loadProviderStatus: async () => extraStatuses })
+    await flushPromises()
+
+    expect(wrapper.findAll('button').map(button => button.attributes('aria-label'))).toEqual([
+      'Enroll credential (openai)', 'Enroll credential (deepseek)',
+      'Enroll credential (fireworks)', 'Enroll credential (mistral)',
+      'Enroll credential (opencode-go)',
+    ])
+  })
+
+  it('labels planned subscription providers while exposing protected enrollment', async () => {
+    const wrapper = mountProvidersPage({
+      loadProviderStatus: async () => [...statuses, {
+        providerId: 'zai', mode: 'zai_coding_v1', profileId: 'zai-coding', profileDigest: '4'.repeat(64),
+        readiness: 'not_selected', selected: false,
+      }],
+      loadProviderCatalog: async () => [{
+        providerId: 'zai', displayName: 'Z.AI', protocol: 'chat_completions', authOptions: ['api_key'],
+        quota: 'subscription_window', implementation: 'catalog_only',
+      }],
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Z.AI')
+    expect(wrapper.text()).toContain('Catalog entry is not runtime-qualified')
+    expect(wrapper.text()).toContain('Provider subscription limits apply')
+    expect(wrapper.findAll('button').map(button => button.attributes('aria-label')))
+      .toContain('Enroll credential (zai)')
+  })
+
+  it('uses native OAuth import help for Codex and API-key help for other credentials', async () => {
+    const wrapper = mountProvidersPage({
+      loadProviderStatus: async () => [...statuses,
+        {
+          providerId: 'openai-codex', mode: 'responses_text_v1', profileId: 'codex',
+          profileDigest: '7'.repeat(64), readiness: 'not_selected', selected: false,
+        },
+        {
+          providerId: 'github-copilot', mode: 'responses_text_v1', profileId: 'copilot',
+          profileDigest: '8'.repeat(64), readiness: 'not_selected', selected: false,
+        },
+      ],
+    })
+    await flushPromises()
+
+    expect(wrapper.find('button[aria-label="Import OAuth token (openai-codex)"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Manual native OAuth import')
+    expect(wrapper.text()).toContain('Native API credential enrollment')
+    expect(wrapper.find('[data-provider-id="github-copilot"]').text()).toContain('Manual native OAuth import')
+    expect(wrapper.find('[data-provider-id="github-copilot"]').text()).not.toContain('Native API credential enrollment')
+    expect(wrapper.text()).not.toContain('automatic OAuth')
+  })
+
+  it('renders quota source and availability attributes without raw timestamps', async () => {
+    const wrapper = mountProvidersPage({
+      loadProviderQuota: async () => [{
+        providerId: 'openai', source: 'provider_reported', unit: 'credits',
+        used: 100, limit: 100, remaining: 0, resetAt: null, observedAt: 12,
+        availability: 'exhausted', windows: [{
+          kind: 'FiveHourTime', used: 100, limit: 100, remaining: 0, resetAt: 20,
+        }],
+      }],
+    })
+    await flushPromises()
+
+    const quota = wrapper.get('[data-provider-id="openai"] [data-quota="true"]')
+    expect(quota.attributes('data-quota-source')).toBe('provider_reported')
+    expect(quota.attributes('data-quota-availability')).toBe('exhausted')
+    expect(quota.text()).toContain('aggregate reset is unknown')
+    expect(quota.text()).not.toContain('1700000000')
+    expect(quota.text()).toContain('Five-hour window')
+  })
+
+  it('uses credential readiness evidence instead of status readiness', async () => {
+    const wrapper = mountProvidersPage({
+      loadProviderStatus: async () => [{ ...statuses[0]!, providerId: 'openai', selected: true, readiness: 'ready' }],
+      loadProviderCredentialEnrollmentStatus: async provider => ({
+        ...credentialProjection(provider), readiness: 'missing', credentialState: 'missing',
+      }),
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[data-provider-id="openai"] [data-readiness="true"]').text())
+      .toContain('Credential missing (Native credential evidence)')
   })
 
   it('requests a pairing intent with the acquired generation and reloads statuses', async () => {

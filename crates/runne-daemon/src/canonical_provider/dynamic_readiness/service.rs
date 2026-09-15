@@ -1,4 +1,5 @@
 use runne_provider::{ProviderCredentialEnrollmentStore, ProviderId};
+use std::sync::Arc;
 
 use super::super::composition::DaemonCanonicalProviderService;
 use super::from_safe_snapshot;
@@ -10,7 +11,7 @@ impl DaemonCanonicalProviderService {
         let Some(reader) = self.credential_readback.as_deref() else {
             return runne_api::ProviderActivationReadinessV1::Ready;
         };
-        let Ok(provider) = ProviderId::new(self.provider_id) else {
+        let Ok(provider) = ProviderId::new(self.provider_id.as_ref()) else {
             return runne_api::ProviderActivationReadinessV1::SecureStoreUnavailable;
         };
         if self
@@ -27,5 +28,20 @@ impl DaemonCanonicalProviderService {
             .safe_snapshot(&provider)
             .map(|snapshot| from_safe_snapshot(&snapshot))
             .unwrap_or(runne_api::ProviderActivationReadinessV1::SecureStoreUnavailable)
+    }
+
+    /// Returns the durable active credential version for quota projection.
+    pub(crate) fn current_provider_credential_version(&self) -> Option<u64> {
+        let provider = ProviderId::new(self.provider_id.as_ref()).ok()?;
+        self.credential_store
+            .lifecycle_snapshot(&provider)
+            .ok()?
+            .active_version()
+            .map(|version| version.version())
+    }
+
+    /// Returns the quota evidence store composed for this runtime instance.
+    pub(crate) fn quota_store(&self) -> Arc<runne_provider_quota::QuotaStateStore> {
+        Arc::clone(&self.quota_store)
     }
 }

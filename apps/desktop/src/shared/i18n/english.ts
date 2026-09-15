@@ -1,6 +1,7 @@
 import { phase2English } from './phase2'
 import conversationTarget from './english-conversation-target'
 import targetSurfaces from './english-target-surfaces'
+import providerSurfaces from './provider-surfaces'
 
 const english = {
   'settings.title': 'Settings',
@@ -174,19 +175,6 @@ const english = {
   'appearance.russian': 'Russian',
   'appearance.lightEnabled': 'Light theme enabled',
   'appearance.darkEnabled': 'Dark theme enabled',
-  'providers.loading': 'Loading providers',
-  'providers.unavailable': 'Providers',
-  'providers.unavailableMessage': 'Provider status could not be read from the runtime owner.',
-  'providers.selected': 'Selected',
-  'providers.notSelected': 'Not selected',
-  'providers.credentialLabel': 'Provider credential',
-  'providers.pair': 'Save credential',
-  'providers.revoke': 'Remove credential',
-  'providers.mutationFailed': 'The provider credential change was rejected.',
-  'providers.enrollCredential': 'Enroll credential',
-  'providers.enrollSucceeded': 'Credential saved',
-  'providers.enrollPending': 'Enrollment in progress',
-  'providers.enrollFailed': 'Enrollment failed: {code}',
   'devices.loading': 'Loading devices',
   'devices.unavailable': 'Devices',
   'devices.unavailableMessage': 'Device status could not be read from the desktop owner.',
@@ -304,6 +292,7 @@ const english = {
   ...phase2English,
   ...conversationTarget,
   ...targetSurfaces,
+  ...providerSurfaces,
 } as const
 
 export default english

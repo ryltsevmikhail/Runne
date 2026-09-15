@@ -1,13 +1,30 @@
 use std::sync::Arc;
 
-use runne_provider::{CredentialAuthorityPair, CredentialLifecycleAuthority};
+use runne_provider::{
+    CredentialAuthorityPair, CredentialEnrollmentStoreAuthority, CredentialLifecycleAuthority,
+};
 
 use super::dispatch::{ProviderCredentialDispatchMaterializer, VersionStoreDispatchMaterializer};
 use super::readback::{ProviderCredentialReadback, VersionStoreReadback};
 use super::verification_readback::{
+    NativeProviderCredentialVerificationMaterializer, ProviderCredentialVerificationMaterializer,
     ProviderCredentialVerificationReadback, VersionStoreVerificationReadback,
 };
 use crate::{NativeProviderCredentialStore, ProviderCredentialAccessPolicy};
+
+/// Creates the reader-only native materializer for store-issued remote leases.
+///
+/// The enrollment authority must be the same pair that issued the lease; this
+/// check occurs before the native keyring is read.
+#[must_use]
+pub fn native_verification_materializer(
+    authority: CredentialEnrollmentStoreAuthority,
+    access: ProviderCredentialAccessPolicy,
+) -> Arc<dyn ProviderCredentialVerificationMaterializer> {
+    Arc::new(NativeProviderCredentialVerificationMaterializer::new(
+        authority, access,
+    ))
+}
 
 /// Reader-only parts exposed to daemon composition.
 pub type NativeProviderCredentialReaderParts = (

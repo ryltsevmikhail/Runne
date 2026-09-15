@@ -3,7 +3,8 @@ use crate::{
     BeginProviderCredentialEnrollment, ProviderCredentialEnrollmentActionV2,
     ProviderCredentialOperationHandleV2, ProviderCredentialOperationKindV2,
     ProviderCredentialOperationSnapshotV2, ProviderCredentialOperationStateV2,
-    ProviderCredentialProviderV2,
+    ProviderCredentialProviderV2, ProviderCredentialVerificationKindV2,
+    VerifyProviderCredential,
 };
 
 fn codec() -> ProtectedCredentialEnrollmentLifecycleCodec {
@@ -18,6 +19,17 @@ fn begin() -> BeginProviderCredentialEnrollment {
         7,
         "00000000-0000-7000-8000-000000000009",
         "credential-v3-internal",
+        "native-intent",
+    )
+    .unwrap()
+}
+
+fn verify() -> VerifyProviderCredential {
+    VerifyProviderCredential::new(
+        ProviderCredentialProviderV2::KimiCoding,
+        7,
+        ProviderCredentialVerificationKindV2::Remote,
+        "00000000-0000-7000-8000-000000000010",
         "native-intent",
     )
     .unwrap()
@@ -49,6 +61,15 @@ fn lifecycle_begin_is_canonical_directional_and_sequence_bound() {
     let overflow: Result<BeginProviderCredentialEnrollment, _> =
         codec.decode_desktop_begin(&maximum, u64::MAX);
     assert!(overflow.is_err());
+}
+
+#[test]
+fn lifecycle_verify_has_a_distinct_authenticated_kind_and_preserves_begin_tag() {
+    let codec = codec();
+    let frame = codec.encode_desktop_verify(&verify(), 1).unwrap();
+    assert_eq!(codec.decode_desktop_verify(&frame, 0).unwrap(), verify());
+    assert!(codec.decode_desktop_begin(&frame, 0).is_err());
+    assert!(codec.decode_desktop_verify(&frame, 1).is_err());
 }
 
 #[test]

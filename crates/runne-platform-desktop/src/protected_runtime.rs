@@ -32,10 +32,13 @@ mod enrollment_lifecycle_facts;
 mod enrollment_lifecycle_types;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use enrollment_lifecycle_types::{
-    NativeProtectedCredentialEnrollmentBegin, PreparedProtectedCredentialEnrollment,
+    NativeProtectedCredentialEnrollmentBegin, NativeProtectedCredentialVerificationBegin,
+    PreparedProtectedCredentialEnrollment, PreparedProtectedCredentialVerification,
 };
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 include!("protected_runtime/enrollment_lifecycle.rs");
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+include!("protected_runtime/enrollment_verification.rs");
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod cleanup_recovery;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

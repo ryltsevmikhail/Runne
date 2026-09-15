@@ -1,32 +1,6 @@
 /// Fixed native runne-secure-store service for provider credentials.
 pub const PROVIDER_CREDENTIAL_SERVICE: &str = "dev.runne.provider-credential.v1";
 
-/// Maximum accepted provider credential size in bytes.
-pub const MAX_PROVIDER_CREDENTIAL_BYTES: usize = 4_096;
-
-/// Closed provider credential identities supported by the first native profile.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ProviderCredentialId {
-    /// `OpenAI` Responses API credential.
-    OpenAi,
-    /// `DeepSeek` Responses API credential.
-    DeepSeek,
-    /// Local Engine launch-authority credential (non-secret marker).
-    LocalEngine,
-}
-
-impl ProviderCredentialId {
-    /// Returns the fixed, non-secret native-store account.
-    #[must_use]
-    pub const fn account(self) -> &'static str {
-        match self {
-            Self::OpenAi => "openai",
-            Self::DeepSeek => "deepseek",
-            Self::LocalEngine => "local-engine",
-        }
-    }
-}
-
 /// Renderer- and CLI-safe credential availability vocabulary.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProviderCredentialStatus {
@@ -120,49 +94,6 @@ impl fmt::Display for ProviderCredentialStatus {
             Self::Missing => "missing",
             Self::Unsupported => "unsupported",
         })
-    }
-}
-
-/// Zeroizing, bounded provider credential material.
-pub struct ProviderCredentialMaterial {
-    bytes: Zeroizing<Vec<u8>>,
-}
-
-impl ProviderCredentialMaterial {
-    /// Validates and takes ownership of one non-empty, single-line secret.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SecureStoreError::InvalidProviderCredential`] for an empty,
-    /// oversized, NUL-containing or multi-line value.
-    pub fn new(bytes: Vec<u8>) -> Result<Self, SecureStoreError> {
-        let bytes = Zeroizing::new(bytes);
-        if bytes.is_empty()
-            || bytes.len() > MAX_PROVIDER_CREDENTIAL_BYTES
-            || bytes.iter().any(|byte| matches!(byte, 0 | b'\r' | b'\n'))
-        {
-            return Err(SecureStoreError::InvalidProviderCredential);
-        }
-        Ok(Self { bytes })
-    }
-
-    /// Borrows credential bytes only for the duration of `operation`.
-    pub fn with_bytes<T>(&self, operation: impl FnOnce(&[u8]) -> T) -> T {
-        operation(&self.bytes)
-    }
-
-    #[cfg(feature = "provider-credential-broker-writer")]
-    pub(crate) fn into_bytes(mut self) -> Vec<u8> {
-        std::mem::take(&mut self.bytes)
-    }
-}
-
-impl fmt::Debug for ProviderCredentialMaterial {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("ProviderCredentialMaterial")
-            .field("bytes", &"<redacted>")
-            .finish()
     }
 }
 

@@ -118,7 +118,8 @@ fn v17_inherited_v16_schema_matches(conn: &Connection) -> SqliteResult<bool> {
     let v12 = provider_v12_core_matches(conn)?;
     let v13 = v13_unchanged_tables_match(conn)?;
     let v14 = provider_schema::v14_base_matches(conn, v12, v13)?;
-    Ok(provider_schema::v15_matches(conn, 15, v14)?
+    let v15 = provider_schema::v15_matches(conn, 15, v14)?;
+    Ok(v15
         && table_sql_matches_migration(conn, "provider_credential_versions", MIGRATION_V16)?
         && table_sql_matches_migration(conn, "provider_credential_effect_bindings", MIGRATION_V16)?
         && table_sql_matches_migration(

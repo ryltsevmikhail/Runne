@@ -1,6 +1,6 @@
 use runne_api::{
     ApiActor, ApiPrincipalId, BeginProviderCredentialEnrollment, ProviderCredentialCommandContext,
-    protected_credential_broker_evidence_binding,
+    VerifyProviderCredential, protected_credential_broker_evidence_binding,
 };
 
 use super::{EnrollmentBrokerFacts, ProtectedBundledRuntimeError};
@@ -11,6 +11,20 @@ pub(super) fn command_context(
     ProviderCredentialCommandContext::from_canonical_ids(
         command.command_identity(),
         command.idempotency_key(),
+        ApiPrincipalId::new("protected-desktop-owner")
+            .map_err(|_| ProtectedBundledRuntimeError::InvalidState)?,
+        ApiActor::new("runne-tauri-native-host")
+            .map_err(|_| ProtectedBundledRuntimeError::InvalidState)?,
+    )
+    .ok_or(ProtectedBundledRuntimeError::InvalidState)
+}
+
+pub(super) fn verification_command_context(
+    command: &VerifyProviderCredential,
+) -> Result<ProviderCredentialCommandContext, ProtectedBundledRuntimeError> {
+    ProviderCredentialCommandContext::from_canonical_ids(
+        command.command_identity(),
+        command.command_identity(),
         ApiPrincipalId::new("protected-desktop-owner")
             .map_err(|_| ProtectedBundledRuntimeError::InvalidState)?,
         ApiActor::new("runne-tauri-native-host")

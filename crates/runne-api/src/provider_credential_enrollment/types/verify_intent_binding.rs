@@ -1,8 +1,6 @@
 use sha2::{Digest as _, Sha256};
 
-use super::{
-    ProviderCredentialProviderV2, ProviderCredentialVerificationKindV2, VerifyProviderCredential,
-};
+use super::{ProviderCredentialVerificationKindV2, VerifyProviderCredential};
 use crate::ProviderCredentialCommandContext;
 
 const VERIFY_ACTION_DOMAIN: &[u8] = b"runne/provider-credential/verify-action/v1\0";
@@ -44,7 +42,7 @@ impl ProviderCredentialVerifyIntentBinding {
 fn action_binding(command: &VerifyProviderCredential) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(VERIFY_ACTION_DOMAIN);
-    hasher.update([provider_byte(command.provider())]);
+    hasher.update([command.provider().wire_tag()]);
     hasher.update(command.expected_lifecycle_revision().to_be_bytes());
     hasher.update([kind_byte(command.verification_kind())]);
     hasher.finalize().into()
@@ -70,13 +68,6 @@ fn push(hasher: &mut Sha256, bytes: &[u8]) {
             .to_be_bytes(),
     );
     hasher.update(bytes);
-}
-
-const fn provider_byte(provider: ProviderCredentialProviderV2) -> u8 {
-    match provider {
-        ProviderCredentialProviderV2::OpenAi => 1,
-        ProviderCredentialProviderV2::DeepSeek => 2,
-    }
 }
 
 const fn kind_byte(kind: ProviderCredentialVerificationKindV2) -> u8 {

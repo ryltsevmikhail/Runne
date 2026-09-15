@@ -4,6 +4,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use runne_api::ProviderCredentialEnrollmentHostError;
 use runne_provider::{
     CredentialBindingDigest, CredentialBrokerCommand, CredentialEnrollmentStoreAuthority,
+    CredentialVerificationKind, CredentialVerificationLease, CredentialVerificationResult,
 };
 use runne_secure_store::{
     CredentialReadbackObservation, ExactAbsenceReadback, ExactVersionReadback,
@@ -218,6 +219,29 @@ impl ProviderCredentialReadback for CredentialServiceRuntimeGateway {
             command.expected_prior_fence(),
         )?;
         input.observe_service_presence(present.present)
+    }
+}
+
+impl runne_secure_store::ProviderCredentialVerificationReadback
+    for CredentialServiceRuntimeGateway
+{
+    fn verify_local(
+        &self,
+        lease: &CredentialVerificationLease,
+    ) -> Result<CredentialVerificationResult, SecureStoreError> {
+        if lease.kind() != CredentialVerificationKind::Local {
+            return Err(SecureStoreError::CredentialAccessDenied);
+        }
+        let metadata = self.read_metadata(
+            lease.active_credential_version().clone(),
+            lease.lifecycle_revision(),
+            lease.fence(),
+        )?;
+        Ok(if metadata.present {
+            CredentialVerificationResult::Verified
+        } else {
+            CredentialVerificationResult::Failed
+        })
     }
 }
 

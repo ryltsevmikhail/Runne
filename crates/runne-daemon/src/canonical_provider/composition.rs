@@ -7,6 +7,7 @@ use crate::application::workspace_internal::ProtectedProviderDependencyCapsule;
 use runne_observability::operational::RecoveryObservationRegistry;
 #[cfg(test)]
 use runne_secure_store::ProviderCredentialId;
+use std::borrow::Cow;
 mod credential_reader;
 mod credential_reconciliation;
 mod dependencies;
@@ -21,6 +22,9 @@ pub struct DaemonCanonicalProviderService {
     pub(super) dispatch_store: Arc<SqliteProviderDispatchStore>,
     pub(super) execution_store: Arc<SqliteProviderExecutionStore>,
     pub(super) credential_store: Arc<SqliteProviderCredentialLifecycleStore>,
+    pub(super) quota_store: Arc<runne_provider_quota::QuotaStateStore>,
+    pub(super) enrollment_store_authority:
+        Option<runne_provider::CredentialEnrollmentStoreAuthority>,
     pub(super) credential_readback: Option<Arc<dyn ProviderCredentialReadback>>,
     pub(super) credential_enrollment_control:
         Option<Arc<crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl>>,
@@ -29,9 +33,9 @@ pub struct DaemonCanonicalProviderService {
     pub(super) conversation_service: Arc<dyn ConversationTextCommandService>,
     pub(super) adapter: Arc<dyn CanonicalProviderEffect>,
     pub(super) profile: Arc<SharedTextProviderProfile>,
-    pub(super) provider_id: &'static str,
-    pub(super) model_id: &'static str,
-    pub(super) model_revision: &'static str,
+    pub(super) provider_id: Cow<'static, str>,
+    pub(super) model_id: Cow<'static, str>,
+    pub(super) model_revision: Cow<'static, str>,
     pub(super) keyring: Arc<dyn ProviderJournalKeyring>,
     pub(super) prohibited_content: Arc<dyn ProhibitedContentPort>,
     pub(super) scanner_store: Arc<SqliteProviderRecoveryStore>,
@@ -67,6 +71,7 @@ impl DaemonCanonicalProviderService {
             model_revision,
             scope,
             credential_id,
+            quota_store,
             dependencies,
         } = composition;
         let selected_dependencies = dependencies::select(dependencies);
@@ -108,7 +113,7 @@ impl DaemonCanonicalProviderService {
             runtime_generation,
             &activation_provenance,
             profile.as_ref(),
-            scope,
+            &scope,
         )?;
         let recovery_registry = Arc::new(RecoveryObservationRegistry::new().0);
         let keyring =
@@ -169,6 +174,10 @@ impl DaemonCanonicalProviderService {
             activation_provenance.is_protected(),
         )?;
         let defer_initial_credential_reconciliation = credentials.defer_initial_reconciliation;
+        let enrollment_store_authority = credentials
+            .enrollment_authorities
+            .as_ref()
+            .map(|authorities| authorities.store.clone());
         let credential_enrollment_control =
             enrollment_control::compose(&mut credentials, runtime_authority_id, 1)?;
         let matcher = ProhibitedContentCredentialMatcher::new(prohibited_content.as_ref());
@@ -241,6 +250,8 @@ impl DaemonCanonicalProviderService {
             dispatch_store,
             execution_store,
             credential_store: credentials.store,
+            enrollment_store_authority,
+            quota_store,
             credential_readback: credentials.readback,
             credential_enrollment_control,
             runtime_store,
@@ -262,6 +273,15 @@ impl DaemonCanonicalProviderService {
             launch_capability,
             recovery_registry,
         });
+        #[cfg(any(
+            all(test, unix),
+            all(
+                feature = "desktop-protected",
+                target_os = "macos",
+                target_arch = "aarch64"
+            )
+        ))]
+        service.install_remote_verification()?;
         credential_reconciliation::reconcile_initial(
             service.as_ref(),
             defer_initial_credential_reconciliation,

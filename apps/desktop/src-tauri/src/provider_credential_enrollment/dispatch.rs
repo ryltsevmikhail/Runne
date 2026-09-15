@@ -79,11 +79,12 @@ pub(super) fn run_after_action_gate<T>(
     request: CredentialIntentIpc,
     work: impl FnOnce() -> T,
 ) -> Result<T, DispatchFailure> {
-    (request.valid() && request.supported_enrollment_action())
-        .then(work)
-        .ok_or(DispatchFailure::Closed(
-            "provider_credential_action_unsupported",
-        ))
+    (request.valid()
+        && (request.supported_enrollment_action() || request.supported_verification_action()))
+    .then(work)
+    .ok_or(DispatchFailure::Closed(
+        "provider_credential_action_unsupported",
+    ))
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -226,11 +227,15 @@ async fn dispatch_enrollment_inner(
                 updater: updater_lease,
                 intent_session: None,
             })?;
-            let qualification_admission = qualification_app
-                .state::<crate::bundled_runtime::qualification_ticket::QualificationAdmissionHostState>(
-                )
-                .take_pending_for_relay()
-                .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))?;
+            let qualification_admission = if request.is_verification() {
+                None
+            } else {
+                qualification_app
+                    .state::<crate::bundled_runtime::qualification_ticket::QualificationAdmissionHostState>(
+                    )
+                    .take_pending_for_relay()
+                    .map_err(|_| DispatchFailure::Closed("provider_credential_exchange_rejected"))?
+            };
             exchange.retain_qualification_admission(qualification_admission);
             let recovery = tauri::async_runtime::spawn_blocking(move || {
                 exchange.run(&owner_intents, work_reapers)

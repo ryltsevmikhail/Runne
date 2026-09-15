@@ -181,11 +181,8 @@ where
 fn provider(
     provider: runne_api::ProviderCredentialProviderV2,
 ) -> Result<ProviderId, ProviderCredentialEnrollmentHostError> {
-    ProviderId::new(match provider {
-        runne_api::ProviderCredentialProviderV2::OpenAi => "openai",
-        runne_api::ProviderCredentialProviderV2::DeepSeek => "deepseek",
-    })
-    .map_err(|_| ProviderCredentialEnrollmentHostError::InvalidRequest)
+    ProviderId::new(provider.as_str())
+        .map_err(|_| ProviderCredentialEnrollmentHostError::InvalidRequest)
 }
 
 fn action(

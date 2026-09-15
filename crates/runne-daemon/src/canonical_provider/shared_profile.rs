@@ -66,4 +66,8 @@ impl TextProviderProfile for SharedTextProviderProfile {
     ) -> Result<u64, ProviderTerminalPricingError> {
         self.inner.price_usage_micros(usage)
     }
+
+    fn call_binding_extension(&self) -> serde_json::Value {
+        self.inner.call_binding_extension()
+    }
 }

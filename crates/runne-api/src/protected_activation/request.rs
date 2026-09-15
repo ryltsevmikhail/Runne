@@ -1,4 +1,3 @@
-
 /// Protected launch request sent once over the inherited channel.
 #[derive(Clone, Eq, PartialEq)]
 pub struct ProtectedLaunchRequestV1 {
@@ -103,7 +102,14 @@ impl ProtectedLaunchRequestV1 {
             ProviderActivationModeV1::DeterministicV1 => Ok(()),
             ProviderActivationModeV1::OpenAiResponsesTextV1
             | ProviderActivationModeV1::DeepSeekResponsesTextV1
-            | ProviderActivationModeV1::LocalEngineTextV1 => {
+            | ProviderActivationModeV1::ZaiCodingChatCompletionsTextV1
+            | ProviderActivationModeV1::QwenCloudTokenChatCompletionsTextV1
+            | ProviderActivationModeV1::GenericChatCompletionsTextV1
+            | ProviderActivationModeV1::LocalEngineTextV1
+            | ProviderActivationModeV1::NativeTextV1
+            | ProviderActivationModeV1::RadiusTextV1
+            | ProviderActivationModeV1::ResponsesTextV1
+            | ProviderActivationModeV1::CloudTextV1 => {
                 Err(LaunchAuthorityError::MissingProviderBinding)
             }
         }

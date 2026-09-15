@@ -4,8 +4,13 @@ use std::fmt;
 
 use zeroize::Zeroizing;
 
+mod provider_ids;
+pub use provider_ids::CredentialPromptCatalogId;
+
 /// Maximum accepted credential bytes, before a native writer can receive them.
 pub const MAX_CREDENTIAL_BYTES: usize = 4096;
+/// Maximum complete OAuth material accepted by the native prompt boundary.
+pub const MAX_NATIVE_OAUTH_CREDENTIAL_BYTES: usize = 32 * 1024;
 
 /// Closed result of a host-native credential prompt.
 pub enum SecureCredentialPromptDisposition {
@@ -29,7 +34,16 @@ impl fmt::Debug for SecureCredentialPromptDisposition {
 }
 
 /// A bounded, zeroizing credential buffer. It has no serialization representation.
-pub struct SecureCredentialMaterial(CredentialPipeBytes);
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SecureCredentialMaterialKind {
+    Legacy,
+    NativeOAuth,
+}
+
+pub struct SecureCredentialMaterial {
+    bytes: CredentialPipeBytes,
+    kind: SecureCredentialMaterialKind,
+}
 
 impl SecureCredentialMaterial {
     /// Validates material before it enters host-owned memory.
@@ -47,19 +61,66 @@ impl SecureCredentialMaterial {
     ///
     /// Returns a closed failure for empty, oversized, or line-control material.
     pub fn from_zeroizing(bytes: Zeroizing<Vec<u8>>) -> Result<Self, SecureCredentialPromptError> {
-        if bytes.is_empty() || bytes.len() > MAX_CREDENTIAL_BYTES {
+        Self::from_zeroizing_kind(bytes, SecureCredentialMaterialKind::Legacy)
+    }
+
+    /// Validates material for the exact OAuth providers with their larger
+    /// versioned envelope capacity.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed failure for empty, oversized, or line-control material.
+    pub fn from_zeroizing_native_oauth(
+        bytes: Zeroizing<Vec<u8>>,
+    ) -> Result<Self, SecureCredentialPromptError> {
+        Self::from_zeroizing_kind(bytes, SecureCredentialMaterialKind::NativeOAuth)
+    }
+
+    fn from_zeroizing_kind(
+        bytes: Zeroizing<Vec<u8>>,
+        kind: SecureCredentialMaterialKind,
+    ) -> Result<Self, SecureCredentialPromptError> {
+        let maximum = match kind {
+            SecureCredentialMaterialKind::Legacy => MAX_CREDENTIAL_BYTES,
+            SecureCredentialMaterialKind::NativeOAuth => MAX_NATIVE_OAUTH_CREDENTIAL_BYTES,
+        };
+        if bytes.is_empty() || bytes.len() > maximum {
             return Err(SecureCredentialPromptError::Rejected);
         }
         if bytes.iter().any(|byte| matches!(*byte, 0 | b'\n' | b'\r')) {
             return Err(SecureCredentialPromptError::Rejected);
         }
-        Ok(Self(CredentialPipeBytes(bytes)))
+        Ok(Self {
+            bytes: CredentialPipeBytes(bytes),
+            kind,
+        })
+    }
+
+    /// Validates prompt material according to the closed provider identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed failure for empty, oversized, or line-control material.
+    pub fn from_zeroizing_for_provider(
+        provider: CredentialPromptProvider,
+        bytes: Zeroizing<Vec<u8>>,
+    ) -> Result<Self, SecureCredentialPromptError> {
+        if provider.is_native_oauth() {
+            Self::from_zeroizing_native_oauth(bytes)
+        } else {
+            Self::from_zeroizing(bytes)
+        }
     }
 
     /// Consumes the material only at the native writer pipe boundary.
     #[must_use]
     pub fn into_pipe_bytes(self) -> CredentialPipeBytes {
-        self.0
+        self.bytes
+    }
+
+    #[must_use]
+    pub const fn kind(&self) -> SecureCredentialMaterialKind {
+        self.kind
     }
 }
 
@@ -137,6 +198,30 @@ impl SecureCredentialPromptRequest {
 pub enum CredentialPromptProvider {
     OpenAi,
     DeepSeek,
+    /// Catalog provider whose credential uses the same native secret prompt.
+    Catalog(CredentialPromptCatalogId),
+}
+
+impl CredentialPromptProvider {
+    #[must_use]
+    pub const fn is_native_oauth(self) -> bool {
+        matches!(
+            self,
+            Self::Catalog(
+                CredentialPromptCatalogId::OpenAiCodex | CredentialPromptCatalogId::GithubCopilot
+            )
+        )
+    }
+
+    /// Returns a non-secret prompt label.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::OpenAi => "OpenAI",
+            Self::DeepSeek => "DeepSeek",
+            Self::Catalog(provider) => provider.label(),
+        }
+    }
 }
 
 /// Closed native actions accepted by the secure host prompt.
@@ -146,6 +231,7 @@ pub enum CredentialPromptAction {
     Rotate,
     Revoke,
     MigrateLegacy,
+    Verify,
 }
 
 impl CredentialPromptAction {
@@ -184,43 +270,5 @@ impl fmt::Display for SecureCredentialPromptError {
 impl std::error::Error for SecureCredentialPromptError {}
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn prompt_material_rejects_empty_oversize_and_line_control() {
-        for material in [
-            vec![],
-            vec![b'a'; MAX_CREDENTIAL_BYTES + 1],
-            b"a\nb".to_vec(),
-            b"a\rb".to_vec(),
-            b"a\0b".to_vec(),
-        ] {
-            assert_eq!(
-                SecureCredentialMaterial::new(material).unwrap_err(),
-                SecureCredentialPromptError::Rejected
-            );
-        }
-        assert!(SecureCredentialMaterial::new(b"correct horse battery staple".to_vec()).is_ok());
-    }
-
-    #[test]
-    fn prompt_request_rejects_zero_revision() {
-        assert_eq!(
-            SecureCredentialPromptRequest::new(
-                CredentialPromptProvider::OpenAi,
-                CredentialPromptAction::Pair,
-                0
-            ),
-            Err(SecureCredentialPromptError::Rejected),
-        );
-    }
-
-    #[test]
-    fn prompt_actions_distinguish_secret_entry_from_confirmation() {
-        assert!(CredentialPromptAction::Pair.requires_secret());
-        assert!(CredentialPromptAction::Rotate.requires_secret());
-        assert!(!CredentialPromptAction::Revoke.requires_secret());
-        assert!(!CredentialPromptAction::MigrateLegacy.requires_secret());
-    }
-}
+#[path = "provider_credential_prompt_tests.rs"]
+mod tests;

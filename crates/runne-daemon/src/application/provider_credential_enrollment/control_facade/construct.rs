@@ -40,6 +40,20 @@ impl DaemonProviderCredentialEnrollmentControl {
                     target_arch = "aarch64"
                 )
             ))]
+            verification: OnceLock::new(),
+            #[cfg(any(
+                all(test, unix),
+                all(target_os = "macos", feature = "desktop-protected")
+            ))]
+            local_readback: OnceLock::new(),
+            #[cfg(any(
+                all(test, unix),
+                all(
+                    feature = "desktop-protected",
+                    target_os = "macos",
+                    target_arch = "aarch64"
+                )
+            ))]
             http_authority_issuer,
             #[cfg(any(
                 all(test, unix),
@@ -76,6 +90,82 @@ impl DaemonProviderCredentialEnrollmentControl {
         })
     }
 
+    #[cfg(any(
+        all(test, unix),
+        all(
+            feature = "desktop-protected",
+            target_os = "macos",
+            target_arch = "aarch64"
+        )
+    ))]
+    pub(crate) fn install_verification(
+        &self,
+        verification: Arc<dyn super::ProviderCredentialVerificationHost>,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        self.verification
+            .set(verification)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)
+    }
+
+    #[cfg(any(
+        all(test, unix),
+        all(target_os = "macos", feature = "desktop-protected")
+    ))]
+    pub(crate) fn install_local_readback(
+        &self,
+        readback: Arc<dyn runne_secure_store::ProviderCredentialVerificationReadback>,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        install_local_readback_once(&self.local_readback, readback)
+    }
+
+    #[cfg(any(
+        all(test, unix),
+        all(
+            feature = "desktop-protected",
+            target_os = "macos",
+            target_arch = "aarch64"
+        )
+    ))]
+    pub(crate) fn measurement_authority(&self) -> CredentialEnrollmentMeasurementAuthority {
+        self.measurements.clone()
+    }
+
+    #[cfg(any(
+        all(test, unix),
+        all(
+            feature = "desktop-protected",
+            target_os = "macos",
+            target_arch = "aarch64"
+        )
+    ))]
+    pub(crate) fn operation_handle_issuer(&self) -> ProviderCredentialOperationHandleIssuer {
+        self.handles.duplicate()
+    }
+
+    #[cfg(any(
+        all(test, unix),
+        all(
+            feature = "desktop-protected",
+            target_os = "macos",
+            target_arch = "aarch64"
+        )
+    ))]
+    pub(crate) fn verify_admitted(
+        &self,
+        verifier: ProviderCredentialRequestAuthorityVerifier,
+        authority: ProviderCredentialBaseRequestAuthority,
+        proof: ProviderCredentialIntentConsumptionProof,
+        context: ProviderCredentialCommandContext,
+        command: VerifyProviderCredential,
+    ) -> Result<ProviderCredentialOperationSnapshotV2, ProviderCredentialEnrollmentHostError> {
+        ProviderCredentialAdmission::new(verifier, self.measurements.clone())
+            .require_verify_command(&authority, &proof, &command, &context)?;
+        self.verification
+            .get()
+            .ok_or(ProviderCredentialEnrollmentHostError::Unsupported)?
+            .verify(authority, proof, context, command)
+    }
+
     #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
     pub(crate) fn install_credential_service_session(
         &self,
@@ -89,8 +179,14 @@ impl DaemonProviderCredentialEnrollmentControl {
             .as_ref()
             .ok_or(ProviderCredentialEnrollmentHostError::Unsupported)?;
         gateway.install(session)?;
-        super::CredentialEnrollmentRecoveryGateway::new(self.store.as_ref(), gateway.as_ref())
-            .reconcile_online(chrono::Utc::now().timestamp())?;
+        self.install_local_readback(Arc::clone(gateway)
+            as Arc<dyn runne_secure_store::ProviderCredentialVerificationReadback>)?;
+        super::CredentialEnrollmentRecoveryGateway::new_with_local(
+            self.store.as_ref(),
+            gateway.as_ref(),
+            gateway.as_ref(),
+        )
+        .reconcile_online(chrono::Utc::now().timestamp())?;
         Ok(Arc::clone(gateway))
     }
 

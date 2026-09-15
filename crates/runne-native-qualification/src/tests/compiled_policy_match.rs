@@ -1,8 +1,8 @@
 use ed25519_dalek::SigningKey;
 use sha2::{Digest as _, Sha256};
 
-use crate::compiled_policy_match::matches;
 use crate::compiled_policy::FaultVerificationPolicy;
+use crate::compiled_policy_match::matches;
 use crate::context_policy::ContextVerificationPolicy;
 
 fn check(pins: [[u8; 32]; 4], context: bool, fault: bool, shared: bool) -> bool {

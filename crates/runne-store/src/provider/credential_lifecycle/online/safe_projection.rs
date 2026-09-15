@@ -81,10 +81,19 @@ fn verification(
                 head.lifecycle,
                 head.fence,
                 head.readiness,
-                i64::try_from(active.version()).map_err(|_| CredentialLifecycleError::CorruptState)?,
+                i64::try_from(active.version())
+                    .map_err(|_| CredentialLifecycleError::CorruptState)?,
                 active.ref_digest().as_slice(),
             ),
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )
         .optional()
         .map_err(map_sql)?;
@@ -109,7 +118,9 @@ fn verification(
     snapshot.map_err(|_| CredentialLifecycleError::CorruptState)
 }
 
-fn parse_readiness(value: &str) -> Result<CredentialReadinessDisposition, CredentialLifecycleError> {
+fn parse_readiness(
+    value: &str,
+) -> Result<CredentialReadinessDisposition, CredentialLifecycleError> {
     match value {
         "READY" => Ok(CredentialReadinessDisposition::Ready),
         "MISSING" => Ok(CredentialReadinessDisposition::Missing),

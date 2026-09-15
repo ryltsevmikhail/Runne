@@ -1,5 +1,15 @@
-use super::PreparedCredentialEnrollmentError;
-use runne_api::ProviderCredentialEnrollmentActionV2 as Action;
+use super::{CredentialIntentAction as Action, PreparedCredentialEnrollmentError};
+use runne_api::ProviderCredentialEnrollmentActionV2;
+
+pub(super) const fn api_action(
+    action: Action,
+) -> Result<ProviderCredentialEnrollmentActionV2, PreparedCredentialEnrollmentError> {
+    match action {
+        Action::Pair => Ok(ProviderCredentialEnrollmentActionV2::Pair),
+        Action::Revoke => Ok(ProviderCredentialEnrollmentActionV2::Revoke),
+        Action::MigrateLegacy | Action::Verify => Err(PreparedCredentialEnrollmentError),
+    }
+}
 
 pub(super) const fn secretless(
     action: Action,

@@ -1,4 +1,5 @@
 use super::*;
+use runne_provider_quota::QuotaStateStore;
 
 impl DaemonApplication {
     pub(in crate::application) async fn start_with_bootstrap(
@@ -82,9 +83,11 @@ impl DaemonApplication {
             launch_authority_id.unwrap_or(bootstrap.local_session_authority_id);
         let provider_profile_digest = *provider_activation.binding().profile_digest();
         let readiness_credential_id = provider_credential_id(&provider_activation);
+        let quota_store = Arc::new(QuotaStateStore::new());
         let compose_result = match activation_provenance {
             Some(activation_provenance) => {
-                let selected_provider = select_provider_runtime(&provider_activation)?;
+                let selected_provider =
+                    select_provider_runtime_with_quota(&provider_activation, quota_store.clone())?;
                 compose_selected_provider(&provider_activation, || {
                     let db_path = config.db_path.clone();
                     let dispatch_connection = open_runtime_connection(
@@ -141,6 +144,7 @@ impl DaemonApplication {
                                 model_revision: selected_provider.model_revision,
                                 scope: selected_provider.scope,
                                 credential_id: selected_provider.credential_id,
+                                quota_store: quota_store.clone(),
                                 dependencies,
                             },
                         )

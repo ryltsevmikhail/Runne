@@ -1,9 +1,9 @@
-
 fn verify_remote_profile(
     local: &SessionPeer,
     remote: SessionRuntimeProfileWire,
     issued_session_id: [u8; 16],
-) -> Result<(RuntimeSessionInfo, Vec<runne_api::ProviderStatusSnapshotV1>), LocalRuntimeConnectError> {
+) -> Result<(RuntimeSessionInfo, Vec<runne_api::ProviderStatusSnapshotV1>), LocalRuntimeConnectError>
+{
     let session_id = decode_lower_hex_16(&remote.session_id)?;
     if session_id != issued_session_id
         || local
@@ -31,22 +31,25 @@ fn verify_remote_profile(
     {
         return Err(incompatible());
     }
-    Ok((RuntimeSessionInfo {
-        profile_id: remote.profile_id,
-        schema_hash: remote.schema_hash,
-        runtime_version: remote.runtime_version,
-        capabilities: remote.capabilities,
-        authority_id: remote.authority_id,
-        principal_id: remote.principal_id,
-        event_log_lineage_id: remote.event_log_lineage_id,
-        daemon_instance_id: remote.daemon_instance_id,
-        launch_generation: remote.launch_generation,
-        session_id: remote.session_id,
-        authorization_epoch: remote.authorization_epoch,
-        sensitivity_ceiling: remote.sensitivity_ceiling,
-        certificate_sha256: remote.certificate_sha256,
-        capability_digest: remote.capability_digest,
-    }, remote.provider_statuses))
+    Ok((
+        RuntimeSessionInfo {
+            profile_id: remote.profile_id,
+            schema_hash: remote.schema_hash,
+            runtime_version: remote.runtime_version,
+            capabilities: remote.capabilities,
+            authority_id: remote.authority_id,
+            principal_id: remote.principal_id,
+            event_log_lineage_id: remote.event_log_lineage_id,
+            daemon_instance_id: remote.daemon_instance_id,
+            launch_generation: remote.launch_generation,
+            session_id: remote.session_id,
+            authorization_epoch: remote.authorization_epoch,
+            sensitivity_ceiling: remote.sensitivity_ceiling,
+            certificate_sha256: remote.certificate_sha256,
+            capability_digest: remote.capability_digest,
+        },
+        remote.provider_statuses,
+    ))
 }
 
 fn selected_provider_matches(
@@ -59,23 +62,57 @@ fn selected_provider_matches(
     let Some(selected) = statuses.iter().find(|status| status.selected()) else {
         return false;
     };
-    selected.provider_id() == provider_id(binding.mode())
+    selected.provider_id() == provider_id(binding)
         && selected.mode() == binding.mode().as_str()
         && selected.profile_id() == binding.profile_id()
         && selected.profile_digest() == hex::encode(binding.profile_digest())
 }
 
-const fn provider_id(mode: runne_api::ProviderActivationModeV1) -> &'static str {
-    match mode {
-        runne_api::ProviderActivationModeV1::DeterministicV1 => "deterministic",
-        runne_api::ProviderActivationModeV1::OpenAiResponsesTextV1 => "openai",
-        runne_api::ProviderActivationModeV1::DeepSeekResponsesTextV1 => "deepseek",
-        runne_api::ProviderActivationModeV1::LocalEngineTextV1 => "local",
+fn provider_id(binding: &runne_api::ProviderActivationBindingV1) -> String {
+    match binding.mode() {
+        runne_api::ProviderActivationModeV1::DeterministicV1 => "deterministic".to_owned(),
+        runne_api::ProviderActivationModeV1::OpenAiResponsesTextV1 => "openai".to_owned(),
+        runne_api::ProviderActivationModeV1::DeepSeekResponsesTextV1 => "deepseek".to_owned(),
+        runne_api::ProviderActivationModeV1::ZaiCodingChatCompletionsTextV1 => "zai".to_owned(),
+        runne_api::ProviderActivationModeV1::QwenCloudTokenChatCompletionsTextV1 => {
+            "qwen-token-plan-individual".to_owned()
+        }
+        runne_api::ProviderActivationModeV1::GenericChatCompletionsTextV1 => binding
+            .profile_id()
+            .strip_prefix("gocode-chat-completions/")
+            .and_then(|id| id.strip_suffix("/1"))
+            .filter(|id| runne_api::provider_catalog_entry(id).is_some())
+            .unwrap_or("")
+            .to_owned(),
+        runne_api::ProviderActivationModeV1::LocalEngineTextV1 => "local".to_owned(),
+        runne_api::ProviderActivationModeV1::NativeTextV1 => binding
+            .profile_id()
+            .strip_prefix("gocode-native/")
+            .and_then(|id| id.split('/').next())
+            .unwrap_or("")
+            .to_owned(),
+        runne_api::ProviderActivationModeV1::RadiusTextV1 => "radius".to_owned(),
+        runne_api::ProviderActivationModeV1::ResponsesTextV1 => binding
+            .profile_id()
+            .strip_prefix("gocode-responses/")
+            .and_then(|id| id.split('/').next())
+            .unwrap_or("")
+            .to_owned(),
+        runne_api::ProviderActivationModeV1::CloudTextV1 => binding
+            .profile_id()
+            .strip_prefix("gocode-cloud/")
+            .and_then(|id| id.split('/').next())
+            .filter(|id| runne_api::provider_catalog_entry(id).is_some())
+            .unwrap_or("")
+            .to_owned(),
     }
 }
 
 fn valid_provider_statuses(statuses: &[runne_api::ProviderStatusSnapshotV1]) -> bool {
-    if statuses.len() > 8 {
+    // The authenticated backend catalog currently has 40 text providers;
+    // retain headroom for additive catalog entries without accepting an
+    // unbounded renderer payload.
+    if statuses.len() > 64 {
         return false;
     }
     let mut selected = 0_usize;

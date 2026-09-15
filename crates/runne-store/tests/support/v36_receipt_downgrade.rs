@@ -11,8 +11,14 @@ pub fn restore_v18_receipt(connection: &Connection) -> SqliteResult<()> {
         |row| row.get(0),
     )?;
     let v18 = actual
-        .replace("CREATE TABLE \"project_workspace_command_receipts\"", "CREATE TABLE project_workspace_command_receipts")
-        .replace("operation INTEGER NOT NULL CHECK(operation BETWEEN 1 AND 8)", "operation INTEGER NOT NULL CHECK(operation BETWEEN 1 AND 7)");
+        .replace(
+            "CREATE TABLE \"project_workspace_command_receipts\"",
+            "CREATE TABLE project_workspace_command_receipts",
+        )
+        .replace(
+            "operation INTEGER NOT NULL CHECK(operation BETWEEN 1 AND 8)",
+            "operation INTEGER NOT NULL CHECK(operation BETWEEN 1 AND 7)",
+        );
     if v18 == actual {
         return Err(rusqlite::Error::InvalidQuery);
     }

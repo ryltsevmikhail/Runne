@@ -120,11 +120,8 @@ impl crate::provider_credential::AuthorizedLegacySourceStore for MacOsProviderCr
         if version.provider() != command.provider() {
             return Err(SecureStoreError::CredentialAccessDenied);
         }
-        let provider = match command.provider().as_str() {
-            "openai" => ProviderCredentialId::OpenAi,
-            "deepseek" => ProviderCredentialId::DeepSeek,
-            _ => return Err(SecureStoreError::UnsupportedSecureStoreBackend),
-        };
+        let provider = ProviderCredentialId::from_account(command.provider().as_str())
+            .ok_or(SecureStoreError::UnsupportedSecureStoreBackend)?;
         self.load_admitted_provider_credential_record(provider, access)?.into_source()
     }
 }

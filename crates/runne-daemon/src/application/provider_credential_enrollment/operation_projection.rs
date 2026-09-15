@@ -41,11 +41,8 @@ pub(super) fn snapshot(
 fn provider(
     value: &str,
 ) -> Result<ProviderCredentialProviderV2, ProviderCredentialEnrollmentHostError> {
-    match value {
-        "openai" => Ok(ProviderCredentialProviderV2::OpenAi),
-        "deepseek" => Ok(ProviderCredentialProviderV2::DeepSeek),
-        _ => Err(ProviderCredentialEnrollmentHostError::InvariantViolation),
-    }
+    ProviderCredentialProviderV2::parse(value)
+        .ok_or(ProviderCredentialEnrollmentHostError::InvariantViolation)
 }
 
 fn kind(

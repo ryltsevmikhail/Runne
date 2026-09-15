@@ -104,6 +104,14 @@ impl ProviderCredentialStore for NativeKeyringStore {
 }
 
 impl NativeKeyringStore {
+    pub(crate) fn load_provider_version_for_verification(
+        &self,
+        reference: &CredentialVersionRef,
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
+        Self::load_provider_version(reference, access)
+    }
+
     fn version_authority(&self) -> Result<&NativeCredentialAuthority, SecureStoreError> {
         self.version_authority
             .as_ref()
@@ -191,12 +199,8 @@ fn version_key(reference: &CredentialVersionRef) -> (String, String) {
 }
 
 fn provider_id(reference: &CredentialVersionRef) -> Result<ProviderCredentialId, SecureStoreError> {
-    match reference.provider().as_str() {
-        "openai" => Ok(ProviderCredentialId::OpenAi),
-        "deepseek" => Ok(ProviderCredentialId::DeepSeek),
-        "local-engine" => Ok(ProviderCredentialId::LocalEngine),
-        _ => Err(SecureStoreError::ProviderCredentialOperationFailed),
-    }
+    ProviderCredentialId::from_account(reference.provider().as_str())
+        .ok_or(SecureStoreError::ProviderCredentialOperationFailed)
 }
 
 fn validate_reader_or_writer(

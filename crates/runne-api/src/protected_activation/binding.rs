@@ -1,4 +1,3 @@
-
 impl ProviderActivationBindingV1 {
     /// Creates a bounded exact provider activation binding.
     pub fn new(
@@ -20,10 +19,98 @@ impl ProviderActivationBindingV1 {
                 DEEPSEEK_RESPONSES_TEXT_PROVIDER_PROFILE_ID,
                 DEEPSEEK_RESPONSES_TEXT_PROVIDER_PROFILE_DIGEST,
             ),
+            ProviderActivationModeV1::ZaiCodingChatCompletionsTextV1 => (
+                ZAI_CODING_CHAT_COMPLETIONS_TEXT_PROVIDER_PROFILE_ID,
+                ZAI_CODING_CHAT_COMPLETIONS_TEXT_PROVIDER_PROFILE_DIGEST,
+            ),
+            ProviderActivationModeV1::QwenCloudTokenChatCompletionsTextV1 => (
+                QWENCLOUD_TOKEN_CHAT_COMPLETIONS_TEXT_PROVIDER_PROFILE_ID,
+                QWENCLOUD_TOKEN_CHAT_COMPLETIONS_TEXT_PROVIDER_PROFILE_DIGEST,
+            ),
             ProviderActivationModeV1::LocalEngineTextV1 => (
                 LOCAL_ENGINE_TEXT_PROVIDER_PROFILE_ID,
                 LOCAL_ENGINE_TEXT_PROVIDER_PROFILE_DIGEST,
             ),
+            ProviderActivationModeV1::NativeTextV1 => {
+                let expected = match profile_id.as_str() {
+                    NATIVE_ANTHROPIC_PROFILE_ID => NATIVE_ANTHROPIC_PROFILE_DIGEST,
+                    NATIVE_GOOGLE_PROFILE_ID => NATIVE_GOOGLE_PROFILE_DIGEST,
+                    NATIVE_VERTEX_PROFILE_ID => {
+                        if profile_digest == [0; 32] {
+                            return Err(LaunchAuthorityError::ProviderProfileMismatch);
+                        }
+                        return Ok(Self {
+                            mode,
+                            profile_id,
+                            profile_digest,
+                        });
+                    }
+                    NATIVE_KIMI_PROFILE_ID => NATIVE_KIMI_PROFILE_DIGEST,
+                    NATIVE_MINIMAX_PROFILE_ID | NATIVE_MINIMAX_CN_PROFILE_ID => {
+                        if profile_digest == [0; 32] {
+                            return Err(LaunchAuthorityError::ProviderProfileMismatch);
+                        }
+                        return Ok(Self {
+                            mode,
+                            profile_id,
+                            profile_digest,
+                        });
+                    }
+                    NATIVE_VERCEL_PROFILE_ID => NATIVE_VERCEL_PROFILE_DIGEST,
+                    _ => return Err(LaunchAuthorityError::ProviderProfileMismatch),
+                };
+                if profile_digest != expected {
+                    return Err(LaunchAuthorityError::ProviderProfileMismatch);
+                }
+                return Ok(Self {
+                    mode,
+                    profile_id,
+                    profile_digest,
+                });
+            }
+            ProviderActivationModeV1::RadiusTextV1 => {
+                if profile_id != RADIUS_TEXT_PROFILE_ID || profile_digest == [0; 32] {
+                    return Err(LaunchAuthorityError::ProviderProfileMismatch);
+                }
+                return Ok(Self {
+                    mode,
+                    profile_id,
+                    profile_digest,
+                });
+            }
+            ProviderActivationModeV1::GenericChatCompletionsTextV1 => {
+                if !valid_text(&profile_id, MAX_PROFILE_ID_BYTES)
+                    || !profile_id.starts_with("gocode-chat-completions/")
+                    || profile_digest == [0; 32]
+                {
+                    return Err(LaunchAuthorityError::ProviderProfileMismatch);
+                }
+                return Ok(Self {
+                    mode,
+                    profile_id,
+                    profile_digest,
+                });
+            }
+            ProviderActivationModeV1::ResponsesTextV1 => {
+                if !valid_responses_profile_id(&profile_id) || profile_digest == [0; 32] {
+                    return Err(LaunchAuthorityError::ProviderProfileMismatch);
+                }
+                return Ok(Self {
+                    mode,
+                    profile_id,
+                    profile_digest,
+                });
+            }
+            ProviderActivationModeV1::CloudTextV1 => {
+                if !valid_cloud_profile_id(&profile_id) || profile_digest == [0; 32] {
+                    return Err(LaunchAuthorityError::ProviderProfileMismatch);
+                }
+                return Ok(Self {
+                    mode,
+                    profile_id,
+                    profile_digest,
+                });
+            }
         };
         if !valid_text(&profile_id, MAX_PROFILE_ID_BYTES)
             || profile_id != expected.0
@@ -68,6 +155,26 @@ impl ProviderActivationBindingV1 {
         }
     }
 
+    /// Returns the released exact Z.ai Coding Plan binding.
+    #[must_use]
+    pub fn zai_coding_chat_completions_text_v1() -> Self {
+        Self {
+            mode: ProviderActivationModeV1::ZaiCodingChatCompletionsTextV1,
+            profile_id: ZAI_CODING_CHAT_COMPLETIONS_TEXT_PROVIDER_PROFILE_ID.to_owned(),
+            profile_digest: ZAI_CODING_CHAT_COMPLETIONS_TEXT_PROVIDER_PROFILE_DIGEST,
+        }
+    }
+
+    /// Returns the released exact QwenCloud Token Plan binding.
+    #[must_use]
+    pub fn qwencloud_token_chat_completions_text_v1() -> Self {
+        Self {
+            mode: ProviderActivationModeV1::QwenCloudTokenChatCompletionsTextV1,
+            profile_id: QWENCLOUD_TOKEN_CHAT_COMPLETIONS_TEXT_PROVIDER_PROFILE_ID.to_owned(),
+            profile_digest: QWENCLOUD_TOKEN_CHAT_COMPLETIONS_TEXT_PROVIDER_PROFILE_DIGEST,
+        }
+    }
+
     /// Returns the exact activation mode.
     #[must_use]
     pub const fn mode(&self) -> ProviderActivationModeV1 {
@@ -98,124 +205,47 @@ impl ProviderActivationBindingV1 {
     }
 }
 
-/// Stable runtime identity expected across daemon restarts.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StableRuntimeBindingV1 {
-    authority_id: [u8; 16],
-    principal_id: String,
-    lineage_id: [u8; 16],
-    profile_id: String,
-    profile_hash: [u8; 32],
-    capability_digest: [u8; 32],
-}
-
-impl StableRuntimeBindingV1 {
-    /// Creates a validated stable runtime binding.
-    pub fn new(
-        authority_id: [u8; 16],
-        principal_id: impl Into<String>,
-        lineage_id: [u8; 16],
-        profile_id: impl Into<String>,
-        profile_hash: [u8; 32],
-        capability_digest: [u8; 32],
-    ) -> Result<Self, LaunchAuthorityError> {
-        let principal_id = principal_id.into();
-        let profile_id = profile_id.into();
-        if validate_uuid_v7_bytes(&authority_id).is_err()
-            || validate_uuid_v7_bytes(&lineage_id).is_err()
-            || !valid_text(&principal_id, MAX_PRINCIPAL_ID_BYTES)
-            || !valid_text(&profile_id, MAX_PROFILE_ID_BYTES)
-            || profile_hash == [0; 32]
-            || capability_digest == [0; 32]
-        {
-            return Err(LaunchAuthorityError::InvalidContract);
-        }
-        Ok(Self {
-            authority_id,
-            principal_id,
-            lineage_id,
-            profile_id,
-            profile_hash,
-            capability_digest,
+fn valid_responses_profile_id(value: &str) -> bool {
+    let mut parts = value.split('/');
+    let prefix = parts.next();
+    let provider = parts.next();
+    let model = parts.next();
+    let revision = parts.next();
+    prefix == Some("gocode-responses")
+        && matches!(
+            provider,
+            Some("openai-codex" | "github-copilot" | "azure-openai-responses" | "xai")
+        )
+        && model.is_some_and(|item| {
+            valid_text(item, MAX_PROFILE_ID_BYTES)
+                && item
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
         })
-    }
-
-    pub const fn authority_id(&self) -> &[u8; 16] {
-        &self.authority_id
-    }
-
-    pub fn principal_id(&self) -> &str {
-        &self.principal_id
-    }
-
-    pub const fn lineage_id(&self) -> &[u8; 16] {
-        &self.lineage_id
-    }
-
-    pub fn profile_id(&self) -> &str {
-        &self.profile_id
-    }
-
-    pub const fn profile_hash(&self) -> &[u8; 32] {
-        &self.profile_hash
-    }
-
-    pub const fn capability_digest(&self) -> &[u8; 32] {
-        &self.capability_digest
-    }
+        && revision == Some("1")
+        && parts.next().is_none()
 }
 
-/// Durable, non-secret recovery record for an interrupted first activation.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PendingFirstActivationV1 {
-    preparation_id: [u8; 16],
-    runtime_root_identity: [u8; 32],
-    stable: StableRuntimeBindingV1,
-    executable: ExecutableIdentityV1,
-    profile: ProtectedRuntimeProfileV1,
-}
-
-impl PendingFirstActivationV1 {
-    /// Creates an exact first-activation recovery record.
-    pub fn new(
-        preparation_id: [u8; 16],
-        runtime_root_identity: [u8; 32],
-        stable: StableRuntimeBindingV1,
-        executable: ExecutableIdentityV1,
-        profile: ProtectedRuntimeProfileV1,
-    ) -> Result<Self, LaunchAuthorityError> {
-        if validate_uuid_v7_bytes(&preparation_id).is_err() || runtime_root_identity == [0; 32] {
-            return Err(LaunchAuthorityError::FirstActivationPreparationMismatch);
-        }
-        Ok(Self {
-            preparation_id,
-            runtime_root_identity,
-            stable,
-            executable,
-            profile,
+fn valid_cloud_profile_id(value: &str) -> bool {
+    let Some(rest) = value.strip_prefix("gocode-cloud/") else {
+        return false;
+    };
+    let Some(body) = rest.strip_suffix("/1") else {
+        return false;
+    };
+    let Some((provider, model)) = body.split_once('/') else {
+        return false;
+    };
+    matches!(
+        provider,
+        "amazon-bedrock" | "cloudflare-workers-ai" | "cloudflare-ai-gateway" | "nvidia"
+    ) && valid_text(model, MAX_PROFILE_ID_BYTES)
+        && model.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'/' | b':' | b'@')
         })
-    }
-
-    pub const fn preparation_id(&self) -> &[u8; 16] {
-        &self.preparation_id
-    }
-
-    pub const fn runtime_root_identity(&self) -> &[u8; 32] {
-        &self.runtime_root_identity
-    }
-
-    pub const fn stable(&self) -> &StableRuntimeBindingV1 {
-        &self.stable
-    }
-
-    pub const fn executable(&self) -> &ExecutableIdentityV1 {
-        &self.executable
-    }
-
-    pub const fn profile(&self) -> &ProtectedRuntimeProfileV1 {
-        &self.profile
-    }
 }
+
+include!("binding_recovery.rs");
 
 /// Stable-profile admission mode for one protected launch.
 #[derive(Clone, Debug, Eq, PartialEq)]

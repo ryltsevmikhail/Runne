@@ -117,8 +117,8 @@ impl AuthenticatedRuntimeClient {
                     .expected_version
                     .checked_add(1)
                     .ok_or_else(invalid_response)?)
-            .then_some(ack)
-            .ok_or_else(invalid_response)
+        .then_some(ack)
+        .ok_or_else(invalid_response)
     }
     /// Deletes one Project at its exact expected version.
     pub async fn delete_project(

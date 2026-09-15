@@ -78,11 +78,7 @@ where
         Ok(value) => value,
         Err(error) => return host_error(error, &request_id),
     };
-    match state
-        .host
-        .resume(authority, context, operation_id)
-        .await
-    {
+    match state.host.resume(authority, context, operation_id).await {
         Ok(snapshot) => (axum::http::StatusCode::OK, Json(snapshot)).into_response(),
         Err(error) => host_error(error, &request_id),
     }

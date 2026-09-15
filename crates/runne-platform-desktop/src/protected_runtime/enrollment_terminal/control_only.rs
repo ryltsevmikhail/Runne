@@ -92,7 +92,7 @@ mod tests {
         for provider in [Provider::OpenAi, Provider::DeepSeek] {
             let other_provider = match provider {
                 Provider::OpenAi => Provider::DeepSeek,
-                Provider::DeepSeek => Provider::OpenAi,
+                _ => Provider::OpenAi,
             };
             for (kind, consumed, sequence, terminal_kind, terminal_provider, accepted) in [
                 (Kind::Revoke, false, 2, Kind::Revoke, provider, true),

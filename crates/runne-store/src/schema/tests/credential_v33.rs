@@ -3,12 +3,18 @@ fn v35_preserves_v33_admission_and_rejects_old_completion_guard_after_upgrade() 
     let connection = Connection::open_in_memory().unwrap();
     apply_migrations_internal(&connection, 33).unwrap();
     assert!(v33_matches(&connection, 33).unwrap());
-    apply_migrations(&connection).unwrap();
+    apply_migrations_internal(&connection, 36).unwrap();
     assert!(project_workspace_schema::v36_matches(&connection, 36).unwrap());
-    connection.execute_batch("DROP TRIGGER provider_credential_completion_receipt_insert").unwrap();
-    connection.execute_batch(v28_trigger_source("provider_credential_completion_receipt_insert")).unwrap();
+    connection
+        .execute_batch("DROP TRIGGER provider_credential_completion_receipt_insert")
+        .unwrap();
+    connection
+        .execute_batch(v28_trigger_source(
+            "provider_credential_completion_receipt_insert",
+        ))
+        .unwrap();
     assert!(!project_workspace_schema::v36_matches(&connection, 36).unwrap());
-    assert!(apply_migrations(&connection).is_err());
+    assert!(apply_migrations_internal(&connection, 36).is_err());
 }
 
 #[test]
@@ -24,7 +30,10 @@ fn v33_managed_reopen_rejects_missing_recovery_uniqueness_guard() {
             |row| row.get(0),
         )
         .unwrap();
-    assert!(guard_exists, "recovery must have a durable one-live-attempt guard");
+    assert!(
+        guard_exists,
+        "recovery must have a durable one-live-attempt guard"
+    );
     drop(connection);
 
     // A valid database must reopen before corruption is introduced, so an
@@ -46,13 +55,17 @@ fn v33_upgrade_is_idempotent_and_preserves_v32_exact_catalog() {
     let connection = Connection::open_in_memory().unwrap();
     apply_migrations_internal(&connection, 32).unwrap();
     assert!(v32_matches(&connection, 32).unwrap());
-    connection.execute_batch("CREATE TABLE unexpected_recovery (id INTEGER)").unwrap();
+    connection
+        .execute_batch("CREATE TABLE unexpected_recovery (id INTEGER)")
+        .unwrap();
     assert!(!v32_matches(&connection, 32).unwrap());
-    assert!(apply_migrations(&connection).is_err());
-    connection.execute_batch("DROP TABLE unexpected_recovery").unwrap();
-    apply_migrations(&connection).unwrap();
+    assert!(apply_migrations_internal(&connection, 36).is_err());
+    connection
+        .execute_batch("DROP TABLE unexpected_recovery")
+        .unwrap();
+    apply_migrations_internal(&connection, 36).unwrap();
     assert!(project_workspace_schema::v36_matches(&connection, 36).unwrap());
-    apply_migrations(&connection).unwrap();
+    apply_migrations_internal(&connection, 36).unwrap();
     assert!(project_workspace_schema::v36_matches(&connection, 36).unwrap());
 }
 
@@ -65,10 +78,10 @@ fn v33_rejects_replaced_trigger_and_extra_catalog_object() {
         "ALTER TABLE provider_credential_process_attachments ADD COLUMN unexpected_authority INTEGER",
     ] {
         let connection = Connection::open_in_memory().unwrap();
-        apply_migrations(&connection).unwrap();
+        apply_migrations_internal(&connection, 36).unwrap();
         assert!(project_workspace_schema::v36_matches(&connection, 36).unwrap());
         connection.execute_batch(mutation).unwrap();
         assert!(!project_workspace_schema::v36_matches(&connection, 36).unwrap(), "{mutation}");
-        assert!(apply_migrations(&connection).is_err(), "{mutation}");
+        assert!(apply_migrations_internal(&connection, 36).is_err(), "{mutation}");
     }
 }
