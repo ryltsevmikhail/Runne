@@ -57,6 +57,40 @@ pub async fn protected_client(
 }
 
 pub fn stop(mut process: ProtectedBundledRuntimeProcess) {
+    stop_owned(&mut process);
+}
+
+/// Stops the disposable fixture and returns bounded diagnostics for an
+/// unexpected runtime response. The child output is reduced to fixed
+/// categories so payloads, credentials, and correlation values are omitted.
+#[allow(dead_code)]
+pub fn stop_with_diagnostic(
+    mut process: ProtectedBundledRuntimeProcess,
+    runtime_root: &Path,
+) -> String {
+    let shutdown = if process.request_graceful_stop().is_ok() {
+        process
+            .wait_for_exit(Duration::from_secs(10))
+            .map(|status| match status {
+                BundledRuntimeProcessStatus::Exited => "graceful_reap",
+                BundledRuntimeProcessStatus::Running => "reap_still_running",
+            })
+            .unwrap_or("reap_failed")
+    } else {
+        "graceful_stop_failed"
+    };
+    let stderr = process
+        .take_captured_output_for_test()
+        .map(|(_, stderr)| stderr)
+        .unwrap_or_default();
+    format!(
+        "shutdown={shutdown} {} {}",
+        super::execution::diagnostic_stage(runtime_root),
+        summarize_child_stderr(&stderr)
+    )
+}
+
+fn stop_owned(process: &mut ProtectedBundledRuntimeProcess) {
     process
         .request_graceful_stop()
         .expect("authenticated fixture shutdown");
@@ -68,8 +102,65 @@ pub fn stop(mut process: ProtectedBundledRuntimeProcess) {
     );
 }
 
+fn summarize_child_stderr(stderr: &[u8]) -> String {
+    const MAX_BYTES: usize = 4096;
+    let bounded = &stderr[..stderr.len().min(MAX_BYTES)];
+    let mut categories = Vec::new();
+    for line in String::from_utf8_lossy(bounded).lines() {
+        let category = if line.contains("fatal: protected activation failed") {
+            "protected_activation_failed"
+        } else if line.contains("fatal: protected activation channel failed") {
+            "protected_channel_failed"
+        } else if line.contains("fatal: bootstrap error") {
+            "bootstrap_failed"
+        } else if line.contains("panicked at") {
+            "panic"
+        } else if line.contains("ERROR") || line.contains("error") {
+            "error"
+        } else if !line.trim().is_empty() {
+            "other"
+        } else {
+            continue;
+        };
+        if !categories.contains(&category) {
+            categories.push(category);
+        }
+    }
+    format!(
+        "child_stderr_bytes={} bounded_bytes={} categories={categories:?}",
+        stderr.len(),
+        bounded.len()
+    )
+}
+
+#[allow(dead_code)]
 pub fn launch(executable: &Path, root: &Path) -> ProtectedBundledRuntimeProcess {
     DevelopmentBundledRuntimeLauncher::new()
         .launch(&openai_spec(executable, root))
         .expect("protected OpenAI V2 fixture launch")
+}
+
+#[allow(dead_code)]
+pub fn launch_with_output(executable: &Path, root: &Path) -> ProtectedBundledRuntimeProcess {
+    DevelopmentBundledRuntimeLauncher::new()
+        .launch_for_test(&openai_spec(executable, root), [0x5a; 32], true, None)
+        .expect("protected OpenAI V2 fixture launch")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::summarize_child_stderr;
+
+    #[test]
+    fn child_stderr_summary_is_bounded_and_redacted() {
+        let stderr = format!(
+            "panicked at secret-payload\ncredential=secret\n{}",
+            "x".repeat(8_192)
+        );
+        let summary = summarize_child_stderr(stderr.as_bytes());
+        assert!(summary.contains("categories=[\"panic\", \"other\"]"));
+        assert!(!summary.contains("secret-payload"));
+        assert!(!summary.contains("credential"));
+        assert!(summary.contains("bounded_bytes=4096"));
+    }
 }

@@ -58,6 +58,79 @@ pub fn execution_stage(root: &Path) -> ExecutionStage {
     }
 }
 
+/// Best-effort stage classification from durable fixture facts. This is only
+/// used when the client receives an unexpected response and never affects the
+/// success assertions.
+#[allow(dead_code)]
+pub fn diagnostic_stage(root: &Path) -> String {
+    let Ok(connection) = rusqlite::Connection::open(root.join("runne-daemon/event-log.db")) else {
+        return "server_stage=unobservable".to_owned();
+    };
+    let Some(accepted_request_count) = request_count(root).ok() else {
+        return "server_stage=unobservable".to_owned();
+    };
+    let Ok(journal_row_count) =
+        connection.query_row("SELECT COUNT(*) FROM provider_stream_journal", [], |row| {
+            row.get::<_, u64>(0)
+        })
+    else {
+        return "server_stage=unobservable".to_owned();
+    };
+    let Ok(terminal_outbox_total) =
+        connection.query_row("SELECT COUNT(*) FROM provider_terminal_outbox", [], |row| {
+            row.get::<_, u64>(0)
+        })
+    else {
+        return "server_stage=unobservable".to_owned();
+    };
+    let Ok(terminal_outbox_pending) = connection.query_row(
+        "SELECT COUNT(*) FROM provider_terminal_outbox WHERE state = 1",
+        [],
+        |row| row.get::<_, u64>(0),
+    ) else {
+        return "server_stage=unobservable".to_owned();
+    };
+    let execution = ExecutionStage {
+        accepted_request_count,
+        journal_row_count,
+        journal_sequences: Vec::new(),
+        terminal_outbox_total,
+        terminal_outbox_pending,
+    };
+    let stage = diagnostic_stage_name(
+        execution.accepted_request_count,
+        execution.journal_row_count,
+        execution.terminal_outbox_total,
+        execution.terminal_outbox_pending,
+    );
+    format!(
+        "server_stage={stage} accepted={} journal_rows={} outbox_total={} outbox_pending={}",
+        execution.accepted_request_count,
+        execution.journal_row_count,
+        execution.terminal_outbox_total,
+        execution.terminal_outbox_pending
+    )
+}
+
+fn diagnostic_stage_name(
+    accepted_request_count: u64,
+    journal_row_count: u64,
+    terminal_outbox_total: u64,
+    terminal_outbox_pending: u64,
+) -> &'static str {
+    if accepted_request_count == 0 {
+        "provider_accept_not_observed"
+    } else if journal_row_count == 0 {
+        "provider_stream_journal_not_observed"
+    } else if terminal_outbox_total == 0 {
+        "terminal_outbox_not_observed"
+    } else if terminal_outbox_pending != 0 {
+        "terminal_outbox_pending"
+    } else {
+        "terminal_outbox_not_pending"
+    }
+}
+
 pub fn assert_first_activation_stages(
     execution: &ExecutionStage,
     conversation: &ConversationExpectation,
@@ -84,4 +157,30 @@ pub fn assert_first_activation_stages(
         "stage=terminal_outbox_pending values={execution:?}"
     );
     conversation.assert_process_one();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::diagnostic_stage_name;
+
+    #[test]
+    fn diagnostic_stage_name_covers_durable_boundaries() {
+        assert_eq!(
+            diagnostic_stage_name(0, 0, 0, 0),
+            "provider_accept_not_observed"
+        );
+        assert_eq!(
+            diagnostic_stage_name(1, 0, 0, 0),
+            "provider_stream_journal_not_observed"
+        );
+        assert_eq!(
+            diagnostic_stage_name(1, 1, 0, 0),
+            "terminal_outbox_not_observed"
+        );
+        assert_eq!(diagnostic_stage_name(1, 1, 1, 1), "terminal_outbox_pending");
+        assert_eq!(
+            diagnostic_stage_name(1, 1, 1, 0),
+            "terminal_outbox_not_pending"
+        );
+    }
 }
