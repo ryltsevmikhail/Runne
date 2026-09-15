@@ -180,10 +180,13 @@ impl DaemonProtectedCredentialEnrollmentSession {
         Ok(())
     }
 
-    #[cfg(all(
-        target_os = "macos",
-        target_arch = "aarch64",
-        feature = "desktop-protected"
+    #[cfg(any(
+        all(test, unix),
+        all(
+            target_os = "macos",
+            target_arch = "aarch64",
+            feature = "desktop-protected"
+        )
     ))]
     pub(crate) fn clear_http_facts(&self) {
         self.control.clear_http_facts(self.http_session);

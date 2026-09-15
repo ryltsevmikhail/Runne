@@ -54,6 +54,18 @@ class PackageSmokeTests(unittest.TestCase):
             "macos/credential-service/staged/RunneCredentialService.app",
         )
 
+    def test_manual_signed_bundle_build_embeds_frontend_assets(self) -> None:
+        cargo_manifest = (ROOT / "apps/desktop/src-tauri/Cargo.toml").read_text(encoding="utf-8")
+        build_script = (ROOT / "scripts/desktop/dev-signed-run.sh").read_text(encoding="utf-8")
+
+        self.assertIn('custom-protocol = ["tauri/custom-protocol"]', cargo_manifest)
+        frontend_build = "pnpm --filter @runne/desktop build"
+        desktop_build = "cargo build -p runne-desktop --features custom-protocol"
+        self.assertIn(frontend_build, build_script)
+        self.assertLess(build_script.index(frontend_build), build_script.index(desktop_build))
+        self.assertIn("cargo build -p runne-cli", build_script)
+        self.assertNotIn("cargo build -p runne-desktop -p runne-cli", build_script)
+
     def test_production_manifest_has_no_configuration_blockers(self) -> None:
         result = subprocess.run(
             ["python3", str(SCRIPT), "--platform", "ubuntu-22.04-x86_64"],
