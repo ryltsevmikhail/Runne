@@ -1,8 +1,13 @@
 //! Consuming transition from a fresh bootstrap receipt to bounded transport.
 
-use super::*;
+#[cfg(test)]
+use super::signed_run_expiry;
+use super::{
+    BootstrapAck, Duration, Instant, QualificationRunnerXpcClient, UnixStream,
+    VerifiedInstalledQualificationBootstrapCandidate, VerifiedRuntimeQualificationAcknowledgement,
+};
 
-const RUN_TRANSPORT_LIMIT: Duration = Duration::from_secs(15 * 60);
+const RUN_TRANSPORT_LIMIT: Duration = Duration::from_mins(15);
 
 /// Retained transport for the same authenticated qualification connection.
 ///

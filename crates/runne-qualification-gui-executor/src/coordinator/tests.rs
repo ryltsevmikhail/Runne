@@ -1,9 +1,11 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use runne_api::{DesktopOfferRequest, RootPrepared, RunBinding, RuntimeBootstrapRequest};
+use runne_api::{
+    BootstrapAck, DesktopOfferRequest, RootPrepared, RunBinding, RuntimeBootstrapRequest,
+};
 
-use super::RunCoordinator;
+use super::{RunCoordinator, duplicate_binding, same_binding};
 
 fn binding() -> RunBinding {
     RunBinding::new(
@@ -92,4 +94,33 @@ fn mismatched_runtime_digests_do_not_match_prepared_offer() {
     let request =
         RuntimeBootstrapRequest::new([7; 32], [9; 32], [2; 32], [3; 32], [10; 32]).unwrap();
     assert!(!ticket.matches(&request));
+}
+
+#[test]
+fn runtime_ack_and_ticket_helpers_preserve_the_prepared_binding() {
+    let coordinator = coordinator();
+    coordinator.opened().unwrap();
+    coordinator.claim_desktop().unwrap();
+    coordinator
+        .desktop_offer(&DesktopOfferRequest::new([8; 32]).unwrap())
+        .unwrap();
+    coordinator.finish_desktop().unwrap();
+    let ticket = coordinator.claim_runtime().unwrap();
+    let duplicate = ticket.duplicate().unwrap();
+    assert_eq!(ticket.offer_id(), [7; 32]);
+    assert_eq!(ticket.run_not_after(), 200);
+    assert!(ticket.deadline() > Instant::now());
+    assert!(same_binding(ticket.binding(), duplicate.binding()));
+    assert!(duplicate_binding(ticket.binding()).is_ok());
+
+    let ack = BootstrapAck::new([7; 32], [9; 32], binding(), [10; 32], 200).unwrap();
+    coordinator.validate_runtime(&ticket, &ack).unwrap();
+    coordinator.finish_runtime().unwrap();
+
+    let terminal = super::RunCoordinator::new(
+        RootPrepared::new([7; 32], binding(), 100, 200).unwrap(),
+        Instant::now() + Duration::from_secs(1),
+    );
+    terminal.fail();
+    terminal.wait_until_deadline_or_terminal();
 }

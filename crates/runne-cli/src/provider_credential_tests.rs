@@ -141,8 +141,10 @@ fn args(values: &[&str]) -> VecDeque<OsString> {
 #[test]
 fn credential_status_unsupported_outcome_is_rejected_not_exit_zero() {
     let resolver = FakeResolver::new();
-    let mut backend = FakeBackend::default();
-    backend.unsupported = true;
+    let mut backend = FakeBackend {
+        unsupported: true,
+        ..Default::default()
+    };
     let mut input = std::io::Cursor::new(b"sentinel-marker".to_vec());
     assert!(matches!(
         execute_provider_credential_on_platform(
@@ -165,8 +167,10 @@ fn credential_status_unsupported_outcome_is_rejected_not_exit_zero() {
 #[test]
 fn credential_status_without_native_backend_is_rejected_before_stdin_is_read() {
     let resolver = FakeResolver::new();
-    let mut backend = FakeBackend::default();
-    backend.configured = true;
+    let mut backend = FakeBackend {
+        configured: true,
+        ..Default::default()
+    };
     let mut input = std::io::Cursor::new(b"sentinel-marker".to_vec());
     assert!(matches!(
         execute_provider_credential_on_platform(

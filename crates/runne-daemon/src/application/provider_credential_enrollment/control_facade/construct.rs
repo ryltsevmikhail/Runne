@@ -15,16 +15,23 @@ impl DaemonProviderCredentialEnrollmentControl {
         }
         let handles = ProviderCredentialOperationHandleIssuer::new(http::generate_handle_key()?);
         let rendezvous = PendingBrokerRendezvousRegistry::new(handles.duplicate());
-        #[cfg(any(
-            all(test, unix),
-            all(
-                feature = "desktop-protected",
-                target_os = "macos",
-                target_arch = "aarch64"
-            )
+        #[cfg(all(
+            feature = "desktop-protected",
+            target_os = "macos",
+            target_arch = "aarch64"
         ))]
         let (http_authority_issuer, http_authority_verifier) =
             ProviderCredentialRequestAuthorityPair::new().split();
+        #[cfg(all(
+            test,
+            unix,
+            not(all(
+                feature = "desktop-protected",
+                target_os = "macos",
+                target_arch = "aarch64"
+            ))
+        ))]
+        let (http_authority_issuer, _) = ProviderCredentialRequestAuthorityPair::new().split();
         Ok(Self {
             store,
             readback,
@@ -41,13 +48,10 @@ impl DaemonProviderCredentialEnrollmentControl {
                 )
             ))]
             http_authority_issuer,
-            #[cfg(any(
-                all(test, unix),
-                all(
-                    feature = "desktop-protected",
-                    target_os = "macos",
-                    target_arch = "aarch64"
-                )
+            #[cfg(all(
+                feature = "desktop-protected",
+                target_os = "macos",
+                target_arch = "aarch64"
             ))]
             http_authority_verifier,
             #[cfg(any(
@@ -173,7 +177,12 @@ impl DaemonProviderCredentialEnrollmentControl {
         )
     }
 
-    #[cfg(all(test, unix))]
+    #[cfg(all(
+        test,
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    ))]
     pub(crate) fn start_test_published_session(
         self: &Arc<Self>,
         keys: &runne_api::ProtectedActivationKeys,

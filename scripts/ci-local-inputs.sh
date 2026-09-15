@@ -92,6 +92,16 @@ run_runtime_closure() {
     run_with_toolchain "$version" "$trusted_bash" scripts/ci.sh "$mode"
 }
 
+stage_frontend_dist() {
+    echo "=== Local frontend staging for runtime closure ==="
+    pnpm_run install --frozen-lockfile --offline --ignore-scripts \
+        --verify-store-integrity --store-dir "$PNPM_STORE_DIR"
+    node_at apps/desktop "$vue_tsc_target" -b
+    node_at apps/desktop "$vite_target" build
+    test -f apps/desktop/dist/index.html
+    test -d apps/desktop/dist/assets
+}
+
 if gate_enabled local-structural; then
     echo "=== Local structural gates ==="
     "$trusted_python" scripts/check-source-file-length.py --max-lines 300
@@ -168,6 +178,10 @@ if gate_enabled containment; then
     run_with_toolchain "$pinned_toolchain" \
         cargo test -p runne-daemon --test protected_bundled_runtime_process \
         --locked --features test-support,desktop-protected
+fi
+
+if gate_enabled runtime-pinned || gate_enabled runtime-msrv; then
+    stage_frontend_dist
 fi
 
 if gate_enabled runtime-pinned; then

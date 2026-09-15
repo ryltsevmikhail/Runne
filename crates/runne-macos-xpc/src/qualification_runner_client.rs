@@ -17,6 +17,13 @@ impl QualificationRunnerXpcClient {
     /// # Errors
     ///
     /// Rejects root-consume and fails closed outside macOS.
+    #[cfg_attr(
+        not(target_os = "macos"),
+        expect(
+            clippy::missing_const_for_fn,
+            reason = "The non-macOS stub keeps the same public constructor shape as macOS."
+        )
+    )]
     pub fn connect_bootstrap(
         configuration: &QualificationRunnerEndpointConfiguration,
     ) -> Result<Self, QualificationRunnerXpcError> {
@@ -74,6 +81,13 @@ impl QualificationRunnerXpcClient {
     /// # Errors
     ///
     /// Returns a terminal closed disposition for timeout, peer mismatch, or reply failure.
+    #[cfg_attr(
+        not(target_os = "macos"),
+        expect(
+            clippy::unused_async,
+            reason = "The non-macOS stub keeps the async exchange API used by cross-platform callers."
+        )
+    )]
     pub async fn exchange(
         &self,
         request: QualificationRunnerRequest,
@@ -116,6 +130,13 @@ impl QualificationRunnerXpcClient {
     /// Rejects a client without an observed peer-verified reply, an inactive
     /// connection, a changed peer identity, or an expired deadline. Any error
     /// leaves this client terminal.
+    #[cfg_attr(
+        not(target_os = "macos"),
+        expect(
+            clippy::missing_const_for_fn,
+            reason = "The non-macOS stub keeps the same public method shape as macOS."
+        )
+    )]
     pub fn revalidate_peer(&self, deadline: Instant) -> Result<(), QualificationRunnerXpcError> {
         #[cfg(target_os = "macos")]
         {

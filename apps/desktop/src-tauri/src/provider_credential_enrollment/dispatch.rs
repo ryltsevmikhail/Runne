@@ -208,8 +208,7 @@ async fn dispatch_enrollment_inner(
     let qualification_app = app.clone();
     let (result, _owner_completion) = spawn_pre_fence_enrollment_owner(
         move || async move {
-            let confirmed = runtime_lease
-                .transition_and_install(confirmed)
+            let confirmed = Box::pin(runtime_lease.transition_and_install(confirmed))
                 .await
                 .map_err(|_| DispatchFailure::Closed("provider_credential_handoff_failed"))?;
             runtime_lease

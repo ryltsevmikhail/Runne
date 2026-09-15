@@ -9,7 +9,7 @@ pub mod intent;
 mod prepared;
 mod projection;
 mod status;
-pub(crate) use status::load_status;
+pub use status::load_status;
 #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
 #[path = "provider_credential_enrollment/prepared/reap_guard.rs"]
 mod reap_guard;

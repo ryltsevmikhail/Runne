@@ -1,3 +1,4 @@
+#[cfg(target_os = "macos")]
 use std::fs;
 #[cfg(target_os = "macos")]
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _, symlink};
@@ -5,10 +6,12 @@ use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _, symlink};
 use std::process::Command;
 
 use serde_json::json;
+#[cfg(target_os = "macos")]
 use tempfile::TempDir;
 
 use super::*;
 
+#[cfg(target_os = "macos")]
 fn fixture() -> (TempDir, std::path::PathBuf) {
     let dir = TempDir::new().unwrap();
     #[cfg(target_os = "macos")]

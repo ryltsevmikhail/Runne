@@ -62,10 +62,7 @@ impl Preparation for NativePreparation {
             .confirmed
             .take()
             .ok_or(RecoveryRunError::StaleInstalled)?;
-        let confirmed = self
-            .resources
-            .runtime
-            .transition_and_install(confirmed)
+        let confirmed = Box::pin(self.resources.runtime.transition_and_install(confirmed))
             .await
             .map_err(|_| RecoveryRunError::Transport)?;
         self.resources

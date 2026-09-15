@@ -6,7 +6,7 @@ use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 #[cfg(not(test))]
-pub(super) async fn native_confirmation(
+pub async fn native_confirmation(
     window: &super::WebviewWindow,
     summary: DestructiveProjectSummary,
     locale: NativeConfirmationLocale,
@@ -35,7 +35,7 @@ pub(super) async fn native_confirmation(
 }
 
 #[cfg(test)]
-pub(super) async fn native_confirmation(
+pub async fn native_confirmation(
     _: &super::WebviewWindow,
     _: DestructiveProjectSummary,
     _: NativeConfirmationLocale,
@@ -43,7 +43,7 @@ pub(super) async fn native_confirmation(
     true
 }
 
-pub(super) fn confirmation_copy(
+pub fn confirmation_copy(
     locale: NativeConfirmationLocale,
     operation: ProjectDestructiveOperation,
     project_id: runne_app_core::CanonicalId,
@@ -74,7 +74,14 @@ pub(super) fn confirmation_copy(
                 1 => "Будет затронут 1 workspace.".to_owned(),
                 count => format!("Будут затронуты {count} workspace."),
             };
-            (title, action, "Подтвердить", "Отмена", impact, "Код проекта")
+            (
+                title,
+                action,
+                "Подтвердить",
+                "Отмена",
+                impact,
+                "Код проекта",
+            )
         }
     };
     (

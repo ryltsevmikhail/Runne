@@ -122,13 +122,10 @@ pub(crate) struct DaemonProviderCredentialEnrollmentControl {
         )
     ))]
     http_authority_issuer: runne_api::ProviderCredentialRequestAuthorityIssuer,
-    #[cfg(any(
-        all(test, unix),
-        all(
-            feature = "desktop-protected",
-            target_os = "macos",
-            target_arch = "aarch64"
-        )
+    #[cfg(all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
     ))]
     http_authority_verifier: ProviderCredentialRequestAuthorityVerifier,
     #[cfg(any(
@@ -192,5 +189,10 @@ mod http_admission_tests;
 #[cfg(all(test, unix))]
 #[path = "control_facade_tests/protected_session.rs"]
 mod protected_session_tests;
-#[cfg(all(test, unix))]
+#[cfg(all(
+    test,
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
 pub(crate) use protected_session_tests::control as test_control;

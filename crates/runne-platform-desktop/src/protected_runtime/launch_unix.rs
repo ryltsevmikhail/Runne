@@ -10,9 +10,7 @@ impl DevelopmentBundledRuntimeLauncher {
         eprintln!(
             "runne-launch-diag: enter exec={:?} len={}",
             executable_path.display(),
-            std::fs::metadata(&executable_path)
-                .map(|m| m.len())
-                .unwrap_or(0)
+            std::fs::metadata(&executable_path).map_or(0, |metadata| metadata.len())
         );
         if executable_path != spec.executable() {
             return Err(ProtectedBundledRuntimeError::ExecutableIdentityMismatch);
@@ -23,12 +21,7 @@ impl DevelopmentBundledRuntimeLauncher {
         }
         let current_source = ExecutableIdentityV1::measure(&executable_path)
             .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-        let hex_short = |bytes: &[u8; 32]| -> String {
-            bytes[..8]
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect()
-        };
+        let hex_short = |bytes: &[u8; 32]| -> String { hex::encode(&bytes[..8]) };
         eprintln!(
             "runne-launch-diag: current_sha={} trusted_sha={} current_path_sha={} trusted_path_sha={} current_len={} trusted_len={}",
             hex_short(current_source.executable_sha256()),

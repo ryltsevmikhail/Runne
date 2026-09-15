@@ -21,13 +21,10 @@ use runne_provider::{
     ProviderCredentialEnrollmentStore,
 };
 
-#[cfg(any(
-    all(test, unix),
-    all(
-        feature = "desktop-protected",
-        target_os = "macos",
-        target_arch = "aarch64"
-    )
+#[cfg(all(
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
 ))]
 use super::DaemonProviderCredentialEnrollmentControl;
 use super::{
@@ -37,13 +34,10 @@ use super::{
     resume::ProviderCredentialEnrollmentResume,
 };
 
-#[cfg(any(
-    all(test, unix),
-    all(
-        feature = "desktop-protected",
-        target_os = "macos",
-        target_arch = "aarch64"
-    )
+#[cfg(all(
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
 ))]
 /// HTTP host retains the daemon-owned control so read-only requests use the
 /// same store, opaque handle issuer, and paired admission verifier.
@@ -53,13 +47,10 @@ pub(crate) struct DaemonProviderCredentialEnrollmentHttpHost {
     now_high_water: Arc<dyn Fn() -> i64 + Send + Sync>,
 }
 
-#[cfg(any(
-    all(test, unix),
-    all(
-        feature = "desktop-protected",
-        target_os = "macos",
-        target_arch = "aarch64"
-    )
+#[cfg(all(
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
 ))]
 impl DaemonProviderCredentialEnrollmentHttpHost {
     pub(crate) fn new(
@@ -75,13 +66,10 @@ impl DaemonProviderCredentialEnrollmentHttpHost {
     }
 }
 
-#[cfg(any(
-    all(test, unix),
-    all(
-        feature = "desktop-protected",
-        target_os = "macos",
-        target_arch = "aarch64"
-    )
+#[cfg(all(
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
 ))]
 impl ProviderCredentialEnrollmentHostPort for DaemonProviderCredentialEnrollmentHttpHost {
     fn begin<'a>(

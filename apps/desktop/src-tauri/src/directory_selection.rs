@@ -121,6 +121,10 @@ impl DirectorySelectionManager {
     ///
     /// Returns a closed error for stale or unknown generations, an invalid
     /// label, an already pending picker, capacity exhaustion, or poisoned state.
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "hold the renderer state lock through reservation to keep the generation check atomic"
+    )]
     pub(crate) fn reserve_picker(
         &self,
         window: &str,

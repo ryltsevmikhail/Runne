@@ -5,7 +5,7 @@ use super::{
 };
 
 /// Daemon self identity anchored to the authenticated launch runtime root.
-pub(crate) struct CurrentStagedDaemonIdentity<'a> {
+pub struct CurrentStagedDaemonIdentity<'a> {
     runtime_root: &'a Path,
 }
 

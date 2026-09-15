@@ -14,18 +14,26 @@
 //!    --artifact-size <bytes> --artifact-url https://.../Runne.dmg \
 //!    --runtime-version 0.0.3 --channel dev`
 
-use std::io::Write as _;
-use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+#[cfg(target_os = "macos")]
+use std::io::Write as _;
+#[cfg(target_os = "macos")]
+use std::path::{Path, PathBuf};
+
+#[cfg(target_os = "macos")]
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "macos")]
 use sha2::{Digest, Sha256};
 
+#[cfg(target_os = "macos")]
 use runne_platform_desktop::{NativeEnrollmentTupleV3, UpdateTargetV2};
 
+#[cfg(target_os = "macos")]
 use runne_platform_desktop::produce_staged_native_enrollment_tuple_v3;
 
 /// Mirrors the staged `release-candidate-binding.json` (camelCase on disk).
+#[cfg(target_os = "macos")]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct StagedReleaseCandidateBindingV1 {
@@ -39,6 +47,7 @@ struct StagedReleaseCandidateBindingV1 {
 }
 
 /// Harness output: the target the tuple binds plus the produced tuple itself.
+#[cfg(target_os = "macos")]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TupleHarnessOutputV1 {
@@ -47,25 +56,30 @@ struct TupleHarnessOutputV1 {
     tuple: NativeEnrollmentTupleV3,
 }
 
+#[cfg(target_os = "macos")]
 const MIN_OS: &str = "macos-13";
 
+#[cfg(target_os = "macos")]
 fn fail(stage: &str, message: &str) -> ExitCode {
     let _ = std::io::stdout().flush();
     eprintln!("stage={stage} status=err message={message}");
     ExitCode::from(1)
 }
 
+#[cfg(target_os = "macos")]
 struct ArtifactFacts {
     sha256: String,
     size: u64,
     url: String,
 }
 
+#[cfg(target_os = "macos")]
 struct PolicyFacts {
     runtime_version: String,
     channel: String,
 }
 
+#[cfg(target_os = "macos")]
 fn parse_arguments() -> Result<(PathBuf, PathBuf, ArtifactFacts, PolicyFacts), String> {
     let mut arguments = std::env::args().skip(1);
     let candidate_app = arguments.next().ok_or("missing candidate app path")?;
@@ -105,11 +119,13 @@ fn parse_arguments() -> Result<(PathBuf, PathBuf, ArtifactFacts, PolicyFacts), S
     ))
 }
 
+#[cfg(target_os = "macos")]
 fn sha256_hex(path: &Path) -> Result<String, String> {
     let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
     Ok(hex::encode(Sha256::digest(&bytes)))
 }
 
+#[cfg(target_os = "macos")]
 fn load_staged_binding(candidate_app: &Path) -> Result<StagedReleaseCandidateBindingV1, String> {
     let path =
         candidate_app.join("Contents/Resources/native-enrollment/release-candidate-binding.json");
@@ -121,6 +137,7 @@ fn load_staged_binding(candidate_app: &Path) -> Result<StagedReleaseCandidateBin
         .ok_or_else(|| format!("{}: unsupported schema version", path.display()))
 }
 
+#[cfg(target_os = "macos")]
 fn main() -> ExitCode {
     let (candidate_app, output, artifact, policy) = match parse_arguments() {
         Ok(parsed) => parsed,
@@ -151,7 +168,7 @@ fn main() -> ExitCode {
         artifact_url: artifact.url,
         release_candidate_sha256: binding.release_candidate_sha256.clone(),
         min_os: MIN_OS.into(),
-        profile_id: binding.profile_id.clone(),
+        profile_id: binding.profile_id,
         bundle_sha256,
         runtime_version: policy.runtime_version,
         runtime_digest,
@@ -187,4 +204,10 @@ fn main() -> ExitCode {
         produced.target.runtime_digest,
     );
     ExitCode::SUCCESS
+}
+
+#[cfg(not(target_os = "macos"))]
+fn main() -> ExitCode {
+    eprintln!("dev_enrollment_tuple requires macOS and was not executed on this platform");
+    ExitCode::from(2)
 }

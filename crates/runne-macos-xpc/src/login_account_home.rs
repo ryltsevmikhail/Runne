@@ -25,6 +25,11 @@ pub fn current_login_account_home() -> Result<PathBuf, QualificationRunnerXpcErr
 }
 
 #[cfg(not(target_os = "macos"))]
+/// Returns an unsupported error because account-home lookup is macOS-only.
+///
+/// # Errors
+///
+/// Always returns [`QualificationRunnerXpcError::Unsupported`].
 pub const fn current_login_account_home() -> Result<PathBuf, QualificationRunnerXpcError> {
     Err(QualificationRunnerXpcError::Unsupported)
 }

@@ -2,8 +2,8 @@
     not(all(target_os = "macos", target_arch = "aarch64")),
     allow(dead_code)
 )]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use super::{NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleError};
-
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use runne_macos_process_identity::MacOsLocalPeerProcessIdentity;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -26,7 +26,6 @@ use std::{
 
 const ACTIVATION_STATE_DIRECTORY: &str = ".desktop-protected-activation";
 const STAGED_EXECUTABLE_DIRECTORY: &str = "executables-v1";
-
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 impl NativeEnrollmentArtifactPathsV1 {
     /// Locates a candidate package only from the kernel-authenticated desktop peer.
@@ -139,7 +138,7 @@ impl NativeEnrollmentArtifactPathsV1 {
         expected_digest: [u8; 32],
         identity: &super::macos_identity::MacOsCodeIdentityV1,
     ) -> Result<(), NativeEnrollmentTupleError> {
-        self.ensure_running_executable_unstaged(runtime_root)?;
+        Self::ensure_running_executable_unstaged(runtime_root)?;
         self.verify_live_daemon()?;
         let code =
             SecCode::for_self(Flags::NONE).map_err(|_| NativeEnrollmentTupleError::Rejected)?;
@@ -157,7 +156,6 @@ impl NativeEnrollmentArtifactPathsV1 {
     /// Fails closed when the running executable itself is the staged daemon.
     #[cfg(feature = "test-support")]
     fn ensure_running_executable_unstaged(
-        &self,
         runtime_root: &Path,
     ) -> Result<(), NativeEnrollmentTupleError> {
         let Ok(stage_directory) = staged_directory(runtime_root) else {
@@ -196,14 +194,18 @@ fn staged_directory(runtime_root: &Path) -> Result<PathBuf, NativeEnrollmentTupl
         return Err(NativeEnrollmentTupleError::Rejected);
     }
     private_directory(&root)?;
-    let state = root.join(ACTIVATION_STATE_DIRECTORY);
-    private_directory(&state)?;
-    let stage = state.join(STAGED_EXECUTABLE_DIRECTORY);
-    private_directory(&stage)?;
-    std::fs::canonicalize(stage).map_err(|_| NativeEnrollmentTupleError::Rejected)
+    let activation_state = root.join(ACTIVATION_STATE_DIRECTORY);
+    private_directory(&activation_state)?;
+    let staged_executables = activation_state.join(STAGED_EXECUTABLE_DIRECTORY);
+    private_directory(&staged_executables)?;
+    std::fs::canonicalize(staged_executables).map_err(|_| NativeEnrollmentTupleError::Rejected)
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[expect(
+    clippy::verbose_bit_mask,
+    reason = "the explicit mask documents the required private directory mode"
+)]
 fn private_directory(path: &Path) -> Result<(), NativeEnrollmentTupleError> {
     let metadata =
         std::fs::symlink_metadata(path).map_err(|_| NativeEnrollmentTupleError::Rejected)?;

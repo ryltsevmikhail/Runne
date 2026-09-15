@@ -25,7 +25,7 @@ pub(super) fn runtime_profile(
         }
         None => runtime_profile_state.with_provider_statuses(
             super::super::provider_status::provider_statuses(
-                &provider_activation,
+                provider_activation,
                 provider_readiness,
             ),
         ),

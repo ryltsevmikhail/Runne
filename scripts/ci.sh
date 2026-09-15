@@ -116,6 +116,13 @@ sha256_file_set() {
     "$PYTHON_BIN" -c 'import hashlib, pathlib, sys; h = hashlib.sha256(); [h.update(pathlib.Path(path).read_bytes()) for path in sys.argv[1:]]; print(h.hexdigest())' "$@"
 }
 
+require_frontend_dist() {
+    if [ ! -f apps/desktop/dist/index.html ] || [ ! -d apps/desktop/dist/assets ]; then
+        echo "ERROR: apps/desktop/dist is missing; run the pinned frontend staging step before the all-features Rust gate" >&2
+        exit 1
+    fi
+}
+
 # Record lock digest before
 LOCK_DIGEST_BEFORE=$(sha256_file Cargo.lock)
 PROFILE_FILES=(
@@ -127,6 +134,8 @@ PROFILE_FILES=(
     docs/schemas/opencode-baseline-inventory-v2.schema.json
 )
 PROFILE_DIGEST_BEFORE=$(sha256_file_set "${PROFILE_FILES[@]}")
+
+require_frontend_dist
 
 if [ "$MODE" = "pinned" ]; then
     echo "--- fmt ---"

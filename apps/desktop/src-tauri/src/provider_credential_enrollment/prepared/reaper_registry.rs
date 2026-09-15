@@ -132,13 +132,6 @@ impl<C: ExactWriterCleanup + Send + 'static> CredentialWriterReaperRegistry<C> {
         }))
     }
 
-    #[cfg_attr(
-        all(not(test), not(all(target_os = "macos", target_arch = "aarch64"))),
-        expect(
-            dead_code,
-            reason = "only native enrollment producers retain failed writer cleanup"
-        )
-    )]
     pub(in crate::provider_credential_enrollment) fn retain_after_initial_failure(
         &self,
         operation: ReaperOperationId,

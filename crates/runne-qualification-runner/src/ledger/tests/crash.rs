@@ -132,6 +132,7 @@ fn chmod_acl(arguments: &[&str], path: &Path) {
     );
 }
 
+#[cfg(target_os = "macos")]
 fn probe(root: &Path) -> std::process::ExitStatus {
     Command::new(std::env::current_exe().expect("test executable"))
         .arg("--exact")

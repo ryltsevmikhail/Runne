@@ -12,6 +12,17 @@ use sha2::{Digest, Sha256};
 const SESSION_DOMAIN: &[u8] = b"gocode/provider-credential-enrollment/session/v1\0";
 const DAEMON_DOMAIN: &[u8] = b"gocode/provider-credential-enrollment/daemon/v1\0";
 
+type HttpAuthorityParts = (
+    [u8; 16],
+    [u8; 32],
+    [u8; 32],
+    [u8; 32],
+    u64,
+    [u8; 32],
+    u64,
+    [u8; 32],
+);
+
 /// Exact non-secret V3 and native-release facts admitted before any begin.
 #[derive(Clone, Eq, PartialEq)]
 pub(crate) struct ProtectedEnrollmentSessionFacts {
@@ -28,18 +39,7 @@ pub(crate) struct ProtectedEnrollmentSessionFacts {
 }
 
 impl ProtectedEnrollmentSessionFacts {
-    pub(crate) fn http_authority_parts(
-        &self,
-    ) -> (
-        [u8; 16],
-        [u8; 32],
-        [u8; 32],
-        [u8; 32],
-        u64,
-        [u8; 32],
-        u64,
-        [u8; 32],
-    ) {
+    pub(crate) fn http_authority_parts(&self) -> HttpAuthorityParts {
         (
             self.session,
             self.installation,

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+#[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
 mod coordinator;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

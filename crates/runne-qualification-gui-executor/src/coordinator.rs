@@ -47,6 +47,7 @@ impl RunCoordinator {
         }
     }
 
+    #[cfg(target_os = "macos")]
     pub(crate) const fn deadline(&self) -> Instant {
         self.deadline
     }
