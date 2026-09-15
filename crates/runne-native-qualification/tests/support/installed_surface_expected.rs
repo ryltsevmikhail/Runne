@@ -1,7 +1,7 @@
 pub fn exact_reviewed_facts_method(method: &syn::ImplItemFn) -> bool {
     let expected = match method.sig.ident.to_string().as_str() {
         "verify_qualification_for_fence" => {
-            "pub fn verify_qualification_for_fence(&self, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3, verifier: &mut runne_native_qualification::QualificationAdmissionVerifier, admission: &runne_native_qualification::PendingQualificationAdmission, now_unix_seconds: u64) -> Result<runne_native_qualification::VerifiedQualificationFenceFacts, QualificationAdmissionError> {}"
+            "pub fn verify_qualification_for_fence(&self, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3, verifier: &mut runne_native_qualification::QualificationAdmissionVerifier, admission: &runne_native_qualification::PendingQualificationAdmission, now_unix_seconds: u64) -> Result<runne_native_qualification::VerifiedQualificationFenceFacts, QualificationAdmissionError,> {}"
         }
         "from_revalidated" => {
             "pub(in crate::updater_metadata) fn from_revalidated(value: &VerifiedDaemonNativeEnrollmentPrepare) -> Option<Self> {}"
