@@ -8,6 +8,7 @@
 include!("protected_runtime/state_records.rs");
 include!("protected_runtime/state_store.rs");
 include!("protected_runtime/launcher.rs");
+include!("protected_runtime/activation_rebind.rs");
 #[cfg(unix)]
 include!("protected_runtime/local_process_fixture.rs");
 include!("protected_runtime/writer_staging.rs");
