@@ -15,11 +15,7 @@ import '@runne/product/shared/ui/styles/base.css'
 import { isTauri } from '@tauri-apps/api/core'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  connectRuntime,
-  loadBootstrap,
-  saveTheme,
-} from '@/shared/api/platform/bootstrap'
+import { connectRuntime, loadBootstrap, saveTheme } from '@/shared/api/platform/bootstrap'
 import {
   createRuntimeSessionContext,
   createRuntimeSessionController,
@@ -87,23 +83,27 @@ let stopExternalActivation: (() => void) | undefined
 function applyBootstrap(
   bootstrap: Awaited<ReturnType<typeof loadBootstrap>>,
   themeRead = captureThemeRead(),
+  ticket?: number,
 ) {
+  if (runtimeSession.ticketFenced(ticket)) return
   applyOwnerTheme(bootstrap.theme, themeRead)
   runtimeMode.value = bootstrap.runtimeMode
   runtimeState.value = bootstrap.runtime
   runtimeLifecycle.value = bootstrap.runtimeLifecycle
   runtimeFailure.value = bootstrap.runtimeFailure
-  runtimeSession.observeBootstrap(bootstrap)
+  runtimeSession.observeBootstrap(bootstrap, ticket)
 }
 async function refreshRuntimeStatus() {
+  const themeRead = captureThemeRead()
+  const ticket = runtimeSession.sessionTicket()
   try {
-    const themeRead = captureThemeRead()
-    applyBootstrap(await loadBootstrap(), themeRead)
+    applyBootstrap(await loadBootstrap(), themeRead, ticket)
   }
   catch {
+    if (runtimeSession.ticketFenced(ticket)) return
     runtimeLifecycle.value = 'failed'
     runtimeFailure.value = null
-    runtimeSession.observeBootstrap({ runtime: 'fatal' })
+    runtimeSession.observeBootstrap({ runtime: 'fatal' }, ticket)
   }
 }
 async function openExternalActivation(target: ActivationTarget) {

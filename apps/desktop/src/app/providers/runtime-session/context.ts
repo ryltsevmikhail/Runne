@@ -14,15 +14,21 @@ export interface RuntimeSessionContext {
   connect(): Promise<RuntimeSessionSnapshot>
   retry(): Promise<RuntimeSessionSnapshot>
   close(): Promise<void>
-  observeBootstrap(value: unknown): RuntimeSessionSnapshot
+  observeBootstrap(value: unknown, ticket?: number): RuntimeSessionSnapshot
+  sessionTicket(): number
+  ticketFenced(ticket: number | undefined): boolean
 }
 
 const runtimeSessionKey: InjectionKey<RuntimeSessionContext> = Symbol('runtime-session')
 
 export function createRuntimeSessionContext(port: RuntimeSessionController): RuntimeSessionContext {
   const snapshot = shallowRef(port.snapshot())
+  // Publish the controller's current snapshot after the operation settles:
+  // a revocation or close arriving meanwhile must not be overwritten by the
+  // operation's stale return value.
   const update = async (operation: () => Promise<RuntimeSessionSnapshot>) => {
-    snapshot.value = await operation()
+    await operation()
+    snapshot.value = port.snapshot()
     return snapshot.value
   }
   return {
@@ -33,10 +39,12 @@ export function createRuntimeSessionContext(port: RuntimeSessionController): Run
       await port.close()
       snapshot.value = port.snapshot()
     },
-    observeBootstrap(value) {
-      snapshot.value = port.observeBootstrap(value)
+    observeBootstrap(value, ticket) {
+      snapshot.value = port.observeBootstrap(value, ticket)
       return snapshot.value
     },
+    sessionTicket: () => port.sessionTicket(),
+    ticketFenced: (ticket: number | undefined) => port.ticketFenced(ticket),
   }
 }
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { createRuntimeSessionController, createRuntimeSessionPort } from './runtime-session'
 
@@ -111,6 +111,170 @@ describe('runtime session port', () => {
     })
 
     await port.connect()
+    expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
+  })
+
+  it('re-authenticates automatically after a transient reconnect window resolves', async () => {
+    const port = createRuntimeSessionController({
+      connect: async () => 'live',
+      loadBootstrap: async () => bootstrap('live'),
+    })
+
+    await port.connect()
+    expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
+
+    expect(port.observeBootstrap(bootstrap('reconnecting'))).toMatchObject({
+      status: 'reconnecting',
+      canMutate: false,
+    })
+    // Synchronous contract: an observed live bootstrap alone is still stale...
+    expect(port.observeBootstrap(bootstrap('live'))).toMatchObject({
+      status: 'stale',
+      canMutate: false,
+    })
+    // ...but the controller schedules one authenticated reconnect by itself,
+    // so a renewed or reconnected runtime stops being read-only without a
+    // manual retry.
+    await vi.waitFor(() => {
+      expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
+    })
+  })
+
+  it('keeps a terminal latch across later transient observations', async () => {
+    let connects = 0
+    const port = createRuntimeSessionController({
+      connect: async () => {
+        connects += 1
+        return 'live'
+      },
+      loadBootstrap: async () => bootstrap('live'),
+    })
+
+    await port.connect()
+    expect(connects).toBe(1)
+
+    // A revocation latches; a transient observation must not clear it.
+    port.observeBootstrap(bootstrap('revoked'))
+    port.observeBootstrap(bootstrap('reconnecting'))
+    for (let observation = 0; observation < 5; observation += 1) {
+      port.observeBootstrap(bootstrap('live'))
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+    expect(connects).toBe(1)
+    expect(port.snapshot().canMutate).toBe(false)
+
+    // A manual retry re-arms recovery; a later transient cycle auto-heals.
+    await port.retry()
+    expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
+    port.observeBootstrap(bootstrap('reconnecting'))
+    port.observeBootstrap(bootstrap('live'))
+    await vi.waitFor(() => {
+      expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
+    })
+  })
+
+  it('latches terminal connect outcomes against automatic recovery', async () => {
+    for (const connected of ['revoked', 'incompatible', 'fatal', 'resync_required', 'garbage']) {
+      let connects = 0
+      const port = createRuntimeSessionController({
+        connect: async () => {
+          connects += 1
+          return connected
+        },
+        loadBootstrap: async () => bootstrap('live'),
+      })
+
+      await port.connect()
+      expect(connects).toBe(1)
+      for (let observation = 0; observation < 5; observation += 1) {
+        port.observeBootstrap(bootstrap('live'))
+        await Promise.resolve()
+        await Promise.resolve()
+        await Promise.resolve()
+      }
+      expect(connects).toBe(1)
+      expect(port.snapshot().canMutate).toBe(false)
+      await port.retry()
+      expect(connects).toBe(2)
+    }
+
+    // A reconnecting handshake outcome stays recoverable.
+    let connects = 0
+    const port = createRuntimeSessionController({
+      connect: async () => {
+        connects += 1
+        return connects === 1 ? 'reconnecting' : 'live'
+      },
+      loadBootstrap: async () => bootstrap('live'),
+    })
+    await port.connect()
+    port.observeBootstrap(bootstrap('reconnecting'))
+    port.observeBootstrap(bootstrap('live'))
+    await vi.waitFor(() => {
+      expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
+    })
+  })
+
+  it('drops pre-close bootstrap reads delivered after a reopen', async () => {
+    const port = createRuntimeSessionController({
+      connect: async () => 'live',
+      loadBootstrap: async () => bootstrap('live'),
+    })
+
+    await port.connect()
+    const staleTicket = port.sessionTicket()
+    await port.close()
+    await port.connect()
+    expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
+
+    // A read captured before the close must not fence the new session...
+    expect(port.observeBootstrap(bootstrap('revoked'), staleTicket)).toMatchObject({
+      status: 'live',
+      canMutate: true,
+    })
+    // ...a read captured before a new establishment is fenced the same way...
+    const preRetryTicket = port.sessionTicket()
+    await port.retry()
+    expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
+    expect(port.observeBootstrap(bootstrap('revoked'), preRetryTicket)).toMatchObject({
+      status: 'live',
+      canMutate: true,
+    })
+    // ...while the current generation still applies.
+    expect(port.observeBootstrap(bootstrap('revoked'), port.sessionTicket())).toMatchObject({
+      status: 'revoked',
+      canMutate: false,
+    })
+  })
+
+  it('fences reads captured before an establishment still in flight', async () => {
+    let releaseConnect: ((value: unknown) => void) | undefined
+    let connects = 0
+    const port = createRuntimeSessionController({
+      connect: () => {
+        connects += 1
+        if (connects === 2) {
+          return new Promise(resolve => {
+            releaseConnect = resolve
+          })
+        }
+        return Promise.resolve('live')
+      },
+      loadBootstrap: async () => bootstrap('live'),
+    })
+
+    await port.connect()
+    const staleTicket = port.sessionTicket()
+    const retrying = port.retry()
+    // The transition fences older reads immediately, not on completion.
+    expect(port.observeBootstrap(bootstrap('revoked'), staleTicket)).toMatchObject({
+      status: 'loading',
+      canMutate: false,
+    })
+    releaseConnect?.('live')
+    await retrying
     expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
   })
 })

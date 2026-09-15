@@ -80,6 +80,8 @@ function mutableRuntimeContext() {
     retry: async () => snapshot.value,
     close: async () => {},
     observeBootstrap: () => snapshot.value,
+    sessionTicket: () => 0,
+    ticketFenced: () => false,
   }
   return {
     context,

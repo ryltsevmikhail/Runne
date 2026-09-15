@@ -21,4 +21,55 @@ describe('runtime session context', () => {
       canMutate: false,
     })
   })
+
+  it('never publishes a stale live over a revocation arriving mid-operation', async () => {
+    let releaseBootstrap: (value: unknown) => void = () => {}
+    const deferredBootstrap = new Promise(resolve => {
+      releaseBootstrap = resolve
+    })
+    const port = createRuntimeSessionController({
+      connect: async () => 'live',
+      loadBootstrap: () => deferredBootstrap,
+    })
+    const context = createRuntimeSessionContext(port)
+
+    const pending = context.connect()
+    await Promise.resolve() // reach the deferred loadBootstrap
+    releaseBootstrap(bootstrap('live'))
+    await Promise.resolve() // establish resumes and publishes live
+    expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
+
+    // A revocation arrives before the operation settles externally: the context
+    // must publish the controller's current (read-only) state, not the stale
+    // live return value.
+    context.observeBootstrap(bootstrap('revoked'))
+    await pending
+    expect(context.snapshot.value).toMatchObject({
+      status: 'revoked',
+      canMutate: false,
+    })
+  })
+
+  it('never publishes over a close arriving mid-operation', async () => {
+    let releaseBootstrap: (value: unknown) => void = () => {}
+    const deferredBootstrap = new Promise(resolve => {
+      releaseBootstrap = resolve
+    })
+    const port = createRuntimeSessionController({
+      connect: async () => 'live',
+      loadBootstrap: () => deferredBootstrap,
+    })
+    const context = createRuntimeSessionContext(port)
+
+    const pending = context.connect()
+    await Promise.resolve() // reach the deferred loadBootstrap
+    releaseBootstrap(bootstrap('live'))
+    await Promise.resolve() // establish resumes and publishes live
+    await context.close()
+    await pending
+    expect(context.snapshot.value).toMatchObject({
+      status: 'unavailable',
+      canMutate: false,
+    })
+  })
 })
