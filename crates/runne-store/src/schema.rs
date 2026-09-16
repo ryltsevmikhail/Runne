@@ -123,6 +123,7 @@ include!("schema/provider_qualification_v35_schema.rs");
 mod project_workspace_backfill;
 mod project_workspace_schema;
 pub(crate) mod provider_schema;
+pub mod recovery_diagnosis;
 mod replay_promotion_snapshot_schema;
 mod replay_snapshot_schema;
 include!("schema/open.rs");
