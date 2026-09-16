@@ -14,11 +14,19 @@ fn expected_desktop_profile_digest() -> [u8; 32] {
 #[cfg(not(target_os = "macos"))]
 #[test]
 fn production_open_fails_closed_before_creating_a_database_without_native_secure_store() {
+    struct UnavailableSecureStore;
+
+    impl runne_secure_store::SecureStore for UnavailableSecureStore {}
+
     let directory = tempfile::tempdir().expect("directory");
     let path = directory.path().join("profile.sqlite3");
 
     assert!(matches!(
-        AppCore::open_production(&path, RuntimeMode::ExternalLocal),
+        AppCore::open_production_with_secure(
+            &path,
+            RuntimeMode::ExternalLocal,
+            Arc::new(UnavailableSecureStore),
+        ),
         Err(AppCoreError::MutationUnavailable)
     ));
     assert!(!path.exists());

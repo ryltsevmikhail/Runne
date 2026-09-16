@@ -10,6 +10,7 @@ fn linux_smoke_bootstrap_works() {
     let runtime = dir.path().join("runtime");
     std::fs::create_dir_all(&runtime).unwrap();
 
-    // Test that platform-specific constants are correct
-    assert_eq!(runne_daemon::lock::O_NOFOLLOW_VAL, 0o400000);
+    // The exported constant must match the kernel ABI table for the target
+    // (hand-coded octal drifts across architectures, e.g. arm64 vs asm-generic).
+    assert_eq!(runne_daemon::lock::O_NOFOLLOW_VAL, libc::O_NOFOLLOW);
 }

@@ -1,21 +1,8 @@
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CreateRuntimeWorkspaceRequest {
-    project_id: String,
-    display_name: String,
-}
-
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct WorkspaceMutationResponse {
     workspace_id: String,
     new_version: u64,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CreateRuntimeProjectRequest {
-    display_name: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -25,29 +12,24 @@ struct ProjectMutationResponse {
     new_version: u64,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct OpenRuntimeWorkspaceRequest {
-    workspace_id: String,
-    expected_version: u64,
-}
-
+// The renderer invokes these commands with flat camelCase args (see
+// entities/project/api), matching the convention of the other IPC commands.
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 async fn create_runtime_project(
     state: State<'_, Arc<AppCore>>,
     lifecycle: State<'_, RuntimeLifecycleManager>,
-    request: CreateRuntimeProjectRequest,
+    display_name: String,
 ) -> Result<ProjectMutationResponse, IpcError> {
     require_runtime_admission(&lifecycle)?;
-    if !valid_project_name(&request.display_name) {
+    if !valid_project_name(&display_name) {
         return Err(IpcError {
             code: "project_creation_rejected",
         });
     }
     let project_id = runne_app_core::CanonicalId::now_v7();
     let acknowledgement = state
-        .create_runtime_project(project_id, request.display_name)
+        .create_runtime_project(project_id, display_name)
         .await
         .map_err(|_| IpcError {
             code: "project_creation_rejected",
@@ -68,20 +50,21 @@ async fn create_runtime_project(
 async fn create_runtime_workspace(
     state: State<'_, Arc<AppCore>>,
     lifecycle: State<'_, RuntimeLifecycleManager>,
-    request: CreateRuntimeWorkspaceRequest,
+    project_id: String,
+    display_name: String,
 ) -> Result<WorkspaceMutationResponse, IpcError> {
     require_runtime_admission(&lifecycle)?;
-    let project_id = runne_app_core::CanonicalId::parse(&request.project_id).map_err(|_| IpcError {
+    let project_id = runne_app_core::CanonicalId::parse(&project_id).map_err(|_| IpcError {
         code: "workspace_creation_rejected",
     })?;
-    if !valid_workspace_name(&request.display_name) {
+    if !valid_workspace_name(&display_name) {
         return Err(IpcError {
             code: "workspace_creation_rejected",
         });
     }
     let workspace_id = runne_app_core::CanonicalId::now_v7();
     let acknowledgement = state
-        .create_runtime_workspace(project_id, workspace_id, request.display_name)
+        .create_runtime_workspace(project_id, workspace_id, display_name)
         .await
         .map_err(|_| IpcError {
             code: "workspace_creation_rejected",
@@ -102,19 +85,20 @@ async fn create_runtime_workspace(
 async fn open_runtime_workspace(
     state: State<'_, Arc<AppCore>>,
     lifecycle: State<'_, RuntimeLifecycleManager>,
-    request: OpenRuntimeWorkspaceRequest,
+    workspace_id: String,
+    expected_version: u64,
 ) -> Result<WorkspaceMutationResponse, IpcError> {
     require_runtime_admission(&lifecycle)?;
-    let workspace_id = runne_app_core::CanonicalId::parse(&request.workspace_id).map_err(|_| IpcError {
+    let workspace_id = runne_app_core::CanonicalId::parse(&workspace_id).map_err(|_| IpcError {
         code: "workspace_open_rejected",
     })?;
-    if request.expected_version == 0 {
+    if expected_version == 0 {
         return Err(IpcError {
             code: "workspace_open_rejected",
         });
     }
     let acknowledgement = state
-        .open_runtime_workspace(workspace_id, request.expected_version)
+        .open_runtime_workspace(workspace_id, expected_version)
         .await
         .map_err(|_| IpcError {
             code: "workspace_open_rejected",
