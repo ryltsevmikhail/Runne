@@ -9,19 +9,21 @@ pub struct IpcRuntimeError {
     pub disposition: &'static str,
 }
 
-pub fn runtime_error_disposition(availability: Option<RuntimeAvailability>) -> &'static str {
+#[must_use]
+pub const fn runtime_error_disposition(availability: Option<RuntimeAvailability>) -> &'static str {
     match availability {
-        Some(RuntimeAvailability::Reconnecting)
-        | Some(RuntimeAvailability::Reconciling) => "transient",
+        Some(RuntimeAvailability::Reconnecting | RuntimeAvailability::Reconciling) => "transient",
         // Default-deny: terminal, unknown, and availability-read failures.
         _ => "terminal",
     }
 }
 
-pub fn commands_admission_error(error: IpcError) -> IpcRuntimeError {
+#[must_use]
+pub(crate) const fn commands_admission_error(error: &IpcError) -> IpcRuntimeError {
     IpcRuntimeError { code: error.code, disposition: "terminal" }
 }
 
+#[must_use]
 pub fn bootstrap_runtime_error(state: &runne_app_core::AppCore) -> IpcRuntimeError {
     let disposition = runtime_error_disposition(state.runtime_availability().ok());
     IpcRuntimeError { code: "bootstrap_unavailable", disposition }

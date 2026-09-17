@@ -6,7 +6,7 @@ async fn connect_runtime(
     updates: State<'_, crate::UpdateStatusStore>,
 ) -> Result<RuntimeAvailability, IpcRuntimeError> {
     require_runtime_admission(&lifecycle)
-        .map_err(commands_admission_error)?;
+        .map_err(|error| commands_admission_error(&error))?;
     let availability = lifecycle.connect_runtime(&state).await
         .map_err(|_| {
             // A shutdown race must stay terminal even when the AppCore state
@@ -25,7 +25,7 @@ async fn connect_runtime(
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     if availability == RuntimeAvailability::Live {
         crate::provider_credential_enrollment::reconcile_startup(&lifecycle, &updates).await
-            .map_err(|_| IpcRuntimeError { code: "runtime_credential_cleanup_incomplete", disposition: "terminal" })?;
+            .map_err(|()| IpcRuntimeError { code: "runtime_credential_cleanup_incomplete", disposition: "terminal" })?;
     }
     // An explicit quit during the await must stay terminal even if the
     // handshake itself succeeded.
