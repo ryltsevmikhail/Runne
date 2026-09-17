@@ -30,6 +30,8 @@ mod unix_daemon_macos;
 #[cfg(unix)]
 mod unix_descriptor;
 mod writer_evidence;
+#[cfg(all(target_os = "macos", feature = "test-support"))]
+mod writer_stderr_log;
 use runne_platform_ports::provider_credential_broker::{
     BrokerHandoffError, ProviderCredentialBrokerPort, WriterOwnership, WriterOwnershipState,
 };
@@ -88,6 +90,9 @@ mod tests_macos_daemon_kill;
 #[cfg(all(test, target_os = "macos"))]
 #[path = "provider_credential_broker/tests_macos_writer_ownership.rs"]
 mod tests_macos_writer_ownership;
+#[cfg(all(test, target_os = "macos", feature = "test-support"))]
+#[path = "provider_credential_broker/tests_writer_stderr_log.rs"]
+mod tests_writer_stderr_log;
 
 /// Non-serializable process evidence accepted only after platform validation.
 pub struct WriterProcessEvidence {

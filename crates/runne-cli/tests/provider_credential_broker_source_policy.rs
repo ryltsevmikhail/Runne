@@ -6,6 +6,8 @@ mod branch_mutations;
 mod claim_source_audit;
 #[path = "provider_credential_broker_source_policy/disclosure_sink_audit.rs"]
 mod disclosure_sink_audit;
+#[path = "provider_credential_broker_source_policy/disclosure_stage_binding.rs"]
+mod disclosure_stage_binding;
 #[path = "provider_credential_broker_source_policy/source_reference_audit.rs"]
 mod source_reference_audit;
 #[path = "provider_credential_broker_source_policy/source_substitution_mutations.rs"]
@@ -14,6 +16,8 @@ mod source_substitution_mutations;
 mod source_tree_audit;
 #[path = "provider_credential_broker_source_policy/source_tree_helpers.rs"]
 mod source_tree_helpers;
+#[path = "provider_credential_broker_source_policy/stage_diagnostics_audit.rs"]
+mod stage_diagnostics_audit;
 
 use branch_audit::broker_branch_violations;
 use disclosure_sink_audit::{broker_disclosure_sink_violations, disclosure_sink_violations};
