@@ -74,7 +74,10 @@ describe('runtime session port', () => {
     expect(port.snapshot()).toMatchObject({ status: 'fatal', canMutate: false })
   })
 
-  it('requires a fresh authenticated connect after bootstrap reports reconnecting', async () => {
+  // The establish now spends up to ~10 s settling through the connect-time
+  // rotation window before reporting; the poll invariant (live without a
+  // fresh authenticated connect stays stale/read-only) is unchanged.
+  it('requires a fresh authenticated connect after bootstrap reports reconnecting', { timeout: 12_000 }, async () => {
     const port = createRuntimeSessionController({
       connect: async () => 'live',
       loadBootstrap: async () => bootstrap('reconnecting'),

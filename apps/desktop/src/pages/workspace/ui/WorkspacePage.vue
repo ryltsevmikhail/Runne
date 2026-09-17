@@ -23,6 +23,10 @@ import {
   createWorkspaceRefreshController,
   type WorkspaceRefreshLoaders,
 } from '../model/workspace-refresh'
+import {
+  createFilesRetryController,
+  createSingleFlightLoader,
+} from '../model/workspace-retry'
 type OpenEditor = (id: string, path: string) => Promise<unknown>
 const props = defineProps({
   loadProject: {
@@ -94,7 +98,7 @@ function onReconnectRetryable(value: RetryableWorkspaceOpen, id: string, viewGen
 function onReconnectConnected(id: string, viewGeneration: number): void {
   if (id !== workspaceId.value || viewGeneration !== reconnectViewGeneration.value) return
   clearPendingReconnect()
-  void refresh.load(id)
+  pageLoads.request(id)
 }
 
 function onReconnectFailed(id: string, viewGeneration: number): void {
@@ -110,6 +114,10 @@ async function openFile(path: string) {
 }
 
 let previousWorkspaceId: string | undefined
+const pageLoads = createSingleFlightLoader(
+  async (id: string) => { await refresh.load(id) },
+  (id) => id === workspaceId.value && runtimeStatus.value === 'live',
+)
 watch([runtimeStatus, workspaceId], ([status, id]) => {
   if (previousWorkspaceId !== undefined && previousWorkspaceId !== id) {
     reconnectViewGeneration.value += 1
@@ -121,10 +129,23 @@ watch([runtimeStatus, workspaceId], ([status, id]) => {
     refresh.markUnavailable()
     return
   }
-  if (status === 'live') void refresh.load(id)
+  if (status === 'live') pageLoads.request(id)
   else refresh.markUnavailable()
 }, { immediate: true })
-onBeforeUnmount(() => { refresh.dispose() })
+const disposeFilesRetry = createFilesRetryController(
+  () => ({
+    status: runtimeStatus.value,
+    error: filesError.value,
+    loading: filesLoading.value || loading.value,
+    id: workspaceId.value,
+  }),
+  (id) => { pageLoads.request(id) },
+)
+onBeforeUnmount(() => {
+  pageLoads.dispose()
+  disposeFilesRetry()
+  refresh.dispose()
+})
 async function returnToProjects() {
   await router.push('/')
 }

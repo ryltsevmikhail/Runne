@@ -82,8 +82,8 @@ describe('desktop application shell fenced bootstrap reads', () => {
   }
 
   // Drives: establish proof (#1), an initial refresh that drops authentication
-  // (#2, reconnecting), a stale poll read held pending (#3), a live poll that
-  // schedules automatic re-establishment (#4), and the recovery proof (#5).
+  // (#2, reconnecting), a stale poll read held pending (#3), a live poll (#4),
+  // and the immediate recovery proof (#5, scheduled by the transient itself).
   function scriptStaleRead(stalePromise: Promise<unknown>) {
     let calls = 0
     platform.loadBootstrap.mockImplementation(async () => {
@@ -100,14 +100,14 @@ describe('desktop application shell fenced bootstrap reads', () => {
     await vi.advanceTimersByTimeAsync(1_000)
     await vi.waitFor(() => expect(calls()).toBeGreaterThanOrEqual(3))
     await vi.advanceTimersByTimeAsync(1_000)
-    await vi.waitFor(() => expect(calls()).toBeGreaterThanOrEqual(5))
+    await vi.waitFor(() => expect(calls()).toBeGreaterThanOrEqual(4))
   }
 
   it('drops a stale bootstrap success delivered after a re-establishment', async () => {
     const stale = deferred<unknown>()
     const calls = scriptStaleRead(stale.promise)
     const wrapper = await mountApp()
-    await vi.waitFor(() => expect(calls()).toBe(2))
+    await vi.waitFor(() => expect(calls()).toBe(3))
 
     await reachReEstablishment(calls)
     stale.resolve(liveBootstrap('light'))
@@ -123,7 +123,7 @@ describe('desktop application shell fenced bootstrap reads', () => {
     const stale = deferred<unknown>()
     const calls = scriptStaleRead(stale.promise)
     const wrapper = await mountApp()
-    await vi.waitFor(() => expect(calls()).toBe(2))
+    await vi.waitFor(() => expect(calls()).toBe(3))
 
     await reachReEstablishment(calls)
     stale.reject(new Error('stale read'))

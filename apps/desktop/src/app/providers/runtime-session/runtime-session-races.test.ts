@@ -10,6 +10,12 @@ const bootstrap = (runtime: unknown) => ({
   runtimeFailure: null,
 })
 
+const transientReject = (message: string): Error => {
+  const error: Error & { disposition?: string } = new Error(message)
+  error.disposition = 'transient'
+  return error
+}
+
 describe('runtime session revocation and concurrent manual races', () => {
   it('drops a manual attempt when a revocation arrives during its connect', async () => {
     let releaseStaleConnect: ((value: unknown) => void) | undefined
@@ -269,29 +275,58 @@ describe('runtime session revocation and concurrent manual races', () => {
       expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
     }
 
-    // An IPC failure outcome denies automatic recovery the same way.
-    let connects = 0
+    // Transport-level IPC failures are transient: the closed projection is
+    // published for the manual attempt, and automatic recovery self-heals once
+    // the transport recovers (no terminal latch, no manual retry required).
     let failing = true
     const port = createRuntimeSessionController({
       connect: async () => {
-        connects += 1
-        if (failing) throw new Error('ipc unavailable')
+        if (failing) throw transientReject('ipc unavailable')
         return 'live'
       },
       loadBootstrap: async () => bootstrap('live'),
     })
 
     await port.connect()
-    expect(connects).toBe(1)
-    for (let observation = 0; observation < 5; observation += 1) {
-      port.observeBootstrap(bootstrap('live'))
-      await Promise.resolve()
-      await Promise.resolve()
-      await Promise.resolve()
-    }
-    expect(connects).toBe(1)
+    expect(port.snapshot()).toMatchObject({ status: 'unavailable', canMutate: false })
     failing = false
-    await port.retry()
-    expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
+    port.observeBootstrap(bootstrap('live'))
+    await vi.waitFor(() => {
+      expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
+    })
+  })
+
+  // Regression (live F5 pass): connect_runtime itself rotates the daemon
+  // session, so the bootstrap read right after connect can observe
+  // Reconciling; the establish must settle through that window instead of
+  // failing transient and latching the UI stale.
+  it('establishes through the connect-time rotation window', async () => {
+    const queue: string[] = ['reconnecting', 'reconnecting', 'live']
+    const port = createRuntimeSessionController({
+      connect: async () => 'live',
+      loadBootstrap: async () => bootstrap(queue.shift() ?? 'live'),
+    })
+    const result = await port.retry()
+    expect(result).toMatchObject({ status: 'live', canMutate: true })
+    expect(queue).toStrictEqual([])
+  })
+
+  // Negative control: a rotation that never settles must keep the session
+  // unauthenticated (reconnecting), never clear it to live/stale by fiat.
+  it('keeps the session unauthenticated while the rotation never settles', async () => {
+    vi.useFakeTimers()
+    try {
+      const port = createRuntimeSessionController({
+        connect: async () => 'live',
+        loadBootstrap: async () => bootstrap('reconnecting'),
+      })
+      const retrying = port.retry()
+      const settled = vi.advanceTimersByTimeAsync(10_500)
+      const result = await Promise.all([retrying, settled.then(() => undefined)])
+      expect(result[0]).toMatchObject({ status: 'reconnecting' })
+      expect(port.snapshot()).toMatchObject({ runtime: 'reconnecting', canMutate: false })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

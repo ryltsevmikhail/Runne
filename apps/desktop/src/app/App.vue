@@ -55,14 +55,9 @@ const route = useRoute()
 const router = useRouter()
 watch(() => route.fullPath, () => {
   if (!window.matchMedia?.('(max-width: 1023px)').matches) return
-  // Keep the project tree open while a project is selected. On narrow windows
-  // this is the only place where archived projects and their workspace choices
-  // remain visible after the intermediate project route redirects home.
-  if (route.name === 'projects' && typeof route.query.project === 'string' && route.query.project.length > 0) {
-    sidebarCollapsed.value = false
-    return
-  }
-  sidebarCollapsed.value = true
+  const projectRoute = route.name === 'projects' && typeof route.query.project === 'string'
+    && route.query.project.length > 0
+  sidebarCollapsed.value = !projectRoute
 }, { immediate: true })
 const runtimeSession = createRuntimeSessionContext(createRuntimeSessionController({
   connect: connectRuntime,
@@ -99,11 +94,18 @@ async function refreshRuntimeStatus() {
   try {
     applyBootstrap(await loadBootstrap(), themeRead, ticket)
   }
-  catch {
+  catch (error) {
     if (runtimeSession.ticketFenced(ticket)) return
     runtimeLifecycle.value = 'failed'
     runtimeFailure.value = null
-    runtimeSession.observeBootstrap({ runtime: 'fatal' }, ticket)
+    // The typed IPC disposition decides: a transient rejection (e.g. the
+    // runtime is rotating) must recover automatically; terminal, unknown and
+    // malformed payloads latch the session read-only until manual retry.
+    const disposition = (error as { disposition?: unknown } | null | undefined)?.disposition
+    runtimeSession.observeBootstrap(
+      disposition === 'transient' ? { runtime: 'reconnecting' } : { runtime: 'fatal' },
+      ticket,
+    )
   }
 }
 async function openExternalActivation(target: ActivationTarget) {
@@ -152,9 +154,7 @@ onMounted(async () => {
       const pending = await loadPendingExternalActivation()
       if (pending !== null) receiveExternalActivation(pending)
     }
-    catch {
-      activationNotice.value = translate('activation.unavailable')
-    }
+    catch { activationNotice.value = translate('activation.unavailable') }
     await runtimeSession.connect()
     await refreshRuntimeStatus()
     void syncNotifications().catch(() => undefined)

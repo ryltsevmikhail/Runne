@@ -21,7 +21,7 @@ impl RootAdmissionGateway {
                 let active = state
                     .active
                     .get(&workspace_id)
-                    .filter(|active| active.version == version)
+                    .filter(|active| active_root_is_current(version, active.version))
                     .ok_or(ProjectWorkspaceRepositoryError::Unavailable)?;
                 operation(&active.handle).map_err(|error| match error {
                     RootHandleBrokerError::Rejected => {
