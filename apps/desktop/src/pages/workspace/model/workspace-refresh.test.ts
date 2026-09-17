@@ -213,4 +213,20 @@ describe('workspace refresh controller', () => {
     oldChanges.resolve({ items: [] })
     await firstLoad
   })
+
+  it('never presents an unloaded file explorer as an empty success', async () => {
+    const controller = createWorkspaceRefreshController({
+      loadProject: async () => {
+        throw new Error('project unavailable')
+      },
+      loadFiles: async () => ({ items: [] }),
+      loadChanges: async () => ({ items: [] as const }),
+      loadDiff: emptyDiff,
+    })
+    await controller.load(WORKSPACE_ID)
+    expect(controller.error.value).toBe(true)
+    // A cycle that never reached a listing must render "unavailable", never
+    // the truthful-looking "no files" state (live finding F5).
+    expect(controller.filesError.value).toBe(true)
+  })
 })

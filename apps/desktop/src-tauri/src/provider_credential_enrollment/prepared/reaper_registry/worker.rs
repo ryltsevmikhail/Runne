@@ -9,13 +9,6 @@ use super::{
 
 #[derive(Clone, Copy)]
 pub(super) enum AttemptKind {
-    #[cfg_attr(
-        not(all(target_os = "macos", target_arch = "aarch64")),
-        expect(
-            dead_code,
-            reason = "only native enrollment producers issue outer writer retries"
-        )
-    )]
     OuterRetry,
     Maintenance,
     Shutdown,

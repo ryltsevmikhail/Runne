@@ -24,12 +24,16 @@ impl PickerReservationState {
 }
 
 /// Move-only reservation for one outstanding native directory picker.
-pub(crate) struct PickerReservationLease {
+pub struct PickerReservationLease {
     pending: Arc<Mutex<HashSet<String>>>,
     window: Option<String>,
 }
 
 impl PickerReservationLease {
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "retain the pending lock until the reservation lease is fully constructed"
+    )]
     pub(super) fn reserve(
         state: &PickerReservationState,
         window: &str,
@@ -75,6 +79,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "keep the manager alive for the complete reservation lifetime assertion"
+    )]
     fn duplicate_picker_is_rejected_until_the_first_dialog_lease_drops() {
         let manager = manager();
         assert_eq!(
@@ -88,6 +96,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "keep the manager alive for the complete reservation lifetime assertion"
+    )]
     fn newer_generation_cannot_open_a_second_picker_before_dialog_close() {
         let manager = manager();
         assert_eq!(
@@ -105,6 +117,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "keep the manager alive for the complete reservation lifetime assertion"
+    )]
     fn stale_generation_is_rejected_before_picker_reservation() {
         let manager = manager();
         assert_eq!(
@@ -116,6 +132,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "keep the manager alive for the complete reservation lifetime assertion"
+    )]
     fn independent_windows_can_each_hold_one_picker() {
         let manager = manager();
         assert_eq!(
@@ -144,17 +164,16 @@ mod tests {
             1
         );
         let barrier = Arc::new(Barrier::new(2));
-        let threads = (0..2)
-            .map(|_| {
-                let manager = Arc::clone(&manager);
-                let barrier = Arc::clone(&barrier);
-                std::thread::spawn(move || {
-                    let lease = manager.reserve_picker("main", 1);
-                    barrier.wait();
-                    lease.is_ok()
-                })
+        let spawn = || {
+            let manager = Arc::clone(&manager);
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                let lease = manager.reserve_picker("main", 1);
+                barrier.wait();
+                lease.is_ok()
             })
-            .collect::<Vec<_>>();
+        };
+        let threads = [spawn(), spawn()];
         let winners = threads
             .into_iter()
             .map(|thread| thread.join().expect("picker worker"))

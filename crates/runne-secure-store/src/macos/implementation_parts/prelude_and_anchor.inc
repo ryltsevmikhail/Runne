@@ -93,7 +93,7 @@ enum CredentialMigrationFailpoint {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CredentialPopulationFailpoint {
-    EmptyItemWritten,
+    PopulatedItemWritten,
 }
 
 pub struct MacOsKeychainStore {

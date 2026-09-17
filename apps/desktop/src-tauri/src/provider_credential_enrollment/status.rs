@@ -4,7 +4,11 @@ use crate::{AppCore, RuntimeLifecycleManager, UpdateStatusStore};
 use runne_api::ProviderCredentialProviderV2;
 use runne_app_core::ProviderCredentialEnrollmentProjection;
 
-pub(crate) async fn load_status(
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "retain the admitted installation and runtime lease through the authoritative status read"
+)]
+pub async fn load_status(
     core: &AppCore,
     lifecycle: &RuntimeLifecycleManager,
     updater: &UpdateStatusStore,

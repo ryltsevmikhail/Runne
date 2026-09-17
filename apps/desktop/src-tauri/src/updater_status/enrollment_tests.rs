@@ -54,6 +54,10 @@ async fn startup_without_compiled_updater_skips_without_acquiring_runtime() {
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[tokio::test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "retain the updater fixture through the async admission assertion"
+)]
 async fn installed_admission_revalidation_does_not_require_remote_feed() {
     let directory = tempfile::tempdir().unwrap();
     let fixture = enrollment::test_only_current_enrollment_updater(directory.path()).await;

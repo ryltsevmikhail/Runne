@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Non-native macOS qualification planning and structural envelope validation."""
+from __future__ import annotations
+
 import argparse
 import json
 from pathlib import Path

@@ -8,7 +8,9 @@ Usage: scripts/desktop/dev-signed-run.sh [--profile PATH] [--no-run]
 Build the debug desktop binary, assemble a minimal .app bundle with the
 entitlements and provisioning profile required by the DataProtection
 keychain (Secure Enclave seal key), stage the bundled runtime (runned
-daemon + runne CLI) into the bundle, and launch it.
+daemon + runne CLI) into the bundle, and launch it. The frontend is rebuilt
+first and embedded in the binary, so the bundle does not depend on a Vite
+dev server.
 
 Options:
   --profile PATH  Apple-signed Developer ID provisioning profile authorizing
@@ -86,7 +88,12 @@ else
 fi
 
 # Without --features desktop-protected the daemon cannot answer the protected first-activation protocol and exits(2) on spawn (release stage_bundled_daemon.mjs builds with the same feature); daemon builds last so target/debug/runned has it.
-cargo build -p runne-desktop -p runne-cli
+# This manually assembled bundle has no Vite dev server. Build the desktop
+# binary in Tauri production mode so frontendDist is embedded in the binary;
+# runne-cli remains a separate package without the desktop-only feature.
+pnpm --filter @runne/desktop build
+cargo build -p runne-desktop --features custom-protocol
+cargo build -p runne-cli
 cargo build -p runne-daemon --features desktop-protected
 
 binary="target/debug/runne-desktop"

@@ -1,27 +1,27 @@
-#[cfg(any(
-    all(test, unix),
-    all(
-        feature = "desktop-protected",
-        target_os = "macos",
-        target_arch = "aarch64"
-    )
+#[cfg(all(
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
 ))]
 use std::sync::Arc;
 
 use rand::{RngCore as _, rngs::OsRng};
 use runne_api::ProviderCredentialEnrollmentHostError;
-#[cfg(any(
-    all(test, unix),
-    all(
-        feature = "desktop-protected",
-        target_os = "macos",
-        target_arch = "aarch64"
-    )
+#[cfg(all(
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
+use runne_api::ProviderCredentialProviderV2;
+#[cfg(all(
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
 ))]
 use runne_api::{
     ProviderCredentialBaseRequestAuthority, ProviderCredentialOperationHandleV2,
-    ProviderCredentialOperationSnapshotV2, ProviderCredentialProviderV2,
-    ProviderCredentialRequestAuthorityVerifier, ProviderCredentialSafeSnapshotV2,
+    ProviderCredentialOperationSnapshotV2, ProviderCredentialRequestAuthorityVerifier,
+    ProviderCredentialSafeSnapshotV2,
 };
 
 #[cfg(any(
@@ -87,6 +87,11 @@ impl DaemonProviderCredentialEnrollmentControl {
         )?)
     }
 
+    #[cfg(all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    ))]
     pub(crate) fn http_enrollment_router(
         self: &Arc<Self>,
         now_high_water: Arc<dyn Fn() -> i64 + Send + Sync>,
@@ -142,7 +147,12 @@ impl DaemonProviderCredentialEnrollmentControl {
         }
     }
 
-    #[cfg(all(test, unix))]
+    #[cfg(all(
+        test,
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    ))]
     pub(crate) fn test_status_is_unavailable(&self, session: [u8; 16]) -> bool {
         use runne_http::ProviderCredentialEnrollmentHttpAdmissionResolver as _;
 
@@ -156,6 +166,11 @@ impl DaemonProviderCredentialEnrollmentControl {
         )
     }
 
+    #[cfg(all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    ))]
     pub(crate) fn status_http(
         &self,
         verifier: &ProviderCredentialRequestAuthorityVerifier,
@@ -181,6 +196,11 @@ impl DaemonProviderCredentialEnrollmentControl {
         Ok(snapshot)
     }
 
+    #[cfg(all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    ))]
     pub(crate) fn resume_http(
         &self,
         verifier: &ProviderCredentialRequestAuthorityVerifier,
@@ -209,13 +229,10 @@ impl DaemonProviderCredentialEnrollmentControl {
     }
 }
 
-#[cfg(any(
-    all(test, unix),
-    all(
-        feature = "desktop-protected",
-        target_os = "macos",
-        target_arch = "aarch64"
-    )
+#[cfg(all(
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
 ))]
 fn require_current_http_authority(
     facts: Option<&ProtectedEnrollmentSessionFacts>,

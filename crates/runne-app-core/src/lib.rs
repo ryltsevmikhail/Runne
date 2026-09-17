@@ -90,6 +90,8 @@ mod tests {
     include!("lib_parts/mutation_dispatch_tests.rs");
     include!("lib_parts/mutation_adversarial_tests.rs");
     include!("lib_parts/mutation_workspace_tests.rs");
+    include!("lib_parts/mutation_workspace_admission_tests.rs");
+    include!("lib_parts/mutation_workspace_admission_lock_tests.rs");
     include!("lib_parts/mutation_workspace_open_tests.rs");
     include!("lib_parts/mutation_project_tests.rs");
     include!("lib_parts/mutation_capability_tests.rs");

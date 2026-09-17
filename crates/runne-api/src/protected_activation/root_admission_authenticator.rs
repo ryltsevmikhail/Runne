@@ -52,13 +52,20 @@ impl RootAdmissionAuthenticator {
     pub fn verify_issued(&self, admission: IssuedRootHandleAdmission) -> Result<VerifiedRootAdmissionClaims, RootAdmissionValidationError> {
         self.verify(admission.into_admission())
     }
-    pub fn verify(&self, admission: RootHandleAdmission) -> Result<VerifiedRootAdmissionClaims, RootAdmissionValidationError> {
+    /// Verifies internal signed claims by borrow, keeping the raw admission movable.
+    pub(crate) fn verify_ref(
+        &self,
+        admission: &RootHandleAdmission,
+    ) -> Result<VerifiedRootAdmissionClaims, RootAdmissionValidationError> {
         let (payload, tail) = admission.bytes.split_at(ROOT_ADMISSION_PAYLOAD_BYTES);
         let (digest, mac) = tail.split_at(32);
         let calculated = admission_digest(payload);
         let proof = authenticated_mac(&self.key, ROOT_ADMISSION_DOMAIN, &[payload, digest].concat());
         if !bool::from(calculated.ct_eq(digest)) || !bool::from(proof.ct_eq(mac)) { return Err(RootAdmissionValidationError::ZeroBinding); }
         decode_claims(payload, calculated)
+    }
+    pub fn verify(&self, admission: RootHandleAdmission) -> Result<VerifiedRootAdmissionClaims, RootAdmissionValidationError> {
+        self.verify_ref(&admission)
     }
 }
 

@@ -4,15 +4,8 @@ import {
 } from '@/shared/api/platform/bootstrap'
 
 export type RuntimeSessionStatus =
-  | 'empty'
-  | 'loading'
-  | 'live'
-  | 'stale'
-  | 'reconnecting'
-  | 'incompatible'
-  | 'revoked'
-  | 'fatal'
-  | 'unavailable'
+  | 'empty' | 'loading' | 'live' | 'stale' | 'reconnecting'
+  | 'incompatible' | 'revoked' | 'fatal' | 'unavailable'
 
 export interface RuntimeSessionSnapshot {
   readonly runtime: RuntimeConnectionState | null
@@ -28,13 +21,22 @@ export interface RuntimeSessionPort {
 }
 
 export interface RuntimeSessionController extends RuntimeSessionPort {
-  observeBootstrap(value: unknown): RuntimeSessionSnapshot
+  observeBootstrap(value: unknown, ticket?: number): RuntimeSessionSnapshot
+  sessionTicket(): number
+  ticketFenced(ticket: number | undefined): boolean
 }
 
 interface RuntimeSessionDependencies {
   readonly connect: () => Promise<unknown>
   readonly loadBootstrap: () => Promise<unknown>
 }
+
+const MAX_AUTOMATIC_RECOVERIES = 3
+const SETTLE_WAITS = 20
+const SETTLE_DELAY_MS = 500
+
+const TRANSIENT_STATES = new Set(['reconnecting'])
+const REVOKED_STATES = new Set(['incompatible', 'revoked', 'fatal'])
 
 export function createRuntimeSessionPort(
   dependencies: RuntimeSessionDependencies,
@@ -47,57 +49,218 @@ export function createRuntimeSessionController(
 ): RuntimeSessionController {
   let authenticated = false
   let current = snapshot(null, 'empty')
+  let recovery: Promise<RuntimeSessionSnapshot> | null = null
+  let recoveryOwner: Promise<RuntimeSessionSnapshot> | null = null
+  let recoveryCancel: { cancelled: boolean } | null = null
+  let automaticFailures = 0
+  let latestManualId = 0
+  const pendingManuals = new Set<number>()
+  let proofResetGeneration = 0
+  let lastResetClass: string | null = null
+  let closeSequence = 0
+  let sessionEpoch = 0
+  let sessionGeneration = 0
+  let closed = true
 
-  async function establish(): Promise<RuntimeSessionSnapshot> {
+  function observationClass(runtime: string | null): string {
+    if (runtime === 'live') return 'live'
+    if (runtime !== null && TRANSIENT_STATES.has(runtime)) return 'transient'
+    if (runtime !== null && REVOKED_STATES.has(runtime)) return 'revoked'
+    return 'unknown'
+  }
+
+  function publish(next: RuntimeSessionSnapshot): RuntimeSessionSnapshot {
+    current = next
+    return next
+  }
+
+  function ticketFenced(ticket: number | undefined): boolean {
+    return ticket !== undefined && ticket !== sessionGeneration
+  }
+
+  async function establish(manual = false): Promise<RuntimeSessionSnapshot> {
+    const epoch = ++sessionEpoch
+    sessionGeneration += 1
+    closed = false
+    let proven = false
     authenticated = false
-    current = snapshot(null, 'loading')
+    if (manual) publish(snapshot(null, 'loading'))
     try {
       const connected = runtimeFrom(await dependencies.connect())
+      if (epoch !== sessionEpoch) return current
       if (connected === null) {
-        current = snapshot(null, 'fatal')
+        lastResetClass = 'terminal'
+        return publish(snapshot(null, 'fatal'))
+      }
+      const connectedLive = connected === 'live'
+      const connectKlass = observationClass(connected)
+      if (connectKlass === 'revoked' || connectKlass === 'unknown') {
+        if (lastResetClass === null || lastResetClass === 'transient') {
+          lastResetClass = 'terminal'
+        }
+      }
+      let runtime = runtimeFrom(await dependencies.loadBootstrap())
+      if (epoch !== sessionEpoch) return current
+      // connect_runtime itself rotates the daemon session, so the bootstrap read
+      // right after connect can observe Reconciling while that rotation settles;
+      // re-read bounded instead of burning the recovery budget on our own window.
+      let waits = 0
+      while (runtime === 'reconnecting' && waits < SETTLE_WAITS && epoch === sessionEpoch) {
+        waits += 1
+        await new Promise(resolve => setTimeout(resolve, SETTLE_DELAY_MS))
+        if (epoch !== sessionEpoch) return current
+        runtime = runtimeFrom(await dependencies.loadBootstrap())
+      }
+      proven = connectedLive && runtime === 'live'
+      authenticated = proven
+      const latched = lastResetClass !== null && lastResetClass !== 'transient'
+      const recoverableBootstrap
+        = runtime === 'live' || (runtime !== null && TRANSIENT_STATES.has(runtime))
+      lastResetClass = proven
+        ? null
+        : latched
+          ? lastResetClass
+          : connectKlass === 'revoked' || connectKlass === 'unknown' || !recoverableBootstrap
+            ? 'terminal'
+            : 'transient'
+      if (manual && (proven || lastResetClass === 'transient')) automaticFailures = 0
+      return publish(snapshot(runtime, statusFor(runtime, authenticated)))
+    }
+    catch (error) {
+      if (epoch !== sessionEpoch) return current
+      authenticated = false
+      const disposition = (error as { disposition?: unknown } | null | undefined)?.disposition
+      if (disposition === 'transient') {
+        if (manual) automaticFailures = 0
+        return manual ? publish(snapshot(null, 'unavailable')) : current
+      }
+      lastResetClass = 'terminal'
+      return publish(snapshot(null, manual ? 'unavailable' : 'fatal'))
+    }
+    finally {
+      if (proven && epoch === sessionEpoch) automaticFailures = 0
+    }
+  }
+
+  async function establishExclusively(): Promise<RuntimeSessionSnapshot> {
+    const manualId = ++latestManualId
+    pendingManuals.add(manualId)
+    lastResetClass = null
+    const closeSeq = closeSequence
+    const resetSeq = proofResetGeneration
+    if (recovery !== null) {
+      const cancelled = recoveryCancel
+      recovery = recoveryOwner = recoveryCancel = null
+      sessionEpoch += 1
+      if (cancelled !== null) cancelled.cancelled = true
+    }
+    try {
+      if (closeSeq !== closeSequence || resetSeq !== proofResetGeneration) {
         return current
       }
-      authenticated = connected === 'live'
-      const runtime = runtimeFrom(await dependencies.loadBootstrap())
-      if (runtime !== 'live') {
-        authenticated = false
+      return await establish(true)
+    }
+    finally {
+      pendingManuals.delete(manualId)
+    }
+  }
+
+  function newestManualPending(): boolean {
+    return pendingManuals.has(latestManualId)
+  }
+
+  function scheduleRecovery(): void {
+    if (
+      closed
+      || newestManualPending()
+      || recovery !== null
+      || automaticFailures >= MAX_AUTOMATIC_RECOVERIES
+      || (lastResetClass !== null && lastResetClass !== 'transient')
+    ) {
+      return
+    }
+    const cancel = { cancelled: false, started: false }
+    const resetSeq = proofResetGeneration
+    const run = Promise.resolve().then(() => {
+      if (
+        cancel.cancelled
+        || closed
+        || authenticated
+        || newestManualPending()
+        || resetSeq !== proofResetGeneration
+      ) {
+        return current
       }
-      current = snapshot(runtime, statusFor(runtime, authenticated))
-    }
-    catch {
-      authenticated = false
-      current = snapshot(null, 'unavailable')
-    }
-    return current
+      cancel.started = true
+      return establish()
+    })
+    recovery = run
+    recoveryOwner = run
+    recoveryCancel = cancel
+    void run
+      .then((result) => {
+        if (recoveryOwner === run && cancel.started && result.status !== 'live') {
+          automaticFailures += 1
+        }
+      })
+      .finally(() => {
+        if (recoveryOwner === run) {
+          recovery = null
+          recoveryOwner = null
+          recoveryCancel = null
+        }
+      })
   }
 
   return {
     snapshot: () => current,
-    connect: establish,
-    retry: establish,
+    sessionTicket: () => sessionGeneration,
+    ticketFenced,
+    connect: () => establishExclusively(),
+    retry: () => establishExclusively(),
     async close() {
+      sessionEpoch += 1
+      closeSequence += 1
+      proofResetGeneration += 1
+      sessionGeneration += 1
+      closed = true
       authenticated = false
-      current = snapshot(null, 'unavailable')
+      lastResetClass = null
+      recovery = recoveryOwner = recoveryCancel = null
+      publish(snapshot(null, 'unavailable'))
     },
-    observeBootstrap(value) {
+    observeBootstrap(value, ticket) {
       const runtime = runtimeFrom(value)
-      if (runtime !== 'live') {
-        authenticated = false
+      if (closed || ticketFenced(ticket)) {
+        return current
       }
-      current = snapshot(runtime, statusFor(runtime, authenticated))
-      return current
+      const klass = observationClass(runtime)
+      if (klass === 'live') {
+        if (!authenticated) {
+          scheduleRecovery()
+        }
+        return publish(snapshot(runtime, statusFor(runtime, authenticated)))
+      }
+      if (klass === 'transient') {
+        authenticated = false
+        // A transient window itself triggers the bounded recovery.
+        scheduleRecovery()
+        return publish(snapshot(runtime, statusFor(runtime, false)))
+      }
+      sessionEpoch += 1
+      proofResetGeneration += 1
+      authenticated = false
+      lastResetClass = klass
+      return publish(snapshot(runtime, statusFor(runtime, false)))
     },
   }
 }
 
 function runtimeFrom(value: unknown): RuntimeConnectionState | null {
-  if (isRuntimeConnectionState(value)) {
-    return value
-  }
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return null
-  }
-  const runtime = (value as Record<string, unknown>).runtime
+  if (isRuntimeConnectionState(value)) return value
+  const runtime = typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>).runtime
+    : null
   return isRuntimeConnectionState(runtime) ? runtime : null
 }
 

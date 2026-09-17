@@ -2,6 +2,7 @@
 
 use runne_api::RunBinding;
 
+#[cfg(any(test, target_os = "macos"))]
 use super::{NativeEnrollmentQualification, NativeEnrollmentTupleAdmission, VerifiedUpdateV2};
 
 /// Pinned bootstrap transport admitted only after measuring the installed package.
@@ -52,6 +53,7 @@ impl VerifiedQualificationBootstrapClientPins {
 
 // Called only after the path adapter measures the installed V3 and confirms paths.
 // Public admission from caller-provided tuple bytes deliberately cannot mint pins.
+#[cfg(any(test, target_os = "macos"))]
 pub(super) fn mint_after_installed_measurement(
     verified: &VerifiedUpdateV2,
     admission: &NativeEnrollmentTupleAdmission,

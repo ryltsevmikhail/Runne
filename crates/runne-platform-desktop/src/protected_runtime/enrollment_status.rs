@@ -1,6 +1,16 @@
 //! Read-only native admission before the first enrollment status request.
 
-use super::*;
+use super::{
+    BundledRuntimeLifecycleState, BundledRuntimeProcessStatus, EnrollmentTransitionClaims,
+    LaunchAuthorityError, ProtectedBundledRuntimeError, ProtectedBundledRuntimeProcess,
+    ProtectedBundledRuntimeSupervisor, ProtectedCredentialEnrollmentPrepareV2,
+    ProtectedProcessActivation, Zeroizing, launch_error, random_nonce, read_frame, write_frame,
+};
+#[cfg(test)]
+use super::{
+    Duration, ProtectedOwnedLaunchV2, UnixStream, v2_launch_fixture, v2_launch_fixture_with_secret,
+    v2_process,
+};
 use runne_api::{ProtectedCredentialStatusAckV2, ProtectedCredentialStatusRequestV2};
 
 #[cfg(test)]
@@ -69,7 +79,7 @@ impl ProtectedBundledRuntimeProcess {
             .checked_add(1)
             .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
         let mut prepare = ProtectedCredentialEnrollmentPrepareV2::new(
-            owned.clone(),
+            owned,
             sequence,
             random_nonce().ok_or(ProtectedBundledRuntimeError::InvalidState)?,
             claims.release_tuple_digest,

@@ -19,8 +19,10 @@ mod state;
 #[cfg(all(test, target_os = "macos"))]
 mod tests;
 
+#[cfg(target_os = "macos")]
 #[derive(Clone, Copy, Debug)]
 struct Error;
+#[cfg(target_os = "macos")]
 type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(target_os = "macos")]

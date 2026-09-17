@@ -5,7 +5,7 @@ use super::{
 };
 
 /// Daemon self identity anchored to the authenticated launch runtime root.
-pub(crate) struct CurrentStagedDaemonIdentity<'a> {
+pub struct CurrentStagedDaemonIdentity<'a> {
     runtime_root: &'a Path,
 }
 
@@ -26,7 +26,7 @@ impl DaemonIdentityVerifier for CurrentStagedDaemonIdentity<'_> {
             .as_ref()
             .is_some_and(|identity| {
                 paths
-                    .confirm_current_staged_daemon(
+                    .confirm_current_daemon_identity(
                         self.runtime_root,
                         admission.daemon_sha256,
                         identity,

@@ -1,6 +1,10 @@
 use super::*;
 use runne_api::ProtectedCredentialStatusNativeClaimsV2;
 
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "move the verified launch authority into the server thread for its full lifetime"
+)]
 fn daemon_status(mut channel: UnixStream, owned: ProtectedOwnedLaunchV2, foreign: bool) {
     let (_, _, keys) = v2_launch_fixture();
     let request =

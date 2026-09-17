@@ -23,6 +23,16 @@ impl AppCore {
     }
 }
 
+const fn early_root_validation_disposition(
+    possible_send: bool,
+) -> NativeAuthorityDisposition {
+    if possible_send {
+        NativeAuthorityDisposition::ReleaseWithoutReap
+    } else {
+        NativeAuthorityDisposition::ReapBeforeDispatch
+    }
+}
+
 const fn binding_digest(command: &CanonicalMutationCommand) -> Result<[u8; 32], AppCoreError> {
     match command {
         CanonicalMutationCommand::BindWorkspaceRoot {

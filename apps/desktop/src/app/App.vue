@@ -15,11 +15,7 @@ import '@runne/product/shared/ui/styles/base.css'
 import { isTauri } from '@tauri-apps/api/core'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  connectRuntime,
-  loadBootstrap,
-  saveTheme,
-} from '@/shared/api/platform/bootstrap'
+import { connectRuntime, loadBootstrap, saveTheme } from '@/shared/api/platform/bootstrap'
 import {
   createRuntimeSessionContext,
   createRuntimeSessionController,
@@ -59,21 +55,15 @@ const route = useRoute()
 const router = useRouter()
 watch(() => route.fullPath, () => {
   if (!window.matchMedia?.('(max-width: 1023px)').matches) return
-  // Keep the project tree open while a project is selected. On narrow windows
-  // this is the only place where archived projects and their workspace choices
-  // remain visible after the intermediate project route redirects home.
-  if (route.name === 'projects' && typeof route.query.project === 'string' && route.query.project.length > 0) {
-    sidebarCollapsed.value = false
-    return
-  }
-  sidebarCollapsed.value = true
+  const projectRoute = route.name === 'projects' && typeof route.query.project === 'string'
+    && route.query.project.length > 0
+  sidebarCollapsed.value = !projectRoute
 }, { immediate: true })
 const runtimeSession = createRuntimeSessionContext(createRuntimeSessionController({
   connect: connectRuntime,
   loadBootstrap,
 }))
 provideRuntimeSession(runtimeSession)
-
 const sidebarItems = computed(() => [
   { id: 'projects', label: translate('projects.title'), icon: FolderKanban },
   { id: 'task-runs', label: translate('taskRunInventory.navigation'), icon: History },
@@ -85,31 +75,39 @@ const activeSidebarItem = computed(() => route.path.startsWith('/settings')
 let runtimePoll: ReturnType<typeof setInterval> | undefined
 let notificationPoll: ReturnType<typeof setInterval> | undefined
 let stopExternalActivation: (() => void) | undefined
-
 function applyBootstrap(
   bootstrap: Awaited<ReturnType<typeof loadBootstrap>>,
   themeRead = captureThemeRead(),
+  ticket?: number,
 ) {
+  if (runtimeSession.ticketFenced(ticket)) return
   applyOwnerTheme(bootstrap.theme, themeRead)
   runtimeMode.value = bootstrap.runtimeMode
   runtimeState.value = bootstrap.runtime
   runtimeLifecycle.value = bootstrap.runtimeLifecycle
   runtimeFailure.value = bootstrap.runtimeFailure
-  runtimeSession.observeBootstrap(bootstrap)
+  runtimeSession.observeBootstrap(bootstrap, ticket)
 }
-
 async function refreshRuntimeStatus() {
+  const themeRead = captureThemeRead()
+  const ticket = runtimeSession.sessionTicket()
   try {
-    const themeRead = captureThemeRead()
-    applyBootstrap(await loadBootstrap(), themeRead)
+    applyBootstrap(await loadBootstrap(), themeRead, ticket)
   }
-  catch {
+  catch (error) {
+    if (runtimeSession.ticketFenced(ticket)) return
     runtimeLifecycle.value = 'failed'
     runtimeFailure.value = null
-    runtimeSession.observeBootstrap({ runtime: 'fatal' })
+    // The typed IPC disposition decides: a transient rejection (e.g. the
+    // runtime is rotating) must recover automatically; terminal, unknown and
+    // malformed payloads latch the session read-only until manual retry.
+    const disposition = (error as { disposition?: unknown } | null | undefined)?.disposition
+    runtimeSession.observeBootstrap(
+      disposition === 'transient' ? { runtime: 'reconnecting' } : { runtime: 'fatal' },
+      ticket,
+    )
   }
 }
-
 async function openExternalActivation(target: ActivationTarget) {
   if (runtimeState.value !== 'live') return
   if (target.runtime !== null) {
@@ -132,7 +130,6 @@ async function openExternalActivation(target: ActivationTarget) {
     activationNotice.value = translate('activation.surfaceUnavailable')
   }
 }
-
 const pendingActivation = ref<ActivationTarget | null>(null)
 watch(runtimeState, () => {
   if (pendingActivation.value === null || runtimeState.value !== 'live') return
@@ -157,9 +154,7 @@ onMounted(async () => {
       const pending = await loadPendingExternalActivation()
       if (pending !== null) receiveExternalActivation(pending)
     }
-    catch {
-      activationNotice.value = translate('activation.unavailable')
-    }
+    catch { activationNotice.value = translate('activation.unavailable') }
     await runtimeSession.connect()
     await refreshRuntimeStatus()
     void syncNotifications().catch(() => undefined)

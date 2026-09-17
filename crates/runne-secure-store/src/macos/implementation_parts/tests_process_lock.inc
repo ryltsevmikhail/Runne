@@ -1,5 +1,10 @@
     #[test]
     fn provider_credential_delete_is_monotonic_after_every_migration_failpoint() {
+        if skip_if_partition_limitation(
+            "provider_credential_delete_is_monotonic_after_every_migration_failpoint",
+        ) {
+            return;
+        }
         for failpoint in [
             CredentialMigrationFailpoint::BackupEmptyWritten,
             CredentialMigrationFailpoint::BackupWritten,
@@ -8,11 +13,11 @@
             CredentialMigrationFailpoint::ReplacementWritten,
         ] {
             let (store, _cleanup) = unique_provider_store(match failpoint {
-                CredentialMigrationFailpoint::BackupEmptyWritten => "delete-after-empty-backup",
+                CredentialMigrationFailpoint::BackupEmptyWritten => "delete-after-backup-write",
                 CredentialMigrationFailpoint::BackupWritten => "delete-after-backup",
                 CredentialMigrationFailpoint::PrimaryDeleted => "delete-after-primary",
                 CredentialMigrationFailpoint::ReplacementEmptyWritten => {
-                    "delete-after-empty-replacement"
+                    "delete-after-replacement-write"
                 }
                 CredentialMigrationFailpoint::ReplacementWritten => "delete-after-replacement",
             });

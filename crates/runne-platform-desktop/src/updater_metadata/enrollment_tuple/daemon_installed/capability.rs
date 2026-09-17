@@ -94,8 +94,8 @@ impl VerifiedInstalledEnrollmentCapability {
         let Some(policy) = compiled_policy() else {
             return false;
         };
-        let Some(trust) =
-            crate::CompiledUpdateTrustRootV2::load().map(|compiled| compiled.into_trust_root())
+        let Some(trust) = crate::CompiledUpdateTrustRootV2::load()
+            .map(runne_api::CompiledUpdateTrustRootV2::into_trust_root)
         else {
             return false;
         };
@@ -223,16 +223,27 @@ impl crate::UpdateCoordinator {
         let trust = crate::CompiledUpdateTrustRootV2::load()?.into_trust_root();
         let admission = verified_admission(profile_directory, &paths, &trust, &policy)?;
         qualified_admission(&admission)?;
-        if !CurrentDesktopIdentity.confirm(&paths, &admission) { return None; }
+        if !CurrentDesktopIdentity.confirm(&paths, &admission) {
+            return None;
+        }
         let measured = paths.measure().ok()?;
         let (runtime_digest, bundle_sha256) = measured.daemon_and_contract_digests();
-        let coordinator = Self::new(trust, crate::UpdateTargetBindingConfig {
-            product_id: "com.runne.desktop".into(), platform: "macos".into(),
-            arch: "arm64".into(), min_os: "macos-13".into(),
-            profile_id: policy.profile_id.into(), bundle_sha256: bundle_sha256.into(),
-            runtime_version: policy.runtime_version.into(), runtime_digest: runtime_digest.into(),
-            channel: policy.channel.into(),
-        }, profile_directory).ok()?;
+        let coordinator = Self::new(
+            trust,
+            crate::UpdateTargetBindingConfig {
+                product_id: "com.runne.desktop".into(),
+                platform: "macos".into(),
+                arch: "arm64".into(),
+                min_os: "macos-13".into(),
+                profile_id: policy.profile_id.into(),
+                bundle_sha256: bundle_sha256.into(),
+                runtime_version: policy.runtime_version.into(),
+                runtime_digest: runtime_digest.into(),
+                channel: policy.channel.into(),
+            },
+            profile_directory,
+        )
+        .ok()?;
         coordinator.prepare_installed_native_enrollment().ok()??;
         Some(coordinator)
     }

@@ -10,9 +10,7 @@ impl DevelopmentBundledRuntimeLauncher {
         eprintln!(
             "runne-launch-diag: enter exec={:?} len={}",
             executable_path.display(),
-            std::fs::metadata(&executable_path)
-                .map(|m| m.len())
-                .unwrap_or(0)
+            std::fs::metadata(&executable_path).map_or(0, |metadata| metadata.len())
         );
         if executable_path != spec.executable() {
             return Err(ProtectedBundledRuntimeError::ExecutableIdentityMismatch);
@@ -23,12 +21,7 @@ impl DevelopmentBundledRuntimeLauncher {
         }
         let current_source = ExecutableIdentityV1::measure(&executable_path)
             .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-        let hex_short = |bytes: &[u8; 32]| -> String {
-            bytes[..8]
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect()
-        };
+        let hex_short = |bytes: &[u8; 32]| -> String { hex::encode(&bytes[..8]) };
         eprintln!(
             "runne-launch-diag: current_sha={} trusted_sha={} current_path_sha={} trusted_path_sha={} current_len={} trusted_len={}",
             hex_short(current_source.executable_sha256()),
@@ -58,6 +51,9 @@ impl DevelopmentBundledRuntimeLauncher {
         let stable = state_store.load_stable()?;
         let pending = state_store.load_pending()?;
 
+        // Forward profile rebind: identity fields are preserved and authenticated
+        // by the daemon; the stored binding is replaced only after signed ready.
+        let mut rebind_previous: Option<Box<StableRuntimeBindingV1>> = None;
         let disposition = match (pending, stable) {
             (Some(pending), stable) => {
                 if pending.executable() != &executable
@@ -70,16 +66,13 @@ impl DevelopmentBundledRuntimeLauncher {
                 }
                 ActivationDispositionV1::ResumeFirstActivation(Box::new(pending))
             }
-            (None, Some(stable)) => {
-                if stable.principal_id() != LOCAL_PRINCIPAL
-                    || stable.profile_id() != profile.profile_id()
-                    || stable.profile_hash() != profile.profile_hash()
-                    || stable.capability_digest() != profile.capability_digest()
-                {
-                    return Err(ProtectedBundledRuntimeError::ActivationStateUnavailable);
+            (None, Some(stable)) => match stable_rebind_decision(&stable, &profile)? {
+                StableProfileMatch::Exact => ActivationDispositionV1::Existing(Box::new(stable)),
+                StableProfileMatch::Rebind(rebound) => {
+                    rebind_previous = Some(Box::new(stable));
+                    ActivationDispositionV1::Existing(Box::new(rebound))
                 }
-                ActivationDispositionV1::Existing(Box::new(stable))
-            }
+            },
             (None, None) => ActivationDispositionV1::FirstActivation,
         };
 
@@ -233,7 +226,12 @@ impl DevelopmentBundledRuntimeLauncher {
             let runtime_profile = request.runtime_profile(&ready, unix_millis()?, &keys)?;
             keys.forget_bootstrap_key();
             controls.checkpoint(ActivationCheckpoint::BeforeFinalPin)?;
-            state_store.persist_stable_exact(ready.stable(), controls)?;
+            match &rebind_previous {
+                Some(previous) => {
+                    state_store.migrate_stable_exact(previous, ready.stable(), controls)?;
+                }
+                None => state_store.persist_stable_exact(ready.stable(), controls)?,
+            }
             controls.checkpoint(ActivationCheckpoint::AfterFinalPin)?;
             state_store.remove_pending()?;
             let activation = ready.into_process_activation(request)?;

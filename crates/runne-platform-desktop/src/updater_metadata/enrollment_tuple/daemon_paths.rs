@@ -2,8 +2,8 @@
     not(all(target_os = "macos", target_arch = "aarch64")),
     allow(dead_code)
 )]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use super::{NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleError};
-
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use runne_macos_process_identity::MacOsLocalPeerProcessIdentity;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -26,7 +26,6 @@ use std::{
 
 const ACTIVATION_STATE_DIRECTORY: &str = ".desktop-protected-activation";
 const STAGED_EXECUTABLE_DIRECTORY: &str = "executables-v1";
-
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 impl NativeEnrollmentArtifactPathsV1 {
     /// Locates a candidate package only from the kernel-authenticated desktop peer.
@@ -101,6 +100,77 @@ impl NativeEnrollmentArtifactPathsV1 {
         .then_some(())
         .ok_or(NativeEnrollmentTupleError::Rejected)
     }
+
+    /// Admits the running daemon as the retained installed executable: the
+    /// strict staged-path check by default, plus a `test-support`-only
+    /// fallback for the local packaged fixture whose daemon deliberately
+    /// runs from its original unstaged path.
+    pub(super) fn confirm_current_daemon_identity(
+        &self,
+        runtime_root: &Path,
+        expected_digest: [u8; 32],
+        identity: &super::macos_identity::MacOsCodeIdentityV1,
+    ) -> Result<(), NativeEnrollmentTupleError> {
+        if self
+            .confirm_current_staged_daemon(runtime_root, expected_digest, identity)
+            .is_ok()
+        {
+            return Ok(());
+        }
+        #[cfg(feature = "test-support")]
+        {
+            self.confirm_current_unstaged_signed_daemon(runtime_root, expected_digest, identity)
+        }
+        #[cfg(not(feature = "test-support"))]
+        {
+            Err(NativeEnrollmentTupleError::Rejected)
+        }
+    }
+
+    /// `test-support` fixture fallback only: admits the running executable
+    /// with the direct signed-executable checks. Refuses when the running
+    /// executable itself is the staged daemon, so the strict staged-path
+    /// requirement can never be bypassed through this fallback.
+    #[cfg(feature = "test-support")]
+    fn confirm_current_unstaged_signed_daemon(
+        &self,
+        runtime_root: &Path,
+        expected_digest: [u8; 32],
+        identity: &super::macos_identity::MacOsCodeIdentityV1,
+    ) -> Result<(), NativeEnrollmentTupleError> {
+        Self::ensure_running_executable_unstaged(runtime_root)?;
+        self.verify_live_daemon()?;
+        let code =
+            SecCode::for_self(Flags::NONE).map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+        let requirement = SecRequirement::from_str(&identity.requirement())
+            .map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+        code.check_validity(
+            Flags::STRICT_VALIDATE | Flags::NO_NETWORK_ACCESS,
+            &requirement,
+        )
+        .map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+        self.confirm_current_daemon(expected_digest)?;
+        self.verify_live_daemon()
+    }
+
+    /// Fails closed when the running executable itself is the staged daemon.
+    #[cfg(feature = "test-support")]
+    fn ensure_running_executable_unstaged(
+        runtime_root: &Path,
+    ) -> Result<(), NativeEnrollmentTupleError> {
+        let Ok(stage_directory) = staged_directory(runtime_root) else {
+            // An unresolvable staged directory proves this executable cannot
+            // be the staged daemon; proceed with the unstaged verification.
+            return Ok(());
+        };
+        let executable =
+            std::env::current_exe().map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+        let executable =
+            std::fs::canonicalize(executable).map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+        (executable.parent() != Some(stage_directory.as_path()))
+            .then_some(())
+            .ok_or(NativeEnrollmentTupleError::Rejected)
+    }
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -124,14 +194,18 @@ fn staged_directory(runtime_root: &Path) -> Result<PathBuf, NativeEnrollmentTupl
         return Err(NativeEnrollmentTupleError::Rejected);
     }
     private_directory(&root)?;
-    let state = root.join(ACTIVATION_STATE_DIRECTORY);
-    private_directory(&state)?;
-    let stage = state.join(STAGED_EXECUTABLE_DIRECTORY);
-    private_directory(&stage)?;
-    std::fs::canonicalize(stage).map_err(|_| NativeEnrollmentTupleError::Rejected)
+    let activation_state = root.join(ACTIVATION_STATE_DIRECTORY);
+    private_directory(&activation_state)?;
+    let staged_executables = activation_state.join(STAGED_EXECUTABLE_DIRECTORY);
+    private_directory(&staged_executables)?;
+    std::fs::canonicalize(staged_executables).map_err(|_| NativeEnrollmentTupleError::Rejected)
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[expect(
+    clippy::verbose_bit_mask,
+    reason = "the explicit mask documents the required private directory mode"
+)]
 fn private_directory(path: &Path) -> Result<(), NativeEnrollmentTupleError> {
     let metadata =
         std::fs::symlink_metadata(path).map_err(|_| NativeEnrollmentTupleError::Rejected)?;

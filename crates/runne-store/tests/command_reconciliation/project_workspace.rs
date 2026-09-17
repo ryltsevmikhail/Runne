@@ -40,6 +40,13 @@ impl RootAdmissionVerifier for Verifier {
             .take()
             .ok_or(RootAdmissionVerifierError::Rejected)
     }
+
+    fn confirm_root_admission(
+        &self,
+        _: &runne_api::VerifiedRootAdmissionClaims,
+    ) -> Result<(), RootAdmissionVerifierError> {
+        Ok(())
+    }
 }
 
 fn terminal(

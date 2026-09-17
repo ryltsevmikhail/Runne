@@ -7,23 +7,29 @@
 //!
 //! Example: `cargo run -p runne-macos-keychain-acl --example seal_live_check -- 64-hex-digest`
 
-use std::io::Write as _;
 use std::process::ExitCode;
 
+#[cfg(target_os = "macos")]
 use runne_macos_keychain_acl::{KeychainAclError, SecurityProfileProcessLock};
+#[cfg(target_os = "macos")]
+use std::io::Write as _;
 
+#[cfg(target_os = "macos")]
 const USAGE: &str = "usage: seal_live_check <64-char lowercase hex profile identity digest>";
 
+#[cfg(target_os = "macos")]
 fn emit(line: &str) {
     println!("{line}");
     let _ = std::io::stdout().flush();
 }
 
+#[cfg(target_os = "macos")]
 fn fail(stage: &str, error: KeychainAclError) -> ExitCode {
     emit(&format!("stage={stage} status=err debug={error:?}"));
     ExitCode::from(1)
 }
 
+#[cfg(target_os = "macos")]
 const fn hex_value(byte: u8) -> u8 {
     match byte {
         b'0'..=b'9' => byte - b'0',
@@ -31,6 +37,7 @@ const fn hex_value(byte: u8) -> u8 {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn parse_digest(argument: &str) -> Option<[u8; 32]> {
     let bytes = argument.as_bytes();
     let lowercase_hex = |&byte: &u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
@@ -42,6 +49,7 @@ fn parse_digest(argument: &str) -> Option<[u8; 32]> {
     }))
 }
 
+#[cfg(target_os = "macos")]
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let [argument] = arguments.as_slice() else {
@@ -72,4 +80,10 @@ fn main() -> ExitCode {
     emit("stage=verify status=ok");
     emit("result=ok");
     ExitCode::SUCCESS
+}
+
+#[cfg(not(target_os = "macos"))]
+fn main() -> ExitCode {
+    eprintln!("seal_live_check requires macOS and was not executed on this platform");
+    ExitCode::from(2)
 }

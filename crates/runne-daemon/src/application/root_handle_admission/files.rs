@@ -66,18 +66,18 @@ fn sensitive_path(path: &str) -> bool {
     path.split('/').any(|part| matches!(part, ".git" | ".ssh" | ".env") || part.ends_with(".key") || part.ends_with(".pem"))
 }
 
-fn active_root_is_current(workspace_version: u64, admitted_version: u64) -> bool {
-    workspace_version == admitted_version
-}
-
 #[cfg(test)]
 mod tests {
     use super::active_root_is_current;
 
     #[test]
-    fn active_root_requires_exact_workspace_version() {
-        assert!(active_root_is_current(7, 7));
-        assert!(!active_root_is_current(8, 7));
-        assert!(!active_root_is_current(6, 7));
+    fn active_root_stays_current_as_the_workspace_advances() {
+        assert!(active_root_is_current(1, 1));
+        // The bind the admission authorized moves the store past its
+        // expected version; the same root must keep serving reads.
+        assert!(active_root_is_current(2, 1));
+        assert!(active_root_is_current(4, 3));
+        // A store at or below the admitted version is a rollback snapshot.
+        assert!(!active_root_is_current(2, 3));
     }
 }

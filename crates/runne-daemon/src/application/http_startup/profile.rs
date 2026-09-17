@@ -2,6 +2,7 @@ use super::*;
 use runne_api::ProviderQuotaProjectionV1;
 
 pub(super) fn runtime_profile(
+    version: &'static str,
     provider_service: Option<Arc<DaemonCanonicalProviderService>>,
     provider_activation: &ProviderActivation,
     provider_readiness: runne_api::ProviderActivationReadinessV1,
@@ -10,7 +11,7 @@ pub(super) fn runtime_profile(
     let runtime_profile_state = RuntimeProfileHttpState::new(
         runne_runtime::bundle::BUNDLE_ID,
         runne_runtime::bundle::PUBLISHED_BUNDLE_HASH,
-        env!("CARGO_PKG_VERSION"),
+        version,
         runtime_capabilities,
     );
     let state = match provider_service.clone() {
@@ -26,7 +27,7 @@ pub(super) fn runtime_profile(
         }
         None => runtime_profile_state.with_provider_statuses(
             super::super::provider_status::provider_statuses(
-                &provider_activation,
+                provider_activation,
                 provider_readiness,
             ),
         ),

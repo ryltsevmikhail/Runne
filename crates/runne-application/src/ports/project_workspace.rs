@@ -41,6 +41,18 @@ pub trait RootAdmissionVerifier: Send + Sync + 'static {
         &self,
         admission: RootHandleAdmission,
     ) -> Result<VerifiedRootAdmissionClaims, RootAdmissionVerifierError>;
+
+    /// Promotes the verified admission's retained root to the serving state.
+    ///
+    /// Called only after the workspace command that consumed the admission
+    /// durably committed; a failed command must never promote its root.
+    /// `Ok(())` means "no older root may be promoted": for a superseded
+    /// admission (receipt replay) it acks idempotently while the newer
+    /// already-serving root stays in place.
+    fn confirm_root_admission(
+        &self,
+        claims: &VerifiedRootAdmissionClaims,
+    ) -> Result<(), RootAdmissionVerifierError>;
 }
 
 /// Authorizes a root binding after the repository owns its SQLite writer.

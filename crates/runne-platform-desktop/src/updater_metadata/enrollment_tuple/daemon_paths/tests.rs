@@ -45,5 +45,8 @@ fn retained_staged_daemon_detects_replacement_and_in_place_change() {
 #[test]
 fn authenticated_peer_outside_installed_desktop_package_is_rejected() {
     let (stream, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
-    assert!(NativeEnrollmentArtifactPathsV1::resolve_installed_from_authenticated_desktop_peer(&stream).is_err());
+    assert!(
+        NativeEnrollmentArtifactPathsV1::resolve_installed_from_authenticated_desktop_peer(&stream)
+            .is_err()
+    );
 }

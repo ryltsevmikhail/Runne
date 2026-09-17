@@ -95,14 +95,27 @@ fn password_population_follows_access_finalization() {
     let population = include_bytes!(
         "../../../runne-secure-store/src/macos/implementation_parts/keyring_and_codec.inc"
     );
+    // The material travels inside the single atomic creation call and the
+    // saved item is then finalized: that readback proves its full ACL.
+    let created = find(
+        population,
+        b"runne_macos_keychain_acl::create_populated_generic_password(",
+    )
+    .unwrap();
     let finalized = find(population, b".finalize(exact_access)").unwrap();
-    let populated = find(population, b".set_password(encoded)").unwrap();
-    assert!(finalized < populated);
+    assert!(created < finalized);
+    // No post-creation population mutation exists and no empty item is
+    // created for later population: on macOS 27 the first modification of a
+    // saved item erases its partition ACL irreversibly.
+    assert!(!contains(population, b".set_password("));
+    assert!(!contains(population, b"create_empty_generic_password"));
 
     let creation = include_bytes!(
         "../../../runne-macos-keychain-acl/src/implementation_parts/item_creation.inc"
     );
     assert!(!contains(creation, b"fn item_mut"));
+    // Finalize deletes the saved item when the ACL readback fails.
+    assert!(contains(creation, b"delete_item(&self.item)"));
 }
 
 #[test]

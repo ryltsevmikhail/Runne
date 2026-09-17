@@ -70,6 +70,13 @@ impl GuardedRoot {
     }
 }
 
+#[cfg_attr(
+    target_os = "linux",
+    expect(
+        clippy::useless_conversion,
+        reason = "Linux exposes st_dev as u64; retain the checked conversion required by macOS signed st_dev"
+    )
+)]
 fn identity(file: &File) -> Result<JournalIdentity, QualificationReplayLedgerError> {
     require_no_extended_acl(file.as_fd())?;
     let stat = fs::fstat(file).map_err(|_| QualificationReplayLedgerError)?;

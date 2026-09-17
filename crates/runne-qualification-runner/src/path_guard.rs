@@ -183,6 +183,13 @@ fn open_existing_production_root() -> Result<OwnedFd, QualificationReplayLedgerE
     Ok(root)
 }
 
+#[cfg_attr(
+    target_os = "linux",
+    expect(
+        clippy::useless_conversion,
+        reason = "Linux exposes st_dev as u64; retain the checked conversion required by macOS signed st_dev"
+    )
+)]
 fn directory_identity(fd: &OwnedFd) -> Result<DirectoryIdentity, QualificationReplayLedgerError> {
     let stat = fs::fstat(fd).map_err(|_| QualificationReplayLedgerError)?;
     (stat.st_dev != 0 && stat.st_ino != 0)
@@ -266,7 +273,11 @@ fn require_no_extended_acl(
 }
 
 #[cfg(not(target_os = "macos"))]
-fn require_no_extended_acl(
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "Keep the non-macOS stub on the same fail-closed Result contract as the macOS ACL check"
+)]
+const fn require_no_extended_acl(
     _: std::os::fd::BorrowedFd<'_>,
 ) -> Result<(), QualificationReplayLedgerError> {
     Ok(())

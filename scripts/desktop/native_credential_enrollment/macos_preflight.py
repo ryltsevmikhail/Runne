@@ -3,6 +3,8 @@
 The protected controller must independently verify the Ed25519 signature and
 all native observations. Candidate-controlled flags are not trust inputs.
 """
+from __future__ import annotations
+
 import base64
 import binascii
 import json

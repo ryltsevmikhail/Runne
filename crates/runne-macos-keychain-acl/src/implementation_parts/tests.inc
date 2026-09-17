@@ -42,6 +42,46 @@ mod tests {
     }
 
     #[test]
+    fn saved_owner_acl_single_any_authorization_is_default() {
+        let empty = CFArray::<CFType>::from_CFTypes(&[]);
+        let normalized: CFArray<CFType> = CFArray::from_CFTypes(&[unsafe {
+            CFString::wrap_under_get_rule(kSecACLAuthorizationAny)
+        }
+        .into_CFType()]);
+        let change_only: CFArray<CFType> = CFArray::from_CFTypes(&[unsafe {
+            CFString::wrap_under_get_rule(kSecACLAuthorizationChangeACL)
+        }
+        .into_CFType()]);
+        let unrecognized: CFArray<CFType> =
+            CFArray::from_CFTypes(&[CFString::new("unknown authorization fixture").into_CFType()]);
+        let over_broad: CFArray<CFType> = CFArray::from_CFTypes(&[
+            unsafe { CFString::wrap_under_get_rule(kSecACLAuthorizationAny) }.into_CFType(),
+            unsafe { CFString::wrap_under_get_rule(kSecACLAuthorizationChangeACL) }.into_CFType(),
+        ]);
+
+        assert_eq!(
+            root_owner_acl_from_authorizations(&empty),
+            Ok(RootOwnerAcl::Default)
+        );
+        assert_eq!(
+            root_owner_acl_from_authorizations(&normalized),
+            Ok(RootOwnerAcl::Default)
+        );
+        assert_eq!(
+            root_owner_acl_from_authorizations(&change_only),
+            Ok(RootOwnerAcl::ChangeAcl)
+        );
+        assert_eq!(
+            root_owner_acl_from_authorizations(&unrecognized),
+            Err(KeychainAclError::AccessDenied)
+        );
+        assert_eq!(
+            root_owner_acl_from_authorizations(&over_broad),
+            Err(KeychainAclError::AccessDenied)
+        );
+    }
+
+    #[test]
     fn metadata_copy_error_frees_populated_content_exactly_once() {
         let free_calls = std::cell::Cell::new(0);
 

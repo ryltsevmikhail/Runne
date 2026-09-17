@@ -9,7 +9,7 @@ use tokio::{
 };
 
 use super::*;
-use crate::directory_selection_test_support::test_admission;
+use crate::directory_selection_test_support::test_admission_for;
 
 const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-0000000008b1";
 const PROJECT_ID: &str = "018f2e3a-7000-7000-8000-0000000008b2";
@@ -125,7 +125,7 @@ async fn opened_reference_is_terminal_and_swept_at_its_original_deadline_without
         .commit(
             &reference,
             crate::directory_selection_test_support::test_root_handle(root.path()),
-            test_admission(),
+            test_admission_for(WORKSPACE_ID.parse().expect("workspace"), 1),
             &mut permit,
             Instant::now(),
         )

@@ -38,6 +38,71 @@ class DesktopQualificationWorkflowTest(unittest.TestCase):
             self.assertLess(install, path)
             self.assertLess(path, ci)
 
+    def test_runtime_lanes_stage_real_frontend_before_rust_gate(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        for name, end_marker, frontend_cube_count, staging_count, dependency_count in (
+            ("runtime-ci-pr", "\n  runtime-ci:", 1, 1, 1),
+            ("runtime-ci", "\n  desktop-frontend:", 2, 6, 2),
+        ):
+            start = workflow.index(f"  {name}:")
+            end = workflow.index(end_marker, start)
+            job = workflow[start:end]
+            self.assertEqual(job.count("name: frontend-staging"), frontend_cube_count)
+            self.assertEqual(
+                job.count("bash scripts/sourcecraft/stage-desktop-frontend.sh"),
+                staging_count,
+            )
+            self.assertEqual(job.count("needs: [frontend-staging]"), dependency_count)
+            first_stage = job.index("bash scripts/sourcecraft/stage-desktop-frontend.sh")
+            for gate in ("bash scripts/ci.sh pinned", "bash scripts/ci.sh msrv"):
+                if gate in job:
+                    self.assertLess(first_stage, job.index(gate))
+
+        for task in ("macos-pinned", "macos-msrv", "windows-pinned", "windows-msrv"):
+            start = workflow.index(f"      - name: {task}")
+            end = workflow.find("\n      - name: ", start + 1)
+            job = workflow[start:] if end == -1 else workflow[start:end]
+            stage = job.index("bash scripts/sourcecraft/stage-desktop-frontend.sh")
+            self.assertLess(stage, job.index("bash scripts/ci.sh"))
+
+    def test_frontend_staging_keeps_pinned_install_and_real_build_contract(self):
+        helper = (ROOT / "scripts/sourcecraft/stage-desktop-frontend.sh").read_text(
+            encoding="utf-8"
+        )
+        for value in (
+            'test "$(node --version)" = "v22.14.0"',
+            "npm ping",
+            'npm install --prefix "$repo_root/.ci-tools" pnpm@11.10.0',
+            'test "$(pnpm --version)" = "11.10.0"',
+            "pnpm install --frozen-lockfile --ignore-scripts --fetch-timeout 120000",
+            "pnpm --filter @runne/desktop build",
+            "test -f apps/desktop/dist/index.html",
+            "test -d apps/desktop/dist/assets",
+        ):
+            self.assertIn(value, helper)
+        self.assertNotIn("mkdir", helper)
+        self.assertNotIn("touch", helper)
+
+    def test_local_runtime_staging_precedes_closure_and_uses_trusted_tools(self):
+        local = (ROOT / "scripts/ci-local-inputs.sh").read_text(encoding="utf-8")
+        function_start = local.index("stage_frontend_dist()")
+        function_end = local.index("\nif gate_enabled frontend;", function_start)
+        staging = local[function_start:function_end]
+        for value in (
+            'pnpm_run install --frozen-lockfile --offline --ignore-scripts',
+            "--verify-store-integrity --store-dir \"$PNPM_STORE_DIR\"",
+            'node_at apps/desktop "$vue_tsc_target" -b',
+            'node_at apps/desktop "$vite_target" build',
+        ):
+            self.assertIn(value, staging)
+        self.assertNotIn("\n    pnpm install", staging)
+        invoke = local.index("if gate_enabled runtime-pinned || gate_enabled runtime-msrv;")
+        pinned = local.index("if gate_enabled runtime-pinned;", invoke)
+        self.assertLess(invoke, pinned)
+
+        ci = (ROOT / "scripts/ci.sh").read_text(encoding="utf-8")
+        self.assertLess(ci.index("require_frontend_dist\n"), ci.index("cargo fmt --all --check"))
+
     def _qualification(self) -> str:
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("  desktop-qualification:", workflow)

@@ -1,5 +1,7 @@
 use crate::ReplayPromotionProjectionV1;
-pub use crate::protected_activation::test_support::{admission, claims, into_untrusted_admission};
+pub use crate::protected_activation::test_support::{
+    admission, claims, into_untrusted_admission, verify_untrusted,
+};
 use runne_domain::conversation::{Conversation, ConversationEvent};
 use runne_domain::event::{Actor, EventEnvelope, Sensitivity};
 use runne_domain::id::{

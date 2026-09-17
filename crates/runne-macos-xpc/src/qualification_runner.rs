@@ -17,6 +17,7 @@ pub enum QualificationRunnerEndpoint {
 }
 
 impl QualificationRunnerEndpoint {
+    #[cfg(any(test, target_os = "macos"))]
     pub(crate) const fn mach_service_name(self) -> &'static str {
         match self {
             Self::DesktopBootstrap => "com.runne.qualification-runner.desktop-bootstrap.v1",
@@ -29,7 +30,6 @@ impl QualificationRunnerEndpoint {
         !matches!(self, Self::RootConsume)
     }
 }
-
 /// Closed failures from qualification bootstrap transport.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum QualificationRunnerXpcError {
@@ -68,7 +68,7 @@ impl QualificationRunnerPeerRequirement {
         }
         Ok(Self(value))
     }
-
+    #[cfg(target_os = "macos")]
     pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
@@ -105,11 +105,11 @@ impl QualificationRunnerSessionBinding {
             expected_audit_session,
         })
     }
-
+    #[cfg(target_os = "macos")]
     pub(crate) const fn expected_euid(self) -> u32 {
         self.expected_euid
     }
-
+    #[cfg(target_os = "macos")]
     pub(crate) const fn expected_audit_session(self) -> i32 {
         self.expected_audit_session
     }
@@ -160,28 +160,27 @@ impl QualificationRunnerEndpointConfiguration {
             expected_service,
         })
     }
-
     #[must_use]
     pub const fn endpoint(&self) -> QualificationRunnerEndpoint {
         self.endpoint
     }
-
+    #[cfg(target_os = "macos")]
     pub(crate) const fn endpoint_name(&self) -> &'static str {
         self.endpoint.mach_service_name()
     }
-
+    #[cfg(target_os = "macos")]
     pub(crate) const fn expected_client(&self) -> QualificationRunnerSessionBinding {
         self.expected_client
     }
-
+    #[cfg(target_os = "macos")]
     pub(crate) const fn expected_service(&self) -> QualificationRunnerSessionBinding {
         self.expected_service
     }
-
+    #[cfg(target_os = "macos")]
     pub(crate) const fn service_requirement(&self) -> &QualificationRunnerPeerRequirement {
         &self.service_requirement
     }
-
+    #[cfg(target_os = "macos")]
     pub(crate) const fn client_requirement(&self) -> &QualificationRunnerPeerRequirement {
         &self.client_requirement
     }
@@ -215,7 +214,6 @@ macro_rules! qualification_runner_frame {
                 }
                 Ok(Self(bytes))
             }
-
             /// Transfers bounded control bytes; possession never grants authority.
             #[must_use]
             pub fn into_zeroizing(self) -> Zeroizing<Vec<u8>> {
@@ -236,6 +234,7 @@ pub struct QualificationRunnerPeer {
 }
 
 impl QualificationRunnerPeer {
+    #[cfg(any(test, target_os = "macos"))]
     pub(crate) const fn new(euid: u32, audit_session: i32) -> Self {
         Self {
             euid,
@@ -255,17 +254,19 @@ impl QualificationRunnerPeer {
 }
 
 /// Opaque transport-generated identity, retained by the downstream runner per connection.
-#[allow(dead_code)]
-pub struct QualificationRunnerSessionReceipt([u8; 32]);
+pub struct QualificationRunnerSessionReceipt {
+    _bytes: [u8; 32],
+}
 
 impl QualificationRunnerSessionReceipt {
+    #[cfg(any(test, target_os = "macos"))]
     pub(crate) fn random() -> Result<Self, QualificationRunnerXpcError> {
         use rand::RngCore;
         let mut bytes = [0; 32];
         rand::rngs::OsRng
             .try_fill_bytes(&mut bytes)
             .map_err(|_| QualificationRunnerXpcError::Unavailable)?;
-        Ok(Self(bytes))
+        Ok(Self { _bytes: bytes })
     }
 }
 

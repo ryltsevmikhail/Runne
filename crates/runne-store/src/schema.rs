@@ -127,6 +127,7 @@ mod project_workspace_schema;
 #[cfg(test)]
 pub(crate) use project_workspace_schema::restore_v18_project_workspace_receipt_for_test;
 pub(crate) mod provider_schema;
+pub mod recovery_diagnosis;
 mod replay_promotion_snapshot_schema;
 mod replay_snapshot_schema;
 include!("schema/open.rs");

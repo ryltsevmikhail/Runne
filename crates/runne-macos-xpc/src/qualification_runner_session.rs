@@ -13,6 +13,7 @@ pub struct QualificationRunnerSessionContext {
 }
 
 impl QualificationRunnerSessionContext {
+    #[cfg(any(test, target_os = "macos"))]
     pub(crate) const fn new(
         endpoint: QualificationRunnerEndpoint,
         peer: QualificationRunnerPeer,
@@ -44,7 +45,21 @@ impl QualificationRunnerSessionContext {
 
 /// A runner-owned session plus its monotonic transport expiry.
 pub struct QualificationRunnerSessionLease {
+    #[cfg_attr(
+        all(not(test), not(target_os = "macos")),
+        expect(
+            dead_code,
+            reason = "Non-macOS retains session storage for the shared public lease shape."
+        )
+    )]
     session: Box<dyn QualificationRunnerSession>,
+    #[cfg_attr(
+        all(not(test), not(target_os = "macos")),
+        expect(
+            dead_code,
+            reason = "Non-macOS retains deadline storage for the shared public lease shape."
+        )
+    )]
     deadline: Instant,
 }
 
@@ -64,10 +79,12 @@ impl QualificationRunnerSessionLease {
         Ok(Self { session, deadline })
     }
 
+    #[cfg(any(test, target_os = "macos"))]
     pub(crate) const fn deadline(&self) -> Instant {
         self.deadline
     }
 
+    #[cfg(any(test, target_os = "macos"))]
     pub(crate) fn session_mut(&mut self) -> &mut dyn QualificationRunnerSession {
         self.session.as_mut()
     }

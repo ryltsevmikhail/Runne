@@ -70,6 +70,9 @@ export function createWorkspaceRefreshController(
     const token = Object.freeze({ workspaceId, generation })
     error.value = false
     loading.value = true
+    // Until this cycle's listing actually succeeds, the explorer must not
+    // present the previous/default snapshot as a truthful "no files" state.
+    filesError.value = true
     filesLoading.value = false
     changesLoading.value = false
     diffLoading.value = false

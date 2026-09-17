@@ -29,28 +29,71 @@ impl IssuedRootHandleAdmission {
     pub fn admission_digest(&self) -> [u8; 32] { self.0.admission_digest() }
 }
 
+/// Redacted failure for admission conversion without root-handle material.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RootHandleAdmissionValidationError { Invalid }
+impl std::fmt::Display for RootHandleAdmissionValidationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { formatter.write_str("invalid root admission") }
+}
+
 /// Provenance-carrying admission created only from a verified protected result.
 pub struct ProtectedRootHandleAdmission {
     admission: RootHandleAdmission,
     _offer_digest: [u8; 32],
     admission_digest: [u8; 32],
+    workspace_id: WorkspaceId,
+    expected_version: u64,
 }
 
 impl ProtectedRootHandleAdmission {
     pub(crate) fn from_verified_transfer(
         admission: RootHandleAdmission,
-        offer_digest: [u8; 32],
-        admission_digest: [u8; 32],
-    ) -> Option<Self> {
-        (admission.admission_digest() == admission_digest && admission.offer_digest() == offer_digest)
-            .then_some(Self { admission, _offer_digest: offer_digest, admission_digest })
+        claims: VerifiedRootAdmissionClaims,
+        context: &RootHandleTransferContext,
+        result_offer_digest: [u8; 32],
+        expected_offer_digest: [u8; 32],
+        result_admission_digest: [u8; 32],
+    ) -> Result<Self, RootHandleAdmissionValidationError> {
+        let valid = wrapper_equality_holds(
+            &admission, &claims, context, result_offer_digest, expected_offer_digest, result_admission_digest,
+        );
+        if !valid { return Err(RootHandleAdmissionValidationError::Invalid); }
+        Ok(Self {
+            admission,
+            _offer_digest: result_offer_digest,
+            admission_digest: result_admission_digest,
+            workspace_id: claims.workspace_id(),
+            expected_version: claims.expected_version(),
+        })
     }
+    #[must_use]
+    pub const fn workspace_id(&self) -> WorkspaceId { self.workspace_id }
+    #[must_use]
+    pub const fn expected_version(&self) -> u64 { self.expected_version }
     #[must_use]
     pub const fn admission_digest(&self) -> [u8; 32] { self.admission_digest }
     /// Consumes this verified wrapper into the only root-bind client carrier.
     pub fn into_root_bind_transport(self) -> Result<ProtectedRootBindTransport, RootHandleAdmissionTokenError> {
         ProtectedRootBindTransport::new(self.admission, self.admission_digest)
     }
+}
+
+/// Single central typed/digest equality gate evaluated before any wrapper allocation.
+fn wrapper_equality_holds(
+    admission: &RootHandleAdmission,
+    claims: &VerifiedRootAdmissionClaims,
+    context: &RootHandleTransferContext,
+    result_offer_digest: [u8; 32],
+    expected_offer_digest: [u8; 32],
+    result_admission_digest: [u8; 32],
+) -> bool {
+    claims.workspace_id() == context.workspace_id()
+        && claims.expected_version() == context.expected_version()
+        && result_offer_digest == expected_offer_digest
+        && claims.offer_digest() == result_offer_digest
+        && admission.offer_digest() == result_offer_digest
+        && claims.admission_digest() == result_admission_digest
+        && admission.admission_digest() == result_admission_digest
 }
 
 impl RootHandleAdmission {
@@ -84,6 +127,78 @@ impl std::fmt::Debug for IssuedRootHandleAdmission {
 }
 impl std::fmt::Debug for ProtectedRootHandleAdmission {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { formatter.write_str("ProtectedRootHandleAdmission([REDACTED])") }
+}
+
+#[cfg(test)]
+mod root_admission_wrapper_tests {
+    use super::*;
+
+    fn verified_transfer_material() -> (
+        RootHandleAdmission, VerifiedRootAdmissionClaims, RootHandleTransferContext, [u8; 32],
+    ) {
+        let context = RootHandleTransferContext::new(
+            [0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 1],
+            [0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 2],
+            1, 10, 11, 1_000,
+            WorkspaceId::from_bytes([0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 3]),
+            1, [4; 16], 100, 30_100,
+        ).expect("transfer context");
+        let transfer_keys = RootHandleTransferAuthenticator::from_protected_activation(
+            &LaunchSecret::from_bytes([7; 32]).expect("secret").derive_keys(),
+        );
+        let offer = RootHandleTransferOffer::new(context.clone(), 1, &transfer_keys).expect("offer");
+        let admission_authenticator = RootAdmissionAuthenticator::from_protected_activation(
+            &LaunchSecret::from_bytes([8; 32]).expect("secret").derive_keys(),
+        );
+        let raw = admission_authenticator.issue(RootAdmissionRequest::new(
+            RootAdmissionVerificationContext::new([1; 32], [2; 16], 1, [3; 32], 3, 1, 100).expect("admission context"),
+            context.workspace_id(), 1, [4; 32], offer.digest(), [5; 16], 30_100,
+        ).expect("request")).expect("raw admission");
+        let admission = raw.into_admission();
+        let claims = admission_authenticator.verify_ref(&admission).expect("verified claims");
+        (admission, claims, context, offer.digest())
+    }
+
+    #[test]
+    fn protected_admission_rejects_wrong_admission_digest_before_allocation() {
+        let (admission, claims, context, offer_digest) = verified_transfer_material();
+        let mut wrong = admission.admission_digest();
+        wrong[0] ^= 1;
+        let error = ProtectedRootHandleAdmission::from_verified_transfer(
+            admission, claims, &context, offer_digest, offer_digest, wrong,
+        ).expect_err("wrong admission digest must not yield a wrapper");
+        assert_eq!(error.to_string(), "invalid root admission");
+        assert_eq!(format!("{error:?}"), "Invalid");
+    }
+
+    #[test]
+    fn protected_admission_rejects_internal_claims_against_transfer_context() {
+        let (admission, claims, _context, offer_digest) = verified_transfer_material();
+        let admission_digest = claims.admission_digest();
+        let foreign = RootHandleTransferContext::new(
+            [0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 1],
+            [0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 2],
+            1, 10, 11, 1_000,
+            WorkspaceId::from_bytes([0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 4]),
+            1, [4; 16], 100, 30_100,
+        ).expect("transfer context");
+        let error = ProtectedRootHandleAdmission::from_verified_transfer(
+            admission, claims, &foreign, offer_digest, offer_digest, admission_digest,
+        ).expect_err("foreign transfer context must not yield a wrapper");
+        assert_eq!(format!("{error:?}"), "Invalid");
+    }
+
+    #[test]
+    fn protected_admission_carries_typed_metadata_after_all_equality_checks() {
+        let (admission, claims, context, offer_digest) = verified_transfer_material();
+        let admission_digest = claims.admission_digest();
+        let wrapper = ProtectedRootHandleAdmission::from_verified_transfer(
+            admission, claims, &context, offer_digest, offer_digest, admission_digest,
+        ).expect("consistent transfer material");
+        assert_eq!(wrapper.workspace_id(), context.workspace_id());
+        assert_eq!(wrapper.expected_version(), context.expected_version());
+        assert_eq!(wrapper.admission_digest(), admission_digest);
+    }
 }
 
 include!("root_admission/claims.rs");

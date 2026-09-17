@@ -81,6 +81,9 @@ mod provider_status;
 mod quota;
 mod readiness;
 mod replay_authorization;
+#[cfg(all(unix, feature = "test-support", feature = "desktop-protected"))]
+#[doc(hidden)]
+pub mod root_admission_authority_fixture;
 #[cfg(all(feature = "test-support", feature = "desktop-protected"))]
 pub(crate) mod root_admission_test_support;
 #[cfg(not(feature = "desktop-protected"))]

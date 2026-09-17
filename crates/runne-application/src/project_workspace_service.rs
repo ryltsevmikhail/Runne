@@ -193,7 +193,7 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
             .map_err(map_admission_error)?;
         let mut authorizer = VerifiedRootAdmissionAuthorizer::new(
             lease,
-            claims,
+            &claims,
             &context,
             command.workspace_id,
             command.expected_version,
@@ -209,6 +209,11 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
                 &mut authorizer,
             )
             .map_err(map_error)?;
+        // The durable bind now owns the admitted root: promote the retained
+        // handle to the serving state only after the commit succeeded.
+        self.admission_verifier
+            .confirm_root_admission(&claims)
+            .map_err(map_admission_error)?;
         Ok(workspace_ack(workspace))
     }
 }

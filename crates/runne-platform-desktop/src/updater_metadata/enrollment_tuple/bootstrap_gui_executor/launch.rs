@@ -12,7 +12,7 @@ impl VerifiedInstalledQualificationGuiExecutor {
     ///
     /// # Limitation
     ///
-    /// LaunchServices accepts a pathname rather than the retained package
+    /// `LaunchServices` accepts a pathname rather than the retained package
     /// descriptor. The admission is revalidated after `/usr/bin/open` returns,
     /// so a detected package replacement never returns this capability.
     #[must_use]
@@ -33,6 +33,20 @@ impl VerifiedInstalledQualificationGuiExecutor {
     }
 }
 
+fn wait_for_open(child: &mut Child, deadline: Instant) -> Option<std::process::ExitStatus> {
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(status),
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+            Ok(None) | Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -48,19 +62,5 @@ mod tests {
             .expect("spawn disposable child");
         assert!(wait_for_open(&mut child, Instant::now()).is_none());
         assert!(child.try_wait().expect("child status").is_some());
-    }
-}
-
-fn wait_for_open(child: &mut Child, deadline: Instant) -> Option<std::process::ExitStatus> {
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return Some(status),
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
-            Ok(None) | Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
     }
 }

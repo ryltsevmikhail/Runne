@@ -74,7 +74,9 @@ fn long_offer_is_capped_to_the_protected_activation_window() {
 #[test]
 fn delayed_wall_sample_does_not_restart_the_activation_clock() {
     let now = Instant::now();
-    let sampled_at = now - Duration::from_secs(31);
+    let sampled_at = now
+        .checked_sub(Duration::from_secs(31))
+        .expect("test runtime has at least 31 seconds of monotonic uptime");
     let long = DesktopOffer::new([2; 32], [3; 32], binding(usize::MAX), 1000, 2000).unwrap();
     assert!(offer_deadline(&long, 100, now + Duration::from_secs(30), sampled_at).is_none());
 }

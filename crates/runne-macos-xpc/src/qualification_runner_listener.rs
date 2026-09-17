@@ -1,14 +1,20 @@
+use std::sync::Arc;
+#[cfg(any(test, target_os = "macos"))]
 use std::sync::{
-    Arc, Mutex,
+    Mutex,
     atomic::{AtomicBool, Ordering},
 };
+#[cfg(any(test, target_os = "macos"))]
 use std::time::Instant;
 
+#[cfg(any(test, target_os = "macos"))]
+use crate::qualification_runner::QualificationRunnerRequest;
 use crate::qualification_runner::{
-    QualificationRunnerEndpointConfiguration, QualificationRunnerPeer, QualificationRunnerRequest,
-    QualificationRunnerSessionFactory, QualificationRunnerSessionReceipt,
+    QualificationRunnerEndpointConfiguration, QualificationRunnerSessionFactory,
     QualificationRunnerXpcError,
 };
+#[cfg(target_os = "macos")]
+use crate::qualification_runner::{QualificationRunnerPeer, QualificationRunnerSessionReceipt};
 
 #[cfg(target_os = "macos")]
 mod native;
@@ -53,6 +59,7 @@ impl QualificationRunnerXpcListener {
     }
 }
 
+#[cfg(any(test, target_os = "macos"))]
 #[derive(Clone)]
 pub struct SessionSlot {
     session: Arc<Mutex<Option<crate::QualificationRunnerSessionLease>>>,
@@ -60,8 +67,10 @@ pub struct SessionSlot {
     in_flight: Arc<AtomicBool>,
 }
 
+#[cfg(any(test, target_os = "macos"))]
 struct SessionFlight<'a>(&'a SessionSlot);
 
+#[cfg(any(test, target_os = "macos"))]
 impl Drop for SessionFlight<'_> {
     fn drop(&mut self) {
         self.0.in_flight.store(false, Ordering::Release);
@@ -69,6 +78,7 @@ impl Drop for SessionFlight<'_> {
     }
 }
 
+#[cfg(any(test, target_os = "macos"))]
 impl SessionSlot {
     pub(crate) fn new(session: crate::QualificationRunnerSessionLease) -> Self {
         Self {
@@ -174,6 +184,7 @@ impl SessionSlot {
     }
 }
 
+#[cfg(target_os = "macos")]
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) fn start_session(
     factory: &dyn QualificationRunnerSessionFactory,

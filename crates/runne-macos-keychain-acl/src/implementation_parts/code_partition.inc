@@ -9,7 +9,7 @@ fn copy_partition_ids(access: &SecAccess) -> Result<Vec<String>, KeychainAclErro
         return Err(KeychainAclError::AccessDenied);
     }
     let list = unsafe { CFArray::<CFType>::wrap_under_create_rule(list) };
-    let mut partition = None;
+    let mut records = Vec::new();
     let mut default_owner_entries = 0;
     for acl in list.iter() {
         match copy_acl_record(&acl)? {
@@ -22,12 +22,14 @@ fn copy_partition_ids(access: &SecAccess) -> Result<Vec<String>, KeychainAclErro
                 let description = contents
                     .description
                     .ok_or(KeychainAclError::AccessDenied)?;
-                if partition
-                    .replace(parse_partition_ids(&description.to_string())?)
-                    .is_some()
-                {
-                    return Err(KeychainAclError::AccessDenied);
-                }
+                // macOS 27 saves populated items as a full partition record
+                // plus a subset record, and decrypt enforcement requires the
+                // reader to be present in EVERY stored record. The readback is
+                // therefore conjunctive and homogeneous: every Simple record
+                // must parse to exactly the same enrolled id set (duplicates
+                // of a full record are allowed), while a record holding only
+                // a subset, or any foreign id, is a hard rejection.
+                records.push(parse_partition_ids(&description.to_string())?);
             }
             AclRecord::RootOwner(RootOwnerAcl::Default) => default_owner_entries += 1,
             AclRecord::RootOwner(RootOwnerAcl::ChangeAcl) => {
@@ -38,9 +40,26 @@ fn copy_partition_ids(access: &SecAccess) -> Result<Vec<String>, KeychainAclErro
     if default_owner_entries > 1 {
         return Err(KeychainAclError::AccessDenied);
     }
-    let mut ids = partition.ok_or(KeychainAclError::AccessDenied)?;
+    homogeneous_partition_ids(&records)
+}
+
+/// Reduces the per-record partition id sets conjunctively: every saved
+/// Simple record must carry exactly the same id set, so a homogeneous
+/// duplicate of the full record passes while a subset record, a foreign
+/// id, or the absence of any Simple record is a hard rejection.
+fn homogeneous_partition_ids(records: &[Vec<String>]) -> Result<Vec<String>, KeychainAclError> {
+    let Some(first) = records.first() else {
+        return Err(KeychainAclError::AccessDenied);
+    };
+    if records.iter().any(|record| record != first) {
+        return Err(KeychainAclError::AccessDenied);
+    }
+    let mut ids = first.clone();
     ids.sort_unstable();
     ids.dedup();
+    if ids.is_empty() {
+        return Err(KeychainAclError::AccessDenied);
+    }
     Ok(ids)
 }
 

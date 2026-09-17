@@ -2,9 +2,10 @@
     not(all(target_os = "macos", target_arch = "aarch64")),
     allow(dead_code)
 )]
+#[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
+use std::path::Path;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use std::path::PathBuf;
-use std::path::Path;
 
 #[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
 use super::{NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleAdmission};
@@ -16,25 +17,25 @@ pub use measurement_facts::{
     QualificationAdmissionError, VerifiedInstalledEnrollmentMeasurementFacts,
 };
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-#[path = "daemon_installed/capability.rs"]
-mod capability;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[path = "daemon_installed/bootstrap_candidate.rs"]
 mod bootstrap_candidate;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[path = "daemon_installed/capability.rs"]
+mod capability;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[path = "daemon_installed/staged_identity.rs"]
 mod staged_identity;
 #[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
 include!("daemon_installed/verification.rs");
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-pub use capability::VerifiedInstalledEnrollmentCapability;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use bootstrap_candidate::{
-    VerifiedInstalledQualificationBootstrapCandidate, VerifiedRuntimeQualificationAcknowledgement,
-    VerifiedQualificationRunTransport,
+    VerifiedInstalledQualificationBootstrapCandidate, VerifiedQualificationRunTransport,
+    VerifiedRuntimeQualificationAcknowledgement,
 };
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-pub(crate) use staged_identity::CurrentStagedDaemonIdentity;
+pub use capability::VerifiedInstalledEnrollmentCapability;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub use staged_identity::CurrentStagedDaemonIdentity;
 
 /// Opaque evidence bound to one exact daemon prepare claim.
 ///

@@ -205,16 +205,55 @@ fn validate_relative_path(
     value: String,
     allow_empty: bool,
 ) -> Result<String, WorkspaceFileHostError> {
-    if value.len() > MAX_WORKSPACE_FILE_PATH_BYTES
-        || (!allow_empty && value.is_empty())
-        || value.starts_with('/')
-        || value.contains('\\')
-        || value.bytes().any(|byte| byte == 0 || byte < 0x20)
-        || value
-            .split('/')
-            .any(|part| part.is_empty() || part == "." || part == "..")
+    if value.len() > MAX_WORKSPACE_FILE_PATH_BYTES || (!allow_empty && value.is_empty()) {
+        return Err(WorkspaceFileHostError::InvalidPath);
+    }
+    // The empty path names the workspace root itself (list requests); every
+    // non-empty path must be a clean relative path.
+    if !value.is_empty()
+        && (value.starts_with('/')
+            || value.contains('\\')
+            || value.bytes().any(|byte| byte == 0 || byte < 0x20)
+            || value
+                .split('/')
+                .any(|part| part.is_empty() || part == "." || part == ".."))
     {
         return Err(WorkspaceFileHostError::InvalidPath);
     }
     Ok(value)
+}
+
+#[cfg(test)]
+mod workspace_files_validation_tests {
+    use super::{
+        WorkspaceFileContent, WorkspaceFileHostError, WorkspaceFileListRequest,
+        WorkspaceFileReadRequest, WorkspaceId,
+    };
+
+    const WORKSPACE_BYTES: [u8; 16] = [0, 0, 0, 0, 0, 0, 0x71, 0, 0x80, 0, 0, 0, 0, 0, 0, 6];
+    fn workspace() -> WorkspaceId {
+        WorkspaceId::from_bytes(WORKSPACE_BYTES)
+    }
+
+    // The root listing always requests the empty relative path; it must not
+    // be rejected as an invalid path (live finding F5).
+    #[test]
+    fn list_requests_accept_the_empty_root_path() {
+        let request = WorkspaceFileListRequest::new(workspace(), "", 50);
+        assert!(request.is_ok());
+        assert!(request.expect("root list").relative_path().is_empty());
+    }
+
+    #[test]
+    fn read_requests_still_require_a_named_file() {
+        assert!(matches!(
+            WorkspaceFileReadRequest::new(workspace(), ""),
+            Err(WorkspaceFileHostError::InvalidPath)
+        ));
+        assert!(matches!(
+            WorkspaceFileReadRequest::new(workspace(), "../escape"),
+            Err(WorkspaceFileHostError::InvalidPath)
+        ));
+        assert!(WorkspaceFileContent::new("notes.md", "text".into(), 4).is_ok());
+    }
 }

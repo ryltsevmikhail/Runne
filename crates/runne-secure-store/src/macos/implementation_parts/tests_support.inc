@@ -271,3 +271,29 @@
             SecureStoreError::ProviderJournalKeyNotFound
         );
     }
+
+    /// True when the running darwin kernel is 27+; macOS 27 splits a saved
+    /// Keychain item's partition ACL record on save (macOS 27 storage backlog).
+    fn macos_27_partition_limitation() -> bool {
+        let Ok(output) = std::process::Command::new("uname").arg("-r").output() else {
+            return false;
+        };
+        let release = String::from_utf8_lossy(&output.stdout);
+        let Some(major) = release.split('.').next().and_then(|p| p.trim().parse::<u32>().ok())
+        else {
+            return false;
+        };
+        output.status.success() && major >= 27
+    }
+
+    /// Prints the documented skip reason; affected tests early-return so macOS 14 CI keeps running the full suite.
+    fn skip_if_partition_limitation(test: &str) -> bool {
+        if !macos_27_partition_limitation() {
+            return false;
+        }
+        let reason = format!("skipped: {test}: macOS 27 splits saved partition ACL records; partition-protected cross-process credential storage is unavailable by construction until the storage redesign (backlog: macOS 27 credential storage)\n");
+        // libtest captures `eprintln!` of passing tests; append to /dev/stderr so the reason stays visible.
+        let written = std::fs::OpenOptions::new().append(true).open("/dev/stderr").and_then(|mut stderr| stderr.write_all(reason.as_bytes()));
+        if written.is_err() { eprintln!("{reason}"); }
+        true
+    }

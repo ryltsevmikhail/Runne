@@ -101,7 +101,7 @@ async fn get_provider_credential_enrollment_status(
         provider,
     )
     .await
-    .map_err(|_| IpcError {
+    .map_err(|()| IpcError {
         code: "provider_credential_status_unavailable",
     })
 }

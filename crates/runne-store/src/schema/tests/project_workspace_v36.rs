@@ -111,18 +111,7 @@ fn v36_preserves_a_v35_project_receipt_byte_for_byte() {
             rusqlite::params![command_id, project_id.as_bytes(), fingerprint, outcome],
         )
         .unwrap();
-    let before: (
-        Vec<u8>,
-        String,
-        String,
-        i64,
-        i64,
-        Vec<u8>,
-        String,
-        Vec<u8>,
-        Vec<u8>,
-        i64,
-    ) = receipt_row(&connection, command_id);
+    let before = receipt_row(&connection, command_id);
     project_workspace_schema::apply_v36_migration(&connection).unwrap();
     let after = receipt_row(&connection, command_id);
     assert_eq!(after, before);

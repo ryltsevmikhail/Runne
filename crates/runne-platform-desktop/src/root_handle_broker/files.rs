@@ -90,14 +90,18 @@ impl VerifiedRootHandle {
 }
 
 fn validate(value: &str, allow_empty: bool) -> Result<&str, RootHandleBrokerError> {
-    if value.len() > MAX_PATH_BYTES
-        || (!allow_empty && value.is_empty())
-        || value.starts_with('/')
-        || value.contains('\\')
-        || value.bytes().any(|byte| byte == 0 || byte < 0x20)
-        || value
-            .split('/')
-            .any(|part| part.is_empty() || part == "." || part == "..")
+    if value.len() > MAX_PATH_BYTES || (!allow_empty && value.is_empty()) {
+        return Err(RootHandleBrokerError::Rejected);
+    }
+    // The empty path names the workspace root itself (list requests); every
+    // non-empty path must be a clean handle-relative path.
+    if !value.is_empty()
+        && (value.starts_with('/')
+            || value.contains('\\')
+            || value.bytes().any(|byte| byte == 0 || byte < 0x20)
+            || value
+                .split('/')
+                .any(|part| part.is_empty() || part == "." || part == ".."))
     {
         return Err(RootHandleBrokerError::Rejected);
     }

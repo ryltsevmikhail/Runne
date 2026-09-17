@@ -100,15 +100,6 @@ fn collect_writer_record(
     let record = read_writer_record(&mut parent)?;
     if !output.status.success() {
         return match output.stderr.as_slice() {
-            b"persistent-reference-probe-populate-status:-25243\n" => {
-                Err("persistent-reference-writer-populate-no-access-25243")
-            }
-            b"persistent-reference-probe-populate-status:-25293\n" => {
-                Err("persistent-reference-writer-populate-auth-failed-25293")
-            }
-            b"persistent-reference-probe-populate-status:-25308\n" => {
-                Err("persistent-reference-writer-populate-ui-blocked-25308")
-            }
             b"persistent-reference-probe-closed-stage:item-create\n" => {
                 Err("persistent-reference-writer-item-create")
             }
@@ -118,17 +109,23 @@ fn collect_writer_record(
             b"persistent-reference-probe-closed-stage:parent-channel\n" => {
                 Err("persistent-reference-writer-parent-channel")
             }
+            b"persistent-reference-probe-closed-stage:keychain-open\n" => {
+                Err("persistent-reference-writer-keychain-open")
+            }
+            b"persistent-reference-probe-closed-stage:access\n" => {
+                Err("persistent-reference-writer-access")
+            }
             b"persistent-reference-probe-closed-stage:item-finalize\n" => {
                 Err("persistent-reference-writer-item-finalize")
             }
             b"persistent-reference-probe-closed-stage:item-finalize-access-denied\n" => {
                 Err("persistent-reference-writer-item-finalize-access-denied")
             }
-            b"persistent-reference-probe-closed-stage:item-verify-before-populate\n" => {
-                Err("persistent-reference-writer-item-verify-before-populate")
-            }
             b"persistent-reference-probe-closed-stage:persistent-reference-create\n" => {
                 Err("persistent-reference-writer-persistent-reference-create")
+            }
+            b"persistent-reference-probe-closed-stage:record-send\n" => {
+                Err("persistent-reference-writer-record-send")
             }
             b"persistent-reference-probe-closed-stage:item-cleanup\n" => {
                 Err("persistent-reference-writer-item-cleanup")

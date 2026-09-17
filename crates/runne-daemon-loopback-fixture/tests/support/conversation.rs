@@ -2,7 +2,8 @@ use runne_runtime_client::{
     AuthenticatedRuntimeClient, CanonicalId, CanonicalReplayEvent, CanonicalReplayPayload,
     CommandIdentity, ConversationMessageRole, ConversationMessages, CreateConversationRequest,
     CreateProjectRequest, CreateWorkspaceRequest, GenerateTextRequest, ReplayAggregateKind,
-    ReplayDeliveryDisposition, ReplayIdentityTracker, ReplayScope, RuntimeApiErrorKind,
+    ReplayDeliveryDisposition, ReplayIdentityTracker, ReplayScope, RuntimeApiError,
+    RuntimeApiErrorKind,
 };
 
 const CONVERSATION_ID: &str = "018f2e3a-7000-7000-8000-000000000801";
@@ -79,9 +80,30 @@ impl ConversationExpectation {
     }
 }
 
+#[allow(dead_code)]
 pub async fn send_canonical_conversation(
     client: &AuthenticatedRuntimeClient,
 ) -> ConversationExpectation {
+    match send_canonical_conversation_for_diagnostic(client).await {
+        Ok(conversation) => conversation,
+        Err(error) => {
+            assert_eq!(
+                error.kind(),
+                RuntimeApiErrorKind::InvalidResponse,
+                "fixture ACK fault returned an unexpected error; request_id={:?}",
+                error.request_id()
+            );
+            assert_eq!(error.request_id(), None);
+            unreachable!("validated fixture ACK fault response")
+        }
+    }
+}
+
+/// Runs the canonical exchange while returning an unexpected API error to the
+/// caller, so the caller can reap the child and attach fixture diagnostics.
+pub async fn send_canonical_conversation_for_diagnostic(
+    client: &AuthenticatedRuntimeClient,
+) -> Result<ConversationExpectation, RuntimeApiError> {
     let conversation_id = id(CONVERSATION_ID);
     let project_id = id(PROJECT_ID);
     let workspace_id = id(WORKSPACE_ID);
@@ -99,7 +121,7 @@ pub async fn send_canonical_conversation(
     assert_eq!(created.conversation_id, conversation_id);
     assert_eq!(created.workspace_id, workspace_id);
     assert_eq!(created.stream_version, 1);
-    let error = client
+    let error = match client
         .generate_text(
             GenerateTextRequest::new(
                 identity(generate_command_id, GENERATE_IDEMPOTENCY_KEY),
@@ -110,14 +132,13 @@ pub async fn send_canonical_conversation(
             .expect("canonical generation request"),
         )
         .await
-        .expect_err("fixture ACK fault must project as an invalid response");
-    assert_eq!(
-        error.kind(),
-        RuntimeApiErrorKind::InvalidResponse,
-        "fixture ACK fault returned an unexpected error; request_id={:?}",
-        error.request_id()
-    );
-    assert_eq!(error.request_id(), None);
+    {
+        Ok(_) => panic!("fixture ACK fault must project as an error"),
+        Err(error) => error,
+    };
+    if error.kind() != RuntimeApiErrorKind::InvalidResponse || error.request_id().is_some() {
+        return Err(error);
+    }
     let timeline = client
         .list_messages(conversation_id)
         .await
@@ -132,7 +153,7 @@ pub async fn send_canonical_conversation(
         .expect("persisted replay event")
         .cursor
         .clone();
-    ConversationExpectation {
+    Ok(ConversationExpectation {
         conversation_id,
         workspace_id,
         create_command_id,
@@ -143,7 +164,7 @@ pub async fn send_canonical_conversation(
         replay_events,
         last_cursor,
         replay_tracker: tracker,
-    }
+    })
 }
 
 async fn seed_workspace(

@@ -16,9 +16,28 @@ async fn activation_process_uses_the_protected_v2_channel_and_canonical_conversa
         .expect("make fixture root owner-private");
     let key_before = prepare_runtime_root(&runtime_root).expect("create retained fixture key");
     let executable = support::executable("activation_process", temporary.path());
-    let mut process = support::launch(&executable, &runtime_root);
+    let mut process = support::launch_with_output(&executable, &runtime_root);
     let client = support::protected_client(&mut process).await;
-    let conversation = support::send_canonical_conversation(&client).await;
+    let conversation = match support::send_canonical_conversation_for_diagnostic(&client).await {
+        Ok(conversation) => conversation,
+        Err(error) => {
+            drop(client);
+            let diagnostic = support::stop_with_diagnostic(process, &runtime_root);
+            assert_eq!(
+                error.kind(),
+                runne_runtime_client::RuntimeApiErrorKind::InvalidResponse,
+                "fixture ACK fault returned an unexpected client error; client_error_kind={:?} request_id_present={}; {diagnostic}",
+                error.kind(),
+                error.request_id().is_some()
+            );
+            assert_eq!(
+                error.request_id(),
+                None,
+                "fixture ACK fault returned a correlated error; {diagnostic}"
+            );
+            unreachable!("validated fixture ACK fault response")
+        }
+    };
     let execution = support::execution_stage(&runtime_root);
     support::assert_first_activation_stages(&execution, &conversation);
     drop(client);

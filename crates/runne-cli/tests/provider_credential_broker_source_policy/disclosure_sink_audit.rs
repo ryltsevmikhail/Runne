@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use syn::visit::{self, Visit};
 use syn::{Attribute, Expr, File, Item, ItemMod, Lit, Meta, UseTree};
 
+use super::disclosure_stage_binding::{is_audited_stage_emission, stage_module_binding};
+
 const PRINT_MACROS: &[&str] = &["print", "println", "eprint", "eprintln"];
 const PANIC_MACROS: &[&str] = &[
     "panic",
@@ -22,13 +24,42 @@ pub fn broker_disclosure_sink_violations(root: &Path) -> Vec<String> {
     let Some(boundary) = root.parent() else {
         return vec!["broker root has no parent".into()];
     };
-    let mut visited = BTreeSet::new();
     let mut violations = Vec::new();
-    audit_module_file(root, boundary, &mut visited, &mut violations);
+    let source = match std::fs::read_to_string(root) {
+        Ok(source) => source,
+        Err(error) => return vec![format!("cannot read {}: {error}", root.display())],
+    };
+    // The audited stage emissions are allowed only inside the live twin of
+    // the feature-gated module pair, and only when that binding is exact.
+    // Everywhere else — including a mis-bound or renamed module — every
+    // emission macro remains forbidden.
+    let (binding_violations, audited_live) = stage_module_binding(&source);
+    violations.extend(binding_violations);
+    let audited_live = audited_live.map(|live| boundary.join(live));
+    let mut visited = BTreeSet::new();
+    audit_module_file(
+        root,
+        boundary,
+        audited_live.as_deref(),
+        &mut visited,
+        &mut violations,
+    );
     violations
 }
 
+/// Sink policy for a source that is not the audited stage twin: every
+/// emission macro is rejected, literals included.
 pub fn disclosure_sink_violations(relative: &str, source: &str) -> Vec<String> {
+    scan_sink_violations(relative, source, false)
+}
+
+/// Sink policy applied with the audited stage emission allowance, matching
+/// how the bound live twin is scanned.
+pub fn audited_stage_module_sink_violations(relative: &str, source: &str) -> Vec<String> {
+    scan_sink_violations(relative, source, true)
+}
+
+fn scan_sink_violations(relative: &str, source: &str, allow_audited_stage: bool) -> Vec<String> {
     let file = match syn::parse_file(source) {
         Ok(file) => file,
         Err(error) => return vec![format!("cannot parse {relative}: {error}")],
@@ -37,6 +68,7 @@ pub fn disclosure_sink_violations(relative: &str, source: &str) -> Vec<String> {
     SinkVisitor {
         relative,
         violations: &mut violations,
+        allow_audited_stage,
     }
     .visit_file(&file);
     violations
@@ -45,6 +77,7 @@ pub fn disclosure_sink_violations(relative: &str, source: &str) -> Vec<String> {
 fn audit_module_file(
     path: &Path,
     boundary: &Path,
+    audited_live: Option<&Path>,
     visited: &mut BTreeSet<PathBuf>,
     violations: &mut Vec<String>,
 ) {
@@ -63,18 +96,31 @@ fn audit_module_file(
             return;
         }
     };
-    violations.extend(disclosure_sink_violations(&relative, &source));
+    let in_audited_stage_module = audited_live.is_some_and(|live| live == path);
+    violations.extend(scan_sink_violations(
+        &relative,
+        &source,
+        in_audited_stage_module,
+    ));
     let file: File = match syn::parse_file(&source) {
         Ok(file) => file,
         Err(_) => return,
     };
-    discover_modules(&file.items, &path, boundary, visited, violations);
+    discover_modules(
+        &file.items,
+        &path,
+        boundary,
+        audited_live,
+        visited,
+        violations,
+    );
 }
 
 fn discover_modules(
     items: &[Item],
     parent: &Path,
     boundary: &Path,
+    audited_live: Option<&Path>,
     visited: &mut BTreeSet<PathBuf>,
     violations: &mut Vec<String>,
 ) {
@@ -83,9 +129,9 @@ fn discover_modules(
         _ => None,
     }) {
         if let Some((_, items)) = &module.content {
-            discover_modules(items, parent, boundary, visited, violations);
+            discover_modules(items, parent, boundary, audited_live, visited, violations);
         } else if let Some(path) = module_path(parent, module) {
-            audit_module_file(&path, boundary, visited, violations);
+            audit_module_file(&path, boundary, audited_live, visited, violations);
         } else {
             violations.push(format!(
                 "cannot resolve production broker module {}",
@@ -148,6 +194,7 @@ fn cfg_test_only(attributes: &[Attribute]) -> bool {
 struct SinkVisitor<'a> {
     relative: &'a str,
     violations: &'a mut Vec<String>,
+    allow_audited_stage: bool,
 }
 
 impl SinkVisitor<'_> {
@@ -171,6 +218,12 @@ impl SinkVisitor<'_> {
 
 impl<'ast> Visit<'ast> for SinkVisitor<'_> {
     fn visit_macro(&mut self, node: &'ast syn::Macro) {
+        if self.allow_audited_stage && is_audited_stage_emission(node) {
+            // The single sanctioned diagnostic capacity, valid only inside
+            // the binding-checked live twin. Do not descend: the literal
+            // carries no identifiers or nested source references.
+            return;
+        }
         let first = node.path.segments.first().map(|segment| &segment.ident);
         let last = node.path.segments.last().map(|segment| &segment.ident);
         if last.is_some_and(|name| PRINT_MACROS.iter().any(|sink| name == sink)) {
