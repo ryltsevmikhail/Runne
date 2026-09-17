@@ -4,15 +4,8 @@ import {
 } from '@/shared/api/platform/bootstrap'
 
 export type RuntimeSessionStatus =
-  | 'empty'
-  | 'loading'
-  | 'live'
-  | 'stale'
-  | 'reconnecting'
-  | 'incompatible'
-  | 'revoked'
-  | 'fatal'
-  | 'unavailable'
+  | 'empty' | 'loading' | 'live' | 'stale' | 'reconnecting'
+  | 'incompatible' | 'revoked' | 'fatal' | 'unavailable'
 
 export interface RuntimeSessionSnapshot {
   readonly runtime: RuntimeConnectionState | null
@@ -39,8 +32,8 @@ interface RuntimeSessionDependencies {
 }
 
 const MAX_AUTOMATIC_RECOVERIES = 3
-const ESTABLISH_SETTLE_WAITS = 20
-const ESTABLISH_SETTLE_DELAY_MS = 500
+const SETTLE_WAITS = 20
+const SETTLE_DELAY_MS = 500
 
 const TRANSIENT_STATES = new Set(['reconnecting'])
 const REVOKED_STATES = new Set(['incompatible', 'revoked', 'fatal'])
@@ -108,16 +101,13 @@ export function createRuntimeSessionController(
       }
       let runtime = runtimeFrom(await dependencies.loadBootstrap())
       if (epoch !== sessionEpoch) return current
-      // connect_runtime itself rotates the daemon session, so the bootstrap
-      // read immediately after connect can observe Reconciling while that
-      // rotation settles. Re-read bounded instead of failing the attach and
-      // burning the automatic recovery budget on a window we caused.
-      for (
-        let settleWaits = 0;
-        runtime === 'reconnecting' && settleWaits < ESTABLISH_SETTLE_WAITS && epoch === sessionEpoch;
-        settleWaits += 1
-      ) {
-        await new Promise(resolve => setTimeout(resolve, ESTABLISH_SETTLE_DELAY_MS))
+      // connect_runtime itself rotates the daemon session, so the bootstrap read
+      // right after connect can observe Reconciling while that rotation settles;
+      // re-read bounded instead of burning the recovery budget on our own window.
+      let waits = 0
+      while (runtime === 'reconnecting' && waits < SETTLE_WAITS && epoch === sessionEpoch) {
+        waits += 1
+        await new Promise(resolve => setTimeout(resolve, SETTLE_DELAY_MS))
         if (epoch !== sessionEpoch) return current
         runtime = runtimeFrom(await dependencies.loadBootstrap())
       }
@@ -142,12 +132,10 @@ export function createRuntimeSessionController(
       const disposition = (error as { disposition?: unknown } | null | undefined)?.disposition
       if (disposition === 'transient') {
         if (manual) automaticFailures = 0
-        if (!manual) return current
-        return publish(snapshot(null, 'unavailable'))
+        return manual ? publish(snapshot(null, 'unavailable')) : current
       }
       lastResetClass = 'terminal'
-      if (!manual) return publish(snapshot(null, 'fatal'))
-      return publish(snapshot(null, 'unavailable'))
+      return publish(snapshot(null, manual ? 'unavailable' : 'fatal'))
     }
     finally {
       if (proven && epoch === sessionEpoch) automaticFailures = 0
@@ -162,9 +150,7 @@ export function createRuntimeSessionController(
     const resetSeq = proofResetGeneration
     if (recovery !== null) {
       const cancelled = recoveryCancel
-      recovery = null
-      recoveryOwner = null
-      recoveryCancel = null
+      recovery = recoveryOwner = recoveryCancel = null
       sessionEpoch += 1
       if (cancelled !== null) cancelled.cancelled = true
     }
@@ -240,9 +226,7 @@ export function createRuntimeSessionController(
       closed = true
       authenticated = false
       lastResetClass = null
-      recovery = null
-      recoveryOwner = null
-      recoveryCancel = null
+      recovery = recoveryOwner = recoveryCancel = null
       publish(snapshot(null, 'unavailable'))
     },
     observeBootstrap(value, ticket) {
@@ -273,13 +257,10 @@ export function createRuntimeSessionController(
 }
 
 function runtimeFrom(value: unknown): RuntimeConnectionState | null {
-  if (isRuntimeConnectionState(value)) {
-    return value
-  }
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return null
-  }
-  const runtime = (value as Record<string, unknown>).runtime
+  if (isRuntimeConnectionState(value)) return value
+  const runtime = typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>).runtime
+    : null
   return isRuntimeConnectionState(runtime) ? runtime : null
 }
 

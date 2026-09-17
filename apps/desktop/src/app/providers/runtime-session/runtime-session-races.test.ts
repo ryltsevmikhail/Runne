@@ -16,6 +16,10 @@ const transientReject = (message: string): Error => {
   return error
 }
 
+const flush = async (rounds = 2) => {
+  for (let round = 0; round < rounds; round += 1) await Promise.resolve()
+}
+
 describe('runtime session revocation and concurrent manual races', () => {
   it('drops a manual attempt when a revocation arrives during its connect', async () => {
     let releaseStaleConnect: ((value: unknown) => void) | undefined
@@ -23,11 +27,7 @@ describe('runtime session revocation and concurrent manual races', () => {
     const port = createRuntimeSessionController({
       connect: () => {
         connects += 1
-        if (connects === 2) {
-          return new Promise(resolve => {
-            releaseStaleConnect = resolve
-          })
-        }
+        if (connects === 2) return new Promise(resolve => { releaseStaleConnect = resolve })
         return Promise.resolve('live')
       },
       loadBootstrap: async () => bootstrap('live'),
@@ -37,14 +37,13 @@ describe('runtime session revocation and concurrent manual races', () => {
     port.observeBootstrap(bootstrap('reconnecting'))
     port.observeBootstrap(bootstrap('live'))
 
-    // The manual attempt starts its connect; a revocation arrives meanwhile and
-    // must keep the session read-only once the stale connect resolves.
+    // A revocation arriving mid-connect must keep the session read-only
+    // once the stale connect resolves.
     const retrying = port.retry()
     port.observeBootstrap(bootstrap('revoked'))
     releaseStaleConnect?.('live')
     await retrying
-    await Promise.resolve()
-    await Promise.resolve()
+    await flush()
     expect(connects).toBe(2)
     expect(port.snapshot()).toMatchObject({ status: 'revoked', canMutate: false })
   })
@@ -56,16 +55,8 @@ describe('runtime session revocation and concurrent manual races', () => {
     const port = createRuntimeSessionController({
       connect: () => {
         connects += 1
-        if (connects === 2) {
-          return new Promise(resolve => {
-            releaseOlder = resolve
-          })
-        }
-        if (connects === 3) {
-          return new Promise(resolve => {
-            releaseNewer = resolve
-          })
-        }
+        if (connects === 2) return new Promise(resolve => { releaseOlder = resolve })
+        if (connects === 3) return new Promise(resolve => { releaseNewer = resolve })
         return Promise.resolve('live')
       },
       loadBootstrap: async () => bootstrap('live'),
@@ -81,8 +72,7 @@ describe('runtime session revocation and concurrent manual races', () => {
     releaseOlder?.('reconnecting')
     await older
     port.observeBootstrap(bootstrap('live'))
-    await Promise.resolve()
-    await Promise.resolve()
+    await flush()
     expect(connects).toBe(3)
 
     releaseNewer?.('live')
@@ -92,8 +82,7 @@ describe('runtime session revocation and concurrent manual races', () => {
     // With no manual in flight the bounded recovery may run again.
     port.observeBootstrap(bootstrap('reconnecting'))
     port.observeBootstrap(bootstrap('live'))
-    await Promise.resolve()
-    await Promise.resolve()
+    await flush()
     expect(connects).toBe(4)
   })
 
@@ -111,9 +100,7 @@ describe('runtime session revocation and concurrent manual races', () => {
     port.observeBootstrap(bootstrap('reconnecting'))
     port.observeBootstrap(bootstrap('live'))
     port.observeBootstrap(bootstrap('revoked'))
-    await Promise.resolve()
-    await Promise.resolve()
-    await Promise.resolve()
+    await flush(3)
     expect(connects).toBe(1)
     expect(port.snapshot()).toMatchObject({ status: 'revoked', canMutate: false })
   })
@@ -124,11 +111,7 @@ describe('runtime session revocation and concurrent manual races', () => {
     const port = createRuntimeSessionController({
       connect: () => {
         connects += 1
-        if (connects === 2) {
-          return new Promise(resolve => {
-            releaseHung = resolve
-          })
-        }
+        if (connects === 2) return new Promise(resolve => { releaseHung = resolve })
         return Promise.resolve('live')
       },
       loadBootstrap: async () => bootstrap('live'),
@@ -142,8 +125,7 @@ describe('runtime session revocation and concurrent manual races', () => {
     // The hung older manual must not block automatic recovery any more.
     port.observeBootstrap(bootstrap('reconnecting'))
     port.observeBootstrap(bootstrap('live'))
-    await Promise.resolve()
-    await Promise.resolve()
+    await flush()
     expect(connects).toBe(4)
     releaseHung?.('live')
     await hung
@@ -164,9 +146,7 @@ describe('runtime session revocation and concurrent manual races', () => {
       port.observeBootstrap(bootstrap(terminal))
       for (let observation = 0; observation < 5; observation += 1) {
         port.observeBootstrap(bootstrap('live'))
-        await Promise.resolve()
-        await Promise.resolve()
-        await Promise.resolve()
+        await flush(3)
       }
       expect(connects).toBe(1)
       expect(port.snapshot().canMutate).toBe(false)
@@ -183,11 +163,7 @@ describe('runtime session revocation and concurrent manual races', () => {
     const port = createRuntimeSessionController({
       connect: () => {
         connects += 1
-        if (connects === 2) {
-          return new Promise(resolve => {
-            releaseConnect = resolve
-          })
-        }
+        if (connects === 2) return new Promise(resolve => { releaseConnect = resolve })
         return Promise.resolve('live')
       },
       loadBootstrap: async () => bootstrap('live'),
@@ -196,16 +172,13 @@ describe('runtime session revocation and concurrent manual races', () => {
     await port.connect()
     port.observeBootstrap(bootstrap('reconnecting'))
     port.observeBootstrap(bootstrap('live'))
-    await Promise.resolve()
-    await Promise.resolve()
+    await flush()
     expect(connects).toBe(2)
 
     // The recovery's own backend projection must not discard it.
     port.observeBootstrap(bootstrap('reconnecting'))
     releaseConnect?.('live')
-    await Promise.resolve()
-    await Promise.resolve()
-    await Promise.resolve()
+    await flush(3)
     expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
     expect(connects).toBe(2)
   })
@@ -226,8 +199,7 @@ describe('runtime session revocation and concurrent manual races', () => {
       port.observeBootstrap(bootstrap('live'))
       port.observeBootstrap(bootstrap('revoked'))
     }
-    await Promise.resolve()
-    await Promise.resolve()
+    await flush()
     expect(connects).toBe(1)
 
     // A revocation latches: only a manual retry re-arms recovery, and the
@@ -237,10 +209,7 @@ describe('runtime session revocation and concurrent manual races', () => {
     port.observeBootstrap(bootstrap('reconnecting'))
     for (let attempt = 0; attempt < 6; attempt += 1) {
       port.observeBootstrap(bootstrap('live'))
-      await Promise.resolve()
-      await Promise.resolve()
-      await Promise.resolve()
-      await Promise.resolve()
+      await flush(4)
     }
     await vi.waitFor(() => {
       expect(connects).toBe(2 + 3)
@@ -263,9 +232,7 @@ describe('runtime session revocation and concurrent manual races', () => {
       expect(connects).toBe(1)
       for (let observation = 0; observation < 5; observation += 1) {
         port.observeBootstrap(bootstrap('live'))
-        await Promise.resolve()
-        await Promise.resolve()
-        await Promise.resolve()
+        await flush(3)
       }
       expect(connects).toBe(1)
       expect(port.snapshot().canMutate).toBe(false)
@@ -276,8 +243,8 @@ describe('runtime session revocation and concurrent manual races', () => {
     }
 
     // Transport-level IPC failures are transient: the closed projection is
-    // published for the manual attempt, and automatic recovery self-heals once
-    // the transport recovers (no terminal latch, no manual retry required).
+    // published for the manual attempt, and automatic recovery self-heals
+    // once the transport recovers (no latch, no manual retry required).
     let failing = true
     const port = createRuntimeSessionController({
       connect: async () => {
@@ -296,10 +263,9 @@ describe('runtime session revocation and concurrent manual races', () => {
     })
   })
 
-  // Regression (live F5 pass): connect_runtime itself rotates the daemon
-  // session, so the bootstrap read right after connect can observe
-  // Reconciling; the establish must settle through that window instead of
-  // failing transient and latching the UI stale.
+  // Regression (live F5/F6 pass): connect_runtime itself rotates the daemon
+  // session, so the bootstrap read right after connect can observe Reconciling;
+  // establish must settle through that window instead of latching stale.
   it('establishes through the connect-time rotation window', async () => {
     const queue: string[] = ['reconnecting', 'reconnecting', 'live']
     const port = createRuntimeSessionController({
