@@ -34,6 +34,10 @@ pub(super) fn spawn_macos_prepared_writer(
         .as_ref()
         .map(duplicate_above_reserved)
         .transpose()?;
+    #[cfg(feature = "test-support")]
+    let fixture_stderr = fixture_writer_stderr()?;
+    #[cfg(not(feature = "test-support"))]
+    let fixture_stderr = fixture_writer_stderr();
     let mut actions = PosixSpawnFileActions::init().map_err(|_| BrokerHandoffError::Unavailable)?;
     actions
         .add_dup2(bootstrap.as_raw_fd(), libc::STDIN_FILENO)
@@ -53,14 +57,22 @@ pub(super) fn spawn_macos_prepared_writer(
             )
         })
         .and_then(|()| {
-            let stderr_target =
-                test_writer_stderr_target().unwrap_or_else(|| CString::new("/dev/null").unwrap());
-            actions.add_open(
-                libc::STDERR_FILENO,
-                stderr_target.as_c_str(),
-                OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_APPEND,
-                Mode::from_bits_retain(0o600),
-            )
+            // Production keeps /dev/null with the same flags as before. In
+            // the local enrollment test mode the parent opens a validated
+            // fixture-owned append log and hands the child the already-open
+            // descriptor, so the spawned writer never resolves a writable
+            // path of its own. Unsafe fixture state fails closed.
+            match &fixture_stderr {
+                Some(log) => actions
+                    .add_dup2(log.as_raw_fd(), libc::STDERR_FILENO)
+                    .and_then(|()| actions.add_close(log.as_raw_fd())),
+                None => actions.add_open(
+                    libc::STDERR_FILENO,
+                    "/dev/null",
+                    OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_APPEND,
+                    Mode::from_bits_retain(0o600),
+                ),
+            }
         })
         .map_err(|_| BrokerHandoffError::Unavailable)?;
     let mut attributes = PosixSpawnAttr::init().map_err(|_| BrokerHandoffError::Unavailable)?;
@@ -88,19 +100,24 @@ pub(super) fn spawn_macos_prepared_writer(
     UnixRetainedWriterProcess::from_pid(pid).map(|process| (process, secret_writer))
 }
 
-/// In the local native enrollment test mode the writer's stderr is captured
-/// to an append-only log so its startup diagnostics survive the fixture
-/// teardown; production keeps /dev/null.
+/// Resolves the writer stderr target for the local native enrollment test
+/// mode: a parent-opened, fixture-owned append log. Returns `None` so the
+/// child keeps the unchanged production `/dev/null`, and `Err` (fail
+/// closed) when the fixture namespace or the log file fails validation.
 #[cfg(feature = "test-support")]
-fn test_writer_stderr_target() -> Option<CString> {
+fn fixture_writer_stderr() -> Result<Option<OwnedFd>, BrokerHandoffError> {
     if !runne_api::test_support::local_native_enrollment_enabled() {
-        return None;
+        return Ok(None);
     }
-    CString::new("/tmp/runne-slice-e-writer-stderr.log").ok()
+    let fixture_root = std::env::var_os("RUNNE_SLICE_E_FIXTURE_ROOT")
+        .map(std::path::PathBuf::from)
+        .ok_or(BrokerHandoffError::Rejected)?;
+    let log = super::writer_stderr_log::open_fixture_writer_stderr_log(&fixture_root)?;
+    Ok(Some(log))
 }
 
 #[cfg(not(feature = "test-support"))]
-fn test_writer_stderr_target() -> Option<CString> {
+const fn fixture_writer_stderr() -> Option<OwnedFd> {
     None
 }
 

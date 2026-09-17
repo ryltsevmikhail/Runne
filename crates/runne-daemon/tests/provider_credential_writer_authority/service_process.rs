@@ -103,25 +103,39 @@ impl TemporaryCredentialService {
         let uid = command_output("/usr/bin/id", &["-u"]).ok_or("service-uid")?;
         let domain = format!("gui/{}", uid.trim());
         let service = format!("{domain}/{LABEL}");
-        let mut exclusivity = Command::new("/bin/launchctl")
+        let exclusivity = Command::new("/bin/launchctl")
             .args(["print", &service])
             .output()
             .map_err(|_| "service-presence-command")?;
-        // A task killed by its timeout skips teardown and leaves the
-        // registered fixture service behind, so the first bootstrap after a
-        // kill would fail forever. The leftover belongs to a dead fixture
-        // (RunAtLoad=false, KeepAlive=false), so boot it out once and retry.
+        // An occupied label is never booted out automatically: the printed
+        // environment markers are claims, not an ownership or staleness
+        // proof, so no combination of them proves that removing the job is
+        // safe. The classification below only names the failure precisely
+        // (live pid, possibly real service, current run, foreign fixture
+        // claim, or ambiguous report). A genuinely dead leftover fixture is
+        // removed by hand with launchctl before re-running the suite.
         if exclusivity.status.success() || !not_found(&exclusivity.stderr) {
-            let _ = Command::new("/bin/launchctl")
-                .args(["bootout", &service])
-                .status();
-            exclusivity = Command::new("/bin/launchctl")
-                .args(["print", &service])
-                .output()
-                .map_err(|_| "service-presence-command")?;
-            if exclusivity.status.success() || !not_found(&exclusivity.stderr) {
-                return Err("service-label-not-exclusively-available");
-            }
+            let report = String::from_utf8_lossy(&exclusivity.stdout);
+            let root_text = root.to_string_lossy();
+            return Err(
+                match super::service_ownership::classify_occupied_label(&report, &root_text) {
+                    super::service_ownership::OccupiedLabel::LiveProcess(_) => {
+                        "service-label-held-by-live-process"
+                    }
+                    super::service_ownership::OccupiedLabel::NotFixtureOwned => {
+                        "service-label-not-fixture-owned"
+                    }
+                    super::service_ownership::OccupiedLabel::CurrentFixtureRoot => {
+                        "service-label-held-by-current-fixture"
+                    }
+                    super::service_ownership::OccupiedLabel::ForeignFixtureRoot => {
+                        "service-label-held-by-foreign-fixture"
+                    }
+                    super::service_ownership::OccupiedLabel::Ambiguous => {
+                        "service-label-ownership-ambiguous"
+                    }
+                },
+            );
         }
         let plist = root.join("credential-service.test.plist");
         fs::write(&plist, launch_agent_plist(home, keychain, executable, root))
