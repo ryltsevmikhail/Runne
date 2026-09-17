@@ -58,6 +58,7 @@ pub(crate) fn run_control_loop_v3(
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             None,
         ),
+        #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
         None,
     )
 }
@@ -71,7 +72,7 @@ pub(crate) fn run_control_loop_v3_entered(
     session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
     ticket_clock: TicketClock,
     #[cfg(unix)] mut enrollment: V3EnrollmentDispatch,
-    #[cfg(all(unix, feature = "desktop-protected"))] root_admission: Option<
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))] root_admission: Option<
         Arc<crate::protected_activation::ProtectedRootControl>,
     >,
 ) -> Result<(), LaunchAuthorityError> {
@@ -200,7 +201,7 @@ pub(crate) fn run_control_loop_v3_entered(
         &ticket_clock,
         #[cfg(unix)]
         &mut runtime,
-        #[cfg(all(unix, feature = "desktop-protected"))]
+        #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
         root_admission,
     );
     #[cfg(all(unix, target_os = "macos"))]

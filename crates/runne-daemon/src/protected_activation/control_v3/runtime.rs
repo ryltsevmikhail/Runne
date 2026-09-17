@@ -85,6 +85,10 @@ pub(crate) struct V3EnrollmentDispatch {
             crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl,
         >,
     >,
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     pub(super) rendezvous:
         crate::protected_activation::enrollment_control_transition::DaemonEnrollmentRendezvous,
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

@@ -22,7 +22,23 @@ impl ProtectedBundledRuntimeProcess {
                         )
                     })
                 });
-                #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+                // Linux has no continuous boot clock: the shared ticket domain
+                // is unix wall-clock milliseconds, matching the daemon's
+                // `unix_wall_ticket_clock`.
+                #[cfg(all(
+                    unix,
+                    not(all(target_os = "macos", target_arch = "aarch64"))
+                ))]
+                return self.renew_v3_profile_with_clock(|| {
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .ok()
+                        .and_then(|value| u64::try_from(value.as_millis()).ok())
+                        .ok_or(ProtectedBundledRuntimeError::LaunchAuthority(
+                            LaunchAuthorityError::RenewalUnavailable,
+                        ))
+                });
+                #[cfg(not(unix))]
                 return Err(ProtectedBundledRuntimeError::LaunchAuthority(
                     LaunchAuthorityError::RenewalUnavailable,
                 ));
@@ -110,7 +126,7 @@ impl ProtectedBundledRuntimeProcess {
     }
 }
 
-#[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(any(test, unix))]
 include!("renewal_v3.rs");
 
 #[cfg(all(test, unix))]

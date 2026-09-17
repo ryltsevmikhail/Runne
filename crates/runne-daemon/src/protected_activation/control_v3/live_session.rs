@@ -39,6 +39,10 @@ impl LiveEnrollmentSession {
         Ok(Self { expected })
     }
 
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     pub(super) fn with_current<T>(
         &self,
         sessions: &Mutex<LocalSessionService>,

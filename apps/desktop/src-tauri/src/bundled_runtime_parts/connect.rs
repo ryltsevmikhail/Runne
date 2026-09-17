@@ -159,7 +159,6 @@ impl BundledRuntimeController {
             )
             .await
         {
-            eprintln!("[enroll] transition rejected: {error:?}");
             return self
                 .reject_current_client(map_protected_failure(error))
                 .await;

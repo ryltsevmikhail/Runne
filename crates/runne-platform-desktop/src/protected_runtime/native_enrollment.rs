@@ -118,10 +118,6 @@ impl ProtectedBundledRuntimeSupervisor {
         // Unlike the macOS user-driven flow, the local Linux enrollment runs
         // directly after the V2 launch inside the same connect attempt: the
         // pending V2 profile is intentionally replaced by the enrolled V3 one.
-        eprintln!(
-            "[enroll] begin_local transition: state={:?} pending={}",
-            self.state, self.pending_profile.is_some()
-        );
         // The V2 ready frame has been written and the daemon control loop is
         // already reading frames, so `Handshaking` (post-ready, pre-connect)
         // and `Ready` are both valid entry points for the local transition.

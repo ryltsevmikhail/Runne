@@ -7,14 +7,14 @@ fn serve_v3_transcript(
     session_clock: &Arc<dyn Fn() -> Duration + Send + Sync>,
     ticket_clock: &TicketClock,
     #[cfg(unix)] runtime: &mut V3EnrollmentRuntime,
-    #[cfg(all(unix, feature = "desktop-protected"))] mut root_admission: Option<
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))] root_admission: Option<
         Arc<crate::protected_activation::ProtectedRootControl>,
     >,
 ) -> Result<(), LaunchAuthorityError> {
     let mut last_renew_sequence = 0_u64;
-    #[cfg(all(unix, feature = "desktop-protected"))]
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
     let mut last_root_sequence = 0_u64;
-    #[cfg(all(unix, feature = "desktop-protected"))]
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
     let mut used_root_transfers = std::collections::VecDeque::new();
     loop {
         #[cfg(target_os = "macos")]
@@ -28,7 +28,7 @@ fn serve_v3_transcript(
         };
         #[cfg(not(target_os = "macos"))]
         let frame = channel.read_control_frame()?;
-        #[cfg(unix)]
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         if runne_api::ProtectedCredentialDiscoveryCodec::recognizes_frame(&frame) {
             runtime.discover_cleanup(channel, keys, owned_launch, local_session_service, &frame)?;
             continue;
@@ -38,7 +38,7 @@ fn serve_v3_transcript(
             runtime.begin_next_round(channel, keys, owned_launch, local_session_service, &frame)?;
             continue;
         }
-        #[cfg(all(unix, feature = "desktop-protected"))]
+        #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
         if let Some(sequence) =
             crate::protected_activation::dispatch_root_handle_control_frame_for_ids(
                 channel,
@@ -56,7 +56,7 @@ fn serve_v3_transcript(
             last_root_sequence = sequence;
             continue;
         }
-        #[cfg(unix)]
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         if let Some(broker) = runtime.broker.as_mut()
             && broker.dispatch(channel, &frame, ticket_clock)?
         {
@@ -80,7 +80,7 @@ fn serve_v3_transcript(
         }
         if let Ok(renewal) = ProtectedCredentialEnrollmentRenewRequestV3::decode_frame(&frame) {
             #[cfg(unix)]
-            if !enrollment_transcript_allows_rotation(runtime.session.is_some(), runtime.terminal) {
+            if !enrollment_transcript_allows_rotation(runtime.has_session(), runtime.terminal) {
                 return Err(LaunchAuthorityError::OwnershipMismatch);
             }
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -89,6 +89,15 @@ fn serve_v3_transcript(
                     .require_durable_terminal()
                     .map_err(runtime::map_enrollment_error)?;
                 session.clear_http_facts();
+            }
+            // Fence the root admission authority exactly like the V2 renewal
+            // path: no rotated successor authority may outrun an in-flight
+            // root handle handoff that predates the rotation.
+            #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+            if let Some(authority) = &root_admission {
+                authority
+                    .fence()
+                    .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?;
             }
             let next_owned_launch = renewal::rotate(
                 channel,
@@ -130,13 +139,36 @@ fn serve_v3_transcript(
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(
+    unix,
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "desktop-protected"
+))]
 fn write_shutdown_ack_after_revocation(
     runtime: &mut V3EnrollmentRuntime,
     channel: &mut ProtectedActivationChannel,
     acknowledgement: &ProtectedCredentialEnrollmentShutdownAckV3,
 ) -> Result<(), LaunchAuthorityError> {
     drop(runtime.revoke_shutdown_authorization());
+    channel.write_control_frame(
+        &acknowledgement
+            .encode_frame()
+            .map_err(|_| LaunchAuthorityError::InvalidContract)?,
+    )
+}
+
+#[cfg(all(
+    unix,
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    feature = "desktop-protected"
+))]
+fn write_shutdown_ack_after_revocation(
+    runtime: &mut V3EnrollmentRuntime,
+    channel: &mut ProtectedActivationChannel,
+    acknowledgement: &ProtectedCredentialEnrollmentShutdownAckV3,
+) -> Result<(), LaunchAuthorityError> {
+    runtime.revoke_shutdown_authorization();
     channel.write_control_frame(
         &acknowledgement
             .encode_frame()

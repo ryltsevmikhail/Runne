@@ -61,31 +61,6 @@ pub(crate) fn dispatch_root_handle_control_frame_for_ids(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn receive_root_handle_offer(
-    channel: &mut ProtectedActivationChannel,
-    frame: &[u8],
-    keys: &ProtectedActivationKeys,
-    owned: &ProtectedOwnedLaunchV1,
-    used_transfers: &mut std::collections::VecDeque<([u8; 16], [u8; 32], u64)>,
-    previous_sequence: u64,
-    now_unix_millis: u64,
-    authority: Option<&ProtectedRootControl>,
-) -> Result<u64, LaunchAuthorityError> {
-    receive_root_handle_offer_for_ids(
-        channel,
-        frame,
-        keys,
-        owned.launch_authority_id(),
-        owned.session_id(),
-        owned.launch_generation(),
-        used_transfers,
-        previous_sequence,
-        now_unix_millis,
-        authority,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn receive_root_handle_offer_for_ids(
     channel: &mut ProtectedActivationChannel,
     frame: &[u8],
