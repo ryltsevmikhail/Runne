@@ -4,9 +4,8 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use runne_platform_ports::provider_credential_prompt::{
-    CredentialPromptAction, CredentialPromptProvider, MAX_NATIVE_OAUTH_CREDENTIAL_BYTES,
-    SecureCredentialPromptDisposition, SecureCredentialPromptError, SecureCredentialPromptPort,
-    SecureCredentialPromptRequest,
+    CredentialPromptAction, MAX_NATIVE_OAUTH_CREDENTIAL_BYTES, SecureCredentialPromptDisposition,
+    SecureCredentialPromptError, SecureCredentialPromptPort, SecureCredentialPromptRequest,
 };
 use zeroize::Zeroizing;
 
