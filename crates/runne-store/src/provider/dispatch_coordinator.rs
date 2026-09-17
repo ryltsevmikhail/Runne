@@ -16,7 +16,9 @@ use super::{
     SqliteProviderDispatchStore, SqliteProviderExecutionStore, VersionedProviderExecutionBinding,
 };
 
+mod construction;
 mod inflight;
+mod rejection;
 mod request;
 use request::{claim_matches, issue_request};
 
@@ -57,50 +59,6 @@ where
     P: ProviderPort + ?Sized,
     E: ProviderEffectPort + ?Sized,
 {
-    /// Constructs the only production coordinator from concrete SQLite stores.
-    pub const fn new(
-        dispatch_store: &'a SqliteProviderDispatchStore,
-        execution_store: &'a SqliteProviderExecutionStore,
-        credential: CredentialDispatchAuthority<'a>,
-        provider: &'a P,
-        effect: &'a E,
-        prohibited_content: &'a dyn ProhibitedContentPort,
-    ) -> Self {
-        Self::new_with_budget(
-            dispatch_store,
-            execution_store,
-            credential,
-            provider,
-            effect,
-            prohibited_content,
-            false,
-            None,
-        )
-    }
-
-    /// Constructs the coordinator with the durable subscription gate.
-    pub const fn new_with_budget(
-        dispatch_store: &'a SqliteProviderDispatchStore,
-        execution_store: &'a SqliteProviderExecutionStore,
-        credential: CredentialDispatchAuthority<'a>,
-        provider: &'a P,
-        effect: &'a E,
-        prohibited_content: &'a dyn ProhibitedContentPort,
-        subscription_provider: bool,
-        subscription_budget: Option<Arc<dyn SubscriptionBudgetAuthority>>,
-    ) -> Self {
-        Self {
-            dispatch_store,
-            execution_store,
-            credential,
-            provider,
-            effect,
-            prohibited_content,
-            subscription_provider,
-            subscription_budget,
-        }
-    }
-
     /// Executes ordered prepare, SQLite admission and one adapter dispatch.
     pub async fn dispatch(
         &self,
@@ -318,26 +276,6 @@ where
                     .mark_uncertain(attempt_id, fencing_token);
                 Ok(ProviderCoordinatorOutcome::Uncertain)
             }
-        }
-    }
-
-    fn reject_before_effect(
-        &self,
-        attempt_id: runne_provider::DispatchAttemptId,
-        fencing_token: u64,
-        reason: ProviderPreEffectRejection,
-    ) -> Result<ProviderCoordinatorOutcome, ProviderAdmissionError> {
-        if self
-            .dispatch_store
-            .mark_rejected_before_effect(attempt_id, fencing_token, reason)
-            .is_err()
-        {
-            let _ = self
-                .dispatch_store
-                .mark_uncertain(attempt_id, fencing_token);
-            Ok(ProviderCoordinatorOutcome::Uncertain)
-        } else {
-            Ok(ProviderCoordinatorOutcome::RejectedBeforeEffect { reason })
         }
     }
 }
