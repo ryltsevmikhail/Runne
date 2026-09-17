@@ -45,11 +45,13 @@ pub struct ProtectedCredentialEnrollmentLaunchBindingV1 {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EnrollmentPlatformV1 {
     Macos = 1,
+    Linux = 2,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EnrollmentArchitectureV1 {
     AppleSiliconAarch64 = 1,
+    Arm64 = 2,
 }
 
 impl ProtectedCredentialEnrollmentLaunchBindingV1 {
@@ -73,6 +75,39 @@ impl ProtectedCredentialEnrollmentLaunchBindingV1 {
         Ok(Self {
             platform: EnrollmentPlatformV1::Macos,
             architecture: EnrollmentArchitectureV1::AppleSiliconAarch64,
+            installation_identity_digest,
+            release_tuple_digest,
+            qualification_binding_digest,
+            desktop_peer_binding_digest,
+            desktop_supervisor_generation,
+            broker_transfer_commitment,
+        })
+    }
+
+    /// Linux arm64 local enrollment launch binding. The qualification digest
+    /// is a self-asserted release consistency digest: local Linux enrollment
+    /// carries no hosted qualification evidence (daemon-side admission still
+    /// verifies the full signed transcript and the live kernel peer).
+    #[allow(clippy::too_many_arguments)]
+    pub fn linux_arm64(
+        installation_identity_digest: [u8; 32],
+        release_tuple_digest: [u8; 32],
+        qualification_binding_digest: [u8; 32],
+        desktop_peer_binding_digest: [u8; 32],
+        desktop_supervisor_generation: u64,
+        broker_transfer_commitment: CredentialBrokerTransferCommitment,
+    ) -> Result<Self, LaunchAuthorityError> {
+        if installation_identity_digest == [0; 32]
+            || release_tuple_digest == [0; 32]
+            || qualification_binding_digest == [0; 32]
+            || desktop_peer_binding_digest == [0; 32]
+            || desktop_supervisor_generation == 0
+        {
+            return Err(LaunchAuthorityError::InvalidContract);
+        }
+        Ok(Self {
+            platform: EnrollmentPlatformV1::Linux,
+            architecture: EnrollmentArchitectureV1::Arm64,
             installation_identity_digest,
             release_tuple_digest,
             qualification_binding_digest,
@@ -153,11 +188,17 @@ fn decode_enrollment_binding(
         return Err(DecodeError::UnknownField { key: 12 });
     }
     expect_key(decoder, 1)?;
-    if decoder.read_unsigned(1)? != EnrollmentPlatformV1::Macos as u64 {
+    let platform = decoder.read_unsigned(1)?;
+    if platform != EnrollmentPlatformV1::Macos as u64
+        && platform != EnrollmentPlatformV1::Linux as u64
+    {
         return Err(DecodeError::UnknownField { key: 1 });
     }
     expect_key(decoder, 2)?;
-    if decoder.read_unsigned(1)? != EnrollmentArchitectureV1::AppleSiliconAarch64 as u64 {
+    let architecture = decoder.read_unsigned(1)?;
+    if architecture != EnrollmentArchitectureV1::AppleSiliconAarch64 as u64
+        && architecture != EnrollmentArchitectureV1::Arm64 as u64
+    {
         return Err(DecodeError::UnknownField { key: 2 });
     }
     expect_key(decoder, 3)?;
@@ -172,13 +213,30 @@ fn decode_enrollment_binding(
     let generation = decoder.read_unsigned(u64::MAX)?;
     expect_key(decoder, 8)?;
     let commitment = decode_fixed::<32>(decoder)?;
-    ProtectedCredentialEnrollmentLaunchBindingV1::macos_apple_silicon(
-        installation,
-        release,
-        qualification,
-        peer,
-        generation,
-        CredentialBrokerTransferCommitment::from_authenticated_bytes(commitment),
-    )
-    .map_err(|_| DecodeError::UnknownField { key: 12 })
+    let binding = match platform {
+        p if p == EnrollmentPlatformV1::Macos as u64 => {
+            ProtectedCredentialEnrollmentLaunchBindingV1::macos_apple_silicon(
+                installation,
+                release,
+                qualification,
+                peer,
+                generation,
+                CredentialBrokerTransferCommitment::from_authenticated_bytes(commitment),
+            )
+        }
+        p if p == EnrollmentPlatformV1::Linux as u64
+            && architecture == EnrollmentArchitectureV1::Arm64 as u64 =>
+        {
+            ProtectedCredentialEnrollmentLaunchBindingV1::linux_arm64(
+                installation,
+                release,
+                qualification,
+                peer,
+                generation,
+                CredentialBrokerTransferCommitment::from_authenticated_bytes(commitment),
+            )
+        }
+        _ => return Err(DecodeError::UnknownField { key: 2 }),
+    };
+    binding.map_err(|_| DecodeError::UnknownField { key: 12 })
 }

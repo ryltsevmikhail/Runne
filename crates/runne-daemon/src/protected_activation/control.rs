@@ -27,11 +27,7 @@ pub(crate) fn run_control_loop_v2(
     local_session_service: Arc<Mutex<LocalSessionService>>,
     session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
     #[cfg(feature = "desktop-protected")] root_admission: Option<Arc<ProtectedRootControl>>,
-    #[cfg(all(
-        target_os = "macos",
-        target_arch = "aarch64",
-        feature = "desktop-protected"
-    ))]
+    #[cfg(all(unix, feature = "desktop-protected"))]
     enrollment_transition: Option<(
         super::enrollment_control_transition::EnrollmentControlComposition,
         super::installation_anchor::VerifiedNativeEnrollmentInstallation,
@@ -85,11 +81,7 @@ pub(crate) fn run_control_loop_v2(
             )?;
             continue;
         }
-        #[cfg(all(
-            target_os = "macos",
-            target_arch = "aarch64",
-            feature = "desktop-protected"
-        ))]
+        #[cfg(all(unix, feature = "desktop-protected"))]
         if let Some((composition, installation)) = enrollment_transition.as_ref()
             && let Ok(prepare) =
                 runne_api::ProtectedCredentialEnrollmentPrepareV2::decode_frame(&frame)
@@ -104,22 +96,47 @@ pub(crate) fn run_control_loop_v2(
                 &session_clock,
                 installation,
             )?;
-            let (v3_keys, v3_owned_launch, rendezvous, installed_facts) = outcome.into_parts();
-            drop(status_guard);
-            return super::control_v3::run_control_loop_v3_entered(
-                channel,
-                v3_keys,
-                v3_owned_launch,
-                local_session_service,
-                session_clock,
-                composition.ticket_clock(),
-                super::control_v3::V3EnrollmentDispatch::new(
-                    composition.enrollment_control.clone(),
-                    rendezvous,
-                    installed_facts,
-                )
-                .with_round_profile(composition.profile_directory.clone(), installation),
-            );
+            // The rendezvous feeds the authenticated writer handoff mounted in
+            // the V3 control loop. Every failure above and below the rotation
+            // already terminated this loop; the daemon never retries the
+            // transition on another authority path.
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            {
+                let (v3_keys, v3_owned_launch, rendezvous, installed_facts) =
+                    outcome.into_parts();
+                drop(status_guard);
+                return super::control_v3::run_control_loop_v3_entered(
+                    channel,
+                    v3_keys,
+                    v3_owned_launch,
+                    local_session_service,
+                    session_clock,
+                    composition.ticket_clock(),
+                    super::control_v3::V3EnrollmentDispatch::new(
+                        composition.enrollment_control.clone(),
+                        rendezvous,
+                        installed_facts,
+                    )
+                    .with_round_profile(composition.profile_directory.clone(), installation),
+                );
+            }
+            #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+            {
+                let (v3_keys, v3_owned_launch, rendezvous) = outcome.into_parts_unix();
+                return super::control_v3::run_control_loop_v3_entered(
+                    channel,
+                    v3_keys,
+                    v3_owned_launch,
+                    local_session_service,
+                    session_clock,
+                    composition.ticket_clock(),
+                    super::control_v3::V3EnrollmentDispatch::new(
+                        composition.enrollment_control.clone(),
+                        rendezvous,
+                    ),
+                    root_admission,
+                );
+            }
         }
         #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
         if let Some(sequence) = dispatch_root_handle_control_frame(

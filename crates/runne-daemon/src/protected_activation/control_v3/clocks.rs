@@ -27,3 +27,16 @@ pub(crate) fn unix_epoch_qualification_clock() -> QualificationClock {
             .map_err(|_| LaunchAuthorityError::StaleLaunchAuthority)
     })
 }
+
+/// Builds the wall-clock ticket clock for unix targets without a platform
+/// continuous-clock facility. The enrollment TTLs are short (30 s), so the
+/// same ceiling as the launch TTLs applies.
+#[cfg(all(unix, not(all(target_os = "macos", target_arch = "aarch64"))))]
+pub(crate) fn unix_wall_ticket_clock() -> TicketClock {
+    Arc::new(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
+            .map_err(|_| LaunchAuthorityError::StaleLaunchAuthority)
+    })
+}

@@ -217,21 +217,22 @@ async fn prepare_selected_workspace(
     request: PrepareSelectedWorkspaceRequest,
 ) -> Result<PreparedWorkspaceResponse, IpcError> {
     let label = window.label();
-    if !window.is_focused().map_err(|_| IpcError { code: "prepared_workspace_rejected" })? {
+    if !window.is_focused().map_err(|e| { eprintln!("[prep] focus err {e:?}"); IpcError { code: "prepared_workspace_rejected" } })? {
+        eprintln!("[prep] reject: not focused");
         return Err(IpcError { code: "prepared_workspace_rejected" });
     }
     let workspace_id = request
         .workspace_id
         .parse()
-        .map_err(|_| IpcError { code: "prepared_workspace_rejected" })?;
+        .map_err(|e| { eprintln!("[prep] parse err {e:?}"); IpcError { code: "prepared_workspace_rejected" } })?;
     let now = std::time::Instant::now();
     let binding = PreparedWorkspaceBinding::new(
         label, request.renderer_generation, &request.request_id, workspace_id, request.expected_version,
     )
-    .map_err(|_| IpcError { code: "prepared_workspace_rejected" })?;
+    .map_err(|e| { eprintln!("[prep] binding err {e:?}"); IpcError { code: "prepared_workspace_rejected" } })?;
     let reservation = prepared
         .reserve_guard(binding, now)
-        .map_err(|_| IpcError { code: "prepared_workspace_rejected" })?;
+        .map_err(|e| { eprintln!("[prep] reserve err {e:?}"); IpcError { code: "prepared_workspace_rejected" } })?;
     let root = selections
         .consume(
             &request.selection,
@@ -240,21 +241,23 @@ async fn prepare_selected_workspace(
             &request.request_id,
             now,
         )
-        .map_err(|_| IpcError { code: "prepared_workspace_rejected" })?;
+        .map_err(|e| { eprintln!("[prep] consume err {e:?}"); IpcError { code: "prepared_workspace_rejected" } })?;
+    eprintln!("[prep] consumed, admitting root");
     let native_admission = lifecycle
         .prepare_root_admission(root, workspace_id, request.expected_version)
         .await
-        .map_err(|_| IpcError { code: "prepared_workspace_rejected" })?;
+        .map_err(|e| { eprintln!("[prep] root admission failed: {e:?}"); IpcError { code: "prepared_workspace_rejected" } })?;
+    eprintln!("[prep] admission ok, committing");
     commit_prepared_admission(&prepared, reservation, native_admission, &lifecycle)
         .await
-        .map_err(|()| IpcError { code: "prepared_workspace_rejected" })
+        .map_err(|e| { eprintln!("[prep] commit failed: {e:?}"); IpcError { code: "prepared_workspace_rejected" } })
 }
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 #[allow(clippy::significant_drop_tightening)] // root and permit intentionally span both mutations.
 async fn open_selected_workspace(window: WebviewWindow, core: State<'_, Arc<AppCore>>, lifecycle: State<'_, RuntimeLifecycleManager>, prepared: State<'_, PreparedWorkspaceManager>, request: OpenSelectedWorkspaceRequest) -> Result<(), IpcError> {
-    let attempt = prepared.begin_initial(&request.prepared, window.label(), request.renderer_generation, &request.request_id, std::time::Instant::now(), &lifecycle).map_err(|_| IpcError { code: "prepared_workspace_rejected" })?;
+    let attempt = prepared.begin_initial(&request.prepared, window.label(), request.renderer_generation, &request.request_id, std::time::Instant::now(), &lifecycle).map_err(|e| { eprintln!("[open] begin_initial failed: {e:?}"); IpcError { code: "prepared_workspace_rejected" } })?;
     open_prepared_workspace(&core, &lifecycle, attempt).await
 }
 
@@ -266,11 +269,13 @@ async fn retry_open_selected_workspace(window: WebviewWindow, core: State<'_, Ar
 }
 
 async fn open_prepared_workspace(core: &AppCore, _lifecycle: &RuntimeLifecycleManager, mut attempt: crate::prepared_workspace::PreparedWorkspaceOpenAttempt) -> Result<(), IpcError> {
-    if attempt.prepare(core).await.is_err() {
+    if let Err(e) = attempt.prepare(core).await {
+        eprintln!("[open] attempt.prepare failed: {e:?}");
         attempt.reap().await;
         return Err(IpcError { code: "prepared_workspace_rejected" });
     }
     if let Err(error) = attempt.dispatch(core).await {
+        eprintln!("[open] attempt.dispatch failed: {error:?}");
         if attempt.possible_send() {
             return Err(IpcError { code: if attempt.retain() == crate::prepared_workspace::PreparedWorkspaceRestoreOutcome::Retained { "prepared_workspace_retryable" } else { "prepared_workspace_rejected" } });
         }

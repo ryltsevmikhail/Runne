@@ -1,6 +1,6 @@
 use super::*;
 mod clocks;
-#[cfg(unix)]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod discovery;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(crate) mod initial_exchange;
@@ -13,12 +13,10 @@ mod runtime;
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 use clocks::QualificationClock;
 use clocks::TicketClock;
-#[cfg(all(
-    target_os = "macos",
-    target_arch = "aarch64",
-    feature = "desktop-protected"
-))]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(crate) use clocks::macos_continuous_ticket_clock;
+#[cfg(all(unix, not(all(target_os = "macos", target_arch = "aarch64"))))]
+pub(crate) use clocks::unix_wall_ticket_clock;
 #[cfg(unix)]
 use runtime::V3EnrollmentRuntime;
 #[cfg(all(test, unix))]
@@ -63,6 +61,7 @@ pub(crate) fn run_control_loop_v3(
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             None,
         ),
+        None,
     )
 }
 /// Continues entered V3; failures retain kill authority and reject V1/V2 frames.
@@ -76,6 +75,9 @@ pub(crate) fn run_control_loop_v3_entered(
     session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
     ticket_clock: TicketClock,
     #[cfg(unix)] mut enrollment: V3EnrollmentDispatch,
+    #[cfg(all(unix, feature = "desktop-protected"))] root_admission: Option<
+        Arc<crate::protected_activation::ProtectedRootControl>,
+    >,
 ) -> Result<(), LaunchAuthorityError> {
     #[cfg(unix)]
     let mut runtime = match enrollment.control.take() {
@@ -171,11 +173,16 @@ pub(crate) fn run_control_loop_v3_entered(
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             round: None,
             live: None,
+            // Off macOS there is no credential writer yet: the broker dispatch
+            // stays unmounted and the V3 transcript serves renewal, discovery,
+            // and shutdown only.
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             broker: Some(super::broker_handoff::BrokerHandoffDispatch::new(
                 &keys,
                 &owned_launch,
                 enrollment.rendezvous,
             )?),
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             session: None,
             terminal: true,
             #[cfg(target_os = "macos")]
@@ -197,6 +204,8 @@ pub(crate) fn run_control_loop_v3_entered(
         &ticket_clock,
         #[cfg(unix)]
         &mut runtime,
+        #[cfg(all(unix, feature = "desktop-protected"))]
+        root_admission,
     );
     #[cfg(all(unix, target_os = "macos"))]
     if transcript.is_err() {

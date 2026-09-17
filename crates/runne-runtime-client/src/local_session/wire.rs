@@ -20,7 +20,7 @@ fn verify_remote_profile(
         || remote.event_log_lineage_id != local.event_log_lineage_id.to_string()
         || remote.daemon_instance_id != local.daemon_instance_id.to_string()
         || remote.launch_generation != local.launch_generation
-        || remote.authorization_epoch != 0
+        || remote.authorization_epoch != local.expected_authorization_epoch
         || remote.sensitivity_ceiling != "sensitive"
         || remote.certificate_sha256 != hex::encode(local.certificate_sha256)
         || remote.runtime_version.is_empty()

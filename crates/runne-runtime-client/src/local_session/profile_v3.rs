@@ -119,6 +119,10 @@ fn session_peer_from_v3_ready(
         event_log_lineage_id: uuid::Uuid::from_bytes(*stable.lineage_id()),
         daemon_instance_id: uuid::Uuid::from_bytes(*ready.daemon_instance_id()),
         launch_generation: ready.launch_generation(),
+        // Every daemon launch starts at authorization epoch 0 and the
+        // enrollment transition raises it by exactly one before this
+        // profile is produced.
+        expected_authorization_epoch: 1,
         expected_session_id: Some(*ready.session_id()),
         schema_hash: *profile.profile_hash(),
         capabilities: ready.capabilities().to_vec(),

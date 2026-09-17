@@ -131,11 +131,7 @@ impl DaemonApplication {
     }
 
     /// Daemon-owned facts for the same-process enrollment control transition.
-    #[cfg(all(
-        target_os = "macos",
-        target_arch = "aarch64",
-        feature = "desktop-protected"
-    ))]
+    #[cfg(all(unix, feature = "desktop-protected"))]
     pub(crate) fn protected_enrollment_facts(
         &self,
     ) -> Result<ProtectedEnrollmentFacts, DaemonError> {
@@ -164,19 +160,13 @@ impl DaemonApplication {
                 .collect(),
             provider_readiness: self.provider_readiness,
             installation,
-            credential_enrollment_control: self.credential_enrollment_control.clone().ok_or_else(
-                || DaemonError::Bootstrap("credential enrollment control unavailable".into()),
-            )?,
+            credential_enrollment_control: self.credential_enrollment_control.clone(),
         })
     }
 }
 
 /// Readiness-path facts retained only by the protected activation host.
-#[cfg(all(
-    target_os = "macos",
-    target_arch = "aarch64",
-    feature = "desktop-protected"
-))]
+#[cfg(all(unix, feature = "desktop-protected"))]
 pub(crate) struct ProtectedEnrollmentFacts {
     pub(crate) endpoint: String,
     pub(crate) certificate_sha256: [u8; 32],
@@ -184,7 +174,10 @@ pub(crate) struct ProtectedEnrollmentFacts {
     pub(crate) capabilities: Vec<String>,
     pub(crate) provider_readiness: runne_api::ProviderActivationReadinessV1,
     pub(crate) installation: crate::protected_activation::VerifiedNativeEnrollmentInstallation,
-    pub(crate) credential_enrollment_control: Arc<
-        crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl,
+    pub(crate) credential_enrollment_control: Option<
+        Arc<
+            crate::application::provider_credential_enrollment::
+                DaemonProviderCredentialEnrollmentControl,
+        >,
     >,
 }

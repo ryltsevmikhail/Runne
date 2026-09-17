@@ -128,7 +128,7 @@ pub fn is_enrollment_qualified_capability_profile(values: &[String]) -> bool {
 #[must_use]
 pub fn protected_profile_matches(client: &AuthenticatedRuntimeClient) -> bool {
     let session = client.session_info();
-    client.transport_kind() == RuntimeTransportKind::ProtectedBundled
+    let result = client.transport_kind() == RuntimeTransportKind::ProtectedBundled
         && session.profile_id == crate::EXPECTED_BUNDLE_ID
         && session.schema_hash == crate::GOLDEN_BUNDLE_HASH
         && (session
@@ -139,7 +139,18 @@ pub fn protected_profile_matches(client: &AuthenticatedRuntimeClient) -> bool {
             || is_enrollment_qualified_capability_profile(&session.capabilities))
         && capability_digest_hex(&session.capabilities)
             .is_some_and(|digest| digest == session.capability_digest)
-        && nonempty_identity(session)
+        && nonempty_identity(session);
+    eprintln!(
+        "[bindcheck] kind={:} profile={:} schema={:} caps={:} digest={:} identity={:} epoch={}",
+        client.transport_kind() == RuntimeTransportKind::ProtectedBundled,
+        session.profile_id == crate::EXPECTED_BUNDLE_ID,
+        session.schema_hash == crate::GOLDEN_BUNDLE_HASH,
+        session.capabilities.iter().map(String::as_str).eq(PROTECTED_RUNTIME_CAPABILITIES.iter().copied()),
+        capability_digest_hex(&session.capabilities).is_some_and(|digest| digest == session.capability_digest),
+        nonempty_identity(session),
+        session.authorization_epoch,
+    );
+    result
 }
 
 fn capability_digest_hex(capabilities: &[String]) -> Option<String> {

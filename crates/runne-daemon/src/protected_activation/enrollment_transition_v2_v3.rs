@@ -2,6 +2,7 @@ use super::{
     DaemonLaunchProtocolExpectation, DaemonLaunchRequest, ProtectedActivationChannel,
     VerifiedDaemonEnrollmentLaunchAuthority,
 };
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::protected_activation::installation_anchor::VerifiedNativeEnrollmentInstallation;
 use runne_api::{
     ActivationDispositionV1, LaunchAuthorityError, LaunchAuthorityValidationV1,
@@ -9,6 +10,7 @@ use runne_api::{
     ProtectedCredentialEnrollmentPreludeV2, ProtectedCredentialEnrollmentPrepareV2,
     ProtectedLaunchRequestV2, ProtectedOwnedLaunchV2,
 };
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use runne_platform_desktop::VerifiedDaemonNativeEnrollmentPrepare;
 
 /// Private witness minted only after all V2, native, and V3 exact checks pass.
@@ -46,6 +48,7 @@ impl VerifiedV2EnrollmentEvidence {
 pub(crate) struct PreparedDaemonEnrollmentTransitionV3 {
     request: DaemonLaunchRequest,
     keys: ProtectedActivationKeys,
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     installed_facts: Option<runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts>,
 }
 
@@ -61,6 +64,7 @@ impl PreparedDaemonEnrollmentTransitionV3 {
         }
     }
 
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     pub(crate) fn take_installed_facts(
         &mut self,
     ) -> Option<runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts> {
@@ -108,6 +112,7 @@ impl<'a> V2TransitionInput<'a> {
 }
 
 /// Revalidates exactly one native V2 peer before accepting its V3 launch.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(crate) fn admit_v2_to_v3_transition(
     context: &V2TransitionInput<'_>,
     installation: &VerifiedNativeEnrollmentInstallation,
@@ -137,7 +142,10 @@ pub(crate) fn admit_v2_to_v3_transition(
         },
         channel,
     )?;
-    prepared.installed_facts = installed.into_inner();
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        prepared.installed_facts = installed.into_inner();
+    }
     Ok(prepared)
 }
 
@@ -202,7 +210,6 @@ where
     Ok(PreparedDaemonEnrollmentTransitionV3 {
         request,
         keys,
-        installed_facts: None,
     })
 }
 

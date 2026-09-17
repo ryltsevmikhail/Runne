@@ -10,6 +10,18 @@ use super::*;
 use crate::bootstrap::bootstrap_protected_with_profile;
 include!("launch/start.rs");
 /// Validated protected launch retained only by the daemon native host.
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
+pub struct VerifiedProtectedApplicationStart {
+    config: ConfigurationSnapshot,
+    provider_activation: ProviderActivation,
+    launch_authority_id: [u8; 16],
+    bootstrap: BootstrapOutcome,
+    enrollment_capability: Option<VerifiedProtectedEnrollmentCapability>,
+    #[cfg(unix)]
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    installation: Option<VerifiedNativeEnrollmentInstallation>,
+}
+/// Validated protected launch retained only by the daemon native host.
 pub(crate) struct ProtectedDaemonLaunch {
     request: DaemonLaunchRequest,
     keys: ProtectedActivationKeys,
@@ -168,7 +180,7 @@ impl ProtectedDaemonLaunch {
         if bootstrap.authority_id == [0; 16] || bootstrap.launch_generation == 0 {
             return Err(LaunchAuthorityError::InvalidContract);
         }
-        #[cfg(target_os = "macos")]
+        #[cfg(unix)]
         let installation = self
             .request_v2()
             .is_some()
@@ -181,7 +193,7 @@ impl ProtectedDaemonLaunch {
             launch_authority_id: self.request.launch_authority_id(),
             bootstrap,
             enrollment_capability: self.enrollment_capability.take(),
-            #[cfg(target_os = "macos")]
+            #[cfg(unix)]
             installation,
         })
     }

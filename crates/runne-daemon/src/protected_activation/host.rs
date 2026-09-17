@@ -127,7 +127,7 @@ where
                     )
                     .map_err(|_| protected_activation_error())?;
                 let owned = ready.owned_launch();
-                #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+                #[cfg(all(unix, feature = "desktop-protected"))]
                 let enrollment_transition =
                     enrollment_transition_composition(&application, request, runtime_root)?;
                 tokio::task::spawn_blocking(move || {
@@ -139,7 +139,7 @@ where
                         clock,
                         #[cfg(feature = "desktop-protected")]
                         roots,
-                        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+                        #[cfg(all(unix, feature = "desktop-protected"))]
                         enrollment_transition,
                     )
                 })
@@ -170,11 +170,7 @@ fn protected_activation_error() -> DaemonError {
 ///
 /// `None` means this installation carries no admitted enrollment anchor; a
 /// prepare frame then fails closed as an unknown control frame.
-#[cfg(all(
-    feature = "desktop-protected",
-    target_os = "macos",
-    target_arch = "aarch64"
-))]
+#[cfg(all(feature = "desktop-protected", unix))]
 fn enrollment_transition_composition(
     application: &crate::application::DaemonApplication,
     request: &runne_api::ProtectedLaunchRequestV2,
@@ -194,6 +190,23 @@ fn enrollment_transition_composition(
     let Some(profile_directory) = enrollment_profile_directory(runtime_root) else {
         return Ok(None);
     };
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    let enrollment_control = Some(
+        facts
+            .credential_enrollment_control
+            .clone()
+            .ok_or_else(|| {
+                DaemonError::Bootstrap("credential enrollment control unavailable".into())
+            })?,
+    );
+    // Off macOS there is no credential enrollment control yet; the V3 loop
+    // enters without the credential-service phase (fail-closed broker only).
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    let enrollment_control = facts.credential_enrollment_control.clone();
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    let ticket_clock = super::control_v3::macos_continuous_ticket_clock();
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    let ticket_clock = super::control_v3::unix_wall_ticket_clock();
     let composition = EnrollmentControlComposition::new(
         request.clone(),
         *facts.installation.installation_identity_digest(),
@@ -202,10 +215,9 @@ fn enrollment_transition_composition(
         facts.certificate_sha256,
         facts.certificate_der,
         facts.capabilities,
-        profile_directory,
-        runtime_root.to_path_buf(),
-        super::control_v3::macos_continuous_ticket_clock(),
-        Some(facts.credential_enrollment_control),
+        profile_directory.to_path_buf(),
+        ticket_clock,
+        enrollment_control,
     );
     Ok(Some((composition, facts.installation)))
 }

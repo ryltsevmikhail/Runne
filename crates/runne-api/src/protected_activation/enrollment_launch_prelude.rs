@@ -3,6 +3,8 @@
 pub struct DaemonEnrollmentLaunchPreludeV1 {
     launch_authority_id: [u8; 16],
     desktop_host_instance_id: [u8; 16],
+    platform: u64,
+    architecture: u64,
     nonce: [u8; 32],
     channel_binding: [u8; 32],
     publication_key: [u8; 32],
@@ -47,6 +49,8 @@ impl DaemonEnrollmentLaunchPreludeV1 {
         Ok(Self {
             launch_authority_id,
             desktop_host_instance_id,
+            platform: 1,
+            architecture: 1,
             nonce,
             channel_binding,
             publication_key,
@@ -57,6 +61,41 @@ impl DaemonEnrollmentLaunchPreludeV1 {
             expires_at_unix_millis,
         })
     }
+
+    /// Linux arm64 local enrollment prelude; the transcript layout is shared,
+    /// only the platform/architecture discriminators differ.
+    #[allow(clippy::too_many_arguments)]
+    pub fn linux_arm64(
+        launch_authority_id: [u8; 16],
+        desktop_host_instance_id: [u8; 16],
+        nonce: [u8; 32],
+        channel_binding: [u8; 32],
+        publication_key: [u8; 32],
+        installation_identity_digest: [u8; 32],
+        desktop_peer_binding_digest: [u8; 32],
+        supervisor_generation: u64,
+        issued_at_unix_millis: u64,
+        expires_at_unix_millis: u64,
+    ) -> Result<Self, LaunchAuthorityError> {
+        let mut prelude = Self::macos_arm64(
+            launch_authority_id,
+            desktop_host_instance_id,
+            nonce,
+            channel_binding,
+            publication_key,
+            installation_identity_digest,
+            desktop_peer_binding_digest,
+            supervisor_generation,
+            issued_at_unix_millis,
+            expires_at_unix_millis,
+        )?;
+        prelude.platform = 2;
+        prelude.architecture = 2;
+        Ok(prelude)
+    }
+
+    #[must_use]
+    pub const fn platform(&self) -> u64 { self.platform }
 
     #[must_use]
     pub const fn launch_authority_id(&self) -> [u8; 16] { self.launch_authority_id }
@@ -119,8 +158,8 @@ impl DeterministicCodec for DaemonEnrollmentLaunchPreludeV1 {
         for (key, value) in [(2, &self.launch_authority_id[..]), (3, &self.desktop_host_instance_id[..])] {
             write_key(encoder, key); encoder.write_byte_string(value);
         }
-        write_key(encoder, 4); encoder.write_unsigned(1);
-        write_key(encoder, 5); encoder.write_unsigned(1);
+        write_key(encoder, 4); encoder.write_unsigned(self.platform);
+        write_key(encoder, 5); encoder.write_unsigned(self.architecture);
         for (key, value) in [
             (6, &self.nonce[..]), (7, &self.channel_binding[..]), (8, &self.publication_key[..]),
             (9, &self.installation_identity_digest[..]), (10, &self.desktop_peer_binding_digest[..]),
@@ -137,8 +176,8 @@ impl DeterministicCodec for DaemonEnrollmentLaunchPreludeV1 {
         expect_schema_version(decoder, PROTOCOL_SCHEMA_VERSION_V3)?;
         expect_key(decoder, 2)?; let launch = decode_fixed::<16>(decoder)?;
         expect_key(decoder, 3)?; let desktop = decode_fixed::<16>(decoder)?;
-        expect_key(decoder, 4)?; if decoder.read_unsigned(1)? != 1 { return Err(DecodeError::UnknownField { key: 4 }); }
-        expect_key(decoder, 5)?; if decoder.read_unsigned(1)? != 1 { return Err(DecodeError::UnknownField { key: 5 }); }
+        expect_key(decoder, 4)?; let platform = decoder.read_unsigned(1)?;
+        expect_key(decoder, 5)?; let architecture = decoder.read_unsigned(1)?;
         expect_key(decoder, 6)?; let nonce = decode_fixed::<32>(decoder)?;
         expect_key(decoder, 7)?; let channel = decode_fixed::<32>(decoder)?;
         expect_key(decoder, 8)?; let publication = decode_fixed::<32>(decoder)?;
@@ -147,7 +186,11 @@ impl DeterministicCodec for DaemonEnrollmentLaunchPreludeV1 {
         expect_key(decoder, 11)?; let generation = decoder.read_unsigned(u64::MAX)?;
         expect_key(decoder, 12)?; let issued = decoder.read_unsigned(u64::MAX)?;
         expect_key(decoder, 13)?; let expires = decoder.read_unsigned(u64::MAX)?;
-        Self::macos_arm64(launch, desktop, nonce, channel, publication, installation, peer, generation, issued, expires)
-            .map_err(|_| DecodeError::UnknownField { key: 2 })
+        let prelude = match (platform, architecture) {
+            (1, 1) => Self::macos_arm64(launch, desktop, nonce, channel, publication, installation, peer, generation, issued, expires),
+            (2, 2) => Self::linux_arm64(launch, desktop, nonce, channel, publication, installation, peer, generation, issued, expires),
+            _ => return Err(DecodeError::UnknownField { key: 4 }),
+        };
+        prelude.map_err(|_| DecodeError::UnknownField { key: 2 })
     }
 }

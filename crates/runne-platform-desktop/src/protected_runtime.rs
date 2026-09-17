@@ -56,6 +56,8 @@ pub use credential_discovery::{
 mod credential_round;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod enrollment_terminal;
+#[cfg(target_os = "linux")]
+pub mod linux_enrollment_peer;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod shutdown_interleaved;
 #[cfg(all(feature = "test-support", target_os = "macos", target_arch = "aarch64"))]
@@ -81,7 +83,7 @@ include!("protected_runtime/tests.rs");
 #[cfg(all(test, unix))]
 include!("protected_runtime/native_enrollment_tests.rs");
 include!("protected_runtime/renewal.rs");
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(unix)]
 include!("protected_runtime/enrollment_transition.rs");
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 include!("protected_runtime/enrollment_broker_handoff.rs");
