@@ -40,6 +40,12 @@ impl<'a, S: ?Sized, R: ?Sized> CredentialEnrollmentRecoveryGateway<'a, S, R> {
         }
     }
 
+    // The only non-macOS caller is the real-store recovery test, which compiles
+    // under the `test-support` feature.
+    #[cfg(any(
+        all(test, feature = "test-support"),
+        all(target_os = "macos", feature = "desktop-protected")
+    ))]
     pub(crate) const fn new_with_local(
         store: &'a S,
         reader: &'a R,

@@ -13,6 +13,14 @@ impl DaemonCanonicalProviderService {
         self.credential_enrollment_control.clone()
     }
 
+    #[cfg(any(
+        all(test, unix),
+        all(
+            feature = "desktop-protected",
+            target_os = "macos",
+            target_arch = "aarch64"
+        )
+    ))]
     /// Builds the reader-only remote verification materializer for this service.
     ///
     /// The authority is the same sealed issuer used for the service's

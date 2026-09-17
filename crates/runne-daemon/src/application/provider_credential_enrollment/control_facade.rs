@@ -127,6 +127,13 @@ pub(crate) struct DaemonProviderCredentialEnrollmentControl {
         all(test, unix),
         all(target_os = "macos", feature = "desktop-protected")
     ))]
+    #[cfg_attr(
+        not(all(target_os = "macos", feature = "desktop-protected")),
+        expect(
+            dead_code,
+            reason = "the only reader is the protected macOS credential-service session, which does not exist in this configuration"
+        )
+    )]
     local_readback: OnceLock<Arc<dyn runne_secure_store::ProviderCredentialVerificationReadback>>,
     #[cfg(any(
         all(test, unix),
@@ -170,6 +177,7 @@ pub(crate) struct DaemonProviderCredentialEnrollmentControl {
 
 include!("control_facade/construct.rs");
 
+#[cfg(any(test, all(target_os = "macos", feature = "desktop-protected")))]
 fn install_local_readback_once(
     slot: &OnceLock<Arc<dyn runne_secure_store::ProviderCredentialVerificationReadback>>,
     readback: Arc<dyn runne_secure_store::ProviderCredentialVerificationReadback>,

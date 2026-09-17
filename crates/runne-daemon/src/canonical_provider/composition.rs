@@ -23,6 +23,10 @@ pub struct DaemonCanonicalProviderService {
     pub(super) execution_store: Arc<SqliteProviderExecutionStore>,
     pub(super) credential_store: Arc<SqliteProviderCredentialLifecycleStore>,
     pub(super) quota_store: Arc<runne_provider_quota::QuotaStateStore>,
+    #[allow(
+        dead_code,
+        reason = "the protected macOS remote verification path is its only reader"
+    )]
     pub(super) enrollment_store_authority:
         Option<runne_provider::CredentialEnrollmentStoreAuthority>,
     pub(super) credential_readback: Option<Arc<dyn ProviderCredentialReadback>>,

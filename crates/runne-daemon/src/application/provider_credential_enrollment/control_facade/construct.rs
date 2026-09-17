@@ -111,10 +111,7 @@ impl DaemonProviderCredentialEnrollmentControl {
             .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)
     }
 
-    #[cfg(any(
-        all(test, unix),
-        all(target_os = "macos", feature = "desktop-protected")
-    ))]
+    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
     pub(crate) fn install_local_readback(
         &self,
         readback: Arc<dyn runne_secure_store::ProviderCredentialVerificationReadback>,
