@@ -37,14 +37,6 @@ impl StubStore {
             version_authority: Some(authority),
         }
     }
-
-    pub(crate) fn load_provider_version_for_verification(
-        &self,
-        _reference: &CredentialVersionRef,
-        _access: &ProviderCredentialAccessPolicy,
-    ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
-        Err(SecureStoreError::UnsupportedSecureStoreBackend)
-    }
 }
 
 impl SecureStore for StubStore {}

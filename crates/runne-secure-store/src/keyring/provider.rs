@@ -104,6 +104,10 @@ impl ProviderCredentialStore for NativeKeyringStore {
 }
 
 impl NativeKeyringStore {
+    #[expect(
+        clippy::unused_self,
+        reason = "method shape mirrors the cross-platform store API; the Linux/Windows keyring lookup itself is static"
+    )]
     pub(crate) fn load_provider_version_for_verification(
         &self,
         reference: &CredentialVersionRef,
