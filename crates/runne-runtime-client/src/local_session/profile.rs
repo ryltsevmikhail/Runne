@@ -45,6 +45,7 @@ struct SessionPeer {
     event_log_lineage_id: uuid::Uuid,
     daemon_instance_id: uuid::Uuid,
     launch_generation: u64,
+    expected_authorization_epoch: u64,
     expected_session_id: Option<[u8; 16]>,
     schema_hash: [u8; 32],
     capabilities: Vec<String>,

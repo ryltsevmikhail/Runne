@@ -7,8 +7,15 @@ fn serve_v3_transcript(
     session_clock: &Arc<dyn Fn() -> Duration + Send + Sync>,
     ticket_clock: &TicketClock,
     #[cfg(unix)] runtime: &mut V3EnrollmentRuntime,
+    #[cfg(all(unix, feature = "desktop-protected"))] mut root_admission: Option<
+        Arc<crate::protected_activation::ProtectedRootControl>,
+    >,
 ) -> Result<(), LaunchAuthorityError> {
     let mut last_renew_sequence = 0_u64;
+    #[cfg(all(unix, feature = "desktop-protected"))]
+    let mut last_root_sequence = 0_u64;
+    #[cfg(all(unix, feature = "desktop-protected"))]
+    let mut used_root_transfers = std::collections::VecDeque::new();
     loop {
         #[cfg(target_os = "macos")]
         if runtime.yield_for_credential_service_rejoin(channel, keys, owned_launch)? {
@@ -29,6 +36,24 @@ fn serve_v3_transcript(
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         if runne_api::ProtectedCredentialRoundCodec::recognizes_frame(&frame) {
             runtime.begin_next_round(channel, keys, owned_launch, local_session_service, &frame)?;
+            continue;
+        }
+        #[cfg(all(unix, feature = "desktop-protected"))]
+        if let Some(sequence) =
+            crate::protected_activation::dispatch_root_handle_control_frame_for_ids(
+                channel,
+                &frame,
+                keys,
+                owned_launch.launch_authority_id(),
+                owned_launch.session_id(),
+                owned_launch.launch_generation(),
+                &mut used_root_transfers,
+                last_root_sequence,
+                runtime::unix_now_millis()?,
+                root_admission.as_deref(),
+            )?
+        {
+            last_root_sequence = sequence;
             continue;
         }
         #[cfg(unix)]

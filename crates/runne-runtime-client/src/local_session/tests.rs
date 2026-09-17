@@ -136,6 +136,7 @@ mod tests {
         let capability_digest = [0x22; 32];
         let certificate_sha256 = [0x33; 32];
         SessionPeer {
+        expected_authorization_epoch: 0,
             endpoint: RuntimeEndpoint::loopback(SocketAddr::from((Ipv4Addr::LOCALHOST, 8443)))
                 .expect("loopback"),
             origin: "https://127.0.0.1:8443".to_owned(),

@@ -170,13 +170,13 @@ fn bootstrap_inner(
     verify_metadata_writeback(&locks, &authority_id)?;
     schema::purge_replay_subscriptions(&db_conn)
         .map_err(|e| DaemonError::Bootstrap(format!("startup purge: {e}")))?;
-    #[cfg(target_os = "macos")]
+    #[cfg(unix)]
     let installation_anchor_dir =
         InstallationAnchorDir::retain(&daemon_dir, &db_path, &replay_integrity_key_path)?;
     schema::readiness_from_managed(&db_conn)
         .and_then(|_| schema::publication_from_managed(&db_conn).map(|_| ()))
         .map_err(|e| DaemonError::Bootstrap(format!("publish bootstrap database: {e}")))?;
-    #[cfg(target_os = "macos")]
+    #[cfg(unix)]
     installation_anchor_dir.verify_current()?;
     Ok(BootstrapOutcome {
         locks,
@@ -188,7 +188,7 @@ fn bootstrap_inner(
         launch_identity,
         launch_generation,
         replay_integrity_key,
-        #[cfg(target_os = "macos")]
+        #[cfg(unix)]
         installation_anchor_dir,
     })
 }

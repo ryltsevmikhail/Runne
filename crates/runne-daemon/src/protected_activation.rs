@@ -24,10 +24,7 @@ use runne_api::{
 use runne_api::{
     ProtectedCredentialEnrollmentLaunchBindingV1, ProtectedCredentialEnrollmentLaunchRequestV3,
 };
-#[cfg(all(
-    feature = "desktop-protected",
-    any(test, all(target_os = "macos", target_arch = "aarch64"))
-))]
+#[cfg(all(unix, feature = "desktop-protected"))]
 use runne_api::{
     ProtectedCredentialEnrollmentOwnedLaunchV3, ProtectedCredentialEnrollmentRenewRequestV3,
     ProtectedCredentialEnrollmentRenewTicketV3, ProtectedCredentialEnrollmentShutdownAckV3,
@@ -75,15 +72,11 @@ use std::time::Duration;
 use zeroize::Zeroize;
 #[cfg(any(unix, windows))]
 use zeroize::Zeroizing;
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 mod installation_anchor;
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 pub(crate) use installation_anchor::{VerifiedNativeEnrollmentInstallation, load_read_only};
-#[cfg(all(
-    target_os = "macos",
-    target_arch = "aarch64",
-    feature = "desktop-protected"
-))]
+#[cfg(all(unix, feature = "desktop-protected"))]
 mod enrollment_control_exchange;
 #[cfg(all(
     test,
@@ -94,10 +87,7 @@ mod enrollment_control_exchange;
 ))]
 #[path = "protected_activation/enrollment_control_exchange_negative_tests.rs"]
 mod enrollment_control_exchange_negative_tests;
-#[cfg(all(
-    feature = "desktop-protected",
-    any(all(test, unix), all(target_os = "macos", target_arch = "aarch64"))
-))]
+#[cfg(all(unix, feature = "desktop-protected"))]
 mod enrollment_control_transition;
 #[cfg(all(
     test,
@@ -170,8 +160,7 @@ mod channel;
     any(feature = "desktop-protected", feature = "test-support")
 ))]
 mod control;
-#[cfg(feature = "desktop-protected")]
-#[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(all(unix, feature = "desktop-protected"))]
 pub(crate) mod control_v3;
 #[cfg(all(test, unix, feature = "desktop-protected"))]
 pub(crate) use control_v3::require_shutdown_terminal;
@@ -211,19 +200,11 @@ mod launch;
 mod loopback_fixture;
 #[cfg(any(unix, windows))]
 mod request;
-#[cfg(all(
-    target_os = "macos",
-    target_arch = "aarch64",
-    feature = "desktop-protected"
-))]
+#[cfg(all(unix, feature = "desktop-protected"))]
 use request::{
     DaemonLaunchProtocolExpectation, DaemonLaunchRequest, VerifiedDaemonEnrollmentLaunchAuthority,
 };
-#[cfg(all(
-    target_os = "macos",
-    target_arch = "aarch64",
-    feature = "desktop-protected"
-))]
+#[cfg(all(unix, feature = "desktop-protected"))]
 mod enrollment_transition_v2_v3;
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 mod root_handle_control;
@@ -252,6 +233,8 @@ pub(crate) use launch::VerifiedProtectedEnrollmentCapability;
 pub(crate) use launch::{VerifiedProtectedApplicationStart, VerifiedProtectedRuntimeStart};
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 pub(crate) use root_handle_control::dispatch_root_handle_control_frame;
+#[cfg(all(unix, feature = "desktop-protected"))]
+pub(crate) use root_handle_control::dispatch_root_handle_control_frame_for_ids;
 #[cfg(all(test, target_os = "macos", feature = "desktop-protected"))]
 #[path = "protected_activation/enrollment_v3_broker_happy_tests.rs"]
 mod enrollment_v3_broker_happy_tests;

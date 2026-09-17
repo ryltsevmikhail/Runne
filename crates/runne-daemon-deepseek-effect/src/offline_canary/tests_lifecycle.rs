@@ -225,11 +225,8 @@ pub(super) fn read(path: &str) -> String {
 const MAX_SEMANTIC_BYTES: u64 = 16_384;
 const MAX_TRACEABILITY_LINE: usize = 1_024;
 #[rustfmt::skip]
-#[cfg(target_os = "macos")]
-mod unix_flags { pub const O_NOFOLLOW: i32 = 0x0100; pub const O_NONBLOCK: i32 = 0x0004; }
-#[rustfmt::skip]
-#[cfg(any(target_os = "linux", target_os = "android"))]
-mod unix_flags { pub const O_NOFOLLOW: i32 = 0o400000; pub const O_NONBLOCK: i32 = 0o4000; }
+#[cfg(unix)]
+mod unix_flags { pub const O_NOFOLLOW: i32 = libc::O_NOFOLLOW; pub const O_NONBLOCK: i32 = libc::O_NONBLOCK; }
 #[cfg(windows)]
 const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
 #[cfg(windows)]

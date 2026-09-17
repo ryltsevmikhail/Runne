@@ -22,17 +22,16 @@ use std::path::{Path, PathBuf};
 
 // ── Platform constants ────────────────────────────────────────────────
 
-#[cfg(target_os = "macos")]
-pub const O_NOFOLLOW_VAL: i32 = 0x0100;
+// Values come from libc so every kernel ABI variant (arm64, asm-generic,
+// mips, alpha, parisc, powerpc) gets its own correct encoding.
+#[cfg(unix)]
+pub const O_NOFOLLOW_VAL: i32 = libc::O_NOFOLLOW;
 
-#[cfg(all(target_os = "linux", not(target_os = "macos")))]
-pub const O_NOFOLLOW_VAL: i32 = 0o400000; // 0x20000
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(unix))]
 pub const O_NOFOLLOW_VAL: i32 = 0;
 
 #[cfg(unix)]
-const O_CLOEXEC: i32 = 0x1000000; // 0o2000000
+const O_CLOEXEC: i32 = libc::O_CLOEXEC;
 
 // ── LockGuard ─────────────────────────────────────────────────────────
 

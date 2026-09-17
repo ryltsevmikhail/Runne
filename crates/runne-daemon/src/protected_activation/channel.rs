@@ -150,10 +150,7 @@ impl ProtectedActivationChannel {
             .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)
     }
 
-    #[cfg(all(
-        feature = "desktop-protected",
-        any(all(test, unix), all(target_os = "macos", target_arch = "aarch64"))
-    ))]
+    #[cfg(all(unix, feature = "desktop-protected"))]
     pub(super) const fn unix_stream(&self) -> &std::os::unix::net::UnixStream {
         &self.stream
     }

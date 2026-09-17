@@ -25,7 +25,10 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tauri.workspace = true
-tauri-plugin-dialog = "=2.7.2"
+# Linux: the xdg-portal backend avoids rfd's in-process GTK thread, whose
+# second gtk_init deadlocks the Tauri Wayland event loop before any dialog
+# maps. No effect on macOS/Windows native dialog implementations.
+tauri-plugin-dialog = { version = "=2.7.2", default-features = false, features = ["xdg-portal"] }
 tauri-plugin-single-instance = "=2.4.3"
 notify-rust = { version = "=4.18.0", features = ["preview-macos-un"] }
 tokio.workspace = true

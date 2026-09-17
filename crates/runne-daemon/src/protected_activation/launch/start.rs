@@ -64,8 +64,8 @@ pub struct VerifiedProtectedApplicationStart {
     launch_authority_id: [u8; 16],
     bootstrap: BootstrapOutcome,
     enrollment_capability: Option<VerifiedProtectedEnrollmentCapability>,
-    #[cfg(target_os = "macos")]
-    #[cfg_attr(not(test), expect(dead_code, reason = "sealed composition"))]
+    #[cfg(unix)]
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     installation: Option<VerifiedNativeEnrollmentInstallation>,
 }
 /// Opaque verified startup package; its admission keys cannot be substituted.
@@ -91,8 +91,8 @@ impl VerifiedProtectedApplicationStart {
     pub(crate) const fn launch_authority_id(&self) -> [u8; 16] {
         self.launch_authority_id
     }
-    #[cfg(target_os = "macos")]
-    #[cfg_attr(not(test), expect(dead_code, reason = "sealed composition"))]
+    #[cfg(unix)]
+    #[cfg_attr(all(not(test), target_os = "macos", target_arch = "aarch64"), expect(dead_code, reason = "sealed composition"))]
     pub(crate) const fn installation(&self) -> Option<&VerifiedNativeEnrollmentInstallation> {
         self.installation.as_ref()
     }
@@ -119,7 +119,7 @@ impl VerifiedProtectedApplicationStart {
             launch_authority_id,
             bootstrap,
             enrollment_capability: None,
-            #[cfg(target_os = "macos")]
+            #[cfg(unix)]
             installation: None,
         }
     }

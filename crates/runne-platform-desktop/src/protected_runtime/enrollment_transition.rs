@@ -5,7 +5,7 @@
 // with the exact V3 launch request whose broker commitment binds the prelude.
 // Readiness replaces the process state: every later frame speaks V3.
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(unix)]
 use runne_api::{
     CredentialBrokerTransferAuthenticator, ProtectedCredentialEnrollmentLaunchBindingV1,
     ProtectedCredentialEnrollmentLaunchRequestV3, ProtectedCredentialEnrollmentPreludeV2,
@@ -60,7 +60,54 @@ impl ProtectedBundledRuntimeProcess {
     /// admitted this transcript and answers on the same socket. Any failure
     /// after the prepare write leaves the daemon's state ambiguous, so the
     /// child is fenced exactly like an ambiguous V3 renewal.
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    /// Assembles the Linux local-runtime enrollment claims from the live V2
+    /// launch: the release tuple digests are measured from the exact staged
+    /// daemon binary, and the peer binding digest from this process.
+    #[cfg(unix)]
+    pub(crate) fn begin_local_linux_enrollment_claims(
+        &self,
+    ) -> Result<EnrollmentTransitionClaims, ProtectedBundledRuntimeError> {
+        use sha2::{Digest, Sha256};
+
+        const RELEASE_TUPLE_DOMAIN: &[u8] = b"runne/linux-release-tuple/v1\0";
+        const QUALIFICATION_DOMAIN: &[u8] = b"runne/linux-qualification-binding/v1\0";
+
+        let (compatibility, owned) = match &self.activation {
+            ProtectedProcessActivation::V2 { request, owned, .. } => {
+                (request.compatibility_request().clone(), owned.clone())
+            }
+            _ => return Err(ProtectedBundledRuntimeError::InvalidState),
+        };
+        let launch_authority = compatibility.launch_authority_id();
+        let desktop_host = compatibility.desktop_host_instance_id();
+        let daemon_executable_sha256 = compatibility.executable().executable_sha256();
+        let supervisor_generation = owned.launch_generation();
+        let mut hasher = Sha256::new();
+        hasher.update(RELEASE_TUPLE_DOMAIN);
+        hasher.update(daemon_executable_sha256);
+        hasher.update(supervisor_generation.to_le_bytes());
+        let release_tuple_digest: [u8; 32] = hasher.finalize().into();
+        let mut hasher = Sha256::new();
+        hasher.update(QUALIFICATION_DOMAIN);
+        hasher.update(release_tuple_digest);
+        let qualification_binding_digest: [u8; 32] = hasher.finalize().into();
+        let desktop_peer_binding_digest =
+            crate::protected_runtime::linux_enrollment_peer::linux_enrollment_peer_binding(
+                release_tuple_digest,
+                launch_authority,
+                desktop_host,
+                supervisor_generation,
+            )
+            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        Ok(EnrollmentTransitionClaims::new(
+            release_tuple_digest,
+            qualification_binding_digest,
+            desktop_peer_binding_digest,
+            supervisor_generation,
+        ))
+    }
+
+    #[cfg(unix)]
     pub(crate) fn begin_credential_enrollment_transition(
         &mut self,
         claims: &EnrollmentTransitionClaims,
@@ -82,7 +129,7 @@ impl ProtectedBundledRuntimeProcess {
         result
     }
 
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(unix)]
     fn run_enrollment_transition_exchange(
         &mut self,
         claims: &EnrollmentTransitionClaims,
@@ -118,7 +165,7 @@ impl ProtectedBundledRuntimeProcess {
         let signed_prelude =
             ProtectedCredentialEnrollmentPreludeV2::decode_frame(&frame)
                 .map_err(|_| launch_error(LaunchAuthorityError::RenewalUnavailable))?;
-        let now = crate::MacOsContinuousClock::now_millis()
+        let now = unix_wall_millis()
             .map_err(|_| launch_error(LaunchAuthorityError::RenewalUnavailable))?;
         signed_prelude
             .verify_exact_at(&prepare, owned, 0, now, &self.keys)
@@ -153,14 +200,25 @@ impl ProtectedBundledRuntimeProcess {
         let v3_keys = v1_request.derive_keys();
         let commitment = CredentialBrokerTransferAuthenticator::from_protected_activation(&v3_keys)
             .enrollment_launch_commitment(&prelude);
-        let binding = ProtectedCredentialEnrollmentLaunchBindingV1::macos_apple_silicon(
-            *prelude.installation_identity_digest(),
-            claims.release_tuple_digest,
-            claims.qualification_binding_digest,
-            claims.desktop_peer_binding_digest,
-            claims.desktop_supervisor_generation,
-            commitment,
-        )
+        let binding = if prelude.platform() == 2 {
+            ProtectedCredentialEnrollmentLaunchBindingV1::linux_arm64(
+                *prelude.installation_identity_digest(),
+                claims.release_tuple_digest,
+                claims.qualification_binding_digest,
+                claims.desktop_peer_binding_digest,
+                claims.desktop_supervisor_generation,
+                commitment,
+            )
+        } else {
+            ProtectedCredentialEnrollmentLaunchBindingV1::macos_apple_silicon(
+                *prelude.installation_identity_digest(),
+                claims.release_tuple_digest,
+                claims.qualification_binding_digest,
+                claims.desktop_peer_binding_digest,
+                claims.desktop_supervisor_generation,
+                commitment,
+            )
+        }
         .map_err(launch_error)?;
         let mut v3 = ProtectedCredentialEnrollmentLaunchRequestV3::new(
             v1_request,
@@ -205,4 +263,14 @@ impl ProtectedBundledRuntimeProcess {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+/// Unix wall-clock milliseconds: the enrollment TTLs are short (20 s) and the
+/// daemon compares the same wall-clock domain.
+#[cfg(unix)]
+fn unix_wall_millis() -> Result<u64, LaunchAuthorityError> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
+        .map_err(|_| LaunchAuthorityError::StaleLaunchAuthority)
 }

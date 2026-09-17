@@ -3,7 +3,7 @@ use super::first_activation::{
     expected_profile, preflight_existing, preflight_resume_first_activation,
     prepare_first_activation, validate_runtime_root, verify_pending_request,
 };
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 use super::installation_anchor::{self, VerifiedNativeEnrollmentInstallation};
 use super::request::DaemonLaunchRequest;
 use super::*;
@@ -168,7 +168,7 @@ impl ProtectedDaemonLaunch {
         if bootstrap.authority_id == [0; 16] || bootstrap.launch_generation == 0 {
             return Err(LaunchAuthorityError::InvalidContract);
         }
-        #[cfg(target_os = "macos")]
+        #[cfg(unix)]
         let installation = self
             .request_v2()
             .is_some()
@@ -181,7 +181,7 @@ impl ProtectedDaemonLaunch {
             launch_authority_id: self.request.launch_authority_id(),
             bootstrap,
             enrollment_capability: self.enrollment_capability.take(),
-            #[cfg(target_os = "macos")]
+            #[cfg(unix)]
             installation,
         })
     }

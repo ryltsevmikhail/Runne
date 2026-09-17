@@ -21,11 +21,7 @@ pub(crate) struct VerifiedDaemonEnrollmentLaunchAuthority {
 }
 
 impl VerifiedDaemonEnrollmentLaunchAuthority {
-    #[cfg(all(
-        target_os = "macos",
-        target_arch = "aarch64",
-        feature = "desktop-protected"
-    ))]
+    #[cfg(all(unix, feature = "desktop-protected"))]
     pub(super) fn from_verified(
         evidence: super::enrollment_transition_v2_v3::VerifiedV2EnrollmentEvidence,
     ) -> Self {

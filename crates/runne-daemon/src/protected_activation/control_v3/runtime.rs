@@ -8,6 +8,10 @@ mod writer_driver;
 #[cfg(unix)]
 include!("runtime/shutdown.rs");
 
+#[cfg_attr(
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    allow(dead_code)
+)]
 pub(super) fn map_enrollment_error(
     error: runne_api::ProviderCredentialEnrollmentHostError,
 ) -> runne_api::LaunchAuthorityError {
@@ -22,7 +26,7 @@ pub(super) fn map_enrollment_error(
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 pub(super) fn unix_now_millis() -> Result<u64, runne_api::LaunchAuthorityError> {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -57,6 +61,20 @@ pub(crate) const fn enrollment_transcript_allows_rotation(
     terminal: bool,
 ) -> bool {
     !has_session || terminal
+}
+
+impl V3EnrollmentRuntime {
+    /// Off macOS there is no credential enrollment session in the V3 loop.
+    pub(super) const fn has_session(&self) -> bool {
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        {
+            self.session.is_some()
+        }
+        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+        {
+            false
+        }
+    }
 }
 
 pub(crate) struct V3EnrollmentDispatch {
@@ -128,8 +146,14 @@ pub(super) struct V3EnrollmentRuntime {
     pub(super) deferred_control: Option<zeroize::Zeroizing<Vec<u8>>>,
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     pub(super) round: Option<super::round::RoundContext>,
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     pub(super) live: Option<super::live_session::LiveEnrollmentSession>,
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     pub(super) broker: Option<crate::protected_activation::broker_handoff::BrokerHandoffDispatch>,
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     pub(super) session: Option<
         crate::application::provider_credential_enrollment::DaemonProtectedCredentialEnrollmentSession,
     >,
@@ -152,8 +176,15 @@ pub(super) struct V3EnrollmentRuntime {
 }
 
 impl V3EnrollmentRuntime {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     pub(super) fn require_shutdown(&self) -> Result<(), runne_api::LaunchAuthorityError> {
         require_shutdown_terminal(self.session.as_ref(), self.terminal)
+    }
+
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    pub(super) fn require_shutdown(&self) -> Result<(), runne_api::LaunchAuthorityError> {
+        let _ = self.terminal;
+        Ok(())
     }
 
     #[cfg(target_os = "macos")]
@@ -239,21 +270,37 @@ impl V3EnrollmentRuntime {
     }
 }
 
+#[cfg_attr(
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    allow(dead_code)
+)]
 pub(crate) fn require_shutdown_terminal(
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     session: Option<&crate::application::provider_credential_enrollment::DaemonProtectedCredentialEnrollmentSession>,
     terminal: bool,
 ) -> Result<(), runne_api::LaunchAuthorityError> {
-    if session.is_some() && !terminal {
-        return Err(runne_api::LaunchAuthorityError::OwnershipMismatch);
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        if session.is_some() && !terminal {
+            return Err(runne_api::LaunchAuthorityError::OwnershipMismatch);
+        }
+        if let Some(session) = session {
+            session
+                .require_durable_terminal()
+                .map_err(map_enrollment_error)?;
+        }
     }
-    if let Some(session) = session {
-        session
-            .require_durable_terminal()
-            .map_err(map_enrollment_error)?;
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    {
+        let _ = terminal;
     }
     Ok(())
 }
 
+#[cfg_attr(
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    allow(dead_code)
+)]
 fn acquire_after_preflight<P, A, E>(
     preflight: impl FnOnce() -> Result<P, E>,
     acquire: impl FnOnce() -> A,
