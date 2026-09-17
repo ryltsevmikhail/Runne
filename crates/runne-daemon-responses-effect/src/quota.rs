@@ -1,6 +1,9 @@
-use super::*;
+use super::{
+    Arc, ProviderStreamEvent, ProviderStreamEventKind, QuotaEvidenceSink, QuotaIdentity,
+    SubscriptionBudgetAuthority, SystemTime, UNIX_EPOCH,
+};
 
-pub(super) fn spend_budget(
+pub fn spend_budget(
     budget: Option<&Arc<dyn SubscriptionBudgetAuthority>>,
     provider_id: &str,
     version: u64,
@@ -19,7 +22,7 @@ pub(super) fn spend_budget(
     let _ = budget.spend(provider_id, version, tokens);
 }
 
-pub(super) fn record_usage(
+pub fn record_usage(
     provider_id: &str,
     credential_version: u64,
     sink: Option<&Arc<dyn QuotaEvidenceSink>>,

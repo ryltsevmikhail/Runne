@@ -1,6 +1,6 @@
-use super::*;
+use super::{Arc, ProviderStreamEvent, ProviderStreamEventKind, SubscriptionBudgetAuthority};
 
-pub(super) fn spend_budget(
+pub fn spend_budget(
     budget: Option<&Arc<dyn SubscriptionBudgetAuthority>>,
     provider_id: &str,
     version: u64,

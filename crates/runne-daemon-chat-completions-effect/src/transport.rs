@@ -43,6 +43,10 @@ pub struct ReqwestChatTransport {
 
 impl ReqwestChatTransport {
     /// Builds the production transport with no proxy, redirects or retries.
+    ///
+    /// # Errors
+    ///
+    /// Returns an unavailable error when the fixed HTTPS client cannot be built.
     pub fn new() -> Result<Self, ChatTransportError> {
         let client = reqwest::Client::builder()
             .https_only(true)
@@ -87,12 +91,12 @@ impl ChatCompletionsTransport for ReqwestChatTransport {
             loop {
                 let chunk = wait_for_chunk(response.chunk())
                     .await
-                    .map_err(|_| ChatTransportError)?
+                    .map_err(|()| ChatTransportError)?
                     .map_err(|_| ChatTransportError)?;
                 let Some(chunk) = chunk else { break };
-                record_chunk(&mut chunks).map_err(|_| ChatTransportError)?;
+                record_chunk(&mut chunks).map_err(|()| ChatTransportError)?;
                 append_bounded(&mut body, &chunk, MAX_BODY_BYTES)
-                    .map_err(|_| ChatTransportError)?;
+                    .map_err(|()| ChatTransportError)?;
             }
             Ok(ChatTransportResponse {
                 url,

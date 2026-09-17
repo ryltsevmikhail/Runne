@@ -161,9 +161,7 @@ impl ProviderActivation {
                 if has_vertex || has_radius || has_responses {
                     return Err("Cloud settings are mixed with another provider family");
                 }
-                cloud::configured_profile(profile_id, settings)
-                    .map(|_| ())
-                    .map_err(|message| message)?;
+                cloud::configured_profile(profile_id, settings).map(|_| ())?;
             }
             _ if has_vertex
                 || has_radius

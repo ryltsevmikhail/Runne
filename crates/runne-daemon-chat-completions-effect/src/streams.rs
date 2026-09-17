@@ -11,7 +11,7 @@ const MAX_STREAMS: usize = 64;
 const MAX_EVENTS_PER_STREAM: usize = 16_384;
 
 /// Bounded in-memory stream handoff between the effect and runtime poller.
-pub(crate) struct StreamStore {
+pub struct StreamStore {
     streams: Mutex<BTreeMap<ProviderStreamId, VecDeque<ProviderStreamEvent>>>,
 }
 
@@ -36,6 +36,7 @@ impl StreamStore {
             ));
         }
         streams.insert(stream, VecDeque::new());
+        drop(streams);
         Ok(())
     }
 
@@ -56,6 +57,7 @@ impl StreamStore {
             .get_mut(&stream)
             .ok_or(DispatchError::StreamNotFound)?;
         queue.extend(events);
+        drop(streams);
         Ok(())
     }
 
@@ -86,6 +88,7 @@ impl StreamStore {
                 ProviderStreamEventKind::Finished { .. }
                     | ProviderStreamEventKind::ScannerCompleted { .. }
             );
+            drop(streams);
             (ProviderStreamItem::from_event(event)?, remove_after)
         };
         if remove_after {

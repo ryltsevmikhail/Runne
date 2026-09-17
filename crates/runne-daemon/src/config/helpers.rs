@@ -74,7 +74,6 @@ impl ConfigurationSnapshot {
             .as_ref()
             .map(ExternalProviderActivationConfig::binding_and_settings)
             .transpose()?
-            .map(|(binding, settings)| (binding, settings))
             .unwrap_or_else(|| {
                 (
                     ProviderActivation::deterministic_v1().binding().clone(),
@@ -149,6 +148,7 @@ impl ConfigurationSnapshot {
 // ── Digest helpers ────────────────────────────────────────────────────
 
 /// Build a `serde_json::Map` with sorted keys for canonical serialization.
+#[allow(clippy::too_many_arguments)]
 fn canonical_values_map(
     schema_version: i64,
     db_path: &str,

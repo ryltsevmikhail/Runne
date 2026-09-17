@@ -3,7 +3,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use fixture::fixture::{Materializer, NativeFakeTransport, RadiusFakeTransport};
+use fixture::support::{Materializer, NativeFakeTransport, RadiusFakeTransport};
 use runne_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ContentGuardError, ProhibitedContentPort,
 };
@@ -104,7 +104,7 @@ async fn collect_native(
 #[tokio::test(flavor = "current_thread")]
 async fn sqlite_receipt_dispatches_anthropic_subscription_through_fake_http() {
     let profile = anthropic_profile();
-    let fixture = fixture::fixture::fixture(
+    let fixture = fixture::support::fixture(
         "anthropic",
         profile.model_id(),
         profile.model_revision(),
@@ -120,7 +120,7 @@ async fn sqlite_receipt_dispatches_anthropic_subscription_through_fake_http() {
     });
     let transport = Arc::new(NativeFakeTransport {
         calls: AtomicUsize::new(0),
-        body: fixture::fixture::anthropic_response(profile.model_id()),
+        body: fixture::support::anthropic_response(profile.model_id()),
         expected_url: "https://api.anthropic.com/v1/messages".into(),
         anthropic: true,
     });
@@ -168,7 +168,7 @@ async fn sqlite_receipt_dispatches_anthropic_subscription_through_fake_http() {
 #[tokio::test(flavor = "current_thread")]
 async fn anthropic_subscription_receipt_denial_never_reaches_http() {
     let profile = anthropic_profile();
-    let fixture = fixture::fixture::fixture(
+    let fixture = fixture::support::fixture(
         "anthropic",
         profile.model_id(),
         profile.model_revision(),
@@ -183,7 +183,7 @@ async fn anthropic_subscription_receipt_denial_never_reaches_http() {
     });
     let transport = Arc::new(NativeFakeTransport {
         calls: AtomicUsize::new(0),
-        body: fixture::fixture::anthropic_response(profile.model_id()),
+        body: fixture::support::anthropic_response(profile.model_id()),
         expected_url: "https://api.anthropic.com/v1/messages".into(),
         anthropic: true,
     });
@@ -221,7 +221,7 @@ async fn anthropic_subscription_receipt_denial_never_reaches_http() {
 async fn radius_payg_receipt_denial_never_reaches_http() {
     let profile = radius_profile();
     let renderer = runne_provider_radius::RadiusRenderer::new(profile.clone());
-    let fixture = fixture::fixture::fixture(
+    let fixture = fixture::support::fixture(
         "radius",
         profile.model_id(),
         profile.revision(),
@@ -236,7 +236,7 @@ async fn radius_payg_receipt_denial_never_reaches_http() {
     });
     let transport = Arc::new(RadiusFakeTransport {
         calls: AtomicUsize::new(0),
-        body: fixture::fixture::radius_response(),
+        body: fixture::support::radius_response(),
     });
     let effect = RadiusEffect::new_with_transport(
         profile,

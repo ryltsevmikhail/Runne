@@ -18,7 +18,7 @@ fn exact_auth_and_endpoint_binding() {
     );
     assert!(!config.profile.endpoint().contains('{'));
     let bad = ResponsesEffectConfig {
-        profile: config.profile.clone(),
+        profile: config.profile,
         auth: ResponsesAuth::Codex {
             account_id: "acct".into(),
         },

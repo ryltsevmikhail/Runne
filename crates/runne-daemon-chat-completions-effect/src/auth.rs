@@ -9,7 +9,7 @@ pub enum ChatCompletionsAuthHeader {
     CloudflareAiGateway,
 }
 
-pub(crate) fn header_name(header: ChatCompletionsAuthHeader) -> HeaderName {
+pub const fn header_name(header: ChatCompletionsAuthHeader) -> HeaderName {
     match header {
         ChatCompletionsAuthHeader::Authorization => AUTHORIZATION,
         ChatCompletionsAuthHeader::CloudflareAiGateway => {

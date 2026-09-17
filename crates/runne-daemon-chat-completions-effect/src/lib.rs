@@ -7,10 +7,7 @@ use runne_provider::{
     ProviderStreamEvent, ProviderStreamEventKind, ProviderStreamId, ProviderStreamItem,
     ReconcileRequest, ReconciliationDisposition, StreamCursor, StreamError,
 };
-use runne_provider_chat_completions::{
-    ChatCompletionsProfile, ChatCompletionsRenderer, ChatCompletionsStreamDecoder,
-    normalize_json_rejection,
-};
+use runne_provider_chat_completions::{ChatCompletionsProfile, ChatCompletionsRenderer};
 use runne_provider_quota::{QuotaEvidenceSink, SubscriptionBudgetAuthority};
 use runne_secure_store::{
     ProviderCredentialDispatchMaterializer, ProviderCredentialDispatchRead, SecureStoreError,
@@ -25,13 +22,12 @@ mod auth;
 mod bounds;
 mod budget;
 mod constructor;
+mod effect_dispatch;
 mod quota_refresh;
 mod quota_refresh_transport;
 mod quota_reporting;
 mod streams;
 mod transport;
-use auth::header_name;
-use bounds::{ResponseContract, accepted_response_contract, bearer_header};
 use streams::StreamStore;
 /// Closed generic effect error.
 #[derive(Debug, Clone, Copy, thiserror::Error)]
@@ -143,61 +139,12 @@ impl ChatCompletionsEffect {
                     ),
                 })?;
         let value = credential.with_bytes(|bytes| Zeroizing::new(bytes.to_vec()));
-        let auth = bearer_header(&value)?;
-        let url = format!("{}{}", self.profile.origin(), self.profile.path());
-        let expected_url = url.clone();
-        let effect = async {
-            let response = self
-                .transport
-                .send(
-                    url,
-                    header_name(self.auth_header),
-                    auth,
-                    ready.request.prepared().rendered_bytes().to_vec(),
-                )
-                .await
-                .map_err(|_| DispatchError::MaybeDispatched)?;
-            let status = response.status;
-            let contract = accepted_response_contract(
-                &expected_url,
-                &response.url,
-                status,
-                response.content_type.as_deref(),
-            )
-            .ok_or(DispatchError::MaybeDispatched)?;
-            let body = response.body;
-            if body.len() > self.profile.max_request_bytes() {
-                return Err(DispatchError::MaybeDispatched);
-            }
-            if body.is_empty() {
-                return Err(DispatchError::MaybeDispatched);
-            }
-            match contract {
-                ResponseContract::Sse => {
-                    let mut decoder = ChatCompletionsStreamDecoder::for_profile(&self.profile);
-                    decoder
-                        .push(&body)
-                        .map_err(|_| DispatchError::MaybeDispatched)?;
-                    Ok(decoder
-                        .finish()
-                        .map_err(|_| DispatchError::MaybeDispatched)?)
-                }
-                ResponseContract::JsonRejection(status) => {
-                    quota_reporting::record_zai_error(
-                        self.quota_sink.as_ref(),
-                        self.profile.provider_id(),
-                        ready.credential.version_ref().version(),
-                        now_unix_seconds,
-                        &body,
-                    );
-                    Ok(normalize_json_rejection(status, &body)
-                        .map_err(|_| DispatchError::MaybeDispatched)?)
-                }
-            }
-        };
-        let events = timeout_at(receipt.deadline().into(), effect)
-            .await
-            .map_err(|_| DispatchError::MaybeDispatched)??;
+        let events = timeout_at(
+            receipt.deadline().into(),
+            self.send_dispatch_effect(&ready, &value, now_unix_seconds),
+        )
+        .await
+        .map_err(|_| DispatchError::MaybeDispatched)??;
         let usage_events = events.clone();
         self.streams.publish(stream, events)?;
         quota_reporting::record_usage(

@@ -63,7 +63,7 @@ where
         if now_i64 >= lease_expiry {
             return Err(QuotaRefreshStatus::Unauthorized);
         }
-        let lease_timeout = Duration::from_secs((lease_expiry - now_i64) as u64);
+        let lease_timeout = Duration::from_secs((lease_expiry - now_i64).cast_unsigned());
         let endpoint = descriptor
             .endpoint()
             .ok_or(QuotaRefreshStatus::ConsoleRequired)?;

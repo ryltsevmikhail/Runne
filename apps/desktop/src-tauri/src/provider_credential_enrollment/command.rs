@@ -64,7 +64,7 @@ impl CredentialIntentIpc {
         }
     }
 
-    pub(crate) fn valid(self) -> bool {
+    pub(crate) const fn valid(self) -> bool {
         self.expected_revision != 0
             && self.renderer_generation != 0
             && match self.action {

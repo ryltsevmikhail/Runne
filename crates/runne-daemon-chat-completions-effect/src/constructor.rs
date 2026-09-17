@@ -7,6 +7,11 @@ use std::sync::Arc;
 
 impl ChatCompletionsEffect {
     /// Constructs a production effect with a fixed profile and secure-store reader.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed effect error when the profile fails validation or the
+    /// production transport cannot be built.
     pub fn new(
         profile: ChatCompletionsProfile,
         credentials: Arc<dyn ProviderCredentialDispatchMaterializer>,
@@ -18,6 +23,11 @@ impl ChatCompletionsEffect {
     ///
     /// The sink receives only credential identity and normalized token counts;
     /// it never participates in credential materialization or network requests.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed effect error when the profile fails validation or the
+    /// production transport cannot be built.
     pub fn new_with_quota(
         profile: ChatCompletionsProfile,
         credentials: Arc<dyn ProviderCredentialDispatchMaterializer>,
@@ -32,6 +42,11 @@ impl ChatCompletionsEffect {
     }
 
     /// Constructs an effect with optional durable subscription accounting.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed effect error when the profile fails validation or the
+    /// production transport cannot be built.
     pub fn new_with_quota_and_budget(
         profile: ChatCompletionsProfile,
         credentials: Arc<dyn ProviderCredentialDispatchMaterializer>,
@@ -55,6 +70,10 @@ impl ChatCompletionsEffect {
     }
 
     /// Constructs an effect with a caller-supplied bounded transport seam.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed effect error when the profile fails validation.
     pub fn new_with_transport(
         profile: ChatCompletionsProfile,
         credentials: Arc<dyn ProviderCredentialDispatchMaterializer>,
@@ -64,17 +83,22 @@ impl ChatCompletionsEffect {
     ) -> Result<Self, ChatCompletionsEffectError> {
         let renderer = ChatCompletionsRenderer::new(profile.clone())
             .map_err(|_| ChatCompletionsEffectError)?;
-        Self::build(
+        Ok(Self::build(
             profile,
             credentials,
             quota_sink,
             auth_header,
             renderer,
             transport,
-        )
+        ))
     }
 
     /// Constructs an effect with an explicit provider authentication header.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed effect error when the profile fails validation or the
+    /// production transport cannot be built.
     pub fn new_with_quota_and_auth(
         profile: ChatCompletionsProfile,
         credentials: Arc<dyn ProviderCredentialDispatchMaterializer>,
@@ -85,14 +109,14 @@ impl ChatCompletionsEffect {
             .map_err(|_| ChatCompletionsEffectError)?;
         let transport =
             Arc::new(ReqwestChatTransport::new().map_err(|_| ChatCompletionsEffectError)?);
-        Self::build(
+        Ok(Self::build(
             profile,
             credentials,
             quota_sink,
             auth_header,
             renderer,
             transport,
-        )
+        ))
     }
 
     fn build(
@@ -102,8 +126,8 @@ impl ChatCompletionsEffect {
         auth_header: ChatCompletionsAuthHeader,
         renderer: ChatCompletionsRenderer,
         transport: Arc<dyn ChatCompletionsTransport>,
-    ) -> Result<Self, ChatCompletionsEffectError> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             profile,
             renderer,
             credentials,
@@ -112,6 +136,6 @@ impl ChatCompletionsEffect {
             budget: None,
             streams: super::streams::StreamStore::new(),
             auth_header,
-        })
+        }
     }
 }

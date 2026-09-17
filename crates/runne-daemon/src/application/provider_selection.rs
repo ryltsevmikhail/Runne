@@ -32,6 +32,7 @@ pub(super) struct SelectedProviderRuntime {
     pub(super) credential_id: ProviderCredentialId,
 }
 
+#[cfg(test)]
 pub(super) fn select_provider_runtime(
     activation: &ProviderActivation,
 ) -> Result<Option<SelectedProviderRuntime>, DaemonError> {

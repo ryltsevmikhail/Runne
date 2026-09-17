@@ -25,7 +25,7 @@ fn gemini_profile() -> NativeWireProfile {
 #[tokio::test(flavor = "current_thread")]
 async fn sqlite_receipt_dispatches_gemini_payg_without_anthropic_headers() {
     let profile = gemini_profile();
-    let fixture = fixture::fixture::fixture(
+    let fixture = fixture::support::fixture(
         "google",
         profile.model_id(),
         profile.model_revision(),
@@ -41,7 +41,7 @@ async fn sqlite_receipt_dispatches_gemini_payg_without_anthropic_headers() {
     });
     let transport = Arc::new(NativeFakeTransport {
         calls: AtomicUsize::new(0),
-        body: fixture::fixture::gemini_response(profile.model_id()),
+        body: fixture::support::gemini_response(profile.model_id()),
         expected_url: format!(
             "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse",
             profile.model_id()
@@ -93,7 +93,7 @@ async fn sqlite_receipt_dispatches_gemini_payg_without_anthropic_headers() {
 async fn sqlite_receipt_dispatches_radius_payg_through_fake_http() {
     let profile = radius_profile();
     let renderer = runne_provider_radius::RadiusRenderer::new(profile.clone());
-    let fixture = fixture::fixture::fixture(
+    let fixture = fixture::support::fixture(
         "radius",
         profile.model_id(),
         profile.revision(),
@@ -109,7 +109,7 @@ async fn sqlite_receipt_dispatches_radius_payg_through_fake_http() {
     });
     let transport = Arc::new(RadiusFakeTransport {
         calls: AtomicUsize::new(0),
-        body: fixture::fixture::radius_response(),
+        body: fixture::support::radius_response(),
     });
     let effect = RadiusEffect::new_with_transport(
         profile,
@@ -160,7 +160,7 @@ async fn sqlite_receipt_dispatches_radius_payg_through_fake_http() {
 #[tokio::test(flavor = "current_thread")]
 async fn malformed_native_sse_is_uncertain_after_fake_http_boundary() {
     let profile = anthropic_profile();
-    let fixture = fixture::fixture::fixture(
+    let fixture = fixture::support::fixture(
         "anthropic",
         profile.model_id(),
         profile.model_revision(),
@@ -213,7 +213,7 @@ async fn malformed_native_sse_is_uncertain_after_fake_http_boundary() {
 #[tokio::test(flavor = "current_thread")]
 async fn wrong_profile_binding_has_zero_materialization_and_http() {
     let profile = anthropic_profile();
-    let fixture = fixture::fixture::fixture(
+    let fixture = fixture::support::fixture(
         "anthropic",
         profile.model_id(),
         profile.model_revision(),
@@ -229,7 +229,7 @@ async fn wrong_profile_binding_has_zero_materialization_and_http() {
     });
     let transport = Arc::new(NativeFakeTransport {
         calls: AtomicUsize::new(0),
-        body: fixture::fixture::anthropic_response(profile.model_id()),
+        body: fixture::support::anthropic_response(profile.model_id()),
         expected_url: "https://api.anthropic.com/v1/messages".into(),
         anthropic: true,
     });

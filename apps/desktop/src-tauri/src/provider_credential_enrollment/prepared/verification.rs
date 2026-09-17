@@ -7,7 +7,7 @@ use runne_platform_desktop::NativeProtectedCredentialVerificationBegin;
 
 /// Runs the control-only protected transcript for an explicit quota read.
 pub(super) fn run(
-    exchange: &mut PreparedCredentialEnrollmentExchange,
+    exchange: &PreparedCredentialEnrollmentExchange,
     native_intent_id: &str,
 ) -> Result<(), PreparedCredentialEnrollmentError> {
     let command_id = uuid::Uuid::now_v7().to_string();

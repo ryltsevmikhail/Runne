@@ -8,12 +8,12 @@ use zeroize::{Zeroize, Zeroizing};
 const MAX_TRANSPORT_CHUNKS: usize = 4_096;
 const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
-pub(super) enum ResponseContract {
+pub enum ResponseContract {
     Sse,
     JsonRejection(u16),
 }
 
-pub(super) fn accepted_response_contract(
+pub fn accepted_response_contract(
     expected_url: &str,
     url: &str,
     status: u16,
@@ -34,7 +34,7 @@ pub(super) fn accepted_response_contract(
     }
 }
 
-pub(super) fn bearer_header(credential: &Zeroizing<Vec<u8>>) -> Result<HeaderValue, DispatchError> {
+pub fn bearer_header(credential: &Zeroizing<Vec<u8>>) -> Result<HeaderValue, DispatchError> {
     let bytes = Bytes::from_owner(AuthorizationOwner::new(credential));
     let mut header =
         HeaderValue::from_maybe_shared(bytes).map_err(|_| DispatchError::MaybeDispatched)?;
@@ -67,7 +67,7 @@ impl Drop for AuthorizationOwner {
     }
 }
 
-pub(crate) fn append_bounded(target: &mut Vec<u8>, chunk: &[u8], maximum: usize) -> Result<(), ()> {
+pub fn append_bounded(target: &mut Vec<u8>, chunk: &[u8], maximum: usize) -> Result<(), ()> {
     if target
         .len()
         .checked_add(chunk.len())
@@ -79,12 +79,12 @@ pub(crate) fn append_bounded(target: &mut Vec<u8>, chunk: &[u8], maximum: usize)
     Ok(())
 }
 
-pub(crate) fn record_chunk(count: &mut usize) -> Result<(), ()> {
+pub fn record_chunk(count: &mut usize) -> Result<(), ()> {
     *count = count.checked_add(1).ok_or(())?;
     (*count <= MAX_TRANSPORT_CHUNKS).then_some(()).ok_or(())
 }
 
-pub(crate) async fn wait_for_chunk<T>(future: impl Future<Output = T>) -> Result<T, ()> {
+pub async fn wait_for_chunk<T>(future: impl Future<Output = T>) -> Result<T, ()> {
     tokio::time::timeout(IDLE_TIMEOUT, future)
         .await
         .map_err(|_| ())

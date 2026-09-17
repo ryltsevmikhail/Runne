@@ -116,7 +116,7 @@ mod tests {
         let store = QuotaStateStore::new();
         let identity = QuotaIdentity::new("zai", 1).unwrap();
         let snapshot = QuotaSnapshot::new(
-            identity.clone(),
+            identity,
             QuotaObservationSource::ProviderApi,
             100,
             vec![
@@ -151,7 +151,7 @@ mod tests {
         let identity = QuotaIdentity::new("zai", 1).unwrap();
         let state = store.state(&identity).unwrap().unwrap();
         assert_eq!(
-            state.snapshot().map(|snapshot| snapshot.availability()),
+            state.snapshot().map(QuotaSnapshot::availability),
             Some(runne_provider_quota::QuotaAvailability::Exhausted)
         );
     }

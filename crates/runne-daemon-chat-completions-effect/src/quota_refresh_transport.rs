@@ -77,7 +77,7 @@ impl QuotaRefreshTransport for ReqwestQuotaRefreshTransport {
         >,
     > {
         Box::pin(async move {
-            let bytes = Bytes::from_owner(AuthorizationOwner::new(auth, token));
+            let bytes = Bytes::from_owner(AuthorizationOwner::new(auth, &token));
             let mut header = reqwest::header::HeaderValue::from_maybe_shared(bytes)
                 .map_err(|_| QuotaRefreshTransportError)?;
             header.set_sensitive(true);
@@ -121,14 +121,14 @@ struct AuthorizationOwner {
 }
 
 impl AuthorizationOwner {
-    fn new(auth: QuotaAuthHeaderKind, token: Zeroizing<Vec<u8>>) -> Self {
+    fn new(auth: QuotaAuthHeaderKind, token: &Zeroizing<Vec<u8>>) -> Self {
         let mut bytes = Zeroizing::new(Vec::with_capacity(
             token.len() + usize::from(matches!(auth, QuotaAuthHeaderKind::BearerAuthorization)) * 7,
         ));
         if auth == QuotaAuthHeaderKind::BearerAuthorization {
             bytes.extend_from_slice(b"Bearer ");
         }
-        bytes.extend_from_slice(&token);
+        bytes.extend_from_slice(token);
         Self { bytes }
     }
 }

@@ -30,7 +30,7 @@ impl ReqwestNativeTransport {
     }
 
     #[cfg(test)]
-    pub(crate) fn from_client(client: reqwest::Client, idle_timeout: Duration) -> Self {
+    pub(crate) const fn from_client(client: reqwest::Client, idle_timeout: Duration) -> Self {
         Self {
             client,
             idle_timeout,

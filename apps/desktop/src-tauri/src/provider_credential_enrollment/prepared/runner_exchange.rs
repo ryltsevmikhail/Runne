@@ -1,4 +1,7 @@
-use super::{CredentialIntentAction as Action, PreparedCredentialEnrollmentError};
+use super::{
+    CredentialIntentAction as Action, PreparedCredentialEnrollmentError,
+    PreparedCredentialEnrollmentExchange, ProtectedWriterCleanup, RetainedWriterCleanup,
+};
 use runne_api::ProviderCredentialEnrollmentActionV2;
 
 pub(super) const fn api_action(
@@ -33,6 +36,67 @@ pub(super) fn finish_control_only(
             supervisor, enrollment,
         ),
     ).map_err(|_| PreparedCredentialEnrollmentError)?;
+    (enrollment.terminal() && super::terminal_is_success(enrollment.snapshot().state()))
+        .then_some(())
+        .ok_or(PreparedCredentialEnrollmentError)
+}
+
+/// Delivers the retained secret over the authenticated relay and completes the
+/// protected enrollment transcript.
+pub(super) fn finish_pair_exchange(
+    exchange: &mut PreparedCredentialEnrollmentExchange,
+    supervisor: &std::sync::Arc<
+        std::sync::Mutex<runne_platform_desktop::ProtectedBundledRuntimeSupervisor>,
+    >,
+    enrollment: runne_platform_desktop::PreparedProtectedCredentialEnrollment,
+    handoff: &mut RetainedWriterCleanup<ProtectedWriterCleanup>,
+    secretless: bool,
+) -> Result<(), PreparedCredentialEnrollmentError> {
+    if secretless {
+        return finish_control_only(std::sync::Arc::clone(supervisor), enrollment);
+    }
+    let mut enrollment = tauri::async_runtime::block_on(
+        runne_platform_desktop::ProtectedBundledRuntimeSupervisor::receive_credential_secret_relay_with_rejoin(
+            std::sync::Arc::clone(supervisor),
+            enrollment,
+        ),
+    )
+    .map_err(|_| PreparedCredentialEnrollmentError)?;
+    let relay = enrollment
+        .take_relay()
+        .ok_or(PreparedCredentialEnrollmentError)?;
+    let material = exchange
+        .material
+        .take()
+        .ok_or(PreparedCredentialEnrollmentError)?;
+    let native_oauth = matches!(
+        material.kind(),
+        runne_platform_desktop::SecureCredentialMaterialKind::NativeOAuth
+    );
+    let secret = material.into_pipe_bytes().into_zeroizing();
+    let secret_relay = handoff
+        .cleanup_mut()
+        .ok_or(PreparedCredentialEnrollmentError)?
+        .handoff
+        .take_pair_secret_relay()
+        .ok_or(PreparedCredentialEnrollmentError)?;
+    if native_oauth {
+        secret_relay
+            .seal_and_write_native_oauth(&relay, secret)
+            .map_err(|_| PreparedCredentialEnrollmentError)?;
+    } else {
+        secret_relay
+            .seal_and_write(&relay, secret)
+            .map_err(|_| PreparedCredentialEnrollmentError)?;
+    }
+    let enrollment = tauri::async_runtime::block_on(
+        runne_platform_desktop::ProtectedBundledRuntimeSupervisor::finish_protected_credential_enrollment_with_rejoin(
+            std::sync::Arc::clone(supervisor),
+            enrollment,
+            &relay,
+        ),
+    )
+    .map_err(|_| PreparedCredentialEnrollmentError)?;
     (enrollment.terminal() && super::terminal_is_success(enrollment.snapshot().state()))
         .then_some(())
         .ok_or(PreparedCredentialEnrollmentError)

@@ -45,12 +45,7 @@ fn restore_table(
     let objects = table_objects(tx, table)?;
     let old = format!("{table}_v37");
     tx.execute(&format!("ALTER TABLE {table} RENAME TO {old}"), [])?;
-    let rewritten = source
-        .replace(
-            &format!("CREATE TABLE {table}"),
-            &format!("CREATE TABLE {table}"),
-        )
-        .replace(current_fragment, old_fragment);
+    let rewritten = source.replace(current_fragment, old_fragment);
     if rewritten == source || !rewritten.contains(old_fragment) {
         return Err(rusqlite::Error::InvalidQuery);
     }

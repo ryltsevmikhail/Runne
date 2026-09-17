@@ -108,13 +108,6 @@ impl ProviderCredentialAdmission {
     }
 
     /// Binds a verification proof to its exact provider, revision, kind, and command context.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Task 6 admission is prepared before the protected verification host is composed"
-        )
-    )]
     pub(crate) fn require_verify_command(
         &self,
         authority: &ProviderCredentialBaseRequestAuthority,

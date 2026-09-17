@@ -78,7 +78,7 @@ fn capability(
 ) -> CredentialVerificationCapability {
     let provider = ProviderId::new(provider_name).unwrap();
     let begin = BeginCredentialVerification::new(
-        CredentialOperationId::from_bytes([version as u8; 16]).unwrap(),
+        CredentialOperationId::from_bytes([u8::try_from(version).unwrap(); 16]).unwrap(),
         None,
         provider.clone(),
         CredentialVerificationKind::Remote,

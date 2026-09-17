@@ -26,6 +26,7 @@ pub struct Fixture {
     pub(crate) request: ProviderCoordinatorRequest,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn fixture(
     provider: &str,
     model: &str,

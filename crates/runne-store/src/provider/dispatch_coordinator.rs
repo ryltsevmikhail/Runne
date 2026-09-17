@@ -156,22 +156,21 @@ where
             }
         };
         let (credential, effect_binding) = online.split();
-        if let Some(authority) = &self.subscription_budget {
-            if self.subscription_provider
-                && !matches!(
-                    authority.seed_and_remaining(
-                        request.call.model_ref().provider_id().as_str(),
-                        credential.version_ref().version(),
-                    ),
-                    Ok(RemainingState::Remaining(_))
-                )
-            {
-                return self.reject_before_effect(
-                    attempt_id,
-                    fencing_token,
-                    ProviderPreEffectRejection::BudgetDenied,
-                );
-            }
+        if let Some(authority) = &self.subscription_budget
+            && self.subscription_provider
+            && !matches!(
+                authority.seed_and_remaining(
+                    request.call.model_ref().provider_id().as_str(),
+                    credential.version_ref().version(),
+                ),
+                Ok(RemainingState::Remaining(_))
+            )
+        {
+            return self.reject_before_effect(
+                attempt_id,
+                fencing_token,
+                ProviderPreEffectRejection::BudgetDenied,
+            );
         }
         let dispatch = match DispatchRequest::new(prepared, claim.clone()) {
             Ok(dispatch) => dispatch,

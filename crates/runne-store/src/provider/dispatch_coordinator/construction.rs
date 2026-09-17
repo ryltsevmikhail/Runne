@@ -35,6 +35,7 @@ where
     }
 
     /// Constructs the coordinator with the durable subscription gate.
+    #[allow(clippy::too_many_arguments)]
     pub const fn new_with_budget(
         dispatch_store: &'a SqliteProviderDispatchStore,
         execution_store: &'a SqliteProviderExecutionStore,

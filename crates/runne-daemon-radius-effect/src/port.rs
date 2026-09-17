@@ -154,6 +154,9 @@ mod tests {
     }
 
     #[tokio::test]
+    // The effect is deliberately retained until the terminal poll proves that
+    // the stream permit is released only by the terminal event.
+    #[allow(clippy::significant_drop_tightening)]
     async fn invalid_cursor_preserves_event_and_permit_until_terminal() {
         let profile = runne_provider_radius::RadiusCatalog::from_json(
             br#"{"baseUrl":"https://radius.pi.dev","models":[{"id":"fixture-model","name":"Fixture","reasoning":false,"input":["text"],"contextWindow":4096,"maxTokens":512,"cost":{"input":0.000001,"output":0.000002,"cacheRead":0.000001,"cacheWrite":0.000001}}]}"#,

@@ -1,2 +1,2 @@
 #[path = "fixture.rs"]
-pub(crate) mod fixture;
+pub(crate) mod support;

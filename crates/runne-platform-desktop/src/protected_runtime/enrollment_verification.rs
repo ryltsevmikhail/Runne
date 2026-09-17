@@ -9,6 +9,13 @@ use enrollment_lifecycle_facts::verification_command_context;
 
 impl ProtectedBundledRuntimeSupervisor {
     /// Authenticates and executes one native-approved remote quota read.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidState` unless the supervisor is `Ready` with no pending
+    /// profile and the request asks for a remote verification, and returns a
+    /// closed channel or ownership failure when the authenticated daemon
+    /// exchange does not match the protected session.
     pub fn begin_protected_credential_verification(
         &mut self,
         request: NativeProtectedCredentialVerificationBegin,
