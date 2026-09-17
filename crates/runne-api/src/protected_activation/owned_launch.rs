@@ -32,6 +32,24 @@ impl ProtectedOwnedLaunchV1 {
         })
     }
 
+    /// Compatibility view of a V3 enrollment-owned launch: the identical
+    /// binding identities, for V1-shaped transports (root-handle transfer)
+    /// that verify exactly these fields. It cannot mint enrollment frames.
+    pub fn compatibility_view_of_enrollment_launch_v3(
+        owned: &ProtectedCredentialEnrollmentOwnedLaunchV3,
+    ) -> Result<Self, LaunchAuthorityError> {
+        Self::new(
+            *owned.launch_authority_id(),
+            *owned.desktop_host_instance_id(),
+            owned.executable().clone(),
+            owned.profile().clone(),
+            owned.stable().clone(),
+            *owned.daemon_instance_id(),
+            owned.launch_generation(),
+            *owned.session_id(),
+        )
+    }
+
     pub const fn launch_authority_id(&self) -> &[u8; 16] {
         &self.launch_authority_id
     }

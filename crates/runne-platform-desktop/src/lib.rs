@@ -30,6 +30,10 @@ pub use protected_runtime::{
     test_only_crossed_discovery, test_only_crossed_renewal, test_only_crossed_round,
     test_only_crossed_shutdown, test_only_pair_terminal,
 };
+#[cfg(target_os = "linux")]
+pub use protected_runtime::linux_enrollment_peer::{
+    linux_enrollment_peer_binding, verify_linux_enrollment_peer,
+};
 mod updater_artifact;
 #[cfg(all(target_os = "macos", feature = "test-support"))]
 pub use protected_runtime::test_only_failed_writer_handoff;

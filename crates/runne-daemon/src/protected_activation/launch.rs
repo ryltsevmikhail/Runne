@@ -14,8 +14,8 @@ pub struct VerifiedProtectedApplicationStart {
     provider_activation: ProviderActivation,
     launch_authority_id: [u8; 16],
     bootstrap: BootstrapOutcome,
-    #[cfg(target_os = "macos")]
-    #[cfg_attr(not(test), expect(dead_code, reason = "sealed composition"))]
+    #[cfg(unix)]
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     installation: Option<VerifiedNativeEnrollmentInstallation>,
 }
 /// Opaque verified startup package; its admission keys cannot be substituted.
@@ -167,7 +167,7 @@ impl ProtectedDaemonLaunch {
         if bootstrap.authority_id == [0; 16] || bootstrap.launch_generation == 0 {
             return Err(LaunchAuthorityError::InvalidContract);
         }
-        #[cfg(target_os = "macos")]
+        #[cfg(unix)]
         let installation = self
             .request_v2()
             .is_some()
@@ -179,7 +179,7 @@ impl ProtectedDaemonLaunch {
             provider_activation: self.provider_activation.clone(),
             launch_authority_id: self.request.launch_authority_id(),
             bootstrap,
-            #[cfg(target_os = "macos")]
+            #[cfg(unix)]
             installation,
         })
     }

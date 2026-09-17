@@ -54,10 +54,20 @@ impl ProtectedBundledRuntimeProcess {
         let effective_uid = 0;
         let now = unix_millis()?;
         let expires = now.checked_add(30_000).ok_or(ProtectedBundledRuntimeError::InvalidState)?;
-        let owned = self
-            .activation
-            .compatibility_owned()
-            .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
+        let owned = match self.activation.compatibility_owned() {
+            Some(owned) => owned.clone(),
+            // A V3 enrollment-owned launch keeps the identical binding
+            // identities; the root transfer verifies exactly those.
+            None => match &self.activation {
+                ProtectedProcessActivation::V3 { owned, .. } => {
+                    runne_api::ProtectedOwnedLaunchV1::compatibility_view_of_enrollment_launch_v3(
+                        owned,
+                    )
+                    .map_err(|_| ProtectedBundledRuntimeError::InvalidState)?
+                }
+                _ => return Err(ProtectedBundledRuntimeError::InvalidState),
+            },
+        };
         let context = runne_api::RootHandleTransferContext::new(
             *owned.launch_authority_id(),
             *owned.session_id(),

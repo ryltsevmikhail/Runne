@@ -102,6 +102,49 @@ impl ProtectedBundledRuntimeSupervisor {
     }
 }
 
+impl ProtectedBundledRuntimeSupervisor {
+    /// Linux local-runtime enrollment: assembles the transition claims from
+    /// the live V2 launch and runs the V2→V3 transition in place. The owner
+    /// intent is launching the local runtime itself; the daemon independently
+    /// revalidates the kernel peer, the full signed transcript, and the
+    /// installation anchor, then raises the authorization epoch once.
+    #[cfg(all(
+        target_os = "linux",
+        feature = "protected-channel-integration"
+    ))]
+    pub fn begin_local_linux_enrollment_transition(
+        &mut self,
+    ) -> Result<(), ProtectedBundledRuntimeError> {
+        // Unlike the macOS user-driven flow, the local Linux enrollment runs
+        // directly after the V2 launch inside the same connect attempt: the
+        // pending V2 profile is intentionally replaced by the enrolled V3 one.
+        eprintln!(
+            "[enroll] begin_local transition: state={:?} pending={}",
+            self.state, self.pending_profile.is_some()
+        );
+        // The V2 ready frame has been written and the daemon control loop is
+        // already reading frames, so `Handshaking` (post-ready, pre-connect)
+        // and `Ready` are both valid entry points for the local transition.
+        if self.state != BundledRuntimeLifecycleState::Ready
+            && self.state != BundledRuntimeLifecycleState::Handshaking
+        {
+            return Err(ProtectedBundledRuntimeError::InvalidState);
+        }
+        let process = self
+            .process
+            .as_mut()
+            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let claims = process.begin_local_linux_enrollment_claims()?;
+        let profile = process
+            .begin_credential_enrollment_transition(&claims)
+            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        self.backoff.record_disconnected();
+        self.pending_profile = Some(profile);
+        self.state = BundledRuntimeLifecycleState::Handshaking;
+        Ok(())
+    }
+}
+
 impl ProtectedBundledRuntimeProcess {
     #[cfg_attr(not(target_os = "macos"), allow(clippy::needless_pass_by_value))]
     fn confirm_installed_native_enrollment(

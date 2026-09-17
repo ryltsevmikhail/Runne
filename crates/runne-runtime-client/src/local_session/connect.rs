@@ -37,6 +37,7 @@ fn session_peer_from_ready(
     let (endpoint, origin) =
         parse_endpoint(ready.endpoint()).map_err(|_| LaunchAuthorityError::InvalidContract)?;
     Ok(SessionPeer {
+        expected_authorization_epoch: 0,
         endpoint,
         origin,
         certificate_der: ready.certificate_der().to_vec(),
@@ -80,6 +81,7 @@ pub async fn connect(
     } = profile;
     connect_with_peer(
         SessionPeer {
+        expected_authorization_epoch: 0,
             endpoint,
             origin,
             certificate_der,

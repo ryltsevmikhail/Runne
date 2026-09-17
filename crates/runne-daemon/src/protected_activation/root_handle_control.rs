@@ -13,20 +13,51 @@ pub(crate) fn dispatch_root_handle_control_frame(
     now_unix_millis: u64,
     authority: Option<&ProtectedRootControl>,
 ) -> Result<Option<u64>, LaunchAuthorityError> {
-    if !runne_api::is_root_handle_control_frame(frame) {
-        return Ok(None);
-    }
-    receive_root_handle_offer(
+    dispatch_root_handle_control_frame_for_ids(
         channel,
         frame,
         keys,
-        owned,
+        owned.launch_authority_id(),
+        owned.session_id(),
+        owned.launch_generation(),
         used_transfers,
         previous_sequence,
         now_unix_millis,
         authority,
     )
-    .map(Some)
+}
+
+/// Same dispatch for launches that keep the three binding identities without a
+/// V1 owned launch (e.g. the V3 enrollment-owned launch).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn dispatch_root_handle_control_frame_for_ids(
+    channel: &mut ProtectedActivationChannel,
+    frame: &[u8],
+    keys: &ProtectedActivationKeys,
+    launch_authority_id: &[u8; 16],
+    session_id: &[u8; 16],
+    launch_generation: u64,
+    used_transfers: &mut std::collections::VecDeque<([u8; 16], [u8; 32], u64)>,
+    previous_sequence: u64,
+    now_unix_millis: u64,
+    authority: Option<&ProtectedRootControl>,
+) -> Result<Option<u64>, LaunchAuthorityError> {
+    if !runne_api::is_root_handle_control_frame(frame) {
+        return Ok(None);
+    }
+    let sequence = receive_root_handle_offer_for_ids(
+        channel,
+        frame,
+        keys,
+        launch_authority_id,
+        session_id,
+        launch_generation,
+        used_transfers,
+        previous_sequence,
+        now_unix_millis,
+        authority,
+    )?;
+    Ok(Some(sequence))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -40,15 +71,42 @@ pub(crate) fn receive_root_handle_offer(
     now_unix_millis: u64,
     authority: Option<&ProtectedRootControl>,
 ) -> Result<u64, LaunchAuthorityError> {
+    receive_root_handle_offer_for_ids(
+        channel,
+        frame,
+        keys,
+        owned.launch_authority_id(),
+        owned.session_id(),
+        owned.launch_generation(),
+        used_transfers,
+        previous_sequence,
+        now_unix_millis,
+        authority,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn receive_root_handle_offer_for_ids(
+    channel: &mut ProtectedActivationChannel,
+    frame: &[u8],
+    keys: &ProtectedActivationKeys,
+    launch_authority_id: &[u8; 16],
+    session_id: &[u8; 16],
+    launch_generation: u64,
+    used_transfers: &mut std::collections::VecDeque<([u8; 16], [u8; 32], u64)>,
+    previous_sequence: u64,
+    now_unix_millis: u64,
+    authority: Option<&ProtectedRootControl>,
+) -> Result<u64, LaunchAuthorityError> {
     let (sender_pid, effective_uid) = channel.peer_identity()?;
     let receiver_pid = std::process::id();
     let authenticator = RootHandleTransferAuthenticator::from_protected_activation(keys);
     let offer = RootHandleControlFrame::decode_offer_for_receiver(
         frame,
         &authenticator,
-        owned.launch_authority_id(),
-        owned.session_id(),
-        owned.launch_generation(),
+        launch_authority_id,
+        session_id,
+        launch_generation,
         sender_pid,
         receiver_pid,
         effective_uid,
