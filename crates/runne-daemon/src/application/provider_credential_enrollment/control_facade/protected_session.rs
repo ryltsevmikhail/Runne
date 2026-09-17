@@ -209,21 +209,6 @@ impl DaemonProtectedCredentialEnrollmentSession {
         Ok(())
     }
 
-    #[cfg(all(
-        test,
-        unix,
-        not(all(
-            target_os = "macos",
-            target_arch = "aarch64",
-            feature = "desktop-protected"
-        ))
-    ))]
-    pub(in crate::application::provider_credential_enrollment::control_facade) fn clear_http_facts(
-        &self,
-    ) {
-        self.control.clear_http_facts(self.http_session);
-    }
-
     pub(crate) fn take_bound_broker_handoff(
         &mut self,
     ) -> Result<
