@@ -8,7 +8,7 @@ rust-version.workspace = true
 runne-provider = { path = "../runne-provider" }
 runne-provider-chat-completions = { path = "../runne-provider-chat-completions" }
 runne-provider-quota = { path = "../runne-provider-quota" }
-runne-secure-store = { path = "../runne-secure-store" }
+runne-secure-store = { path = "../runne-secure-store", default-features = false }
 runne-store = { path = "../runne-store" }
 reqwest = { workspace = true, features = ["json", "rustls-tls", "stream"] }
 bytes = "1"
