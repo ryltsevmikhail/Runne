@@ -51,8 +51,15 @@ impl MacOsPeerKillCapability {
     ///
     /// # Errors
     ///
-    /// Fails closed after peer replacement or kernel signal rejection.
+    /// Fails closed after peer replacement, kernel signal rejection, or a
+    /// capture whose peer is the calling process itself: the writer is by
+    /// definition a foreign process, so a same-process capture (an in-process
+    /// fixture) must never be signalled.
     pub fn terminate_exact_peer(mut self) -> Result<(), MacOsPeerKillError> {
+        // SAFETY: `getpid` is a stateless system call with no preconditions.
+        if self.pid.get() == unsafe { libc::getpid() }.max(0).cast_unsigned() {
+            return Err(MacOsPeerKillError::Rejected);
+        }
         (MacOsProcessStartIdentity::observe(self.pid)
             .map_err(|_| MacOsPeerKillError::Rejected)?
             .digest()
