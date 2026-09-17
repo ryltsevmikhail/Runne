@@ -58,7 +58,7 @@ impl<L: RootAdmissionLease> RootAdmissionAuthorizer for VerifiedRootAdmissionAut
             && self.claims.workspace_id() == self.workspace_id
             && self.claims.expected_version() == self.expected_version;
         bindings_match
-            .then(|| RootAdmissionConsumption::from_claims(&self.claims))
+            .then(|| RootAdmissionConsumption::from_claims(self.claims))
             .ok_or(ProjectWorkspaceRepositoryError::Forbidden)
     }
 }

@@ -55,10 +55,10 @@ fn promote_pending(
     if !matching {
         return Err(RootAdmissionVerifierError::Rejected);
     }
-    if let Some(active) = state.active.get(&claims.workspace_id()) {
-        if !active_root_is_current(claims.expected_version(), active.version) {
-            return Ok(());
-        }
+    if let Some(active) = state.active.get(&claims.workspace_id())
+        && !active_root_is_current(claims.expected_version(), active.version)
+    {
+        return Ok(());
     }
     // Receipt-replay of an already committed bind re-delivers the same
     // admission: if a newer root already serves this workspace, the

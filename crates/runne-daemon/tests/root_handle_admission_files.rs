@@ -1,6 +1,9 @@
 #![cfg(all(unix, feature = "desktop-protected", feature = "test-support"))]
 
+// The shared admission fixture serves both admission test targets; each uses
+// a different subset, so unused fixture items here are expected.
 #[path = "root_handle_admission_authority/fixture.rs"]
+#[allow(dead_code)]
 mod fixture;
 
 use std::sync::{Arc, Mutex};
@@ -14,15 +17,7 @@ use runne_api::{
     StableRuntimeBinding, WorkspaceFileListRequest,
 };
 use runne_application::local_session::LocalSessionService;
-use runne_application::ports::RuntimeAuthorityId;
-use runne_application::prohibited_content::ProhibitedContentPort;
-use runne_domain::event::Sensitivity;
-use runne_domain::id::{CommandId, DaemonInstanceId, EventLogLineageId, IdempotencyKey, ProjectId};
-use runne_domain::project_workspace::{Project, ProjectWorkspaceDisplayName, Workspace};
-use runne_security::SecretBroker;
-use runne_store::{ProjectWorkspaceStore, store::StoreTransaction};
-use rusqlite::Connection;
-use std::path::PathBuf;
+use runne_domain::id::{CommandId, IdempotencyKey};
 
 use runne_daemon::application::root_admission_authority_fixture::RootAdmissionAuthorityFixture;
 
@@ -31,31 +26,6 @@ fn real_now() -> u64 {
         .duration_since(UNIX_EPOCH)
         .expect("clock")
         .as_millis() as u64
-}
-
-fn store() -> (tempfile::TempDir, PathBuf, StoreTransaction) {
-    let directory = tempfile::tempdir().expect("directory");
-    let runtime = directory.path().join("runtime");
-    let daemon = runtime.join("runne-daemon");
-    std::fs::create_dir_all(&daemon).expect("database layout");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700))
-            .expect("runtime permissions");
-        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700))
-            .expect("daemon permissions");
-    }
-    let path = daemon.join("admission-files.sqlite");
-    let guard: Arc<dyn ProhibitedContentPort> =
-        Arc::new(SecretBroker::new().prohibited_content_guard());
-    let store = StoreTransaction::open(
-        path.to_str().expect("database path"),
-        RuntimeAuthorityId(fixture::AUTHORITY_NAME.into()),
-        guard,
-    )
-    .expect("store");
-    (directory, path, store)
 }
 
 fn offer_at_version(
@@ -94,7 +64,7 @@ async fn bind_at(
         .bind_workspace_root(
             ProjectCommandContext {
                 command_id: CommandId::from_bytes(command_id),
-                idempotency_key: IdempotencyKey::new(&format!("bind-marker-{label}")).expect("key"),
+                idempotency_key: IdempotencyKey::new(format!("bind-marker-{label}")).expect("key"),
                 principal: ApiPrincipalId::new(fixture::PRINCIPAL).expect("principal"),
                 actor: ApiActor::new("desktop").expect("actor"),
             },
