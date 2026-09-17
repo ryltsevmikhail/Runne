@@ -74,14 +74,20 @@ fn get_provider_status(
 #[tauri::command]
 async fn get_provider_credential_enrollment_status(
     state: tauri::State<'_, std::sync::Arc<AppCore>>,
+    lifecycle: tauri::State<'_, RuntimeLifecycleManager>,
+    updater: tauri::State<'_, UpdateStatusStore>,
     provider: runne_api::ProviderCredentialProviderV2,
 ) -> Result<runne_app_core::ProviderCredentialEnrollmentProjection, IpcError> {
-    state
-        .provider_credential_enrollment_status(provider)
-        .await
-        .map_err(|_| IpcError {
-            code: "provider_credential_status_unavailable",
-        })
+    crate::provider_credential_enrollment::load_status(
+        state.inner(),
+        lifecycle.inner(),
+        updater.inner(),
+        provider,
+    )
+    .await
+    .map_err(|()| IpcError {
+        code: "provider_credential_status_unavailable",
+    })
 }
 
 #[tauri::command]
@@ -112,14 +118,16 @@ async fn request_provider_credential_intent(
     // Trusted native chain only: leases, native prompt, exact daemon
     // confirmation, V3 transition with writer handoff. The renderer receives
     // just the closed projection; every failure is fail-closed and actionable.
-    Box::pin(crate::provider_credential_enrollment::dispatch_credential_intent(
-        &app,
-        window,
-        lifecycle.inner(),
-        updater.inner(),
-        intents.inner(),
-        request,
-    ))
+    Box::pin(
+        crate::provider_credential_enrollment::dispatch_credential_intent(
+            &app,
+            window,
+            lifecycle.inner(),
+            updater.inner(),
+            intents.inner(),
+            request,
+        ),
+    )
     .await
     .map_err(|code| IpcError { code })
 }
@@ -130,8 +138,7 @@ fn credential_intent_window_is_current(
     label: &str,
     renderer_generation: u64,
 ) -> bool {
-    focused
-        && selections.renderer_generations().current(label).ok() == Some(renderer_generation)
+    focused && selections.renderer_generations().current(label).ok() == Some(renderer_generation)
 }
 
 #[cfg(test)]
@@ -147,9 +154,24 @@ mod provider_credential_intent_tests {
             .page_loaded("main")
             .expect("renderer generation");
 
-        assert!(!credential_intent_window_is_current(false, &selections, "main", current));
-        assert!(!credential_intent_window_is_current(true, &selections, "main", current + 1));
-        assert!(credential_intent_window_is_current(true, &selections, "main", current));
+        assert!(!credential_intent_window_is_current(
+            false,
+            &selections,
+            "main",
+            current
+        ));
+        assert!(!credential_intent_window_is_current(
+            true,
+            &selections,
+            "main",
+            current + 1
+        ));
+        assert!(credential_intent_window_is_current(
+            true,
+            &selections,
+            "main",
+            current
+        ));
         drop(selections);
     }
 }

@@ -1,11 +1,3 @@
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Task 15 mounts V2 only after qualified authenticated admission is composed"
-    )
-)]
-
 //! Protected V2 credential enrollment routes and their fail-closed mount guard.
 
 use axum::{
@@ -13,12 +5,8 @@ use axum::{
     extract::DefaultBodyLimit,
     routing::{get, post},
 };
-use runne_api::{
-    PROVIDER_CREDENTIAL_ENROLLMENT_CAPABILITY_V2, ProviderCredentialEnrollmentHostPort,
-};
+use runne_api::ProviderCredentialEnrollmentHostPort;
 use std::sync::Arc;
-
-use crate::runtime_profile::RuntimeProfileHttpState;
 
 mod admission;
 mod handlers;
@@ -101,23 +89,4 @@ where
         )
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(state)
-}
-
-/// Signals that V2 was advertised before an authenticated transport admission
-/// was supplied by its owner.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ProviderCredentialEnrollmentV2Mount {
-    MissingAuthenticatedAdmission,
-}
-
-/// Rejects V2 capability advertisement until the protected transport owner
-/// provides the server-derived admission required to mount its routes.
-pub(crate) fn require_authenticated_admission(
-    runtime_profile_state: &RuntimeProfileHttpState,
-) -> Result<(), ProviderCredentialEnrollmentV2Mount> {
-    if runtime_profile_state.advertises(PROVIDER_CREDENTIAL_ENROLLMENT_CAPABILITY_V2) {
-        Err(ProviderCredentialEnrollmentV2Mount::MissingAuthenticatedAdmission)
-    } else {
-        Ok(())
-    }
 }

@@ -14,6 +14,7 @@ describe('TargetCapabilityBoundary', () => {
     })
 
     expect(wrapper.get('[role="status"]').text()).toContain('task-run-inventory')
+    expect(wrapper.get('details').attributes('open')).toBeUndefined()
     expect(wrapper.text()).not.toContain('Ready')
   })
 

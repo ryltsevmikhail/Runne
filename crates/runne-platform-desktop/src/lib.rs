@@ -128,12 +128,17 @@ pub use updater_metadata::{
     UpdateSnapshotRoleV2, UpdateTargetV2, UpdateTargetV2Binding, UpdateTargetsRoleV2,
     UpdateTimestampRoleV2, UpdateTrustRootV2, UpdateV2VerificationError,
     VerifiedDaemonNativeEnrollmentPrepare, VerifiedMacOsWriterLaunch,
-    VerifiedSignedNativeEnrollmentTupleV3, VerifiedUpdateV2,
-    evaluate_native_enrollment_tuple_v3_update, update_metadata_signing_bytes, verify_update_v2,
+    VerifiedQualificationBootstrapClientPins, VerifiedSignedNativeEnrollmentTupleV3,
+    VerifiedUpdateV2, evaluate_native_enrollment_tuple_v3_update, update_metadata_signing_bytes,
+    verify_update_v2,
 };
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use updater_metadata::{
-    QualificationAdmissionError, VerifiedInstalledEnrollmentMeasurementFacts,
+    PreparedDesktopQualificationRun, QualificationAdmissionError,
+    VerifiedDesktopQualificationOffer, VerifiedInstalledEnrollmentCapability,
+    VerifiedInstalledEnrollmentMeasurementFacts, VerifiedInstalledQualificationBootstrapCandidate,
+    VerifiedInstalledQualificationBootstrapDesktop, VerifiedInstalledQualificationGuiExecutor,
+    VerifiedQualificationRunTransport, VerifiedRuntimeQualificationAcknowledgement,
 };
 pub use updater_trust::{UpdateTrustError, UpdateTrustJournal, UpdateTrustState};
 

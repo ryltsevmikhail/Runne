@@ -6,8 +6,8 @@ use crate::ports::{
 use runne_api::{
     BindWorkspaceRootCommand, CreateProjectCommand, CreateWorkspaceCommand, ExistingProjectCommand,
     ExistingWorkspaceCommand, ProjectCommandAck, ProjectCommandContext, ProjectPage,
-    ProjectPageRequest, ProjectQueryContext, ProjectSnapshot, WorkspaceCommandAck, WorkspacePage,
-    WorkspacePageRequest, WorkspaceSnapshot,
+    ProjectPageRequest, ProjectQueryContext, ProjectSnapshot, RenameProjectCommand,
+    WorkspaceCommandAck, WorkspacePage, WorkspacePageRequest, WorkspaceSnapshot,
 };
 use runne_domain::project_workspace::{Project, Workspace};
 mod root_admission;
@@ -95,6 +95,27 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
             new_version: project.version(),
         })
     }
+    pub fn rename_project(
+        &self,
+        context: ProjectCommandContext,
+        command: RenameProjectCommand,
+    ) -> Result<ProjectCommandAck, ProjectWorkspaceServiceError> {
+        let project = self
+            .repository
+            .rename_project(
+                context.principal.as_str(),
+                context.command_id,
+                &context.idempotency_key,
+                command.project_id,
+                command.expected_version,
+                command.display_name.into_domain(),
+            )
+            .map_err(map_error)?;
+        Ok(ProjectCommandAck {
+            project_id: project.id(),
+            new_version: project.version(),
+        })
+    }
     pub fn delete_project(
         &self,
         context: ProjectCommandContext,
@@ -172,7 +193,7 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
             .map_err(map_admission_error)?;
         let mut authorizer = VerifiedRootAdmissionAuthorizer::new(
             lease,
-            claims,
+            &claims,
             &context,
             command.workspace_id,
             command.expected_version,
@@ -188,6 +209,11 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
                 &mut authorizer,
             )
             .map_err(map_error)?;
+        // The durable bind now owns the admitted root: promote the retained
+        // handle to the serving state only after the commit succeeded.
+        self.admission_verifier
+            .confirm_root_admission(&claims)
+            .map_err(map_admission_error)?;
         Ok(workspace_ack(workspace))
     }
 }

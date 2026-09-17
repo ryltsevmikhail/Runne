@@ -23,8 +23,8 @@ const conversationSnapshot = {
   recovery: 'live',
 } as const
 
-export async function installDesktopAdapter(page: Page): Promise<void> {
-  await page.addInitScript(({ currentProject, currentWorkspace, initialConversation }) => {
+export async function installDesktopAdapter(page: Page, withWorkspace = false): Promise<void> {
+  await page.addInitScript(({ currentProject, currentWorkspace, initialConversation, withWorkspace }) => {
     type TauriInternals = {
       invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown>
       transformCallback: () => number
@@ -34,7 +34,8 @@ export async function installDesktopAdapter(page: Page): Promise<void> {
     type ReplayWindow = Window & { __TAURI_INTERNALS__: TauriInternals }
 
     ;(globalThis as typeof globalThis & { isTauri: boolean }).isTauri = true
-    let workspaceCreated = false
+    let workspaceCreated = withWorkspace
+    let savedProject = { ...currentProject, displayName: String(currentProject.displayName), version: Number(currentProject.version) }
     ;(window as ReplayWindow).__TAURI_INTERNALS__ = {
       transformCallback() {
         return 1
@@ -86,10 +87,18 @@ export async function installDesktopAdapter(page: Page): Promise<void> {
             return args?.workspaceId === currentWorkspace.workspaceId
               ? currentWorkspace
               : null
+          case 'list_canonical_projects':
+            return [savedProject]
           case 'get_canonical_project':
             return args?.projectId === currentProject.projectId
-              ? { project: currentProject, workspaces: workspaceCreated ? [currentWorkspace] : [] }
+              ? { project: savedProject, workspaces: workspaceCreated ? [currentWorkspace] : [] }
               : null
+          case 'rename_runtime_project': {
+            const request = args?.request as { projectId: string; expectedVersion: number; displayName: string }
+            if (request.projectId !== savedProject.projectId || request.expectedVersion !== savedProject.version) throw new Error('conflict')
+            savedProject = { ...savedProject, displayName: request.displayName, version: savedProject.version + 1 }
+            return { projectId: savedProject.projectId, newVersion: savedProject.version }
+          }
           case 'create_runtime_workspace':
             workspaceCreated = true
             return { workspaceId: currentWorkspace.workspaceId, newVersion: 1 }
@@ -100,5 +109,5 @@ export async function installDesktopAdapter(page: Page): Promise<void> {
         }
       },
     }
-  }, { currentProject: project, currentWorkspace: workspace, initialConversation: conversationSnapshot })
+  }, { currentProject: project, currentWorkspace: workspace, initialConversation: conversationSnapshot, withWorkspace })
 }

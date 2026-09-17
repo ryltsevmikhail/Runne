@@ -20,6 +20,7 @@ pub(super) enum OutcomeWire {
     CreateProject { project_id: CanonicalId, new_version: u64 },
     ArchiveProject { project_id: CanonicalId, new_version: u64 },
     DeleteProject { project_id: CanonicalId, new_version: u64 },
+    RenameProject { project_id: CanonicalId, new_version: u64 },
     CreateWorkspace { workspace_id: CanonicalId, new_version: u64 },
     BindWorkspaceRoot { workspace_id: CanonicalId, new_version: u64 },
     OpenWorkspace { workspace_id: CanonicalId, new_version: u64 },

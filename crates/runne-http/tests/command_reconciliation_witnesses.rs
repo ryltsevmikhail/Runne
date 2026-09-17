@@ -37,7 +37,7 @@ impl CommandReconciliationHostPort for Host {
 }
 
 #[tokio::test]
-async fn all_eight_witnesses_reach_the_read_only_host_with_middleware_principal() {
+async fn all_nine_witnesses_reach_the_read_only_host_with_middleware_principal() {
     let calls: Calls = Arc::default();
     let app = create_router_with_command_reconciliation(
         TOKEN,
@@ -66,6 +66,12 @@ async fn all_eight_witnesses_reach_the_read_only_host_with_middleware_principal(
                 r#"{{"operation":"delete_project","projectId":"{PROJECT}","expectedVersion":1}}"#
             ),
             ReconciliationOperation::DeleteProject,
+        ),
+        (
+            format!(
+                r#"{{"operation":"rename_project","projectId":"{PROJECT}","expectedVersion":1,"displayName":"Renamed"}}"#
+            ),
+            ReconciliationOperation::RenameProject,
         ),
         (
             format!(

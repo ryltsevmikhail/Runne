@@ -133,6 +133,18 @@ fn v3_fixture(
         .iter()
         .map(|capability| (*capability).to_owned())
         .collect::<Vec<_>>();
+    v3_fixture_with_capabilities(substitute_certificate_digest, binding_marker, capabilities)
+}
+
+fn v3_fixture_with_capabilities(
+    substitute_certificate_digest: bool,
+    binding_marker: u8,
+    capabilities: Vec<String>,
+) -> (
+    ProtectedCredentialEnrollmentLaunchRequestV3,
+    ProtectedCredentialEnrollmentReadyV3,
+    runne_api::ProtectedActivationKeys,
+) {
     let profile_hash: [u8; 32] = hex::decode(crate::GOLDEN_BUNDLE_HASH)
         .expect("schema hash")
         .try_into()

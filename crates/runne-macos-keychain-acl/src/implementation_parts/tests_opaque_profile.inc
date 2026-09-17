@@ -79,13 +79,24 @@ fn matching_opaque_shape(access: &SecAccess, authorization: CFStringRef) -> (usi
 }
 
 fn repurpose_empty_owner_acl(access: &SecAccess, authorization: CFStringRef) {
+    repurpose_empty_owner_acl_with_authorizations(access, &[authorization]);
+}
+
+fn repurpose_empty_owner_acl_with_authorizations(
+    access: &SecAccess,
+    authorizations: &[CFStringRef],
+) {
     let mut empty = opaque_acl_records(access)
         .into_iter()
         .filter(|acl| opaque_authorizations(acl).is_empty());
     let acl = empty.next().expect("one empty owner ACL");
     assert!(empty.next().is_none());
-    let authorization = unsafe { CFString::wrap_under_get_rule(authorization) };
-    let authorizations = CFArray::from_CFTypes(&[authorization]);
+    let authorizations = CFArray::from_CFTypes(
+        &authorizations
+            .iter()
+            .map(|authorization| unsafe { CFString::wrap_under_get_rule(*authorization) })
+            .collect::<Vec<_>>(),
+    );
     assert_eq!(
         unsafe {
             SecACLUpdateAuthorizations(
@@ -237,14 +248,40 @@ fn partition_rejects_an_unexpected_opaque_acl() {
 }
 
 #[test]
-fn opaque_any_authorization_is_not_accepted_as_a_default_owner() {
-    let current = std::env::current_exe().unwrap();
-    let exact = ExactKeychainAccess::new(&current, &current).unwrap();
-    repurpose_empty_owner_acl(&exact.creation_access, unsafe {
-        kSecACLAuthorizationAny
-    });
+fn partition_readback_requires_homogeneous_records() {
+    let full = vec![
+        String::from("cdhash:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        String::from("cdhash:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+    ];
+    let duplicate = full.clone();
+    let subset = vec![String::from("cdhash:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")];
+    let mut foreign = full.clone();
+    foreign.push(String::from("cdhash:cccccccccccccccccccccccccccccccccccccccc"));
+
+    // macOS 27 duplicates the full record next to subset records, and
+    // decrypt enforcement requires the reader in every record, so the
+    // readback is homogeneous: duplicates of the full record pass, while
+    // a subset record, any foreign id, or no record at all is rejected.
     assert_eq!(
-        verify_decrypt_access(&exact.creation_access),
-        Err(KeychainAclError::AccessDenied),
+        homogeneous_partition_ids(&[full.clone(), duplicate]),
+        Ok(full.clone())
+    );
+    assert_eq!(
+        homogeneous_partition_ids(&[full.clone(), subset]),
+        Err(KeychainAclError::AccessDenied)
+    );
+    assert_eq!(
+        homogeneous_partition_ids(&[full, foreign]),
+        Err(KeychainAclError::AccessDenied)
+    );
+    assert_eq!(
+        homogeneous_partition_ids(&[]),
+        Err(KeychainAclError::AccessDenied)
+    );
+    assert_eq!(
+        homogeneous_partition_ids(&[Vec::new()]),
+        Err(KeychainAclError::AccessDenied)
     );
 }
+
+include!("tests_opaque_profile_extra.inc");

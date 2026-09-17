@@ -5,7 +5,9 @@ import { GcTitleBar } from '@runne/product/shared/ui'
 <template>
   <GcTitleBar
     class="desktop-title-bar"
-    data-tauri-drag-region
+    native-window-controls
+    hide-brand
+    data-tauri-drag-region="deep"
     aria-hidden="true"
   />
 </template>

@@ -182,6 +182,7 @@ fn find_seal_key(label: &str) -> Result<Option<SecKey>, KeychainAclError> {
         .key_class(KeyClass::private())
         .label(label)
         .load_refs(true)
+        .ignore_legacy_keychains()
         .limit(2_i64);
     match options.search() {
         Ok(mut matches) => match matches.len() {

@@ -1,0 +1,9 @@
+// Exact historical schema retained for non-destructive upgrade verification.
+pub const V1_SCHEMA_SQL: &str = "BEGIN IMMEDIATE;
+CREATE TABLE ledger_meta (singleton INTEGER PRIMARY KEY CHECK(singleton=1), schema_id TEXT NOT NULL) STRICT;
+INSERT INTO ledger_meta VALUES (1, 'runne/qualification-runner-replay/v1');
+CREATE TABLE immutable_runs (source_revision BLOB NOT NULL CHECK(length(source_revision)=20), workflow_run_id TEXT NOT NULL, namespace_sha256 BLOB NOT NULL CHECK(length(namespace_sha256)=32), candidate_sha256 BLOB NOT NULL CHECK(length(candidate_sha256)=32), raw_tuple_sha256 BLOB NOT NULL CHECK(length(raw_tuple_sha256)=32), manifest_sha256 BLOB NOT NULL CHECK(length(manifest_sha256)=32), profile_sha256 BLOB NOT NULL CHECK(length(profile_sha256)=32), PRIMARY KEY(source_revision, workflow_run_id, namespace_sha256)) STRICT;
+CREATE TABLE replay_keys (domain INTEGER NOT NULL CHECK(domain BETWEEN 1 AND 4), replay_key BLOB NOT NULL CHECK(length(replay_key)=32), source_revision BLOB NOT NULL, workflow_run_id TEXT NOT NULL, namespace_sha256 BLOB NOT NULL, PRIMARY KEY(domain, replay_key), FOREIGN KEY(source_revision, workflow_run_id, namespace_sha256) REFERENCES immutable_runs(source_revision, workflow_run_id, namespace_sha256)) STRICT;
+CREATE TABLE fault_cases (context_id BLOB NOT NULL CHECK(length(context_id)=32), context_nonce BLOB NOT NULL CHECK(length(context_nonce)=32), ticket_id BLOB NOT NULL CHECK(length(ticket_id)=32), ticket_nonce BLOB NOT NULL CHECK(length(ticket_nonce)=32), fingerprint BLOB NOT NULL UNIQUE CHECK(length(fingerprint)=32), source_revision BLOB NOT NULL, workflow_run_id TEXT NOT NULL, namespace_sha256 BLOB NOT NULL, FOREIGN KEY(source_revision, workflow_run_id, namespace_sha256) REFERENCES immutable_runs(source_revision, workflow_run_id, namespace_sha256)) STRICT;
+PRAGMA user_version=1;
+COMMIT;";

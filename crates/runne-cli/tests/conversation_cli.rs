@@ -12,32 +12,13 @@ use runne_runtime_client::{
     CanonicalId, CommandIdentity, CreateProjectRequest, CreateWorkspaceRequest, LocalRuntimeProfile,
 };
 use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cli_creates_sends_and_reads_a_conversation_through_the_real_daemon() {
-    let directory = tempfile::tempdir().expect("temp directory");
-    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700))
-        .expect("secure temp directory");
-    let mut defaults = BuiltInDefaults::new(directory.path());
-    defaults.http_bind = "127.0.0.1:0".to_owned();
-    let config = ConfigurationSnapshot::from_defaults(&defaults);
-    let application = DaemonApplication::start(&config)
-        .await
-        .expect("start daemon");
-    let (stop, stopped) = oneshot::channel();
-    let daemon = tokio::spawn(async move {
-        application
-            .run(async move {
-                stopped
-                    .await
-                    .map_err(|_| DaemonError::Bootstrap("test shutdown sender dropped".to_owned()))
-            })
-            .await
-    });
-    let profile =
-        PathBuf::from(&config.replay_integrity_key_path).with_file_name("client-profile.json");
-    let workspace_id = seed_workspace(&profile).await;
-    let workspace_id = workspace_id.to_string();
+    let daemon = Box::pin(start_test_daemon()).await;
+    let profile = &daemon.profile;
+    let workspace_id = seed_workspace(profile).await.to_string();
 
     let created = run_cli([
         "--profile",
@@ -110,25 +91,91 @@ async fn cli_creates_sends_and_reads_a_conversation_through_the_real_daemon() {
     assert_eq!(messages["messages"][0]["role"], "user");
     assert_eq!(messages["messages"][1]["role"], "assistant");
 
-    stop.send(()).expect("stop daemon");
-    tokio::time::timeout(Duration::from_secs(15), daemon)
+    assert_doctor_json_report(profile).await;
+
+    daemon.stop.send(()).expect("stop daemon");
+    tokio::time::timeout(Duration::from_secs(15), daemon.task)
         .await
         .expect("daemon shutdown timeout")
         .expect("daemon task")
         .expect("daemon shutdown");
 }
 
-fn parse_messages_output(output: &std::process::Output) -> serde_json::Value {
+// The doctor report always prints to stdout (exit code may be non-zero when
+// checks fail), and JSON clients still receive typed `data`.
+async fn assert_doctor_json_report(profile: &Path) {
+    let doctor = run_cli([
+        "--format",
+        "json",
+        "--profile",
+        profile.to_str().expect("profile path"),
+        "doctor",
+    ])
+    .await;
+    let doctor_data = parse_typed_success_data(&doctor, "doctor");
+    assert!(doctor_data["overall_status"].is_string());
+    assert!(
+        !doctor_data["checks"]
+            .as_array()
+            .expect("doctor checks array")
+            .is_empty()
+    );
+}
+
+struct RunningDaemon {
+    _directory: tempfile::TempDir,
+    profile: PathBuf,
+    stop: oneshot::Sender<()>,
+    task: JoinHandle<Result<(), DaemonError>>,
+}
+
+async fn start_test_daemon() -> RunningDaemon {
+    let directory = tempfile::tempdir().expect("temp directory");
+    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700))
+        .expect("secure temp directory");
+    let mut defaults = BuiltInDefaults::new(directory.path());
+    "127.0.0.1:0".clone_into(&mut defaults.http_bind);
+    let config = ConfigurationSnapshot::from_defaults(&defaults);
+    let application = Box::pin(DaemonApplication::start(&config))
+        .await
+        .expect("start daemon");
+    let (stop, stopped) = oneshot::channel();
+    let daemon = tokio::spawn(async move {
+        application
+            .run(async move {
+                stopped
+                    .await
+                    .map_err(|_| DaemonError::Bootstrap("test shutdown sender dropped".to_owned()))
+            })
+            .await
+    });
+    let profile =
+        PathBuf::from(&config.replay_integrity_key_path).with_file_name("client-profile.json");
+    RunningDaemon {
+        _directory: directory,
+        profile,
+        stop,
+        task: daemon,
+    }
+}
+
+/// JSON clients perform exactly one parse: `data` must be the typed payload,
+/// never a pre-serialized JSON string such as `data.output = "{...}"`.
+fn parse_typed_success_data(output: &std::process::Output, command: &str) -> serde_json::Value {
     let envelope: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("messages JSON");
-    assert_eq!(envelope["schemaVersion"], 1);
-    assert_eq!(envelope["ok"], true);
-    serde_json::from_str(
-        envelope["data"]["output"]
-            .as_str()
-            .expect("messages JSON output"),
-    )
-    .expect("messages JSON payload")
+        serde_json::from_slice(&output.stdout).expect("one-parse JSON envelope");
+    assert_eq!(envelope["schemaVersion"], 1, "{command}");
+    assert_eq!(envelope["ok"], true, "{command}");
+    let data = &envelope["data"];
+    assert!(
+        data.get("output").is_none(),
+        "{command}: stringly data.output payload is forbidden"
+    );
+    data.clone()
+}
+
+fn parse_messages_output(output: &std::process::Output) -> serde_json::Value {
+    parse_typed_success_data(output, "conversation messages")
 }
 
 #[tokio::test]

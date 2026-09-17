@@ -53,6 +53,25 @@ pub(super) fn outcome_for(
             }),
         ),
         (
+            CommandReconciliationWitnessRef::RenameProject {
+                project_id,
+                expected_version,
+                display_name,
+            },
+            ProjectWorkspaceReceipt::Project(project),
+        ) if project.id() == project_id
+            && project.version() == next_version(expected_version)?
+            && !project.archived()
+            && project.display_name() == display_name.as_str() =>
+        {
+            Ok(AuthoritativeCommandOutcome::project_renamed(
+                ProjectCommandAck {
+                    project_id,
+                    new_version: project.version(),
+                },
+            ))
+        }
+        (
             CommandReconciliationWitnessRef::CreateWorkspace {
                 workspace_id,
                 project_id,

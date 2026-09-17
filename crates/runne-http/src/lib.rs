@@ -23,6 +23,7 @@ pub mod project_workspace;
 pub(crate) mod provider_credential_enrollment;
 pub use provider_credential_enrollment::{
     ProviderCredentialEnrollmentHttpAdmission, ProviderCredentialEnrollmentHttpAdmissionResolver,
+    ProviderCredentialEnrollmentHttpState, provider_credential_enrollment_router,
 };
 pub mod provider_credentials;
 pub mod queries;

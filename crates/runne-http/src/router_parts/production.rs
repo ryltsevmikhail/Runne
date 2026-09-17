@@ -90,7 +90,7 @@ impl SecureLocalHttpHost {
         {
             return Err(SecureLocalHttpHostError::CapabilityDigestMismatch);
         }
-        require_provider_credential_enrollment_admission(&runtime_profile_state)?;
+        require_provider_credential_enrollment_admission(&runtime_profile_state, false)?;
         let advertises_telemetry = runtime_profile_state.advertises(OPERATIONAL_TELEMETRY_CAPABILITY_V1);
         if operational_telemetry_state.is_some() && !advertises_telemetry {
             return Err(SecureLocalHttpHostError::OperationalTelemetryCapabilityMissing);

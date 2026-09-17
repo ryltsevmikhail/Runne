@@ -12,6 +12,8 @@ pub(super) struct StartupProvider {
     launch_authority_id: Option<[u8; 16]>,
     dependencies: Option<ProtectedProviderDependencyCapsule>,
     root_admission_keys: Option<runne_api::ProtectedActivationKeys>,
+    enrollment_capability:
+        Option<crate::protected_activation::VerifiedProtectedEnrollmentCapability>,
 }
 
 type StartupProviderParts = (
@@ -21,6 +23,7 @@ type StartupProviderParts = (
     bool,
     Option<ProtectedProviderDependencyCapsule>,
     Option<runne_api::ProtectedActivationKeys>,
+    Option<crate::protected_activation::VerifiedProtectedEnrollmentCapability>,
 );
 impl StartupProvider {
     pub(super) fn deterministic(config: &ConfigurationSnapshot) -> Result<Self, DaemonError> {
@@ -37,6 +40,7 @@ impl StartupProvider {
             launch_authority_id: None,
             dependencies: None,
             root_admission_keys: None,
+            enrollment_capability: None,
         })
     }
 
@@ -52,6 +56,7 @@ impl StartupProvider {
             launch_authority_id: None,
             dependencies: Some(dependencies),
             root_admission_keys: None,
+            enrollment_capability: None,
         }
     }
 
@@ -60,6 +65,9 @@ impl StartupProvider {
         start: &VerifiedProtectedApplicationStart,
         keys: runne_api::ProtectedActivationKeys,
         dependencies: ProtectedProviderDependencyCapsule,
+        enrollment_capability: Option<
+            crate::protected_activation::VerifiedProtectedEnrollmentCapability,
+        >,
     ) -> Self {
         Self {
             activation: start.provider_activation().clone(),
@@ -69,6 +77,7 @@ impl StartupProvider {
             launch_authority_id: Some(start.launch_authority_id()),
             dependencies: Some(dependencies),
             root_admission_keys: Some(keys),
+            enrollment_capability,
         }
     }
 
@@ -86,6 +95,7 @@ impl StartupProvider {
             protected,
             self.dependencies,
             self.root_admission_keys,
+            self.enrollment_capability,
         )
     }
 }

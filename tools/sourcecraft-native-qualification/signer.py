@@ -50,7 +50,7 @@ def issue(policy_value: object, root: Path, key_path: Path, *, production: bool 
     _transcript(transcript, policy); _service(service)
     if not isinstance(run, str) or transcript["workflow_run_id"] != run or service["workflow_run_id"] != run:
         raise Rejected("issuance receipts are not one lifecycle")
-    if production: verify_roles(package, row["tuple"])
+    if production: verify_roles(package, row["tuple"], row["code_identities"])
     receipt = _attestation_receipt(policy, run, digest(actual), digest(signed_subject(measured)), bundle)
     if lifecycle["attestation_receipt_sha256"] != digest(receipt): raise Rejected("package attestation differs")
     seed = _seed(key_path, policy, production)

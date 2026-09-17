@@ -69,6 +69,24 @@ impl Project {
         }
     }
 
+    /// Rehydrates a previously validated authoritative Project projection.
+    pub fn rehydrate(
+        id: ProjectId,
+        display_name: ProjectWorkspaceDisplayName,
+        version: u64,
+        archived: bool,
+    ) -> Result<Self, ProjectWorkspaceError> {
+        if version == 0 || (archived && version == 1) {
+            return Err(ProjectWorkspaceError::InvalidTransition);
+        }
+        Ok(Self {
+            id,
+            display_name,
+            version,
+            archived,
+        })
+    }
+
     /// Marks the Project archived and advances its version.
     pub fn archive(&mut self) -> Result<(), ProjectWorkspaceError> {
         if self.archived {
@@ -88,6 +106,22 @@ impl Project {
             return Err(ProjectWorkspaceError::InvalidTransition);
         }
         self.archived = false;
+        self.version = self
+            .version
+            .checked_add(1)
+            .ok_or(ProjectWorkspaceError::InvalidTransition)?;
+        Ok(())
+    }
+
+    /// Changes the renderer-visible Project name and advances its version.
+    pub fn rename(
+        &mut self,
+        display_name: ProjectWorkspaceDisplayName,
+    ) -> Result<(), ProjectWorkspaceError> {
+        if self.archived || self.display_name == display_name {
+            return Err(ProjectWorkspaceError::InvalidTransition);
+        }
+        self.display_name = display_name;
         self.version = self
             .version
             .checked_add(1)
@@ -190,6 +224,8 @@ pub enum ProjectWorkspaceEvent {
     ProjectCreated { project_id: ProjectId },
     /// A Project was archived.
     ProjectArchived { project_id: ProjectId },
+    /// A Project display name was changed.
+    ProjectRenamed { project_id: ProjectId },
     /// A Project was restored.
     ProjectRestored { project_id: ProjectId },
     /// A Project was deleted.

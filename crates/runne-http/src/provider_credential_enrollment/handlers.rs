@@ -1,11 +1,3 @@
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the protected V2 router remains unmounted until qualified admission is composed"
-    )
-)]
-
 use std::sync::Arc;
 
 use axum::{
@@ -42,7 +34,9 @@ where
         Ok(value) => value,
         Err(_) => return invalid(&request_id),
     };
-    let admission = match mutation_admission_for_begin(&state, admission, session, &command) {
+    let admission = match base_admission(&state, admission, session, |resolver, session_id| {
+        resolver.resolve_begin(session_id, &command)
+    }) {
         Ok(value) => value,
         Err(error) => return host_error(error, &request_id),
     };
@@ -59,6 +53,7 @@ where
 pub(super) async fn resume<H>(
     State(state): State<ProviderCredentialEnrollmentHttpState<H>>,
     admission: Option<Extension<Arc<ProviderCredentialEnrollmentHttpAdmission>>>,
+    session: Option<Extension<AuthenticatedRuntimeSession>>,
     request_id: Option<Extension<RequestId>>,
     body: Result<Json<ResumeBody>, axum::extract::rejection::JsonRejection>,
 ) -> Response
@@ -72,49 +67,24 @@ where
         Ok(value) => value,
         Err(_) => return invalid(&request_id),
     };
-    let Some(Extension(admission)) = admission else {
-        return host_error(
-            ProviderCredentialEnrollmentHostError::AccessDenied,
-            &request_id,
-        );
+    let operation_id = body.operation_id;
+    let admission = match base_admission(&state, admission, session, |resolver, session_id| {
+        resolver.resolve_resume(session_id, operation_id)
+    }) {
+        Ok(value) => value,
+        Err(error) => return host_error(error, &request_id),
     };
     let (authority, context) = match admission.take_base() {
         Ok(value) => value,
         Err(error) => return host_error(error, &request_id),
     };
-    match state
-        .host
-        .resume(authority, context, body.operation_id)
-        .await
-    {
+    match state.host.resume(authority, context, operation_id).await {
         Ok(snapshot) => (axum::http::StatusCode::OK, Json(snapshot)).into_response(),
         Err(error) => host_error(error, &request_id),
     }
 }
 
-fn mutation_admission_for_begin<H>(
-    state: &ProviderCredentialEnrollmentHttpState<H>,
-    admission: Option<Extension<Arc<ProviderCredentialEnrollmentHttpAdmission>>>,
-    session: Option<Extension<AuthenticatedRuntimeSession>>,
-    command: &BeginProviderCredentialEnrollment,
-) -> Result<Arc<ProviderCredentialEnrollmentHttpAdmission>, ProviderCredentialEnrollmentHostError> {
-    resolve_mutation(state, admission, session, |resolver, session_id| {
-        resolver.resolve_begin(session_id, command)
-    })
-}
-
-fn mutation_admission_for_verify<H>(
-    state: &ProviderCredentialEnrollmentHttpState<H>,
-    admission: Option<Extension<Arc<ProviderCredentialEnrollmentHttpAdmission>>>,
-    session: Option<Extension<AuthenticatedRuntimeSession>>,
-    command: &VerifyProviderCredential,
-) -> Result<Arc<ProviderCredentialEnrollmentHttpAdmission>, ProviderCredentialEnrollmentHostError> {
-    resolve_mutation(state, admission, session, |resolver, session_id| {
-        resolver.resolve_verify(session_id, command)
-    })
-}
-
-fn resolve_mutation<H>(
+fn base_admission<H>(
     state: &ProviderCredentialEnrollmentHttpState<H>,
     admission: Option<Extension<Arc<ProviderCredentialEnrollmentHttpAdmission>>>,
     session: Option<Extension<AuthenticatedRuntimeSession>>,
@@ -138,6 +108,7 @@ fn resolve_mutation<H>(
 pub(super) async fn status<H>(
     State(state): State<ProviderCredentialEnrollmentHttpState<H>>,
     admission: Option<Extension<Arc<ProviderCredentialEnrollmentHttpAdmission>>>,
+    session: Option<Extension<AuthenticatedRuntimeSession>>,
     request_id: Option<Extension<RequestId>>,
     Path(provider): Path<String>,
 ) -> Response
@@ -152,11 +123,11 @@ where
         "deepseek" => ProviderCredentialProviderV2::DeepSeek,
         _ => return invalid(&request_id),
     };
-    let Some(Extension(admission)) = admission else {
-        return host_error(
-            ProviderCredentialEnrollmentHostError::AccessDenied,
-            &request_id,
-        );
+    let admission = match base_admission(&state, admission, session, |resolver, session_id| {
+        resolver.resolve_status(session_id, &provider)
+    }) {
+        Ok(value) => value,
+        Err(error) => return host_error(error, &request_id),
     };
     let (authority, _) = match admission.take_base() {
         Ok(value) => value,
@@ -185,7 +156,9 @@ where
         Ok(value) => value,
         Err(_) => return invalid(&request_id),
     };
-    let admission = match mutation_admission_for_verify(&state, admission, session, &command) {
+    let admission = match base_admission(&state, admission, session, |resolver, session_id| {
+        resolver.resolve_verify(session_id, &command)
+    }) {
         Ok(value) => value,
         Err(error) => return host_error(error, &request_id),
     };

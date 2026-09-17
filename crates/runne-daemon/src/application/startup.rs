@@ -120,11 +120,13 @@ impl DaemonApplication {
     /// Starts from an already authenticated protected bundled bootstrap.
     #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
     pub(super) async fn start_protected(
-        start: VerifiedProtectedApplicationStart,
+        mut start: VerifiedProtectedApplicationStart,
         keys: ProtectedActivationKeys,
         dependencies: ProtectedProviderDependencyCapsule,
     ) -> Result<Self, DaemonError> {
-        let startup = StartupProvider::verified_protected(&start, keys, dependencies);
+        let enrollment_capability = start.take_enrollment_capability();
+        let startup =
+            StartupProvider::verified_protected(&start, keys, dependencies, enrollment_capability);
         let (config, bootstrap, _) = start.into_parts();
         Self::validate_config(&config)?;
         Self::start_with_bootstrap(&config, bootstrap, startup).await

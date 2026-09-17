@@ -3,9 +3,7 @@
 #[cfg(feature = "desktop-protected")]
 use crate::application::root_handle_admission::RootHandleAdmissionAuthority;
 #[cfg(any(unix, windows))]
-use crate::bootstrap::{
-    BootstrapOutcome, bootstrap_protected, preflight_recoverable_first_activation_sidecars,
-};
+use crate::bootstrap::{BootstrapOutcome, preflight_recoverable_first_activation_sidecars};
 #[cfg(any(unix, windows))]
 use crate::config::{BuiltInDefaults, ConfigurationSnapshot};
 #[cfg(any(unix, windows))]
@@ -248,6 +246,8 @@ pub(crate) use control::{run_control_loop, run_control_loop_v2};
 pub use first_activation::random_control_secret;
 #[cfg(any(unix, windows))]
 pub use host::run_verified_protected_channel;
+#[cfg(any(unix, windows))]
+pub(crate) use launch::VerifiedProtectedEnrollmentCapability;
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 pub(crate) use launch::{VerifiedProtectedApplicationStart, VerifiedProtectedRuntimeStart};
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
@@ -284,17 +284,4 @@ mod test_root_admission_fixture;
 #[cfg(all(unix, feature = "test-support"))]
 pub mod test_support;
 
-#[cfg(any(unix, windows))]
-pub(crate) fn validate_protected_bootstrap_connection(
-    config: &ConfigurationSnapshot,
-    connection: &rusqlite::Connection,
-    expected: &StableRuntimeBindingV1,
-    pending: Option<&PendingFirstActivationV1>,
-) -> Result<(), LaunchAuthorityError> {
-    match pending {
-        Some(pending) => first_activation::validate_resume_first_activation_connection(
-            config, connection, pending,
-        ),
-        None => first_activation::validate_existing_connection(config, connection, expected, None),
-    }
-}
+include!("protected_activation/bootstrap_validation.rs");

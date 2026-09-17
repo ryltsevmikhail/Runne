@@ -77,7 +77,9 @@ fn spawn_subscription<S>(
 where
     S: TaskRunUpdateSource,
 {
-    tokio::spawn(async move {
+    let runtime = tokio::runtime::Handle::try_current()
+        .unwrap_or_else(|_| tauri::async_runtime::handle().inner().clone());
+    runtime.spawn(async move {
         if start_rx.await.is_err() { return; }
         let (updates_tx, updates_rx) = mpsc::channel(MAX_QUEUED_UPDATES);
         let queued_bytes = Arc::new(AtomicUsize::new(0));

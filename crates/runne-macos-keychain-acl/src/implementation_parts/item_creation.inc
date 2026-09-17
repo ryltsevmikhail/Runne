@@ -89,8 +89,14 @@ fn validate_directory_entry(
 
 /// Creates an empty generic-password item atomically under the exact ACL.
 ///
-/// Credential bytes are intentionally absent from this API. The safe caller
-/// must populate the returned item and delete it if population fails.
+/// Credential bytes are intentionally absent from this API and MUST NOT be
+/// added later with `SecKeychainItemModifyAttributesAndData`: on macOS 27 the
+/// first data or metadata modification of a saved item erases its partition
+/// ACL record irreversibly. Callers that need the bytes stored must use
+/// [`create_populated_generic_password`], which writes them in the same
+/// creation step and keeps the verify-or-delete ordering intact. The empty
+/// variant exists only for legacy incomplete-item recovery and test fixtures
+/// whose items never receive material afterwards.
 ///
 /// # Errors
 ///
@@ -101,6 +107,43 @@ pub fn create_empty_generic_password(
     service: &str,
     account: &str,
     metadata: &[u8],
+    exact: &ExactKeychainAccess,
+) -> Result<CreatedGenericPasswordItem, KeychainAclError> {
+    create_generic_password_content(keychain, service, account, metadata, None, exact)
+}
+
+/// Creates one generic-password item atomically under the exact ACL with the
+/// credential bytes already stored.
+///
+/// The bytes and the final metadata travel in the single
+/// `SecKeychainItemCreateFromContent` call, so no later modification can erase
+/// the partition ACL (macOS 27 normalizes the ACL on the first
+/// `SecKeychainItemModifyAttributesAndData`). The caller must immediately
+/// [`CreatedGenericPasswordItem::finalize`] the saved item: that readback
+/// verifies the full partition and owner ACL and deletes the item on any
+/// failure, so credential material never persists unverified.
+///
+/// # Errors
+///
+/// Returns a closed error when the item identity is invalid or Keychain cannot
+/// create the populated item with the supplied initial access.
+pub fn create_populated_generic_password(
+    keychain: &SecKeychain,
+    service: &str,
+    account: &str,
+    metadata: &[u8],
+    password: &[u8],
+    exact: &ExactKeychainAccess,
+) -> Result<CreatedGenericPasswordItem, KeychainAclError> {
+    create_generic_password_content(keychain, service, account, metadata, Some(password), exact)
+}
+
+fn create_generic_password_content(
+    keychain: &SecKeychain,
+    service: &str,
+    account: &str,
+    metadata: &[u8],
+    password: Option<&[u8]>,
     exact: &ExactKeychainAccess,
 ) -> Result<CreatedGenericPasswordItem, KeychainAclError> {
     if service.is_empty()
@@ -139,17 +182,24 @@ pub fn create_empty_generic_password(
             .map_err(|_| KeychainAclError::InvalidItemIdentity)?,
         attr: attributes.as_mut_ptr(),
     };
+    let (password_length, password_data) = match password {
+        Some(password) => (
+            u32::try_from(password.len()).map_err(|_| KeychainAclError::InvalidItemIdentity)?,
+            password.as_ptr().cast(),
+        ),
+        None => (0, ptr::null()),
+    };
     let mut item = ptr::null_mut();
-    // SAFETY: attribute buffers and all Security.framework objects remain live
-    // for the call. Data is deliberately NULL/zero-length, and `item` is a
+    // SAFETY: attribute buffers, the optional password buffer and all
+    // Security.framework objects remain live for the call, and `item` is a
     // valid writable out-pointer consumed under the create rule below.
     let initial_access = &exact.creation_access;
     let create_status = unsafe {
         SecKeychainItemCreateFromContent(
             GENERIC_PASSWORD_ITEM_CLASS,
             &raw mut attribute_list,
-            0,
-            ptr::null(),
+            password_length,
+            password_data,
             keychain.as_concrete_TypeRef().cast(),
             initial_access.as_concrete_TypeRef(),
             &raw mut item,
@@ -167,15 +217,16 @@ pub fn create_empty_generic_password(
     })
 }
 
-/// A just-created empty item whose initial ACL still requires fresh readback.
+/// A just-created item whose initial ACL still requires fresh readback.
 pub struct CreatedGenericPasswordItem {
     item: SecKeychainItem,
 }
 
 impl CreatedGenericPasswordItem {
-    /// Verifies the exact final ACL before password population.
+    /// Verifies the exact final ACL on the saved item.
     ///
-    /// A failed commit deletes the incomplete item before returning.
+    /// A failed verification deletes the saved item before returning, so
+    /// credential material never persists without the proven partition ACL.
     ///
     /// # Errors
     ///

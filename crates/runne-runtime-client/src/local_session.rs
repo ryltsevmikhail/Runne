@@ -11,4 +11,6 @@ include!("local_session/tests.rs");
 #[cfg(test)]
 include!("local_session/v3_tests.rs");
 #[cfg(test)]
+include!("local_session/v3_capability_tests.rs");
+#[cfg(test)]
 include!("local_session/v3_remote_tests.rs");

@@ -16,6 +16,8 @@ export default defineConfig({
       name: 'desktop-chromium',
       use: {
         ...devices['Desktop Chrome'],
+        ...(process.env.RUNNE_PLAYWRIGHT_BROWSER_CHANNEL
+          ? { channel: process.env.RUNNE_PLAYWRIGHT_BROWSER_CHANNEL } : {}),
         viewport: { width: 1440, height: 900 },
       },
     },

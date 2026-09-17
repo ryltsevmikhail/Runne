@@ -54,6 +54,7 @@ fn verifier() -> QualificationAdmissionVerifier {
     )
 }
 
+mod expectation;
 mod fence;
 mod service;
 mod writer;

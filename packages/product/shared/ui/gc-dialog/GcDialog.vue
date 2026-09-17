@@ -24,13 +24,14 @@ const emit = defineEmits<{
 }>()
 
 const dialog = ref<HTMLElement | null>(null)
+const cancelButton = ref<HTMLButtonElement | null>(null)
 const titleId = useId()
 const descriptionId = useId()
 
 watch(() => props.open, async (open) => {
   if (open) {
     await nextTick()
-    dialog.value?.focus()
+    cancelButton.value?.focus()
   }
 }, { immediate: true })
 
@@ -82,6 +83,7 @@ function onKeydown(e: KeyboardEvent) {
         </div>
         <div class="gc-dialog-footer">
           <button
+            ref="cancelButton"
             class="gc-dialog-btn gc-dialog-btn--cancel"
             type="button"
             @click="close"

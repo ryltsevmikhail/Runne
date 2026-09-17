@@ -1,3 +1,12 @@
+/// Creates one provider-credential item with its material atomically stored.
+///
+/// Ordering (fail-closed, macOS 27): the credential bytes and the complete
+/// metadata travel in the single `SecKeychainItemCreateFromContent` call,
+/// because the first `SecKeychainItemModifyAttributesAndData` of a saved item
+/// erases its partition ACL record irreversibly. The saved item is then
+/// verified (`finalize`: full partition and owner ACL readback) and any
+/// verification failure deletes the item before the error is returned, so
+/// credential material never persists without a proven partition ACL.
 fn create_populated_provider_item(
     keychain: &SecKeychain,
     service: &str,
@@ -7,44 +16,23 @@ fn create_populated_provider_item(
     encoded: &[u8],
     failpoint: Option<CredentialPopulationFailpoint>,
 ) -> Result<SecKeychainItem, SecureStoreError> {
-    let item = runne_macos_keychain_acl::create_empty_generic_password(
+    let item = runne_macos_keychain_acl::create_populated_generic_password(
         keychain,
         service,
         account,
-        &metadata.encode_incomplete(),
+        &metadata.encode(),
+        encoded,
         exact_access,
     )
     .map_err(map_acl_error)?;
-    if failpoint == Some(CredentialPopulationFailpoint::EmptyItemWritten) {
+    if failpoint == Some(CredentialPopulationFailpoint::PopulatedItemWritten) {
+        // Crash boundary: the item exists with the exact creation ACL but its
+        // readback proof has not happened yet, exactly as after a process exit
+        // between creation and verification.
         return Err(SecureStoreError::CredentialEnrollmentIncomplete);
     }
-    let mut item = item.finalize(exact_access).map_err(map_acl_error)?;
-    if let Err(error) = verify_item_acl(&item, exact_access.digest()) {
-        return if runne_macos_keychain_acl::delete_item(&item).is_ok() {
-            Err(error)
-        } else {
-            Err(SecureStoreError::CredentialEnrollmentIncomplete)
-        };
-    }
-    if let Err(error) = item.set_password(encoded).map_err(map_keychain_error) {
-        return if runne_macos_keychain_acl::delete_item(&item).is_ok() {
-            Err(error)
-        } else {
-            Err(SecureStoreError::CredentialEnrollmentIncomplete)
-        };
-    }
-    if runne_macos_keychain_acl::set_generic_password_metadata(&item, &metadata.encode()).is_err()
-    {
-        return Err(SecureStoreError::CredentialEnrollmentIncomplete);
-    }
-    if verify_item_acl(&item, exact_access.digest()).is_err() {
-        return if runne_macos_keychain_acl::delete_item(&item).is_ok() {
-            Err(SecureStoreError::CredentialAccessDenied)
-        } else {
-            Err(SecureStoreError::CredentialEnrollmentIncomplete)
-        };
-    }
-    Ok(item)
+    // `finalize` verifies the saved item's full ACL and deletes it on failure.
+    item.finalize(exact_access).map_err(map_acl_error)
 }
 
 fn map_identity_access_error(_error: SecureStoreError) -> SecureStoreError {

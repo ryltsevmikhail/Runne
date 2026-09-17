@@ -5,6 +5,8 @@ mod completion;
 pub(in crate::protected_activation) use completion::with_control;
 #[cfg(target_os = "macos")]
 mod writer_driver;
+#[cfg(unix)]
+include!("runtime/shutdown.rs");
 
 pub(super) fn map_enrollment_error(
     error: runne_api::ProviderCredentialEnrollmentHostError,

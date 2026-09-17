@@ -35,14 +35,17 @@ fn cap_protected_admission() -> runne_api::ProtectedRootHandleAdmission {
     );
     let offer = RootHandleTransferOffer::new(context.clone(), 1, &keys).expect("offer");
     let ready = RootHandleTransferReady::new(&offer, &keys);
-    let raw = RootAdmissionAuthenticator::from_protected_activation(&LaunchSecret::from_bytes([8; 32]).expect("secret").derive_keys())
+    let admission_keys = RootAdmissionAuthenticator::from_protected_activation(&LaunchSecret::from_bytes([8; 32]).expect("secret").derive_keys());
+    let raw = admission_keys
         .issue(RootAdmissionRequest::new(RootAdmissionVerificationContext::new([1; 32], [2; 16], 1, [3; 32], 3, 1, 100).expect("context"), workspace, 1, [4; 32], offer.digest(), [5; 16], 30_100).expect("request"))
         .expect("raw admission");
     let frame = RootHandleControlFrame::Result(RootHandleTransferResult::admitted(&ready, raw, &keys));
     let runne_api::VerifiedRootHandleControlFrame::Result(result) = RootHandleControlFrame::decode_and_verify(
         &frame.encode_frame(), &keys, &context, 2, 100,
     ).expect("verified result") else { unreachable!() };
-    result.into_protected_admission().expect("provenance admission")
+    result.into_protected_admission(&admission_keys, offer.digest())
+        .expect("consistent transfer verifies")
+        .expect("provenance admission")
 }
 
 #[tokio::test]

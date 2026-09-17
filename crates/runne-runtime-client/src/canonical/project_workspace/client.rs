@@ -1,15 +1,16 @@
-use reqwest::{Method, header::CONTENT_TYPE};
-
 use super::{
     BindWorkspaceRootRequest, CreateProjectRequest, CreateWorkspaceRequest, ExistingProjectRequest,
     ExistingWorkspaceRequest, ProjectCommandAcknowledgement, ProjectPageCursor, ProjectPageDto,
-    ProjectSnapshotDto, WorkspaceCommandAcknowledgement, WorkspacePageCursor, WorkspacePageDto,
-    WorkspaceSnapshotDto, wire::*,
+    ProjectSnapshotDto, RenameProjectRequest, WorkspaceCommandAcknowledgement, WorkspacePageCursor,
+    WorkspacePageDto, WorkspaceSnapshotDto, wire::*,
 };
 use crate::canonical::{
-    AuthenticatedRuntimeClient, CanonicalId, RuntimeApiError, RuntimeApiErrorKind,
-    read_success_json,
+    AuthenticatedRuntimeClient, CanonicalId, RuntimeApiError, read_success_json,
 };
+use reqwest::{Method, header::CONTENT_TYPE};
+#[path = "client/errors.rs"]
+mod errors;
+use errors::{invalid_request, invalid_response, map_transport, page_limit};
 
 impl AuthenticatedRuntimeClient {
     /// Reads one principal-bound, bounded Project page.
@@ -74,7 +75,7 @@ impl AuthenticatedRuntimeClient {
         let ack = ProjectCommandAcknowledgement::try_from(
             read_success_json::<ProjectAckWire>(response, &[202]).await?,
         )?;
-        (ack.project_id() == expected)
+        (ack.project_id() == expected && ack.new_version() == 1)
             .then_some(ack)
             .ok_or_else(invalid_response)
     }
@@ -91,6 +92,34 @@ impl AuthenticatedRuntimeClient {
         request: ExistingProjectRequest,
     ) -> Result<ProjectCommandAcknowledgement, RuntimeApiError> {
         self.project_mutation(request, Some("restore")).await
+    }
+    /// Renames one non-archived Project at its exact expected version.
+    pub async fn rename_project(
+        &self,
+        request: RenameProjectRequest,
+    ) -> Result<ProjectCommandAcknowledgement, RuntimeApiError> {
+        let expected = request.id;
+        let response = self
+            .send_command(
+                &format!("/v1/projects/{expected}/rename"),
+                &request.identity,
+                &RenameProjectWire {
+                    expected_version: request.expected_version,
+                    display_name: request.name,
+                },
+            )
+            .await?;
+        let ack = ProjectCommandAcknowledgement::try_from(
+            read_success_json::<ProjectAckWire>(response, &[202]).await?,
+        )?;
+        (ack.project_id() == expected
+            && ack.new_version()
+                == request
+                    .expected_version
+                    .checked_add(1)
+                    .ok_or_else(invalid_response)?)
+        .then_some(ack)
+        .ok_or_else(invalid_response)
     }
     /// Deletes one Project at its exact expected version.
     pub async fn delete_project(
@@ -267,18 +296,4 @@ impl AuthenticatedRuntimeClient {
             .await
             .map_err(map_transport)
     }
-}
-fn page_limit(limit: u16) -> Result<(), RuntimeApiError> {
-    (limit != 0 && limit <= 100)
-        .then_some(())
-        .ok_or_else(invalid_request)
-}
-fn invalid_request() -> RuntimeApiError {
-    RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest)
-}
-fn invalid_response() -> RuntimeApiError {
-    RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse)
-}
-fn map_transport(_: reqwest::Error) -> RuntimeApiError {
-    RuntimeApiError::new(RuntimeApiErrorKind::Unavailable)
 }

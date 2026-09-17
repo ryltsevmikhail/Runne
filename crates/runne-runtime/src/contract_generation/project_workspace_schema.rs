@@ -33,6 +33,7 @@ pub(super) fn project_workspace_schema() -> Value {
         "project": project(), "workspace": workspace(),
         "projectCreate": closed_object(json!({"projectId": id(), "displayName": name()}), &["projectId", "displayName"]),
         "workspaceCreate": closed_object(json!({"workspaceId": id(), "displayName": name()}), &["workspaceId", "displayName"]),
+        "projectRename": closed_object(json!({"expectedVersion": version(), "displayName": name()}), &["expectedVersion", "displayName"]),
         "existing": closed_object(json!({"expectedVersion": version()}), &["expectedVersion"]),
         "rootBind": closed_object(json!({"expectedVersion": version(), "rootAdmission": root_admission}), &["expectedVersion", "rootAdmission"]),
         "projectAck": closed_object(json!({"projectId": id(), "newVersion": version()}), &["projectId", "newVersion"]),

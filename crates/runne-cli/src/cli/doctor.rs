@@ -179,12 +179,17 @@ async fn check_runtime_health(profile_path: &Path) -> Result<(String, String), (
     Ok((status, version))
 }
 
-/// Format diagnostic report for output.
+/// Format diagnostic report as typed command output: the text rendering plus
+/// the structured JSON payload (serialized once at render time, never
+/// pre-serialized into a string).
 #[must_use]
-pub fn format_diagnostic_report(report: &DiagnosticReport, format: OutputFormat) -> String {
+pub fn format_diagnostic_report(report: &DiagnosticReport, format: OutputFormat) -> CommandOutput {
     match format {
-        OutputFormat::Text => format_diagnostic_text(report),
-        OutputFormat::Json => format_diagnostic_json(report),
+        OutputFormat::Text => CommandOutput::Text(format_diagnostic_text(report)),
+        OutputFormat::Json => CommandOutput::Typed {
+            text: format_diagnostic_text(report),
+            data: diagnostic_json_data(report),
+        },
     }
 }
 
@@ -224,7 +229,7 @@ fn format_diagnostic_text(report: &DiagnosticReport) -> String {
     output
 }
 
-fn format_diagnostic_json(report: &DiagnosticReport) -> String {
+fn diagnostic_json_data(report: &DiagnosticReport) -> serde_json::Value {
     let checks: Vec<serde_json::Value> = report
         .checks
         .iter()
@@ -242,14 +247,12 @@ fn format_diagnostic_json(report: &DiagnosticReport) -> String {
         })
         .collect();
 
-    let envelope = SuccessEnvelope::new(serde_json::json!({
+    serde_json::json!({
         "overall_status": match report.overall_status {
             CheckStatus::Ok => "ok",
             CheckStatus::Warning => "warning",
             CheckStatus::Error => "error",
         },
         "checks": checks,
-    }));
-
-    serde_json::to_string(&envelope).unwrap_or_default()
+    })
 }

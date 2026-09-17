@@ -22,6 +22,7 @@ use crate::{
     task_runs::TaskRunHttpState, workspace_diffs::WorkspaceDiffHttpState,
     workspace_files::WorkspaceFileHttpState,
 };
+use axum::Router;
 
 impl LocalRuntimeTlsHost {
     /// Adds read-only command reconciliation to the complete production host.
@@ -47,6 +48,7 @@ impl LocalRuntimeTlsHost {
         approval_state: crate::approvals::ApprovalHttpState<A>,
         replay_state: ReplayHttpState,
         operational_telemetry_state: OperationalTelemetryHttpState,
+        enrollment_routes: Option<Router>,
     ) -> Result<Self, LocalRuntimeTlsHostError>
     where
         T: TaskRunCommandHostPort + TaskRunQueryHostPort + 'static,
@@ -90,6 +92,7 @@ impl LocalRuntimeTlsHost {
             approval_state,
             replay_state,
             operational_telemetry_state,
+            enrollment_routes,
         )
         .map_err(|_| LocalRuntimeTlsHostError::Incompatible)?;
         Ok(Self {

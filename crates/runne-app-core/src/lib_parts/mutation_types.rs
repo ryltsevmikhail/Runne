@@ -9,6 +9,7 @@ pub enum CanonicalMutationCommand {
         project_id: CanonicalId,
         display_name: String,
     },
+    RenameProject { project_id: CanonicalId, display_name: String },
     ArchiveProject {
         project_id: CanonicalId,
     },
@@ -291,3 +292,5 @@ include!("mutation_types/digest.rs");
 include!("mutation_types/prepared.rs");
 include!("mutation_types/invariants.rs");
 include!("mutation_types/approval.rs");
+
+include!("mutation_types/rename.rs");

@@ -9,7 +9,7 @@ use runne_platform_desktop::{
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::input::UpdateMetadataDraft;
+use crate::input::{UpdateMetadataDraft, read_native_enrollment_tuple_v3};
 use crate::key_store::{KeySlot, UpdateSigningKeyStore};
 
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
@@ -51,7 +51,7 @@ pub fn issue_metadata(
     let targets = UpdateTargetsRoleV2 {
         version: draft.targets_version,
         expires_at_unix_seconds: draft.expires_at_unix_seconds,
-        target: target(draft, artifact_size, artifact_sha256),
+        target: target(draft, artifact_size, artifact_sha256)?,
     };
     let snapshot = UpdateSnapshotRoleV2 {
         version: draft.snapshot_version,
@@ -96,8 +96,17 @@ fn artifact_identity(draft: &UpdateMetadataDraft) -> Result<(u64, String), Produ
     Ok((metadata.len(), hex::encode(digest.finalize())))
 }
 
-fn target(draft: &UpdateMetadataDraft, size: u64, digest: String) -> UpdateTargetV2 {
-    UpdateTargetV2 {
+fn target(
+    draft: &UpdateMetadataDraft,
+    size: u64,
+    digest: String,
+) -> Result<UpdateTargetV2, ProducerError> {
+    let native_enrollment_tuple_v3 = draft
+        .native_enrollment_tuple_path
+        .as_deref()
+        .map(read_native_enrollment_tuple_v3)
+        .transpose()?;
+    Ok(UpdateTargetV2 {
         product_id: draft.product_id.clone(),
         version: draft.version.clone(),
         platform: draft.platform.clone(),
@@ -116,8 +125,9 @@ fn target(draft: &UpdateMetadataDraft, size: u64, digest: String) -> UpdateTarge
         expires_at_unix_seconds: draft.expires_at_unix_seconds,
         rollback_floor: draft.rollback_floor.clone(),
         native_enrollment_tuple: None,
-        native_enrollment_tuple_v3: None,
-    }
+        native_enrollment_tuple_v3,
+        qualification_bootstrap_client_v1: None,
+    })
 }
 
 fn root_signatures(

@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+use runne_platform_desktop::NativeEnrollmentTupleV3;
 use serde::{Deserialize, Serialize};
 
 use crate::issuer::ProducerError;
@@ -33,6 +34,10 @@ pub struct UpdateMetadataDraft {
     pub targets_version: u64,
     pub snapshot_version: u64,
     pub timestamp_version: u64,
+    /// Optional `dev_enrollment_tuple` harness output; when present, its tuple
+    /// is embedded into the issued target and is fully re-validated against the
+    /// draft-derived target during the issuer self-verification.
+    pub native_enrollment_tuple_path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -49,6 +54,25 @@ pub struct UpdatePublicKeyManifest {
     pub snapshot_hex: String,
     pub timestamp_id: String,
     pub timestamp_hex: String,
+}
+
+/// Harness output of the `dev_enrollment_tuple` example (`{"schemaVersion":1,
+/// "target":...,"tuple":...}`). Only the tuple is taken; the harness target is
+/// ignored because the tuple binds itself to the issued target via its
+/// `tuple_sha256`, which metadata verification enforces. Extra top-level keys
+/// are therefore tolerated here, while the tuple itself stays
+/// `deny_unknown_fields` strict.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeEnrollmentTupleHarnessOutputV1 {
+    tuple: NativeEnrollmentTupleV3,
+}
+
+pub fn read_native_enrollment_tuple_v3(
+    path: &Path,
+) -> Result<NativeEnrollmentTupleV3, ProducerError> {
+    let output: NativeEnrollmentTupleHarnessOutputV1 = read_json(path)?;
+    Ok(output.tuple)
 }
 
 pub fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, ProducerError> {

@@ -19,6 +19,8 @@ fn spawn_subscription<S>(
 ) where
     S: ConversationUpdateSource,
 {
+    let runtime = tokio::runtime::Handle::try_current()
+        .unwrap_or_else(|_| tauri::async_runtime::handle().inner().clone());
     let (updates_tx, updates_rx) = mpsc::channel(MAX_QUEUED_UPDATES);
     let queued_bytes = Arc::new(AtomicUsize::new(0));
     let overflowed = Arc::new(AtomicBool::new(false));
@@ -26,7 +28,7 @@ fn spawn_subscription<S>(
     let callback_bytes = Arc::clone(&queued_bytes);
     let callback_overflowed = Arc::clone(&overflowed);
     let callback_overflow_changed = Arc::clone(&overflow_changed);
-    let source_task = tokio::spawn(async move {
+    let source_task = runtime.spawn(async move {
         let callback = Box::new(move |update| {
             let event = ConversationChannelEvent::update(update);
             let Ok(bytes) = serde_json::to_vec(&event).map(|value| value.len()) else {
@@ -51,7 +53,7 @@ fn spawn_subscription<S>(
             }
         }
     });
-    tokio::spawn(run_subscription(
+    runtime.spawn(run_subscription(
         manager,
         subscription_id,
         control,

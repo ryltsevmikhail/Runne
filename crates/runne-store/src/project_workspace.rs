@@ -114,6 +114,26 @@ impl ProjectWorkspaceRepository for ProjectWorkspaceStore {
         )
     }
 
+    fn rename_project(
+        &self,
+        principal: &str,
+        command_id: CommandId,
+        key: &IdempotencyKey,
+        id: ProjectId,
+        expected_version: u64,
+        display_name: runne_domain::project_workspace::ProjectWorkspaceDisplayName,
+    ) -> Result<Project, Error> {
+        rename_project(
+            &self.store,
+            principal,
+            command_id,
+            key,
+            id,
+            expected_version,
+            display_name,
+        )
+    }
+
     fn delete_project(
         &self,
         principal: &str,

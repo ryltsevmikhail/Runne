@@ -6,13 +6,14 @@ MACOS_XPC_TARGET = 'cfg(target_os = "macos")'
 ALLOWED_RUST_DEPENDENCIES[MACOS_XPC_PACKAGE] = {"runne-platform-ports"}
 MACOS_XPC_DEPENDENCIES = {
     "runne-platform-ports": (None, "*", (), True, None, "path"),
+    "rand": (None, "=0.8.7", (), True, None, "registry"),
     "zeroize": (None, "=1.9.0", (), True, None, "registry"),
     "block2": (None, "=0.6.2", (), True, MACOS_XPC_TARGET, "registry"),
     "objc2": (None, "=0.6.4", ("exception",), True, MACOS_XPC_TARGET, "registry"),
     "objc2-foundation": (
         None,
         "=0.3.2",
-        ("NSData", "NSError", "NSObject", "NSString", "NSXPCConnection", "block2", "std"),
+        ("NSData", "NSError", "NSObject", "NSString", "NSXPCConnection", "block2", "libc", "std"),
         False,
         MACOS_XPC_TARGET,
         "registry",
@@ -25,11 +26,12 @@ MACOS_XPC_DEPENDENCIES = {
         MACOS_XPC_TARGET,
         "registry",
     ),
+    "libc": (None, "^0.2", (), True, MACOS_XPC_TARGET, "registry"),
     "tokio": (None, "^1", ("full",), True, MACOS_XPC_TARGET, "registry"),
     "cc": ("build", "=1.4.0", (), True, None, "registry"),
 }
 MACOS_XPC_NATIVE_MARKERS = re.compile(
-    r"\b(?:NSXPC\w*|SMAppService\w*)\b|RunneCredentialServiceXpcProtocolV1|exchange:reply:"
+    r"\b(?:NSXPC\w*|SMAppService\w*)\b|Runne(?:CredentialService|QualificationRunner)XpcProtocolV1|exchange:reply:"
 )
 def find_macos_xpc_dependency_violations(
     packages: list[dict], root: Path
@@ -135,5 +137,5 @@ def find_macos_xpc_source_violations(root: Path) -> list[str]:
                     continue
                 if MACOS_XPC_NATIVE_MARKERS.search(path.read_text(encoding="utf-8")):
                     relative = path.relative_to(root).as_posix()
-                    violations.append(f"{relative} uses credential NSXPC symbols outside {MACOS_XPC_PACKAGE}")
+                    violations.append(f"{relative} uses native NSXPC symbols outside {MACOS_XPC_PACKAGE}")
     return violations

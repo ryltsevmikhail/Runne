@@ -23,6 +23,12 @@ pub(super) struct CreateWorkspaceBody {
 pub(super) struct ExistingBody {
     pub expected_version: u64,
 }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct RenameProjectBody {
+    pub expected_version: u64,
+    pub display_name: String,
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

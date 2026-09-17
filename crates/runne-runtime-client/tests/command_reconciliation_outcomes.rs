@@ -34,12 +34,14 @@ async fn task_run_cancellation_outcome_parses_and_correlates() {
 }
 
 #[tokio::test]
-async fn seven_non_text_outcomes_parse_and_correlate_to_the_request() {
+async fn eight_non_text_outcomes_parse_and_correlate_to_the_request() {
     let digest = "07".repeat(32);
     let requests = vec![
         CommandReconciliationRequest::create_project(identity(), id(PROJECT), "Name").unwrap(),
         CommandReconciliationRequest::archive_project(identity(), id(PROJECT), 1).unwrap(),
         CommandReconciliationRequest::delete_project(identity(), id(PROJECT), 1).unwrap(),
+        CommandReconciliationRequest::rename_project(identity(), id(PROJECT), 1, "Renamed")
+            .unwrap(),
         CommandReconciliationRequest::create_workspace(
             identity(),
             id(WORKSPACE),
@@ -67,6 +69,9 @@ async fn seven_non_text_outcomes_parse_and_correlate_to_the_request() {
             r#"{{"disposition":"durably_recorded","outcome":{{"operation":"delete_project","projectId":"{PROJECT}","newVersion":2}}}}"#
         ),
         format!(
+            r#"{{"disposition":"durably_recorded","outcome":{{"operation":"rename_project","projectId":"{PROJECT}","newVersion":2}}}}"#
+        ),
+        format!(
             r#"{{"disposition":"durably_recorded","outcome":{{"operation":"create_workspace","workspaceId":"{WORKSPACE}","newVersion":1}}}}"#
         ),
         format!(
@@ -83,6 +88,9 @@ async fn seven_non_text_outcomes_parse_and_correlate_to_the_request() {
         format!(r#"{{"operation":"create_project","projectId":"{PROJECT}","displayName":"Name"}}"#),
         format!(r#"{{"operation":"archive_project","projectId":"{PROJECT}","expectedVersion":1}}"#),
         format!(r#"{{"operation":"delete_project","projectId":"{PROJECT}","expectedVersion":1}}"#),
+        format!(
+            r#"{{"operation":"rename_project","projectId":"{PROJECT}","expectedVersion":1,"displayName":"Renamed"}}"#
+        ),
         format!(
             r#"{{"operation":"create_workspace","workspaceId":"{WORKSPACE}","projectId":"{PROJECT}","displayName":"Name"}}"#
         ),
@@ -117,10 +125,11 @@ async fn seven_non_text_outcomes_parse_and_correlate_to_the_request() {
                 (0, CommandReconciliationOutcome::ProjectCreated(_))
                     | (1, CommandReconciliationOutcome::ProjectArchived(_))
                     | (2, CommandReconciliationOutcome::ProjectDeleted(_))
-                    | (3, CommandReconciliationOutcome::WorkspaceCreated(_))
-                    | (4, CommandReconciliationOutcome::WorkspaceRootBound(_))
-                    | (5, CommandReconciliationOutcome::WorkspaceOpened(_))
-                    | (6, CommandReconciliationOutcome::ConversationCreated(_))
+                    | (3, CommandReconciliationOutcome::ProjectRenamed(_))
+                    | (4, CommandReconciliationOutcome::WorkspaceCreated(_))
+                    | (5, CommandReconciliationOutcome::WorkspaceRootBound(_))
+                    | (6, CommandReconciliationOutcome::WorkspaceOpened(_))
+                    | (7, CommandReconciliationOutcome::ConversationCreated(_))
             ),
             "case {case}"
         );
@@ -148,6 +157,13 @@ async fn non_text_operation_id_and_version_mismatches_are_invalid_responses() {
             CommandReconciliationRequest::delete_project(identity(), id(PROJECT), 1).unwrap(),
             format!(
                 r#"{{"disposition":"durably_recorded","outcome":{{"operation":"archive_project","projectId":"{PROJECT}","newVersion":2}}}}"#
+            ),
+        ),
+        (
+            CommandReconciliationRequest::rename_project(identity(), id(PROJECT), 1, "Renamed")
+                .unwrap(),
+            format!(
+                r#"{{"disposition":"durably_recorded","outcome":{{"operation":"rename_project","projectId":"{PROJECT}","newVersion":3}}}}"#
             ),
         ),
         (

@@ -2,7 +2,9 @@
 
 use super::*;
 
-pub(super) fn expected_profile() -> Result<ProtectedRuntimeProfileV1, LaunchAuthorityError> {
+pub(super) fn expected_profile(
+    enrollment_capability: Option<&super::launch::VerifiedProtectedEnrollmentCapability>,
+) -> Result<ProtectedRuntimeProfileV1, LaunchAuthorityError> {
     let profile_hash: [u8; 32] = hex::decode(runne_runtime::bundle::PUBLISHED_BUNDLE_HASH)
         .ok()
         .and_then(|bytes| bytes.try_into().ok())
@@ -12,10 +14,48 @@ pub(super) fn expected_profile() -> Result<ProtectedRuntimeProfileV1, LaunchAuth
         1,
         runne_runtime::bundle::BUNDLE_ID,
         profile_hash,
-        runne_http::runtime_profile::ordered_capability_digest(
-            runne_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES,
-        ),
+        runne_http::runtime_profile::ordered_capability_digest(capabilities(enrollment_capability)),
     )
+}
+
+fn capabilities(
+    enrollment_capability: Option<&super::launch::VerifiedProtectedEnrollmentCapability>,
+) -> &'static [&'static str] {
+    capabilities_for(
+        enrollment_capability
+            .is_some_and(super::launch::VerifiedProtectedEnrollmentCapability::is_qualified),
+    )
+}
+
+const fn capabilities_for(qualified: bool) -> &'static [&'static str] {
+    if qualified {
+        runne_runtime::bundle::ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES
+    } else {
+        runne_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES
+    }
+}
+
+#[test]
+fn v1_profile_without_a_sealed_capability_is_published() {
+    let profile = expected_profile(None).unwrap();
+    assert_eq!(
+        profile.capability_digest(),
+        &runne_http::runtime_profile::ordered_capability_digest(
+            runne_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES,
+        )
+    );
+}
+
+#[test]
+fn sealed_enrollment_capability_selects_the_matching_profile_digest() {
+    assert_eq!(
+        capabilities_for(false),
+        runne_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES
+    );
+    assert_eq!(
+        capabilities_for(true),
+        runne_runtime::bundle::ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES
+    );
 }
 
 pub(super) fn prepare_first_activation(
@@ -62,18 +102,30 @@ pub(super) fn preflight_existing(
     config: &ConfigurationSnapshot,
     expected: &StableRuntimeBindingV1,
     expected_preparation_id: Option<&[u8; 16]>,
+    enrollment_capability: Option<&super::launch::VerifiedProtectedEnrollmentCapability>,
 ) -> Result<(), LaunchAuthorityError> {
+    let profile = expected_profile(enrollment_capability)?;
     let db_path = Path::new(&config.db_path);
     if !db_path.exists() {
         return Err(LaunchAuthorityError::MissingExpectedStableBinding);
     }
     match schema::open_existing_read_only(db_path) {
-        Ok(connection) => {
-            validate_existing_connection(config, &connection, expected, expected_preparation_id)
-        }
+        Ok(connection) => validate_existing_connection(
+            config,
+            &connection,
+            expected,
+            expected_preparation_id,
+            &profile,
+        ),
         Err(_) => schema::with_protected_recovery_read_only_admission(db_path, |connection| {
-            validate_existing_connection(config, connection, expected, expected_preparation_id)
-                .map_err(|_| rusqlite::Error::InvalidQuery)
+            validate_existing_connection(
+                config,
+                connection,
+                expected,
+                expected_preparation_id,
+                &profile,
+            )
+            .map_err(|_| rusqlite::Error::InvalidQuery)
         })
         .map_err(|_| LaunchAuthorityError::MissingExpectedStableBinding),
     }
@@ -84,6 +136,7 @@ pub(super) fn validate_existing_connection(
     connection: &rusqlite::Connection,
     expected: &StableRuntimeBindingV1,
     expected_preparation_id: Option<&[u8; 16]>,
+    expected_profile: &ProtectedRuntimeProfileV1,
 ) -> Result<(), LaunchAuthorityError> {
     let lineage = schema::read_event_log_lineage_id(connection)
         .map_err(|_| LaunchAuthorityError::MissingExpectedStableBinding)?
@@ -93,19 +146,12 @@ pub(super) fn validate_existing_connection(
     let local_authority_path =
         Path::new(&config.replay_integrity_key_path).with_file_name("local-session-authority-id");
     let local_authority = read_owner_private_uuid(&local_authority_path)?;
-    let expected_profile_hash: [u8; 32] = hex::decode(runne_runtime::bundle::PUBLISHED_BUNDLE_HASH)
-        .ok()
-        .and_then(|bytes| <Vec<u8> as TryInto<[u8; 32]>>::try_into(bytes).ok())
-        .ok_or(LaunchAuthorityError::ProfileHashMismatch)?;
     if local_authority != *expected.authority_id()
         || lineage.as_bytes() != expected.lineage_id()
         || expected.principal_id() != LOCAL_PRINCIPAL
-        || expected.profile_id() != runne_runtime::bundle::BUNDLE_ID
-        || expected.profile_hash() != &expected_profile_hash
-        || expected.capability_digest()
-            != &runne_http::runtime_profile::ordered_capability_digest(
-                runne_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES,
-            )
+        || expected.profile_id() != expected_profile.profile_id()
+        || expected.profile_hash() != expected_profile.profile_hash()
+        || expected.capability_digest() != expected_profile.capability_digest()
         || expected_preparation_id
             .is_some_and(|expected_id| preparation.as_ref() != Some(expected_id))
     {
@@ -114,59 +160,7 @@ pub(super) fn validate_existing_connection(
     Ok(())
 }
 
-pub(super) fn preflight_resume_first_activation(
-    config: &ConfigurationSnapshot,
-    pending: &PendingFirstActivationV1,
-) -> Result<(), LaunchAuthorityError> {
-    let db_path = Path::new(&config.db_path);
-    match schema::open_existing_read_only(db_path) {
-        Ok(connection) => validate_resume_first_activation_connection(config, &connection, pending),
-        Err(_) => schema::with_protected_recovery_read_only_admission(db_path, |connection| {
-            validate_resume_first_activation_connection(config, connection, pending)
-                .map_err(|_| rusqlite::Error::InvalidQuery)
-        })
-        .map_err(|_| LaunchAuthorityError::FirstActivationPreparationMismatch),
-    }
-}
-
-pub(super) fn validate_resume_first_activation_connection(
-    config: &ConfigurationSnapshot,
-    connection: &rusqlite::Connection,
-    pending: &PendingFirstActivationV1,
-) -> Result<(), LaunchAuthorityError> {
-    let lineage = uuid::Uuid::from_bytes(*pending.stable().lineage_id())
-        .to_string()
-        .parse()
-        .map_err(|_| LaunchAuthorityError::FirstActivationPreparationMismatch)?;
-    match schema::preflight_first_activation_resume(
-        connection,
-        pending.stable().authority_id(),
-        lineage,
-        pending.preparation_id(),
-    )
-    .map_err(|_| LaunchAuthorityError::FirstActivationPreparationMismatch)?
-    {
-        schema::FirstActivationResumeState::Prepared => validate_existing_connection(
-            config,
-            connection,
-            pending.stable(),
-            Some(pending.preparation_id()),
-        ),
-        schema::FirstActivationResumeState::RecoverablePrepared => {
-            preflight_recoverable_first_activation_sidecars(config, pending.stable().authority_id())
-                .map_err(|_| LaunchAuthorityError::FirstActivationPreparationMismatch)
-        }
-        schema::FirstActivationResumeState::RecoverablePartial => {
-            let replay_key = Path::new(&config.replay_integrity_key_path);
-            let local_authority = replay_key.with_file_name("local-session-authority-id");
-            if replay_key.exists() || local_authority.exists() {
-                return Err(LaunchAuthorityError::FirstActivationPreparationMismatch);
-            }
-            Ok(())
-        }
-    }
-}
-
+include!("first_activation/resume.rs");
 pub(super) fn validate_runtime_root(path: &Path) -> Result<PathBuf, LaunchAuthorityError> {
     let metadata = std::fs::symlink_metadata(path)
         .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)?;

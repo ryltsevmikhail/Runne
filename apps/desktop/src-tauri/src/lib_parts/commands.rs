@@ -1,11 +1,12 @@
 fn require_runtime_admission(lifecycle: &RuntimeLifecycleManager) -> Result<(), IpcError> {
     if lifecycle.is_shutting_down() {
-        return Err(IpcError {
-            code: "runtime_shutdown_in_progress",
-        });
+        return Err(IpcError { code: "runtime_shutdown_in_progress" });
     }
     Ok(())
 }
+
+include!("runtime_ipc_error.rs");
+
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 fn get_pending_external_activation(
@@ -16,10 +17,14 @@ fn get_pending_external_activation(
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
-fn get_bootstrap(state: State<'_, Arc<AppCore>>) -> Result<BootstrapState, IpcError> {
-    state.bootstrap().map_err(|_| IpcError {
-        code: "bootstrap_unavailable",
-    })
+fn get_bootstrap(
+    state: State<'_, Arc<AppCore>>,
+    lifecycle: State<'_, RuntimeLifecycleManager>,
+) -> Result<BootstrapState, IpcRuntimeError> {
+    if lifecycle.is_shutting_down() {
+        return Err(IpcRuntimeError { code: "runtime_shutdown_in_progress", disposition: "terminal" });
+    }
+    state.bootstrap().map_err(|_| bootstrap_runtime_error(&state))
 }
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
@@ -27,9 +32,7 @@ fn set_theme(
     state: State<'_, Arc<AppCore>>,
     theme: String,
 ) -> Result<runne_app_core::ThemeAcknowledgement, IpcError> {
-    state.set_theme(&theme).map_err(|_| IpcError {
-        code: "theme_update_rejected",
-    })
+    state.set_theme(&theme).map_err(|_| IpcError { code: "theme_update_rejected" })
 }
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
@@ -158,7 +161,7 @@ fn acquire_renderer_generation(
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
-fn request_directory_selection(
+async fn request_directory_selection(
     window: WebviewWindow,
     selections: State<'_, DirectorySelectionManager>,
     renderer_generation: u64,
@@ -170,22 +173,33 @@ fn request_directory_selection(
     {
         return Err(IpcError { code: "directory_selection_rejected" });
     }
-    let selected = window
+    let picker = selections.reserve_picker(label, renderer_generation)
+        .map_err(|_| IpcError { code: "directory_selection_rejected" })?;
+    let (selection_sender, selection_receiver) = tokio::sync::oneshot::channel();
+    window
         .app_handle()
         .dialog()
         .file()
         .set_parent(&window)
         .set_title("Open local project")
-        .blocking_pick_folder();
+        .pick_folder(move |selected| { let _ = selection_sender.send((selected, picker)); });
+    let (selected, _picker) = selection_receiver.await
+        .map_err(|_| IpcError { code: "directory_selection_rejected" })?;
     let Some(selected) = selected else { return Ok(None) };
     if !window.is_focused().map_err(|_| IpcError { code: "directory_selection_rejected" })?
         || selections.renderer_generations().current(label).ok() != Some(renderer_generation)
     {
         return Err(IpcError { code: "directory_selection_rejected" });
     }
-    let path = std::fs::canonicalize(&selected.into_path().map_err(|_| IpcError { code: "directory_selection_rejected" })?).map_err(|_| IpcError { code: "directory_selection_rejected" })?;
+    let path = std::fs::canonicalize(
+        &selected.into_path().map_err(|_| IpcError { code: "directory_selection_rejected" })?,
+    )
+    .map_err(|_| IpcError { code: "directory_selection_rejected" })?;
     let root = VerifiedRootHandle::open(&path)
         .map_err(|_| IpcError { code: "directory_selection_rejected" })?;
+    if !window.is_focused().map_err(|_| IpcError { code: "directory_selection_rejected" })? {
+        return Err(IpcError { code: "directory_selection_rejected" });
+    }
     selections
         .issue(label, renderer_generation, &request_id, root, std::time::Instant::now())
         .map(DirectorySelectionResponse::new)
@@ -212,11 +226,7 @@ async fn prepare_selected_workspace(
         .map_err(|_| IpcError { code: "prepared_workspace_rejected" })?;
     let now = std::time::Instant::now();
     let binding = PreparedWorkspaceBinding::new(
-        label,
-        request.renderer_generation,
-        &request.request_id,
-        workspace_id,
-        request.expected_version,
+        label, request.renderer_generation, &request.request_id, workspace_id, request.expected_version,
     )
     .map_err(|_| IpcError { code: "prepared_workspace_rejected" })?;
     let reservation = prepared

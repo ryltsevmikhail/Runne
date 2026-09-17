@@ -21,7 +21,7 @@ type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unkno
 
 export type ProviderCredentialProvider = 'openai' | 'deepseek'
 export type ProviderCredentialAction = 'pair' | 'revoke' | 'migrate_legacy'
-export type ProviderCredentialIntentDisposition = 'pending' | 'cancelled' | 'unavailable'
+export type ProviderCredentialIntentDisposition = 'pending' | 'completed' | 'cancelled' | 'unavailable'
 export type ProviderCredentialProjection = Readonly<{
   providerId: ProviderCredentialProvider
   credentialState: ProviderCredentialState
@@ -108,7 +108,7 @@ export function projectProviderCredentialSnapshot(value: unknown): ProviderCrede
 }
 
 function parseIntentDisposition(value: unknown): ProviderCredentialIntentDisposition {
-  if (value !== 'pending' && value !== 'cancelled' && value !== 'unavailable') {
+  if (value !== 'pending' && value !== 'completed' && value !== 'cancelled' && value !== 'unavailable') {
     throw new Error('Invalid provider credential intent disposition')
   }
   return value

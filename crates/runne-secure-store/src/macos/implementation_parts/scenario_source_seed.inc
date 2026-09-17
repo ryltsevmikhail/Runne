@@ -22,12 +22,16 @@ impl MacOsProviderCredentialStore {
     /// a source-slot version, with the record carrying the scenario's source
     /// revision exactly as the authorized import readback requires. Runs under
     /// the same non-interactive keychain acquisition as every store effect.
+    /// The payload and complete metadata are written in the single atomic
+    /// creation step (macOS 27 erases the partition ACL on any later
+    /// modification) and `finalize` deletes the item if the saved ACL readback
+    /// fails.
     ///
     /// # Errors
     ///
     /// Returns a closed failure for an unsupported provider, an invalid
-    /// exact access object, or any native creation, population or metadata
-    /// commit failure. A failed population deletes the incomplete item.
+    /// exact access object, or any native creation failure. A failed saved-item
+    /// ACL verification deletes the item.
     pub fn seed_generation_zero_source_scenario(
         &self,
         provider: ProviderCredentialId,
@@ -47,36 +51,31 @@ impl MacOsProviderCredentialStore {
             source_revision,
         )?;
         Self::with_noninteractive(|keychain| {
-            let mut item = runne_macos_keychain_acl::create_empty_generic_password(
+            runne_macos_keychain_acl::create_populated_generic_password(
                 keychain,
                 &scoped.service,
                 &scoped.account,
-                &metadata.encode_incomplete(),
+                &metadata.encode(),
+                &payload,
                 exact,
             )
-            .map_err(map_acl_error)?
-            .finalize(exact)
-            .map_err(map_acl_error)?;
-            if item.set_password(&payload).is_err() {
-                let _ = runne_macos_keychain_acl::delete_item(&item);
-                return Err(SecureStoreError::ProviderCredentialOperationFailed);
-            }
-            runne_macos_keychain_acl::set_generic_password_metadata(&item, &metadata.encode())
-                .map_err(map_acl_error)
+            .and_then(|item| item.finalize(exact))
+            .map(|_| ())
+            .map_err(map_acl_error)
         })
     }
 
 /// Seeds one complete committed source-slot item (denial fixtures only):
 /// Primary keeps the generation-zero shape; the alternate item carries a
 /// real slot/generation/committed version exactly as a rotation would
-/// write. Same exact-ACL creation and fail-closed population as the
-/// generation-zero seeding above.
+/// write. Same exact-ACL atomic populated creation and fail-closed
+/// saved-item verification as the generation-zero seeding above.
 ///
 /// # Errors
 ///
 /// Returns a closed failure for an unsupported provider, an invalid exact
-/// access object, or any native creation, population or metadata commit
-/// failure. A failed population deletes the incomplete item.
+/// access object, or any native creation failure. A failed saved-item ACL
+/// verification deletes the item.
 pub fn seed_committed_source_slot_scenario(
     &self,
     provider: ProviderCredentialId,
@@ -116,22 +115,17 @@ pub fn seed_committed_source_slot_scenario(
             source_revision,
         )?;
         Self::with_noninteractive(|keychain| {
-            let mut item = runne_macos_keychain_acl::create_empty_generic_password(
+            runne_macos_keychain_acl::create_populated_generic_password(
                 keychain,
                 &service,
                 &scoped.account,
-                &metadata.encode_incomplete(),
+                &metadata.encode(),
+                &payload,
                 exact,
             )
-            .map_err(map_acl_error)?
-            .finalize(exact)
-            .map_err(map_acl_error)?;
-            if item.set_password(&payload).is_err() {
-                let _ = runne_macos_keychain_acl::delete_item(&item);
-                return Err(SecureStoreError::ProviderCredentialOperationFailed);
-            }
-            runne_macos_keychain_acl::set_generic_password_metadata(&item, &metadata.encode())
-                .map_err(map_acl_error)
+            .and_then(|item| item.finalize(exact))
+            .map(|_| ())
+            .map_err(map_acl_error)
         })
     }
 

@@ -11,6 +11,19 @@ pub(super) fn v35_matches(connection: &Connection, version: i64) -> SqliteResult
     if version != 35 {
         return Ok(false);
     }
+    if !v35_structure_matches(connection)? { return Ok(false); }
+    let marker: (i64, i64, i64, i64) = connection.query_row(
+        "SELECT COALESCE(MAX(version),0),COALESCE(MIN(version),0),COUNT(*),COALESCE(SUM(version),0) FROM schema_version",
+        [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    )?;
+    Ok(matches!(marker, (35, 1, 34, 611) | (35, 1, 35, 630)))
+}
+
+pub(super) fn v35_structure_matches(connection: &Connection) -> SqliteResult<bool> {
+    v35_structure_matches_with_v36_receipt(connection, false)
+}
+
+pub(super) fn v35_structure_matches_with_v36_receipt(connection: &Connection, allows_v36_project_receipt: bool) -> SqliteResult<bool> {
     let mut triggers = V33_TRIGGERS
         .map(|name| (name, v33_trigger_source(name)))
         .to_vec();
@@ -37,6 +50,7 @@ pub(super) fn v35_matches(connection: &Connection, version: i64) -> SqliteResult
         &v32_head_active_lifecycle_trigger(),
         true,
         &extensions,
+        allows_v36_project_receipt,
     )?
         || !v30_columns_match(connection)?
         || !table_sql_matches_migration(connection, V29_TABLE, MIGRATION_V29)?
@@ -52,12 +66,7 @@ pub(super) fn v35_matches(connection: &Connection, version: i64) -> SqliteResult
     {
         return Ok(false);
     }
-    let marker: (i64, i64, i64, i64) = connection.query_row(
-        "SELECT COALESCE(MAX(version),0),COALESCE(MIN(version),0),COUNT(*),COALESCE(SUM(version),0) FROM schema_version",
-        [],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-    )?;
-    Ok(matches!(marker, (35, 1, 34, 611) | (35, 1, 35, 630)))
+    Ok(true)
 }
 
 fn v35_table_matches(connection: &Connection) -> SqliteResult<bool> {

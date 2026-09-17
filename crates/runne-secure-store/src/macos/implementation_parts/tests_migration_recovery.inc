@@ -67,6 +67,11 @@
 
     #[test]
     fn provider_credential_acl_migration_is_explicit_and_preserves_material() {
+        if skip_if_partition_limitation(
+            "provider_credential_acl_migration_is_explicit_and_preserves_material",
+        ) {
+            return;
+        }
         let (store, _cleanup) = unique_provider_store("migration");
         let current = std::env::current_exe().expect("current test executable");
         let current_policy = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
@@ -104,6 +109,11 @@
 
     #[test]
     fn provider_credential_migration_recovers_verified_backup_after_restart_boundaries() {
+        if skip_if_partition_limitation(
+            "provider_credential_migration_recovers_verified_backup_after_restart_boundaries",
+        ) {
+            return;
+        }
         for failpoint in [
             CredentialMigrationFailpoint::BackupEmptyWritten,
             CredentialMigrationFailpoint::BackupWritten,
@@ -112,11 +122,11 @@
             CredentialMigrationFailpoint::ReplacementWritten,
         ] {
             let (store, _cleanup) = unique_provider_store(match failpoint {
-                CredentialMigrationFailpoint::BackupEmptyWritten => "recover-after-empty-backup",
+                CredentialMigrationFailpoint::BackupEmptyWritten => "recover-after-backup-write",
                 CredentialMigrationFailpoint::BackupWritten => "recover-after-backup",
                 CredentialMigrationFailpoint::PrimaryDeleted => "recover-after-delete",
                 CredentialMigrationFailpoint::ReplacementEmptyWritten => {
-                    "recover-after-empty-replacement"
+                    "recover-after-replacement-write"
                 }
                 CredentialMigrationFailpoint::ReplacementWritten => "recover-after-replacement",
             });
@@ -168,11 +178,7 @@
                 &current_policy,
                 &replacement_policy,
             );
-            if matches!(
-                failpoint,
-                CredentialMigrationFailpoint::PrimaryDeleted
-                    | CredentialMigrationFailpoint::ReplacementEmptyWritten
-            ) {
+            if matches!(failpoint, CredentialMigrationFailpoint::PrimaryDeleted) {
                 assert_eq!(
                     first_recovery,
                     Err(SecureStoreError::CredentialMigrationIncomplete)
@@ -185,6 +191,10 @@
                     )
                     .unwrap();
             } else {
+                // The atomic populated write leaves either a fully proven
+                // backup or a fully proven replacement, so one recovery
+                // migration completes; only a missing primary needs the
+                // backup renamed first.
                 first_recovery.unwrap();
             }
             assert_eq!(

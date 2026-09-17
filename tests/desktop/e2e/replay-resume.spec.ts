@@ -10,10 +10,13 @@ test('restores the saved workspace through the desktop host boundary', async ({ 
   await page.goto(`/workspaces/${workspace.workspaceId}`)
 
   await expect(page.getByRole('heading', { name: workspace.displayName })).toBeVisible()
+  await page.getByRole('button', { name: 'Show details', exact: true }).click()
   await expect(page.getByText(`Version ${workspace.version} · Open`)).toBeVisible()
   await expect(page.locator('.workspace-status')).toHaveText('Runtime live')
+  await page.locator('.workspace-conversation__context > summary').click()
   await expect(page.getByText('Runtime session controls this workspace.')).toBeVisible()
-  await expect(page.getByText(workspace.workspaceId)).toBeVisible()
+  await expect(page.getByText(`Version ${workspace.version} · Open`)).toBeVisible()
+  await expect(page.getByText(workspace.workspaceId)).toHaveCount(0)
   await expect(page.getByText('/workspace/gocode-ui')).toHaveCount(0)
 })
 
@@ -26,11 +29,11 @@ test('keeps unknown workspaces closed without leaking saved paths', async ({ pag
 })
 
 test('creates a workspace through the canonical project mutation flow', async ({ page }) => {
-  await page.goto(`/projects/${project.projectId}`)
+  await page.goto(`/?project=${project.projectId}`)
 
-  await expect(page.getByText('This project has no workspaces yet.')).toBeVisible()
   await page.getByRole('button', { name: 'Create workspace' }).click()
-  await expect(page.getByRole('button', { name: 'Open workspace gocode-ui' })).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`/workspaces/${workspace.workspaceId}$`))
+  await expect(page.getByRole('heading', { name: workspace.displayName })).toBeVisible()
 })
 
 test('imports a local folder through canonical creation and protected open', async ({ page }) => {

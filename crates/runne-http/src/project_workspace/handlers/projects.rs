@@ -6,7 +6,7 @@ use axum::{
 };
 use runne_api::{
     ExistingProjectCommand, ProjectWorkspaceCommandHostPort, ProjectWorkspaceDisplayNameInput,
-    ProjectWorkspaceQueryHostPort,
+    ProjectWorkspaceQueryHostPort, RenameProjectCommand,
 };
 use runne_domain::id::ProjectId;
 
@@ -95,6 +95,52 @@ where
     H: ProjectWorkspaceCommandHostPort + ProjectWorkspaceQueryHostPort,
 {
     mutate(state, principal, request_id, project_id, headers, body, 2).await
+}
+pub(crate) async fn rename_project<H>(
+    State(state): State<ProjectWorkspaceHttpState<H>>,
+    Extension(principal): Extension<AuthenticatedPrincipal>,
+    Extension(request_id): Extension<RequestId>,
+    Path(project_id): Path<String>,
+    headers: HeaderMap,
+    body: Result<Json<RenameProjectBody>, JsonRejection>,
+) -> Response
+where
+    H: ProjectWorkspaceCommandHostPort + ProjectWorkspaceQueryHostPort,
+{
+    let context = match context(&headers, &principal, &state.actor) {
+        Ok(value) => value,
+        Err(code) => return bad_request(code, &request_id),
+    };
+    let project_id = match project_id.parse::<ProjectId>() {
+        Ok(value) => value,
+        Err(_) => return bad_request("invalid_project_id", &request_id),
+    };
+    let Json(body) = match body {
+        Ok(value) => value,
+        Err(error) => return json_rejection(error, &request_id),
+    };
+    if body.expected_version == 0 {
+        return bad_request("invalid_expected_version", &request_id);
+    }
+    let display_name = match ProjectWorkspaceDisplayNameInput::new(body.display_name) {
+        Ok(value) => value,
+        Err(_) => return bad_request("invalid_display_name", &request_id),
+    };
+    match state
+        .host
+        .rename_project(
+            context,
+            RenameProjectCommand {
+                project_id,
+                expected_version: body.expected_version,
+                display_name,
+            },
+        )
+        .await
+    {
+        Ok(ack) => (StatusCode::ACCEPTED, Json(ProjectAckWire::from(ack))).into_response(),
+        Err(error) => host_error(error, &request_id),
+    }
 }
 async fn mutate<H>(
     state: ProjectWorkspaceHttpState<H>,

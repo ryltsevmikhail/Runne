@@ -35,6 +35,24 @@ fn exchange_rejects_confirmation_action_with_submitted_material() {
 }
 
 #[test]
+fn revoke_accepts_only_secretless_confirmation_and_rejects_cancellation() {
+    let (material, disposition_tag) = accepted_disposition(
+        ProviderCredentialEnrollmentActionV2::Revoke,
+        SecureCredentialPromptDisposition::Confirmed,
+    )
+    .expect("revoke confirmation");
+    assert!(material.is_none());
+    assert_eq!(disposition_tag, 2);
+    assert!(
+        accepted_disposition(
+            ProviderCredentialEnrollmentActionV2::Revoke,
+            SecureCredentialPromptDisposition::Cancelled,
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn native_confirmation_digest_excludes_submitted_secret_material() {
     let tag = |secret| {
         accepted_disposition(

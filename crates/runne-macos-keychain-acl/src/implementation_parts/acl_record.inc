@@ -1,3 +1,4 @@
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RootOwnerAcl {
     Default,
     ChangeAcl,
@@ -59,8 +60,25 @@ fn copy_root_owner_acl(acl: &CFType) -> Result<RootOwnerAcl, KeychainAclError> {
     if authorizations.is_null() {
         return Err(KeychainAclError::AccessDenied);
     }
+    // SAFETY: the copy call returned a retained non-null array.
     let authorizations = unsafe { CFArray::<CFType>::wrap_under_create_rule(authorizations) };
+    root_owner_acl_from_authorizations(&authorizations)
+}
+
+fn root_owner_acl_from_authorizations(
+    authorizations: &CFArray<CFType>,
+) -> Result<RootOwnerAcl, KeychainAclError> {
     if authorizations.is_empty() {
+        return Ok(RootOwnerAcl::Default);
+    }
+    let any = unsafe { CFString::wrap_under_get_rule(kSecACLAuthorizationAny) };
+    if authorizations.len() == 1
+        && authorizations
+            .get(0)
+            .is_some_and(|value| *value == any.as_CFType())
+    {
+        // macOS 27 stores the saved no-applications owner record with its
+        // authorizations normalized to the single `Any` entry.
         return Ok(RootOwnerAcl::Default);
     }
     let change_acl = unsafe { CFString::wrap_under_get_rule(kSecACLAuthorizationChangeACL) };

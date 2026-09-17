@@ -85,8 +85,7 @@ test('Phase 3 routes remain fail-closed while workspace chat remains available',
   await page.goto('/task-runs')
   await expect(page.getByRole('heading', { name: 'Task runs', exact: true })).toBeVisible()
   await expect(page.locator('[data-capability="task-run-inventory"]')).toBeVisible()
-  await expect(page.locator('[data-inventory-control]')).toHaveCount(6)
-  await expect(page.getByRole('searchbox', { name: 'Search task runs' })).toBeDisabled()
+  await expect(page.locator('[data-inventory-control]')).toHaveCount(0)
 
   await page.goto('/recovery')
   await expect(page.getByRole('heading', { name: 'Project recovery', exact: true })).toBeVisible()
@@ -106,7 +105,7 @@ test('Phase 3 routes remain fail-closed while workspace chat remains available',
   await page.goto(`/workspaces/${workspace.workspaceId}`)
   await expect(page.locator('main')).toHaveCount(1)
   const controls = page.locator('[data-capability="conversation-controls"] button')
-  await expect(controls).toHaveCount(5)
+  await expect(controls).toHaveCount(0)
   for (const control of await controls.all()) {
     await expect(control).toBeDisabled()
   }
@@ -128,25 +127,19 @@ test.describe('narrow desktop shell', () => {
     const rail = page.locator('aside.sidebar')
     const projects = page.getByRole('button', { name: 'Projects' })
     const settings = page.getByRole('button', { name: 'Settings' })
-    const collapse = page.getByLabel('Collapse sidebar')
-
+    const expand = page.getByLabel('Expand sidebar')
     await expect(rail).toHaveCSS('width', '48px')
     await expect(projects).toBeVisible()
-    await expect(projects.locator('svg')).toBeVisible()
     await expect(settings).toBeVisible()
-    await expect(settings.locator('svg')).toBeVisible()
     expect(await rail.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
-
-    await expect(collapse).toBeVisible()
-    await collapse.focus()
-    await page.keyboard.press('Enter')
-    await expect(rail).toHaveClass(/sidebar--collapsed/)
-
-    const expand = page.getByLabel('Expand sidebar')
-    await expect(expand).toBeVisible()
     await expand.focus()
     await page.keyboard.press('Enter')
     await expect(rail).not.toHaveClass(/sidebar--collapsed/)
+    await expect(rail).toHaveCSS('position', 'absolute')
+    const collapse = page.getByLabel('Collapse sidebar')
+    await collapse.focus()
+    await page.keyboard.press('Enter')
+    await expect(rail).toHaveClass(/sidebar--collapsed/)
 
     await settings.click()
     await expect(page.getByRole('heading', { name: 'Runtime' })).toBeVisible()

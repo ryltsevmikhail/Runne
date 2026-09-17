@@ -1,0 +1,176 @@
+/* Dense desktop surfaces: content first, shared semantics across both themes. */
+.app-shell {
+  --runne-font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --runne-radius-sm: 3px;
+  --runne-radius-md: 4px;
+  --runne-radius-lg: 6px;
+  --runne-radius-xl: 8px;
+  --runne-canvas: #1b1e22;
+  --runne-sidebar: #1b1e22;
+  --runne-surface: #10151a;
+  --runne-surface-raised: #20262d;
+  --runne-text-primary: #e8e9ec;
+  --runne-text-secondary: #a9adb5;
+  --runne-ui-muted: #a9adb5;
+  --runne-ui-subtle: #a0a5ae;
+  --runne-border: #32353b;
+  --runne-accent: #4565df;
+  --runne-text-on-accent: #fff;
+  --bg: var(--runne-canvas);
+  --surface: var(--runne-surface);
+  --surface-hover: var(--runne-surface-raised);
+  --text: var(--runne-text-primary);
+  --text-muted: var(--runne-text-secondary);
+  --text-subtle: var(--runne-ui-subtle);
+  --border: var(--runne-border);
+  --border-hover: var(--runne-text-secondary);
+  --primary: var(--runne-accent);
+  --primary-hover: var(--runne-accent);
+  --sidebar: var(--runne-sidebar);
+  --sidebar-hover: var(--runne-surface-raised);
+  --input: var(--runne-canvas);
+  font-family: var(--runne-font-ui);
+  font-size: 13px;
+}
+
+.app-shell[data-theme='light'] {
+  --runne-canvas: #f3f4f5;
+  --runne-sidebar: #f3f4f5;
+  --runne-surface: #fcfcfd;
+  --runne-surface-raised: #eceef1;
+  --runne-text-primary: #252830;
+  --runne-text-secondary: #565d69;
+  --runne-ui-muted: #565d69;
+  --runne-ui-subtle: #606775;
+  --runne-border: #dce0e6;
+  --runne-accent: #3156d8;
+  --bg: var(--runne-canvas);
+  --surface: var(--runne-surface);
+  --surface-hover: var(--runne-surface-raised);
+  --text: var(--runne-text-primary);
+  --text-muted: var(--runne-text-secondary);
+  --text-subtle: var(--runne-ui-subtle);
+  --border: var(--runne-border);
+  --border-hover: var(--runne-text-secondary);
+  --primary: var(--runne-accent);
+  --sidebar: var(--runne-sidebar);
+  --sidebar-hover: var(--runne-surface-raised);
+  --input: var(--runne-surface);
+}
+
+.app-shell .sidebar {
+  --text: var(--runne-text-primary);
+  --text-muted: var(--runne-text-secondary);
+  --text-subtle: var(--runne-ui-subtle);
+  --border: var(--runne-border);
+  padding: 8px;
+  border-right: 1px solid var(--border);
+}
+
+.app-shell .workspace { border: 0; border-radius: 0; padding: 20px 24px; }
+.app-shell .workspace:has(> .projects-page, > .workspace-page, > .system-page,
+  > .task-run-inventory-page, > .runtime-configuration-page, > .recovery-page) { padding: 0; }
+.app-shell .app-sidebar-navigation.gc-sidebar .gc-sidebar-brand-header { min-height: 32px; padding: 0 4px; }
+.app-shell .gc-sidebar-brand-lockup { width: 72px; }
+.app-shell .app-sidebar-navigation.gc-sidebar .gc-sidebar-item { min-height: 32px; font-size: 13px; }
+.app-shell .runtime-status { min-height: 36px; padding: 6px 8px; border: 0; background: transparent; }
+.app-shell .status-copy strong { font-size: 12px; font-weight: 500; }
+.app-shell .status-copy small { font-size: 11px; }
+.app-shell .status-dot { box-shadow: none; }
+.app-shell .icon-button { width: 28px; height: 28px; border-radius: 4px; }
+.app-shell :is(button, a, input, textarea, select, summary):focus-visible {
+  outline: 2px solid var(--runne-accent);
+  outline-offset: 2px;
+}
+.app-shell button:disabled { cursor: not-allowed; }
+.app-shell :is(h1, h2, h3) { line-height: 1.35; }
+.app-shell .page-header h1 { font-size: 20px; }
+.app-shell .page-header { gap: 16px; }
+.app-shell .empty-state:not(.projects-page__state) { min-height: 140px; padding: 20px; }
+.app-shell .content-section { margin-top: 24px; }
+.app-shell .workspace-panel dt { font-size: 11px; letter-spacing: 0; text-transform: none; }
+.app-shell .workspace-panel dd { font-size: 12px; }
+.app-shell .workspace-breadcrumb { font-size: 12px; }
+.app-shell .workspace-status { font-size: 12px; padding: 2px 6px; background: transparent; }
+.app-shell .panel-heading { font-size: 12px; }
+.app-shell .system-page,
+.app-shell .task-run-inventory-page,
+.app-shell .runtime-configuration-page,
+.app-shell .recovery-page { border: 0; border-radius: 0; min-height: 100%; }
+.app-shell .primary-button { color: var(--runne-text-on-accent); }
+
+@media (max-width: 1023px) {
+  .app-shell .sidebar { padding-inline: 4px; }
+}
+@media (max-width: 640px) {
+  .app-shell .workspace { padding: 16px; }
+  .app-shell .page-header { flex-direction: column; align-items: flex-start; }
+}
+@media (pointer: coarse) {
+  .app-shell :is(.gc-button, .icon-button, .gc-sidebar-item) { min-height: 44px; }
+  .app-shell .icon-button { min-width: 36px; }
+}
+
+.app-shell .project-card--workspace {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+}
+.app-shell .project-card--workspace .project-icon { width: 24px; height: 24px; background: transparent; }
+.app-shell .project-card--workspace .project-copy strong { font-size: 13px; font-weight: 500; }
+.app-shell .project-card--workspace .project-arrow { margin-left: auto; }
+.app-shell .project-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.app-shell .runtime-summary { color: var(--text-muted); font-size: 12px; }
+.app-shell .gc-alert { padding: 10px 12px; border-radius: 4px; }
+.app-shell .gc-alert p { margin: 4px 0; }
+.app-shell .gc-dialog { max-width: 360px; padding: 16px; }
+.app-shell .gc-dialog-header { margin-bottom: 16px; }
+.app-shell .gc-dialog-title { margin-bottom: 6px; font-size: 16px; }
+.app-shell .gc-dialog-description { font-size: 13px; line-height: 1.4; }
+.app-shell .gc-dialog-btn { min-height: 28px; padding: 6px 12px; font-size: 12px; }
+.app-shell .workspace > section > header h1 { font-size: 20px; margin: 0; }
+.app-shell .workspace > section > header p { font-size: 12px; color: var(--text-muted); overflow-wrap: anywhere; }
+
+.app-shell .providers-page h1 { font-size: 20px; margin: 0 0 16px; }
+.app-shell .providers-page > ul { margin: 0; padding: 0; list-style: none; }
+.app-shell .providers-page > ul > li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.app-shell .providers-page li > strong { min-width: 100px; font: 13px var(--runne-font-mono); }
+.app-shell .providers-page li > span { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.app-shell .providers-page button {
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-hover);
+  color: var(--text);
+  cursor: pointer;
+}
+.app-shell .providers-page button:disabled { opacity: .5; cursor: not-allowed; }
+.app-shell :is(.appearance-options, .appearance-locale) {
+  margin: 16px 0;
+  padding: 12px 0;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+}
+.app-shell .appearance-locale select { padding: 4px 8px; background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+
+.app-shell .app-sidebar-navigation.gc-sidebar { flex: 1; min-height: 0; }
+.app-shell .app-sidebar-navigation [data-nav-id='task-runs'] { margin-top: auto; }
+.app-shell .sidebar-status { margin-top: 10px; }
+
+.projects-start__content { width: min(100%, 640px); padding: 32px 24px; margin: 0 auto; }
+.projects-start__content h1 { margin: 0 0 8px; font-size: 20px; }
+.projects-start__content p { color: var(--text-muted); margin: 0 0 16px; line-height: 1.5; }

@@ -34,6 +34,7 @@ enum CommandReconciliationWitness {
     CreateProject { project_id: CanonicalId, display_name: String },
     ArchiveProject { project_id: CanonicalId, expected_version: u64 },
     DeleteProject { project_id: CanonicalId, expected_version: u64 },
+    RenameProject { project_id: CanonicalId, expected_version: u64, display_name: String },
     CreateWorkspace { workspace_id: CanonicalId, project_id: CanonicalId, display_name: String },
     BindWorkspaceRoot { workspace_id: CanonicalId, expected_version: u64, admission_digest: String },
     OpenWorkspace { workspace_id: CanonicalId, expected_version: u64 },
@@ -71,6 +72,13 @@ impl CommandReconciliationRequest {
     /// Returns `InvalidRequest` when the expected version is zero.
     pub fn delete_project(identity: CommandIdentity, project_id: CanonicalId, expected_version: u64) -> Result<Self, RuntimeApiError> {
         Ok(Self { identity, witness: CommandReconciliationWitness::DeleteProject { project_id, expected_version: version(expected_version)? } })
+    }
+    /// Builds a validated project-rename reconciliation witness.
+    ///
+    /// # Errors
+    /// Returns `InvalidRequest` for a zero version or invalid display name.
+    pub fn rename_project(identity: CommandIdentity, project_id: CanonicalId, expected_version: u64, name: impl Into<String>) -> Result<Self, RuntimeApiError> {
+        Ok(Self { identity, witness: CommandReconciliationWitness::RenameProject { project_id, expected_version: version(expected_version)?, display_name: reconciliation_display_name(name.into())? } })
     }
     /// Builds a validated create-workspace reconciliation witness.
     ///

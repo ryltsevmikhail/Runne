@@ -29,6 +29,10 @@ pub(super) enum OutcomeWire<'a> {
         project_id: String,
         new_version: u64,
     },
+    RenameProject {
+        project_id: String,
+        new_version: u64,
+    },
     CreateWorkspace {
         workspace_id: String,
         new_version: u64,
@@ -122,6 +126,10 @@ pub(super) fn durable(value: &AuthoritativeCommandOutcome) -> Option<OutcomeWire
             new_version: v.new_version,
         },
         AuthoritativeCommandOutcomeRef::ProjectDeleted(v) => OutcomeWire::DeleteProject {
+            project_id: v.project_id.to_string(),
+            new_version: v.new_version,
+        },
+        AuthoritativeCommandOutcomeRef::ProjectRenamed(v) => OutcomeWire::RenameProject {
             project_id: v.project_id.to_string(),
             new_version: v.new_version,
         },

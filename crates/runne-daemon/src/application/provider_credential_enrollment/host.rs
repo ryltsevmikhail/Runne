@@ -21,12 +21,104 @@ use runne_provider::{
     ProviderCredentialEnrollmentStore,
 };
 
+#[cfg(all(
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
+use super::DaemonProviderCredentialEnrollmentControl;
 use super::{
     CredentialEnrollmentReadback, ProviderCredentialAdmission, ProviderCredentialEnrollmentStatus,
     begin::ProviderCredentialEnrollmentBegin, broker::pending::PendingBrokerRendezvousRegistry,
     operation_handle::ProviderCredentialOperationHandleIssuer,
     resume::ProviderCredentialEnrollmentResume,
 };
+
+#[cfg(all(
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
+/// HTTP host retains the daemon-owned control so read-only requests use the
+/// same store, opaque handle issuer, and paired admission verifier.
+pub(crate) struct DaemonProviderCredentialEnrollmentHttpHost {
+    control: Arc<DaemonProviderCredentialEnrollmentControl>,
+    verifier: runne_api::ProviderCredentialRequestAuthorityVerifier,
+    now_high_water: Arc<dyn Fn() -> i64 + Send + Sync>,
+}
+
+#[cfg(all(
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
+impl DaemonProviderCredentialEnrollmentHttpHost {
+    pub(crate) fn new(
+        control: Arc<DaemonProviderCredentialEnrollmentControl>,
+        verifier: runne_api::ProviderCredentialRequestAuthorityVerifier,
+        now_high_water: Arc<dyn Fn() -> i64 + Send + Sync>,
+    ) -> Self {
+        Self {
+            control,
+            verifier,
+            now_high_water,
+        }
+    }
+}
+
+#[cfg(all(
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
+impl ProviderCredentialEnrollmentHostPort for DaemonProviderCredentialEnrollmentHttpHost {
+    fn begin<'a>(
+        &'a self,
+        _: ProviderCredentialBaseRequestAuthority,
+        _: ProviderCredentialIntentConsumptionProof,
+        _: ProviderCredentialCommandContext,
+        _: BeginProviderCredentialEnrollment,
+    ) -> ProviderCredentialHostFuture<'a> {
+        Box::pin(async { Err(ProviderCredentialEnrollmentHostError::AccessDenied) })
+    }
+
+    fn resume<'a>(
+        &'a self,
+        authority: ProviderCredentialBaseRequestAuthority,
+        _: ProviderCredentialCommandContext,
+        handle: ProviderCredentialOperationHandleV2,
+    ) -> ProviderCredentialHostFuture<'a> {
+        Box::pin(async move {
+            self.control
+                .resume_http(&self.verifier, &authority, handle, (self.now_high_water)())
+        })
+    }
+
+    fn status<'a>(
+        &'a self,
+        authority: ProviderCredentialBaseRequestAuthority,
+        provider: ProviderCredentialProviderV2,
+    ) -> ProviderCredentialStatusFuture<'a> {
+        Box::pin(async move {
+            self.control.status_http(
+                &self.verifier,
+                &authority,
+                provider,
+                (self.now_high_water)(),
+            )
+        })
+    }
+
+    fn verify<'a>(
+        &'a self,
+        _: ProviderCredentialBaseRequestAuthority,
+        _: ProviderCredentialIntentConsumptionProof,
+        _: ProviderCredentialCommandContext,
+        _: VerifyProviderCredential,
+    ) -> ProviderCredentialHostFuture<'a> {
+        Box::pin(async { Err(ProviderCredentialEnrollmentHostError::AccessDenied) })
+    }
+}
 
 /// Explicit verification owner supplied by Task 12's material-isolated boundary.
 pub(crate) trait ProviderCredentialVerificationHost: Send + Sync {

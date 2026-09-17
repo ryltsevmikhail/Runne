@@ -210,6 +210,7 @@ fn nonterminal(record: MutationRecord) -> Result<MutationRecoveryEvidence, Secur
 
 fn operation_from_name(value: &str) -> Result<MutationOperation, SecurityStateError> {
     match value {
+        "project_rename" => Ok(MutationOperation::ProjectRename),
         "project_create" => Ok(MutationOperation::ProjectCreate),
         "project_archive" => Ok(MutationOperation::ProjectArchive),
         "project_delete" => Ok(MutationOperation::ProjectDelete),

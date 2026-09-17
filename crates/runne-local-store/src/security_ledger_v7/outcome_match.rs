@@ -19,6 +19,17 @@ fn simple_matches(outcome: &CanonicalMutationOutcome, command: &NormalizedMutati
             NormalizedMutationCommand::CreateProject { project_id, .. },
         ) => result == project_id && *new_version == 1,
         (
+            CanonicalMutationOutcome::ProjectRename {
+                project_id: result,
+                new_version,
+            },
+            NormalizedMutationCommand::RenameProject {
+                project_id,
+                expected_version,
+                ..
+            },
+        )
+        | (
             CanonicalMutationOutcome::ProjectArchive {
                 project_id: result,
                 new_version,

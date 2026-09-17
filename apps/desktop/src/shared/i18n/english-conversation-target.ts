@@ -1,4 +1,9 @@
 const conversationTarget = {
+  'workspace.showProjectTree': 'Show files',
+  'workspace.hideProjectTree': 'Hide files',
+  'workspace.showDetails': 'Show details',
+  'workspace.hideDetails': 'Hide details',
+
   'conversationControls.unavailable': 'Additional chat controls are unavailable',
   'conversationControls.unavailableDescription': 'Command, context, agent, model, and budget controls require a runtime capability.',
   'conversationControls.command': 'Commands unavailable',

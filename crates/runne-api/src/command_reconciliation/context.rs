@@ -43,6 +43,7 @@ pub enum ReconciliationOperation {
     CreateProject,
     ArchiveProject,
     DeleteProject,
+    RenameProject,
     CreateWorkspace,
     BindWorkspaceRoot,
     OpenWorkspace,

@@ -128,7 +128,7 @@ impl MacOsProviderCredentialStore {
                 &current_access,
                 &encoded,
                 (failpoint == Some(CredentialMigrationFailpoint::BackupEmptyWritten))
-                    .then_some(CredentialPopulationFailpoint::EmptyItemWritten),
+                    .then_some(CredentialPopulationFailpoint::PopulatedItemWritten),
             );
             if failpoint == Some(CredentialMigrationFailpoint::BackupEmptyWritten) {
                 return Err(SecureStoreError::CredentialMigrationIncomplete);
@@ -151,7 +151,7 @@ impl MacOsProviderCredentialStore {
                 &replacement_access,
                 &replacement_encoded,
                 (failpoint == Some(CredentialMigrationFailpoint::ReplacementEmptyWritten))
-                    .then_some(CredentialPopulationFailpoint::EmptyItemWritten),
+                    .then_some(CredentialPopulationFailpoint::PopulatedItemWritten),
             );
             if failpoint == Some(CredentialMigrationFailpoint::ReplacementEmptyWritten) {
                 return Err(SecureStoreError::CredentialMigrationIncomplete);

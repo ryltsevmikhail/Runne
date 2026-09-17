@@ -16,7 +16,7 @@ pub const GENERATOR_SCHEMA_VERSION: u32 = 1;
 ///
 /// Updated only by the authoritative contract generator.
 pub const PUBLISHED_BUNDLE_HASH: &str =
-    "0ba6f71a5fde9f735d2d03c9bec014acd5958f578ed431b904d038ff8093d4fe";
+    "2120239d6f11db7fbd6ac61360dd677ac92d6b7f7b52e15cfee3816b0795222a";
 
 /// Exact additive command/query and Aggregate replay surface mounted by the
 /// current local daemon.
@@ -40,6 +40,7 @@ pub const PUBLISHED_RUNTIME_CAPABILITIES: &[&str] = &[
     "project.get.v1",
     "project.create.v1",
     "project.archive.v1",
+    "project.rename.v1",
     "project.restore.v1",
     "project.delete.v1",
     "workspace.list.v1",
@@ -50,6 +51,42 @@ pub const PUBLISHED_RUNTIME_CAPABILITIES: &[&str] = &[
     "workspace.files.read.v1",
     "workspace.changes.read.v1",
     "workspace.editor.open.v1",
+];
+
+/// Exact protected profile that additionally advertises qualified credential
+/// enrollment. Selected only after the native release qualification admits it.
+pub const ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES: &[&str] = &[
+    "conversation.create.v1",
+    "conversation.generate_text.v1",
+    "conversation.list_messages.v1",
+    "task_run.get.v1",
+    "task_run.cancel.v1",
+    "replay.aggregate.open.v1",
+    "replay.aggregate.retention_baseline.v1",
+    "replay.aggregate.retention_baseline_resume.v2",
+    "replay.aggregate.read_page.v1",
+    "replay.aggregate.acknowledge.v1",
+    "replay.aggregate.complete_catch_up.v1",
+    "replay.aggregate.continue_live.v1",
+    "replay.aggregate.sse.v1",
+    "runtime.operational-telemetry.v1",
+    "approval.control.v1",
+    "project.list.v1",
+    "project.get.v1",
+    "project.create.v1",
+    "project.archive.v1",
+    "project.rename.v1",
+    "project.restore.v1",
+    "project.delete.v1",
+    "workspace.list.v1",
+    "workspace.get.v1",
+    "workspace.create.v1",
+    "workspace.open.v1",
+    "workspace.bind_root.v3",
+    "workspace.files.read.v1",
+    "workspace.changes.read.v1",
+    "workspace.editor.open.v1",
+    "provider.credential-enrollment.v2",
 ];
 
 /// Exact base profile for external and deterministic daemon modes.
@@ -73,6 +110,7 @@ pub const BASE_RUNTIME_CAPABILITIES: &[&str] = &[
     "project.get.v1",
     "project.create.v1",
     "project.archive.v1",
+    "project.rename.v1",
     "project.restore.v1",
     "project.delete.v1",
     "workspace.list.v1",
@@ -102,6 +140,7 @@ pub const RUNTIME_CAPABILITY_CATALOG: &[&str] = &[
     "project.get.v1",
     "project.create.v1",
     "project.archive.v1",
+    "project.rename.v1",
     "project.restore.v1",
     "project.delete.v1",
     "workspace.list.v1",
@@ -141,6 +180,7 @@ mod tests {
             "project.get.v1",
             "project.create.v1",
             "project.archive.v1",
+            "project.rename.v1",
             "project.restore.v1",
             "project.delete.v1",
             "workspace.list.v1",

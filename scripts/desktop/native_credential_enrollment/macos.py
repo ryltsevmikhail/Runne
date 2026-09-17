@@ -13,6 +13,7 @@ from collections.abc import Mapping
 
 from .evidence_io import shape_errors
 from .macos_bindings import ADDITIONAL_SELECTORS, DEPLOYMENT, canonical_digest, deployment_errors
+from .macos_receipts import CANARY_DIGEST, code_identity_errors, selector_errors
 
 ARCHITECTURES = frozenset({"arm64"})
 REQUIRED_SELECTORS = frozenset({
@@ -45,7 +46,7 @@ TUPLE_FIELDS = (
 )
 ROW_FIELDS = {
     "platform", "architecture", "os_version", "disposition", "tuple", "signing",
-    "runner", "native_store", "artifact_scan", "selectors", "deployment",
+    "code_identities", "runner", "native_store", "artifact_scan", "selectors", "deployment",
 }
 TEAM_ID = "758F9Z45SR"
 APPLICATION_IDENTIFIERS = {
@@ -72,7 +73,7 @@ FORBIDDEN_FIELD_PARTS = (
 )
 SAFE_FIELD_NAMES = frozenset({"credential_manager"}) | frozenset(
     name.replace("-", "_") for name in DEPLOYMENT["mach_services"]
-)
+) | frozenset({"ticket_sha256"})
 
 
 def tuple_digest(values: Mapping[str, object], fields: tuple[str, ...] = TUPLE_FIELDS) -> str:
@@ -102,10 +103,11 @@ def validate_row(row: object) -> list[str]:
     errors.extend(_tuple_errors(row.get("tuple")))
     errors.extend(deployment_errors(row.get("deployment"), row.get("tuple")))
     errors.extend(_signing_errors(row.get("signing")))
+    errors.extend(code_identity_errors(row.get("code_identities"), row.get("tuple")))
     errors.extend(_runner_errors(row.get("runner")))
     errors.extend(_native_store_errors(row.get("native_store")))
     errors.extend(_artifact_scan_errors(row.get("artifact_scan")))
-    errors.extend(_selector_errors(row.get("selectors")))
+    errors.extend(_selector_errors(row.get("selectors"), row.get("runner")))
     errors.extend(_forbidden_field_errors(row))
     return errors
 
@@ -172,7 +174,7 @@ def _runner_errors(value: object) -> list[str]:
         return ["runner evidence fields are not exact"]
     if not isinstance(value.get("workflow_run_id"), str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", value["workflow_run_id"]):
         return ["runner workflow identity is missing"]
-    required = value.get("freshness_verified") is True and value.get("isolated_disposable_user") is True
+    required = value.get("attestation_verified") is True and value.get("freshness_verified") is True and value.get("isolated_disposable_user") is True
     empty = value.get("icloud_data_present") is False and value.get("user_keychain_data_present") is False
     return [] if required and empty else ["runner is stale or not an isolated disposable user"]
 
@@ -187,10 +189,14 @@ def _native_store_errors(value: object) -> list[str]:
 
 
 def _artifact_scan_errors(value: object) -> list[str]:
-    if not isinstance(value, dict) or set(value) != {"files_scanned", "sensitive_value_matches"}:
+    if not isinstance(value, dict) or set(value) != {
+        "files_scanned", "sensitive_value_matches", "scan_subject_sha256", "canary_sha256",
+    }:
         return ["artifact scan fields are not exact"]
     if type(value.get("files_scanned")) is not int or not 0 < value["files_scanned"] <= 1000000:
         return ["artifact scan did not inspect files"]
+    if not _sha256(value.get("scan_subject_sha256")) or value.get("canary_sha256") != CANARY_DIGEST:
+        return ["artifact scan receipt digest is invalid"]
     return [] if _zero_count(value.get("sensitive_value_matches")) else ["artifact scan found sensitive values or invalid count"]
 
 
@@ -198,24 +204,9 @@ def _zero_count(value: object) -> bool:
     return type(value) is int and value == 0
 
 
-def _selector_errors(value: object) -> list[str]:
-    if not isinstance(value, dict) or set(value) != REQUIRED_SELECTORS:
-        return ["lifecycle selector set is incomplete"]
-    for name, receipt in value.items():
-        expected_statuses = {"verified", "unsupported"} if name == "remote_verify_after_local" else {"verified"}
-        if not isinstance(receipt, dict) or not isinstance(receipt.get("status"), str) or receipt["status"] not in expected_statuses:
-            return [f"selector {name} has an invalid status"]
-        allowed = {"status", "network_attempts"} if name == "local_verify_no_network" else {
-            "status", "local_verification", "retry_count"
-        } if name == "remote_verify_after_local" else {"status"}
-        if set(receipt) != allowed:
-            return [f"selector {name} fields are not exact"]
-    local, remote = value["local_verify_no_network"], value["remote_verify_after_local"]
-    if local.get("status") != "verified" or not _zero_count(local.get("network_attempts")):
-        return ["local verification must be verified without network"]
-    if remote.get("local_verification") != "verified" or not _zero_count(remote.get("retry_count")):
-        return ["remote verification lacks current local success or has retries"]
-    return []
+def _selector_errors(value: object, runner: object) -> list[str]:
+    workflow_run_id = runner.get("workflow_run_id") if isinstance(runner, dict) else None
+    return selector_errors(value, REQUIRED_SELECTORS, workflow_run_id)
 
 
 def _forbidden_field_errors(value: object, path: str = "") -> list[str]:

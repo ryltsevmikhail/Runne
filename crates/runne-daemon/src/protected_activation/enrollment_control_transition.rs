@@ -34,6 +34,7 @@ pub(crate) struct EnrollmentControlComposition {
     pub(super) certificate_der: Vec<u8>,
     pub(super) capabilities: Vec<String>,
     pub(super) profile_directory: PathBuf,
+    pub(super) runtime_root: PathBuf,
     pub(super) ticket_clock: EnrollmentTicketClock,
     pub(super) enrollment_control: Option<Arc<
         crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl,
@@ -52,6 +53,7 @@ impl EnrollmentControlComposition {
         certificate_der: Vec<u8>,
         capabilities: Vec<String>,
         profile_directory: PathBuf,
+        runtime_root: PathBuf,
         ticket_clock: EnrollmentTicketClock,
         enrollment_control: Option<Arc<
             crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl,
@@ -66,6 +68,7 @@ impl EnrollmentControlComposition {
             certificate_der,
             capabilities,
             profile_directory,
+            runtime_root,
             ticket_clock,
             enrollment_control,
         }
@@ -244,6 +247,7 @@ pub(crate) fn run_enrollment_control_exchange(
             *native.borrow_mut() =
                 runne_platform_desktop::VerifiedDaemonNativeEnrollmentPrepare::verify_current_for_peer(
                     profile_directory,
+                    &composition.runtime_root,
                     claims,
                     stream,
                 );

@@ -46,6 +46,7 @@
       "../../../contracts/gocode-ui-client-2/bundle.json": "contracts/gocode-ui-client-2/bundle.json"
     },
     "macOS": {
+      "entitlements": "macos/desktop.entitlements",
       "hardenedRuntime": true,
       "minimumSystemVersion": "13.0",
       "files": {

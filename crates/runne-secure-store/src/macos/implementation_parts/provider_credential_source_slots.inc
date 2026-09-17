@@ -24,6 +24,34 @@ impl MacOsProviderCredentialSourceSlots<'_> {
         }
         Ok(metadata)
     }
+
+    // macOS 27 erases a saved item's partition ACL on the first
+    // `SecKeychainItemModifyAttributesAndData`, so every slot mutation is a
+    // verify-read, delete, and single atomic populated creation: the bytes and
+    // final metadata travel in one `SecKeychainItemCreateFromContent` call and
+    // `finalize` proves the saved item's ACL, deleting it on failure. A crash
+    // between the delete and the recreation leaves the slot absent, which the
+    // state machine already treats as a fresh create.
+    fn recreate_slot(
+        &self,
+        slot: ProviderCredentialSourceSlot,
+        old: &SecKeychainItem,
+        metadata: &[u8],
+        payload: &[u8],
+    ) -> Result<(), SecureStoreError> {
+        runne_macos_keychain_acl::delete_item(old).map_err(map_acl_error)?;
+        runne_macos_keychain_acl::create_populated_generic_password(
+            self.keychain,
+            &self.service(slot),
+            &self.store.account,
+            metadata,
+            payload,
+            self.exact_access,
+        )
+        .and_then(|item| item.finalize(self.exact_access))
+        .map(|_| ())
+        .map_err(map_acl_error)
+    }
 }
 
 impl ProviderCredentialSourceSlotBackend for MacOsProviderCredentialSourceSlots<'_> {
@@ -73,11 +101,10 @@ impl ProviderCredentialSourceSlotBackend for MacOsProviderCredentialSourceSlots<
         slot: ProviderCredentialSourceSlot,
         payload: &[u8],
     ) -> Result<(), SecureStoreError> {
-        let mut item = self
+        let old = self
             .find_metadata(slot)?
-            .ok_or(SecureStoreError::CredentialEnrollmentIncomplete)?
-            .item;
-        item.set_password(payload).map_err(map_keychain_error)
+            .ok_or(SecureStoreError::CredentialEnrollmentIncomplete)?;
+        self.recreate_slot(slot, &old.item, &old.bytes, payload)
     }
 
     fn atomic_write_metadata(
@@ -85,12 +112,14 @@ impl ProviderCredentialSourceSlotBackend for MacOsProviderCredentialSourceSlots<
         slot: ProviderCredentialSourceSlot,
         metadata: &[u8],
     ) -> Result<(), SecureStoreError> {
-        let item = self
+        let old = self
             .find_metadata(slot)?
-            .ok_or(SecureStoreError::CredentialEnrollmentIncomplete)?
-            .item;
-        runne_macos_keychain_acl::set_generic_password_metadata(&item, metadata)
-            .map_err(map_acl_error)
+            .ok_or(SecureStoreError::CredentialEnrollmentIncomplete)?;
+        let (payload, _) = self
+            .keychain
+            .find_generic_password(&self.service(slot), &self.store.account)
+            .map_err(map_keychain_error)?;
+        self.recreate_slot(slot, &old.item, metadata, payload.as_ref())
     }
 
     fn delete_slot(

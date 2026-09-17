@@ -1,0 +1,76 @@
+import { expect, test } from '@playwright/test'
+import { installDesktopAdapter, workspace } from './replay-resume.support'
+
+for (const width of [375, 1023, 1440]) {
+  test(`compact project entry fits ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/projects/open')
+    const choose = page.getByRole('button', { name: 'Choose project folder' })
+    await expect(choose).toBeVisible()
+    const bounds = await choose.boundingBox()
+    expect(bounds).not.toBeNull()
+    expect(bounds!.height).toBeLessThanOrEqual(40)
+    expect(bounds!.width).toBeLessThan(220)
+    expect(await page.locator('main').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+    await page.getByLabel('Use light theme').click()
+    await expect(page.locator('.app-shell')).toHaveAttribute('data-theme', 'light')
+    expect(await page.locator('main').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+    await page.screenshot({ path: `test-results/compact-open-${width}-light.png` })
+  })
+}
+
+test('workspace panels stay reachable without losing draft in a narrow window', async ({ page }) => {
+  await installDesktopAdapter(page)
+  await page.setViewportSize({ width: 640, height: 900 })
+  await page.goto(`/workspaces/${workspace.workspaceId}`)
+  const message = page.getByRole('textbox', { name: 'Message' })
+  await expect(message).toBeVisible()
+  await expect(message).toHaveCSS('resize', 'none')
+  await expect(message).toHaveCSS('height', '72px')
+  await message.fill(Array.from({ length: 20 }, (_, i) => `Line ${i}`).join('\n'))
+  await expect(message).toHaveCSS('height', '72px')
+  expect(await message.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
+  await message.fill('Keep this draft')
+  await expect(page.locator('.workspace-frame__conversation')).toHaveCSS('grid-row-start', '2')
+  await page.getByRole('button', { name: 'Show files', exact: true }).click()
+  await expect(page.locator('#workspace-explorer')).toBeVisible()
+  await page.getByRole('button', { name: 'Hide files', exact: true }).click()
+  await expect(page.locator('#workspace-explorer')).toBeHidden()
+  await page.getByRole('button', { name: 'Show details', exact: true }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#workspace-details')).toBeVisible()
+  await expect(page.locator('#workspace-details')).toHaveCSS('grid-row-start', '3')
+  await expect(page.locator('.workspace-frame__conversation')).toHaveCSS('grid-row-start', '2')
+  await page.getByRole('button', { name: 'Hide details', exact: true }).click()
+  await expect(message).toHaveValue('Keep this draft')
+  expect(await page.locator('main').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+  await page.screenshot({ path: 'test-results/compact-workspace-narrow.png' })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const conversationWidth = await page.locator('.workspace-conversation').boundingBox()
+  expect(conversationWidth!.width).toBeGreaterThan(700)
+  await page.screenshot({ path: 'test-results/compact-workspace-desktop.png' })
+})
+
+for (const width of [640, 1440]) {
+  test(`sidebar opens a single workspace directly at ${width}px`, async ({ page }) => {
+    await installDesktopAdapter(page, true)
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/')
+    if (width < 1024) await page.getByRole('button', { name: 'Expand sidebar' }).click()
+    const projectButton = page.getByRole('button', { name: 'Open project gocode-ui', exact: true })
+    await expect(projectButton).toBeVisible()
+    await expect(page.locator('main .projects-project-list')).toHaveCount(0)
+    const projectBounds = await projectButton.boundingBox()
+    const settingsBounds = await page.getByRole('button', { name: 'Settings', exact: true }).boundingBox()
+    expect(settingsBounds!.y).toBeGreaterThan(projectBounds!.y + 100)
+    await projectButton.click()
+    await expect(page).toHaveURL(new RegExp(`/workspaces/${workspace.workspaceId}$`))
+    await expect(page.getByRole('textbox', { name: 'Message' })).toBeVisible()
+    if (width < 1024) await expect(page.locator('aside.sidebar')).toHaveClass(/sidebar--collapsed/)
+    else {
+      await expect(projectButton).toHaveClass(/project-tree-open--active/)
+      await expect(page.getByRole('button', { name: 'Open workspace gocode-ui', exact: true })).toHaveAttribute('aria-current', 'page')
+    }
+    await page.screenshot({ path: `test-results/compact-sidebar-workspace-${width}.png` })
+  })
+}

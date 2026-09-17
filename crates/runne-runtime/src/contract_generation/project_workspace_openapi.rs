@@ -23,6 +23,7 @@ fn project_workspace_openapi(document: &mut Value) {
     let paths = document["paths"].as_object_mut().expect("OpenAPI paths object");
     paths.insert("/v1/projects".into(), json!({"get": read("projectPage", page(PROJECT_PAGE_CURSOR_LENGTH, PROJECT_PAGE_CURSOR_PATTERN)), "post": operation("projectCreate", "projectAck")}));
     paths.insert("/v1/projects/{projectId}".into(), json!({"get": read("project", json!([])), "delete": operation("existing", "projectAck"), "parameters": [id("projectId")]}));
+    paths.insert("/v1/projects/{projectId}/rename".into(), json!({"post": operation("projectRename", "projectAck"), "parameters": [id("projectId")]}));
     for name in ["archive", "restore"] { paths.insert(format!("/v1/projects/{{projectId}}/{name}"), json!({"post": operation("existing", "projectAck"), "parameters": [id("projectId")]})); }
     paths.insert("/v1/projects/{projectId}/workspaces".into(), json!({"get": read("workspacePage", page(WORKSPACE_PAGE_CURSOR_LENGTH, WORKSPACE_PAGE_CURSOR_PATTERN)), "post": operation("workspaceCreate", "workspaceAck"), "parameters": [id("projectId")]}));
     paths.insert("/v1/workspaces/{workspaceId}".into(), json!({"get": read("workspace", json!([])), "parameters": [id("workspaceId")]}));

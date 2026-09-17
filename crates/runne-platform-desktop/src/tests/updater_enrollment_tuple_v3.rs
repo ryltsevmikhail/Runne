@@ -248,7 +248,7 @@ fn target() -> UpdateTargetV2 {
         runtime_version: "0.1.0".into(), runtime_digest: hash('b'), channel: "stable".into(),
         published_at_unix_seconds: 100, expires_at_unix_seconds: 500,
         rollback_floor: "1.0.0".into(), native_enrollment_tuple: None,
-        native_enrollment_tuple_v3: None,
+        native_enrollment_tuple_v3: None, qualification_bootstrap_client_v1: None,
     }
 }
 

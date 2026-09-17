@@ -24,8 +24,9 @@ pub fn format_messages_text(messages: &ConversationMessages) -> String {
     output
 }
 
-/// Format conversation messages as JSON
+/// Typed JSON `data` payload for conversation messages; serialized once at
+/// render time, never pre-serialized into a string payload.
 #[must_use]
-pub fn format_messages_json(messages: &ConversationMessages) -> String {
-    serde_json::to_string_pretty(messages).unwrap_or_else(|_| "{}".to_string())
+pub fn messages_json_data(messages: &ConversationMessages) -> serde_json::Value {
+    serde_json::to_value(messages).unwrap_or(serde_json::Value::Null)
 }

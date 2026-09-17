@@ -1,4 +1,5 @@
-Executable=/private/var/REDACTED/Runne.app/Contents/MacOS/runne-aarch64-apple-darwin
+Executable=/private/var/REDACTED/Runne.app/Contents/MacOS/runne
 Identifier=runne
 Authority=Developer ID Application: Runne (758F9Z45SR)
 TeamIdentifier=758F9Z45SR
+CDHash=2222222222222222222222222222222222222222

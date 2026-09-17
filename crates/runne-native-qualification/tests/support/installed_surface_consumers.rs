@@ -10,7 +10,7 @@ pub fn exact_reviewed_consumer_method(source: &str, method: &syn::ImplItemFn) ->
             "runne-platform-desktop/src/updater_metadata/enrollment_tuple/daemon_peer/round.rs",
             "verify_and_measure_current_v3_peer",
         ) => {
-            "pub fn verify_and_measure_current_v3_peer(profile_directory: &Path, owned: &ProtectedCredentialEnrollmentOwnedLaunchV3, stream: &UnixStream) -> Option<crate::VerifiedInstalledEnrollmentMeasurementFacts> {}"
+            "pub fn verify_and_measure_current_v3_peer(profile_directory: &Path, canonical_runtime_root: &Path, owned: &ProtectedCredentialEnrollmentOwnedLaunchV3, stream: &UnixStream) -> Option<crate::VerifiedInstalledEnrollmentMeasurementFacts> {}"
         }
         (
             "runne-platform-desktop/src/protected_runtime/test_enrollment_fixture.rs",

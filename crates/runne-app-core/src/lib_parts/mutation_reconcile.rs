@@ -21,6 +21,7 @@ fn reconciliation_request_from_anchored(
         Command::CreateProject { project_id, display_name } => {
             Request::create_project(identity, id(project_id)?, display_name).map_err(|_| AppCoreError::MutationUnavailable)
         }
+        Command::RenameProject { project_id, expected_version, display_name } => Request::rename_project(identity, id(project_id)?, *expected_version, display_name).map_err(|_| AppCoreError::MutationUnavailable),
         Command::ArchiveProject { project_id, expected_version } => {
             Request::archive_project(identity, id(project_id)?, *expected_version).map_err(|_| AppCoreError::MutationUnavailable)
         }
@@ -95,6 +96,7 @@ pub(crate) fn reconciliation_outcome_to_ledger(
         Outcome::ProjectCreated(value) => LedgerOutcome::ProjectCreate {
             project_id: id(value.project_id())?, new_version: value.new_version(),
         },
+        Outcome::ProjectRenamed(value) => LedgerOutcome::ProjectRename { project_id: id(value.project_id())?, new_version: value.new_version() },
         Outcome::ProjectArchived(value) => LedgerOutcome::ProjectArchive {
             project_id: id(value.project_id())?, new_version: value.new_version(),
         },

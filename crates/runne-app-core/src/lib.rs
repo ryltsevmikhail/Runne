@@ -90,12 +90,16 @@ mod tests {
     include!("lib_parts/mutation_dispatch_tests.rs");
     include!("lib_parts/mutation_adversarial_tests.rs");
     include!("lib_parts/mutation_workspace_tests.rs");
+    include!("lib_parts/mutation_workspace_admission_tests.rs");
+    include!("lib_parts/mutation_workspace_admission_lock_tests.rs");
+    include!("lib_parts/mutation_workspace_open_tests.rs");
     include!("lib_parts/mutation_project_tests.rs");
     include!("lib_parts/mutation_capability_tests.rs");
     include!("lib_parts/mutation_reconciliation_tests.rs");
     include!("lib_parts/mutation_v7_transition_tests.rs");
     include!("lib_parts/mutation_reconcile_state_tests.rs");
     include!("lib_parts/mutation_restart_recovery_tests.rs");
+    include!("lib_parts/mutation_rename_tests.rs");
     include!("lib_parts/mutation_network_matrix_tests.rs");
     include!("lib_parts/mutation_network_state_tests.rs");
     include!("lib_parts/mutation_network_state_bind_tests.rs");

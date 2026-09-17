@@ -10,7 +10,7 @@ use tokio::{
 };
 
 use super::*;
-use crate::directory_selection_test_support::test_admission;
+use crate::directory_selection_test_support::test_admission_for;
 
 const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-000000000891";
 const PROJECT_ID: &str = "018f2e3a-7000-7000-8000-000000000892";
@@ -128,7 +128,7 @@ async fn explicit_stop_fences_inflight_post_send_and_drop_cannot_reinsert() {
         .commit(
             &reference,
             crate::directory_selection_test_support::test_root_handle(root.path()),
-            test_admission(),
+            test_admission_for(WORKSPACE_ID.parse().expect("workspace"), 1),
             &mut permit,
             Instant::now(),
         )

@@ -1,8 +1,8 @@
 use runne_api::{
     BindWorkspaceRootCommand, CreateProjectCommand, CreateWorkspaceCommand, ExistingProjectCommand,
     ExistingWorkspaceCommand, ProjectCommandAck, ProjectCommandContext, ProjectPage,
-    ProjectPageRequest, ProjectQueryContext, ProjectWorkspaceHostError, WorkspaceCommandAck,
-    WorkspacePage, WorkspacePageRequest,
+    ProjectPageRequest, ProjectQueryContext, ProjectWorkspaceHostError, RenameProjectCommand,
+    WorkspaceCommandAck, WorkspacePage, WorkspacePageRequest,
 };
 use runne_application::ports::{
     CurrentRootAdmissionContext, ProjectWorkspaceRepository, RootAdmissionVerifier,
@@ -83,6 +83,11 @@ pub(super) enum WorkItem {
         ExistingProjectCommand,
         Reply<ProjectCommandAck>,
     ),
+    RenameProject(
+        ProjectCommandContext,
+        RenameProjectCommand,
+        Reply<ProjectCommandAck>,
+    ),
     DeleteProject(
         ProjectCommandContext,
         ExistingProjectCommand,
@@ -148,6 +153,9 @@ fn run_worker<
             }
             WorkItem::RestoreProject(context, command, reply) => {
                 reply_result(reply, service.restore_project(context, command))
+            }
+            WorkItem::RenameProject(context, command, reply) => {
+                reply_result(reply, service.rename_project(context, command))
             }
             WorkItem::DeleteProject(context, command, reply) => {
                 reply_result(reply, service.delete_project(context, command))

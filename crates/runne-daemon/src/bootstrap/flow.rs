@@ -7,42 +7,7 @@ pub fn bootstrap(config: &ConfigurationSnapshot) -> Result<BootstrapOutcome, Dae
     bootstrap_inner(config, None)
 }
 
-struct ProtectedBootstrap<'a> {
-    launch_authority_id: [u8; 16],
-    bootstrap_secret: [u8; 32],
-    expected_stable: &'a StableRuntimeBindingV1,
-    pending_first_activation: Option<&'a PendingFirstActivationV1>,
-    freshness_check: &'a mut dyn FnMut() -> Result<(), DaemonError>,
-}
-
-/// Bootstraps one protected bundled launch without publishing a credential profile.
-pub fn bootstrap_protected<F>(
-    config: &ConfigurationSnapshot,
-    launch_authority_id: [u8; 16],
-    bootstrap_secret: [u8; 32],
-    expected_stable: &StableRuntimeBindingV1,
-    pending_first_activation: Option<&PendingFirstActivationV1>,
-    mut freshness_check: F,
-) -> Result<BootstrapOutcome, DaemonError>
-where
-    F: FnMut() -> Result<(), DaemonError>,
-{
-    if validate_uuid_v7_bytes(&launch_authority_id).is_err() || bootstrap_secret == [0; 32] {
-        return Err(DaemonError::Bootstrap(
-            "invalid protected launch authority".into(),
-        ));
-    }
-    bootstrap_inner(
-        config,
-        Some(ProtectedBootstrap {
-            launch_authority_id,
-            bootstrap_secret,
-            expected_stable,
-            pending_first_activation,
-            freshness_check: &mut freshness_check,
-        }),
-    )
-}
+include!("protected_profile.rs");
 
 fn bootstrap_inner(
     config: &ConfigurationSnapshot,
@@ -195,7 +160,13 @@ fn bootstrap_inner(
     }
     .map_err(|_| DaemonError::Bootstrap("generate launch TLS identity".into()))?;
 
-    reconcile_metadata(&metadata_snapshot, db_existed, &db_authority_after, &authority_id, &locks)?;
+    reconcile_metadata(
+        &metadata_snapshot,
+        db_existed,
+        &db_authority_after,
+        &authority_id,
+        &locks,
+    )?;
     verify_metadata_writeback(&locks, &authority_id)?;
     schema::purge_replay_subscriptions(&db_conn)
         .map_err(|e| DaemonError::Bootstrap(format!("startup purge: {e}")))?;
@@ -236,32 +207,33 @@ fn open_existing_bootstrap_database(
             path,
             schema::ConnectionMode::ValidatedReopen,
             |connection| {
-            if let Some(protected) = protected {
-                validate_protected_bootstrap_connection(
-                    config,
-                    connection,
-                    protected.expected_stable,
-                    protected.pending_first_activation,
-                )
-                .map_err(|_| rusqlite::Error::InvalidQuery)?;
-            }
-            let authority_id = schema::read_authority_id(connection)?
-                .or_else(|| {
-                    protected
-                        .and_then(|value| value.pending_first_activation)
-                        .map(|pending| *pending.stable().authority_id())
-                })
-                .ok_or(rusqlite::Error::InvalidQuery)?;
-            if let MetadataSnapshot::Valid {
-                authority_id: expected,
-            } = metadata
-                && expected != &authority_id
-            {
-                return Err(rusqlite::Error::InvalidQuery);
-            }
-            locks
-                .acquire_authority_lock(&authority_id, runtime_dir)
-                .map_err(|_| rusqlite::Error::InvalidQuery)
+                if let Some(protected) = protected {
+                    validate_protected_bootstrap_connection(
+                        config,
+                        connection,
+                        protected.expected_stable,
+                        protected.pending_first_activation,
+                        protected.expected_profile,
+                    )
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?;
+                }
+                let authority_id = schema::read_authority_id(connection)?
+                    .or_else(|| {
+                        protected
+                            .and_then(|value| value.pending_first_activation)
+                            .map(|pending| *pending.stable().authority_id())
+                    })
+                    .ok_or(rusqlite::Error::InvalidQuery)?;
+                if let MetadataSnapshot::Valid {
+                    authority_id: expected,
+                } = metadata
+                    && expected != &authority_id
+                {
+                    return Err(rusqlite::Error::InvalidQuery);
+                }
+                locks
+                    .acquire_authority_lock(&authority_id, runtime_dir)
+                    .map_err(|_| rusqlite::Error::InvalidQuery)
             },
         )
     }
@@ -277,11 +249,11 @@ fn open_existing_bootstrap_database(
                     path,
                     schema::ConnectionMode::ValidatedReopen,
                     |connection| {
-                    if schema::read_authority_id(connection)? == Some(*authority_id) {
-                        Ok(())
-                    } else {
-                        Err(rusqlite::Error::InvalidQuery)
-                    }
+                        if schema::read_authority_id(connection)? == Some(*authority_id) {
+                            Ok(())
+                        } else {
+                            Err(rusqlite::Error::InvalidQuery)
+                        }
                     },
                 )
             }

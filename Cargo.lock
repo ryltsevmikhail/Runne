@@ -4204,6 +4204,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "runne-macos-file-security"
+version = "0.0.3"
+dependencies = [
+ "cc",
+ "tempfile",
+]
+
+[[package]]
 name = "runne-macos-keychain-acl"
 version = "0.0.3"
 dependencies = [
@@ -4241,9 +4249,11 @@ version = "0.0.3"
 dependencies = [
  "block2",
  "cc",
+ "libc",
  "objc2",
  "objc2-foundation",
  "objc2-service-management",
+ "rand 0.8.7",
  "runne-platform-ports",
  "tokio",
  "zeroize",
@@ -4366,6 +4376,7 @@ dependencies = [
  "ring",
  "runne-api",
  "runne-local-model",
+ "runne-macos-file-security",
  "runne-macos-process-identity",
  "runne-macos-xpc",
  "runne-model-store",
@@ -4519,6 +4530,74 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "zeroize",
+]
+
+[[package]]
+name = "runne-qualification-bootstrap-policy"
+version = "0.0.3"
+dependencies = [
+ "hex",
+ "runne-api",
+ "runne-macos-file-security",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
+name = "runne-qualification-gui-executor"
+version = "0.0.3"
+dependencies = [
+ "runne-api",
+ "runne-macos-xpc",
+ "runne-platform-desktop",
+ "sha2",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
+name = "runne-qualification-root-service"
+version = "0.0.3"
+dependencies = [
+ "base64 0.22.1",
+ "ed25519-dalek",
+ "hex",
+ "rand 0.8.7",
+ "runne-api",
+ "runne-macos-file-security",
+ "runne-macos-xpc",
+ "runne-native-qualification",
+ "runne-qualification-bootstrap-policy",
+ "runne-qualification-runner",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "zeroize",
+]
+
+[[package]]
+name = "runne-qualification-runner"
+version = "0.0.3"
+dependencies = [
+ "base64 0.22.1",
+ "ed25519-dalek",
+ "hex",
+ "runne-api",
+ "runne-macos-file-security",
+ "runne-native-qualification",
+ "runne-sqlite-handle-identity",
+ "runne-sqlite-native-identity",
+ "rusqlite",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]

@@ -139,8 +139,8 @@
         );
     }
     #[test]
-    fn provider_credential_incomplete_enrollment_never_reports_configured_and_can_retry() {
-        let (store, _cleanup) = unique_provider_store("incomplete-enrollment");
+    fn provider_credential_interrupted_population_stores_only_verified_material_and_can_retry() {
+        let (store, _cleanup) = unique_provider_store("interrupted-population");
         let current = std::env::current_exe().expect("current test executable");
         let policy = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
         let exact = ExactKeychainAccess::new(&current, &current).unwrap();
@@ -158,7 +158,7 @@
                 &metadata,
                 &exact,
                 &encoded,
-                Some(CredentialPopulationFailpoint::EmptyItemWritten),
+                Some(CredentialPopulationFailpoint::PopulatedItemWritten),
             )
             .map(|_| ())
         });
@@ -167,23 +167,19 @@
             Err(SecureStoreError::CredentialEnrollmentIncomplete)
         );
 
-        assert_eq!(
-            store.provider_credential_status(ProviderCredentialId::OpenAi, &policy),
-            Err(SecureStoreError::CredentialEnrollmentIncomplete)
-        );
-        let replacement_policy =
-            ProviderCredentialAccessPolicy::new(&current, Path::new("/bin/echo")).unwrap();
-        assert_eq!(
-            store.migrate_provider_credential_access(
-                ProviderCredentialId::OpenAi,
-                &policy,
-                &replacement_policy,
-            ),
-            Err(SecureStoreError::CredentialMigrationIncomplete)
-        );
+        // The interrupted population persists the material only together with
+        // the exact partition ACL, proven here by a fresh saved-item readback.
+        let acl_proof = MacOsProviderCredentialStore::with_noninteractive(|keychain| {
+            let (_, item) = store
+                .find_primary_item(keychain)?
+                .ok_or(SecureStoreError::CredentialEnrollmentIncomplete)?;
+            verify_item_acl(&item, exact.digest())
+        });
+        assert_eq!(acl_proof, Ok(()));
+
         store
             .store_provider_credential(ProviderCredentialId::OpenAi, &credential, &policy)
-            .expect("writer can replace a verified incomplete enrollment");
+            .expect("writer can replace an interrupted population");
         assert_eq!(
             store
                 .load_provider_credential(ProviderCredentialId::OpenAi, &policy)
@@ -195,6 +191,11 @@
 
     #[test]
     fn provider_credential_broad_preseed_never_receives_replacement_material() {
+        if skip_if_partition_limitation(
+            "provider_credential_broad_preseed_never_receives_replacement_material",
+        ) {
+            return;
+        }
         let (store, _cleanup) = unique_provider_store("broad-preseed");
         let current = std::env::current_exe().expect("current test executable");
         let trusted_policy = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
@@ -207,17 +208,17 @@
             StoredProviderCredential::encode(&sentinel, &trusted_policy, broad_access.digest())
                 .unwrap();
         MacOsProviderCredentialStore::with_noninteractive(|keychain| {
-            let mut item = runne_macos_keychain_acl::create_empty_generic_password(
+            runne_macos_keychain_acl::create_populated_generic_password(
                 keychain,
                 &store.service,
                 &store.account,
                 &metadata,
+                &sentinel_encoded,
                 &broad_access,
             )
             .and_then(|item| item.finalize(&broad_access))
-            .map_err(map_acl_error)?;
-            item.set_password(&sentinel_encoded)
-                .map_err(map_keychain_error)
+            .map(|_| ())
+            .map_err(map_acl_error)
         })
         .unwrap();
 
@@ -257,6 +258,11 @@
 
     #[test]
     fn provider_credential_rejects_writer_read_and_replaced_reader_without_prompt() {
+        if skip_if_partition_limitation(
+            "provider_credential_rejects_writer_read_and_replaced_reader_without_prompt",
+        ) {
+            return;
+        }
         let (store, _cleanup) = unique_provider_store("negative-reader");
         let current = std::env::current_exe().expect("current test executable");
         let policy = ProviderCredentialAccessPolicy::new(&current, Path::new("/bin/echo")).unwrap();

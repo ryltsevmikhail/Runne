@@ -6,21 +6,24 @@ usage() {
 Sign a single macOS binary with Developer ID Application identity.
 
 Usage:
-  scripts/sign-macos-binary.sh [--identity NAME] BINARY
+  scripts/sign-macos-binary.sh [--identity NAME] [--entitlements PATH] BINARY
 
 Options:
-  --identity NAME  Signing identity (default: first valid Developer ID Application)
-  -h, --help       Show this help
+  --identity NAME       Signing identity (default: first valid Developer ID Application)
+  --entitlements PATH   Entitlements plist passed to codesign (required for DataProtection keychain access)
+  -h, --help            Show this help
 
 Environment:
   RUNNE_MACOS_SIGNING_IDENTITY  Override default signing identity.
 
 Example:
   scripts/sign-macos-binary.sh target/release/runned
+  scripts/sign-macos-binary.sh --entitlements apps/desktop/src-tauri/macos/desktop.entitlements target/debug/runne-desktop
 USAGE
 }
 
 identity="${RUNNE_MACOS_SIGNING_IDENTITY:-}"
+entitlements=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -30,6 +33,14 @@ while [[ $# -gt 0 ]]; do
         exit 2
       fi
       identity="$2"
+      shift 2
+      ;;
+    --entitlements)
+      if [[ $# -lt 2 ]]; then
+        echo "error: --entitlements requires a value" >&2
+        exit 2
+      fi
+      entitlements="$2"
       shift 2
       ;;
     -h|--help)
@@ -64,6 +75,11 @@ if [[ ! -f "$binary" ]]; then
   exit 1
 fi
 
+if [[ -n "$entitlements" && ! -f "$entitlements" ]]; then
+  echo "error: entitlements file not found: $entitlements" >&2
+  exit 1
+fi
+
 if [[ -z "$identity" ]]; then
   identity=$(security find-identity -v -p codesigning 2>/dev/null \
     | awk '/Developer ID Application/ { print $2; exit }')
@@ -81,6 +97,7 @@ if ! security find-identity -v -p codesigning 2>/dev/null | grep -q "${identity}
 fi
 
 codesign \
+  ${entitlements:+--entitlements "$entitlements"} \
   --sign "$identity" \
   --force \
   --options runtime \

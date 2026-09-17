@@ -98,6 +98,24 @@ fn credential_cli_requires_stdin_flag() {
 }
 
 #[test]
+#[cfg(not(target_os = "macos"))]
+fn credential_status_rejects_unsupported_backend_never_exit_zero() {
+    // On platforms without the native backend the Unsupported outcome is a
+    // rejection: never exit 0, stdout empty, diagnostics on stderr only.
+    let output = Command::new(env!("CARGO_BIN_EXE_runne"))
+        .args(["provider", "credential", "status", "--provider", "openai"])
+        .output()
+        .expect("run CLI");
+    assert!(
+        !output.status.success(),
+        "unsupported credential backend must never exit 0"
+    );
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(stderr, "provider credential backend is unsupported\n");
+}
+
+#[test]
 fn credential_help_and_completion_do_not_advertise_direct_secret_ingress() {
     let help = Command::new(env!("CARGO_BIN_EXE_runne"))
         .args(["help", "provider", "credential"])

@@ -64,6 +64,9 @@ onMounted(async () => {
       <RouterLink to="/settings/runtime-configuration">
         {{ translate('runtimeConfiguration.navigation') }}
       </RouterLink>
+      <RouterLink to="/settings/providers">
+        {{ translate('settings.providers') }}
+      </RouterLink>
       <RouterLink to="/settings/appearance">
         {{ translate('runtimeSettings.appearance') }}
       </RouterLink>

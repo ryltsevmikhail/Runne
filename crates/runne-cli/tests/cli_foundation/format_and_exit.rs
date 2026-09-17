@@ -1,3 +1,5 @@
+use super::run_cli;
+
 // ===== Version tests =====
 
 #[test]
@@ -91,4 +93,50 @@ fn status_without_runtime_returns_error() {
     assert!(!output.status.success());
     let code = output.status.code().expect("exit code");
     assert!(code == 1 || code == 3);
+}
+
+// ===== Machine error contract tests =====
+
+#[test]
+fn unknown_command_reports_distinct_stable_code_on_stderr() {
+    let output = run_cli(&["--format", "json", "frobnicate"]);
+    assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(2), "stable non-zero usage exit");
+    assert!(
+        output.stdout.is_empty(),
+        "diagnostics belong on stderr only"
+    );
+    let parsed: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stderr)).expect("valid JSON");
+    assert_eq!(parsed["schemaVersion"], 1);
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(parsed["error"]["code"], "unknown_command");
+}
+
+#[test]
+fn unknown_command_text_diagnostic_names_the_command_on_stderr_only() {
+    let output = run_cli(&["frobnicate"]);
+    assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        output.stdout.is_empty(),
+        "diagnostics belong on stderr only"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("unknown command: frobnicate"), "{stderr}");
+}
+
+#[test]
+fn invalid_argument_keeps_invalid_arguments_code_distinct_from_unknown_command() {
+    let output = run_cli(&["--format", "json", "conversation", "send"]);
+    assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(2), "stable non-zero usage exit");
+    assert!(
+        output.stdout.is_empty(),
+        "diagnostics belong on stderr only"
+    );
+    let parsed: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stderr)).expect("valid JSON");
+    assert_eq!(parsed["schemaVersion"], 1);
+    assert_eq!(parsed["error"]["code"], "invalid_arguments");
 }

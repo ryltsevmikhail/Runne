@@ -1,34 +1,4 @@
-fn fence_page_load<R: tauri::Runtime>(
-    webview: &tauri::Webview<R>,
-    payload: &tauri::webview::PageLoadPayload<'_>,
-) {
-    if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
-        let _ = webview
-            .try_state::<DirectorySelectionManager>()
-            .ok_or(())
-            .and_then(|selections| {
-                selections
-                    .renderer_generations()
-                    .page_loaded(webview.label())
-                    .map_err(|_| ())
-            });
-        if let Some(intents) =
-            webview.try_state::<crate::destructive_intent::DestructiveIntentManager>()
-        {
-            intents.invalidate_window(webview.label());
-        }
-        if let Some(intents) =
-            webview.try_state::<crate::destructive_intent::ApprovalIntentManager>()
-        {
-            intents.invalidate_window(webview.label());
-        }
-        if let Some(intents) = webview
-            .try_state::<crate::provider_credential_enrollment::CredentialIntentRegistry>()
-        {
-            intents.invalidate_window(webview.label());
-        }
-    }
-}
+include!("page_load.rs");
 
 include!("project_commands.rs");
 
@@ -66,8 +36,8 @@ fn handle_window_event(window: &tauri::Window, event: &WindowEvent) {
                 intents.invalidate_window(window.label());
             }
             if let Some(intents) = window
-                .try_state::<crate::provider_credential_enrollment::CredentialIntentRegistry>()
-            {
+                .try_state::<crate::provider_credential_enrollment::CredentialIntentRegistry>(
+            ) {
                 intents.invalidate_window(window.label());
             }
         }
@@ -121,7 +91,7 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(profile_lock);
     app.manage(core);
     app.manage(crate::updater_status::UpdateStatusStore::new(
-        &profile_directory,
+        &profile_directory.join("bundled-runtime"),
     ));
     let _ = app
         .state::<crate::updater_status::UpdateStatusStore>()
@@ -183,7 +153,10 @@ fn handle_run_event(app: &tauri::AppHandle, event: &RunEvent) {
 /// # Panics
 ///
 /// Panics when native desktop initialization or the event loop fails.
-#[allow(clippy::too_many_lines, reason = "the Tauri builder is kept together as one declarative registration list")]
+#[allow(
+    clippy::too_many_lines,
+    reason = "the Tauri builder is kept together as one declarative registration list"
+)]
 pub fn run() {
     let activations = crate::external_activation::ActivationManager::default();
     let second_instance_activations = activations.clone();
@@ -244,6 +217,7 @@ pub fn run() {
             open_runtime_workspace,
             get_project,
             get_canonical_project,
+            rename_runtime_project,
             get_workspace,
             get_canonical_workspace,
             list_workspace_files,

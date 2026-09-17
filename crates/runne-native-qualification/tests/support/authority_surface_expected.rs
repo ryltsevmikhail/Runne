@@ -8,6 +8,9 @@ pub const SENSITIVE: &[&str] = &[
     "QualificationAdmissionRelayTranscript",
     "QualificationRunContextRelayCodecV1",
     "QualificationAdmissionRelayCodecV1",
+    "PendingQualificationRunBootstrapProof",
+    "QualificationRunBootstrapVerifier",
+    "VerifiedQualificationRunBootstrapProof",
 ];
 
 pub fn expected_methods() -> Vec<(&'static str, &'static str)> {
@@ -16,6 +19,7 @@ pub fn expected_methods() -> Vec<(&'static str, &'static str)> {
             "QualificationAdmissionVerifier",
             &[
                 "from_compiled_policy",
+                "verify_and_consume",
                 "verify_exact_borrowed",
                 "verify_exact_for_fence_borrowed",
                 "verify_exact_writer_fault_borrowed",
@@ -66,6 +70,33 @@ pub fn expected_methods() -> Vec<(&'static str, &'static str)> {
             "QualificationAdmissionRelayCodecV1",
             &["from_protected_activation", "decode_transcript"],
         ),
+        (
+            "PendingQualificationRunBootstrapProof",
+            &["from_signed_bytes"][..],
+        ),
+        (
+            "QualificationRunBootstrapVerifier",
+            &["from_compiled_policy", "verify_and_consume"][..],
+        ),
+        (
+            "VerifiedQualificationRunBootstrapProof",
+            &[
+                "fingerprint",
+                "candidate_sha256",
+                "raw_v3_tuple_sha256",
+                "source_revision",
+                "workflow_run_id",
+                "namespace_sha256",
+                "manifest_sha256",
+                "profile_sha256",
+                "context_id",
+                "nonce",
+                "challenge",
+                "issued_at",
+                "expires_at",
+                "run_not_after",
+            ][..],
+        ),
     ]
     .into_iter()
     .flat_map(|(owner, methods)| methods.iter().map(move |method| (owner, *method)))
@@ -76,11 +107,19 @@ pub fn expected_signature(owner: &str, method: &str) -> Option<syn::Signature> {
     if owner == "VerifiedQualificationFenceFacts" {
         return parse_signature(fence_facts_signature(method)?);
     }
+    if owner == "VerifiedQualificationRunBootstrapProof" {
+        return parse_signature(run_bootstrap_signature(method)?);
+    }
     let source = match (owner, method) {
         (
-            "QualificationAdmissionVerifier" | "QualificationRunContextVerifier",
+            "QualificationAdmissionVerifier"
+            | "QualificationRunContextVerifier"
+            | "QualificationRunBootstrapVerifier",
             "from_compiled_policy",
         ) => "pub fn from_compiled_policy() -> Self {}",
+        ("QualificationAdmissionVerifier", "verify_and_consume") => {
+            "pub fn verify_and_consume(&mut self, admission: &PendingQualificationAdmission, expected: &QualificationRunContextExpectation, now_unix_seconds: u64) -> Result<crate::VerifiedQualificationFenceFacts, QualificationAdmissionVerificationError> {}"
+        }
         ("QualificationAdmissionVerifier", "verify_exact_borrowed") => {
             "pub fn verify_exact_borrowed(&mut self, admission: &PendingQualificationAdmission, candidate_sha256: [u8; 32], raw_v3_tuple_sha256: [u8; 32], now_unix_seconds: u64) -> Result<(), QualificationAdmissionVerificationError> {}"
         }
@@ -111,6 +150,12 @@ pub fn expected_signature(owner: &str, method: &str) -> Option<syn::Signature> {
         }
         ("QualificationRunContextVerifier", "verify_and_consume") => {
             "pub fn verify_and_consume(&mut self, bytes: &[u8], expected: &QualificationRunContextExpectation, now_unix_seconds: u64) -> Result<VerifiedQualificationRunContext, QualificationRunContextError> {}"
+        }
+        ("PendingQualificationRunBootstrapProof", "from_signed_bytes") => {
+            "pub fn from_signed_bytes(bytes: Vec<u8>) -> Result<Self, crate::QualificationRunBootstrapError> {}"
+        }
+        ("QualificationRunBootstrapVerifier", "verify_and_consume") => {
+            "pub fn verify_and_consume(&mut self, proof: PendingQualificationRunBootstrapProof, expected: &QualificationRunBootstrapExpectation, now_unix_seconds: u64) -> Result<VerifiedQualificationRunBootstrapProof, QualificationRunBootstrapError> {}"
         }
         ("QualificationAdmissionRelayTranscript", "into_bytes") => {
             "pub fn into_bytes(self) -> Vec<u8> {}"
@@ -159,6 +204,26 @@ fn fence_facts_signature(method: &str) -> Option<&'static str> {
         "context_expires_at" => "pub const fn context_expires_at(&self) -> u64 {}",
         "ticket_issued_at" => "pub const fn ticket_issued_at(&self) -> u64 {}",
         "ticket_expires_at" => "pub const fn ticket_expires_at(&self) -> u64 {}",
+        _ => return None,
+    })
+}
+
+fn run_bootstrap_signature(method: &str) -> Option<&'static str> {
+    Some(match method {
+        "fingerprint" => "pub fn fingerprint(&self) -> [u8; 32] {}",
+        "candidate_sha256" => "pub const fn candidate_sha256(&self) -> [u8; 32] {}",
+        "raw_v3_tuple_sha256" => "pub const fn raw_v3_tuple_sha256(&self) -> [u8; 32] {}",
+        "source_revision" => "pub const fn source_revision(&self) -> [u8; 20] {}",
+        "workflow_run_id" => "pub fn workflow_run_id(&self) -> &str {}",
+        "namespace_sha256" => "pub const fn namespace_sha256(&self) -> [u8; 32] {}",
+        "manifest_sha256" => "pub const fn manifest_sha256(&self) -> [u8; 32] {}",
+        "profile_sha256" => "pub const fn profile_sha256(&self) -> [u8; 32] {}",
+        "context_id" => "pub const fn context_id(&self) -> [u8; 32] {}",
+        "nonce" => "pub const fn nonce(&self) -> [u8; 32] {}",
+        "challenge" => "pub const fn challenge(&self) -> [u8; 32] {}",
+        "issued_at" => "pub const fn issued_at(&self) -> u64 {}",
+        "expires_at" => "pub const fn expires_at(&self) -> u64 {}",
+        "run_not_after" => "pub const fn run_not_after(&self) -> u64 {}",
         _ => return None,
     })
 }

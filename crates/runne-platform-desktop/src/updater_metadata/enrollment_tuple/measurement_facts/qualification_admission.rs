@@ -18,15 +18,26 @@ pub struct QualificationAdmissionError;
 
 impl VerifiedInstalledEnrollmentMeasurementFacts {
     pub fn verify_qualification_for_fence(
-        &self, owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
+        &self,
+        owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
         verifier: &mut runne_native_qualification::QualificationAdmissionVerifier,
         admission: &runne_native_qualification::PendingQualificationAdmission,
         now_unix_seconds: u64,
-    ) -> Result<runne_native_qualification::VerifiedQualificationFenceFacts, QualificationAdmissionError> {
-        let expected = self.qualification_runtime_installed_expectation(owned)
+    ) -> Result<
+        runne_native_qualification::VerifiedQualificationFenceFacts,
+        QualificationAdmissionError,
+    > {
+        let expected = self
+            .qualification_runtime_installed_expectation(owned)
             .map_err(|_| QualificationAdmissionError)?;
-        verifier.verify_exact_for_fence_borrowed(admission, expected.candidate_sha256,
-            expected.raw_v3_tuple_sha256, now_unix_seconds).map_err(|_| QualificationAdmissionError)
+        verifier
+            .verify_exact_for_fence_borrowed(
+                admission,
+                expected.candidate_sha256,
+                expected.raw_v3_tuple_sha256,
+                now_unix_seconds,
+            )
+            .map_err(|_| QualificationAdmissionError)
     }
 
     pub fn verify_qualification_admission(
@@ -137,9 +148,7 @@ impl VerifiedInstalledEnrollmentMeasurementFacts {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        InstalledExpectationError, VerifiedInstalledEnrollmentMeasurementFacts,
-    };
+    use super::{InstalledExpectationError, VerifiedInstalledEnrollmentMeasurementFacts};
     use crate::tests::updater_enrollment_v3_fixture::{macos_tuple_v3, owned};
     use crate::{NativeEnrollmentQualificationRowV1, NativeEnrollmentTupleAdmission};
 
@@ -148,20 +157,11 @@ mod tests {
         target.release_candidate_sha256 = candidate.to_string().repeat(64);
         target.native_enrollment_tuple = None;
         let measured = macos_tuple_v3(&target, service);
-        let row = NativeEnrollmentQualificationRowV1::new_v3(
-            &target,
-            &measured,
-            "9".repeat(64),
-            99,
-            200,
-        )
-        .unwrap();
-        target.native_enrollment_tuple_v3 = Some(
-            measured
-                .clone()
-                .with_qualification(&target, row)
-                .unwrap(),
-        );
+        let row =
+            NativeEnrollmentQualificationRowV1::new_v3(&target, &measured, "9".repeat(64), 99, 200)
+                .unwrap();
+        target.native_enrollment_tuple_v3 =
+            Some(measured.clone().with_qualification(&target, row).unwrap());
         crate::tests::updater_enrollment_macos_identity::verify_target(&target)
             .unwrap()
             .admit_native_enrollment_v3(&measured)
@@ -248,12 +248,12 @@ mod tests {
     #[test]
     fn real_qualified_v2_admission_cannot_mint_an_expectation() {
         let target = crate::tests::updater_enrollment_qualification::qualified_target(200);
-        let verified = crate::tests::updater_enrollment_macos_identity::verify_target(&target)
-            .unwrap();
+        let verified =
+            crate::tests::updater_enrollment_macos_identity::verify_target(&target).unwrap();
         let admission = verified
-            .admit_native_enrollment(
-                &crate::tests::updater_enrollment_qualification::artifacts(&target),
-            )
+            .admit_native_enrollment(&crate::tests::updater_enrollment_qualification::artifacts(
+                &target,
+            ))
             .unwrap();
         let facts = facts(&admission);
         assert_eq!(

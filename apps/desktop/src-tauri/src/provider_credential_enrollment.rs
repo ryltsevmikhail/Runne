@@ -8,6 +8,8 @@ pub mod intent;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod prepared;
 mod projection;
+mod status;
+pub use status::load_status;
 #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
 #[path = "provider_credential_enrollment/prepared/reap_guard.rs"]
 mod reap_guard;

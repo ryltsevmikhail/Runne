@@ -18,6 +18,11 @@ impl MutationRequest {
                 update_id(&mut digest, *project_id);
                 update_bytes(&mut digest, display_name.as_bytes());
             }
+            CanonicalMutationCommand::RenameProject { project_id, display_name } => {
+                digest.update([11]);
+                update_id(&mut digest, *project_id);
+                update_bytes(&mut digest, display_name.as_bytes());
+            }
             CanonicalMutationCommand::ArchiveProject { project_id } => {
                 digest.update([2]);
                 update_id(&mut digest, *project_id);

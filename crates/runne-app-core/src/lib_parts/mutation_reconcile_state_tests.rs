@@ -171,7 +171,7 @@ async fn restart_closes_carrierless_prepared_bind_and_open_without_a_mutation_po
     core.prepare_open_selected_workspace(
         WORKSPACE_ID.parse().expect("workspace"),
         1,
-        protected_admission(),
+        protected_admission(1),
     )
     .await
     .expect("prepare composite");

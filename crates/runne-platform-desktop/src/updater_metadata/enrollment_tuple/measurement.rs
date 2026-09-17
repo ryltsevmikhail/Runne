@@ -110,6 +110,22 @@ impl OpenedNativeEnrollmentFile {
     #[cfg(target_os = "macos")]
     pub(super) const fn metadata(&self) -> &Metadata { &self.metadata }
 
+    #[cfg(target_os = "macos")]
+    pub(in crate::updater_metadata) fn confirm_current_executable(
+        &self,
+    ) -> Result<(), NativeEnrollmentTupleError> {
+        use std::os::fd::AsFd;
+
+        if !self.matches_file(&self.file)? {
+            return Err(NativeEnrollmentTupleError::Rejected);
+        }
+        runne_macos_file_security::require_current_executable_file(self.file.as_fd())
+            .map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+        self.matches_file(&self.file)?
+            .then_some(())
+            .ok_or(NativeEnrollmentTupleError::Rejected)
+    }
+
     pub(super) fn measure(&self) -> Result<String, NativeEnrollmentTupleError> {
         let before = self.file.metadata().map_err(|_| NativeEnrollmentTupleError::Rejected)?;
         if !valid_regular(&before) || !same_identity(&self.metadata, &before) || !same_security(&self.metadata, &before) {

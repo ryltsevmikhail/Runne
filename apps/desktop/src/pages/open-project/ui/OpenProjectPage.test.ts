@@ -26,7 +26,7 @@ function createTestRouter() {
 }
 
 describe('open project page', () => {
-  it('renders the native folder chooser with Lucide icons and a privacy notice', async () => {
+  it('renders a compact native folder chooser without a duplicate privacy notice', async () => {
     const router = createTestRouter()
     await router.push('/projects/open')
     await router.isReady()
@@ -36,8 +36,11 @@ describe('open project page', () => {
     })
 
     expect(wrapper.find('.open-project-page').exists()).toBe(true)
-    expect(wrapper.findAll('[aria-label="Choose project folder"] svg')).toHaveLength(2)
-    expect(wrapper.text()).toContain('Runne stores only the local project record.')
+    expect(wrapper.get('[aria-label="Choose project folder"]').classes()).toContain('gc-button')
+    expect(wrapper.findAll('[aria-label="Choose project folder"] svg')).toHaveLength(1)
+    expect(wrapper.find('.open-project-page__privacy').exists()).toBe(false)
+    expect(wrapper.find('.open-project-page__choose-card').exists()).toBe(false)
+    expect(wrapper.find('.eyebrow').exists()).toBe(false)
     expect(wrapper.html()).not.toContain('IMPLEMENTED')
   })
 
@@ -97,6 +100,31 @@ describe('open project page', () => {
     await flushPromises()
 
     expect(router.currentRoute.value.fullPath).toBe('/workspaces/01890e00-0000-7000-8000-000000000002')
+  })
+
+  it('does not hijack a later route when the folder import resolves after navigation', async () => {
+    const router = createTestRouter()
+    await router.push('/projects/open')
+    await router.isReady()
+    let resolveOpen: ((result: { projectId: string; workspaceId: string }) => void) | undefined
+    const wrapper = mount(OpenProjectPage, {
+      props: {
+        openProject: () => new Promise(resolve => { resolveOpen = resolve }),
+      },
+      global: { plugins: [router] },
+    })
+
+    await wrapper.get('[aria-label="Choose project folder"]').trigger('click')
+    await flushPromises()
+    await router.push({ name: 'project-details', params: { projectId: '01890e00-0000-7000-8000-000000000001' } })
+    resolveOpen?.({
+      projectId: '01890e00-0000-7000-8000-000000000001',
+      workspaceId: '01890e00-0000-7000-8000-000000000002',
+    })
+    await flushPromises()
+
+    expect(router.currentRoute.value.fullPath).toBe('/projects/01890e00-0000-7000-8000-000000000001')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
   })
 
   it('fails closed without exposing a rejected local path', async () => {

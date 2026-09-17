@@ -65,7 +65,10 @@ def handoff(request: object, policy: object, *, production: bool = True,
                               "developer_id_verified":True,"notarized":True,"provisioning_verified":True,
                               "role_paths":ROLE_PATHS,"role_measurements":canonical_roles(before),"deployment_sha256":digest(DEPLOYMENT),
                               "attestation_sha256":value["attestation_sha256"],"attestation_receipt_sha256":digest(receipt)}
-        if preflight_status != 0 or preflight != expected_preflight: raise Rejected("native preflight rejected")
+        if preflight_status != 0 or not isinstance(preflight, dict) or any(
+            type(preflight.get(name)) is not bool
+            for name in ("developer_id_verified", "notarized", "provisioning_verified")
+        ) or canonical(preflight) != canonical(expected_preflight): raise Rejected("native preflight rejected")
         expected = {"schema_version":"runne/native-dpk-controller-result/v1",
                     "workflow_run_id":value["workflow_run_id"],
                     "request_sha256":digest(value), "package_snapshot_sha256":before_digest,"package_subject_sha256":subject_digest,
@@ -73,7 +76,10 @@ def handoff(request: object, policy: object, *, production: bool = True,
         output, status = run_protected(command + ["--execute"], canonical(value), pass_fds=(descriptor,), contain=production)
         terminal = parse_json(output)
         after = subject(descriptor, production)
-        if status != 0 or terminal != expected or after != before:
+        if status != 0 or not isinstance(terminal, dict) or any(
+            type(terminal.get(name)) is not bool
+            for name in ("evidence_ready", "cleanup_verified")
+        ) or canonical(terminal) != canonical(expected) or after != before:
             raise Rejected("native executor terminal result rejected")
         lifecycle = {"schema_version":"runne/native-dpk-controller-lifecycle/v1","order":["request","preflight","execute","complete"],"workflow_run_id":value["workflow_run_id"],
                      "request_sha256":digest(value),"package_snapshot_sha256":before_digest,"package_subject_sha256":subject_digest,

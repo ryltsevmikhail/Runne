@@ -11,14 +11,15 @@ enum CliError {
     Help(String),
     Version(String),
     Usage,
+    UnknownCommand(String),
     Profile,
     ProfileIncompatible,
     Runtime,
     Api(RuntimeApiError),
     CredentialOperation,
     UnsupportedCredentialBackend,
-    HealthNonHealthy(String),
-    DoctorNonHealthy(String),
+    HealthNonHealthy(CommandOutput),
+    DoctorNonHealthy(CommandOutput),
     AuthorityUsage,
     #[cfg(not(target_os = "macos"))]
     AuthorityUnsupportedPlatform,
@@ -49,7 +50,7 @@ impl CliError {
     const fn exit_code(&self) -> i32 {
         match self {
             Self::Help(_) | Self::Version(_) => 0,
-            Self::Usage | Self::AuthorityUsage => 2,
+            Self::Usage | Self::UnknownCommand(_) | Self::AuthorityUsage => 2,
             Self::Profile | Self::ProfileIncompatible => 3,
             Self::CredentialOperation | Self::UnsupportedCredentialBackend => 4,
             _ => 1,
@@ -61,6 +62,7 @@ impl CliError {
         match self {
             Self::Help(_) | Self::Version(_) => None,
             Self::Usage | Self::AuthorityUsage => Some(ErrorCode::InvalidArguments),
+            Self::UnknownCommand(_) => Some(ErrorCode::UnknownCommand),
             Self::Profile => Some(ErrorCode::ProfileUnavailable),
             Self::ProfileIncompatible => Some(ErrorCode::ProfileIncompatible),
             Self::Runtime | Self::HealthNonHealthy(_) | Self::DoctorNonHealthy(_) => {
@@ -78,6 +80,7 @@ impl fmt::Display for CliError {
         match self {
             Self::Help(text) | Self::Version(text) => formatter.write_str(text),
             Self::Usage => formatter.write_str(USAGE),
+            Self::UnknownCommand(name) => write!(formatter, "unknown command: {name}"),
             Self::Profile => formatter.write_str("local runtime profile is unavailable"),
             Self::ProfileIncompatible => {
                 formatter.write_str("local runtime profile is incompatible")

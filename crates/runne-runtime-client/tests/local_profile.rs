@@ -5,8 +5,9 @@ use std::net::SocketAddr;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use runne_runtime_client::{
-    EXPECTED_BUNDLE_ID, GOLDEN_BUNDLE_HASH, LocalProfileError, LocalRuntimeProfile,
-    PROTECTED_RUNTIME_CAPABILITIES, REQUIRED_RUNTIME_CAPABILITIES,
+    ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES, EXPECTED_BUNDLE_ID, GOLDEN_BUNDLE_HASH,
+    LocalProfileError, LocalRuntimeProfile, PROTECTED_RUNTIME_CAPABILITIES,
+    REQUIRED_RUNTIME_CAPABILITIES,
 };
 use sha2::{Digest, Sha256};
 
@@ -79,7 +80,7 @@ fn loads_profile_v3_without_reading_the_bootstrap_secret() {
 
 #[cfg(unix)]
 #[test]
-fn accepts_the_closed_base_and_protected_capability_profiles() {
+fn accepts_the_closed_base_protected_and_enrollment_qualified_capability_profiles() {
     let directory = tempfile::tempdir().expect("temp directory");
     let profile_path = write_profile(directory.path(), "https://127.0.0.1:43123");
     assert!(LocalRuntimeProfile::load(&profile_path).is_ok());
@@ -88,6 +89,13 @@ fn accepts_the_closed_base_and_protected_capability_profiles() {
         profile["capabilities"] = serde_json::json!(PROTECTED_RUNTIME_CAPABILITIES);
         profile["capabilityDigest"] = serde_json::json!(hex::encode(ordered_capability_digest(
             PROTECTED_RUNTIME_CAPABILITIES
+        )));
+    });
+    assert!(LocalRuntimeProfile::load(&profile_path).is_ok());
+    rewrite_profile(&profile_path, |profile| {
+        profile["capabilities"] = serde_json::json!(ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES);
+        profile["capabilityDigest"] = serde_json::json!(hex::encode(ordered_capability_digest(
+            ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES
         )));
     });
     assert!(LocalRuntimeProfile::load(&profile_path).is_ok());

@@ -69,18 +69,17 @@ async fn dispatch_inner(
     intents: &CredentialIntentRegistry,
     request: CredentialIntentIpc,
 ) -> Result<CredentialIntentProjection, DispatchFailure> {
-    let work = run_after_pair_gate(request, || {
-        dispatch_pair_inner(app, window, lifecycle, updater, intents, request)
+    let work = run_after_action_gate(request, || {
+        dispatch_enrollment_inner(app, window, lifecycle, updater, intents, request)
     })?;
     Box::pin(work).await
 }
 
-pub(super) fn run_after_pair_gate<T>(
+pub(super) fn run_after_action_gate<T>(
     request: CredentialIntentIpc,
     work: impl FnOnce() -> T,
 ) -> Result<T, DispatchFailure> {
-    request
-        .supported_d1_1a()
+    (request.valid() && request.supported_enrollment_action())
         .then(work)
         .ok_or(DispatchFailure::Closed(
             "provider_credential_action_unsupported",
@@ -141,7 +140,7 @@ impl PostFenceEnrollmentDependencies for LivePostFenceAdmission<'_> {
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[allow(clippy::significant_drop_tightening)]
-async fn dispatch_pair_inner(
+async fn dispatch_enrollment_inner(
     app: &AppHandle,
     window: WebviewWindow,
     lifecycle: &RuntimeLifecycleManager,
@@ -209,8 +208,7 @@ async fn dispatch_pair_inner(
     let qualification_app = app.clone();
     let (result, _owner_completion) = spawn_pre_fence_enrollment_owner(
         move || async move {
-            let confirmed = runtime_lease
-                .transition_and_install(confirmed)
+            let confirmed = Box::pin(runtime_lease.transition_and_install(confirmed))
                 .await
                 .map_err(|_| DispatchFailure::Closed("provider_credential_handoff_failed"))?;
             runtime_lease

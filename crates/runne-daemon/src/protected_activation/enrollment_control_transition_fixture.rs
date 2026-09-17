@@ -127,6 +127,7 @@ pub(super) fn composition(original: &ProtectedLaunchRequestV2) -> EnrollmentCont
         vec![14; 8],
         vec!["provider.credential-enrollment.v2".into()],
         std::path::PathBuf::from("/tmp"),
+        std::path::PathBuf::from("/tmp/bundled-runtime"),
         Arc::new(|| Ok(1_000)),
         None,
     )

@@ -25,7 +25,7 @@ describe('TaskRun page runtime session gate', () => {
     currentLocale.value = 'ru'
     try {
       const live = shallowRef<RuntimeSessionSnapshot>({ runtime: 'live', status: 'live', canMutate: true })
-      const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value }
+      const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value, sessionTicket: () => 0, ticketFenced: () => false }
       const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/task-runs/:taskRunId', component: TaskRunPage }] })
       await router.push(`/task-runs/${id}`)
       await router.isReady()
@@ -40,7 +40,7 @@ describe('TaskRun page runtime session gate', () => {
 
   it('waits for an injected live session before querying and retries when it becomes live', async () => {
     const snapshot = shallowRef<RuntimeSessionSnapshot>({ runtime: 'authenticated', status: 'stale', canMutate: false })
-    const context: RuntimeSessionContext = { snapshot: snapshot as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => snapshot.value, retry: async () => snapshot.value, close: async () => {}, observeBootstrap: () => snapshot.value }
+    const context: RuntimeSessionContext = { snapshot: snapshot as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => snapshot.value, retry: async () => snapshot.value, close: async () => {}, observeBootstrap: () => snapshot.value, sessionTicket: () => 0, ticketFenced: () => false }
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/task-runs/:taskRunId', component: TaskRunPage }] })
     await router.push(`/task-runs/${id}`)
     await router.isReady()
@@ -56,7 +56,7 @@ describe('TaskRun page runtime session gate', () => {
 
   it('publishes a synchronous first subscription update after the session installs', async () => {
     const live = shallowRef<RuntimeSessionSnapshot>({ runtime: 'live', status: 'live', canMutate: true })
-    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value }
+    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value, sessionTicket: () => 0, ticketFenced: () => false }
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/task-runs/:taskRunId', component: TaskRunPage }] })
     await router.push(`/task-runs/${id}`)
     await router.isReady()
@@ -68,7 +68,7 @@ describe('TaskRun page runtime session gate', () => {
 
   it('renders a synchronous fail-closed callback as read-only after session installation', async () => {
     const live = shallowRef<RuntimeSessionSnapshot>({ runtime: 'live', status: 'live', canMutate: true })
-    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value }
+    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value, sessionTicket: () => 0, ticketFenced: () => false }
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/task-runs/:taskRunId', component: TaskRunPage }] })
     await router.push(`/task-runs/${id}`)
     await router.isReady()
@@ -81,7 +81,7 @@ describe('TaskRun page runtime session gate', () => {
 
   it('releases the native session slot when runtime status leaves live', async () => {
     const live = shallowRef<RuntimeSessionSnapshot>({ runtime: 'live', status: 'live', canMutate: true })
-    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value }
+    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value, sessionTicket: () => 0, ticketFenced: () => false }
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/task-runs/:taskRunId', component: TaskRunPage }] })
     await router.push(`/task-runs/${id}`)
     await router.isReady()
@@ -102,7 +102,7 @@ describe('TaskRun page runtime session gate', () => {
 
   it('waits for teardown before recreating a session after a status bounce', async () => {
     const live = shallowRef<RuntimeSessionSnapshot>({ runtime: 'live', status: 'live', canMutate: true })
-    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value }
+    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value, sessionTicket: () => 0, ticketFenced: () => false }
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/task-runs/:taskRunId', component: TaskRunPage }] })
     await router.push(`/task-runs/${id}`)
     await router.isReady()
@@ -130,7 +130,7 @@ describe('TaskRun page runtime session gate', () => {
 
   it('does not subscribe when runtime leaves live as a query resolves', async () => {
     const live = shallowRef<RuntimeSessionSnapshot>({ runtime: 'live', status: 'live', canMutate: true })
-    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value }
+    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value, sessionTicket: () => 0, ticketFenced: () => false }
     const pending = deferred<TaskRunTimeline>()
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/task-runs/:taskRunId', component: TaskRunPage }] })
     await router.push(`/task-runs/${id}`)
@@ -146,7 +146,7 @@ describe('TaskRun page runtime session gate', () => {
 
   it('does not subscribe when runtime leaves live as resync resolves', async () => {
     const live = shallowRef<RuntimeSessionSnapshot>({ runtime: 'live', status: 'live', canMutate: true })
-    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value }
+    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value, sessionTicket: () => 0, ticketFenced: () => false }
     const blocked = { ...timeline, recovery: 'resync_required' as const }
     const pending = deferred<TaskRunTimeline>()
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/task-runs/:taskRunId', component: TaskRunPage }] })
@@ -164,7 +164,7 @@ describe('TaskRun page runtime session gate', () => {
 
   it('keeps confirmed data read-only after native subscribe rejection', async () => {
     const live = shallowRef<RuntimeSessionSnapshot>({ runtime: 'live', status: 'live', canMutate: true })
-    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value }
+    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value, sessionTicket: () => 0, ticketFenced: () => false }
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/task-runs/:taskRunId', component: TaskRunPage }] })
     await router.push(`/task-runs/${id}`)
     await router.isReady()
@@ -182,7 +182,7 @@ describe('TaskRun page runtime session gate', () => {
 
   it('keeps confirmed data read-only after native unsubscribe rejection', async () => {
     const live = shallowRef<RuntimeSessionSnapshot>({ runtime: 'live', status: 'live', canMutate: true })
-    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value }
+    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value, sessionTicket: () => 0, ticketFenced: () => false }
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/task-runs/:taskRunId', component: TaskRunPage }] })
     await router.push(`/task-runs/${id}`)
     await router.isReady()
@@ -198,7 +198,7 @@ describe('TaskRun page runtime session gate', () => {
 
   it('re-enables revalidation after an invalidated resync and live recovery', async () => {
     const live = shallowRef<RuntimeSessionSnapshot>({ runtime: 'live', status: 'live', canMutate: true })
-    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value }
+    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value, sessionTicket: () => 0, ticketFenced: () => false }
     const blocked = { ...timeline, recovery: 'resync_required' as const }
     const pending = deferred<TaskRunTimeline>()
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/task-runs/:taskRunId', component: TaskRunPage }] })
@@ -221,7 +221,7 @@ describe('TaskRun page runtime session gate', () => {
 
   it('offers only an explicit blocked-state revalidation without automatic resubscribe', async () => {
     const live = shallowRef<RuntimeSessionSnapshot>({ runtime: 'live', status: 'live', canMutate: true })
-    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value }
+    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value, sessionTicket: () => 0, ticketFenced: () => false }
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/task-runs/:taskRunId', component: TaskRunPage }] })
     await router.push(`/task-runs/${id}`)
     await router.isReady()
@@ -240,7 +240,7 @@ describe('TaskRun page runtime session gate', () => {
 
   it('creates a native subscription only after explicit resync returns live', async () => {
     const live = shallowRef<RuntimeSessionSnapshot>({ runtime: 'live', status: 'live', canMutate: true })
-    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value }
+    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value, sessionTicket: () => 0, ticketFenced: () => false }
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/task-runs/:taskRunId', component: TaskRunPage }] })
     await router.push(`/task-runs/${id}`)
     await router.isReady()
@@ -257,7 +257,7 @@ describe('TaskRun page runtime session gate', () => {
 
   it('ignores a stale initial route load after navigation', async () => {
     const live = shallowRef<RuntimeSessionSnapshot>({ runtime: 'live', status: 'live', canMutate: true })
-    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value }
+    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value, sessionTicket: () => 0, ticketFenced: () => false }
     const first = deferred<TaskRunTimeline>()
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/task-runs/:taskRunId', component: TaskRunPage }] })
     await router.push(`/task-runs/${id}`)
@@ -275,7 +275,7 @@ describe('TaskRun page runtime session gate', () => {
 
   it('does not subscribe a stale resync completion after navigation', async () => {
     const live = shallowRef<RuntimeSessionSnapshot>({ runtime: 'live', status: 'live', canMutate: true })
-    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value }
+    const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value, sessionTicket: () => 0, ticketFenced: () => false }
     const blocked = { ...timeline, recovery: 'resync_required' as const }
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/task-runs/:taskRunId', component: TaskRunPage }] })
     await router.push(`/task-runs/${id}`)

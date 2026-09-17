@@ -16,7 +16,8 @@ impl NativeEnrollmentArtifactPathsV1 {
         self.confirm_current()?;
         let code = SecCode::for_self(Flags::NONE).map_err(|_| NativeEnrollmentTupleError::Rejected)?;
         check_code(&code, identity)?;
-        self.matches_desktop_digest(expected_digest)
+        self.matches_desktop_digest(expected_digest)?;
+        self.confirm_current()
     }
 
     pub(super) fn confirm_peer_macos_desktop(

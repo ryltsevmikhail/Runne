@@ -20,6 +20,7 @@ impl SecureLocalHttpHost {
         approval_state: ApprovalHttpState<A>,
         replay_state: ReplayHttpState,
         operational_telemetry_state: OperationalTelemetryHttpState,
+        enrollment_routes: Option<Router>,
     ) -> Result<Self, SecureLocalHttpHostError>
     where
         T: TaskRunCommandHostPort + TaskRunQueryHostPort + 'static,
@@ -39,7 +40,10 @@ impl SecureLocalHttpHost {
         {
             return Err(SecureLocalHttpHostError::CapabilityDigestMismatch);
         }
-        require_provider_credential_enrollment_admission(&runtime_profile_state)?;
+        require_provider_credential_enrollment_admission(
+            &runtime_profile_state,
+            enrollment_routes.is_some(),
+        )?;
         if !runtime_profile_state.advertises(OPERATIONAL_TELEMETRY_CAPABILITY_V1) {
             return Err(SecureLocalHttpHostError::OperationalTelemetryCapabilityMissing);
         }
@@ -68,7 +72,8 @@ impl SecureLocalHttpHost {
             ))
             .merge(replay_router(replay_state));
         let protected = mount_process_routes(protected, process_state, process_capability_advertised);
-        let protected = mount_editor_routes(protected, editor_state, editor_capability_advertised)
+        let protected = mount_editor_routes(protected, editor_state, editor_capability_advertised);
+        let protected = mount_provider_credential_enrollment_routes(protected, enrollment_routes)
         .layer(axum_mw::from_fn_with_state(
             admission_state.clone(),
             admission_middleware,
@@ -127,6 +132,15 @@ fn mount_editor_routes<E: runne_api::WorkspaceEditorHostPort + 'static>(
         router.merge(crate::editors::workspace_editor_router(state))
     } else {
         router
+    }
+}
+
+/// Mounts the protected V2 credential enrollment surface only when its owner
+/// supplied the composed host plus per-request admission derivation.
+fn mount_provider_credential_enrollment_routes(router: Router, routes: Option<Router>) -> Router {
+    match routes {
+        Some(routes) => router.merge(routes),
+        None => router,
     }
 }
 

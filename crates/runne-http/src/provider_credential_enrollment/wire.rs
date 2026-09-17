@@ -1,11 +1,3 @@
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the protected V2 router remains unmounted until qualified admission is composed"
-    )
-)]
-
 use runne_api::ProviderCredentialOperationHandleV2;
 use serde::Deserialize;
 

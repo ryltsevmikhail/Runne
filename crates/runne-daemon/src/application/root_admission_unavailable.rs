@@ -38,6 +38,13 @@ impl RootAdmissionVerifier for UnavailableRootAdmission {
     ) -> Result<VerifiedRootAdmissionClaims, RootAdmissionVerifierError> {
         Err(RootAdmissionVerifierError::Unavailable)
     }
+
+    fn confirm_root_admission(
+        &self,
+        _: &VerifiedRootAdmissionClaims,
+    ) -> Result<(), RootAdmissionVerifierError> {
+        Err(RootAdmissionVerifierError::Unavailable)
+    }
 }
 
 impl WorkspaceFileProvider for UnavailableRootAdmission {

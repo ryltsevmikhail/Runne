@@ -52,6 +52,17 @@ describe('provider credential mutations', () => {
     await expect(requestProviderCredentialIntent('openai', 'pair', 7, 4, invoke)).resolves.toBe('pending')
   })
 
+  it('accepts every backend disposition including completed and rejects unknown strings', async () => {
+    for (const disposition of ['pending', 'completed', 'cancelled', 'unavailable'] as const) {
+      await expect(requestProviderCredentialIntent('openai', 'pair', 7, 4, async () => disposition))
+        .resolves.toBe(disposition)
+    }
+    await expect(requestProviderCredentialIntent('openai', 'pair', 7, 4, async () => 'ok'))
+      .rejects.toThrow('Invalid provider credential intent disposition')
+    await expect(requestProviderCredentialIntent('openai', 'pair', 7, 4, async () => ({ disposition: 'completed' })))
+      .rejects.toThrow('Invalid provider credential intent disposition')
+  })
+
   it('rejects invalid revision, renderer generation, and credential-shaped response leakage', async () => {
     await expect(requestProviderCredentialIntent('openai', 'pair', 0, 4, async () => ({}))).rejects.toThrow()
     for (const rendererGeneration of [0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) {

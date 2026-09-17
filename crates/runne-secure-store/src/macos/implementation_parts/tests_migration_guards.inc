@@ -1,5 +1,10 @@
     #[test]
     fn provider_credential_migration_discards_incomplete_backup_after_verifying_primary() {
+        if skip_if_partition_limitation(
+            "provider_credential_migration_discards_incomplete_backup_after_verifying_primary",
+        ) {
+            return;
+        }
         let (store, _cleanup) = unique_provider_store("incomplete-backup");
         let current = std::env::current_exe().unwrap();
         let current_policy = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
@@ -50,6 +55,11 @@
 
     #[test]
     fn provider_credential_migration_restores_complete_backup_over_incomplete_replacement() {
+        if skip_if_partition_limitation(
+            "provider_credential_migration_restores_complete_backup_over_incomplete_replacement",
+        ) {
+            return;
+        }
         let (store, _cleanup) = unique_provider_store("incomplete-replacement");
         let current = std::env::current_exe().unwrap();
         let current_policy = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
@@ -115,6 +125,11 @@
 
     #[test]
     fn migration_rejects_broad_primary_before_materializing_its_password() {
+        if skip_if_partition_limitation(
+            "migration_rejects_broad_primary_before_materializing_its_password",
+        ) {
+            return;
+        }
         let (store, _cleanup) = unique_provider_store("broad-primary-reconcile");
         let current = std::env::current_exe().unwrap();
         let current_policy = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();

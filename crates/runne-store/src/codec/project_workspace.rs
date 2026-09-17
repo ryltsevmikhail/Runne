@@ -144,22 +144,11 @@ fn decode_project(
             context: "Project display name",
         }
     })?;
-    let mut project = Project::create(id, name);
-    for _ in 1..version {
-        if project.archived() {
-            project.restore()
-        } else {
-            project.archive()
-        }
-        .map_err(|_| StoreCodecError::InvalidValue {
+    let project = Project::rehydrate(id, name, version, archived).map_err(|_| {
+        StoreCodecError::InvalidValue {
             context: "Project receipt state",
-        })?;
-    }
-    if project.archived() != archived {
-        return Err(StoreCodecError::InvalidValue {
-            context: "Project receipt lifecycle",
-        });
-    }
+        }
+    })?;
     Ok(ProjectWorkspaceReceipt::Project(project))
 }
 

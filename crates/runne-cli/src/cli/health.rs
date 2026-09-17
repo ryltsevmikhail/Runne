@@ -111,23 +111,22 @@ fn format_health_text(info: &HealthInfo) -> String {
     }
 }
 
+/// Typed health output: the text rendering plus the structured JSON payload
+/// (serialized once at render time, never pre-serialized into a string).
 #[must_use]
-pub fn format_health(info: &HealthInfo, format: OutputFormat) -> String {
-    match format {
-        OutputFormat::Text => format_health_text(info),
-        OutputFormat::Json => {
-            let envelope = SuccessEnvelope::new(serde_json::json!({
-                "status": info.status,
-                "version": info.version,
-                "healthy": info.healthy
-            }));
-            serde_json::to_string(&envelope).unwrap_or_default()
-        }
-    }
+pub fn format_health(info: &HealthInfo) -> CommandOutput {
+    CommandOutput::typed(
+        format_health_text(info),
+        serde_json::json!({
+            "status": info.status,
+            "version": info.version,
+            "healthy": info.healthy
+        }),
+    )
 }
 
-fn health_command_output(info: &HealthInfo, format: OutputFormat) -> Result<String, CliError> {
-    let output = format_health(info, format);
+fn health_command_output(info: &HealthInfo) -> Result<CommandOutput, CliError> {
+    let output = format_health(info);
     if info.healthy {
         Ok(output)
     } else {
@@ -166,7 +165,7 @@ mod tests {
             ("shutting_down", 1),
         ] {
             let outcome = process_outcome(
-                health_command_output(&health("1.2.3", status), OutputFormat::Text),
+                health_command_output(&health("1.2.3", status)),
                 OutputFormat::Text,
             );
             assert_eq!(outcome.exit_code, expected_code, "{status}");
@@ -176,7 +175,7 @@ mod tests {
     }
 
     #[test]
-    fn health_json_exit_code_preserves_payload_for_ok_and_nonhealthy_states() {
+    fn health_json_renders_typed_data_once_for_ok_and_nonhealthy_states() {
         for (status, expected_code) in [
             ("ok", 0),
             ("degraded", 1),
@@ -184,17 +183,20 @@ mod tests {
             ("shutting_down", 1),
         ] {
             let outcome = process_outcome(
-                health_command_output(&health("1.2.3", status), OutputFormat::Json),
+                health_command_output(&health("1.2.3", status)),
                 OutputFormat::Json,
             );
             assert_eq!(outcome.exit_code, expected_code, "{status}");
             assert_eq!(outcome.stderr, "", "{status}");
             let envelope: serde_json::Value = serde_json::from_str(&outcome.stdout).unwrap();
             assert_eq!(envelope["ok"], true, "{status}");
-            let payload: serde_json::Value =
-                serde_json::from_str(envelope["data"]["output"].as_str().unwrap()).unwrap();
-            assert_eq!(payload["data"]["status"], status, "{status}");
-            assert_eq!(payload["data"]["healthy"], status == "ok", "{status}");
+            assert!(
+                envelope["data"].get("output").is_none(),
+                "{status}: stringly data.output payload is forbidden"
+            );
+            assert_eq!(envelope["data"]["status"], status, "{status}");
+            assert_eq!(envelope["data"]["healthy"], status == "ok", "{status}");
+            assert_eq!(envelope["data"]["version"], "1.2.3", "{status}");
         }
     }
 }

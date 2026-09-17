@@ -36,10 +36,17 @@ pub enum ProjectDestructiveOperation {
 }
 
 /// Safe, host-renderable detail from a fresh authoritative Project read.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+///
+/// The display name is copied from the same authoritative read that anchors
+/// the mutation. It is suitable for native confirmation copy and keeps the
+/// prompt understandable when several projects have similar rows in the
+/// sidebar. Runtime version and other internal identifiers stay out of the
+/// renderer-facing summary.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DestructiveProjectSummary {
     operation: ProjectDestructiveOperation,
     project_id: CanonicalId,
+    display_name: String,
     expected_version: u64,
     impacted_workspaces: u16,
 }
@@ -50,13 +57,15 @@ impl DestructiveProjectSummary {
     #[must_use]
     pub const fn project_id(&self) -> CanonicalId { self.project_id }
     #[must_use]
+    pub fn display_name(&self) -> &str { &self.display_name }
+    #[must_use]
     pub const fn expected_version(&self) -> u64 { self.expected_version }
     #[must_use]
     pub const fn impacted_workspaces(&self) -> u16 { self.impacted_workspaces }
 }
 
 /// Closed host input for one native destructive confirmation.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DestructiveConfirmationContext {
     summary: DestructiveProjectSummary,
     binding: MutationAdmissionBinding,
@@ -65,7 +74,7 @@ pub struct DestructiveConfirmationContext {
 
 impl DestructiveConfirmationContext {
     #[must_use]
-    pub const fn summary(&self) -> DestructiveProjectSummary { self.summary }
+    pub fn summary(&self) -> DestructiveProjectSummary { self.summary.clone() }
 
     #[must_use]
     pub const fn binding(&self) -> MutationAdmissionBinding { self.binding }
@@ -89,9 +98,9 @@ impl std::fmt::Debug for PreparedDestructiveProjectAction {
 }
 
 impl PreparedDestructiveProjectAction {
-    const fn context(&self) -> DestructiveConfirmationContext {
+    fn context(&self) -> DestructiveConfirmationContext {
         DestructiveConfirmationContext {
-            summary: self.summary,
+            summary: self.summary.clone(),
             binding: self.binding,
             action_digest: self.action_digest,
         }
@@ -180,6 +189,7 @@ impl AppCore {
             summary: DestructiveProjectSummary {
                 operation,
                 project_id,
+                display_name: project.display_name().to_owned(),
                 expected_version,
                 impacted_workspaces: impacts.items().len().try_into().map_err(|_| AppCoreError::MutationUnavailable)?,
             },

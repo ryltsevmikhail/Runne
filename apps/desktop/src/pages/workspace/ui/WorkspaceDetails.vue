@@ -19,16 +19,14 @@ defineProps<{
     <strong>{{ translate('workspace.details') }}</strong>
   </div>
   <dl>
-    <dt>{{ translate('workspace.workspace') }}</dt>
-    <dd>{{ project.workspaceId }}</dd>
     <dt>{{ translate('workspace.runtime') }}</dt>
     <dd>{{ runtimeStatus }}</dd>
-    <dt>
+    <dt>{{ translate('workspace.workspace') }}</dt>
+    <dd>
       {{ translate('workspace.versionState', {
         version: project.version,
         state: project.open ? translate('projectDetails.open') : translate('projectDetails.closed'),
       }) }}
-    </dt>
-    <dd>{{ project.displayName }}</dd>
+    </dd>
   </dl>
 </template>

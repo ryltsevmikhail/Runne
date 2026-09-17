@@ -16,6 +16,7 @@ pub(crate) enum Operation {
     CreateWorkspace = 5,
     OpenWorkspace = 6,
     BindWorkspaceRoot = 7,
+    RenameProject = 8,
 }
 
 #[derive(Clone, Copy)]

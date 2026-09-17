@@ -13,8 +13,8 @@ SELECTORS = frozenset({"clean_install","n_to_n_plus_1","rollback","mixed_child_m
 ROW = frozenset({"platform","architecture","os_version","disposition","tuple","signing","code_identities","runner","native_store","artifact_scan","selectors","deployment"})
 STORE = {"access_group":f"{TEAM}.{SERVICE}","data_protection_keychain":True,"accessibility":"when_unlocked_this_device_only","synchronizable":False,"file_keychain":False,"environment_keychain":False,"ksec_use_keychain":False,"legacy_acl":False}
 ROLE_PATHS = {"desktop":"Contents/MacOS/runne-desktop",
-              "writer":"Contents/MacOS/runne-aarch64-apple-darwin",
-              "daemon":"Contents/MacOS/runned-aarch64-apple-darwin",
+              "writer":"Contents/MacOS/runne",
+              "daemon":"Contents/MacOS/runned",
               "service":"Contents/Library/Helpers/RunneCredentialService.app/Contents/MacOS/runne-credential-service"}
 CANARY = "runne/native-qualification-export-canary/v1"
 
@@ -44,8 +44,7 @@ def validate_row(row: object, tuples: object, policy: dict[str, object]) -> None
     if not isinstance(tuples, dict) or set(tuples) != {"arm64"} or row.get("tuple") != tuples.get("arm64"):
         _reject("expected tuple is invalid")
     _tuple(row["tuple"], policy)
-    if row.get("deployment") != DEPLOYMENT:
-        _reject("deployment is invalid")
+    _deployment(row.get("deployment"))
     _signing(row.get("signing")); _code_identities(row.get("code_identities"), row["tuple"])
     _runner(row.get("runner")); _store(row.get("native_store"))
     _scan(row.get("artifact_scan")); _selectors(row.get("selectors"), row["runner"]["workflow_run_id"]); _forbidden(row)
@@ -71,13 +70,18 @@ def _signing(value: object) -> None:
         _reject("signing evidence is invalid")
 
 
+def _deployment(value: object) -> None:
+    if not isinstance(value, dict) or canonical(value) != canonical(DEPLOYMENT):
+        _reject("deployment is invalid")
+
+
 def _code_identities(value: object, tuple_value: dict[str, object]) -> None:
-    identifiers = {"desktop":"com.runne.desktop","writer":"runne","daemon":"runned","service":SERVICE}
+    identifiers = {"desktop":"com.runne.desktop", "writer":"runne", "daemon":"runned", "service":SERVICE}
+    fields = {"identifier", "teamIdentifier", "cdhash"}
     if not isinstance(value, dict) or set(value) != set(identifiers): _reject("code identities are incomplete")
     for role, identifier in identifiers.items():
-        expected = {"authority":"Developer ID Application","binary_sha256":tuple_value[f"{role}_sha256"],
-                    "identifier":identifier,"notarized":True,"role":role,"team_id":TEAM}
-        if value.get(role) != expected or tuple_value[f"{role}_code_identity_sha256"] != digest(expected):
+        observed = value.get(role)
+        if not isinstance(observed, dict) or set(observed) != fields or observed.get("identifier") != identifier or observed.get("teamIdentifier") != TEAM or not isinstance(observed.get("cdhash"), str) or re.fullmatch(r"[0-9a-f]{40}", observed["cdhash"]) is None or tuple_value[f"{role}_code_identity_sha256"] != digest(observed):
             _reject("code identity differs from qualified tuple")
 
 
@@ -118,8 +122,9 @@ def _selectors(value: object, run: str) -> None:
         }
         digests = {"case_receipt":"ticket_sha256","process_signal":"process_signal_sha256",
                    "terminal_state":"terminal_state_sha256","namespace":"namespace_sha256"}
-        if any(receipt[field] != item or receipt[digests[field]] != digest(item)
-               for field, item in semantic.items()): _reject("selector semantic receipt is invalid")
+        if any(not isinstance(receipt[field], dict) or canonical(receipt[field]) != canonical(item)
+               or receipt[digests[field]] != digest(item) for field, item in semantic.items()):
+            _reject("selector semantic receipt is invalid")
     if value["local_verify_no_network"].get("status") != "verified" or value["local_verify_no_network"].get("network_attempts") != 0 or type(value["local_verify_no_network"]["network_attempts"]) is not int:
         _reject("local verification receipt is invalid")
     remote = value["remote_verify_after_local"]

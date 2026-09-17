@@ -2,7 +2,7 @@ use super::*;
 use runne_application::ports::{
     ProjectWorkspaceRepository, ProjectWorkspaceRepositoryError, RootAdmissionAuthorizer,
 };
-use runne_domain::project_workspace::{Project, Workspace};
+use runne_domain::project_workspace::{Project, ProjectWorkspaceDisplayName, Workspace};
 use runne_store::ProjectWorkspaceStore;
 use std::{
     future::Future,
@@ -94,6 +94,18 @@ impl ProjectWorkspaceRepository for BlockingRepository {
     ) -> Result<Project, ProjectWorkspaceRepositoryError> {
         self.inner
             .restore_project(principal, command_id, key, id, version)
+    }
+    fn rename_project(
+        &self,
+        principal: &str,
+        command_id: CommandId,
+        key: &IdempotencyKey,
+        id: ProjectId,
+        version: u64,
+        display_name: ProjectWorkspaceDisplayName,
+    ) -> Result<Project, ProjectWorkspaceRepositoryError> {
+        self.inner
+            .rename_project(principal, command_id, key, id, version, display_name)
     }
     fn delete_project(
         &self,

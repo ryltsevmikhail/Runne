@@ -6,13 +6,6 @@ pub trait ExactWriterCleanup {
     type Error;
 
     fn finish_exact(&mut self) -> Result<(), Self::Error>;
-    #[cfg_attr(
-        all(not(test), not(all(target_os = "macos", target_arch = "aarch64"))),
-        expect(
-            dead_code,
-            reason = "only native enrollment producers abort retained writers"
-        )
-    )]
     fn abort_exact(&mut self) -> Result<(), Self::Error>;
 
     fn retry_exact(&mut self) -> Result<(), Self::Error> {
@@ -24,13 +17,6 @@ pub trait ExactWriterCleanup {
     }
 }
 
-#[cfg_attr(
-    all(not(test), not(all(target_os = "macos", target_arch = "aarch64"))),
-    expect(
-        dead_code,
-        reason = "only native enrollment producers retain writer cleanup"
-    )
-)]
 pub(in crate::provider_credential_enrollment) struct RetainedWriterCleanup<
     C: ExactWriterCleanup + Send + 'static,
 > {

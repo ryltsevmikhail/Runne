@@ -37,4 +37,30 @@ mod tests {
             .is_err()
         );
     }
+
+    #[test]
+    fn retry_request_accepts_only_the_same_strict_wire_shape() {
+        let valid = format!(
+            r#"{{"prepared":"{REFERENCE}","rendererGeneration":1,"requestId":"request"}}"#,
+        );
+        let retry = serde_json::from_str::<super::RetryOpenSelectedWorkspaceRequest>(&valid)
+            .expect("retry wire shape");
+        let _ = retry;
+        assert!(
+            serde_json::from_str::<super::RetryOpenSelectedWorkspaceRequest>(&valid.replacen(
+                '}',
+                ",\"workspaceId\":\"01890e00-0000-7000-8000-000000000001\"}",
+                1,
+            ),)
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<super::RetryOpenSelectedWorkspaceRequest>(&valid.replacen(
+                '}',
+                ",\"path\":\"/private\"}",
+                1
+            ),)
+            .is_err()
+        );
+    }
 }

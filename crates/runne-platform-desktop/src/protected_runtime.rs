@@ -8,6 +8,7 @@
 include!("protected_runtime/state_records.rs");
 include!("protected_runtime/state_store.rs");
 include!("protected_runtime/launcher.rs");
+include!("protected_runtime/activation_rebind.rs");
 #[cfg(unix)]
 include!("protected_runtime/local_process_fixture.rs");
 include!("protected_runtime/writer_staging.rs");
@@ -15,8 +16,15 @@ include!("protected_runtime/process.rs");
 #[cfg(test)]
 include!("protected_runtime/provider_readiness_tests.rs");
 include!("protected_runtime/supervisor.rs");
+include!("protected_runtime/launch_unix.rs");
 include!("protected_runtime/helpers.rs");
 include!("protected_runtime/native_enrollment.rs");
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "protected-channel-integration"
+))]
+mod enrollment_status;
 #[cfg(target_os = "macos")]
 include!("protected_runtime/native_confirmation.rs");
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

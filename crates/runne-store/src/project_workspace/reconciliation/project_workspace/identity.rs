@@ -44,6 +44,17 @@ pub(super) fn request<'a>(
             None,
             None,
         ),
+        CommandReconciliationWitnessRef::RenameProject {
+            project_id,
+            expected_version,
+            display_name,
+        } => (
+            Scope::project(Operation::RenameProject, project_id.into_bytes()),
+            None,
+            Some(expected_version),
+            Some(display_name.as_str()),
+            None,
+        ),
         CommandReconciliationWitnessRef::CreateWorkspace {
             workspace_id,
             project_id,

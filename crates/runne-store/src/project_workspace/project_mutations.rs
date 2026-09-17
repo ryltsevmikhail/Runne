@@ -1,6 +1,7 @@
 use runne_application::ports::ProjectWorkspaceRepositoryError as Error;
 use runne_domain::id::{CommandId, IdempotencyKey, ProjectId};
 use runne_domain::project_workspace::Project;
+use runne_domain::project_workspace::ProjectWorkspaceDisplayName;
 use rusqlite::{Transaction, params};
 
 use crate::codec::{MAX_REHYDRATED_VERSION, ProjectWorkspaceReceipt};
@@ -175,6 +176,49 @@ pub(super) fn delete_project(
     })
 }
 
+pub(super) fn rename_project(
+    store: &StoreTransaction,
+    principal: &str,
+    command_id: CommandId,
+    key: &IdempotencyKey,
+    id: ProjectId,
+    expected_version: u64,
+    display_name: ProjectWorkspaceDisplayName,
+) -> Result<Project, Error> {
+    if expected_version >= MAX_REHYDRATED_VERSION {
+        return Err(Error::InvariantViolation);
+    }
+    let scope = Scope::project(Operation::RenameProject, id.into_bytes());
+    store.with_project_workspace_transaction(|transaction| {
+        let request = request(
+            store,
+            principal,
+            command_id,
+            key,
+            scope,
+            None,
+            Some(expected_version),
+            Some(display_name.as_str()),
+            None,
+        );
+        if let Some(receipt) = receipts::lookup(transaction, &request)? {
+            return receipt_project(receipt, id);
+        }
+        let mut project = load_project(transaction, principal, id)?;
+        if project.version() != expected_version {
+            return Err(Error::Conflict);
+        }
+        project.rename(display_name).map_err(|_| Error::Conflict)?;
+        update_project(transaction, principal, expected_version, &project)?;
+        receipts::insert(
+            transaction,
+            &request,
+            ProjectWorkspaceReceipt::Project(project.clone()),
+        )?;
+        Ok(project)
+    })
+}
+
 fn update_project(
     transaction: &Transaction<'_>,
     principal: &str,
@@ -183,9 +227,10 @@ fn update_project(
 ) -> Result<(), Error> {
     let updated = transaction
         .execute(
-            "UPDATE projects SET version = ?1, archived = ?2
-             WHERE project_id = ?3 AND principal_id = ?4 AND version = ?5",
+            "UPDATE projects SET display_name = ?1, version = ?2, archived = ?3
+             WHERE project_id = ?4 AND principal_id = ?5 AND version = ?6",
             params![
+                project.display_name(),
                 project.version() as i64,
                 i64::from(project.archived()),
                 project.id().as_bytes(),

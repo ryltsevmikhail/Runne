@@ -32,7 +32,8 @@ def assert_terminated(case: unittest.TestCase, pid: int, message: str) -> None:
 
 
 class ControllerTests(unittest.TestCase):
-    def setup_case(self, directory: str, *, drift: bool = False):
+    def setup_case(self, directory: str, *, drift: bool = False,
+                   preflight_boolean: str | None = None, terminal_boolean: str | None = None):
         root = Path(directory); package = root / "package"; package.mkdir()
         (package / "candidate").write_text("exact bytes")
         for path in ROLE_PATHS.values():
@@ -41,6 +42,12 @@ class ControllerTests(unittest.TestCase):
         verifier = root / "verifier"; verifier.write_text("verifier")
         executor = root / "executor.py"
         mutation = f"Path({str(package / 'candidate')!r}).write_text('drift')" if drift else ""
+        preflight_values = {name: 1 if name == preflight_boolean else True for name in (
+            "developer_id_verified", "notarized", "provisioning_verified"
+        )}
+        terminal_values = {name: 1 if name == terminal_boolean else True for name in (
+            "evidence_ready", "cleanup_verified"
+        )}
         executor.write_text(
             f"#!{sys.executable} -I\nimport hashlib,json,sys\nfrom pathlib import Path\n"
             "value=json.load(sys.stdin)\n"
@@ -51,7 +58,7 @@ class ControllerTests(unittest.TestCase):
             " result={'schema_version':'runne/native-dpk-preflight-result/v1',"
             "'request_sha256':hashlib.sha256(canonical).hexdigest(),"
             "'package_snapshot_sha256':value['package_snapshot_sha256'],'package_subject_sha256':value['package_subject_sha256'],"
-            "'developer_id_verified':True,'notarized':True,'provisioning_verified':True,"
+            f"'developer_id_verified':{preflight_values['developer_id_verified']!r},'notarized':{preflight_values['notarized']!r},'provisioning_verified':{preflight_values['provisioning_verified']!r},"
             "'role_paths':value['role_paths'],'role_measurements':value['role_measurements'],"
             "'deployment_sha256':value['deployment_sha256'],'attestation_sha256':value['attestation_sha256'],"
             "'attestation_receipt_sha256':value['attestation_receipt_sha256']}\n"
@@ -60,7 +67,7 @@ class ControllerTests(unittest.TestCase):
             "result={'schema_version':'runne/native-dpk-controller-result/v1',"
             "'workflow_run_id':value['workflow_run_id'],'request_sha256':hashlib.sha256(canonical).hexdigest(),"
             "'package_snapshot_sha256':value['package_snapshot_sha256'],'package_subject_sha256':value['package_subject_sha256'],"
-            "'evidence_ready':True,'cleanup_verified':True}\n"
+            f"'evidence_ready':{terminal_values['evidence_ready']!r},'cleanup_verified':{terminal_values['cleanup_verified']!r}}}\n"
             "print(json.dumps(result,sort_keys=True,separators=(',',':')))\n"
         ); executor.chmod(0o755)
         descriptor = open_package(str(package))
@@ -129,6 +136,20 @@ class ControllerTests(unittest.TestCase):
                     with self.assertRaises(Rejected): controller.build_request(policy, changed)
             finally:
                 controller.EVIDENCE_ROOT = original; controller.file_digest = original_digest
+
+    def test_controller_rejects_numeric_executor_booleans(self):
+        cases = (
+            ("preflight_boolean", "developer_id_verified"),
+            ("preflight_boolean", "notarized"),
+            ("preflight_boolean", "provisioning_verified"),
+            ("terminal_boolean", "evidence_ready"),
+            ("terminal_boolean", "cleanup_verified"),
+        )
+        for option, field in cases:
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as directory:
+                    request, policy, executor = self.setup_case(directory, **{option: field})
+                    self.assertFalse(handoff(request, policy, production=False, executor=executor)["native_execution"])
 
     def test_controller_rejects_package_drift_across_execution(self):
         with tempfile.TemporaryDirectory() as directory:

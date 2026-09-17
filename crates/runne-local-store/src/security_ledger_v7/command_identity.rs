@@ -9,6 +9,15 @@ impl NormalizedMutationCommand {
                     && identity.expected_version() == 0
                     && project_id.as_bytes() == identity.target()
             }
+            Self::RenameProject {
+                project_id,
+                expected_version,
+                ..
+            } => {
+                identity.operation() == MutationOperation::ProjectRename
+                    && *expected_version == identity.expected_version()
+                    && project_id.as_bytes() == identity.target()
+            }
             Self::ArchiveProject {
                 project_id,
                 expected_version,
