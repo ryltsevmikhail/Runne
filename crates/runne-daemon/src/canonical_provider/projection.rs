@@ -1,3 +1,14 @@
+//! D1.3 runtime trust core — text-path manifest projection.
+//!
+//! Contract: the manifest digest produced by [`project_call`] is durably pinned
+//! in `provider_prepared_requests` before any external dispatch. The digest
+//! folds a domain tag, the exact conversation identity and version, and the
+//! ordered `(sequence, event_id, integrity_digest)` evidence of every committed
+//! event. That evidence is reconstructible from the integrity-checked
+//! append-only stream: any gap, reorder, committed-digest mutation, or stale
+//! conversation version either changes the digest or fails the version gate, so
+//! dispatch is rejected before the external effect.
+
 use super::composition::PROVIDER_POLICY_V1_REVISION;
 use super::*;
 
@@ -17,7 +28,12 @@ pub(super) fn project_call(
     }
     let mut inputs = Vec::new();
     let mut manifest = Sha256::new();
+    manifest.update(b"GOCODE_CONVERSATION_TEXT_PATH_V2\0");
+    manifest.update(job.started.conversation_id.as_bytes());
+    manifest.update(stream.current_version.to_be_bytes());
     for event in &stream.events {
+        manifest.update(event.sequence().to_be_bytes());
+        manifest.update(event.event_id().as_bytes());
         manifest.update(event.integrity_digest().as_bytes());
         match event.payload() {
             ConversationEvent::UserMessageAppended { text, .. } => inputs.push(
@@ -171,93 +187,4 @@ pub(super) const fn map_admission_error(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use runne_application::commands::BeginConversationTextInput;
-    use runne_application::ports::{
-        ApplicationCommandContext, PrincipalId, TextGenerationPhase, TextGenerationReceipt,
-    };
-    use runne_domain::event::Actor;
-    use runne_domain::id::{
-        AttemptId, ConversationId, IdempotencyKey, MessageId, TaskRunId, WorkspaceId,
-    };
-    use runne_domain::message::MessageText;
-
-    fn source_pinned_command_vector() -> CanonicalProviderExecutionJob {
-        CanonicalProviderExecutionJob {
-            context: ApplicationCommandContext {
-                command_id: "018f2e3a-7000-7000-8000-000000000804".parse().unwrap(),
-                idempotency_key: IdempotencyKey::new("source-pinned-provider-vector").unwrap(),
-                principal_id: PrincipalId("local-owner".into()),
-                actor: Actor::new("test").unwrap(),
-            },
-            original: BeginConversationTextInput {
-                conversation_id: ConversationId::from_bytes([1; 16]),
-                expected_version: 1,
-                text: MessageText::new("fixture input").unwrap(),
-            },
-            started: TextGenerationReceipt {
-                phase: TextGenerationPhase::Started,
-                conversation_id: ConversationId::from_bytes([1; 16]),
-                workspace_id: WorkspaceId::from_bytes([2; 16]),
-                taskrun_id: TaskRunId::from_bytes([3; 16]),
-                attempt_id: AttemptId::from_bytes([4; 16]),
-                user_message_id: MessageId::from_bytes([5; 16]),
-                assistant_message_id: MessageId::from_bytes([6; 16]),
-                conversation_version: 2,
-                taskrun_version: 4,
-            },
-        }
-    }
-
-    #[test]
-    fn remote_effect_idempotency_key_matches_the_pre_rename_command_vector() {
-        assert_eq!(
-            provider_idempotency_key(&source_pinned_command_vector()),
-            "gocode-provider-c436f15d42859a67270a2f39ff1c8508"
-        );
-    }
-
-    #[test]
-    fn admission_errors_preserve_pre_effect_and_post_claim_stages() {
-        assert_eq!(
-            map_admission_error(ProviderAdmissionError::ApprovalDenied),
-            CanonicalProviderExecutionError::RejectedBeforeEffect
-        );
-        assert_eq!(
-            map_admission_error(ProviderAdmissionError::PostClaimUncertain),
-            CanonicalProviderExecutionError::Uncertain
-        );
-        assert_eq!(
-            map_admission_error(ProviderAdmissionError::RepositoryFailure),
-            CanonicalProviderExecutionError::Unavailable
-        );
-    }
-
-    #[test]
-    fn adapter_stream_and_terminal_application_failures_are_post_effect_uncertain() {
-        assert_eq!(
-            map_execution_error(RuntimeProviderExecutionError::AdapterStreamUnavailable),
-            CanonicalProviderExecutionError::Uncertain
-        );
-        assert_eq!(
-            map_execution_error(RuntimeProviderExecutionError::ApplicationUnavailable),
-            CanonicalProviderExecutionError::Uncertain
-        );
-    }
-
-    #[test]
-    fn duplicate_nonterminal_states_require_uncertain_reconciliation() {
-        for state in [
-            runne_provider::ProviderRepositoryState::Dispatching,
-            runne_provider::ProviderRepositoryState::Streaming,
-            runne_provider::ProviderRepositoryState::TerminalPendingCommit,
-            runne_provider::ProviderRepositoryState::Uncertain,
-        ] {
-            assert_eq!(
-                map_existing_state(state),
-                CanonicalProviderExecutionError::Uncertain
-            );
-        }
-    }
-}
+mod tests;
