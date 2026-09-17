@@ -174,6 +174,24 @@ fn live_and_silent_twins_expose_identical_stage_functions() {
     assert_eq!(live, silent, "twins must stay call-compatible");
 }
 
+#[test]
+fn stage_twins_opt_out_of_dead_code_only_off_macos() {
+    // Stage call sites exist only inside the macOS broker branch, so on other
+    // targets (for example the pinned Linux CI lane under --all-features) the
+    // selected twin is intentionally unreferenced and must not trip
+    // `-D dead-code`. The opt-out is scoped away from macOS so production
+    // keeps full dead-code coverage; the emission policy is untouched.
+    const ALLOWANCE: &str = "#![cfg_attr(not(target_os = \"macos\"), allow(dead_code))]";
+    assert!(
+        LIVE_SOURCE.contains(ALLOWANCE),
+        "live twin must carry the macOS-scoped dead_code allowance"
+    );
+    assert!(
+        SILENT_SOURCE.contains(ALLOWANCE),
+        "silent twin must carry the macOS-scoped dead_code allowance"
+    );
+}
+
 struct EmissionCollector<'a> {
     literals: &'a mut Vec<String>,
 }

@@ -4,6 +4,11 @@
 //! every stage function exists here as a no-op. This module must contain no
 //! emission sink at all; the source-policy test keeps it sink-free.
 
+// Stage call sites live only in the macOS broker branch, so off-macOS builds
+// intentionally leave these twins unreferenced. Scope the opt-out to
+// non-macOS targets: macOS production keeps full dead-code coverage.
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
+
 /// Marks the fd 3 secret-slot inspection stage (silent in production).
 pub const fn secret_inspect() {}
 

@@ -6,6 +6,11 @@
 //! sinks accept no arguments and never format runtime values, so secret
 //! material cannot reach stderr through this module.
 
+// Stage call sites live only in the macOS broker branch, so off-macOS builds
+// intentionally leave these twins unreferenced. Scope the opt-out to
+// non-macOS targets: macOS production keeps full dead-code coverage.
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
+
 /// Marks the fd 3 secret-slot inspection stage.
 pub fn secret_inspect() {
     eprintln!("writer-stage=secret-inspect");
