@@ -14,6 +14,7 @@ fn v26_to_v27_registers_provenance_columns_and_rejects_fabrication() {
         &connection,
         v27_operation_table_matches,
         v27_trigger_catalog_matches,
+        false,
     )
     .unwrap());
     assert!(v27_matches(&connection, 27).unwrap());

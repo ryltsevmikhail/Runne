@@ -49,6 +49,7 @@ pub(super) fn v30_predecessor_matches_with(
         false,
         &CredentialSchemaExtensions::default(),
         false,
+        false,
     )
 }
 
@@ -57,7 +58,7 @@ pub(super) fn v30_predecessor_matches_with_v32(
     insert_trigger: &str,
     head_trigger: &str,
 ) -> SqliteResult<bool> {
-    v30_predecessor_matches_with_successors(connection, insert_trigger, head_trigger, true, &CredentialSchemaExtensions::default(), false)
+    v30_predecessor_matches_with_successors(connection, insert_trigger, head_trigger, true, &CredentialSchemaExtensions::default(), false, false)
 }
 
 fn v30_predecessor_matches_with_successors(
@@ -67,6 +68,7 @@ fn v30_predecessor_matches_with_successors(
     uses_v32_operation_indexes: bool,
     extensions: &CredentialSchemaExtensions<'_>,
     allows_v36_project_receipt: bool,
+    lineage_v37: bool,
 ) -> SqliteResult<bool> {
     if !v30_v26_base_matches_with(
         connection,
@@ -75,6 +77,7 @@ fn v30_predecessor_matches_with_successors(
         uses_v32_operation_indexes,
         extensions,
         allows_v36_project_receipt,
+        lineage_v37,
     )? || !v29_catalog_matches_with_extensions(
         connection,
         if uses_v32_operation_indexes {
@@ -117,6 +120,7 @@ fn v30_v26_base_matches_with(
     uses_v32_operation_indexes: bool,
     extensions: &CredentialSchemaExtensions<'_>,
     allows_v36_project_receipt: bool,
+    lineage_v37: bool,
 ) -> SqliteResult<bool> {
     if !v18_global_trigger_matches(connection)?
         || !v30_trigger_catalog_matches_with(connection, insert_trigger, head_trigger, extensions)?
@@ -170,8 +174,17 @@ fn v30_v26_base_matches_with(
         ("process_output", MIGRATION_V21),
         ("approvals", MIGRATION_V23),
     ] {
-        if !(table_sql_matches_migration(connection, table, migration)?
-            || (allows_v36_project_receipt && table == "project_workspace_command_receipts" && project_workspace_schema::v36_receipt_table_matches(connection)?)) {
+        if table == "task_run_workspace_lineage" && lineage_v37 {
+            // Version-strict: a v37 structure must carry the v37 lineage DDL
+            // exactly — the historical v18 shape is drift, not a fallback.
+            if !v37_lineage_table_matches(connection)? {
+                return Ok(false);
+            }
+        } else if !(table_sql_matches_migration(connection, table, migration)?
+            || (allows_v36_project_receipt
+                && table == "project_workspace_command_receipts"
+                && project_workspace_schema::v36_receipt_table_matches(connection)?))
+        {
             return Ok(false);
         }
     }

@@ -36,6 +36,19 @@ pub struct QueueTaskRunInput {
     pub expected_version: u64,
 }
 
+/// Input for the client-authorized atomic TaskRun submit.
+///
+/// One submit commits `TaskRunCreated + TaskRunQueued` as a single
+/// unit-of-work and returns one receipt; the runtime owns admission, attempt
+/// start, and terminal completion.
+#[derive(Debug, Clone)]
+pub struct SubmitTaskRunInput {
+    /// The conversation this task run belongs to.
+    pub conversation_id: ConversationId,
+    /// The workspace this task run belongs to.
+    pub workspace_id: WorkspaceId,
+}
+
 /// Input for admitting a task run for execution.
 #[derive(Debug, Clone)]
 pub struct AdmitTaskRunInput {

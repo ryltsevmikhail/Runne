@@ -66,7 +66,7 @@ fn valid_row(row: AuditRow) -> bool {
     if row.0.len() != 16
         || row.1.as_ref().is_none_or(|value| value.len() != 16)
         || row.4.as_ref().is_none_or(|value| value.len() != 16)
-        || !matches!(row.5, Some(1 | 18))
+        || !matches!(row.5, Some(1 | 18 | 20))
     {
         return false;
     }

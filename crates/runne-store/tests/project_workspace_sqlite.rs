@@ -11,6 +11,7 @@ mod project_workspace_sqlite {
     mod origin_race;
     mod race;
     mod rename;
+    mod submit_fence;
     mod support;
     mod text_fence;
     mod workspace_snapshot;

@@ -128,7 +128,7 @@ pub(super) fn v36_matches(connection: &Connection, version: i64) -> SqliteResult
         [],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     )?;
-    let inherited = super::v35_structure_matches_with_v36_receipt(connection, true)?;
+    let inherited = super::v35_structure_matches_with_v36_receipt(connection, true, false)?;
     let receipts = v36_receipt_table_matches(connection)?;
     let triggers = global_command_triggers_match(connection)?;
     Ok(matches!(marker, (36, 1, 35, 647) | (36, 1, 36, 666)) && inherited && receipts && triggers)

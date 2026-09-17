@@ -53,6 +53,36 @@ where
         }
     }
 
+    async fn submit_task_run(
+        &self,
+        context: TaskRunCommandContext,
+        command: SubmitTaskRunCommand,
+    ) -> Result<TaskRunCommandAck, TaskRunHostError> {
+        let outcome = self
+            .handle
+            .submit_task_run(
+                into_application_context(context)?,
+                SubmitTaskRunInput {
+                    conversation_id: command.conversation_id,
+                    workspace_id: command.workspace_id,
+                },
+            )
+            .await
+            .map_err(map_runtime_error)?;
+
+        match outcome {
+            CommandOutcome::TaskRunSubmitted {
+                taskrun_id,
+                new_version,
+            } => Ok(TaskRunCommandAck {
+                taskrun_id,
+                new_version,
+                kind: TaskRunCommandAckKind::Submitted,
+            }),
+            _ => Err(TaskRunHostError::InvariantViolation),
+        }
+    }
+
     async fn queue_task_run(
         &self,
         context: TaskRunCommandContext,

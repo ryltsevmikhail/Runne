@@ -33,7 +33,7 @@ pub(super) fn v28_matches(connection: &Connection, version: i64) -> SqliteResult
 }
 
 fn v28_predecessor_matches(connection: &Connection) -> SqliteResult<bool> {
-    Ok(v26_predecessor_matches_with(connection, v28_operation_table_matches, v28_trigger_catalog_matches)?
+    Ok(v26_predecessor_matches_with(connection, v28_operation_table_matches, v28_trigger_catalog_matches, false)?
         && v28_catalog_matches(connection)?
         && [V26_ISSUANCE_EVIDENCE_TABLE, V26_CLAIM_PROVIDER_TABLE, V26_TABLE]
             .into_iter()

@@ -115,8 +115,8 @@ fn v35_creates_reopens_and_upgrades_from_v34() {
     apply_migrations_internal(&connection, 34).unwrap();
     assert!(v34_matches(&connection, 34).unwrap());
     apply_migrations(&connection).unwrap();
-    assert_eq!(CURRENT_SCHEMA_VERSION, 36);
-    assert!(project_workspace_schema::v36_matches(&connection, 36).unwrap());
+    assert_eq!(CURRENT_SCHEMA_VERSION, 37);
+    assert!(v37_matches(&connection, 37).unwrap());
     drop(connection);
     drop(open_managed_connection(&path, ConnectionMode::Writer).unwrap());
 }
@@ -207,9 +207,9 @@ fn v35_migration_is_atomic_and_matcher_rejects_lookalikes() {
     ] {
         let connection = Connection::open_in_memory().unwrap();
         apply_migrations(&connection).unwrap();
-        assert!(project_workspace_schema::v36_matches(&connection, 36).unwrap());
+        assert!(v37_matches(&connection, 37).unwrap());
         connection.execute_batch(mutation).unwrap();
-        assert!(!project_workspace_schema::v36_matches(&connection, 36).unwrap(), "{mutation}");
+        assert!(!v37_matches(&connection, 37).unwrap(), "{mutation}");
         assert!(apply_migrations(&connection).is_err(), "{mutation}");
     }
 }

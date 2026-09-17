@@ -10,7 +10,7 @@ fn v36_reopens_full_and_no_v19_v35_lineages() {
         } else {
             apply_migrations_internal(&connection, 19).unwrap();
         }
-        apply_migrations(&connection).unwrap();
+        apply_migrations_internal(&connection, 36).unwrap();
         assert!(project_workspace_schema::v36_matches(&connection, 36).unwrap());
         assert_eq!(
             connection

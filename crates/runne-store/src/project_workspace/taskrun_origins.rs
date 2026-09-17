@@ -74,11 +74,38 @@ fn target_origin(
         OperationTag::CreateTaskRun => {
             direct_target_origin(transaction, project_id, scope, outcome)
         }
+        OperationTag::SubmitTaskRun => {
+            submit_target_origin(transaction, project_id, scope, outcome)
+        }
         OperationTag::GenerateConversationText => {
             text_target_origin(transaction, project_id, scope, outcome)
         }
         _ => Ok(None),
     }
+}
+
+fn submit_target_origin(
+    transaction: &Transaction<'_>,
+    project_id: ProjectId,
+    scope: &IdempotencyScope,
+    outcome: &[u8],
+) -> Result<Option<(TaskRunId, WorkspaceId, i64)>, Error> {
+    let AggregateScope::NewTaskRun { workspace_id, .. } = scope.aggregate_scope else {
+        return Ok(None);
+    };
+    if !workspace_belongs(transaction, workspace_id, project_id)? {
+        return Ok(None);
+    }
+    let CommandOutcome::TaskRunSubmitted {
+        taskrun_id,
+        new_version: 2,
+    } = CommandOutcomeCodec
+        .decode(outcome)
+        .map_err(|_| Error::InvariantViolation)?
+    else {
+        return Err(Error::InvariantViolation);
+    };
+    Ok(Some((taskrun_id, workspace_id, 20)))
 }
 
 fn direct_target_origin(

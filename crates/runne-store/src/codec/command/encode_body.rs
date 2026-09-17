@@ -19,6 +19,14 @@
                 write_uuid(&mut buf, taskrun_id.as_bytes());
                 write_u64_be(&mut buf, *new_version);
             }
+            CommandOutcome::TaskRunSubmitted {
+                taskrun_id,
+                new_version,
+            } => {
+                buf.push(CO_TAG_SUBMITTED);
+                write_uuid(&mut buf, taskrun_id.as_bytes());
+                write_u64_be(&mut buf, *new_version);
+            }
             CommandOutcome::TaskRunCancellationRequested {
                 taskrun_id,
                 new_version,
