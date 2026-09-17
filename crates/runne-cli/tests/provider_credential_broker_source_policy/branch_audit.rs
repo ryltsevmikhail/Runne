@@ -1,8 +1,15 @@
-use syn::{Attribute, Block, Expr, Item, Meta, Pat, Stmt};
+use syn::{Attribute, Block, Expr, Item, Meta, Stmt};
 
+#[path = "branch_audit/core_flow.rs"]
+mod core_flow;
 #[path = "branch_audit/secret.rs"]
 mod secret;
+#[path = "branch_audit/stages.rs"]
+mod stages;
+
+use core_flow::{is_exact_non_macos_block, is_handoff_local, is_pinned_local, is_runner_tail};
 use secret::is_secret_local;
+use stages::Stage;
 
 pub fn broker_branch_violations(source: &str) -> Vec<String> {
     let file = match syn::parse_file(source) {
@@ -43,9 +50,12 @@ pub fn broker_branch_violations(source: &str) -> Vec<String> {
     }
     match cfg_block(&function.block.stmts[2], CfgKind::MacOs) {
         Some(block) if is_exact_macos_block(block) => {}
-        _ => violations.push(
-            "macOS branch must detect fd 3, pin the handoff, then run that exact pair".to_owned(),
-        ),
+        _ => {
+            violations.push(
+                "macOS branch must detect fd 3, pin the handoff, then run that exact pair"
+                    .to_owned(),
+            );
+        }
     }
     match cfg_block(&function.block.stmts[3], CfgKind::NotMacOs) {
         Some(block) if is_exact_non_macos_block(block) => {}
@@ -138,147 +148,19 @@ fn is_target_macos(meta: &Meta) -> bool {
     )
 }
 
+/// The macOS branch keeps its exact audited core flow while each step is
+/// wrapped in its fixed stage marker and reviewed failed-stage adapter:
+/// eight statements, strictly alternating marker and core step.
 fn is_exact_macos_block(block: &Block) -> bool {
-    block.stmts.len() == 4
-        && is_secret_local(&block.stmts[0])
-        && is_handoff_local(&block.stmts[1])
-        && is_pinned_local(&block.stmts[2])
-        && is_runner_call(&block.stmts[3])
-}
-
-fn is_handoff_local(statement: &Stmt) -> bool {
-    let Stmt::Local(local) = statement else {
-        return false;
-    };
-    let Pat::Ident(binding) = &local.pat else {
-        return false;
-    };
-    if !local.attrs.is_empty()
-        || !binding.attrs.is_empty()
-        || binding.ident != "handoff"
-        || binding.by_ref.is_some()
-        || binding.mutability.is_some()
-        || binding.subpat.is_some()
-    {
-        return false;
-    }
-    let Some(initializer) = &local.init else {
-        return false;
-    };
-    if initializer.diverge.is_some() {
-        return false;
-    }
-    let Expr::Try(tried) = initializer.expr.as_ref() else {
-        return false;
-    };
-    let Expr::MethodCall(map_error_call) = tried.expr.as_ref() else {
-        return false;
-    };
-    if !tried.attrs.is_empty()
-        || !map_error_call.attrs.is_empty()
-        || map_error_call.method != "map_err"
-        || map_error_call.turbofish.is_some()
-        || map_error_call.args.len() != 1
-    {
-        return false;
-    }
-    let Expr::Call(receive) = map_error_call.receiver.as_ref() else {
-        return false;
-    };
-    let receive_path = [
-        "runne_native_enrollment_authority",
-        "UntrustedProviderCredentialWriterEndpointHandoffV1",
-        "receive_from_stdin",
-    ];
-    if !receive.attrs.is_empty()
-        || !receive.args.is_empty()
-        || !is_path(receive.func.as_ref(), &receive_path)
-    {
-        return false;
-    }
-    let Some(Expr::Closure(error_mapper)) = map_error_call.args.first() else {
-        return false;
-    };
-    error_mapper.attrs.is_empty()
-        && error_mapper.inputs.len() == 1
-        && matches!(error_mapper.inputs.first(), Some(Pat::Wild(_)))
-        && is_path(
-            error_mapper.body.as_ref(),
-            &["CliError", "CredentialOperation"],
-        )
-}
-
-fn is_pinned_local(statement: &Stmt) -> bool {
-    let Stmt::Local(local) = statement else {
-        return false;
-    };
-    let Pat::Ident(binding) = &local.pat else {
-        return false;
-    };
-    if !local.attrs.is_empty()
-        || !binding.attrs.is_empty()
-        || binding.ident != "pinned"
-        || binding.by_ref.is_some()
-        || binding.mutability.is_some()
-        || binding.subpat.is_some()
-    {
-        return false;
-    }
-    let Some(initializer) = &local.init else {
-        return false;
-    };
-    if initializer.diverge.is_some() {
-        return false;
-    }
-    let Expr::Try(tried) = initializer.expr.as_ref() else {
-        return false;
-    };
-    let Expr::MethodCall(map_error_call) = tried.expr.as_ref() else {
-        return false;
-    };
-    let Expr::MethodCall(observe) = map_error_call.receiver.as_ref() else {
-        return false;
-    };
-    tried.attrs.is_empty()
-        && map_error_call.attrs.is_empty()
-        && map_error_call.method == "map_err"
-        && map_error_call.turbofish.is_none()
-        && map_error_call.args.len() == 1
-        && observe.attrs.is_empty()
-        && observe.method == "observe_current_pinned_writer_session"
-        && observe.turbofish.is_none()
-        && observe.args.is_empty()
-        && is_path(observe.receiver.as_ref(), &["handoff"])
-        && matches!(map_error_call.args.first(), Some(Expr::Closure(error_mapper))
-            if error_mapper.attrs.is_empty()
-                && error_mapper.inputs.len() == 1
-                && matches!(error_mapper.inputs.first(), Some(Pat::Wild(_)))
-                && is_path(error_mapper.body.as_ref(), &["CliError", "CredentialOperation"]))
-}
-
-fn is_runner_call(statement: &Stmt) -> bool {
-    let Stmt::Expr(Expr::Call(call), None) = statement else {
-        return false;
-    };
-    call.attrs.is_empty()
-        && call.args.len() == 2
-        && is_path(call.func.as_ref(), &["run", "run_authenticated_writer"])
-        && is_path(&call.args[0], &["pinned"])
-        && is_path(&call.args[1], &["secret"])
-}
-
-fn is_exact_non_macos_block(block: &Block) -> bool {
-    block.stmts.len() == 1 && is_error(&block.stmts[0], "UnsupportedCredentialBackend")
-}
-
-fn is_error(statement: &Stmt, variant: &str) -> bool {
-    let Stmt::Expr(Expr::Call(call), None) = statement else {
-        return false;
-    };
-    call.attrs.is_empty()
-        && call.args.len() == 1
-        && is_path(call.func.as_ref(), &["Err"])
-        && is_path(&call.args[0], &["CliError", variant])
+    block.stmts.len() == 8
+        && stages::is_stage_marker(&block.stmts[0], Stage::SecretInspect)
+        && is_secret_local(&block.stmts[1])
+        && stages::is_stage_marker(&block.stmts[2], Stage::EndpointReceive)
+        && is_handoff_local(&block.stmts[3])
+        && stages::is_stage_marker(&block.stmts[4], Stage::SessionObserve)
+        && is_pinned_local(&block.stmts[5])
+        && stages::is_stage_marker(&block.stmts[6], Stage::AuthenticatedRun)
+        && is_runner_tail(&block.stmts[7])
 }
 
 fn is_path(expression: &Expr, expected: &[&str]) -> bool {

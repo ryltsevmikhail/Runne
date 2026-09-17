@@ -44,10 +44,14 @@ mod release_fault_support;
 mod release_faults;
 #[path = "provider_credential_writer_authority/scoped_cleanup.rs"]
 mod scoped_cleanup;
+#[path = "provider_credential_writer_authority/service_ownership.rs"]
+mod service_ownership;
 #[path = "provider_credential_writer_authority/service_process.rs"]
 mod service_process;
 #[path = "provider_credential_writer_authority/support.rs"]
 mod support;
+#[path = "provider_credential_writer_authority/writer_diagnostics.rs"]
+mod writer_diagnostics;
 
 #[test]
 #[should_panic(expected = "legacy import unsupported: no supported historical source profile")]
