@@ -102,9 +102,7 @@ async fn linux_local_enrollment_connects_renews_and_installs_on_the_production_p
     let profile_key = [0x5A; 32];
     let core = AppCore::open_bundled_anchored(
         &desktop_database,
-        Arc::new(runne_secure_store::test_support::DeterministicSecureStore::new(
-            profile_key,
-        )),
+        Arc::new(runne_secure_store::test_support::DeterministicSecureStore::new(profile_key)),
         profile_key,
     )
     .expect("bundled AppCore");

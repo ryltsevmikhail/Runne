@@ -175,18 +175,41 @@ async fn request_directory_selection(
     }
     let picker = selections.reserve_picker(label, renderer_generation)
         .map_err(|_| IpcError { code: "directory_selection_rejected" })?;
-    let (selection_sender, selection_receiver) = tokio::sync::oneshot::channel();
-    window
-        .app_handle()
-        .dialog()
-        .file()
-        .set_parent(&window)
-        .set_title("Open local project")
-        .pick_folder(move |selected| { let _ = selection_sender.send((selected, picker)); });
-    let (selected, _picker) = selection_receiver.await
-        .map_err(|_| IpcError { code: "directory_selection_rejected" })?;
+    // The dialog future must run off the main thread, and its result must be
+    // collected through the blocking portal dialog: on Linux the xdg-portal
+    // backend closes the chooser without ever invoking the async callback
+    // (verified end-to-end), which would leave the lease hanging forever.
+    let dialog_window = window.clone();
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        dialog_window
+            .app_handle()
+            .dialog()
+            .file()
+            .set_parent(&dialog_window)
+            .set_title("Open local project")
+            .blocking_pick_folder()
+    })
+    .await
+    .map_err(|_| IpcError { code: "directory_selection_rejected" })?;
+    let _picker = picker;
     let Some(selected) = selected else { return Ok(None) };
-    if !window.is_focused().map_err(|_| IpcError { code: "directory_selection_rejected" })?
+    // On Wayland the compositor restores parent focus only a few frames
+    // after the portal dialog closes; allow a bounded settle window instead
+    // of rejecting the user's selection outright. The later focus checks in
+    // prepare/open still gate every state mutation.
+    let mut focused = window
+        .is_focused()
+        .map_err(|_| IpcError { code: "directory_selection_rejected" })?;
+    for _ in 0..20 {
+        if focused {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        focused = window
+            .is_focused()
+            .map_err(|_| IpcError { code: "directory_selection_rejected" })?;
+    }
+    if !focused
         || selections.renderer_generations().current(label).ok() != Some(renderer_generation)
     {
         return Err(IpcError { code: "directory_selection_rejected" });

@@ -207,10 +207,7 @@ where
         DaemonLaunchProtocolExpectation::enrollment(authority),
     )?;
     let keys = request.derive_keys_and_forget();
-    Ok(PreparedDaemonEnrollmentTransitionV3 {
-        request,
-        keys,
-    })
+    Ok(PreparedDaemonEnrollmentTransitionV3 { request, keys })
 }
 
 fn v3_matches_original(

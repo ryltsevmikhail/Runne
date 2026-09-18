@@ -66,7 +66,8 @@ fn v3_remote_with_status(
         daemon_instance_id: peer.daemon_instance_id.to_string(),
         launch_generation: peer.launch_generation,
         session_id: hex::encode(peer.expected_session_id.expect("session")),
-        authorization_epoch: 0,
+        // The enrolled V3 profile verifies against exactly the raised epoch.
+        authorization_epoch: 1,
         sensitivity_ceiling: "sensitive".to_owned(),
         certificate_sha256: hex::encode(peer.certificate_sha256),
         provider_statuses: vec![status],

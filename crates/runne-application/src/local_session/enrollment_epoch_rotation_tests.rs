@@ -66,7 +66,7 @@ fn enrollment_epoch_rotation_rejects_epoch_rewrite_and_epoch_skip() {
 
 #[test]
 fn enrollment_epoch_rotation_rejects_substituted_current_binding() {
-    let (mut service, current) = rotation_service();
+    let (mut service, _current) = rotation_service();
     let stranger = rotation_binding_with(
         ROTATION_AUTHORITY,
         ROTATION_DAEMON,

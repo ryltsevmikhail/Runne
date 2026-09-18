@@ -62,7 +62,16 @@ fn checked_stat(stat: &rustix::fs::Stat) -> Result<FileIdentity, DaemonError> {
         return Err(error());
     }
     Ok(FileIdentity {
-        dev: stat.st_dev as u64,
+        dev: {
+            #[cfg(not(target_os = "linux"))]
+            {
+                stat.st_dev as u64
+            }
+            #[cfg(target_os = "linux")]
+            {
+                stat.st_dev
+            }
+        },
         ino: stat.st_ino,
     })
 }
@@ -70,21 +79,24 @@ fn checked_stat(stat: &rustix::fs::Stat) -> Result<FileIdentity, DaemonError> {
 #[cfg(test)]
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Fault {
+    #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
     None,
     Parent,
     Temp,
     Final,
     BeforeMarker,
 }
-#[cfg(test)]
+// The fault-injection fixtures back the macOS anchor tests only; the Linux
+// anchor path is exercised by the production enrollment lifecycle instead.
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 static FAULT: std::sync::Mutex<Fault> = std::sync::Mutex::new(Fault::None);
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 static TEST_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub(crate) fn set_fault(fault: Fault) {
     *FAULT.lock().unwrap() = fault;
 }
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub(crate) fn test_guard() -> std::sync::MutexGuard<'static, ()> {
     TEST_SERIAL.lock().unwrap()
 }
@@ -96,14 +108,14 @@ pub(super) enum Fault {
     BeforeMarker,
 }
 pub(super) fn hook(_point: Fault, _parent: &AnchorDir<'_>, _name: &str) -> Result<(), DaemonError> {
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
     if *FAULT.lock().unwrap() == _point {
         *FAULT.lock().unwrap() = Fault::None;
         return fault_action(_point, _parent, _name);
     }
     Ok(())
 }
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 fn fault_action(point: Fault, parent: &AnchorDir<'_>, name: &str) -> Result<(), DaemonError> {
     match point {
         Fault::Parent => Err(error()),
@@ -121,7 +133,7 @@ fn fault_action(point: Fault, parent: &AnchorDir<'_>, name: &str) -> Result<(), 
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 fn move_and_replace(parent: &AnchorDir<'_>, name: &str) -> Result<(), DaemonError> {
     let moved = format!("{name}.moved");
     fs::renameat_with(
@@ -135,7 +147,7 @@ fn move_and_replace(parent: &AnchorDir<'_>, name: &str) -> Result<(), DaemonErro
     replace(parent, name)
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 fn replace(parent: &AnchorDir<'_>, name: &str) -> Result<(), DaemonError> {
     use std::io::Write as _;
     let mut file = parent.create(name)?;

@@ -173,7 +173,13 @@ fn protected_request_admission_begin_and_exact_replay_return_one_safe_projection
     assert!(handoff.matches_safe_operation_for_test(&first, &control.handles));
     assert!(session.take_bound_broker_handoff().is_err());
     assert!(session.require_durable_terminal().is_err());
-    #[cfg(feature = "desktop-protected")]
+    // The session-aware shutdown gate is macOS-shaped: off macOS the V3
+    // runtime holds no credential session, so this assertion has no subject.
+    #[cfg(all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    ))]
     assert!(
         crate::protected_activation::require_shutdown_terminal(Some(&session), true).is_err(),
         "cached terminal marker must not authorize shutdown before durable terminal"
@@ -191,8 +197,18 @@ fn protected_request_admission_begin_and_exact_replay_return_one_safe_projection
     assert!(!session.begun_is_terminal());
     assert_eq!(session.require_durable_terminal(), Ok(()));
     #[cfg(feature = "desktop-protected")]
+    #[cfg(all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    ))]
     assert!(crate::protected_activation::require_shutdown_terminal(Some(&session), false).is_err());
     #[cfg(feature = "desktop-protected")]
+    #[cfg(all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    ))]
     assert!(crate::protected_activation::require_shutdown_terminal(Some(&session), true).is_ok());
 }
 

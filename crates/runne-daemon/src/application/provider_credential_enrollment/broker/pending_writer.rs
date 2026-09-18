@@ -111,10 +111,14 @@ pub(crate) struct VerifiedMacOsWriterWithDaemonKillCapability {
     )
 ))]
 impl AwaitingVerifiedWriter {
+    /// Broker-API surface; consumed by the macOS credential-writer handoff.
+    #[allow(dead_code)]
     pub(crate) const fn transfer_authority(&self) -> &ProviderCredentialBrokerTransferAuthority {
         &self.transfer_authority
     }
 
+    /// Broker-API surface; consumed by the macOS credential-writer handoff.
+    #[allow(dead_code)]
     pub(crate) fn receive_bound_writer_evidence(
         self,
         transport: UnixStream,
@@ -181,6 +185,8 @@ impl AwaitingVerifiedWriter {
     )
 ))]
 impl VerifiedWriterAwaitingDaemonKillCapability {
+    /// Broker-API surface; consumed by the macOS credential-writer handoff.
+    #[allow(dead_code)]
     pub(crate) const fn transfer_authority(&self) -> &ProviderCredentialBrokerTransferAuthority {
         &self.transfer_authority
     }

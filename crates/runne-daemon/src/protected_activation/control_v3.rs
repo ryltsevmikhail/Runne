@@ -19,7 +19,7 @@ pub(crate) use clocks::macos_continuous_ticket_clock;
 pub(crate) use clocks::unix_wall_ticket_clock;
 #[cfg(unix)]
 use runtime::V3EnrollmentRuntime;
-#[cfg(all(test, unix))]
+#[cfg(all(test, target_os = "macos", feature = "desktop-protected"))]
 pub(crate) use runtime::require_shutdown_terminal;
 #[cfg(all(test, target_os = "macos"))]
 pub(super) use runtime::with_control;
@@ -64,6 +64,7 @@ pub(crate) fn run_control_loop_v3(
 }
 /// Continues entered V3; failures retain kill authority and reject V1/V2 frames.
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
+#[allow(clippy::too_many_arguments)] // The exact V3 authority tuple stays explicit.
 pub(crate) fn run_control_loop_v3_entered(
     mut channel: ProtectedActivationChannel,
     keys: ProtectedActivationKeys,

@@ -1,12 +1,6 @@
 const NATIVE_TEST_GATE: &str =
     "#[cfg(all(test, target_os = \"macos\", target_arch = \"aarch64\"))]";
 const DESKTOP_PROTECTED_GATE: &str = "#[cfg(feature = \"desktop-protected\")]";
-const NATIVE_OR_TEST_GATE: &str =
-    "#[cfg(any(test, all(target_os = \"macos\", target_arch = \"aarch64\")))]";
-const NATIVE_OR_UNIX_TEST_GATE: &str =
-    "#[cfg(any(all(test, unix), all(target_os = \"macos\", target_arch = \"aarch64\")))]";
-const UNIX_TEST_OR_NATIVE_GATE: &str = "#[cfg(all(\n    feature = \"desktop-protected\",\n    any(all(test, unix), all(target_os = \"macos\", target_arch = \"aarch64\"))\n))]";
-
 fn preceding_cfg<'a>(source: &'a str, consumer: &str) -> &'a str {
     let consumer_offset = source.find(consumer).expect("native consumer");
     source[..consumer_offset]
@@ -48,21 +42,27 @@ fn qualification_test_support_matches_native_platform_scope() {
     );
 }
 
+const NATIVE_MACOS_GATE: &str = "#[cfg(all(target_os = \"macos\", target_arch = \"aarch64\"))]";
+
 #[test]
 fn v3_enrollment_roots_match_native_or_test_scope() {
+    // The Linux local enrollment does not mount the broker handoff or the
+    // credential-enrollment session: those stay native-macOS scope, and the
+    // unix-test widening has no remaining consumers on this tree.
     let protected_activation = include_str!("../../protected_activation.rs");
-    for (consumer, gate) in [
-        ("mod broker_handoff;", NATIVE_OR_UNIX_TEST_GATE),
-        ("pub(crate) mod control_v3;", NATIVE_OR_TEST_GATE),
-    ] {
-        let before = source_before(protected_activation, consumer).trim_end();
-        assert!(before.ends_with(gate));
-        assert!(
-            before[..before.len() - gate.len()]
-                .trim_end()
-                .ends_with(DESKTOP_PROTECTED_GATE)
-        );
-    }
+    let before = source_before(protected_activation, "mod broker_handoff;").trim_end();
+    assert!(before.ends_with(NATIVE_MACOS_GATE));
+    assert!(
+        before[..before.len() - NATIVE_MACOS_GATE.len()]
+            .trim_end()
+            .ends_with(DESKTOP_PROTECTED_GATE)
+    );
+    // The Linux enrollment mounts the V3 loop for production on unix, and
+    // the shared transcript stays compiled for the windows V3 entry too.
+    assert_eq!(
+        preceding_cfg(protected_activation, "pub(crate) mod control_v3;"),
+        "#[cfg(all(any(unix, windows), feature = \"desktop-protected\"))]"
+    );
 
     let enrollment = include_str!("../../application/provider_credential_enrollment.rs");
     assert!(
@@ -71,6 +71,6 @@ fn v3_enrollment_roots_match_native_or_test_scope() {
             "pub(crate) use control_facade::DaemonProtectedCredentialEnrollmentSession;"
         )
         .trim_end()
-        .ends_with(UNIX_TEST_OR_NATIVE_GATE)
+        .ends_with("target_arch = \"aarch64\"\n))]")
     );
 }

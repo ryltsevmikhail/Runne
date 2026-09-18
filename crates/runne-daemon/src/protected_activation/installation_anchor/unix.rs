@@ -10,10 +10,12 @@ use std::io::{Read, Write};
 mod io;
 #[cfg(not(test))]
 use io::Fault;
-#[cfg(test)]
+#[cfg(all(test, not(all(target_os = "macos", target_arch = "aarch64"))))]
+use io::Fault;
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub(crate) use io::test_guard;
 use io::{AnchorDir, checked_file, hook};
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub(crate) use io::{Fault, set_fault};
 
 const FILE: &str = "native-enrollment-installation-v1.state";

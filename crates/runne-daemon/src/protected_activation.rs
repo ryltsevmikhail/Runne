@@ -129,6 +129,10 @@ impl ProtectedRootControl {
         Arc::new(Self(authority))
     }
 
+    pub(crate) fn rotate_enrollment_keys(&self, keys: &ProtectedActivationKeys) {
+        self.0.rotate_enrollment_keys(keys);
+    }
+
     pub(crate) fn admit_verified_offer(
         &self,
         offer: &runne_api::RootHandleTransferOffer,
@@ -151,7 +155,7 @@ impl ProtectedRootControl {
 }
 
 #[cfg(feature = "desktop-protected")]
-#[cfg(any(all(test, unix), all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod broker_handoff;
 #[cfg(any(unix, windows))]
 mod channel;
@@ -160,9 +164,9 @@ mod channel;
     any(feature = "desktop-protected", feature = "test-support")
 ))]
 mod control;
-#[cfg(all(unix, feature = "desktop-protected"))]
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 pub(crate) mod control_v3;
-#[cfg(all(test, unix, feature = "desktop-protected"))]
+#[cfg(all(test, target_os = "macos", feature = "desktop-protected"))]
 pub(crate) use control_v3::require_shutdown_terminal;
 #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
 mod credential_service_gateway;

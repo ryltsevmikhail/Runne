@@ -20,7 +20,8 @@ mod verified_frames;
 
 #[cfg(all(
     feature = "desktop-protected",
-    any(all(test, unix), all(target_os = "macos", target_arch = "aarch64"))
+    target_os = "macos",
+    target_arch = "aarch64"
 ))]
 pub(crate) use control_facade::DaemonProtectedCredentialEnrollmentSession;
 pub(crate) use control_facade::DaemonProviderCredentialEnrollmentControl;

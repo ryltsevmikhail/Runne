@@ -108,6 +108,12 @@ impl ProtectedBundledRuntimeSupervisor {
     /// intent is launching the local runtime itself; the daemon independently
     /// revalidates the kernel peer, the full signed transcript, and the
     /// installation anchor, then raises the authorization epoch once.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed lifecycle error when the supervisor is not in a
+    /// post-ready state, the live process is gone, or the daemon rejected
+    /// the signed transition.
     #[cfg(all(
         target_os = "linux",
         feature = "protected-channel-integration"

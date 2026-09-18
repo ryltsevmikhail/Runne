@@ -1,4 +1,5 @@
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
+#[allow(clippy::too_many_arguments)] // The exact V3 authority tuple stays explicit.
 fn serve_v3_transcript(
     channel: &mut ProtectedActivationChannel,
     keys: &ProtectedActivationKeys,
