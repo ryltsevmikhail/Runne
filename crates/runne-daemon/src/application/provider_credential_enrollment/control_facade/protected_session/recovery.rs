@@ -100,7 +100,11 @@ impl DaemonProtectedCredentialEnrollmentSession {
         if self.qualification_snapshot.is_some() {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
-        if self.pending.is_some() || self.begun.is_some() || self.recovery.started {
+        if self.pending.is_some()
+            || self.begun.is_some()
+            || self.verified.is_some()
+            || self.recovery.started
+        {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
         let id = self

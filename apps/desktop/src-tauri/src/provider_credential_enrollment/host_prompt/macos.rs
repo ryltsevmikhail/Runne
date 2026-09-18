@@ -12,8 +12,8 @@ use objc2_app_kit::{
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use runne_platform_desktop::{
     CredentialPromptAction, CredentialPromptProvider, MAX_CREDENTIAL_BYTES,
-    SecureCredentialMaterial, SecureCredentialPromptDisposition, SecureCredentialPromptError,
-    SecureCredentialPromptPort, SecureCredentialPromptRequest,
+    MAX_NATIVE_OAUTH_CREDENTIAL_BYTES, SecureCredentialMaterial, SecureCredentialPromptDisposition,
+    SecureCredentialPromptError, SecureCredentialPromptPort, SecureCredentialPromptRequest,
 };
 use tauri::{AppHandle, Manager, WebviewWindow};
 
@@ -180,7 +180,12 @@ fn show_sheet(
     }
 
     let completion = RcBlock::new(move |response| {
-        let result = completion_result(response, field.as_deref(), request.action());
+        let result = completion_result(
+            response,
+            field.as_deref(),
+            request.provider(),
+            request.action(),
+        );
         if let Some(field) = field.as_deref() {
             clear_field(field);
         }
@@ -194,6 +199,7 @@ fn show_sheet(
 pub(super) fn completion_result(
     response: isize,
     field: Option<&NSSecureTextField>,
+    provider: CredentialPromptProvider,
     action: CredentialPromptAction,
 ) -> PromptResult {
     if response == NSAlertSecondButtonReturn {
@@ -204,7 +210,7 @@ pub(super) fn completion_result(
     }
     if action.requires_secret() {
         let field = field.ok_or(SecureCredentialPromptError::Unavailable)?;
-        copy_secret(field).map(SecureCredentialPromptDisposition::Submitted)
+        copy_secret(field, provider).map(SecureCredentialPromptDisposition::Submitted)
     } else {
         Ok(SecureCredentialPromptDisposition::Confirmed)
     }
@@ -212,10 +218,16 @@ pub(super) fn completion_result(
 
 fn copy_secret(
     field: &NSSecureTextField,
+    provider: CredentialPromptProvider,
 ) -> Result<SecureCredentialMaterial, SecureCredentialPromptError> {
-    let bytes = native::copy_utf8(&field.stringValue(), MAX_CREDENTIAL_BYTES)
+    let maximum = if provider.is_native_oauth() {
+        MAX_NATIVE_OAUTH_CREDENTIAL_BYTES
+    } else {
+        MAX_CREDENTIAL_BYTES
+    };
+    let bytes = native::copy_utf8(&field.stringValue(), maximum)
         .map_err(|()| SecureCredentialPromptError::Rejected)?;
-    SecureCredentialMaterial::from_zeroizing(bytes)
+    SecureCredentialMaterial::from_zeroizing_for_provider(provider, bytes)
 }
 
 fn clear_field(field: &NSSecureTextField) {
@@ -249,15 +261,13 @@ fn request_timeout_cleanup(app: &AppHandle, id: u64, cleanup: mpsc::Sender<()>) 
 }
 
 fn prompt_description(request: SecureCredentialPromptRequest) -> String {
-    let provider = match request.provider() {
-        CredentialPromptProvider::OpenAi => "OpenAI",
-        CredentialPromptProvider::DeepSeek => "DeepSeek",
-    };
+    let provider = request.provider().label();
     let instruction = match request.action() {
         CredentialPromptAction::Pair => "Enter the new credential to pair",
         CredentialPromptAction::Rotate => "Enter the replacement credential to rotate",
         CredentialPromptAction::Revoke => "Confirm credential revocation for",
         CredentialPromptAction::MigrateLegacy => "Confirm legacy credential migration for",
+        CredentialPromptAction::Verify => "Confirm provider quota verification for",
     };
     format!(
         "{instruction} {provider} revision {}.",

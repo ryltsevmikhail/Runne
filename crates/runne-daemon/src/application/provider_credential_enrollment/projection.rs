@@ -49,11 +49,8 @@ pub(super) fn safe_snapshot(
 fn provider(
     provider: &str,
 ) -> Result<ProviderCredentialProviderV2, runne_api::ProviderCredentialEnrollmentHostError> {
-    match provider {
-        "openai" => Ok(ProviderCredentialProviderV2::OpenAi),
-        "deepseek" => Ok(ProviderCredentialProviderV2::DeepSeek),
-        _ => Err(runne_api::ProviderCredentialEnrollmentHostError::InvariantViolation),
-    }
+    ProviderCredentialProviderV2::parse(provider)
+        .ok_or(runne_api::ProviderCredentialEnrollmentHostError::InvariantViolation)
 }
 
 fn credential_state(

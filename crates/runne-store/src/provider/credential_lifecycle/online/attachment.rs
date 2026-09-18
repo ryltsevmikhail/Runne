@@ -20,11 +20,15 @@ pub(super) fn attach_recovery(
     store: &SqliteProviderCredentialLifecycleStore,
     accepted: runne_provider::AcceptedCredentialCleanupRecovery,
 ) -> Result<CredentialOperationSnapshot, CredentialLifecycleError> {
-    store.enrollment_authority.validate_cleanup_recovery(&accepted)
+    store
+        .enrollment_authority
+        .validate_cleanup_recovery(&accepted)
         .map_err(|_| CredentialLifecycleError::Conflict)?;
     let input = AttachCredentialProcess::new(
-        accepted.request().operation_id(), accepted.request().continuation_digest(),
-    ).map_err(|_| CredentialLifecycleError::InvalidInput)?;
+        accepted.request().operation_id(),
+        accepted.request().continuation_digest(),
+    )
+    .map_err(|_| CredentialLifecycleError::InvalidInput)?;
     attach_inner(store, input, Some(accepted))
 }
 
@@ -45,12 +49,17 @@ fn attach_inner(
     if operation.state() != CredentialOperationState::Prepared {
         return Err(CredentialLifecycleError::LifecycleClosed);
     }
-    let retired_continuation: bool = transaction.query_row(
-        "SELECT EXISTS(SELECT 1 FROM provider_credential_process_attachments
+    let retired_continuation: bool = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM provider_credential_process_attachments
          WHERE operation_id=?1 AND continuation_binding_digest=?2 AND state='TOMBSTONED')",
-        params![input.operation_id().as_bytes().as_slice(), input.continuation_binding_digest().as_bytes().as_slice()],
-        |row| row.get(0),
-    ).map_err(map_sql)?;
+            params![
+                input.operation_id().as_bytes().as_slice(),
+                input.continuation_binding_digest().as_bytes().as_slice()
+            ],
+            |row| row.get(0),
+        )
+        .map_err(map_sql)?;
     if retired_continuation {
         return Err(CredentialLifecycleError::Conflict);
     }
@@ -60,14 +69,19 @@ fn attach_inner(
         return Err(CredentialLifecycleError::Conflict);
     }
     let now = head.observed_at.max((store.now)());
-    let recovery_expiry = super::recovery_attachment::deadline(&transaction, &operation, accepted.as_ref())?;
-    let expires: i64 = if let Some(expires) = recovery_expiry { expires } else { transaction
+    let recovery_expiry =
+        super::recovery_attachment::deadline(&transaction, &operation, accepted.as_ref())?;
+    let expires: i64 = if let Some(expires) = recovery_expiry {
+        expires
+    } else {
+        transaction
         .query_row(
             "SELECT begin_proof_expires_at_high_water FROM provider_credential_operations WHERE operation_id=?1",
             [input.operation_id().as_bytes().as_slice()],
             |row| row.get(0),
         )
-        .map_err(map_sql)? };
+        .map_err(map_sql)?
+    };
     if expires <= now {
         transaction
             .execute(
@@ -94,29 +108,35 @@ fn attach_inner(
             transaction.commit().map_err(map_sql)?;
             return Ok(operation);
         }
-        transaction.execute(
-            "UPDATE provider_credential_ticket_attempts SET state='EXPIRED'
+        transaction
+            .execute(
+                "UPDATE provider_credential_ticket_attempts SET state='EXPIRED'
              WHERE operation_id=?1 AND state='ISSUED'",
-            [input.operation_id().as_bytes().as_slice()],
-        ).map_err(map_sql)?;
+                [input.operation_id().as_bytes().as_slice()],
+            )
+            .map_err(map_sql)?;
         transaction.execute(
             "UPDATE provider_credential_ticket_attempts SET state='TOMBSTONED', terminal_digest=ticket_digest
              WHERE operation_id=?1 AND state='EXPIRED'",
             [input.operation_id().as_bytes().as_slice()],
         ).map_err(map_sql)?;
-        transaction.execute(
-            "UPDATE provider_credential_process_attachments
+        transaction
+            .execute(
+                "UPDATE provider_credential_process_attachments
              SET state='TOMBSTONED', terminal_digest=continuation_binding_digest
              WHERE operation_id=?1 AND attachment_attempt=?2 AND state='ATTACHED'",
-            params![input.operation_id().as_bytes().as_slice(), attempt],
-        ).map_err(map_sql)?;
+                params![input.operation_id().as_bytes().as_slice(), attempt],
+            )
+            .map_err(map_sql)?;
     }
-    let attempt: i64 = transaction.query_row(
-        "SELECT COALESCE(MAX(attachment_attempt), 0) + 1
+    let attempt: i64 = transaction
+        .query_row(
+            "SELECT COALESCE(MAX(attachment_attempt), 0) + 1
          FROM provider_credential_process_attachments WHERE operation_id=?1",
-        [input.operation_id().as_bytes().as_slice()],
-        |row| row.get(0),
-    ).map_err(map_sql)?;
+            [input.operation_id().as_bytes().as_slice()],
+            |row| row.get(0),
+        )
+        .map_err(map_sql)?;
     transaction
         .execute(
             "INSERT INTO provider_credential_process_attachments

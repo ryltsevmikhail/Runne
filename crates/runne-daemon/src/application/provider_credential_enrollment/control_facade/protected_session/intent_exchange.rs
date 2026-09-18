@@ -1,5 +1,8 @@
 use super::*;
-use runne_api::{ApiActor, ApiPrincipalId, ProviderCredentialCommandContext};
+use runne_api::{
+    ApiActor, ApiPrincipalId, ProviderCredentialCommandContext, ProviderCredentialOperationKindV2,
+    VerifyProviderCredential,
+};
 use runne_domain::id::{CommandId, IdempotencyKey};
 
 impl DaemonProtectedCredentialEnrollmentSession {
@@ -9,7 +12,11 @@ impl DaemonProtectedCredentialEnrollmentSession {
         frame: &[u8],
         now_unix_millis: u64,
     ) -> Result<Vec<u8>, ProviderCredentialEnrollmentHostError> {
-        if self.pending.is_some() || self.begun.is_some() || self.recovery.started {
+        if self.pending.is_some()
+            || self.begun.is_some()
+            || self.verified.is_some()
+            || self.recovery.started
+        {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
         let request = self
@@ -42,12 +49,28 @@ impl DaemonProtectedCredentialEnrollmentSession {
     }
 
     /// Consumes a verified admission and returns only the safe operation projection.
+    pub(crate) fn begin_or_verify(
+        &mut self,
+        frame: &[u8],
+        now_unix_millis: u64,
+    ) -> Result<Vec<u8>, ProviderCredentialEnrollmentHostError> {
+        if self
+            .lifecycle
+            .decode_desktop_verify(frame, self.desktop_sequence)
+            .is_ok()
+        {
+            self.verify(frame, now_unix_millis)
+        } else {
+            self.begin(frame, now_unix_millis)
+        }
+    }
+
     pub(crate) fn begin(
         &mut self,
         frame: &[u8],
         now_unix_millis: u64,
     ) -> Result<Vec<u8>, ProviderCredentialEnrollmentHostError> {
-        if self.recovery.started {
+        if self.recovery.started || self.verified.is_some() {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
         let command = self
@@ -126,6 +149,55 @@ impl DaemonProtectedCredentialEnrollmentSession {
         self.begun = Some((command, snapshot.clone()));
         self.encode_snapshot(snapshot)
     }
+
+    fn verify(
+        &mut self,
+        frame: &[u8],
+        now_unix_millis: u64,
+    ) -> Result<Vec<u8>, ProviderCredentialEnrollmentHostError> {
+        #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+        if self.qualification_snapshot.is_some() {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        if self.recovery.started || self.begun.is_some() || self.verified.is_some() {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        let command = self
+            .lifecycle
+            .decode_desktop_verify(frame, self.desktop_sequence)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        if command.verification_kind() != runne_api::ProviderCredentialVerificationKindV2::Remote {
+            return Err(ProviderCredentialEnrollmentHostError::Unsupported);
+        }
+        self.desktop_sequence = self
+            .desktop_sequence
+            .checked_add(1)
+            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        let pending = self
+            .pending
+            .take()
+            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        let context = verification_command_context(&command)?;
+        self.admissions
+            .register(pending.request, pending.admission, context, now_unix_millis)?;
+        let (authority, proof, context) =
+            self.admissions
+                .resolve_verify(&command, self.facts.session, now_unix_millis)?;
+        let snapshot = self.control.verify_admitted(
+            self.verifier.clone(),
+            authority,
+            proof,
+            context,
+            command.clone(),
+        )?;
+        if snapshot.operation_kind() != ProviderCredentialOperationKindV2::VerifyRemote
+            || !snapshot.state().terminal()
+        {
+            return Err(ProviderCredentialEnrollmentHostError::InvariantViolation);
+        }
+        self.verified = Some((command, snapshot.clone()));
+        self.encode_snapshot(snapshot)
+    }
 }
 
 fn command_context(
@@ -135,6 +207,21 @@ fn command_context(
         command_id: CommandId::parse(command.command_identity())
             .map_err(|_| ProviderCredentialEnrollmentHostError::InvalidRequest)?,
         idempotency_key: IdempotencyKey::new(command.idempotency_key())
+            .map_err(|_| ProviderCredentialEnrollmentHostError::InvalidRequest)?,
+        principal: ApiPrincipalId::new("protected-desktop-owner")
+            .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?,
+        actor: ApiActor::new("runne-tauri-native-host")
+            .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?,
+    })
+}
+
+fn verification_command_context(
+    command: &VerifyProviderCredential,
+) -> Result<ProviderCredentialCommandContext, ProviderCredentialEnrollmentHostError> {
+    Ok(ProviderCredentialCommandContext {
+        command_id: CommandId::parse(command.command_identity())
+            .map_err(|_| ProviderCredentialEnrollmentHostError::InvalidRequest)?,
+        idempotency_key: IdempotencyKey::new(command.command_identity())
             .map_err(|_| ProviderCredentialEnrollmentHostError::InvalidRequest)?,
         principal: ApiPrincipalId::new("protected-desktop-owner")
             .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?,

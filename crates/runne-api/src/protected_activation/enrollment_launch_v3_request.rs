@@ -170,11 +170,17 @@ fn require_credential_provider(
 ) -> Result<(), LaunchAuthorityError> {
     match provider.mode() {
         ProviderActivationModeV1::OpenAiResponsesTextV1
-        | ProviderActivationModeV1::DeepSeekResponsesTextV1 => Ok(()),
+        | ProviderActivationModeV1::DeepSeekResponsesTextV1
+        | ProviderActivationModeV1::ZaiCodingChatCompletionsTextV1
+        | ProviderActivationModeV1::QwenCloudTokenChatCompletionsTextV1
+        | ProviderActivationModeV1::NativeTextV1
+        | ProviderActivationModeV1::RadiusTextV1
+        | ProviderActivationModeV1::ResponsesTextV1
+        | ProviderActivationModeV1::CloudTextV1 => Ok(()),
+        ProviderActivationModeV1::GenericChatCompletionsTextV1 => Ok(()),
         // Local Engine execution is credential-free by contract: it is
         // admitted through the launch binding, not through enrollment.
-        ProviderActivationModeV1::LocalEngineTextV1
-        | ProviderActivationModeV1::DeterministicV1 => {
+        ProviderActivationModeV1::LocalEngineTextV1 | ProviderActivationModeV1::DeterministicV1 => {
             Err(LaunchAuthorityError::ProviderModeMismatch)
         }
     }

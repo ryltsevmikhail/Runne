@@ -139,7 +139,7 @@ describe('ProvidersPage owner projection', () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('credential_missing')
+    expect(wrapper.text()).toContain('Credential evidence unavailable')
     expect(wrapper.text()).not.toContain('token')
   })
 
@@ -161,7 +161,8 @@ describe('ProvidersPage owner projection', () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('local_verified')
+    expect(wrapper.text()).toContain('Ready (Native credential evidence)')
+    expect(wrapper.text()).not.toContain('local_verified')
     expect(wrapper.text()).not.toContain('ticket')
   })
 })

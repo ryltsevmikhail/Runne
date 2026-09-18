@@ -154,6 +154,11 @@ pub(crate) mod broker_recovery_issue;
 mod broker_support;
 mod host;
 pub(super) mod recovery;
+// This module drives the real SQLite store through runne-store's
+// `online_claim_test_support`, which only exists with `runne-store/test-support`
+// (enabled by this crate's `test-support` feature).
+#[cfg(feature = "test-support")]
+mod recovery_real_store;
 mod resume;
 mod status;
 mod verified_frames;

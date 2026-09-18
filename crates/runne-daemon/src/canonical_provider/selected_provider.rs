@@ -11,7 +11,11 @@ where
 {
     if activation.requires_openai_execution()
         || activation.requires_deepseek_execution()
+        || activation.requires_chat_completions_execution()
         || activation.requires_local_engine_execution()
+        || activation.requires_native_execution()
+        || activation.requires_radius_execution()
+        || activation.requires_responses_execution()
     {
         compose().await.map(Some)
     } else {

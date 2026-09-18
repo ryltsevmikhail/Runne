@@ -13,7 +13,7 @@ thread_local! {
         RefCell::new(HashMap::new());
 }
 
-pub(crate) fn open_test_store(path: &Path, now: i64) -> SqliteProviderCredentialLifecycleStore {
+pub fn open_test_store(path: &Path, now: i64) -> SqliteProviderCredentialLifecycleStore {
     let (lifecycle, _) = CredentialAuthorityPair::new().split();
     let (store_authority, measurement_authority) = CredentialEnrollmentAuthorityPair::new().split();
     let store = SqliteProviderCredentialLifecycleStore::open_with_authorities_and_now(
@@ -30,7 +30,7 @@ pub(crate) fn open_test_store(path: &Path, now: i64) -> SqliteProviderCredential
     store
 }
 
-pub(crate) fn reopen_test_store(path: &Path, now: i64) -> SqliteProviderCredentialLifecycleStore {
+pub fn reopen_test_store(path: &Path, now: i64) -> SqliteProviderCredentialLifecycleStore {
     let (lifecycle, _) = CredentialAuthorityPair::new().split();
     let (store_authority, measurement_authority) = CredentialEnrollmentAuthorityPair::new().split();
     let connection = open_test_shared_writer(path).unwrap();
@@ -48,7 +48,7 @@ pub(crate) fn reopen_test_store(path: &Path, now: i64) -> SqliteProviderCredenti
     store
 }
 
-pub(super) fn seal_claim(
+pub fn seal_claim(
     store: &SqliteProviderCredentialLifecycleStore,
     draft: ClaimCredentialOperation,
 ) -> ClaimCredentialOperation {
@@ -74,12 +74,16 @@ pub(super) fn seal_claim_with_context(
     })
 }
 
-pub(super) fn measurements_for(
+pub fn measurements_for(
     store: &SqliteProviderCredentialLifecycleStore,
 ) -> CredentialEnrollmentMeasurementAuthority {
     let key = Arc::as_ptr(&store.connection) as usize;
     MEASUREMENT_AUTHORITIES.with(|authorities| {
-        authorities.borrow().get(&key).expect("registered test authority").clone()
+        authorities
+            .borrow()
+            .get(&key)
+            .expect("registered test authority")
+            .clone()
     })
 }
 

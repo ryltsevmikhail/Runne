@@ -88,14 +88,15 @@ pub(crate) async fn service_dependencies(
     let client = server
         .client()
         .map_err(|_| DaemonError::Bootstrap("fixture client".into()))?;
-    let adapter_factory: Arc<ProviderEffectFactory> = Arc::new(move |materializer| {
-        runne_daemon_openai_effect::effect_from_loopback_fixture_with_materializer(
-            client.clone(),
-            materializer,
-        )
-        .map(openai_effect_adapter)
-        .map_err(|_| DaemonError::Bootstrap("fixture effect".into()))
-    });
+    let adapter_factory: Arc<ProviderEffectFactory> =
+        Arc::new(move |materializer, _budget_store| {
+            runne_daemon_openai_effect::effect_from_loopback_fixture_with_materializer(
+                client.clone(),
+                materializer,
+            )
+            .map(openai_effect_adapter)
+            .map_err(|_| DaemonError::Bootstrap("fixture effect".into()))
+        });
     Ok((
         ProtectedProviderDependencyCapsule::from_service_loopback_fixture(
             adapter_factory,

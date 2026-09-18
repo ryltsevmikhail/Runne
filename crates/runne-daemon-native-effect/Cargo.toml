@@ -1,0 +1,21 @@
+[package]
+name = "runne-daemon-native-effect"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+bytes = "1"
+runne-provider = { path = "../runne-provider" }
+runne-provider-native-wire = { path = "../runne-provider-native-wire" }
+runne-provider-quota = { path = "../runne-provider-quota" }
+runne-secure-store = { path = "../runne-secure-store", default-features = false }
+runne-store = { path = "../runne-store" }
+reqwest = { workspace = true, features = ["rustls-tls", "stream"] }
+thiserror.workspace = true
+tokio.workspace = true
+zeroize.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,21 @@
+[package]
+name = "runne-daemon-radius-effect"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+bytes = "1"
+reqwest = { workspace = true, features = ["rustls-tls", "stream"] }
+runne-provider = { path = "../runne-provider" }
+runne-provider-radius = { path = "../runne-provider-radius" }
+runne-provider-quota = { path = "../runne-provider-quota" }
+runne-secure-store = { path = "../runne-secure-store", default-features = false }
+runne-store = { path = "../runne-store" }
+thiserror.workspace = true
+tokio.workspace = true
+zeroize.workspace = true
+
+[lints]
+workspace = true

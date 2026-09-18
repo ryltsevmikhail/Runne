@@ -19,7 +19,7 @@ pub(super) fn openai_profile() -> Arc<SharedTextProviderProfile> {
 }
 
 pub(super) fn fixture_adapter_factory() -> Arc<ProviderEffectFactory> {
-    Arc::new(|_| Err(DaemonError::Bootstrap("fixture adapter unavailable".into())))
+    Arc::new(|_, _| Err(DaemonError::Bootstrap("fixture adapter unavailable".into())))
 }
 
 #[derive(Default)]

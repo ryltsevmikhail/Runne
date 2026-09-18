@@ -7,6 +7,8 @@ use runne_provider::{
     DispatchError, DispatchRequest, ProviderDispatchRepository, ProviderPort,
     ProviderPreEffectRejection, ProviderRepositoryState,
 };
+use runne_provider_quota::{RemainingState, SubscriptionBudgetAuthority};
+use std::sync::Arc;
 
 use super::{
     CredentialDispatchAuthority, MarkProviderStreaming, PreparedProviderRecord,
@@ -14,7 +16,9 @@ use super::{
     SqliteProviderDispatchStore, SqliteProviderExecutionStore, VersionedProviderExecutionBinding,
 };
 
+mod construction;
 mod inflight;
+mod rejection;
 mod request;
 use request::{claim_matches, issue_request};
 
@@ -44,6 +48,10 @@ pub struct SqliteProviderDispatchCoordinator<'a, P: ?Sized, E: ?Sized> {
     provider: &'a P,
     effect: &'a E,
     prohibited_content: &'a dyn ProhibitedContentPort,
+    subscription_provider: bool,
+    /// Seed-then-check gate; post-response spending may overshoot by at most
+    /// the existing effect semaphore's concurrency minus one requests.
+    subscription_budget: Option<Arc<dyn SubscriptionBudgetAuthority>>,
 }
 
 impl<'a, P, E> SqliteProviderDispatchCoordinator<'a, P, E>
@@ -51,25 +59,6 @@ where
     P: ProviderPort + ?Sized,
     E: ProviderEffectPort + ?Sized,
 {
-    /// Constructs the only production coordinator from concrete SQLite stores.
-    pub const fn new(
-        dispatch_store: &'a SqliteProviderDispatchStore,
-        execution_store: &'a SqliteProviderExecutionStore,
-        credential: CredentialDispatchAuthority<'a>,
-        provider: &'a P,
-        effect: &'a E,
-        prohibited_content: &'a dyn ProhibitedContentPort,
-    ) -> Self {
-        Self {
-            dispatch_store,
-            execution_store,
-            credential,
-            provider,
-            effect,
-            prohibited_content,
-        }
-    }
-
     /// Executes ordered prepare, SQLite admission and one adapter dispatch.
     pub async fn dispatch(
         &self,
@@ -167,6 +156,22 @@ where
             }
         };
         let (credential, effect_binding) = online.split();
+        if let Some(authority) = &self.subscription_budget
+            && self.subscription_provider
+            && !matches!(
+                authority.seed_and_remaining(
+                    request.call.model_ref().provider_id().as_str(),
+                    credential.version_ref().version(),
+                ),
+                Ok(RemainingState::Remaining(_))
+            )
+        {
+            return self.reject_before_effect(
+                attempt_id,
+                fencing_token,
+                ProviderPreEffectRejection::BudgetDenied,
+            );
+        }
         let dispatch = match DispatchRequest::new(prepared, claim.clone()) {
             Ok(dispatch) => dispatch,
             Err(_) => {
@@ -270,26 +275,6 @@ where
                     .mark_uncertain(attempt_id, fencing_token);
                 Ok(ProviderCoordinatorOutcome::Uncertain)
             }
-        }
-    }
-
-    fn reject_before_effect(
-        &self,
-        attempt_id: runne_provider::DispatchAttemptId,
-        fencing_token: u64,
-        reason: ProviderPreEffectRejection,
-    ) -> Result<ProviderCoordinatorOutcome, ProviderAdmissionError> {
-        if self
-            .dispatch_store
-            .mark_rejected_before_effect(attempt_id, fencing_token, reason)
-            .is_err()
-        {
-            let _ = self
-                .dispatch_store
-                .mark_uncertain(attempt_id, fencing_token);
-            Ok(ProviderCoordinatorOutcome::Uncertain)
-        } else {
-            Ok(ProviderCoordinatorOutcome::RejectedBeforeEffect { reason })
         }
     }
 }

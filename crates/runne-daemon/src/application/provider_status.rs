@@ -22,7 +22,7 @@ pub(super) fn provider_statuses(
             ProviderActivationBindingV1::deepseek_responses_text_v1(),
         ),
     ];
-    known
+    let mut statuses: Vec<_> = known
         .into_iter()
         .map(|(provider_id, binding)| {
             let selected = binding == *activation.binding();
@@ -41,7 +41,68 @@ pub(super) fn provider_statuses(
             )
             .expect("released provider activation metadata is valid")
         })
-        .collect()
+        .collect();
+    let selected_binding = activation.binding();
+    if !statuses
+        .iter()
+        .any(|status| status.provider_id() == selected_provider_id(activation))
+    {
+        statuses.push(
+            ProviderStatusSnapshotV1::new(
+                selected_provider_id(activation),
+                selected_binding.mode().as_str(),
+                selected_binding.profile_id(),
+                *selected_binding.profile_digest(),
+                selected_readiness(selected_binding.mode(), readiness),
+                true,
+            )
+            .expect("selected provider activation metadata is valid"),
+        );
+    }
+    statuses
+}
+
+fn selected_provider_id(activation: &ProviderActivation) -> String {
+    match activation {
+        ProviderActivation::ResponsesText(binding, _) => {
+            if binding.profile_id().contains("openai-codex") {
+                "openai-codex".to_owned()
+            } else if binding.profile_id().contains("github-copilot") {
+                "github-copilot".to_owned()
+            } else if binding.profile_id().contains("azure-openai-responses") {
+                "azure-openai-responses".to_owned()
+            } else {
+                "xai".to_owned()
+            }
+        }
+        ProviderActivation::CloudText(binding, _) => binding
+            .profile_id()
+            .strip_prefix("gocode-cloud/")
+            .and_then(|value| value.split('/').next())
+            .unwrap_or("cloud")
+            .to_owned(),
+        ProviderActivation::ZaiCodingChatCompletionsText(_) => "zai".to_owned(),
+        ProviderActivation::QwenCloudTokenChatCompletionsText(_) => {
+            "qwen-token-plan-individual".to_owned()
+        }
+        ProviderActivation::GenericChatCompletionsText(binding) => binding
+            .profile_id()
+            .strip_prefix("gocode-chat-completions/")
+            .and_then(|value| value.split('/').next())
+            .unwrap_or("generic")
+            .to_owned(),
+        ProviderActivation::NativeText(binding, _) => binding
+            .profile_id()
+            .strip_prefix("gocode-native/")
+            .and_then(|value| value.split('/').next())
+            .unwrap_or("native")
+            .to_owned(),
+        ProviderActivation::RadiusText(_, _) => "radius".to_owned(),
+        ProviderActivation::LocalEngineText(_) => "local".to_owned(),
+        ProviderActivation::OpenAiResponsesText(_) => "openai".to_owned(),
+        ProviderActivation::DeepSeekResponsesText(_) => "deepseek".to_owned(),
+        ProviderActivation::Deterministic(_) => "deterministic".to_owned(),
+    }
 }
 
 fn selected_readiness(

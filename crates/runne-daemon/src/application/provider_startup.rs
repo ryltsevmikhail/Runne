@@ -1,5 +1,5 @@
 use super::VerifiedOwnerPrivateConfig;
-use super::provider_selection::{provider_credential_id, select_provider_runtime};
+use super::provider_selection::{provider_credential_id, select_provider_runtime_with_quota};
 use super::workspace_internal::ProtectedProviderDependencyCapsule;
 use super::*;
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
@@ -27,9 +27,10 @@ type StartupProviderParts = (
 );
 impl StartupProvider {
     pub(super) fn deterministic(config: &ConfigurationSnapshot) -> Result<Self, DaemonError> {
-        if config.provider_activation.requires_openai_execution()
-            || config.provider_activation.requires_deepseek_execution()
-        {
+        if !matches!(
+            config.provider_activation,
+            ProviderActivation::Deterministic(_) | ProviderActivation::LocalEngineText(_)
+        ) {
             return Err(DaemonError::Bootstrap(
                 "verified provider activation provenance is unavailable".into(),
             ));

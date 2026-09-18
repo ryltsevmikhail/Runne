@@ -13,6 +13,7 @@ const BEGIN_KIND: u8 = 1;
 const SNAPSHOT_KIND: u8 = 2;
 const RELAY_KIND: u8 = 3;
 const RELAY_ACK_KIND: u8 = 4;
+const VERIFY_KIND: u8 = 5;
 
 /// Authenticated, bounded lifecycle messages carried only by protected V3 control.
 pub struct ProtectedCredentialEnrollmentLifecycleCodec {
@@ -51,6 +52,32 @@ impl ProtectedCredentialEnrollmentLifecycleCodec {
             frame,
             DESKTOP_DIRECTION,
             BEGIN_KIND,
+            previous_sequence,
+        )?;
+        decode_canonical_json(payload)
+    }
+
+    /// Encodes the native desktop's canonical remote verification command.
+    pub fn encode_desktop_verify(
+        &self,
+        verify: &crate::VerifyProviderCredential,
+        sequence: u64,
+    ) -> Result<Vec<u8>, LaunchAuthorityError> {
+        let payload =
+            serde_json::to_vec(verify).map_err(|_| LaunchAuthorityError::InvalidContract)?;
+        self.encode(DESKTOP_DIRECTION, VERIFY_KIND, sequence, &payload)
+    }
+
+    /// Decodes exactly the next canonical remote verification command.
+    pub fn decode_desktop_verify(
+        &self,
+        frame: &[u8],
+        previous_sequence: u64,
+    ) -> Result<crate::VerifyProviderCredential, LaunchAuthorityError> {
+        let payload = self.decode(
+            frame,
+            DESKTOP_DIRECTION,
+            VERIFY_KIND,
             previous_sequence,
         )?;
         decode_canonical_json(payload)

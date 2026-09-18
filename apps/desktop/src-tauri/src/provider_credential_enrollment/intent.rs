@@ -174,13 +174,14 @@ fn random_id() -> Result<String, CredentialIntentError> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::CredentialIntentAction;
     use super::*;
-    use runne_api::{ProviderCredentialEnrollmentActionV2, ProviderCredentialProviderV2};
+    use runne_api::ProviderCredentialProviderV2;
 
     fn request() -> CredentialIntentIpc {
         CredentialIntentIpc {
             provider: ProviderCredentialProviderV2::OpenAi,
-            action: ProviderCredentialEnrollmentActionV2::Pair,
+            action: CredentialIntentAction::Pair,
             expected_revision: 7,
             renderer_generation: 4,
             verification_kind: None,

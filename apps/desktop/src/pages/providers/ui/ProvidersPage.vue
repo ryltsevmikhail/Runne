@@ -6,7 +6,24 @@ import { acquireRendererGeneration } from '@/entities/project'
 import type { SettingsPageAdapter } from '@/pages/settings'
 import SettingsStatePage from '@/pages/settings/ui/SettingsStatePage.vue'
 import {
+  enrollErrorCode,
+  isQuotaRefreshSupported,
+  providerCatalogEntry,
+  quotaFor,
+  quotaWindowSummaries,
+  quotaSummary,
+  readinessLabel,
+  readinessSourceLabel,
+} from '@/pages/providers/model/providerPageHelpers'
+import {
+  CREDENTIAL_PROVIDER_IDS,
+  isCredentialProvider,
+  isEnrollableProvider,
+} from '@/shared/api/platform/providerCatalog'
+import {
   getProviderCredentialEnrollmentStatus,
+  getProviderCatalog,
+  getProviderQuota,
   getProviderStatus,
   requestProviderCredentialIntent,
   type ProviderCredentialAction,
@@ -14,10 +31,15 @@ import {
   type ProviderCredentialProjection,
   type ProviderCredentialProvider,
   type ProviderStatusSnapshot,
+  type ProviderCatalogSnapshot,
+  type ProviderQuotaProjection,
 } from '@/shared/api/platform/providers'
 import { translate } from '@/shared/i18n'
+import ProviderRow from './ProviderRow.vue'
 
 type LoadProviderStatus = () => Promise<readonly ProviderStatusSnapshot[]>
+type LoadProviderCatalog = () => Promise<readonly ProviderCatalogSnapshot[]>
+type LoadProviderQuota = () => Promise<readonly ProviderQuotaProjection[]>
 type LoadProviderCredentialEnrollmentStatus = (
   provider: ProviderCredentialProvider,
 ) => Promise<ProviderCredentialProjection>
@@ -32,12 +54,16 @@ type RequestCredentialIntent = (
 const props = defineProps<{
   readonly adapter?: SettingsPageAdapter
   readonly loadProviderStatus?: LoadProviderStatus
+  readonly loadProviderCatalog?: LoadProviderCatalog
+  readonly loadProviderQuota?: LoadProviderQuota
   readonly loadProviderCredentialEnrollmentStatus?: LoadProviderCredentialEnrollmentStatus
   readonly acquireGeneration?: AcquireGeneration
   readonly requestCredentialIntent?: RequestCredentialIntent
 }>()
 
 const statuses = ref<readonly ProviderStatusSnapshot[] | null>(null)
+const catalog = ref<readonly ProviderCatalogSnapshot[] | null>(null)
+const quotas = ref<readonly ProviderQuotaProjection[]>([])
 const credentialStatuses = ref<Partial<Record<ProviderCredentialProvider, ProviderCredentialProjection>>>({})
 const loading = ref(true)
 const failed = ref(false)
@@ -45,6 +71,12 @@ const enrolling = ref<Partial<Record<ProviderCredentialProvider, boolean>>>({})
 const enrollNotes = ref<Partial<Record<ProviderCredentialProvider, string | undefined>>>({})
 
 let rendererGeneration: number | null = null
+let statusLoadGeneration = 0
+
+function invalidateQuotas(): void {
+  statusLoadGeneration += 1
+  quotas.value = []
+}
 
 async function currentRendererGeneration(acquire: AcquireGeneration): Promise<number> {
   rendererGeneration ??= await acquire()
@@ -62,18 +94,39 @@ async function defaultRequestCredentialIntent(
 }
 
 async function loadStatuses() {
+  const generation = ++statusLoadGeneration
   try {
-    statuses.value = await (props.loadProviderStatus ?? (async () => {
+    const loadStatus = props.loadProviderStatus ?? (async () => {
       if (!isTauri()) throw new Error('native provider status unavailable')
       return getProviderStatus()
-    }))()
-    await loadCredentialStatuses()
+    })
+    const loadCatalog = props.loadProviderCatalog ?? (async () => {
+      if (!isTauri()) return []
+      return getProviderCatalog()
+    })
+    const nextStatuses = await loadStatus()
+    if (generation !== statusLoadGeneration) return
+    statuses.value = nextStatuses
+    const nextCatalog = await loadCatalog()
+    if (generation !== statusLoadGeneration) return
+    catalog.value = nextCatalog
+    const loadQuota = props.loadProviderQuota ?? (async () => {
+      if (!isTauri()) return []
+      return getProviderQuota()
+    })
+    const quotaResult = await Promise.allSettled([loadQuota()])
+    if (generation !== statusLoadGeneration) return
+    quotas.value = quotaResult[0]?.status === 'fulfilled' ? quotaResult[0].value : []
+    await loadCredentialStatuses(generation)
   }
   catch {
-    failed.value = true
+    if (generation === statusLoadGeneration) {
+      failed.value = true
+      quotas.value = []
+    }
   }
   finally {
-    loading.value = false
+    if (generation === statusLoadGeneration) loading.value = false
   }
 }
 
@@ -84,27 +137,23 @@ function credentialLoader(): LoadProviderCredentialEnrollmentStatus {
   })
 }
 
-async function loadCredentialStatuses() {
+async function loadCredentialStatuses(generation: number) {
   const load = credentialLoader()
-  const providers: readonly ProviderCredentialProvider[] = ['openai', 'deepseek']
-  const settled = await Promise.allSettled(providers.map(async provider => [provider, await load(provider)] as const))
+  const settled = await Promise.allSettled(CREDENTIAL_PROVIDER_IDS.map(async provider => [provider, await load(provider)] as const))
+  if (generation !== statusLoadGeneration) return
   credentialStatuses.value = Object.fromEntries(settled.flatMap(result => result.status === 'fulfilled' ? [result.value] : []))
 }
 
 function credentialStatus(providerId: ProviderStatusSnapshot['providerId']) {
-  return providerId === 'openai' || providerId === 'deepseek' ? credentialStatuses.value[providerId] : undefined
-}
-
-function isCredentialProvider(providerId: ProviderStatusSnapshot['providerId']): providerId is ProviderCredentialProvider {
-  return providerId === 'openai' || providerId === 'deepseek'
+  return isCredentialProvider(providerId) ? credentialStatuses.value[providerId] : undefined
 }
 
 function isEnrolling(providerId: ProviderStatusSnapshot['providerId']): boolean {
-  return isCredentialProvider(providerId) && enrolling.value[providerId] === true
+  return isEnrollableProvider(providerId) && enrolling.value[providerId] === true
 }
 
 function enrollNote(providerId: ProviderStatusSnapshot['providerId']): string | undefined {
-  return isCredentialProvider(providerId) ? enrollNotes.value[providerId] : undefined
+  return isEnrollableProvider(providerId) ? enrollNotes.value[providerId] : undefined
 }
 
 function hasCredential(providerId: ProviderStatusSnapshot['providerId']): boolean {
@@ -116,37 +165,24 @@ function credentialBusy(providerId: ProviderStatusSnapshot['providerId']): boole
   return isEnrolling(providerId) || status?.pendingOperation != null || status?.cleanupPending === true
 }
 
-function pairLabel(providerId: ProviderStatusSnapshot['providerId']): string {
-  return translate(hasCredential(providerId) ? 'providers.rotateCredential' : 'providers.enrollCredential')
-}
-
-async function expectedLifecycleRevision(provider: ProviderCredentialProvider, action: 'pair' | 'revoke'): Promise<number> {
+async function expectedLifecycleRevision(provider: ProviderCredentialProvider, action: 'pair' | 'revoke' | 'verify'): Promise<number> {
   const known = credentialStatuses.value[provider]
   if (action === 'pair' && known !== undefined) return known.lifecycleRevision
   const fresh = await credentialLoader()(provider)
   credentialStatuses.value = { ...credentialStatuses.value, [provider]: fresh }
-  if (action === 'revoke' && (fresh.credentialState !== 'configured' || fresh.pendingOperation !== null || fresh.cleanupPending)) {
+  if (action !== 'pair' && (fresh.credentialState !== 'configured'
+    || fresh.readiness !== 'ready' || fresh.pendingOperation !== null || fresh.cleanupPending)) {
     throw { code: 'provider_credential_state_changed' }
   }
   return fresh.lifecycleRevision
 }
 
-function enrollErrorCode(error: unknown): string {
-  const code = (error as { code?: unknown } | null | undefined)?.code
-  if (typeof code === 'string' && code.length > 0) return code
-  if (error instanceof Error) return error.message
-  try {
-    return JSON.stringify(error)
-  }
-  catch {
-    return String(error)
-  }
-}
-
-async function changeCredential(providerId: ProviderStatusSnapshot['providerId'], action: 'pair' | 'revoke') {
-  if (!isCredentialProvider(providerId) || credentialBusy(providerId)) return
+async function changeCredential(providerId: ProviderStatusSnapshot['providerId'], action: 'pair' | 'revoke' | 'verify') {
+  if (!isEnrollableProvider(providerId) || credentialBusy(providerId)) return
   if (action === 'revoke' && !hasCredential(providerId)) return
+  if (action === 'verify' && (!isQuotaRefreshSupported(providerId) || !hasCredential(providerId))) return
   const provider: ProviderCredentialProvider = providerId
+  invalidateQuotas()
   enrolling.value[provider] = true
   enrollNotes.value[provider] = undefined
   try {
@@ -155,18 +191,26 @@ async function changeCredential(providerId: ProviderStatusSnapshot['providerId']
     const request = props.requestCredentialIntent ?? defaultRequestCredentialIntent
     const disposition = await request(provider, action, expectedRevision, generation)
     if (disposition === 'completed') {
-      enrollNotes.value[provider] = translate(action === 'revoke' ? 'providers.revokeSucceeded' : 'providers.enrollSucceeded')
+      enrollNotes.value[provider] = translate(action === 'verify'
+        ? 'providers.quotaRefreshSucceeded'
+        : action === 'revoke' ? 'providers.revokeSucceeded' : 'providers.enrollSucceeded')
       await loadStatuses()
     }
     else if (disposition === 'pending') {
-      enrollNotes.value[provider] = translate(action === 'revoke' ? 'providers.revokePending' : 'providers.enrollPending')
+      enrollNotes.value[provider] = translate(action === 'verify'
+        ? 'providers.quotaRefreshPending'
+        : action === 'revoke' ? 'providers.revokePending' : 'providers.enrollPending')
     }
     else {
-      enrollNotes.value[provider] = translate(action === 'revoke' ? 'providers.revokeFailed' : 'providers.enrollFailed', { code: disposition })
+      enrollNotes.value[provider] = translate(action === 'verify'
+        ? 'providers.quotaRefreshFailed'
+        : action === 'revoke' ? 'providers.revokeFailed' : 'providers.enrollFailed', { code: disposition })
     }
   }
   catch (error) {
-    enrollNotes.value[provider] = translate(action === 'revoke' ? 'providers.revokeFailed' : 'providers.enrollFailed', {
+    enrollNotes.value[provider] = translate(action === 'verify'
+      ? 'providers.quotaRefreshFailed'
+      : action === 'revoke' ? 'providers.revokeFailed' : 'providers.enrollFailed', {
       code: enrollErrorCode(error),
     })
   }
@@ -196,7 +240,7 @@ onMounted(() => {
     <h1>{{ translate('providers.loading') }}</h1>
   </section>
   <section
-    v-else-if="failed || statuses === null"
+    v-else-if="failed || statuses === null || catalog === null"
     class="providers-page"
     role="alert"
   >
@@ -212,41 +256,23 @@ onMounted(() => {
       {{ translate('settings.providers') }}
     </h1>
     <ul>
-      <li
+      <ProviderRow
         v-for="status in statuses"
         :key="status.providerId"
-      >
-        <strong>{{ status.providerId }}</strong>
-        <span>{{ status.selected ? translate('providers.selected') : translate('providers.notSelected') }}</span>
-        <span>{{ status.readiness }}</span>
-        <span v-if="credentialStatus(status.providerId) !== undefined">
-          {{ credentialStatus(status.providerId)?.readiness }}
-          {{ credentialStatus(status.providerId)?.verificationState }}
-        </span>
-        <template v-if="isCredentialProvider(status.providerId)">
-          <button
-            type="button"
-            :aria-label="`${pairLabel(status.providerId)} (${status.providerId})`"
-            :disabled="credentialBusy(status.providerId)"
-            @click="changeCredential(status.providerId, 'pair')"
-          >
-            {{ pairLabel(status.providerId) }}
-          </button>
-          <button
-            v-if="hasCredential(status.providerId)"
-            type="button"
-            :aria-label="`${translate('providers.revokeCredential')} (${status.providerId})`"
-            :disabled="credentialBusy(status.providerId)"
-            @click="changeCredential(status.providerId, 'revoke')"
-          >
-            {{ translate('providers.revokeCredential') }}
-          </button>
-          <span
-            v-if="enrollNote(status.providerId)"
-            role="status"
-          >{{ enrollNote(status.providerId) }}</span>
-        </template>
-      </li>
+        :status="status"
+        :catalog="providerCatalogEntry(catalog, status.providerId)"
+        :credential="credentialStatus(status.providerId)"
+        :quota-summary="quotaSummary(quotas, status.providerId)"
+        :quota-source="quotaFor(quotas, status.providerId)?.source"
+        :quota-availability="quotaFor(quotas, status.providerId)?.availability"
+        :quota-windows="quotaWindowSummaries(quotaFor(quotas, status.providerId))"
+        :quota-refresh-supported="isQuotaRefreshSupported(status.providerId)"
+        :readiness="readinessLabel(status, credentialStatus(status.providerId))"
+        :readiness-source="readinessSourceLabel(status, credentialStatus(status.providerId))"
+        :busy="credentialBusy(status.providerId)"
+        :note="enrollNote(status.providerId)"
+        @credential-action="changeCredential(status.providerId, $event)"
+      />
     </ul>
   </section>
 </template>

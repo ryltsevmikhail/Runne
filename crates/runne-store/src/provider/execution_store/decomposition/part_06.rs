@@ -265,7 +265,7 @@ fn load_execution_attempt(
                     database_generation: positive_u64(row.get(9)?)?,
                     requested_input_tokens: nonnegative_u64(row.get(10)?)?,
                     requested_output_tokens: positive_u64(row.get(11)?)?,
-                    max_cost_micros: positive_u64(row.get(12)?)?,
+                    max_cost_micros: nonnegative_u64(row.get(12)?)?,
                 })
             },
         )

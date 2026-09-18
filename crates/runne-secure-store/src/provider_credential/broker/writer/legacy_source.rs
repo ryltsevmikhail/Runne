@@ -124,10 +124,6 @@ where
 }
 
 fn provider(provider: &ProviderId) -> Result<ProviderCredentialId, SecureStoreError> {
-    match provider.as_str() {
-        "openai" => Ok(ProviderCredentialId::OpenAi),
-        "deepseek" => Ok(ProviderCredentialId::DeepSeek),
-        "local-engine" => Ok(ProviderCredentialId::LocalEngine),
-        _ => Err(SecureStoreError::UnsupportedSecureStoreBackend),
-    }
+    ProviderCredentialId::from_account(provider.as_str())
+        .ok_or(SecureStoreError::UnsupportedSecureStoreBackend)
 }

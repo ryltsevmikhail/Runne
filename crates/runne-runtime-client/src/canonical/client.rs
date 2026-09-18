@@ -23,6 +23,34 @@ impl AuthenticatedRuntimeClient {
         &self.provider_statuses
     }
 
+    /// Reads sanitized quota evidence from the authenticated runtime owner.
+    ///
+    /// The route only returns captured provider or local evidence; it does not
+    /// trigger a provider quota request or carry credential material.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the authenticated runtime rejects the request,
+    /// transport fails, or the response is malformed.
+    pub async fn provider_quota(
+        &self,
+    ) -> Result<Vec<runne_api::ProviderQuotaProjectionV1>, RuntimeApiError> {
+        let response = self
+            .authenticated_request(self.client.get(self.url("/v1/runtime/provider-quota")))?
+            .send()
+            .await
+            .map_err(map_transport)?;
+        let projections: Vec<runne_api::ProviderQuotaProjectionV1> =
+            read_success_json(response, &[200]).await?;
+        if projections
+            .iter()
+            .any(|projection| projection.validate().is_err())
+        {
+            return Err(RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse));
+        }
+        Ok(projections)
+    }
+
     pub(crate) const fn replay_authority(&self) -> &RuntimeSessionAuthority {
         &self.authority
     }

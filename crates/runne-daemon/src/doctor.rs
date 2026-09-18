@@ -6,13 +6,13 @@
 
 use std::path::PathBuf;
 
-use runne_provider_deepseek::{DEEPSEEK_MODEL_ID, DEEPSEEK_MODEL_REVISION};
-use runne_provider_openai::{OPENAI_MODEL_ID, OPENAI_MODEL_REVISION};
 use runne_secure_store::ProviderCredentialId;
 
 use crate::config::{external_config_path, load_external_config};
 use crate::provider_activation::ProviderActivation;
+mod active_provider;
 mod provider_credentials;
+use active_provider::active_provider_info;
 use provider_credentials::credential_disposition;
 pub use provider_credentials::{CredentialDisposition, credential_source};
 
@@ -22,8 +22,8 @@ pub struct ActiveProviderInfo {
     /// Exact activation retained for readiness classification.
     pub activation: ProviderActivation,
     pub profile_id: String,
-    pub model_id: &'static str,
-    pub model_revision: &'static str,
+    pub model_id: String,
+    pub model_revision: String,
 }
 
 impl ActiveProviderInfo {
@@ -66,33 +66,37 @@ impl DoctorReport {
                 ProviderActivation::DeepSeekResponsesText(_) => {
                     self.deepseek_credential.is_configured()
                 }
+                ProviderActivation::ZaiCodingChatCompletionsText(_)
+                | ProviderActivation::QwenCloudTokenChatCompletionsText(_)
+                | ProviderActivation::GenericChatCompletionsText(_)
+                | ProviderActivation::NativeText(..)
+                | ProviderActivation::RadiusText(..)
+                | ProviderActivation::ResponsesText(..)
+                | ProviderActivation::CloudText(..) => self
+                    .active_credential(info)
+                    .is_some_and(CredentialDisposition::is_configured),
                 ProviderActivation::LocalEngineText(_) => true,
             },
         }
     }
-}
 
-fn active_provider_info(activation: &ProviderActivation) -> Option<ActiveProviderInfo> {
-    match activation {
-        ProviderActivation::Deterministic(_) => None,
-        ProviderActivation::LocalEngineText(binding) => Some(ActiveProviderInfo {
-            activation: activation.clone(),
-            profile_id: binding.profile_id().to_owned(),
-            model_id: "local-engine-text",
-            model_revision: "v1",
-        }),
-        ProviderActivation::OpenAiResponsesText(binding) => Some(ActiveProviderInfo {
-            activation: activation.clone(),
-            profile_id: binding.profile_id().to_owned(),
-            model_id: OPENAI_MODEL_ID,
-            model_revision: OPENAI_MODEL_REVISION,
-        }),
-        ProviderActivation::DeepSeekResponsesText(binding) => Some(ActiveProviderInfo {
-            activation: activation.clone(),
-            profile_id: binding.profile_id().to_owned(),
-            model_id: DEEPSEEK_MODEL_ID,
-            model_revision: DEEPSEEK_MODEL_REVISION,
-        }),
+    fn active_credential(&self, info: &ActiveProviderInfo) -> Option<CredentialDisposition> {
+        let account = match &info.activation {
+            ProviderActivation::ZaiCodingChatCompletionsText(_) => "zai",
+            ProviderActivation::QwenCloudTokenChatCompletionsText(_) => {
+                "qwen-token-plan-individual"
+            }
+            ProviderActivation::GenericChatCompletionsText(binding)
+            | ProviderActivation::NativeText(binding, _)
+            | ProviderActivation::RadiusText(binding, _)
+            | ProviderActivation::ResponsesText(binding, _)
+            | ProviderActivation::CloudText(binding, _) => binding
+                .profile_id()
+                .split('/')
+                .find(|part| ProviderCredentialId::from_account(part).is_some())?,
+            _ => return None,
+        };
+        ProviderCredentialId::from_account(account).map(credential_disposition)
     }
 }
 
@@ -143,11 +147,30 @@ pub fn format_report(report: &DoctorReport) -> String {
                 output,
                 "active provider: {} ({})",
                 info.activation.binding().mode().as_str(),
-                match info.activation {
+                match &info.activation {
                     ProviderActivation::Deterministic(_) => "deterministic",
                     ProviderActivation::OpenAiResponsesText(_) => "openai",
                     ProviderActivation::DeepSeekResponsesText(_) => "deepseek",
+                    ProviderActivation::ZaiCodingChatCompletionsText(_) => "zai",
+                    ProviderActivation::QwenCloudTokenChatCompletionsText(_) =>
+                        "qwen-token-plan-individual",
+                    ProviderActivation::GenericChatCompletionsText(binding) => binding
+                        .profile_id()
+                        .strip_prefix("gocode-chat-completions/")
+                        .unwrap_or("generic"),
                     ProviderActivation::LocalEngineText(_) => "local-engine",
+                    ProviderActivation::NativeText(..) => "native",
+                    ProviderActivation::RadiusText(..) => "radius",
+                    ProviderActivation::ResponsesText(binding, _) => binding
+                        .profile_id()
+                        .strip_prefix("gocode-responses/")
+                        .and_then(|value| value.split('/').next())
+                        .unwrap_or("responses"),
+                    ProviderActivation::CloudText(binding, _) => binding
+                        .profile_id()
+                        .strip_prefix("gocode-cloud/")
+                        .and_then(|value| value.split('/').next())
+                        .unwrap_or("cloud"),
                 }
             );
             let _ = writeln!(output, "profile: {}", info.profile_id);
@@ -188,6 +211,7 @@ pub fn format_report(report: &DoctorReport) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use runne_provider_deepseek::{DEEPSEEK_MODEL_ID, DEEPSEEK_MODEL_REVISION};
 
     #[test]
     fn deterministic_default_is_execution_ready_without_credential() {
@@ -216,8 +240,8 @@ mod tests {
                     runne_api::ProviderActivationBindingV1::deepseek_responses_text_v1(),
                 ),
                 profile_id: "gocode-deepseek-responses-text/1".to_owned(),
-                model_id: DEEPSEEK_MODEL_ID,
-                model_revision: DEEPSEEK_MODEL_REVISION,
+                model_id: DEEPSEEK_MODEL_ID.to_owned(),
+                model_revision: DEEPSEEK_MODEL_REVISION.to_owned(),
             }),
             openai_credential: CredentialDisposition::Configured,
             deepseek_credential: CredentialDisposition::Missing,

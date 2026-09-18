@@ -143,10 +143,7 @@ impl AuthenticatedRuntimeClient {
 }
 
 const fn provider_path(provider: ProviderCredentialProviderV2) -> &'static str {
-    match provider {
-        ProviderCredentialProviderV2::OpenAi => "openai",
-        ProviderCredentialProviderV2::DeepSeek => "deepseek",
-    }
+    provider.as_str()
 }
 
 fn require_enrollment_capability(

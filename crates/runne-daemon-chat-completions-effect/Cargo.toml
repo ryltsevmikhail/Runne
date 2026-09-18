@@ -1,0 +1,20 @@
+[package]
+name = "runne-daemon-chat-completions-effect"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+runne-provider = { path = "../runne-provider" }
+runne-provider-chat-completions = { path = "../runne-provider-chat-completions" }
+runne-provider-quota = { path = "../runne-provider-quota" }
+runne-secure-store = { path = "../runne-secure-store", default-features = false }
+runne-store = { path = "../runne-store" }
+reqwest = { workspace = true, features = ["json", "rustls-tls", "stream"] }
+bytes = "1"
+tokio.workspace = true
+zeroize.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

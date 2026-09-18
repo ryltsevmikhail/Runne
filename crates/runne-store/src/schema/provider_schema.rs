@@ -128,6 +128,39 @@ pub(super) fn v14_base_matches(
     })
 }
 
+pub(super) fn v14_base_matches_for_v37(
+    conn: &Connection,
+    v12_core_matches: bool,
+    v37_accounting_matches: bool,
+) -> SqliteResult<bool> {
+    if !v12_core_matches || !v37_accounting_matches {
+        return Ok(false);
+    }
+    released_v14_table_matches(conn, "provider_runtime_authority_state")
+        .and_then(|state| v37_admission_table_matches(conn).map(|admission| state && admission))
+}
+
+fn v37_admission_table_matches(conn: &Connection) -> SqliteResult<bool> {
+    let actual: Option<String> = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='provider_execution_admissions'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let expected = released_v14_table_sql("provider_execution_admissions").map(|sql| {
+        sql.replace(
+            "max_cost_micros INTEGER NOT NULL CHECK(max_cost_micros > 0), currency TEXT NOT NULL CHECK(length(currency) = 3)",
+            "max_cost_micros INTEGER NOT NULL CHECK(max_cost_micros >= 0), currency TEXT NOT NULL CHECK(length(currency) = 3 AND (max_cost_micros > 0 OR currency = 'XXX'))",
+        )
+    });
+    Ok(actual.is_some_and(|actual| {
+        expected.is_some_and(|expected| {
+            super::normalize_ddl(&actual) == super::normalize_ddl(&expected)
+        })
+    }))
+}
+
 fn released_v14_table_matches(conn: &Connection, table: &str) -> SqliteResult<bool> {
     let actual: Option<String> = conn
         .query_row(

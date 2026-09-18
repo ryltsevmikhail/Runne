@@ -3,8 +3,7 @@ use super::rows::{ensure_head, fence, load_head, map_sql, readiness, snapshot};
 use runne_provider::{
     CompleteCredentialOperation, CredentialCompletionReceipt, CredentialFence,
     CredentialLifecycleError, CredentialLifecycleSnapshot, CredentialOperationAction,
-    CredentialOperationState,
-    HardFenceProvider, ProviderId,
+    CredentialOperationState, HardFenceProvider, ProviderId,
 };
 use rusqlite::{TransactionBehavior, params};
 use sha2::{Digest, Sha256};
@@ -22,7 +21,8 @@ pub(super) fn complete(
         input.operation_id(),
         &store.enrollment_authority,
     )?;
-    let legacy_source_cleanup = operation.action() == CredentialOperationAction::LegacySourceCleanup;
+    let legacy_source_cleanup =
+        operation.action() == CredentialOperationAction::LegacySourceCleanup;
     if input.readiness_observation().is_none() != legacy_source_cleanup {
         return Err(CredentialLifecycleError::Conflict);
     }

@@ -10,7 +10,8 @@ mod tests;
 
 pub use codec::{CredentialSecretEnvelopeCodec, CredentialSecretOfferCodec};
 pub use crypto::{
-    CredentialSecretClaimOffer, PendingCredentialSecretOpening, SealedCredentialEnvelope,
+    CredentialSecretClaimOffer, CredentialSecretEnvelopeKind, PendingCredentialSecretOpening,
+    SealedCredentialEnvelope,
 };
 #[doc(hidden)]
 pub use publication::CredentialSecretPublicationSigner as DaemonCredentialSecretPublicationSigner;
@@ -46,6 +47,13 @@ pub fn sealed_pair_for_test(
     let publication = signer.sign(offer, channel.digest())?;
     let verified = publication::CredentialSecretPublicationVerifier::new(public_key, channel)
         .verify(verified_offer, publication)?;
-    let envelope = verified.seal(zeroize::Zeroizing::new(secret))?;
+    let envelope = if matches!(
+        command.provider().as_str(),
+        "openai-codex" | "github-copilot"
+    ) {
+        verified.seal_native_oauth(zeroize::Zeroizing::new(secret))?
+    } else {
+        verified.seal(zeroize::Zeroizing::new(secret))?
+    };
     Ok(SealedPairFixture { pending, envelope })
 }

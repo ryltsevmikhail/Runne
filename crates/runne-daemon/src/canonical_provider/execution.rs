@@ -14,9 +14,9 @@ impl CanonicalProviderExecutionService for DaemonCanonicalProviderService {
                 &self.conversation_store,
                 &job,
                 self.profile.as_ref(),
-                self.provider_id,
-                self.model_id,
-                self.model_revision,
+                &self.provider_id,
+                &self.model_id,
+                &self.model_revision,
             )?;
             let requested_input_tokens = u64::try_from(self.profile.max_input_bytes())
                 .map_err(|_| CanonicalProviderExecutionError::Conflict)?;
@@ -39,13 +39,15 @@ impl CanonicalProviderExecutionService for DaemonCanonicalProviderService {
                 credential,
                 self.adapter.as_ref(),
             );
-            let coordinator = SqliteProviderDispatchCoordinator::new(
+            let coordinator = SqliteProviderDispatchCoordinator::new_with_budget(
                 self.dispatch_store.as_ref(),
                 self.execution_store.as_ref(),
                 credential,
                 self.adapter.as_ref(),
                 &effect,
                 self.prohibited_content.as_ref(),
+                runne_api::is_subscription_provider(self.provider_id.as_ref()),
+                Some(self.credential_store.clone()),
             );
             let outcome = coordinator
                 .dispatch(ProviderCoordinatorRequest {
