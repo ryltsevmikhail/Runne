@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
 
+#[cfg(not(feature = "test-support"))]
 const OWNERSHIP_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(super) fn configure(transport: &UnixStream) -> Result<(), BrokerHandoffError> {
@@ -16,19 +17,16 @@ pub(super) fn configure(transport: &UnixStream) -> Result<(), BrokerHandoffError
 }
 
 #[cfg(feature = "test-support")]
-fn ownership_timeout() -> Duration {
-    let opted_in = std::env::var_os("RUNNE_LOCAL_NATIVE_ENROLLMENT_TEST").as_deref()
-        == Some(std::ffi::OsStr::new("1"));
-    ownership_timeout_for_local_test_opt_in(opted_in)
-}
-
-#[cfg(feature = "test-support")]
-const fn ownership_timeout_for_local_test_opt_in(opted_in: bool) -> Duration {
-    if opted_in {
-        Duration::from_mins(2)
-    } else {
-        OWNERSHIP_TIMEOUT
-    }
+const fn ownership_timeout() -> Duration {
+    // Workspace test hosts run the whole matrix concurrently and can starve
+    // a test thread well past the production budget (observed as a BrokenPipe
+    // in v3_control_completes_the_full_broker_writer_handoff on a loaded CI
+    // mac lane: the daemon's 5s read deadline fired before the desktop side
+    // wrote the relinquished wire). Keep the exchange bounded but generous in
+    // test-support builds; production keeps the 5s budget. The
+    // RUNNE_LOCAL_NATIVE_ENROLLMENT_TEST env stays scoped to the local
+    // native enrollment fixture route and no longer widens this timeout.
+    Duration::from_mins(2)
 }
 
 #[cfg(not(feature = "test-support"))]
@@ -76,14 +74,7 @@ mod tests {
 
     #[cfg(feature = "test-support")]
     #[test]
-    fn isolated_native_enrollment_gets_a_bounded_ownership_budget() {
-        assert_eq!(
-            ownership_timeout_for_local_test_opt_in(false),
-            Duration::from_secs(5)
-        );
-        assert_eq!(
-            ownership_timeout_for_local_test_opt_in(true),
-            Duration::from_mins(2)
-        );
+    fn test_builds_get_a_bounded_ownership_budget() {
+        assert_eq!(ownership_timeout(), Duration::from_mins(2));
     }
 }
