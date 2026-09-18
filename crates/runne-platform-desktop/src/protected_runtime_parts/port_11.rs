@@ -131,6 +131,41 @@ mod tests {
             ProtectedBundledRuntimeLaunchSpec::new(&unsafe_daemon, &runtime_root),
             Err(ProtectedBundledRuntimeError::ExecutableUnavailable)
         );
+
+        let group_writable_parent = temporary.path().join("group-writable-parent");
+        std::fs::create_dir(&group_writable_parent).expect("create group-writable parent");
+        std::fs::set_permissions(
+            &group_writable_parent,
+            std::fs::Permissions::from_mode(0o770),
+        )
+        .expect("weaken parent group permissions");
+        let group_daemon = group_writable_parent.join("runned");
+        executable(&group_daemon, 0o755);
+        assert_eq!(
+            ProtectedBundledRuntimeLaunchSpec::new(&group_daemon, &runtime_root),
+            Err(ProtectedBundledRuntimeError::ExecutableUnavailable)
+        );
+    }
+
+    #[test]
+    fn directory_write_bits_match_the_macos_release_reality() {
+        let euid = rustix::process::geteuid().as_raw();
+        // macOS default /Applications: root-owned, admin-group-writable,
+        // no sticky bit, no other-write — must be accepted.
+        assert!(directory_write_bits_are_secure(0o775, 0, euid, euid));
+        // Root-owned with other-write is still rejected without the sticky
+        // rule.
+        assert!(!directory_write_bits_are_secure(0o777, 0, euid, euid));
+        // Group-write on a non-root-owned directory needs the sticky rule.
+        assert!(!directory_write_bits_are_secure(0o775, 1000, 1000, 1000));
+        assert!(!directory_write_bits_are_secure(0o770, euid, euid, euid));
+        assert!(directory_write_bits_are_secure(0o1775, 1000, 1000, 1000));
+        assert!(!directory_write_bits_are_secure(0o1775, 1000, 1000, 1000 + 1));
+        // Other-write relies on the sticky rule regardless of ownership.
+        assert!(directory_write_bits_are_secure(0o1777, 0, euid, euid));
+        assert!(!directory_write_bits_are_secure(0o1777, 0, 1000 + 1, euid));
+        // Read-only directories are always fine.
+        assert!(directory_write_bits_are_secure(0o755, 0, 1000 + 1, euid));
     }
 
     #[test]

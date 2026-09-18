@@ -164,12 +164,12 @@ fn validate_secure_directory_chain(path: &Path) -> Result<(), ProtectedBundledRu
         if metadata.file_type().is_symlink()
             || !metadata.is_dir()
             || (metadata.uid() != 0 && metadata.uid() != effective_uid)
-        {
-            return Err(ProtectedBundledRuntimeError::ExecutableUnavailable);
-        }
-        if mode & 0o022 != 0
-            && (mode & 0o1000 == 0
-                || (child_metadata.uid() != 0 && child_metadata.uid() != effective_uid))
+            || !directory_write_bits_are_secure(
+                mode,
+                metadata.uid(),
+                child_metadata.uid(),
+                effective_uid,
+            )
         {
             return Err(ProtectedBundledRuntimeError::ExecutableUnavailable);
         }
@@ -183,6 +183,33 @@ fn validate_secure_directory_chain(path: &Path) -> Result<(), ProtectedBundledRu
         directory = parent;
     }
     Ok(())
+}
+
+/// Decides whether a chain directory's write bits keep the bundled daemon
+/// uncontrollable by another local principal.
+///
+/// macOS ships `/Applications` as `root:admin` mode 0775 — root-owned and
+/// group-writable by OS default, without the sticky bit. Writing there
+/// requires admin membership, so an admin-group-writable root-owned
+/// directory is not an attacker-controlled ancestor, and a replaced binary
+/// is still caught by the pinned executable identity check. Other-write is
+/// never tolerated on its own, and group-write stays rejected for
+/// directories not owned by root unless the sticky-bit rule protects the
+/// child.
+#[cfg(unix)]
+const fn directory_write_bits_are_secure(
+    mode: u32,
+    directory_uid: u32,
+    child_uid: u32,
+    effective_uid: u32,
+) -> bool {
+    if mode & 0o022 == 0 {
+        return true;
+    }
+    if mode & 0o020 != 0 && mode & 0o002 == 0 && directory_uid == 0 {
+        return true;
+    }
+    mode & 0o1000 != 0 && (child_uid == 0 || child_uid == effective_uid)
 }
 
 #[cfg(unix)]
