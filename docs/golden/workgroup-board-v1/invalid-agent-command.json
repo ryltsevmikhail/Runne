@@ -1,0 +1,16 @@
+{
+  "schema_version": "workgroup-board.v1",
+  "record_type": "command",
+  "command_id": "018f2e3a-7000-7000-8000-000000000204",
+  "group_id": "018f2e3a-7000-7000-8000-000000000102",
+  "discussion_id": "018f2e3a-7000-7000-8000-000000000103",
+  "expected_board_version": 5,
+  "expected_task_revision": 1,
+  "actor": { "principal_id": "agent:researcher", "member_id": "018f2e3a-7000-7000-8000-000000000105", "kind": "agent" },
+  "policy_ref": { "policy_id": "shared_room_v1", "revision": 2 },
+  "operation": "update_task",
+  "payload": {
+    "task_id": "018f2e3a-7000-7000-8000-000000000202",
+    "title": "Проверить протокол"
+  }
+}
