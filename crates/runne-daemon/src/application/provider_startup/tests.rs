@@ -47,6 +47,41 @@ fn external_startup_parts_remain_unprotected_and_keep_provider_dependencies() {
     assert!(capability.is_none());
 }
 
+#[test]
+fn deterministic_startup_rejects_every_credentialed_activation() {
+    let directory = tempfile::tempdir().unwrap();
+    let defaults = crate::config::BuiltInDefaults::new(directory.path());
+    let bindings = [
+        runne_api::ProviderActivationBindingV1::openai_responses_text_v1(),
+        runne_api::ProviderActivationBindingV1::deepseek_responses_text_v1(),
+        runne_api::ProviderActivationBindingV1::zai_coding_chat_completions_text_v1(),
+        runne_api::ProviderActivationBindingV1::qwencloud_token_chat_completions_text_v1(),
+        runne_api::ProviderActivationBindingV1::new(
+            runne_api::ProviderActivationModeV1::GenericChatCompletionsTextV1,
+            "gocode-chat-completions/fixture/1",
+            [1; 32],
+        )
+        .unwrap(),
+        runne_api::ProviderActivationBindingV1::new(
+            runne_api::ProviderActivationModeV1::NativeTextV1,
+            runne_api::NATIVE_ANTHROPIC_PROFILE_ID,
+            runne_api::NATIVE_ANTHROPIC_PROFILE_DIGEST,
+        )
+        .unwrap(),
+        runne_api::ProviderActivationBindingV1::new(
+            runne_api::ProviderActivationModeV1::RadiusTextV1,
+            runne_api::RADIUS_TEXT_PROFILE_ID,
+            [2; 32],
+        )
+        .unwrap(),
+    ];
+    for binding in bindings {
+        let mut config = ConfigurationSnapshot::from_defaults(&defaults);
+        config.provider_activation = ProviderActivation::from_binding(binding);
+        assert!(StartupProvider::deterministic(&config).is_err());
+    }
+}
+
 #[cfg(all(unix, feature = "desktop-protected"))]
 #[test]
 fn protected_constructor_derives_the_pair_from_one_token() {

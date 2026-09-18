@@ -42,7 +42,9 @@ fn named_recovery_and_telemetry_inventory_is_complete() {
 
     let targets = [
         "operational_telemetry",
+        "provider_chat_effect",
         "provider_dispatch_recovery",
+        "provider_native_effect",
         "provider_recovery_full_audit",
         "recovery_fixture_compatibility",
     ];

@@ -1,0 +1,23 @@
+[package]
+name = "runne-daemon-responses-effect"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+bytes = "1"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+runne-provider = { path = "../runne-provider" }
+runne-provider-oauth = { path = "../runne-provider-oauth" }
+runne-provider-quota = { path = "../runne-provider-quota" }
+runne-provider-responses-wire = { path = "../runne-provider-responses-wire" }
+runne-secure-store = { path = "../runne-secure-store", default-features = false }
+runne-store = { path = "../runne-store" }
+subtle = "2"
+thiserror.workspace = true
+tokio.workspace = true
+zeroize.workspace = true
+
+[lints]
+workspace = true

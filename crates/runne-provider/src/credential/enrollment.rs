@@ -71,9 +71,10 @@ pub use protocol::daemon_credential_publication_test_support;
 pub use protocol::{
     CredentialBrokerCommand, CredentialBrokerCommandCodec, CredentialBrokerFrame,
     CredentialBrokerFrameCodec, CredentialBrokerTarget, CredentialIssueTicketBindingV1,
-    CredentialSecretClaimOffer, CredentialSecretEnvelopeCodec, CredentialSecretInputPresence,
-    CredentialSecretOfferCodec, CredentialSecretPublication, CredentialSecretPublicationCodec,
-    CredentialSecretRelayFrameCodec, CredentialWriterCommandKindV1, CredentialWriterCommandScopeV1,
+    CredentialSecretClaimOffer, CredentialSecretEnvelopeCodec, CredentialSecretEnvelopeKind,
+    CredentialSecretInputPresence, CredentialSecretOfferCodec, CredentialSecretPublication,
+    CredentialSecretPublicationCodec, CredentialSecretRelayFrameCodec,
+    CredentialWriterCommandKindV1, CredentialWriterCommandScopeV1,
     CredentialWriterQualifiedAckCodec, CredentialWriterQualifiedAckSigner,
     CredentialWriterQualifiedAckV1, CredentialWriterQualifiedPreludeCodec,
     CredentialWriterQualifiedPreludeSigner, CredentialWriterQualifiedPreludeV1,

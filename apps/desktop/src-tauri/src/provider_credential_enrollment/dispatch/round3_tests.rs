@@ -23,7 +23,7 @@ use crate::updater_status::enrollment::{
 use portable_reaper::reap_guard::{ExactWriterCleanup, RetainedWriterCleanup};
 use portable_reaper::reaper_registry::{CredentialWriterReaperRegistry, ReaperOperationId};
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
-use runne_api::{ProviderCredentialEnrollmentActionV2, ProviderCredentialProviderV2};
+use runne_api::ProviderCredentialProviderV2;
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 use runne_platform_desktop::{SecureCredentialMaterial, SecureCredentialPromptDisposition};
 
@@ -264,7 +264,7 @@ enum LiveFault {
 fn pair_request() -> CredentialIntentIpc {
     CredentialIntentIpc {
         provider: ProviderCredentialProviderV2::OpenAi,
-        action: ProviderCredentialEnrollmentActionV2::Pair,
+        action: super::super::CredentialIntentAction::Pair,
         expected_revision: 7,
         renderer_generation: 3,
         verification_kind: None,

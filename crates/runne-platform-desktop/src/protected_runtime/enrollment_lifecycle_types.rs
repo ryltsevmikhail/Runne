@@ -1,6 +1,6 @@
 use runne_api::{
     BeginProviderCredentialEnrollment, ProtectedCredentialEnrollmentLifecycleCodec,
-    ProviderCredentialOperationSnapshotV2,
+    ProviderCredentialOperationSnapshotV2, VerifyProviderCredential,
 };
 
 use super::ProtectedBundledRuntimeError;
@@ -29,6 +29,30 @@ impl NativeProtectedCredentialEnrollmentBegin {
     }
 }
 
+/// Native-only metadata for one explicit remote quota verification.
+pub struct NativeProtectedCredentialVerificationBegin {
+    pub(super) command: VerifyProviderCredential,
+    pub(super) native_confirmation: [u8; 32],
+}
+
+impl NativeProtectedCredentialVerificationBegin {
+    /// # Errors
+    ///
+    /// Returns a closed failure for an empty native confirmation binding.
+    pub fn new(
+        command: VerifyProviderCredential,
+        native_confirmation: [u8; 32],
+    ) -> Result<Self, ProtectedBundledRuntimeError> {
+        if native_confirmation == [0; 32] {
+            return Err(ProtectedBundledRuntimeError::InvalidState);
+        }
+        Ok(Self {
+            command,
+            native_confirmation,
+        })
+    }
+}
+
 /// Move-only lifecycle authority retained from Prepared through terminal.
 pub struct PreparedProtectedCredentialEnrollment {
     pub(super) codec: ProtectedCredentialEnrollmentLifecycleCodec,
@@ -36,6 +60,24 @@ pub struct PreparedProtectedCredentialEnrollment {
     pub(super) relay: Option<[u8; runne_api::PROTECTED_CREDENTIAL_SECRET_RELAY_BYTES]>,
     pub(super) relay_taken: bool,
     pub(super) terminal: bool,
+}
+
+/// Move-only control authority retained until remote verification terminal evidence.
+pub struct PreparedProtectedCredentialVerification {
+    pub(super) snapshot: ProviderCredentialOperationSnapshotV2,
+    pub(super) terminal: bool,
+}
+
+impl PreparedProtectedCredentialVerification {
+    #[must_use]
+    pub const fn snapshot(&self) -> &ProviderCredentialOperationSnapshotV2 {
+        &self.snapshot
+    }
+
+    #[must_use]
+    pub const fn terminal(&self) -> bool {
+        self.terminal
+    }
 }
 
 impl PreparedProtectedCredentialEnrollment {

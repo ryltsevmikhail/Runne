@@ -106,6 +106,13 @@ fn upgrade_v1(connection: &Connection) -> Result<(), QualificationReplayLedgerEr
         if version == SCHEMA_VERSION && schema_id(connection)? == SCHEMA_ID {
             return Ok(());
         }
+        // A concurrent opener may have committed v1->v2 after this opener read
+        // user_version outside the transaction. v2 is a valid intermediate
+        // state: return Ok so the caller's upgrade_v2 step advances it, which
+        // it strictly re-validates under this same write lock.
+        if version == 2 {
+            return Ok(());
+        }
         if version != 1
             || schema_id(connection)? != "runne/qualification-runner-replay/v1"
             || !integrity_and_foreign_keys_are_clean(connection)?

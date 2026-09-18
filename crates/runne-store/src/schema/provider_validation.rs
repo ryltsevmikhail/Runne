@@ -90,6 +90,43 @@ fn v13_unchanged_tables_match(conn: &Connection) -> SqliteResult<bool> {
     })
 }
 
+fn v13_unchanged_tables_match_for_v37(conn: &Connection) -> SqliteResult<bool> {
+    [
+        "provider_journal_key_refs",
+        "provider_encryption_nonces",
+        "provider_poll_flights",
+        "provider_stream_journal",
+        "provider_accounting_settlements",
+        "provider_terminal_outbox",
+    ]
+    .into_iter()
+    .try_fold(true, |matches, table| {
+        Ok(matches && table_sql_matches_migration(conn, table, MIGRATION_V13)?)
+    })
+}
+
+fn v37_accounting_tables_match(conn: &Connection) -> SqliteResult<bool> {
+    let admission: Option<String> = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='provider_execution_admissions'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let reservation: Option<String> = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='provider_budget_reservations'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(admission.is_some_and(|sql| {
+        sql.contains("max_cost_micros >= 0")
+            && sql.contains("currency = 'XXX'")
+            && sql.contains("owner_id TEXT NOT NULL DEFAULT ''")
+    }) && reservation.is_some_and(|sql| sql.contains("dimension = 2 AND amount = 0")))
+}
+
 fn is_released_provider_v14(conn: &Connection, version: i64) -> SqliteResult<bool> {
     Ok(provider_schema::v14_columns_match(
         conn,

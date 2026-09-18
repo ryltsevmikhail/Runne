@@ -72,6 +72,22 @@ fn get_provider_status(
 }
 
 #[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+async fn get_provider_quota(
+    state: tauri::State<'_, std::sync::Arc<AppCore>>,
+) -> Result<Vec<runne_api::ProviderQuotaProjectionV1>, IpcError> {
+    state.provider_quota().await.map_err(|_| IpcError {
+        code: "provider_quota_unavailable",
+    })
+}
+
+/// Returns the backend-authoritative provider catalog without credentials.
+#[tauri::command]
+fn get_provider_catalog() -> Vec<runne_api::ProviderCatalogSnapshotV1> {
+    runne_api::provider_catalog_snapshot()
+}
+
+#[tauri::command]
 async fn get_provider_credential_enrollment_status(
     state: tauri::State<'_, std::sync::Arc<AppCore>>,
     lifecycle: tauri::State<'_, RuntimeLifecycleManager>,

@@ -5,6 +5,7 @@ use rusqlite::functions::FunctionFlags;
 
 use super::ProviderAuthorityIssueOutcome;
 use super::authority_test_support::{Fixture, configured_connection, prepare_request};
+include!("authority_replay_provider_test_support.rs");
 
 #[test]
 fn unarmed_new_online_issue_is_denied() {
@@ -177,118 +178,4 @@ fn store_open_restores_the_private_issuance_guard_after_caller_replaces_it() {
         matches!(issue, Ok(ProviderAuthorityIssueOutcome::Winner(_))),
         "{issue:?}"
     );
-}
-
-fn upgraded_v25(
-    discriminator: u8,
-) -> (
-    tempfile::TempDir,
-    std::path::PathBuf,
-    ProviderAuthorityIssueRequest,
-) {
-    upgraded_v25_for_provider(discriminator, "fixture-provider")
-}
-
-pub(super) fn upgraded_v25_for_provider(
-    discriminator: u8,
-    provider: &str,
-) -> (
-    tempfile::TempDir,
-    std::path::PathBuf,
-    ProviderAuthorityIssueRequest,
-) {
-    let fixture = Fixture::new(1_000);
-    fixture.install();
-    let request = super::authority_test_support::prepare_request_for_provider(
-        fixture.launch(),
-        &fixture.path,
-        discriminator,
-        provider,
-    );
-    assert!(matches!(
-        fixture.store.issue(fixture.launch(), &request),
-        Ok(ProviderAuthorityIssueOutcome::Winner(_))
-    ));
-    let Fixture {
-        directory,
-        path,
-        store,
-        ..
-    } = fixture;
-    drop(store);
-    let connection = Connection::open(&path).unwrap();
-    connection
-        .execute_batch(
-            "DROP TRIGGER provider_credential_ticket_insert_issued;
-             DROP TABLE provider_qualification_admission_fences;
-             DROP TABLE credential_cleanup_recovery_attempts;
-             DROP TRIGGER provider_credential_attachment_insert;
-             DROP TRIGGER provider_credential_attachment_immutable;
-             DROP TRIGGER provider_credential_attachment_no_delete;
-             DROP TABLE provider_credential_process_attachments;
-             DROP TRIGGER provider_credential_verification_binding_insert;
-             DROP TRIGGER provider_credential_verification_binding_immutable;
-             DROP TRIGGER provider_credential_verification_binding_complete;
-             DROP TRIGGER provider_credential_remote_verification_binding;
-             ALTER TABLE provider_credential_verification_observations DROP COLUMN readiness_revision;
-             ALTER TABLE provider_credential_verification_observations DROP COLUMN release_tuple_digest;
-             DROP TRIGGER provider_credential_head_active_lifecycle;
-             DROP TRIGGER provider_credential_operation_insert_prepared;
-             DROP INDEX provider_credential_one_pending_legacy_source_cleanup;
-             DROP INDEX provider_credential_one_non_terminal_operation;
-             CREATE UNIQUE INDEX provider_credential_one_non_terminal_operation ON provider_credential_operations(provider_id) WHERE state NOT IN ('COMPLETED', 'FAILED', 'EXPIRED', 'CANCELLED', 'TOMBSTONED');
-             DROP TRIGGER provider_credential_qualified_release_tuple_insert;
-             DROP TRIGGER provider_credential_qualified_release_tuple_immutable;
-             DROP TABLE provider_credential_completion_receipts;
-             DROP TRIGGER provider_credential_migration_provenance_insert;
-             DROP TRIGGER provider_credential_migration_provenance_immutable;
-             DROP TRIGGER provider_credential_claimed_attempt_transition;
-             ALTER TABLE provider_credential_operations
-                 DROP COLUMN qualified_release_tuple_digest;
-             ALTER TABLE provider_credential_operations
-                 DROP COLUMN broker_migration_binding_digest;
-             ALTER TABLE provider_credential_operations
-                 DROP COLUMN claimed_ticket_attempt;
-             DROP TABLE provider_online_dispatch_claim_providers;
-             DROP TABLE provider_online_dispatch_issuance_evidence;
-             DROP TABLE provider_online_credential_effect_bindings;
-             DELETE FROM schema_version WHERE version >= 26;",
-    )
-        .unwrap();
-    crate::schema::restore_v18_project_workspace_receipt_for_test(&connection).unwrap();
-    crate::schema::restore_v25_credential_triggers_for_test(&connection).unwrap();
-    assert_eq!(
-        connection
-            .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
-                .get::<_, i64>(0))
-            .unwrap(),
-        25
-    );
-    drop(connection);
-
-    (directory, path, request)
-}
-
-fn admission_fields(path: &std::path::Path) -> (Vec<u8>, Vec<u8>, i64, i64) {
-    Connection::open(path)
-        .unwrap()
-        .query_row(
-            "SELECT dispatch_attempt_id, authority_id, authority_revision, issued_at
-             FROM provider_execution_admissions",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .unwrap()
-}
-
-fn admission_counts(path: &std::path::Path) -> (i64, i64) {
-    Connection::open(path)
-        .unwrap()
-        .query_row(
-            "SELECT (SELECT COUNT(*) FROM provider_execution_admissions),
-                    (SELECT COUNT(*) FROM provider_online_dispatch_claim_providers)",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .unwrap()
 }

@@ -1,9 +1,6 @@
 use sha2::{Digest as _, Sha256};
 
-use super::{
-    BeginProviderCredentialEnrollment, ProviderCredentialEnrollmentActionV2,
-    ProviderCredentialProviderV2,
-};
+use super::{BeginProviderCredentialEnrollment, ProviderCredentialEnrollmentActionV2};
 use crate::ProviderCredentialCommandContext;
 
 const ACTION_BINDING_DOMAIN: &[u8] = b"runne/provider-credential/begin-action/v1\0";
@@ -46,7 +43,7 @@ fn action_binding(command: &BeginProviderCredentialEnrollment) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(ACTION_BINDING_DOMAIN);
     hasher.update([action_byte(command.action())]);
-    hasher.update([provider_byte(command.provider())]);
+    hasher.update([command.provider().wire_tag()]);
     hasher.update(command.expected_lifecycle_revision().to_be_bytes());
     hasher.finalize().into()
 }
@@ -79,12 +76,5 @@ const fn action_byte(action: ProviderCredentialEnrollmentActionV2) -> u8 {
         ProviderCredentialEnrollmentActionV2::Pair => 1,
         ProviderCredentialEnrollmentActionV2::Revoke => 2,
         ProviderCredentialEnrollmentActionV2::MigrateLegacy => 3,
-    }
-}
-
-const fn provider_byte(provider: ProviderCredentialProviderV2) -> u8 {
-    match provider {
-        ProviderCredentialProviderV2::OpenAi => 1,
-        ProviderCredentialProviderV2::DeepSeek => 2,
     }
 }

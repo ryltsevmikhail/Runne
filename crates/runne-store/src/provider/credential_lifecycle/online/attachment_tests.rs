@@ -20,11 +20,10 @@ fn ticket_issue_requires_the_exact_durable_writer_attachment() {
     )
     .unwrap();
 
-    assert!(ProviderCredentialEnrollmentStore::issue_ticket_attempt(
-        &store,
-        ticket(201, 1, 203, 204),
-    )
-    .is_ok());
+    assert!(
+        ProviderCredentialEnrollmentStore::issue_ticket_attempt(&store, ticket(201, 1, 203, 204),)
+            .is_ok()
+    );
     assert_eq!(
         ProviderCredentialEnrollmentStore::issue_ticket_attempt(&store, ticket(201, 2, 205, 206)),
         Err(CredentialLifecycleError::Conflict)

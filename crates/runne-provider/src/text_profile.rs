@@ -31,4 +31,27 @@ pub trait TextProviderProfile: ProviderTerminalPricing + Send + Sync {
     /// Prices short-context usage; `Err` for an unsupported pricing tier.
     fn price_usage_micros(&self, usage: ProviderUsage)
     -> Result<u64, ProviderTerminalPricingError>;
+
+    /// Builds the exact provider-call extension used by canonical projection.
+    ///
+    /// The default is limited to the three fields shared by existing text
+    /// adapters. Profiles with additional binding state may override this
+    /// method. Digests are derived after the profile digest exists, so this
+    /// extension is never included in that digest's input.
+    fn call_binding_extension(&self) -> serde_json::Value {
+        serde_json::json!({
+            "profile_id": self.profile_id(),
+            "profile_digest": encode_digest(self.profile_digest()),
+            "pricing_revision_digest": encode_digest(self.pricing_revision_digest()),
+        })
+    }
+}
+
+fn encode_digest(digest: [u8; 32]) -> String {
+    let mut encoded = String::with_capacity(64);
+    for byte in digest {
+        use core::fmt::Write as _;
+        let _ = write!(encoded, "{byte:02x}");
+    }
+    encoded
 }

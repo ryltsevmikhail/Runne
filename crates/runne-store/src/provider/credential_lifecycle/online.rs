@@ -4,8 +4,6 @@ mod attachment;
 mod begin;
 #[path = "online/claim.rs"]
 mod claim;
-#[path = "online/qualification_issue.rs"]
-mod qualification_issue;
 #[path = "online/compatibility_mirror.rs"]
 mod compatibility_mirror;
 #[path = "online/complete.rs"]
@@ -14,10 +12,12 @@ mod complete;
 mod completion_receipt;
 #[path = "online/head.rs"]
 mod head;
-#[path = "online/legacy_cutover.rs"]
-mod legacy_cutover;
 #[path = "online/legacy_cleanup_binding.rs"]
 mod legacy_cleanup_binding;
+#[path = "online/legacy_cutover.rs"]
+mod legacy_cutover;
+#[path = "online/qualification_issue.rs"]
+mod qualification_issue;
 #[path = "online/readback.rs"]
 mod readback;
 #[path = "online/readiness_observation.rs"]
@@ -26,10 +26,10 @@ mod readiness_observation;
 mod recovery;
 #[path = "online/recovery_admission.rs"]
 mod recovery_admission;
-#[path = "online/recovery_claim.rs"]
-mod recovery_claim;
 #[path = "online/recovery_attachment.rs"]
 mod recovery_attachment;
+#[path = "online/recovery_claim.rs"]
+mod recovery_claim;
 #[path = "online/retired_cleanup.rs"]
 mod retired_cleanup;
 #[path = "online/rows.rs"]
@@ -44,14 +44,14 @@ mod verification_context;
 use runne_provider::ProviderCredentialEnrollmentStore;
 
 #[cfg(test)]
-#[path = "online/qualification_tests.rs"]
-mod qualification_tests;
+#[path = "online/qualification_crash_tests.rs"]
+mod qualification_crash_tests;
 #[cfg(test)]
 #[path = "online/qualification_fixture.rs"]
 mod qualification_fixture;
 #[cfg(test)]
-#[path = "online/qualification_crash_tests.rs"]
-mod qualification_crash_tests;
+#[path = "online/qualification_tests.rs"]
+mod qualification_tests;
 
 include!("online/store_port.rs");
 
@@ -64,9 +64,10 @@ mod online_attachment_tests;
 #[cfg(test)]
 #[path = "online/begin_admission_tests.rs"]
 mod online_begin_admission_tests;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[path = "online/claim_test_support.rs"]
-pub(crate) mod online_claim_test_support;
+#[doc(hidden)]
+pub mod online_claim_test_support;
 #[cfg(test)]
 #[path = "online/completion_tests.rs"]
 mod online_completion_tests;
@@ -113,11 +114,11 @@ mod online_tests;
 #[path = "online/ticket_expiry_tests.rs"]
 mod online_ticket_expiry_tests;
 #[cfg(test)]
-#[path = "online/verification_context_tests.rs"]
-mod online_verification_context_tests;
-#[cfg(test)]
 #[path = "online/verification_binding_tests.rs"]
 mod online_verification_binding_tests;
+#[cfg(test)]
+#[path = "online/verification_context_tests.rs"]
+mod online_verification_context_tests;
 #[cfg(test)]
 #[path = "online/verification_tests.rs"]
 mod online_verification_tests;

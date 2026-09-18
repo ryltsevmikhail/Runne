@@ -7,8 +7,10 @@
 //   deterministic digest (SHA-256 of canonical JSON).
 
 use crate::error::DaemonError;
-use crate::provider_activation::ProviderActivation;
+use crate::provider_activation::cloud::configured_profile as configured_cloud_profile;
+use crate::provider_activation::{ProviderActivation, configured_profile};
 use runne_api::{ProviderActivationBindingV1, ProviderActivationModeV1};
+use runne_provider_radius::{DEFAULT_RADIUS_GATEWAY, RadiusAccounting, RadiusCatalog};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
@@ -145,19 +147,103 @@ pub struct ExternalProviderActivationConfig {
     mode: String,
     profile_id: String,
     profile_digest: String,
+    settings: Option<ExternalProviderSettingsConfig>,
 }
 
 impl ExternalProviderActivationConfig {
-    fn binding(&self) -> Result<ProviderActivationBindingV1, DaemonError> {
+    fn binding_and_settings(
+        &self,
+    ) -> Result<(ProviderActivationBindingV1, ProviderActivationSettings), DaemonError> {
         let mode = ProviderActivationModeV1::try_from(self.mode.as_str())
             .map_err(|_| DaemonError::Config("invalid provider activation mode".into()))?;
-        let digest = hex::decode(&self.profile_digest)
-            .ok()
-            .and_then(|bytes| bytes.try_into().ok())
-            .ok_or_else(|| DaemonError::Config("invalid provider activation digest".into()))?;
-        ProviderActivationBindingV1::new(mode, self.profile_id.clone(), digest)
-            .map_err(|_| DaemonError::Config("invalid provider activation profile".into()))
+        let settings = self
+            .settings
+            .as_ref()
+            .map(ProviderActivationSettings::try_from)
+            .transpose()?
+            .unwrap_or_default();
+        ProviderActivation::validate_settings(mode, &self.profile_id, &settings)
+            .map_err(|message| DaemonError::Config(message.into()))?;
+        let digest = if matches!(
+            mode,
+            ProviderActivationModeV1::ResponsesTextV1
+                | ProviderActivationModeV1::CloudTextV1
+                | ProviderActivationModeV1::RadiusTextV1
+        ) {
+            let expected = match mode {
+                ProviderActivationModeV1::ResponsesTextV1 => {
+                    configured_profile(&self.profile_id, &settings)
+                        .map_err(|message| DaemonError::Config(message.into()))?
+                        .0
+                        .profile_digest()
+                }
+                ProviderActivationModeV1::CloudTextV1 => {
+                    configured_cloud_profile(&self.profile_id, &settings)
+                        .map_err(|message| DaemonError::Config(message.into()))?
+                        .0
+                        .profile_digest()
+                }
+                ProviderActivationModeV1::RadiusTextV1 => configured_radius_digest(&settings)?,
+                _ => unreachable!("derived digest mode is exhaustive"),
+            };
+            if self.profile_digest != "derived" {
+                let supplied = hex::decode(&self.profile_digest)
+                    .ok()
+                    .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
+                    .ok_or_else(|| {
+                        DaemonError::Config("invalid provider activation digest".into())
+                    })?;
+                if supplied != expected {
+                    return Err(DaemonError::Config(
+                        "Responses profile digest mismatch".into(),
+                    ));
+                }
+            }
+            expected
+        } else {
+            hex::decode(&self.profile_digest)
+                .ok()
+                .and_then(|bytes| bytes.try_into().ok())
+                .ok_or_else(|| DaemonError::Config("invalid provider activation digest".into()))?
+        };
+        let binding = ProviderActivationBindingV1::new(mode, self.profile_id.clone(), digest)
+            .map_err(|_| DaemonError::Config("invalid provider activation profile".into()))?;
+        Ok((binding, settings))
     }
+}
+
+fn configured_radius_digest(
+    settings: &ProviderActivationSettings,
+) -> Result<[u8; 32], DaemonError> {
+    let catalog = RadiusCatalog::from_json_at(
+        settings
+            .radius_catalog
+            .as_deref()
+            .ok_or_else(|| DaemonError::Config("Radius catalog snapshot is required".into()))?,
+        DEFAULT_RADIUS_GATEWAY,
+    )
+    .map_err(|_| DaemonError::Config("Radius catalog snapshot is invalid".into()))?;
+    let model = settings
+        .radius_model_id
+        .as_deref()
+        .ok_or_else(|| DaemonError::Config("Radius model is required".into()))?;
+    let revision = settings
+        .radius_revision
+        .as_deref()
+        .ok_or_else(|| DaemonError::Config("Radius catalog revision is required".into()))?;
+    let accounting = match settings.accounting_mode {
+        None | Some(ProviderAccountingMode::Subscription) => RadiusAccounting::SubscriptionQuota,
+        Some(ProviderAccountingMode::Payg) => RadiusAccounting::Payg,
+        Some(ProviderAccountingMode::TokenPlan) => {
+            return Err(DaemonError::Config(
+                "token-plan accounting is not valid for Radius".into(),
+            ));
+        }
+    };
+    catalog
+        .select_with_accounting("radius", model, revision, accounting)
+        .map(|profile| profile.profile_digest())
+        .map_err(|_| DaemonError::Config("Radius model is not in the bound catalog".into()))
 }
 
 // ── ConfigurationSnapshot ─────────────────────────────────────────────
@@ -178,6 +264,8 @@ pub struct ConfigurationSnapshot {
     pub shutdown_timeout_ms: u64,
     /// Exact non-secret provider selection; defaulting is deterministic only.
     pub provider_activation: ProviderActivation,
+    /// Exact non-secret settings bound to the selected provider.
+    pub provider_activation_settings: ProviderActivationSettings,
 
     /// Per-field provenance map (field name → source).
     pub provenance: BTreeMap<String, FieldSource>,

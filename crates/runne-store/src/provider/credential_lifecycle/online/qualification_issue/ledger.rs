@@ -1,9 +1,13 @@
-use runne_provider::{CredentialLifecycleError, CredentialTicketAttempt, ProviderQualificationAdmissionFence};
-use rusqlite::{Transaction, params};
 use super::map_sql;
+use runne_provider::{
+    CredentialLifecycleError, CredentialTicketAttempt, ProviderQualificationAdmissionFence,
+};
+use rusqlite::{Transaction, params};
 
-pub(super) fn reject_replay(transaction: &Transaction<'_>, input: &ProviderQualificationAdmissionFence)
-    -> Result<(), CredentialLifecycleError> {
+pub(super) fn reject_replay(
+    transaction: &Transaction<'_>,
+    input: &ProviderQualificationAdmissionFence,
+) -> Result<(), CredentialLifecycleError> {
     let exists: bool = transaction.query_row(
         "SELECT EXISTS(SELECT 1 FROM provider_qualification_admission_fences
          WHERE operation_id=?1 OR context_id=?2 OR context_nonce=?3 OR ticket_id=?4 OR ticket_nonce=?5)",
@@ -11,11 +15,19 @@ pub(super) fn reject_replay(transaction: &Transaction<'_>, input: &ProviderQuali
             input.context_nonce().as_slice(), input.ticket_id().as_slice(), input.ticket_nonce().as_slice()],
         |row| row.get(0),
     ).map_err(map_sql)?;
-    if exists { Err(CredentialLifecycleError::Conflict) } else { Ok(()) }
+    if exists {
+        Err(CredentialLifecycleError::Conflict)
+    } else {
+        Ok(())
+    }
 }
 
-pub(super) fn insert(transaction: &Transaction<'_>, input: &ProviderQualificationAdmissionFence,
-    attempt: CredentialTicketAttempt, now: i64) -> Result<(), CredentialLifecycleError> {
+pub(super) fn insert(
+    transaction: &Transaction<'_>,
+    input: &ProviderQualificationAdmissionFence,
+    attempt: CredentialTicketAttempt,
+    now: i64,
+) -> Result<(), CredentialLifecycleError> {
     transaction.execute(
         "INSERT INTO provider_qualification_admission_fences
         (operation_id,attempt,context_id,context_nonce,ticket_id,ticket_nonce,ticket_sha256,

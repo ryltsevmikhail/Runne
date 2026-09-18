@@ -12,7 +12,9 @@ use super::CliError;
 pub fn read_sealed_pair_envelope(
     reader: &mut impl Read,
 ) -> Result<SealedCredentialEnvelope, CliError> {
-    let mut bytes = Zeroizing::new(Vec::with_capacity(CredentialSecretEnvelopeCodec::MAX_BYTES));
+    let mut bytes = Zeroizing::new(Vec::with_capacity(
+        CredentialSecretEnvelopeCodec::MAX_NATIVE_OAUTH_BYTES,
+    ));
     loop {
         let mut byte = [0_u8; 1];
         match reader
@@ -21,7 +23,7 @@ pub fn read_sealed_pair_envelope(
         {
             0 => break,
             1 => {
-                if bytes.len() == CredentialSecretEnvelopeCodec::MAX_BYTES {
+                if bytes.len() == CredentialSecretEnvelopeCodec::MAX_NATIVE_OAUTH_BYTES {
                     return Err(CliError::CredentialOperation);
                 }
                 bytes.push(byte[0]);

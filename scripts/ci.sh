@@ -10,8 +10,12 @@ trap runne_ci_macos_keychain_cleanup EXIT
 # connections per test binary and legitimately exceeds that ceiling, so the
 # connection-heavy tests fail with EMFILE ("Too many open files") and the
 # store open path maps the same condition onto FileIdentityUncertain.
-# Raise the soft limit before any cargo invocation.
-ulimit -n 4096
+# 20480 stays well under kern.maxfilesperproc (61440) while covering the
+# broker live-writer suites, whose parallel rendezvous/evidence sockets plus
+# per-child codesign pipes exhausted the previous 4096 ceiling on loaded
+# lanes and failed whole admission test groups with Unavailable (run 419
+# macos-pinned; same family as run 413 macos-msrv).
+ulimit -n 20480
 
 MODE="${1:-}"
 if [ "$MODE" != "pinned" ] && [ "$MODE" != "msrv" ]; then

@@ -42,7 +42,9 @@ class DesktopQualificationWorkflowTest(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         for name, end_marker, frontend_cube_count, staging_count, dependency_count in (
             ("runtime-ci-pr", "\n  runtime-ci:", 1, 1, 1),
-            ("runtime-ci", "\n  desktop-frontend:", 2, 6, 2),
+            # Windows lanes removed 2026-09-18 (no gocode-windows-x86_64
+            # worker exists; the tasks only ever timed out): 4 staged lanes.
+            ("runtime-ci", "\n  desktop-frontend:", 2, 4, 2),
         ):
             start = workflow.index(f"  {name}:")
             end = workflow.index(end_marker, start)
@@ -58,7 +60,7 @@ class DesktopQualificationWorkflowTest(unittest.TestCase):
                 if gate in job:
                     self.assertLess(first_stage, job.index(gate))
 
-        for task in ("macos-pinned", "macos-msrv", "windows-pinned", "windows-msrv"):
+        for task in ("macos-pinned", "macos-msrv"):
             start = workflow.index(f"      - name: {task}")
             end = workflow.find("\n      - name: ", start + 1)
             job = workflow[start:] if end == -1 else workflow[start:end]

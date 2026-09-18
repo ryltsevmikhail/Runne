@@ -199,6 +199,8 @@ pub fn run() {
             set_shortcuts,
             get_device_status,
             get_provider_status,
+            get_provider_quota,
+            get_provider_catalog,
             local_model_stage,
             local_model_admit,
             local_model_list,

@@ -63,11 +63,7 @@ pub(super) fn project_call(
         .map_err(|_| CanonicalProviderExecutionError::Conflict)?,
         manifest.finalize().into(),
         profile.max_output_tokens(),
-        serde_json::json!({
-            "profile_id": profile.profile_id(),
-            "profile_digest": hex::encode(profile.profile_digest()),
-            "pricing_revision_digest": hex::encode(profile.pricing_revision_digest()),
-        }),
+        profile.call_binding_extension(),
     )
     .and_then(|call| call.with_text_inputs(inputs))
     .map(|call| call.with_required_capabilities(vec![ProviderCapability::Streaming]))

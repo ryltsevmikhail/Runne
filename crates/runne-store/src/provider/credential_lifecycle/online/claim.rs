@@ -51,7 +51,10 @@ pub(super) fn issue_ticket(
         )
         .map_err(map_sql)?;
     let recovery_expiry = match super::recovery_claim::lease_deadline(
-        &transaction, input.operation_id(), input.continuation_binding_digest(), effective_now,
+        &transaction,
+        input.operation_id(),
+        input.continuation_binding_digest(),
+        effective_now,
     ) {
         Err(CredentialLifecycleError::StaleLease) => {
             advance_observed_at_high_water(&transaction, operation.provider(), effective_now)?;
@@ -231,7 +234,12 @@ pub(super) fn claim(
         transaction.commit().map_err(map_sql)?;
         return Err(CredentialLifecycleError::StaleLease);
     }
-    super::recovery_claim::consume(&transaction, &store.enrollment_authority, &input, effective_now)?;
+    super::recovery_claim::consume(
+        &transaction,
+        &store.enrollment_authority,
+        &input,
+        effective_now,
+    )?;
     let changed = transaction.execute("UPDATE provider_credential_ticket_attempts SET state='CLAIMED' WHERE operation_id=?1 AND attempt=?2 AND ticket_digest=?3 AND continuation_binding_digest=?4 AND issued_at=?5 AND expires_at=?6 AND state='ISSUED' AND expires_at>?7", params![input.operation_id().as_bytes().as_slice(), input.ticket_attempt().get(), input.ticket_digest().as_bytes().as_slice(), input.continuation_binding_digest().as_bytes().as_slice(), input.issued_at_high_water(), input.expires_at_high_water(), effective_now]).map_err(map_sql)?;
     if changed != 1 {
         return Err(CredentialLifecycleError::Conflict);
@@ -281,7 +289,8 @@ pub(super) fn claim_head_matches(
         .ok_or(CredentialLifecycleError::CorruptState)?;
     if operation.action() == runne_provider::CredentialOperationAction::LegacySourceCleanup {
         return Ok(operation.metadata().legacy_cleanup_binding().is_some()
-            && head.lifecycle >= lifecycle && head.fence >= fence);
+            && head.lifecycle >= lifecycle
+            && head.fence >= fence);
     }
     Ok(head.lifecycle == lifecycle && head.fence == fence)
 }

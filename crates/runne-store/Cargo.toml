@@ -4,11 +4,15 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 
+[features]
+test-support = []
+
 [dependencies]
 runne-application = { path = "../runne-application" }
 runne-api = { path = "../runne-api" }
 runne-domain = { path = "../runne-domain" }
 runne-provider = { path = "../runne-provider" }
+runne-provider-quota = { path = "../runne-provider-quota" }
 runne-runtime = { path = "../runne-runtime" }
 runne-secure-store = { path = "../runne-secure-store", default-features = false }
 runne-sqlite-handle-identity = { path = "../runne-sqlite-handle-identity" }
@@ -38,7 +42,17 @@ hex.workspace = true
 runne-native-qualification = { path = "../runne-native-qualification", features = ["test-support"] }
 runne-api = { path = "../runne-api", features = ["test-support"] }
 runne-runtime = { path = "../runne-runtime", features = ["provider-terminal-test-support"] }
+runne-daemon-responses-effect = { path = "../runne-daemon-responses-effect" }
+runne-daemon-chat-completions-effect = { path = "../runne-daemon-chat-completions-effect" }
+runne-daemon-native-effect = { path = "../runne-daemon-native-effect" }
+runne-daemon-radius-effect = { path = "../runne-daemon-radius-effect" }
+runne-provider-chat-completions = { path = "../runne-provider-chat-completions" }
+runne-provider-native-wire = { path = "../runne-provider-native-wire" }
+runne-provider-quota = { path = "../runne-provider-quota" }
+runne-provider-radius = { path = "../runne-provider-radius" }
+runne-provider-responses-wire = { path = "../runne-provider-responses-wire" }
 runne-security = { path = "../runne-security" }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 syn = { version = "2", features = ["full"] }

@@ -1,4 +1,3 @@
-
 impl ExecutableIdentityV1 {
     /// Creates a non-empty executable identity.
     pub fn new(
@@ -158,7 +157,8 @@ impl ProtectedRuntimeProfileV1 {
     }
 }
 
-/// Exact daemon provider activation mode.
+include!("provider_profile_constants.rs");
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProviderActivationModeV1 {
     /// Credential-free deterministic compatibility provider.
@@ -167,8 +167,22 @@ pub enum ProviderActivationModeV1 {
     OpenAiResponsesTextV1,
     /// Exact bounded DeepSeek Responses text provider.
     DeepSeekResponsesTextV1,
+    /// Exact bounded Z.ai Coding Plan Chat Completions text provider.
+    ZaiCodingChatCompletionsTextV1,
+    /// Exact bounded QwenCloud Token Plan Chat Completions text provider.
+    QwenCloudTokenChatCompletionsTextV1,
+    /// Generic catalog-backed Chat Completions text provider.
+    GenericChatCompletionsTextV1,
     /// Exact bounded Local Engine text provider (credential-free).
     LocalEngineTextV1,
+    /// Exact native Anthropic/Gemini-family text provider.
+    NativeTextV1,
+    /// Exact dynamic Radius text provider.
+    RadiusTextV1,
+    /// Closed registry Responses text provider (Codex, Copilot, Azure, xAI).
+    ResponsesTextV1,
+    /// Reserved closed registry Cloud Chat Completions provider family.
+    CloudTextV1,
 }
 
 impl ProviderActivationModeV1 {
@@ -179,7 +193,14 @@ impl ProviderActivationModeV1 {
             Self::DeterministicV1 => "deterministic_v1",
             Self::OpenAiResponsesTextV1 => "openai_responses_text_v1",
             Self::DeepSeekResponsesTextV1 => "deepseek_responses_text_v1",
+            Self::ZaiCodingChatCompletionsTextV1 => "zai_coding_chat_completions_text_v1",
+            Self::QwenCloudTokenChatCompletionsTextV1 => "qwencloud_token_chat_completions_text_v1",
+            Self::GenericChatCompletionsTextV1 => "generic_chat_completions_text_v1",
             Self::LocalEngineTextV1 => "local_engine_text_v1",
+            Self::NativeTextV1 => "native_text_v1",
+            Self::RadiusTextV1 => "radius_text_v1",
+            Self::ResponsesTextV1 => "responses_text_v1",
+            Self::CloudTextV1 => "cloud_text_v1",
         }
     }
 
@@ -188,7 +209,14 @@ impl ProviderActivationModeV1 {
             Self::DeterministicV1 => 1,
             Self::OpenAiResponsesTextV1 => 2,
             Self::DeepSeekResponsesTextV1 => 3,
+            Self::ZaiCodingChatCompletionsTextV1 => 5,
+            Self::QwenCloudTokenChatCompletionsTextV1 => 6,
+            Self::GenericChatCompletionsTextV1 => 7,
             Self::LocalEngineTextV1 => 4,
+            Self::NativeTextV1 => 8,
+            Self::RadiusTextV1 => 9,
+            Self::ResponsesTextV1 => 10,
+            Self::CloudTextV1 => 11,
         }
     }
 
@@ -197,7 +225,14 @@ impl ProviderActivationModeV1 {
             1 => Ok(Self::DeterministicV1),
             2 => Ok(Self::OpenAiResponsesTextV1),
             3 => Ok(Self::DeepSeekResponsesTextV1),
+            5 => Ok(Self::ZaiCodingChatCompletionsTextV1),
+            6 => Ok(Self::QwenCloudTokenChatCompletionsTextV1),
+            7 => Ok(Self::GenericChatCompletionsTextV1),
             4 => Ok(Self::LocalEngineTextV1),
+            8 => Ok(Self::NativeTextV1),
+            9 => Ok(Self::RadiusTextV1),
+            10 => Ok(Self::ResponsesTextV1),
+            11 => Ok(Self::CloudTextV1),
             key => Err(DecodeError::UnknownField { key }),
         }
     }
@@ -211,7 +246,16 @@ impl TryFrom<&str> for ProviderActivationModeV1 {
             "deterministic_v1" => Ok(Self::DeterministicV1),
             "openai_responses_text_v1" => Ok(Self::OpenAiResponsesTextV1),
             "deepseek_responses_text_v1" => Ok(Self::DeepSeekResponsesTextV1),
+            "zai_coding_chat_completions_text_v1" => Ok(Self::ZaiCodingChatCompletionsTextV1),
+            "qwencloud_token_chat_completions_text_v1" => {
+                Ok(Self::QwenCloudTokenChatCompletionsTextV1)
+            }
+            "generic_chat_completions_text_v1" => Ok(Self::GenericChatCompletionsTextV1),
             "local_engine_text_v1" => Ok(Self::LocalEngineTextV1),
+            "native_text_v1" => Ok(Self::NativeTextV1),
+            "radius_text_v1" => Ok(Self::RadiusTextV1),
+            "responses_text_v1" => Ok(Self::ResponsesTextV1),
+            "cloud_text_v1" => Ok(Self::CloudTextV1),
             _ => Err(LaunchAuthorityError::ProviderModeMismatch),
         }
     }

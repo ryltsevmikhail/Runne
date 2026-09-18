@@ -9,7 +9,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use runne_api::ProviderStatusSnapshotV1;
+use runne_api::{ProviderQuotaProjectionV1, ProviderStatusSnapshotV1};
 use runne_application::local_session::AuthenticatedRuntimeSession;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -19,6 +19,21 @@ use std::sync::Arc;
 enum ProviderStatuses {
     Static(Vec<ProviderStatusSnapshotV1>),
     Dynamic(Arc<dyn Fn() -> Vec<ProviderStatusSnapshotV1> + Send + Sync>),
+}
+
+#[derive(Clone)]
+enum ProviderQuotaProjections {
+    Static(Vec<ProviderQuotaProjectionV1>),
+    Dynamic(Arc<dyn Fn() -> Vec<ProviderQuotaProjectionV1> + Send + Sync>),
+}
+
+impl ProviderQuotaProjections {
+    fn current(&self) -> Vec<ProviderQuotaProjectionV1> {
+        match self {
+            Self::Static(projections) => projections.clone(),
+            Self::Dynamic(provider) => provider(),
+        }
+    }
 }
 
 impl ProviderStatuses {
@@ -38,6 +53,7 @@ pub struct RuntimeProfileHttpState {
     runtime_version: &'static str,
     capabilities: &'static [&'static str],
     provider_statuses: ProviderStatuses,
+    provider_quota: ProviderQuotaProjections,
 }
 
 impl RuntimeProfileHttpState {
@@ -54,6 +70,7 @@ impl RuntimeProfileHttpState {
             runtime_version,
             capabilities,
             provider_statuses: ProviderStatuses::Static(Vec::new()),
+            provider_quota: ProviderQuotaProjections::Static(Vec::new()),
         }
     }
 
@@ -70,6 +87,23 @@ impl RuntimeProfileHttpState {
         statuses: Arc<dyn Fn() -> Vec<ProviderStatusSnapshotV1> + Send + Sync>,
     ) -> Self {
         self.provider_statuses = ProviderStatuses::Dynamic(statuses);
+        self
+    }
+
+    /// Adds a runtime-owned quota projection to the authenticated status route.
+    #[must_use]
+    pub fn with_provider_quota(mut self, projections: Vec<ProviderQuotaProjectionV1>) -> Self {
+        self.provider_quota = ProviderQuotaProjections::Static(projections);
+        self
+    }
+
+    /// Reads quota projections dynamically without exposing credentials.
+    #[must_use]
+    pub fn with_dynamic_provider_quota(
+        mut self,
+        projections: Arc<dyn Fn() -> Vec<ProviderQuotaProjectionV1> + Send + Sync>,
+    ) -> Self {
+        self.provider_quota = ProviderQuotaProjections::Dynamic(projections);
         self
     }
 }
@@ -132,8 +166,16 @@ pub fn runtime_profile_router(state: RuntimeProfileHttpState) -> Router {
 pub(crate) fn runtime_profile_session_router(state: RuntimeProfileHttpState) -> Router {
     let router = Router::new()
         .route("/v1/runtime/profile", get(session_runtime_profile))
+        .route("/v1/runtime/provider-quota", get(session_provider_quota))
         .with_state(state.clone());
     router.merge(provider_credential_router())
+}
+
+async fn session_provider_quota(
+    Extension(_session): Extension<AuthenticatedRuntimeSession>,
+    axum::extract::State(state): axum::extract::State<RuntimeProfileHttpState>,
+) -> Response {
+    Json(state.provider_quota.current()).into_response()
 }
 
 async fn session_runtime_profile(

@@ -4026,9 +4026,13 @@ dependencies = [
  "runne-api",
  "runne-app-core",
  "runne-application",
+ "runne-daemon-chat-completions-effect",
  "runne-daemon-deepseek-effect",
  "runne-daemon-local-engine-effect",
+ "runne-daemon-native-effect",
  "runne-daemon-openai-effect",
+ "runne-daemon-radius-effect",
+ "runne-daemon-responses-effect",
  "runne-domain",
  "runne-http",
  "runne-macos-keychain-acl",
@@ -4041,8 +4045,15 @@ dependencies = [
  "runne-platform-desktop",
  "runne-platform-ports",
  "runne-provider",
+ "runne-provider-chat-completions",
  "runne-provider-deepseek",
+ "runne-provider-native-wire",
  "runne-provider-openai",
+ "runne-provider-quota",
+ "runne-provider-qwencloud",
+ "runne-provider-radius",
+ "runne-provider-responses-wire",
+ "runne-provider-zai",
  "runne-runtime",
  "runne-runtime-client",
  "runne-secure-store",
@@ -4068,6 +4079,22 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "windows-sys 0.61.2",
+ "zeroize",
+]
+
+[[package]]
+name = "runne-daemon-chat-completions-effect"
+version = "0.0.3"
+dependencies = [
+ "bytes",
+ "reqwest 0.12.28",
+ "runne-provider",
+ "runne-provider-chat-completions",
+ "runne-provider-quota",
+ "runne-secure-store",
+ "runne-store",
+ "thiserror 2.0.18",
+ "tokio",
  "zeroize",
 ]
 
@@ -4141,6 +4168,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "runne-daemon-native-effect"
+version = "0.0.3"
+dependencies = [
+ "bytes",
+ "reqwest 0.12.28",
+ "runne-provider",
+ "runne-provider-native-wire",
+ "runne-provider-quota",
+ "runne-secure-store",
+ "runne-store",
+ "thiserror 2.0.18",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "runne-daemon-openai-effect"
 version = "0.1.0"
 dependencies = [
@@ -4163,6 +4206,40 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-rustls",
+ "zeroize",
+]
+
+[[package]]
+name = "runne-daemon-radius-effect"
+version = "0.0.3"
+dependencies = [
+ "bytes",
+ "reqwest 0.12.28",
+ "runne-provider",
+ "runne-provider-quota",
+ "runne-provider-radius",
+ "runne-secure-store",
+ "runne-store",
+ "thiserror 2.0.18",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
+name = "runne-daemon-responses-effect"
+version = "0.0.3"
+dependencies = [
+ "bytes",
+ "reqwest 0.12.28",
+ "runne-provider",
+ "runne-provider-oauth",
+ "runne-provider-quota",
+ "runne-provider-responses-wire",
+ "runne-secure-store",
+ "runne-store",
+ "subtle",
+ "thiserror 2.0.18",
+ "tokio",
  "zeroize",
 ]
 
@@ -4556,6 +4633,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "runne-provider-chat-completions"
+version = "0.0.3"
+dependencies = [
+ "hex",
+ "runne-provider",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "runne-provider-deepseek"
 version = "0.1.0"
 dependencies = [
@@ -4587,6 +4676,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "runne-provider-native-wire"
+version = "0.0.3"
+dependencies = [
+ "hex",
+ "runne-provider",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "runne-provider-oauth"
+version = "0.0.3"
+dependencies = [
+ "base64 0.22.1",
+ "rand 0.8.7",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "thiserror 2.0.18",
+ "zeroize",
+]
+
+[[package]]
 name = "runne-provider-openai"
 version = "0.1.0"
 dependencies = [
@@ -4602,6 +4716,62 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-rustls",
+ "zeroize",
+]
+
+[[package]]
+name = "runne-provider-quota"
+version = "0.0.3"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "runne-provider-qwencloud"
+version = "0.0.3"
+dependencies = [
+ "runne-provider",
+ "runne-provider-chat-completions",
+ "thiserror 2.0.18",
+ "zeroize",
+]
+
+[[package]]
+name = "runne-provider-radius"
+version = "0.0.3"
+dependencies = [
+ "hex",
+ "reqwest 0.12.28",
+ "runne-provider",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "runne-provider-responses-wire"
+version = "0.0.3"
+dependencies = [
+ "hex",
+ "runne-provider",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "runne-provider-zai"
+version = "0.0.3"
+dependencies = [
+ "runne-provider",
+ "runne-provider-chat-completions",
+ "thiserror 2.0.18",
  "zeroize",
 ]
 
@@ -4770,8 +4940,10 @@ dependencies = [
  "runne-macos-xpc",
  "runne-native-enrollment-authority",
  "runne-provider",
+ "runne-provider-oauth",
  "security-framework",
  "serde",
+ "serde_json",
  "sha2",
  "tempfile",
  "thiserror 2.0.18",
@@ -4829,11 +5001,21 @@ dependencies = [
  "hmac",
  "libc",
  "rand 0.8.7",
+ "reqwest 0.12.28",
  "runne-api",
  "runne-application",
+ "runne-daemon-chat-completions-effect",
+ "runne-daemon-native-effect",
+ "runne-daemon-radius-effect",
+ "runne-daemon-responses-effect",
  "runne-domain",
  "runne-native-qualification",
  "runne-provider",
+ "runne-provider-chat-completions",
+ "runne-provider-native-wire",
+ "runne-provider-quota",
+ "runne-provider-radius",
+ "runne-provider-responses-wire",
  "runne-runtime",
  "runne-secure-store",
  "runne-security",

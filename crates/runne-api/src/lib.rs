@@ -29,10 +29,14 @@ pub mod process;
 pub mod project_workspace;
 /// Protected bundled-runtime activation contracts.
 pub mod protected_activation;
+/// Closed provider inventory and protocol/accounting metadata.
+pub mod provider_catalog;
 /// Runtime-owned provider credential control contracts.
 pub mod provider_credential;
 /// Protected metadata-only provider credential enrollment contracts.
 pub mod provider_credential_enrollment;
+/// Runtime-owned sanitized provider quota projections.
+pub mod provider_quota;
 /// Runtime-owned provider readiness projections.
 pub mod provider_status;
 /// Closed canonical native-qualification bootstrap control contracts.
@@ -69,8 +73,10 @@ pub use principal::*;
 pub use process::*;
 pub use project_workspace::*;
 pub use protected_activation::*;
+pub use provider_catalog::*;
 pub use provider_credential::*;
 pub use provider_credential_enrollment::*;
+pub use provider_quota::*;
 pub use provider_status::*;
 pub use qualification_bootstrap::*;
 pub use qualification_case_control::*;

@@ -3,6 +3,7 @@ import { phase2Russian } from './phase2'
 import conversationTarget from './russian-conversation-target'
 import targetSurfaces from './russian-target-surfaces'
 import runtimeRussian from './russian-runtime'
+import providerSurfaces from './provider-surfaces-ru'
 
 const russian: Record<keyof typeof english, string> = {
   'settings.title': 'Настройки',
@@ -176,19 +177,6 @@ const russian: Record<keyof typeof english, string> = {
   'appearance.russian': 'Русский',
   'appearance.lightEnabled': 'Светлая тема включена',
   'appearance.darkEnabled': 'Тёмная тема включена',
-  'providers.loading': 'Загрузка провайдеров',
-  'providers.unavailable': 'Провайдеры',
-  'providers.unavailableMessage': 'Не удалось прочитать статус провайдеров у владельца runtime.',
-  'providers.selected': 'Выбран',
-  'providers.notSelected': 'Не выбран',
-  'providers.credentialLabel': 'Учётные данные провайдера',
-  'providers.pair': 'Сохранить',
-  'providers.revoke': 'Удалить',
-  'providers.mutationFailed': 'Изменение учётных данных провайдера отклонено.',
-  'providers.enrollCredential': 'Добавить ключ',
-  'providers.enrollSucceeded': 'Ключ сохранён',
-  'providers.enrollPending': 'Ключ добавляется',
-  'providers.enrollFailed': 'Не удалось добавить ключ: {code}',
   'devices.loading': 'Загрузка устройств',
   'devices.unavailable': 'Устройства',
   'devices.unavailableMessage': 'Не удалось прочитать статус устройства у владельца Desktop.',
@@ -281,6 +269,7 @@ const russian: Record<keyof typeof english, string> = {
   ...phase2Russian,
   ...conversationTarget,
   ...targetSurfaces,
+  ...providerSurfaces,
 }
 
 export default russian

@@ -30,7 +30,11 @@ pub use dispatch_coordinator::{ProviderCoordinatorOutcome, SqliteProviderDispatc
 
 pub use authority_config::ProviderRuntimeAuthorityConfig;
 pub use credential_lifecycle::CredentialProvision;
+pub use credential_lifecycle::SUBSCRIPTION_LOCAL_TOKEN_BUDGET;
 pub use credential_lifecycle::SqliteProviderCredentialLifecycleStore;
+#[cfg(any(test, feature = "test-support"))]
+#[doc(hidden)]
+pub use credential_lifecycle::online_claim_test_support;
 pub use dispatch_store::{
     MarkProviderStreaming, PersistPreparedOutcome, PreparedProviderRecord, ProviderClaimOutcome,
     ProviderDispatchClaim, ProviderDispatchRecord, ProviderDispatchState, ProviderStoreError,

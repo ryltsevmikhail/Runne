@@ -58,9 +58,16 @@ fn load_reservations(
         .map_err(|_| ProviderExecutionError::StoreUnavailable)?;
     let rows = statement
         .query_map([idempotency_key], |row| {
+            let dimension = row.get::<_, i64>(0)?;
+            let amount = row.get::<_, i64>(1)?;
+            let amount = if dimension == 2 {
+                nonnegative_u64(amount)?
+            } else {
+                positive_u64(amount)?
+            };
             Ok((
-                row.get::<_, i64>(0)?,
-                positive_u64(row.get(1)?)?,
+                dimension,
+                amount,
                 row.get::<_, i64>(2)?,
                 row.get::<_, Option<i64>>(3)?,
                 row.get::<_, Option<i64>>(4)?,
