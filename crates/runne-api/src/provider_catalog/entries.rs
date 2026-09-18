@@ -114,6 +114,77 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_wire_matches_the_renderer_contract_exactly() {
+        // The desktop renderer validates the catalog against closed literal
+        // lists (apps/desktop/src/shared/api/platform/providers.ts). Pin the
+        // exact wire strings here so a Rust-side rename cannot silently
+        // reject the whole providers page again (serde snake_case rendered
+        // OAuth as "o_auth" while the renderer expects "oauth").
+        assert_eq!(
+            serde_json::to_string(&ProviderAuthKindV1::OAuth).expect("wire"),
+            "\"oauth\""
+        );
+        for status in crate::provider_catalog_snapshot() {
+            let wire = serde_json::to_value(&status).expect("wire");
+            let object = wire.as_object().expect("object");
+            let mut keys = object.keys().map(String::as_str).collect::<Vec<_>>();
+            keys.sort_unstable();
+            assert_eq!(
+                keys,
+                [
+                    "authOptions",
+                    "displayName",
+                    "implementation",
+                    "protocol",
+                    "providerId",
+                    "quota"
+                ],
+                "field set for {}",
+                status.provider_id
+            );
+            assert!(
+                [
+                    "responses",
+                    "chat_completions",
+                    "anthropic_messages",
+                    "gemini",
+                    "bedrock",
+                    "pi_messages",
+                    "multi_protocol"
+                ]
+                .contains(&object["protocol"].as_str().expect("protocol")),
+                "protocol wire for {}",
+                status.provider_id
+            );
+            let auth_options = object["authOptions"].as_array().expect("authOptions");
+            assert!(
+                !auth_options.is_empty(),
+                "auth options for {}",
+                status.provider_id
+            );
+            for option in auth_options {
+                assert!(
+                    ["none", "api_key", "oauth", "aws"].contains(&option.as_str().expect("auth")),
+                    "auth wire for {}",
+                    status.provider_id
+                );
+            }
+            assert!(
+                ["subscription_window", "payg", "unqualified"]
+                    .contains(&object["quota"].as_str().expect("quota")),
+                "quota wire for {}",
+                status.provider_id
+            );
+            assert!(
+                ["catalog_only", "implemented", "live_qualified"]
+                    .contains(&object["implementation"].as_str().expect("implementation")),
+                "implementation wire for {}",
+                status.provider_id
+            );
+        }
+    }
+
+    #[test]
     fn protocol_and_auth_options_follow_provider_shapes() {
         let radius = provider_catalog_entry("radius").expect("radius");
         assert_eq!(radius.protocol, ProviderProtocolV1::PiMessages);

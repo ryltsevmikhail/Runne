@@ -31,6 +31,7 @@ pub enum ProviderAuthKindV1 {
     /// Bearer or API key material held by the native secure store.
     ApiKey,
     /// OAuth material held by the native secure store.
+    #[serde(rename = "oauth")]
     OAuth,
     /// AWS signing material held by a native broker.
     Aws,
