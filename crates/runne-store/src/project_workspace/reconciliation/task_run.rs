@@ -97,9 +97,8 @@ pub(super) fn lookup(
     Ok(Evidence::Terminal(Box::new(authoritative)))
 }
 
-/// Verifies the durable event stream matches the exact committed batch for
-/// the reconciled operation: one `CancellationRequested`, or the exact
-/// `Created + Queued` submit pair, both under the reconciled command.
+/// Verifies the durable stream matches the exact committed batch: one
+/// `CancellationRequested`, or the exact `Created + Queued` submit pair.
 fn verify_committed_events(
     transaction: &Transaction<'_>,
     witness: &CommandReconciliationWitness,
@@ -130,13 +129,12 @@ fn verify_committed_events(
                         |row| row.get(0),
                     )
                     .map_err(|_| Error::InvariantViolation)?;
-                let matches_expected = matches!(
-                    TaskRunEventCodec.decode(&payload),
-                    Ok(TaskRunEvent::TaskRunCreated) if !is_queued
-                ) || matches!(
-                    TaskRunEventCodec.decode(&payload),
-                    Ok(TaskRunEvent::TaskRunQueued) if is_queued
-                );
+                let decoded = TaskRunEventCodec.decode(&payload);
+                let matches_expected = match decoded {
+                    Ok(TaskRunEvent::TaskRunCreated) => !is_queued,
+                    Ok(TaskRunEvent::TaskRunQueued) => is_queued,
+                    _ => false,
+                };
                 if !matches_expected {
                     return Err(Error::InvariantViolation);
                 }
