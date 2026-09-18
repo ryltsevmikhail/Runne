@@ -1,4 +1,5 @@
 use std::sync::Arc;
+#[cfg(any(test, all(target_os = "macos", feature = "desktop-protected")))]
 use std::sync::OnceLock;
 
 use super::{

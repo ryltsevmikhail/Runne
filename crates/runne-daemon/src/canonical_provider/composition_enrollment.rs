@@ -2,7 +2,23 @@ use std::sync::Arc;
 
 use super::DaemonCanonicalProviderService;
 use crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl;
+#[cfg(any(
+    all(test, unix),
+    all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    )
+))]
 use crate::canonical_provider::readiness::credential_access_policy;
+#[cfg(any(
+    all(test, unix),
+    all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    )
+))]
 use runne_secure_store::ProviderCredentialVerificationMaterializer;
 
 impl DaemonCanonicalProviderService {
