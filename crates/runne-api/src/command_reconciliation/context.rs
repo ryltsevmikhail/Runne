@@ -50,5 +50,6 @@ pub enum ReconciliationOperation {
     CreateConversation,
     GenerateConversationText,
     CancelTaskRun,
+    SubmitTaskRun,
     ApprovalDecision,
 }

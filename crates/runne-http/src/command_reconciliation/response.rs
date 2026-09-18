@@ -59,6 +59,10 @@ pub(super) enum OutcomeWire<'a> {
         task_run_id: String,
         new_version: u64,
     },
+    SubmitTaskRun {
+        task_run_id: String,
+        new_version: u64,
+    },
     ApprovalDecision {
         approval_id: String,
         task_run_id: String,
@@ -162,6 +166,10 @@ pub(super) fn durable(value: &AuthoritativeCommandOutcome) -> Option<OutcomeWire
                 new_version: value.new_version,
             }
         }
+        AuthoritativeCommandOutcomeRef::TaskRunSubmitted(value) => OutcomeWire::SubmitTaskRun {
+            task_run_id: value.taskrun_id.to_string(),
+            new_version: value.new_version,
+        },
         AuthoritativeCommandOutcomeRef::ApprovalDecision(value) => OutcomeWire::ApprovalDecision {
             approval_id: value.approval_id().to_string(),
             task_run_id: value.task_run_id().to_string(),

@@ -21,6 +21,7 @@ enum Witness {
     CreateConversation(ConversationId, WorkspaceId),
     GenerateConversationText(ConversationId, u64, CanonicalMessageText),
     CancelTaskRun(TaskRunId, u64),
+    SubmitTaskRun(ConversationId, WorkspaceId),
     ApprovalDecision(ApprovalId, u64, ApprovalDecision, [u8; 32], u64, u64),
 }
 
@@ -108,6 +109,13 @@ impl CommandReconciliationWitness {
     }
 
     #[must_use]
+    pub const fn submit_task_run(conversation: ConversationId, workspace: WorkspaceId) -> Self {
+        Self {
+            inner: Witness::SubmitTaskRun(conversation, workspace),
+        }
+    }
+
+    #[must_use]
     pub const fn approval_decision(
         id: ApprovalId,
         version: u64,
@@ -143,6 +151,7 @@ impl CommandReconciliationWitness {
                 ReconciliationOperation::GenerateConversationText
             }
             Witness::CancelTaskRun(..) => ReconciliationOperation::CancelTaskRun,
+            Witness::SubmitTaskRun(..) => ReconciliationOperation::SubmitTaskRun,
             Witness::ApprovalDecision(..) => ReconciliationOperation::ApprovalDecision,
         }
     }
@@ -212,6 +221,12 @@ impl CommandReconciliationWitness {
                     expected_version: *expected_version,
                 }
             }
+            Witness::SubmitTaskRun(conversation_id, workspace_id) => {
+                CommandReconciliationWitnessRef::SubmitTaskRun {
+                    conversation_id: *conversation_id,
+                    workspace_id: *workspace_id,
+                }
+            }
             Witness::ApprovalDecision(
                 id,
                 expected_version,
@@ -277,6 +292,10 @@ pub enum CommandReconciliationWitnessRef<'a> {
     CancelTaskRun {
         task_run_id: TaskRunId,
         expected_version: u64,
+    },
+    SubmitTaskRun {
+        conversation_id: ConversationId,
+        workspace_id: WorkspaceId,
     },
     ApprovalDecision {
         approval_id: ApprovalId,

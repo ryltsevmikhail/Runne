@@ -41,6 +41,7 @@ enum CommandReconciliationWitness {
     CreateConversation { conversation_id: CanonicalId, workspace_id: CanonicalId },
     GenerateConversationText { conversation_id: CanonicalId, expected_version: u64, text: String },
     CancelTaskRun { task_run_id: CanonicalId, expected_version: u64 },
+    SubmitTaskRun { conversation_id: CanonicalId, workspace_id: CanonicalId },
     ApprovalDecision {
         approval_id: CanonicalId,
         expected_version: u64,
@@ -118,6 +119,13 @@ impl CommandReconciliationRequest {
     #[must_use]
     pub const fn cancel_task_run(identity: CommandIdentity, task_run_id: CanonicalId, expected_version: u64) -> Self {
         Self { identity, witness: CommandReconciliationWitness::CancelTaskRun { task_run_id, expected_version } }
+    }
+    /// Builds an atomic-submit reconciliation witness. The runtime owns the
+    /// resulting `TaskRun` identity; the witness pins only the referenced
+    /// aggregate roots of the submitted command.
+    #[must_use]
+    pub const fn submit_task_run(identity: CommandIdentity, conversation_id: CanonicalId, workspace_id: CanonicalId) -> Self {
+        Self { identity, witness: CommandReconciliationWitness::SubmitTaskRun { conversation_id, workspace_id } }
     }
 
     /// Builds a policy-bound approval decision reconciliation witness.

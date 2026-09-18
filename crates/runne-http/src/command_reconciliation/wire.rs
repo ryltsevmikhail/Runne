@@ -53,6 +53,10 @@ pub(super) enum ReconciliationBody {
         expected_version: u64,
         text: String,
     },
+    SubmitTaskRun {
+        conversation_id: String,
+        workspace_id: String,
+    },
     ApprovalDecision {
         approval_id: String,
         expected_version: u64,
@@ -135,6 +139,13 @@ impl ReconciliationBody {
                 conversation(&conversation_id)?,
                 version(expected_version)?,
                 CanonicalMessageText::new(text).ok()?,
+            )),
+            Self::SubmitTaskRun {
+                conversation_id,
+                workspace_id,
+            } => Some(CommandReconciliationWitness::submit_task_run(
+                conversation(&conversation_id)?,
+                workspace(&workspace_id)?,
             )),
             Self::ApprovalDecision {
                 approval_id,
