@@ -164,12 +164,13 @@ fn validate_secure_directory_chain(path: &Path) -> Result<(), ProtectedBundledRu
         if metadata.file_type().is_symlink()
             || !metadata.is_dir()
             || (metadata.uid() != 0 && metadata.uid() != effective_uid)
-        {
-            return Err(ProtectedBundledRuntimeError::ExecutableUnavailable);
-        }
-        if mode & 0o022 != 0
-            && (mode & 0o1000 == 0
-                || (child_metadata.uid() != 0 && child_metadata.uid() != effective_uid))
+            || !directory_write_bits_are_secure(
+                mode,
+                metadata.uid(),
+                metadata.gid(),
+                child_metadata.uid(),
+                effective_uid,
+            )
         {
             return Err(ProtectedBundledRuntimeError::ExecutableUnavailable);
         }
@@ -183,6 +184,33 @@ fn validate_secure_directory_chain(path: &Path) -> Result<(), ProtectedBundledRu
         directory = parent;
     }
     Ok(())
+}
+
+/// Decides whether a chain directory's write bits keep the bundled daemon
+/// uncontrollable by another local principal.
+///
+/// macOS ships `/Applications` as `root:admin` mode 0775 (no sticky bit):
+/// writing requires admin, and a replaced binary is still caught by the
+/// pinned executable identity. The allowance is macOS-only and requires a
+/// privileged write group (`wheel`, gid 0, or `admin`, gid 80): a root-owned
+/// directory group-writable by an arbitrary group stays rejected. All other
+/// write bits keep the sticky-bit rule.
+#[cfg(unix)]
+const fn directory_write_bits_are_secure(
+    mode: u32,
+    directory_uid: u32,
+    directory_group: u32,
+    child_uid: u32,
+    effective_uid: u32,
+) -> bool {
+    if mode & 0o022 == 0 {
+        return true;
+    }
+    let privileged_group = cfg!(target_os = "macos") && matches!(directory_group, 0 | 80);
+    if mode & 0o020 != 0 && mode & 0o002 == 0 && directory_uid == 0 && privileged_group {
+        return true;
+    }
+    mode & 0o1000 != 0 && (child_uid == 0 || child_uid == effective_uid)
 }
 
 #[cfg(unix)]
