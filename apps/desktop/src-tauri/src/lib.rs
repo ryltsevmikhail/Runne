@@ -288,8 +288,8 @@ where
         Ok(RuntimeMode::Bundled)
     }
 }
-
 include!("lib_parts/commands.rs");
+include!("lib_parts/directory_selection_commands.rs");
 include!("lib_parts/settings_commands.rs");
 include!("lib_parts/workspace_file_commands.rs");
 include!("lib_parts/workspace_diff_commands.rs");
