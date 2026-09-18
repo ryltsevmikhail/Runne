@@ -78,6 +78,31 @@ impl CancelTaskRunRequest {
     }
 }
 
+/// Validated request for the runtime-owned atomic `TaskRun` submit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SubmitTaskRunRequest {
+    pub(crate) identity: CommandIdentity,
+    pub(crate) conversation_id: CanonicalId,
+    pub(crate) workspace_id: CanonicalId,
+}
+
+impl SubmitTaskRunRequest {
+    /// Creates a typed submit request. The runtime owns the new `TaskRun`
+    /// identity; the caller supplies only the referenced aggregate roots.
+    #[must_use]
+    pub const fn new(
+        identity: CommandIdentity,
+        conversation_id: CanonicalId,
+        workspace_id: CanonicalId,
+    ) -> Self {
+        Self {
+            identity,
+            conversation_id,
+            workspace_id,
+        }
+    }
+}
+
 /// Durable Conversation creation acknowledgement.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

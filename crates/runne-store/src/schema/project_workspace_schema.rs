@@ -2,7 +2,7 @@ use rusqlite::{
     Connection, OptionalExtension, Result as SqliteResult, Transaction, TransactionBehavior,
 };
 
-mod validation;
+pub(super) mod validation;
 
 pub(super) const MIGRATION_V18: &str = r#"
 CREATE TABLE projects (

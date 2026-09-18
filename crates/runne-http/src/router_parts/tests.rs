@@ -16,7 +16,7 @@ async fn sealed_host_contour_shares_bootstrap_service_with_profile_auth() {
     );
     for (method, uri) in [
         ("GET", "/v1/runtime/profile"),
-        ("POST", "/v1/task-runs"),
+        ("POST", "/v1/task-runs/submit"),
         (
             "GET",
             "/v1/conversations/018f2e3a-7000-7000-8000-000000000001/messages",
@@ -143,4 +143,68 @@ fn provider_credential_enrollment_v2_capability_requires_authenticated_admission
         host_with_operational_telemetry(UNADMITTED_CAPABILITIES, Some(telemetry)),
         Err(SecureLocalHttpHostError::ProviderCredentialEnrollmentAdmissionMissing)
     ));
+}
+
+#[tokio::test]
+async fn local_client_contour_mounts_only_the_canonical_task_run_surface() {
+    let app = host().router_for_test();
+    let binding = binding();
+    let authority = bootstrap_authority(&app, &binding).await;
+    let session = format!("GocodeSession {}", URL_SAFE_NO_PAD.encode(authority));
+
+    // The runtime-owned create/queue/admit/attempt/complete transitions are
+    // authority surface only; the local client contour must not mount them.
+    // `/v1/task-runs` itself stays mounted for GET (list), so its POST is
+    // rejected with 405; every transition subpath is absent entirely (404).
+    for (method, uri, expected) in [
+        ("POST", "/v1/task-runs", StatusCode::METHOD_NOT_ALLOWED),
+        (
+            "POST",
+            "/v1/task-runs/018f2e3a-7000-7000-8000-000000000040/queue",
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            "POST",
+            "/v1/task-runs/018f2e3a-7000-7000-8000-000000000040/admit",
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            "POST",
+            "/v1/task-runs/018f2e3a-7000-7000-8000-000000000040/attempts",
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            "POST",
+            "/v1/task-runs/018f2e3a-7000-7000-8000-000000000040/complete",
+            StatusCode::NOT_FOUND,
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(uri)
+                    .header("authorization", &session)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected, "{method} {uri}");
+    }
+
+    // The client-facing atomic submit is mounted and reaches validation.
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task-runs/submit")
+                .header("authorization", &session)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }

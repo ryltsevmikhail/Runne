@@ -37,7 +37,7 @@ fn v39_lineage_rebuild_preserves_rows_and_admits_the_submit_origin() {
             .unwrap(),
         v37_structure_matches(&connection).unwrap(),
         project_workspace_schema::v36_receipt_table_matches(&connection).unwrap(),
-        project_workspace_schema::global_command_triggers_match(&connection).unwrap(),
+        project_workspace_schema::validation::global_command_triggers_match(&connection).unwrap(),
         v39_lineage_table_matches(&connection).unwrap(),
     );
     let preserved: i64 = connection

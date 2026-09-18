@@ -57,7 +57,7 @@ pub(super) fn v39_matches(connection: &Connection, version: i64) -> SqliteResult
             && v37_structure_matches(connection)?
             && v38_catalog_matches(connection)?
             && project_workspace_schema::v36_receipt_table_matches(connection)?
-            && project_workspace_schema::global_command_triggers_match(connection)?
+            && project_workspace_schema::validation::global_command_triggers_match(connection)?
             && v39_lineage_table_matches(connection)?,
     )
 }
