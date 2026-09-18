@@ -56,8 +56,8 @@ fn corrupt_v24_catalog_is_rejected_before_open() {
     let conn = Connection::open_in_memory().unwrap();
     initialize_released_v23(&conn);
     apply_migrations(&conn).unwrap();
-    assert_eq!(CURRENT_SCHEMA_VERSION, 37);
-    assert!(v37_matches(&conn, 37).unwrap());
+    assert_eq!(CURRENT_SCHEMA_VERSION, 39);
+    assert!(v39_matches(&conn, 39).unwrap());
     conn.execute_batch("DROP TABLE provider_credential_operations;")
         .unwrap();
     assert!(classify_existing_connection(&conn).is_err());
@@ -74,10 +74,10 @@ fn v23_to_v36_catalog_reopens_after_restart() {
     assert_eq!(current_schema_marker(&conn), 27);
     assert!(v27_matches(&conn, 27).unwrap());
     apply_migrations(&conn).unwrap();
-    assert_eq!(current_schema_marker(&conn), 37);
+    assert_eq!(current_schema_marker(&conn), 39);
     drop(conn);
     let reopened = Connection::open(&path).unwrap();
-    assert!(v37_matches(&reopened, 37).unwrap());
+    assert!(v39_matches(&reopened, 39).unwrap());
 }
 
 #[test]
@@ -86,20 +86,17 @@ fn interrupted_v24_migration_recovers_from_v23() {
     initialize_released_v23(&conn);
     let transaction = conn.unchecked_transaction().unwrap();
     transaction.execute_batch(MIGRATION_V24).unwrap();
-    assert!(
-        transaction
-            .execute_batch("CREATE TABLE interrupted_v24 (")
-            .is_err()
-    );
+    assert!(transaction
+        .execute_batch("CREATE TABLE interrupted_v24 (")
+        .is_err());
     transaction.rollback().unwrap();
     assert_eq!(current_schema_marker(&conn), 23);
-    assert!(
-        conn.execute("SELECT * FROM provider_credential_operations", [])
-            .is_err()
-    );
+    assert!(conn
+        .execute("SELECT * FROM provider_credential_operations", [])
+        .is_err());
     apply_migrations(&conn).unwrap();
-    assert_eq!(current_schema_marker(&conn), 37);
-    assert!(v37_matches(&conn, 37).unwrap());
+    assert_eq!(current_schema_marker(&conn), 39);
+    assert!(v39_matches(&conn, 39).unwrap());
 }
 
 #[test]
@@ -123,30 +120,27 @@ fn ticket_attempt_digest_is_one_time_and_tombstoned() {
     .unwrap();
     conn.execute("UPDATE provider_credential_ticket_attempts SET state = 'TOMBSTONED', terminal_digest = ?1 WHERE operation_id = ?2", params![[5_u8; 32], [1_u8; 16]]).unwrap();
     conn.execute("INSERT INTO provider_credential_ticket_attempts (operation_id, attempt, ticket_digest, continuation_binding_digest, issued_at, expires_at, state) VALUES (?1, 2, ?2, ?3, 3, 4, 'ISSUED')", params![[1_u8; 16], [6_u8; 32], [7_u8; 32]]).unwrap();
-    assert!(
-        conn.execute("DELETE FROM provider_credential_ticket_attempts", [])
-            .is_err()
-    );
+    assert!(conn
+        .execute("DELETE FROM provider_credential_ticket_attempts", [])
+        .is_err());
 }
 
 #[test]
 fn credential_revision_and_fence_never_decrease() {
     let conn = v24_connection();
     conn.execute("INSERT INTO provider_credential_authority_heads (provider_id, lifecycle_revision, credential_fence, readiness_revision, next_credential_version) VALUES ('provider', 1, 1, 1, 1)", []).unwrap();
-    assert!(
-        conn.execute(
+    assert!(conn
+        .execute(
             "UPDATE provider_credential_authority_heads SET lifecycle_revision = 0",
             []
         )
-        .is_err()
-    );
-    assert!(
-        conn.execute(
+        .is_err());
+    assert!(conn
+        .execute(
             "UPDATE provider_credential_authority_heads SET credential_fence = 0",
             []
         )
-        .is_err()
-    );
+        .is_err());
 }
 
 #[test]
@@ -155,13 +149,12 @@ fn rollback_cannot_reactivate_tombstoned_version() {
     insert_operation(&conn, 1).unwrap();
     terminal_operation(&conn, 1);
     conn.execute("UPDATE provider_credential_operations SET state = 'TOMBSTONED', tombstone_digest = ?1, updated_at = updated_at + 1", [[9_u8; 32]]).unwrap();
-    assert!(
-        conn.execute(
+    assert!(conn
+        .execute(
             "UPDATE provider_credential_operations SET state = 'PREPARED'",
             []
         )
-        .is_err()
-    );
+        .is_err());
 }
 
 #[test]

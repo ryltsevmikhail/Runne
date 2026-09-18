@@ -1,7 +1,8 @@
-use std::sync::Arc;
+use std::{borrow::Cow, sync::Arc};
 
 use runne_application::conversation_text_service::ConversationTextCommandService;
 use runne_application::prohibited_content::ProhibitedContentPort;
+use runne_provider_quota::QuotaStateStore;
 use runne_secure_store::ProviderCredentialId;
 use runne_store::store::StoreTransaction;
 
@@ -22,10 +23,11 @@ pub(crate) struct DaemonCanonicalProviderComposition {
     pub(crate) prohibited_content: Arc<dyn ProhibitedContentPort>,
     pub(crate) profile: Arc<SharedTextProviderProfile>,
     pub(crate) adapter_factory: Arc<ProviderEffectFactory>,
-    pub(crate) provider_id: &'static str,
-    pub(crate) model_id: &'static str,
-    pub(crate) model_revision: &'static str,
-    pub(crate) scope: &'static str,
+    pub(crate) provider_id: Cow<'static, str>,
+    pub(crate) model_id: Cow<'static, str>,
+    pub(crate) model_revision: Cow<'static, str>,
+    pub(crate) scope: Cow<'static, str>,
     pub(crate) credential_id: ProviderCredentialId,
+    pub(crate) quota_store: Arc<QuotaStateStore>,
     pub(crate) dependencies: ProtectedProviderDependencyCapsule,
 }

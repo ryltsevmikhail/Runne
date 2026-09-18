@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import {
   getProviderCredentialEnrollmentStatus,
+  getProviderCatalog,
+  getProviderQuota,
   getProviderStatus,
   projectProviderCredentialSnapshot,
   requestProviderCredentialIntent,
@@ -40,9 +42,73 @@ describe('getProviderStatus', () => {
     await expect(getProviderStatus(async () => [{ ...openai, token: 'secret' }])).rejects.toThrow()
     await expect(getProviderStatus(async () => [openai, { ...notSelected, selected: true, readiness: 'ready' }])).rejects.toThrow()
   })
+
+  it('accepts catalog entries for planned Z.ai and Qwen plans while keeping the schema closed', async () => {
+    const planned = ['zai', 'zai-coding-cn', 'qwen-token-plan', 'qwen-token-plan-cn'].map((providerId, index) => ({
+      providerId, mode: `planned_${index}`, profileId: `planned-${index}`, profileDigest: `${index + 3}`.repeat(64),
+      readiness: 'not_selected', selected: false,
+    }))
+    await expect(getProviderStatus(async () => [openai, ...planned])).resolves.toHaveLength(5)
+    await expect(getProviderStatus(async () => [{ ...openai, providerId: 'unlisted-provider' }])).rejects.toThrow()
+  })
+})
+
+describe('getProviderCatalog', () => {
+  it('accepts the closed backend projection and rejects secret fields', async () => {
+    const catalog = [{
+      providerId: 'zai', displayName: 'Z.AI', protocol: 'chat_completions', authOptions: ['api_key'],
+      quota: 'subscription_window', implementation: 'catalog_only',
+    }]
+    await expect(getProviderCatalog(async command => {
+      expect(command).toBe('get_provider_catalog')
+      return catalog
+    })).resolves.toEqual(catalog)
+    await expect(getProviderCatalog(async () => [{ ...catalog[0], secret: 'token' }])).rejects.toThrow()
+  })
+})
+
+describe('getProviderQuota', () => {
+  it('accepts provider reported, local, and unknown evidence without secrets', async () => {
+    const projections = [
+      { providerId: 'zai', source: 'provider_reported', unit: 'credits', used: 25, limit: 100, remaining: 75, resetAt: 1_700_000_000, observedAt: 1_700_000_001, availability: 'known', windows: [] },
+      { providerId: 'qwen-token-plan', source: 'local_usage', unit: 'tokens', used: 25, limit: null, remaining: null, resetAt: null, observedAt: 1_700_000_001, availability: 'unknown', windows: [] },
+      { providerId: 'openrouter', source: 'unknown', unit: null, used: null, limit: null, remaining: null, resetAt: null, observedAt: 0, availability: 'unknown', windows: [] },
+    ] as const
+    await expect(getProviderQuota(async command => {
+      expect(command).toBe('get_provider_quota')
+      return projections
+    })).resolves.toEqual(projections)
+  })
+
+  it('rejects secret fields and fabricated unknown remaining', async () => {
+    await expect(getProviderQuota(async () => [{
+      providerId: 'zai', source: 'unknown', unit: null, used: null, limit: null,
+      remaining: 0, resetAt: null, observedAt: 0,
+      availability: 'unknown', windows: [],
+    }])).rejects.toThrow('Invalid provider quota projection')
+    await expect(getProviderQuota(async () => [{
+      providerId: 'zai', source: 'unknown', unit: null, used: null, limit: null,
+      remaining: null, resetAt: null, observedAt: 0, token: 'secret',
+      availability: 'unknown', windows: [],
+    }])).rejects.toThrow('Invalid provider quota projection')
+  })
 })
 
 describe('provider credential mutations', () => {
+  it('sends remote verification as a separate native intent', async () => {
+    const invoke = async (command: string, args?: Record<string, unknown>) => {
+      expect(command).toBe('request_provider_credential_intent')
+      expect(args).toEqual({
+        request: {
+          provider: 'zai', action: 'verify', verificationKind: 'remote',
+          expectedRevision: 7, rendererGeneration: 4,
+        },
+      })
+      return 'completed'
+    }
+    await expect(requestProviderCredentialIntent('zai', 'verify', 7, 4, invoke)).resolves.toBe('completed')
+  })
+
   it('sends only a pairing intent, never renderer credential material', async () => {
     const invoke = async (command: string, args?: Record<string, unknown>) => {
       expect(command).toBe('request_provider_credential_intent')
@@ -70,6 +136,8 @@ describe('provider credential mutations', () => {
         .rejects.toThrow('Invalid renderer generation')
     }
     await expect(requestProviderCredentialIntent('deepseek', 'pair', 1, 4, async () => ({ credential: 'secret' }))).rejects.toThrow()
+    await expect(requestProviderCredentialIntent('unknown-provider' as never, 'pair', 1, 4, async () => 'pending'))
+      .rejects.toThrow('Invalid provider credential provider')
   })
 })
 
@@ -105,5 +173,7 @@ describe('provider credential enrollment status', () => {
     ]) {
       expect(() => projectProviderCredentialSnapshot(invalid)).toThrow('Invalid provider credential projection')
     }
+    expect(() => projectProviderCredentialSnapshot({ ...credentialProjection, providerId: 'zai' }))
+      .not.toThrow()
   })
 })

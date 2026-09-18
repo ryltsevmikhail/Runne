@@ -13,6 +13,7 @@ impl<T> CanonicalProviderEffect for T where T: ProviderPort + ProviderEffectPort
 
 pub(crate) type ProviderEffectFactory = dyn Fn(
         Arc<dyn runne_secure_store::ProviderCredentialDispatchMaterializer>,
+        Arc<runne_store::provider::SqliteProviderCredentialLifecycleStore>,
     ) -> Result<Arc<dyn CanonicalProviderEffect>, DaemonError>
     + Send
     + Sync;
@@ -27,6 +28,18 @@ struct DeepSeekAdapter {
 
 struct LocalEngineAdapter {
     inner: Arc<dyn runne_daemon_local_engine_effect::LocalEngineEffect>,
+}
+
+struct NativeAdapter {
+    inner: Arc<runne_daemon_native_effect::NativeEffect>,
+}
+
+struct RadiusAdapter {
+    inner: Arc<runne_daemon_radius_effect::RadiusEffect>,
+}
+
+struct ResponsesAdapter {
+    inner: Arc<dyn runne_daemon_responses_effect::ResponsesEffect>,
 }
 
 pub(crate) fn openai_effect_adapter(
@@ -45,6 +58,24 @@ pub(crate) fn local_engine_effect_adapter(
     inner: Arc<dyn runne_daemon_local_engine_effect::LocalEngineEffect>,
 ) -> Arc<dyn CanonicalProviderEffect> {
     Arc::new(LocalEngineAdapter { inner })
+}
+
+pub(crate) fn native_effect_adapter(
+    inner: Arc<runne_daemon_native_effect::NativeEffect>,
+) -> Arc<dyn CanonicalProviderEffect> {
+    Arc::new(NativeAdapter { inner })
+}
+
+pub(crate) fn radius_effect_adapter(
+    inner: Arc<runne_daemon_radius_effect::RadiusEffect>,
+) -> Arc<dyn CanonicalProviderEffect> {
+    Arc::new(RadiusAdapter { inner })
+}
+
+pub(crate) fn responses_effect_adapter(
+    inner: Arc<dyn runne_daemon_responses_effect::ResponsesEffect>,
+) -> Arc<dyn CanonicalProviderEffect> {
+    Arc::new(ResponsesAdapter { inner })
 }
 
 macro_rules! impl_provider_adapter {
@@ -123,3 +154,6 @@ macro_rules! impl_provider_adapter {
 impl_provider_adapter!(OpenAiAdapter);
 impl_provider_adapter!(DeepSeekAdapter);
 impl_provider_adapter!(LocalEngineAdapter);
+impl_provider_adapter!(NativeAdapter);
+impl_provider_adapter!(RadiusAdapter);
+impl_provider_adapter!(ResponsesAdapter);

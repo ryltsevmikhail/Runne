@@ -48,7 +48,7 @@ impl ProviderAuthorityIssueRequest {
             || self.requested_input_tokens > MAX_PROVIDER_USAGE_TOKENS
             || self.requested_output_tokens == 0
             || self.requested_output_tokens > MAX_PROVIDER_USAGE_TOKENS
-            || self.max_cost_micros == 0
+            || (self.max_cost_micros == 0 && self.currency != "XXX")
             || self.currency.len() != 3
             || !self.currency.bytes().all(|byte| byte.is_ascii_uppercase())
             || self.provider_idempotency_key.is_empty()

@@ -56,6 +56,7 @@ def main() -> int:
         if package["name"] in ALLOWED_RUST_DEPENDENCIES
     }
     violations = find_rust_dependency_violations(dependencies)
+    violations += find_oauth_codec_dependency_violations(metadata["packages"])
     violations += find_credential_service_core_dependency_violations(metadata["packages"])
     violations += find_native_qualification_dependency_violations(metadata["packages"])
     violations += find_qualification_runner_dependency_violations(metadata["packages"])

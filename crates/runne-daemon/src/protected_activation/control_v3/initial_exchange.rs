@@ -58,7 +58,7 @@ pub(super) fn run(
     }
     let snapshot = live.with_current(sessions, || {
         enrollment
-            .begin(&begin, runtime::unix_now_millis()?)
+            .begin_or_verify(&begin, runtime::unix_now_millis()?)
             .map_err(runtime::map_enrollment_error)
     })?;
     channel.write_control_frame(&snapshot)

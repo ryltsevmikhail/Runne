@@ -1,6 +1,8 @@
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::{Signer as _, SigningKey};
-use runne_native_qualification::{PendingQualificationAdmission, QualificationAdmissionVerifier, VerifiedQualificationFenceFacts};
+use runne_native_qualification::{
+    PendingQualificationAdmission, QualificationAdmissionVerifier, VerifiedQualificationFenceFacts,
+};
 use serde::Serialize;
 use sha2::{Digest as _, Sha256};
 
@@ -62,17 +64,30 @@ fn sign<T: Serialize>(domain: &[u8], value: &T, key: &SigningKey) -> Signature {
     }
 }
 
-pub(super) fn facts(ids: [u8; 4], issued: u64, expiry: u64, now: u64) -> VerifiedQualificationFenceFacts {
+pub(super) fn facts(
+    ids: [u8; 4],
+    issued: u64,
+    expiry: u64,
+    now: u64,
+) -> VerifiedQualificationFenceFacts {
     let context_key = SigningKey::from_bytes(&[7; 32]);
     let fault_key = SigningKey::from_bytes(&[9; 32]);
     let admission = admission(&context_key, &fault_key, ids, issued, expiry);
     QualificationAdmissionVerifier::test_only_from_verifying_keys(
-        context_key.verifying_key(), fault_key.verifying_key(),
-    ).verify_exact_for_fence_borrowed(&admission, CANDIDATE, RAW_TUPLE, now).unwrap()
+        context_key.verifying_key(),
+        fault_key.verifying_key(),
+    )
+    .verify_exact_for_fence_borrowed(&admission, CANDIDATE, RAW_TUPLE, now)
+    .unwrap()
 }
 
-fn admission(context_key: &SigningKey, fault_key: &SigningKey, ids: [u8; 4],
-    issued: u64, expiry: u64) -> PendingQualificationAdmission {
+fn admission(
+    context_key: &SigningKey,
+    fault_key: &SigningKey,
+    ids: [u8; 4],
+    issued: u64,
+    expiry: u64,
+) -> PendingQualificationAdmission {
     let mut ticket = Ticket {
         schema_version: "runne/macos-xpc-dpk-fault-ticket/v1",
         ticket_id: hex::encode([ids[2]; 32]),

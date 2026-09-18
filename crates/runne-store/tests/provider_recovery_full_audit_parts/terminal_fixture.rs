@@ -22,10 +22,36 @@ fn terminal_setup(
     (database, claim, terminal)
 }
 
+fn zero_cost_terminal_setup(
+    name: &str,
+    call_byte: u8,
+) -> (
+    ArmedProviderTestDatabase,
+    ProviderDispatchClaim,
+    ProviderTerminalCommitRequest,
+) {
+    let (database, mut request, _record) = setup(name, call_byte);
+    request.max_cost_micros = 0;
+    request.currency = "XXX".to_owned();
+    let claim = online_claim(&database, &request, call_byte);
+    let terminal = terminal_request_for_claim_with_pricing(&database, &claim, call_byte, 0, "XXX");
+    (database, claim, terminal)
+}
+
 fn terminal_request_for_claim(
     database: &validated_reopen::ProviderTestDatabase,
     claim: &ProviderDispatchClaim,
     call_byte: u8,
+) -> ProviderTerminalCommitRequest {
+    terminal_request_for_claim_with_pricing(database, claim, call_byte, 40_000, "USD")
+}
+
+fn terminal_request_for_claim_with_pricing(
+    database: &validated_reopen::ProviderTestDatabase,
+    claim: &ProviderDispatchClaim,
+    call_byte: u8,
+    charge_micros: u64,
+    currency: &str,
 ) -> ProviderTerminalCommitRequest {
     let config = runtime_config();
     let key = ProviderJournalKeyBinding::new(
@@ -77,8 +103,8 @@ fn terminal_request_for_claim(
         11,
         [2; 32],
         ProviderUsage::new(500, 900, 0, 0).unwrap(),
-        40_000,
-        "USD".to_owned(),
+        charge_micros,
+        currency.to_owned(),
         [call_byte.wrapping_add(110); 32],
         format!("terminal-recovery-{call_byte}"),
     )

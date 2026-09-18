@@ -5,10 +5,10 @@ use runne_provider::{
     CredentialVersionRef, ObserveNativeEffect, ProviderCredentialEnrollmentStore,
 };
 
+use super::online_claim_test_support::open_test_store;
 use super::online_test_support::{
     admit_claim, complete_pair, digest, operation, provider, revoke, store,
 };
-use super::online_claim_test_support::open_test_store;
 
 #[test]
 fn credential_online_pair_completion_persists_readiness_atomically() {
@@ -62,8 +62,8 @@ fn credential_online_completion_returns_the_persisted_receipt() {
     let store = store();
     prepare_pair(&store);
 
-    let receipt = ProviderCredentialEnrollmentStore::complete_with_receipt(&store, completion())
-        .unwrap();
+    let receipt =
+        ProviderCredentialEnrollmentStore::complete_with_receipt(&store, completion()).unwrap();
 
     assert_eq!(receipt.operation_id(), operation(90));
 }

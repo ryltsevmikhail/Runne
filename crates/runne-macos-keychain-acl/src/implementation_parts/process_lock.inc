@@ -1,7 +1,8 @@
 /// Kernel-held lock for all provider credential Keychain operations.
 ///
 /// Reentrant within one process: the first successful `acquire` registers the
-/// locked directory descriptor in [`PROVIDER_CREDENTIAL_LOCK_STATE`], and any
+/// locked directory descriptor in the process-global
+/// `PROVIDER_CREDENTIAL_LOCK_STATE` registry, and any
 /// further `acquire` while it is registered only takes a depth token instead
 /// of opening and `flock`-ing the inode again. Exclusive across processes: the
 /// registered descriptor keeps `flock(LOCK_EX)` on the owner-only lock

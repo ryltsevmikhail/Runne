@@ -2,18 +2,25 @@
     not(all(target_os = "macos", target_arch = "aarch64")),
     allow(dead_code, unused_imports)
 )]
-use runne_api::{
-    ProviderCredentialEnrollmentActionV2, ProviderCredentialProviderV2,
-    ProviderCredentialVerificationKindV2,
-};
+use runne_api::{ProviderCredentialProviderV2, ProviderCredentialVerificationKindV2};
 use serde::Deserialize;
+
+/// Closed native intent actions. Verify is separate from enrollment mutation.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum CredentialIntentAction {
+    Pair,
+    Revoke,
+    MigrateLegacy,
+    Verify,
+}
 
 /// Renderer input. There is intentionally no credential or native intent ID.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CredentialIntentIpc {
     pub(crate) provider: ProviderCredentialProviderV2,
-    pub(crate) action: ProviderCredentialEnrollmentActionV2,
+    pub(crate) action: CredentialIntentAction,
     pub(crate) expected_revision: u64,
     pub(crate) renderer_generation: u64,
     pub(crate) verification_kind: Option<ProviderCredentialVerificationKindV2>,
@@ -23,9 +30,22 @@ impl CredentialIntentIpc {
     pub(crate) const fn supported_enrollment_action(self) -> bool {
         matches!(
             self.action,
-            ProviderCredentialEnrollmentActionV2::Pair
-                | ProviderCredentialEnrollmentActionV2::Revoke
+            CredentialIntentAction::Pair | CredentialIntentAction::Revoke
         )
+    }
+
+    pub(crate) const fn supported_verification_action(self) -> bool {
+        matches!(
+            (self.action, self.verification_kind),
+            (
+                CredentialIntentAction::Verify,
+                Some(ProviderCredentialVerificationKindV2::Remote)
+            )
+        )
+    }
+
+    pub(crate) const fn is_verification(self) -> bool {
+        matches!(self.action, CredentialIntentAction::Verify)
     }
 
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -33,33 +53,35 @@ impl CredentialIntentIpc {
         self,
     ) -> runne_platform_desktop::CredentialWriterHandoffMode {
         match self.action {
-            ProviderCredentialEnrollmentActionV2::Pair => {
+            CredentialIntentAction::Pair => {
                 runne_platform_desktop::CredentialWriterHandoffMode::Pair
             }
-            ProviderCredentialEnrollmentActionV2::Revoke
-            | ProviderCredentialEnrollmentActionV2::MigrateLegacy => {
+            CredentialIntentAction::Revoke
+            | CredentialIntentAction::MigrateLegacy
+            | CredentialIntentAction::Verify => {
                 runne_platform_desktop::CredentialWriterHandoffMode::ControlOnly
             }
         }
     }
 
-    pub(crate) fn valid(self) -> bool {
+    pub(crate) const fn valid(self) -> bool {
         self.expected_revision != 0
             && self.renderer_generation != 0
-            && !(matches!(
-                self.action,
-                ProviderCredentialEnrollmentActionV2::Pair
-                    | ProviderCredentialEnrollmentActionV2::MigrateLegacy
-            ) && self.verification_kind.is_some())
-            && !(self.action == ProviderCredentialEnrollmentActionV2::Revoke
-                && self.verification_kind.is_some())
+            && match self.action {
+                CredentialIntentAction::Verify => self.supported_verification_action(),
+                CredentialIntentAction::Pair
+                | CredentialIntentAction::Revoke
+                | CredentialIntentAction::MigrateLegacy => self.verification_kind.is_none(),
+            }
     }
 
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     pub(crate) fn prompt_request(
         self,
     ) -> Result<runne_platform_desktop::SecureCredentialPromptRequest, ()> {
-        use runne_platform_desktop::{CredentialPromptAction, CredentialPromptProvider};
+        use runne_platform_desktop::{
+            CredentialPromptAction, CredentialPromptCatalogId, CredentialPromptProvider,
+        };
 
         if !self.valid() {
             return Err(());
@@ -67,13 +89,15 @@ impl CredentialIntentIpc {
         let provider = match self.provider {
             ProviderCredentialProviderV2::OpenAi => CredentialPromptProvider::OpenAi,
             ProviderCredentialProviderV2::DeepSeek => CredentialPromptProvider::DeepSeek,
+            provider => CredentialPromptProvider::Catalog(
+                CredentialPromptCatalogId::parse(provider.as_str()).ok_or(())?,
+            ),
         };
         let action = match self.action {
-            ProviderCredentialEnrollmentActionV2::Pair => CredentialPromptAction::Pair,
-            ProviderCredentialEnrollmentActionV2::Revoke => CredentialPromptAction::Revoke,
-            ProviderCredentialEnrollmentActionV2::MigrateLegacy => {
-                CredentialPromptAction::MigrateLegacy
-            }
+            CredentialIntentAction::Pair => CredentialPromptAction::Pair,
+            CredentialIntentAction::Revoke => CredentialPromptAction::Revoke,
+            CredentialIntentAction::MigrateLegacy => CredentialPromptAction::MigrateLegacy,
+            CredentialIntentAction::Verify => CredentialPromptAction::Verify,
         };
         runne_platform_desktop::SecureCredentialPromptRequest::new(
             provider,
@@ -120,16 +144,13 @@ mod tests {
         use runne_platform_desktop::{CredentialPromptAction, CredentialPromptProvider};
 
         for (action, expected) in [
+            (CredentialIntentAction::Pair, CredentialPromptAction::Pair),
             (
-                ProviderCredentialEnrollmentActionV2::Pair,
-                CredentialPromptAction::Pair,
-            ),
-            (
-                ProviderCredentialEnrollmentActionV2::Revoke,
+                CredentialIntentAction::Revoke,
                 CredentialPromptAction::Revoke,
             ),
             (
-                ProviderCredentialEnrollmentActionV2::MigrateLegacy,
+                CredentialIntentAction::MigrateLegacy,
                 CredentialPromptAction::MigrateLegacy,
             ),
         ] {
@@ -154,15 +175,15 @@ mod tests {
 
         for (action, expected) in [
             (
-                ProviderCredentialEnrollmentActionV2::Pair,
+                CredentialIntentAction::Pair,
                 CredentialWriterHandoffMode::Pair,
             ),
             (
-                ProviderCredentialEnrollmentActionV2::Revoke,
+                CredentialIntentAction::Revoke,
                 CredentialWriterHandoffMode::ControlOnly,
             ),
             (
-                ProviderCredentialEnrollmentActionV2::MigrateLegacy,
+                CredentialIntentAction::MigrateLegacy,
                 CredentialWriterHandoffMode::ControlOnly,
             ),
         ] {
@@ -183,10 +204,7 @@ mod tests {
             ProviderCredentialProviderV2::OpenAi,
             ProviderCredentialProviderV2::DeepSeek,
         ] {
-            for action in [
-                ProviderCredentialEnrollmentActionV2::Pair,
-                ProviderCredentialEnrollmentActionV2::Revoke,
-            ] {
+            for action in [CredentialIntentAction::Pair, CredentialIntentAction::Revoke] {
                 assert!(
                     CredentialIntentIpc {
                         provider,
@@ -202,7 +220,7 @@ mod tests {
         assert!(
             !CredentialIntentIpc {
                 provider: ProviderCredentialProviderV2::OpenAi,
-                action: ProviderCredentialEnrollmentActionV2::MigrateLegacy,
+                action: CredentialIntentAction::MigrateLegacy,
                 expected_revision: 7,
                 renderer_generation: 4,
                 verification_kind: None,
@@ -234,7 +252,7 @@ mod tests {
         let spawn = std::cell::Cell::new(0);
         let request = CredentialIntentIpc {
             provider: ProviderCredentialProviderV2::OpenAi,
-            action: ProviderCredentialEnrollmentActionV2::MigrateLegacy,
+            action: CredentialIntentAction::MigrateLegacy,
             expected_revision: 7,
             renderer_generation: 4,
             verification_kind: None,
@@ -247,7 +265,7 @@ mod tests {
         assert_eq!((prompt.get(), spawn.get()), (0, 0));
 
         let invalid = CredentialIntentIpc {
-            action: ProviderCredentialEnrollmentActionV2::Pair,
+            action: CredentialIntentAction::Pair,
             renderer_generation: 0,
             ..request
         };

@@ -90,7 +90,7 @@ impl RootAdmissionGateway {
                 let active = state
                     .active
                     .get(&workspace_id)
-                    .filter(|active| active.version == version)
+                    .filter(|active| active_root_is_current(version, active.version))
                     .ok_or(runne_application::ports::ProjectWorkspaceRepositoryError::Unavailable)?;
                 Ok(operation(active))
             })

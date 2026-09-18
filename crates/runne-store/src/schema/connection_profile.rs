@@ -110,8 +110,9 @@ pub fn open_managed_connection(
     managed_after_profile(connection, mode, path == Path::new(":memory:"), identity)
 }
 
-#[cfg(test)]
-pub(crate) fn open_test_shared_writer(db_path: &Path) -> SqliteResult<ManagedConnection> {
+#[cfg(any(test, feature = "test-support"))]
+#[doc(hidden)]
+pub fn open_test_shared_writer(db_path: &Path) -> SqliteResult<ManagedConnection> {
     let connection = Connection::open(db_path)?;
     connection.execute_batch("PRAGMA journal_mode = WAL;")?;
     managed_after_profile(connection, ConnectionMode::Writer, false, None)

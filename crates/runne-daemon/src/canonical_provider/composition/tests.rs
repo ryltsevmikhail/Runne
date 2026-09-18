@@ -35,6 +35,7 @@ use crate::config::BuiltInDefaults;
 use crate::operational_telemetry::DaemonOperationalTelemetryQueryService;
 use crate::operational_telemetry::compose_operational_telemetry_query;
 use crate::provider_activation::ProviderActivation;
+use std::borrow::Cow;
 
 mod managed_connection;
 mod online_dispatch;
@@ -179,11 +180,12 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
         prohibited_content: prohibited,
         profile: openai_profile(),
         adapter_factory: fixture_adapter_factory(),
-        provider_id: "openai",
-        model_id: runne_provider_openai::OPENAI_MODEL_ID,
-        model_revision: runne_provider_openai::OPENAI_MODEL_REVISION,
-        scope: "provider.openai.responses.text",
+        provider_id: Cow::Borrowed("openai"),
+        model_id: Cow::Borrowed(runne_provider_openai::OPENAI_MODEL_ID),
+        model_revision: Cow::Borrowed(runne_provider_openai::OPENAI_MODEL_REVISION),
+        scope: Cow::Borrowed("provider.openai.responses.text"),
         credential_id: ProviderCredentialId::OpenAi,
+        quota_store: Arc::new(runne_provider_quota::QuotaStateStore::new()),
         dependencies: ProtectedProviderDependencyCapsule::from_loopback_fixture(
             effect,
             keyring,

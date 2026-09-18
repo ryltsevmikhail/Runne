@@ -12,11 +12,13 @@ use runne_api::{
     RootHandleTransferOffer, VerifiedRootAdmissionClaims, WorkspaceCommandAck,
 };
 use runne_application::local_session::LocalSessionService;
-use runne_application::ports::{RootAdmissionVerifier, RootAdmissionVerifierError};
+use runne_application::ports::{
+    RootAdmissionVerifier, RootAdmissionVerifierError, WorkspaceFileProvider,
+};
 use runne_platform_desktop::VerifiedRootHandle;
 use runne_store::ProjectWorkspaceStore;
 
-use super::root_handle_admission::{RootAdmissionGateway, RootHandleAdmissionAuthority};
+use super::root_handle_admission::{PRINCIPAL, RootAdmissionGateway, RootHandleAdmissionAuthority};
 
 /// A daemon-issued admission plus every binding the daemon retained for it.
 pub struct IssuedTestAdmission {
@@ -109,6 +111,14 @@ impl RootAdmissionAuthorityFixture {
         self.gateway.verify_root_admission(admission)
     }
 
+    /// Promotes the verified admission's root to the serving state.
+    pub fn confirm_root_admission(
+        &self,
+        claims: &runne_api::VerifiedRootAdmissionClaims,
+    ) -> Result<(), RootAdmissionVerifierError> {
+        self.gateway.confirm_root_admission(claims)
+    }
+
     /// Same verdict through a gateway whose authority is absent.
     pub fn verify_unavailable_authority(
         &self,
@@ -139,5 +149,13 @@ impl RootAdmissionAuthorityFixture {
         request: BindWorkspaceRootCommand,
     ) -> Result<WorkspaceCommandAck, ProjectWorkspaceHostError> {
         self.bind_host.bind_workspace_root(command, request).await
+    }
+
+    /// Lists one file page through the bound gateway, as the file host would.
+    pub fn list_files(
+        &self,
+        request: &runne_api::WorkspaceFileListRequest,
+    ) -> Result<runne_api::WorkspaceFilePage, runne_api::WorkspaceFileHostError> {
+        self.gateway.list_files(PRINCIPAL, request)
     }
 }

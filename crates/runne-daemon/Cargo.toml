@@ -7,7 +7,7 @@ publish = false
 
 [features]
 default = []
-test-support = ["runne-platform-desktop?/test-support", "runne-native-qualification/test-support", "runne-secure-store/test-support", "runne-provider/test-support", "dep:reqwest"]
+test-support = ["runne-platform-desktop?/test-support", "runne-native-qualification/test-support", "runne-secure-store/test-support", "runne-provider/test-support", "runne-store/test-support", "dep:reqwest"]
 desktop-protected = ["dep:runne-platform-desktop", "runne-platform-desktop/protected-channel-integration", "dep:nix"]
 persistent-reference-probe = [
     "test-support",
@@ -35,7 +35,18 @@ runne-platform-desktop = { path = "../runne-platform-desktop", optional = true }
 runne-http = { path = "../runne-http" }
 runne-daemon-openai-effect = { path = "../runne-daemon-openai-effect" }
 runne-daemon-deepseek-effect = { path = "../runne-daemon-deepseek-effect" }
+runne-daemon-chat-completions-effect = { path = "../runne-daemon-chat-completions-effect" }
+runne-provider-chat-completions = { path = "../runne-provider-chat-completions" }
 runne-daemon-local-engine-effect = { path = "../runne-daemon-local-engine-effect" }
+runne-provider-zai = { path = "../runne-provider-zai" }
+runne-provider-qwencloud = { path = "../runne-provider-qwencloud" }
+runne-daemon-responses-effect = { path = "../runne-daemon-responses-effect" }
+runne-provider-responses-wire = { path = "../runne-provider-responses-wire" }
+runne-daemon-native-effect = { path = "../runne-daemon-native-effect" }
+runne-provider-native-wire = { path = "../runne-provider-native-wire" }
+runne-daemon-radius-effect = { path = "../runne-daemon-radius-effect" }
+runne-provider-radius = { path = "../runne-provider-radius" }
+runne-provider-quota = { path = "../runne-provider-quota" }
 axum = "0.8"
 hyper = { version = "1", features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["http1", "server", "tokio"] }

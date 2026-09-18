@@ -40,7 +40,11 @@ impl AppCore {
         self.rotate_bundled_activation_lease().map(|_| ())
     }
 
-    fn runtime_availability(&self) -> Result<RuntimeAvailability, AppCoreError> {
+    /// Reads the current runtime availability for typed IPC classification.
+    ///
+    /// # Errors
+    /// Returns [`AppCoreError::StateUnavailable`] when the state lock is poisoned.
+    pub fn runtime_availability(&self) -> Result<RuntimeAvailability, AppCoreError> {
         self.runtime_state
             .read()
             .map(|state| *state)

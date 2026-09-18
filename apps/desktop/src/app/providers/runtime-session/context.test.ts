@@ -72,4 +72,31 @@ describe('runtime session context', () => {
       canMutate: false,
     })
   })
+
+  it('drops canMutate synchronously when a manual retry starts from live', async () => {
+    let releaseConnect: (value: unknown) => void = () => {}
+    const port = createRuntimeSessionController({
+      connect: () => new Promise(resolve => {
+        releaseConnect = resolve
+      }),
+      loadBootstrap: async () => bootstrap('live'),
+    })
+
+    const context = createRuntimeSessionContext(port)
+    await (async () => {
+      const initial = context.connect()
+      releaseConnect('live')
+      await initial
+    })()
+    expect(context.snapshot.value.canMutate).toBe(true)
+
+    // Starting the retry must synchronously project the controller's loading
+    // state: consumers cannot keep sending on the previous proof.
+    const retrying = context.retry()
+    expect(context.snapshot.value).toMatchObject({ status: 'loading', canMutate: false })
+
+    releaseConnect('live')
+    await retrying
+    expect(context.snapshot.value).toMatchObject({ status: 'live', canMutate: true })
+  })
 })

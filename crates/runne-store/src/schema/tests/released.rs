@@ -36,25 +36,24 @@ fn released_v8_upgrades_atomically_through_provider_v11() {
 
     apply_migrations(&conn).unwrap();
 
-    assert_eq!(CURRENT_SCHEMA_VERSION, 37);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 39);
     assert_eq!(
         conn.query_row("SELECT MAX(version) FROM schema_version", [], |row| row
             .get::<_, i64>(0))
             .unwrap(),
         CURRENT_SCHEMA_VERSION
     );
-    assert!(
-        conn.execute(
+    assert!(conn
+        .execute(
             "INSERT INTO consumption_intents VALUES (?1, 'key', 'Reserved', ?2, ?2, ?2)",
             params![[1_u8; 15].as_slice(), [2_u8; 32].as_slice()]
         )
-        .is_err()
-    );
+        .is_err());
     assert!(conn.execute("INSERT INTO verification_evidence VALUES (?1, ?1, ?1, ?2, 6, 0, ?2, 'blob:test', 'store', 'producer', 0, 'sqlite')", params![[1_u8; 16].as_slice(), [2_u8; 32].as_slice()]).is_err());
 }
 
 #[test]
-fn every_supported_schema_upgrades_to_v37() {
+fn every_supported_schema_upgrades_to_current() {
     for source in 8..=34 {
         let conn = Connection::open_in_memory().unwrap();
         initialize_supported_schema(&conn, source);
@@ -63,8 +62,12 @@ fn every_supported_schema_upgrades_to_v37() {
             assert!(v27_matches(&conn, 27).unwrap(), "V27 predecessor");
         }
         apply_migrations(&conn).unwrap();
-        assert_eq!(schema_marker(&conn), 37, "source V{source}");
-        assert!(v37_matches(&conn, 37).unwrap(), "source V{source}");
+        assert_eq!(
+            schema_marker(&conn),
+            CURRENT_SCHEMA_VERSION,
+            "source V{source}"
+        );
+        assert!(v39_matches(&conn, 39).unwrap(), "source V{source}");
     }
 }
 

@@ -2,6 +2,8 @@ use rusqlite::{
     Connection, OptionalExtension, Result as SqliteResult, Transaction, TransactionBehavior,
 };
 
+mod validation;
+
 pub(super) const MIGRATION_V18: &str = r#"
 CREATE TABLE projects (
     project_id BLOB PRIMARY KEY CHECK(length(project_id) = 16),
@@ -128,10 +130,18 @@ pub(super) fn v36_matches(connection: &Connection, version: i64) -> SqliteResult
         [],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     )?;
-    let inherited = super::v35_structure_matches_with_v36_receipt(connection, true, false)?;
+    let inherited = v36_structure_matches(connection)?;
     let receipts = v36_receipt_table_matches(connection)?;
-    let triggers = global_command_triggers_match(connection)?;
+    let triggers = validation::global_command_triggers_match(connection)?;
     Ok(matches!(marker, (36, 1, 35, 647) | (36, 1, 36, 666)) && inherited && receipts && triggers)
+}
+
+pub(super) fn v36_structure_matches(connection: &Connection) -> SqliteResult<bool> {
+    super::v35_structure_matches_with_v36_receipt(connection, true, false).and_then(|inherited| {
+        Ok(inherited
+            && v36_receipt_table_matches(connection)?
+            && validation::global_command_triggers_match(connection)?)
+    })
 }
 
 pub(super) fn v36_receipt_table_matches(connection: &Connection) -> SqliteResult<bool> {
@@ -272,7 +282,5 @@ pub(super) fn v18_base_matches_with_additional_triggers(
             valid && super::table_sql_matches_migration(connection, table, MIGRATION_V18)?,
         )
     })?;
-    Ok(tables_match && global_command_triggers_match(connection)?)
+    Ok(tables_match && validation::global_command_triggers_match(connection)?)
 }
-
-include!("project_workspace_schema_triggers.inc");

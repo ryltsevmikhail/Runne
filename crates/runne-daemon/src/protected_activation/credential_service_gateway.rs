@@ -3,18 +3,19 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use runne_api::ProviderCredentialEnrollmentHostError;
 use runne_provider::{
-    CredentialBindingDigest, CredentialBrokerCommand, CredentialEnrollmentStoreAuthority,
+    CredentialBrokerCommand, CredentialEnrollmentStoreAuthority, CredentialVerificationKind,
+    CredentialVerificationLease, CredentialVerificationResult,
 };
 use runne_secure_store::{
     CredentialReadbackObservation, ExactAbsenceReadback, ExactVersionReadback,
-    ProviderCredentialDispatchMaterializer, ProviderCredentialDispatchRead,
-    ProviderCredentialMaterial, ProviderCredentialReadback, SecureStoreError,
+    ProviderCredentialReadback, SecureStoreError,
 };
 
 use super::credential_service_registration::{
     CredentialServiceRuntimeSession, ServiceVersionMetadata,
 };
 
+mod materializer;
 mod rejoin;
 mod retry;
 use rejoin::{CredentialServiceRejoinCoordinator, CredentialServiceRejoinRequest};
@@ -221,37 +222,26 @@ impl ProviderCredentialReadback for CredentialServiceRuntimeGateway {
     }
 }
 
-impl ProviderCredentialDispatchMaterializer for CredentialServiceRuntimeGateway {
-    fn materialize_active(
+impl runne_secure_store::ProviderCredentialVerificationReadback
+    for CredentialServiceRuntimeGateway
+{
+    fn verify_local(
         &self,
-        read: ProviderCredentialDispatchRead<'_>,
-    ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
-        let receipt = CredentialBindingDigest::from_measured(read.effect_receipt_digest())
-            .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
-        let now = now_unix_millis().map_err(map_host_error)?;
-        let (result, missing_epoch) = self.with_session(|session| {
-            session
-                .ok_or(ProviderCredentialEnrollmentHostError::Unavailable)?
-                .read_material(
-                    &self.runtime,
-                    &self.authority.runtime_read_authority(),
-                    &self.authority.dispatch_effect_receipt_authority(),
-                    read.capability().version_ref().clone(),
-                    read.lifecycle(),
-                    read.fence(),
-                    receipt,
-                    now,
-                )
-        });
-        if let Some(epoch) = missing_epoch {
-            let _ = self.rejoin.queue(epoch);
+        lease: &CredentialVerificationLease,
+    ) -> Result<CredentialVerificationResult, SecureStoreError> {
+        if lease.kind() != CredentialVerificationKind::Local {
+            return Err(SecureStoreError::CredentialAccessDenied);
         }
-        let material = result.map_err(map_host_error)?;
-        let mut converted = Err(SecureStoreError::InvalidProviderCredential);
-        material.consume(|bytes| {
-            converted = ProviderCredentialMaterial::new(bytes.to_vec());
-        });
-        converted
+        let metadata = self.read_metadata(
+            lease.active_credential_version().clone(),
+            lease.lifecycle_revision(),
+            lease.fence(),
+        )?;
+        Ok(if metadata.present {
+            CredentialVerificationResult::Verified
+        } else {
+            CredentialVerificationResult::Failed
+        })
     }
 }
 

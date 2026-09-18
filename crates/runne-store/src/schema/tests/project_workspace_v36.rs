@@ -35,17 +35,20 @@ fn v36_rejects_tampered_inherited_receipt_and_global_trigger_structure() {
         "DROP TRIGGER global_command_id_from_project_workspace_receipts",
     ] {
         let connection = Connection::open_in_memory().unwrap();
-        apply_migrations(&connection).unwrap();
+        apply_migrations_internal(&connection, 36).unwrap();
         connection.execute_batch(mutation).unwrap();
         assert!(
             !project_workspace_schema::v36_matches(&connection, 36).unwrap(),
             "{mutation}"
         );
-        assert!(apply_migrations(&connection).is_err(), "{mutation}");
+        assert!(
+            apply_migrations_internal(&connection, 36).is_err(),
+            "{mutation}"
+        );
     }
 
     let connection = Connection::open_in_memory().unwrap();
-    apply_migrations(&connection).unwrap();
+    apply_migrations_internal(&connection, 36).unwrap();
     let receipt: String = connection
         .query_row(
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'project_workspace_command_receipts'",
@@ -60,7 +63,7 @@ fn v36_rejects_tampered_inherited_receipt_and_global_trigger_structure() {
         ))
         .unwrap();
     assert!(!project_workspace_schema::v36_matches(&connection, 36).unwrap());
-    assert!(apply_migrations(&connection).is_err());
+    assert!(apply_migrations_internal(&connection, 36).is_err());
 }
 
 #[test]
@@ -69,7 +72,7 @@ fn v18_marker_does_not_admit_the_v36_receipt_schema() {
     apply_migrations_through_v18_for_test(&connection).unwrap();
     replace_receipt_with_v36_schema(&connection);
     assert!(!project_workspace_schema::v18_matches(&connection, 18).unwrap());
-    assert!(apply_migrations(&connection).is_err());
+    assert!(apply_migrations_internal(&connection, 36).is_err());
 }
 
 #[test]
@@ -79,7 +82,7 @@ fn v35_marker_does_not_admit_the_v36_receipt_schema() {
     assert!(v35_matches(&connection, 35).unwrap());
     replace_receipt_with_v36_schema(&connection);
     assert!(!v35_matches(&connection, 35).unwrap());
-    assert!(apply_migrations(&connection).is_err());
+    assert!(apply_migrations_internal(&connection, 36).is_err());
 }
 
 #[test]

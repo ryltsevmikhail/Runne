@@ -27,9 +27,7 @@ impl SqliteProviderExecutionStore {
         connection: ManagedConnection,
         now: Arc<dyn Fn() -> i64 + Send + Sync>,
     ) -> Result<Self, ProviderAdmissionError> {
-        connection
-            .restore_online_issuance_guard()
-            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+        connection.restore_online_issuance_guard().map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
         apply_migrations(&connection).map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
         readiness_from_managed(&connection)
             .and_then(|_| publication_from_managed(&connection).map(|_| ()))

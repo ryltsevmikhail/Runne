@@ -1,6 +1,6 @@
 use super::*;
 
-fn request(action: ProviderCredentialEnrollmentActionV2) -> CredentialIntentIpc {
+fn request(action: CredentialIntentAction) -> CredentialIntentIpc {
     CredentialIntentIpc {
         provider: ProviderCredentialProviderV2::OpenAi,
         action,
@@ -14,7 +14,7 @@ fn request(action: ProviderCredentialEnrollmentActionV2) -> CredentialIntentIpc 
 fn exchange_rejects_a_secret_action_without_submitted_material() {
     assert!(
         accepted_disposition(
-            ProviderCredentialEnrollmentActionV2::Pair,
+            CredentialIntentAction::Pair,
             SecureCredentialPromptDisposition::Confirmed,
         )
         .is_err()
@@ -26,7 +26,7 @@ fn exchange_rejects_confirmation_action_with_submitted_material() {
     let material = SecureCredentialMaterial::new(b"secret".to_vec()).unwrap();
     assert_eq!(
         accepted_disposition(
-            ProviderCredentialEnrollmentActionV2::Revoke,
+            CredentialIntentAction::Revoke,
             SecureCredentialPromptDisposition::Submitted(material),
         )
         .map(|_| ()),
@@ -37,7 +37,7 @@ fn exchange_rejects_confirmation_action_with_submitted_material() {
 #[test]
 fn revoke_accepts_only_secretless_confirmation_and_rejects_cancellation() {
     let (material, disposition_tag) = accepted_disposition(
-        ProviderCredentialEnrollmentActionV2::Revoke,
+        CredentialIntentAction::Revoke,
         SecureCredentialPromptDisposition::Confirmed,
     )
     .expect("revoke confirmation");
@@ -45,7 +45,7 @@ fn revoke_accepts_only_secretless_confirmation_and_rejects_cancellation() {
     assert_eq!(disposition_tag, 2);
     assert!(
         accepted_disposition(
-            ProviderCredentialEnrollmentActionV2::Revoke,
+            CredentialIntentAction::Revoke,
             SecureCredentialPromptDisposition::Cancelled,
         )
         .is_err()
@@ -56,7 +56,7 @@ fn revoke_accepts_only_secretless_confirmation_and_rejects_cancellation() {
 fn native_confirmation_digest_excludes_submitted_secret_material() {
     let tag = |secret| {
         accepted_disposition(
-            ProviderCredentialEnrollmentActionV2::Pair,
+            CredentialIntentAction::Pair,
             SecureCredentialPromptDisposition::Submitted(
                 SecureCredentialMaterial::new(secret).unwrap(),
             ),
@@ -65,13 +65,13 @@ fn native_confirmation_digest_excludes_submitted_secret_material() {
         .1
     };
     let first = native_confirmation_digest(
-        request(ProviderCredentialEnrollmentActionV2::Pair),
+        request(CredentialIntentAction::Pair),
         [1; 32],
         [2; 32],
         tag(b"first-secret".to_vec()),
     );
     let second = native_confirmation_digest(
-        request(ProviderCredentialEnrollmentActionV2::Pair),
+        request(CredentialIntentAction::Pair),
         [1; 32],
         [2; 32],
         tag(b"second-secret".to_vec()),
@@ -86,7 +86,7 @@ fn exchange_retains_a_pending_exact_intent_until_dispatch() {
     let pending = issue_pending_intent(
         &registry,
         "main",
-        request(ProviderCredentialEnrollmentActionV2::Pair),
+        request(CredentialIntentAction::Pair),
         [8; 32],
         now,
     )

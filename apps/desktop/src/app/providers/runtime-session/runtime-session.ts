@@ -4,15 +4,8 @@ import {
 } from '@/shared/api/platform/bootstrap'
 
 export type RuntimeSessionStatus =
-  | 'empty'
-  | 'loading'
-  | 'live'
-  | 'stale'
-  | 'reconnecting'
-  | 'incompatible'
-  | 'revoked'
-  | 'fatal'
-  | 'unavailable'
+  | 'empty' | 'loading' | 'live' | 'stale' | 'reconnecting'
+  | 'incompatible' | 'revoked' | 'fatal' | 'unavailable'
 
 export interface RuntimeSessionSnapshot {
   readonly runtime: RuntimeConnectionState | null
@@ -39,9 +32,9 @@ interface RuntimeSessionDependencies {
 }
 
 const MAX_AUTOMATIC_RECOVERIES = 3
+const SETTLE_WAITS = 20
+const SETTLE_DELAY_MS = 500
 
-// Automatic reconnect is contractually limited to recoverable transport states;
-// terminal or explicit-resync conditions require an explicit policy action.
 const TRANSIENT_STATES = new Set(['reconnecting'])
 const REVOKED_STATES = new Set(['incompatible', 'revoked', 'fatal'])
 
@@ -81,18 +74,17 @@ export function createRuntimeSessionController(
     return next
   }
 
-  // Tickets are fenced by close/reopen and every establishment transition.
   function ticketFenced(ticket: number | undefined): boolean {
     return ticket !== undefined && ticket !== sessionGeneration
   }
 
-  async function establish(): Promise<RuntimeSessionSnapshot> {
+  async function establish(manual = false): Promise<RuntimeSessionSnapshot> {
     const epoch = ++sessionEpoch
     sessionGeneration += 1
     closed = false
     let proven = false
     authenticated = false
-    publish(snapshot(null, 'loading'))
+    if (manual) publish(snapshot(null, 'loading'))
     try {
       const connected = runtimeFrom(await dependencies.connect())
       if (epoch !== sessionEpoch) return current
@@ -101,12 +93,27 @@ export function createRuntimeSessionController(
         return publish(snapshot(null, 'fatal'))
       }
       const connectedLive = connected === 'live'
-      const runtime = runtimeFrom(await dependencies.loadBootstrap())
+      const connectKlass = observationClass(connected)
+      if (connectKlass === 'revoked' || connectKlass === 'unknown') {
+        if (lastResetClass === null || lastResetClass === 'transient') {
+          lastResetClass = 'terminal'
+        }
+      }
+      let runtime = runtimeFrom(await dependencies.loadBootstrap())
       if (epoch !== sessionEpoch) return current
+      // connect_runtime itself rotates the daemon session, so the bootstrap read
+      // right after connect can observe Reconciling while that rotation settles;
+      // re-read bounded instead of burning the recovery budget on our own window.
+      let waits = 0
+      while (runtime === 'reconnecting' && waits < SETTLE_WAITS && epoch === sessionEpoch) {
+        waits += 1
+        await new Promise(resolve => setTimeout(resolve, SETTLE_DELAY_MS))
+        if (epoch !== sessionEpoch) return current
+        runtime = runtimeFrom(await dependencies.loadBootstrap())
+      }
       proven = connectedLive && runtime === 'live'
       authenticated = proven
       const latched = lastResetClass !== null && lastResetClass !== 'transient'
-      const connectKlass = observationClass(connected)
       const recoverableBootstrap
         = runtime === 'live' || (runtime !== null && TRANSIENT_STATES.has(runtime))
       lastResetClass = proven
@@ -116,22 +123,25 @@ export function createRuntimeSessionController(
           : connectKlass === 'revoked' || connectKlass === 'unknown' || !recoverableBootstrap
             ? 'terminal'
             : 'transient'
+      if (manual && (proven || lastResetClass === 'transient')) automaticFailures = 0
       return publish(snapshot(runtime, statusFor(runtime, authenticated)))
     }
-    catch {
+    catch (error) {
       if (epoch !== sessionEpoch) return current
       authenticated = false
+      const disposition = (error as { disposition?: unknown } | null | undefined)?.disposition
+      if (disposition === 'transient') {
+        if (manual) automaticFailures = 0
+        return manual ? publish(snapshot(null, 'unavailable')) : current
+      }
       lastResetClass = 'terminal'
-      return publish(snapshot(null, 'unavailable'))
+      return publish(snapshot(null, manual ? 'unavailable' : 'fatal'))
     }
     finally {
-      if (proven && epoch === sessionEpoch) {
-        automaticFailures = 0
-      }
+      if (proven && epoch === sessionEpoch) automaticFailures = 0
     }
   }
 
-  // Manual connect/retry never waits for recovery; epochs fence late results.
   async function establishExclusively(): Promise<RuntimeSessionSnapshot> {
     const manualId = ++latestManualId
     pendingManuals.add(manualId)
@@ -140,9 +150,7 @@ export function createRuntimeSessionController(
     const resetSeq = proofResetGeneration
     if (recovery !== null) {
       const cancelled = recoveryCancel
-      recovery = null
-      recoveryOwner = null
-      recoveryCancel = null
+      recovery = recoveryOwner = recoveryCancel = null
       sessionEpoch += 1
       if (cancelled !== null) cancelled.cancelled = true
     }
@@ -150,20 +158,17 @@ export function createRuntimeSessionController(
       if (closeSeq !== closeSequence || resetSeq !== proofResetGeneration) {
         return current
       }
-      return await establish()
+      return await establish(true)
     }
     finally {
       pendingManuals.delete(manualId)
     }
   }
 
-  // Recovery waits for the newest manual op; a hung older one never blocks.
   function newestManualPending(): boolean {
     return pendingManuals.has(latestManualId)
   }
 
-  // Bounded automatic re-authentication after a transient disconnect; the
-  // microtask delay keeps observeBootstrap's synchronous snapshot contract.
   function scheduleRecovery(): void {
     if (
       closed
@@ -214,7 +219,6 @@ export function createRuntimeSessionController(
     connect: () => establishExclusively(),
     retry: () => establishExclusively(),
     async close() {
-      // Invalidate in-flight attempts and unlink any pending recovery.
       sessionEpoch += 1
       closeSequence += 1
       proofResetGeneration += 1
@@ -222,14 +226,11 @@ export function createRuntimeSessionController(
       closed = true
       authenticated = false
       lastResetClass = null
-      recovery = null
-      recoveryOwner = null
-      recoveryCancel = null
+      recovery = recoveryOwner = recoveryCancel = null
       publish(snapshot(null, 'unavailable'))
     },
     observeBootstrap(value, ticket) {
       const runtime = runtimeFrom(value)
-      // Closed controllers and stale-generation reads are ignored.
       if (closed || ticketFenced(ticket)) {
         return current
       }
@@ -242,12 +243,10 @@ export function createRuntimeSessionController(
       }
       if (klass === 'transient') {
         authenticated = false
-        if (lastResetClass === null || lastResetClass === 'transient') {
-          lastResetClass = 'transient'
-        }
+        // A transient window itself triggers the bounded recovery.
+        scheduleRecovery()
         return publish(snapshot(runtime, statusFor(runtime, false)))
       }
-      // Terminal/resync: fence in-flight attempts, require explicit action.
       sessionEpoch += 1
       proofResetGeneration += 1
       authenticated = false
@@ -258,13 +257,10 @@ export function createRuntimeSessionController(
 }
 
 function runtimeFrom(value: unknown): RuntimeConnectionState | null {
-  if (isRuntimeConnectionState(value)) {
-    return value
-  }
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return null
-  }
-  const runtime = (value as Record<string, unknown>).runtime
+  if (isRuntimeConnectionState(value)) return value
+  const runtime = typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>).runtime
+    : null
   return isRuntimeConnectionState(runtime) ? runtime : null
 }
 

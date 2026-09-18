@@ -118,6 +118,13 @@ impl RootAdmissionVerifier for AuthenticatorVerifier {
             .verify(admission)
             .map_err(|_| RootAdmissionVerifierError::Rejected)
     }
+
+    fn confirm_root_admission(
+        &self,
+        _: &runne_api::VerifiedRootAdmissionClaims,
+    ) -> Result<(), RootAdmissionVerifierError> {
+        Ok(())
+    }
 }
 
 pub(super) fn authenticated_host(

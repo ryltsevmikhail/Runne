@@ -37,7 +37,17 @@ pub struct SealedCredentialEnvelope {
     pub(crate) offer_binding: CredentialBindingDigest,
     pub(crate) sealer_public_key: [u8; 32],
     pub(crate) plaintext_len: u16,
+    pub(crate) kind: CredentialSecretEnvelopeKind,
     pub(crate) ciphertext_and_tag: zeroize::Zeroizing<Vec<u8>>,
+}
+
+/// Secret relay format selected by the authenticated enrollment flow.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CredentialSecretEnvelopeKind {
+    /// Legacy API-key material, capped at 4096 bytes.
+    Legacy,
+    /// Complete versioned OAuth JSON envelope, capped at 32 KiB.
+    NativeOAuth,
 }
 
 impl CredentialSecretClaimOffer {
@@ -109,7 +119,23 @@ impl super::publication::VerifiedCredentialSecretOffer {
         self,
         credential: zeroize::Zeroizing<Vec<u8>>,
     ) -> Result<SealedCredentialEnvelope, CredentialEnrollmentError> {
-        super::cipher::validate_credential(&credential)?;
+        self.seal_inner(credential, CredentialSecretEnvelopeKind::Legacy)
+    }
+
+    /// Seals a complete native OAuth envelope under the larger typed bound.
+    pub(crate) fn seal_native_oauth(
+        self,
+        credential: zeroize::Zeroizing<Vec<u8>>,
+    ) -> Result<SealedCredentialEnvelope, CredentialEnrollmentError> {
+        self.seal_inner(credential, CredentialSecretEnvelopeKind::NativeOAuth)
+    }
+
+    fn seal_inner(
+        self,
+        credential: zeroize::Zeroizing<Vec<u8>>,
+        kind: CredentialSecretEnvelopeKind,
+    ) -> Result<SealedCredentialEnvelope, CredentialEnrollmentError> {
+        super::cipher::validate_credential(&credential, kind)?;
         let private =
             agreement::EphemeralPrivateKey::generate(&agreement::X25519, &SystemRandom::new())
                 .map_err(|_| CredentialEnrollmentError::EntropyUnavailable)?;
@@ -117,7 +143,7 @@ impl super::publication::VerifiedCredentialSecretOffer {
         let peer =
             agreement::UnparsedPublicKey::new(&agreement::X25519, self.offer.writer_public_key);
         agreement::agree_ephemeral(private, &peer, |shared| {
-            self.seal_shared(shared, sealer_public_key, credential)
+            self.seal_shared(shared, sealer_public_key, credential, kind)
         })
         .map_err(|_| CredentialEnrollmentError::InvalidEvidence)?
     }
@@ -127,6 +153,7 @@ impl super::publication::VerifiedCredentialSecretOffer {
         shared: &[u8],
         sealer_public_key: [u8; 32],
         credential: zeroize::Zeroizing<Vec<u8>>,
+        kind: CredentialSecretEnvelopeKind,
     ) -> Result<SealedCredentialEnvelope, CredentialEnrollmentError> {
         let plaintext_len =
             u16::try_from(credential.len()).map_err(|_| CredentialEnrollmentError::InvalidInput)?;
@@ -147,6 +174,7 @@ impl super::publication::VerifiedCredentialSecretOffer {
             offer_binding: self.offer.offer_binding,
             sealer_public_key,
             plaintext_len,
+            kind,
             ciphertext_and_tag,
         })
     }
@@ -179,6 +207,7 @@ impl PendingCredentialSecretOpening {
             offer_binding: received_offer,
             sealer_public_key,
             plaintext_len,
+            kind,
             ciphertext_and_tag,
         } = envelope;
         if received_operation != operation_id
@@ -186,6 +215,13 @@ impl PendingCredentialSecretOpening {
             || received_claim != claim_binding
             || received_offer != offer_binding
         {
+            return Err(CredentialEnrollmentError::InvalidEvidence);
+        }
+        let oauth_provider = matches!(
+            command.provider().as_str(),
+            "openai-codex" | "github-copilot"
+        );
+        if oauth_provider != (kind == CredentialSecretEnvelopeKind::NativeOAuth) {
             return Err(CredentialEnrollmentError::InvalidEvidence);
         }
         let peer = agreement::UnparsedPublicKey::new(&agreement::X25519, sealer_public_key);
@@ -202,12 +238,16 @@ impl PendingCredentialSecretOpening {
             super::cipher::open(shared, &transcript, ciphertext_and_tag)
         })
         .map_err(|_| CredentialEnrollmentError::InvalidEvidence)??;
-        super::cipher::validate_credential(&material)?;
+        super::cipher::validate_credential(&material, kind)?;
         Ok(super::relay::CredentialDecryptedMaterial::new(material))
     }
 }
 
 impl SealedCredentialEnvelope {
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "codec fields stay explicit to preserve the fixed wire layout"
+    )]
     pub(crate) fn from_decoded(
         operation_id: CredentialOperationId,
         attempt: CredentialTicketAttempt,
@@ -215,6 +255,7 @@ impl SealedCredentialEnvelope {
         offer_binding: CredentialBindingDigest,
         sealer_public_key: [u8; 32],
         plaintext_len: u16,
+        kind: CredentialSecretEnvelopeKind,
         ciphertext_and_tag: zeroize::Zeroizing<Vec<u8>>,
     ) -> Self {
         Self {
@@ -224,6 +265,7 @@ impl SealedCredentialEnvelope {
             offer_binding,
             sealer_public_key,
             plaintext_len,
+            kind,
             ciphertext_and_tag,
         }
     }

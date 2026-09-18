@@ -51,7 +51,10 @@ fn safe_projection_uses_only_a_current_verification_observation() {
     .unwrap();
     let pending = ProviderCredentialEnrollmentStore::safe_snapshot(&store, &provider()).unwrap();
     assert!(pending.verification().is_pending());
-    assert_eq!(pending.verification().kind(), Some(CredentialVerificationKind::Local));
+    assert_eq!(
+        pending.verification().kind(),
+        Some(CredentialVerificationKind::Local)
+    );
 
     ProviderCredentialEnrollmentStore::complete_verification(
         &store,

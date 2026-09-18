@@ -23,11 +23,14 @@ const runtimeSessionKey: InjectionKey<RuntimeSessionContext> = Symbol('runtime-s
 
 export function createRuntimeSessionContext(port: RuntimeSessionController): RuntimeSessionContext {
   const snapshot = shallowRef(port.snapshot())
-  // Publish the controller's current snapshot after the operation settles:
-  // a revocation or close arriving meanwhile must not be overwritten by the
-  // operation's stale return value.
+  // Publish synchronously at operation start (the controller has already
+  // projected its transition state) so consumers lose canMutate immediately,
+  // and again after settle so a mid-operation revocation/close stays
+  // authoritative over the operation's stale return value.
   const update = async (operation: () => Promise<RuntimeSessionSnapshot>) => {
-    await operation()
+    const pending = operation()
+    snapshot.value = port.snapshot()
+    await pending
     snapshot.value = port.snapshot()
     return snapshot.value
   }

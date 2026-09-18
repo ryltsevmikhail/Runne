@@ -8,15 +8,16 @@ use runne_provider::{
 
 use super::online_claim_test_support::seal_claim;
 use super::online_test_support::{
-    complete_pair, digest, issue_ticket, operation, provider, qualified_release, revoke, store, ticket,
+    complete_pair, digest, issue_ticket, operation, provider, qualified_release, revoke, store,
+    ticket,
 };
 
 #[test]
 fn credential_online_revoke_rejects_nonactive_target_without_fencing() {
     let store = store();
     complete_pair(&store, 10, "paired-exact-target");
-    let before = ProviderCredentialEnrollmentStore::lifecycle_snapshot(&store, &provider())
-        .unwrap();
+    let before =
+        ProviderCredentialEnrollmentStore::lifecycle_snapshot(&store, &provider()).unwrap();
     let template = revoke(20, "wrong-target", 2, 2);
     let input = runne_provider::BeginCredentialOperation::new(
         template.command_id(),
@@ -38,14 +39,18 @@ fn credential_online_revoke_rejects_nonactive_target_without_fencing() {
         ProviderCredentialEnrollmentStore::begin(&store, input),
         Err(runne_provider::CredentialLifecycleError::Conflict)
     ));
-    let after = ProviderCredentialEnrollmentStore::lifecycle_snapshot(&store, &provider())
-        .unwrap();
+    let after = ProviderCredentialEnrollmentStore::lifecycle_snapshot(&store, &provider()).unwrap();
     assert_eq!(after.active_version(), before.active_version());
     assert_eq!(after.fence(), before.fence());
     assert_eq!(after.lifecycle_revision(), before.lifecycle_revision());
-    assert!(ProviderCredentialEnrollmentStore::find_by_begin_proof(
-        &store, template.begin_proof_digest(),
-    ).unwrap().is_none());
+    assert!(
+        ProviderCredentialEnrollmentStore::find_by_begin_proof(
+            &store,
+            template.begin_proof_digest(),
+        )
+        .unwrap()
+        .is_none()
+    );
 }
 
 #[test]
@@ -54,21 +59,23 @@ fn credential_online_revoke_fence_survives_reopen_before_native_deletion() {
     let path = directory.path().join("revoke-restart.sqlite");
     let store = super::online_claim_test_support::open_test_store(&path, 100);
     complete_pair(&store, 10, "paired-before-restart");
-    let before = ProviderCredentialEnrollmentStore::lifecycle_snapshot(&store, &provider())
-        .unwrap();
-    ProviderCredentialEnrollmentStore::begin(&store, revoke(20, "revoke-restart", 2, 2))
-        .unwrap();
+    let before =
+        ProviderCredentialEnrollmentStore::lifecycle_snapshot(&store, &provider()).unwrap();
+    ProviderCredentialEnrollmentStore::begin(&store, revoke(20, "revoke-restart", 2, 2)).unwrap();
     drop(store);
 
     let reopened = super::online_claim_test_support::open_test_store(&path, 101);
-    let after = ProviderCredentialEnrollmentStore::lifecycle_snapshot(&reopened, &provider())
-        .unwrap();
+    let after =
+        ProviderCredentialEnrollmentStore::lifecycle_snapshot(&reopened, &provider()).unwrap();
     assert!(before.active_version().is_some());
     assert!(after.active_version().is_none());
     assert!(after.fence() > before.fence());
-    let pending = ProviderCredentialEnrollmentStore::load_operation(&reopened, operation(20))
-        .unwrap();
-    assert_eq!(pending.state(), runne_provider::CredentialOperationState::Prepared);
+    let pending =
+        ProviderCredentialEnrollmentStore::load_operation(&reopened, operation(20)).unwrap();
+    assert_eq!(
+        pending.state(),
+        runne_provider::CredentialOperationState::Prepared
+    );
     assert_eq!(pending.target_credential_version(), before.active_version());
 }
 
@@ -78,9 +85,7 @@ fn credential_online_revoke_completes_after_committed_fence_readback_and_missing
     complete_pair(&store, 10, "paired");
     let revoke_id = operation(20);
     ProviderCredentialEnrollmentStore::begin(&store, revoke(20, "revoke", 2, 2)).unwrap();
-    let receipt =
-        issue_ticket(&store, ticket(20, 1, 22, 23))
-            .unwrap();
+    let receipt = issue_ticket(&store, ticket(20, 1, 22, 23)).unwrap();
     ProviderCredentialEnrollmentStore::claim(
         &store,
         seal_claim(

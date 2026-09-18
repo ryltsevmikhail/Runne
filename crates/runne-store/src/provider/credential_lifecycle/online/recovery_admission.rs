@@ -1,6 +1,6 @@
 use runne_provider::{
-    AcceptedCredentialCleanupRecovery, CredentialCleanupRecoveryRequest,
-    CredentialLifecycleError, CredentialOperationAction, CredentialOperationState,
+    AcceptedCredentialCleanupRecovery, CredentialCleanupRecoveryRequest, CredentialLifecycleError,
+    CredentialOperationAction, CredentialOperationState,
 };
 use rusqlite::{OptionalExtension as _, TransactionBehavior, params};
 
@@ -15,13 +15,21 @@ pub(super) fn expired_attempt(
     let mut connection = store.connection.lock().map_err(super::map_lock)?;
     let transaction = connection.transaction().map_err(map_sql)?;
     let operation = snapshot(&transaction, id, &store.enrollment_authority)?;
-    if operation.installation_owner_id() != owner { return Err(CredentialLifecycleError::Conflict); }
+    if operation.installation_owner_id() != owner {
+        return Err(CredentialLifecycleError::Conflict);
+    }
     if operation.state() != CredentialOperationState::Prepared
-        || !matches!(operation.action(), CredentialOperationAction::Revoke
-            | CredentialOperationAction::RetiredVersionCleanup | CredentialOperationAction::LegacySourceCleanup) {
+        || !matches!(
+            operation.action(),
+            CredentialOperationAction::Revoke
+                | CredentialOperationAction::RetiredVersionCleanup
+                | CredentialOperationAction::LegacySourceCleanup
+        )
+    {
         return Ok(None);
     }
-    let head = load_head(&transaction, operation.provider())?.ok_or(CredentialLifecycleError::CorruptState)?;
+    let head = load_head(&transaction, operation.provider())?
+        .ok_or(CredentialLifecycleError::CorruptState)?;
     let now = head.observed_at.max((store.now)());
     let attempt: Option<i64> = transaction.query_row(
         "SELECT attempt FROM credential_cleanup_recovery_attempts
@@ -31,8 +39,14 @@ pub(super) fn expired_attempt(
         params![id.as_bytes().as_slice(), now], |row| row.get(0),
     ).optional().map_err(map_sql)?;
     transaction.commit().map_err(map_sql)?;
-    attempt.map(|value| u64::try_from(value).ok().filter(|v| *v > 0)
-        .ok_or(CredentialLifecycleError::CorruptState)).transpose()
+    attempt
+        .map(|value| {
+            u64::try_from(value)
+                .ok()
+                .filter(|v| *v > 0)
+                .ok_or(CredentialLifecycleError::CorruptState)
+        })
+        .transpose()
 }
 
 pub(super) fn accept(
@@ -47,7 +61,9 @@ pub(super) fn supersede(
     request: CredentialCleanupRecoveryRequest,
     expected_attempt: u64,
 ) -> Result<AcceptedCredentialCleanupRecovery, CredentialLifecycleError> {
-    let expected = i64::try_from(expected_attempt).ok().filter(|v| *v > 0)
+    let expected = i64::try_from(expected_attempt)
+        .ok()
+        .filter(|v| *v > 0)
         .ok_or(CredentialLifecycleError::InvalidInput)?;
     admit(store, request, Some(expected))
 }
@@ -57,15 +73,26 @@ fn admit(
     request: CredentialCleanupRecoveryRequest,
     superseded_attempt: Option<i64>,
 ) -> Result<AcceptedCredentialCleanupRecovery, CredentialLifecycleError> {
-    store.enrollment_authority.validate_cleanup_recovery_request(&request)
+    store
+        .enrollment_authority
+        .validate_cleanup_recovery_request(&request)
         .map_err(|_| CredentialLifecycleError::InvalidInput)?;
     let mut connection = store.connection.lock().map_err(super::map_lock)?;
-    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(map_sql)?;
-    let operation = snapshot(&transaction, request.operation_id(), &store.enrollment_authority)?;
+    let operation = snapshot(
+        &transaction,
+        request.operation_id(),
+        &store.enrollment_authority,
+    )?;
     if operation.state() != CredentialOperationState::Prepared
-        || !matches!(operation.action(), CredentialOperationAction::Revoke
-            | CredentialOperationAction::RetiredVersionCleanup | CredentialOperationAction::LegacySourceCleanup)
+        || !matches!(
+            operation.action(),
+            CredentialOperationAction::Revoke
+                | CredentialOperationAction::RetiredVersionCleanup
+                | CredentialOperationAction::LegacySourceCleanup
+        )
         || operation.installation_owner_id() != request.owner()
         || operation.metadata().qualified_release_tuple_digest() != Some(request.release_digest())
     {
@@ -88,45 +115,67 @@ fn admit(
         params![request.operation_id().as_bytes().as_slice(), request.continuation_digest().as_bytes().as_slice()],
         |row| row.get(0),
     ).map_err(map_sql)?;
-    if prohibited { return Err(CredentialLifecycleError::Conflict); }
+    if prohibited {
+        return Err(CredentialLifecycleError::Conflict);
+    }
     let issued_at = head.observed_at.max((store.now)());
-    if issued_at < 0 { return Err(CredentialLifecycleError::InvalidInput); }
-    let expires_at = issued_at.checked_add(request.ttl_seconds() as i64)
+    if issued_at < 0 {
+        return Err(CredentialLifecycleError::InvalidInput);
+    }
+    let expires_at = issued_at
+        .checked_add(request.ttl_seconds() as i64)
         .ok_or(CredentialLifecycleError::InvalidInput)?;
     let previous: i64 = transaction.query_row(
         "SELECT COALESCE(MAX(attempt), 0) FROM credential_cleanup_recovery_attempts WHERE operation_id=?1",
         [request.operation_id().as_bytes().as_slice()], |row| row.get(0),
     ).map_err(map_sql)?;
-    let attempt = previous.checked_add(1).filter(|v| *v > 0)
+    let attempt = previous
+        .checked_add(1)
+        .filter(|v| *v > 0)
         .ok_or(CredentialLifecycleError::CorruptState)?;
 
     if let Some(expected) = superseded_attempt {
         if previous != expected {
             return Err(CredentialLifecycleError::Conflict);
         }
-        let changed = transaction.execute(
-            "UPDATE credential_cleanup_recovery_attempts
+        let changed = transaction
+            .execute(
+                "UPDATE credential_cleanup_recovery_attempts
              SET state='SUPERSEDED', terminal_digest=continuation_digest
              WHERE operation_id=?1 AND attempt=?2 AND state='ACCEPTED' AND expires_at<=?3",
-            params![request.operation_id().as_bytes().as_slice(), expected, issued_at],
-        ).map_err(map_sql)?;
-        if changed != 1 { return Err(CredentialLifecycleError::Conflict); }
+                params![
+                    request.operation_id().as_bytes().as_slice(),
+                    expected,
+                    issued_at
+                ],
+            )
+            .map_err(map_sql)?;
+        if changed != 1 {
+            return Err(CredentialLifecycleError::Conflict);
+        }
     } else {
-        let live: bool = transaction.query_row(
-            "SELECT EXISTS(SELECT 1 FROM credential_cleanup_recovery_attempts
+        let live: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM credential_cleanup_recovery_attempts
              WHERE operation_id=?1 AND state='ACCEPTED')",
-            [request.operation_id().as_bytes().as_slice()], |row| row.get(0),
-        ).map_err(map_sql)?;
-        if live { return Err(CredentialLifecycleError::Conflict); }
+                [request.operation_id().as_bytes().as_slice()],
+                |row| row.get(0),
+            )
+            .map_err(map_sql)?;
+        if live {
+            return Err(CredentialLifecycleError::Conflict);
+        }
     }
 
     // These updates and the admission insert share the claim CAS's write lock.
     // An old claim either committed already (rejected above), or loses forever.
-    transaction.execute(
-        "UPDATE provider_credential_ticket_attempts SET state='EXPIRED'
+    transaction
+        .execute(
+            "UPDATE provider_credential_ticket_attempts SET state='EXPIRED'
          WHERE operation_id=?1 AND state='ISSUED'",
-        [request.operation_id().as_bytes().as_slice()],
-    ).map_err(map_sql)?;
+            [request.operation_id().as_bytes().as_slice()],
+        )
+        .map_err(map_sql)?;
     transaction.execute(
         "UPDATE provider_credential_ticket_attempts SET state='TOMBSTONED', terminal_digest=ticket_digest
          WHERE operation_id=?1 AND state='EXPIRED'",
@@ -153,7 +202,8 @@ fn admit(
         params![issued_at, operation.provider().as_str()],
     ).map_err(map_sql)?;
     transaction.commit().map_err(map_sql)?;
-    store.enrollment_authority.issue_cleanup_recovery(
-        request, operation, attempt as u64, issued_at, expires_at,
-    ).map_err(|_| CredentialLifecycleError::CorruptState)
+    store
+        .enrollment_authority
+        .issue_cleanup_recovery(request, operation, attempt as u64, issued_at, expires_at)
+        .map_err(|_| CredentialLifecycleError::CorruptState)
 }

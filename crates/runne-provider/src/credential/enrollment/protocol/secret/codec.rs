@@ -6,7 +6,7 @@ use crate::credential::enrollment::{
 };
 
 use super::cipher::SECRET_VERSION;
-use super::{CredentialSecretClaimOffer, SealedCredentialEnvelope};
+use super::{CredentialSecretClaimOffer, CredentialSecretEnvelopeKind, SealedCredentialEnvelope};
 
 const OFFER_KIND: u8 = 1;
 const ENVELOPE_KIND: u8 = 2;
@@ -57,8 +57,10 @@ impl CredentialSecretOfferCodec {
 impl CredentialSecretEnvelopeCodec {
     /// The only supported secret-relay codec version.
     pub const VERSION: u8 = SECRET_VERSION;
-    /// Largest exact encrypted envelope, for a 4096-byte credential.
+    /// Largest exact encrypted legacy envelope, for a 4096-byte credential.
     pub const MAX_BYTES: usize = ENVELOPE_HEADER_BYTES + 4096 + TAG_BYTES;
+    /// Largest exact encrypted native OAuth envelope, for a 32 KiB payload.
+    pub const MAX_NATIVE_OAUTH_BYTES: usize = ENVELOPE_HEADER_BYTES + (32 * 1024) + TAG_BYTES;
 
     /// Encodes one envelope without exposing its plaintext.
     pub fn encode(
@@ -67,12 +69,34 @@ impl CredentialSecretEnvelopeCodec {
         if envelope.ciphertext_and_tag.len() != usize::from(envelope.plaintext_len) + TAG_BYTES {
             return Err(CredentialEnrollmentError::InvalidFrame);
         }
+        if envelope.kind != CredentialSecretEnvelopeKind::Legacy {
+            return Err(CredentialEnrollmentError::InvalidFrame);
+        }
+        Self::encode_inner(envelope, super::cipher::SECRET_VERSION)
+    }
+
+    /// Encodes one typed native OAuth envelope without widening the legacy codec.
+    pub fn encode_native_oauth(
+        envelope: &SealedCredentialEnvelope,
+    ) -> Result<Zeroizing<Vec<u8>>, CredentialEnrollmentError> {
+        if envelope.kind != CredentialSecretEnvelopeKind::NativeOAuth
+            || envelope.ciphertext_and_tag.len() != usize::from(envelope.plaintext_len) + TAG_BYTES
+        {
+            return Err(CredentialEnrollmentError::InvalidFrame);
+        }
+        Self::encode_inner(envelope, super::cipher::SECRET_VERSION + 1)
+    }
+
+    fn encode_inner(
+        envelope: &SealedCredentialEnvelope,
+        version: u8,
+    ) -> Result<Zeroizing<Vec<u8>>, CredentialEnrollmentError> {
         let mut bytes = Zeroizing::new(vec![
             0;
             ENVELOPE_HEADER_BYTES
                 + envelope.ciphertext_and_tag.len()
         ]);
-        bytes[..2].copy_from_slice(&[Self::VERSION, ENVELOPE_KIND]);
+        bytes[..2].copy_from_slice(&[version, ENVELOPE_KIND]);
         bytes[2..18].copy_from_slice(&envelope.operation_id.as_bytes());
         bytes[18..26].copy_from_slice(&envelope.attempt.get().to_be_bytes());
         bytes[26..58].copy_from_slice(&envelope.claim_binding.as_bytes());
@@ -86,14 +110,31 @@ impl CredentialSecretEnvelopeCodec {
     /// Decodes one bounded envelope and rejects all length or trailing variants.
     pub fn decode(bytes: &[u8]) -> Result<SealedCredentialEnvelope, CredentialEnrollmentError> {
         if bytes.len() < ENVELOPE_HEADER_BYTES + TAG_BYTES
-            || bytes.len() > Self::MAX_BYTES
-            || bytes[..2] != [Self::VERSION, ENVELOPE_KIND]
+            || bytes[..2] == [0, ENVELOPE_KIND]
+            || bytes[1] != ENVELOPE_KIND
         {
             return Err(CredentialEnrollmentError::InvalidFrame);
         }
+        let (kind, max_bytes) = match bytes[0] {
+            value if value == Self::VERSION => {
+                (CredentialSecretEnvelopeKind::Legacy, Self::MAX_BYTES)
+            }
+            value if value == Self::VERSION + 1 => (
+                CredentialSecretEnvelopeKind::NativeOAuth,
+                Self::MAX_NATIVE_OAUTH_BYTES,
+            ),
+            _ => return Err(CredentialEnrollmentError::InvalidFrame),
+        };
+        if bytes.len() > max_bytes {
+            return Err(CredentialEnrollmentError::InvalidFrame);
+        }
         let plaintext_len = u16::from_be_bytes(fixed(bytes, 122)?);
+        let max_plaintext = match kind {
+            CredentialSecretEnvelopeKind::Legacy => 4096,
+            CredentialSecretEnvelopeKind::NativeOAuth => 32 * 1024,
+        };
         if plaintext_len == 0
-            || usize::from(plaintext_len) > 4096
+            || usize::from(plaintext_len) > max_plaintext
             || bytes.len() != ENVELOPE_HEADER_BYTES + usize::from(plaintext_len) + TAG_BYTES
         {
             return Err(CredentialEnrollmentError::InvalidFrame);
@@ -105,6 +146,7 @@ impl CredentialSecretEnvelopeCodec {
             digest(bytes, 58)?,
             fixed(bytes, 90)?,
             plaintext_len,
+            kind,
             Zeroizing::new(bytes[124..].to_vec()),
         ))
     }

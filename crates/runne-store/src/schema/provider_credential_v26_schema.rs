@@ -137,9 +137,9 @@ pub(super) fn v26_predecessor_matches_with(
         ("approvals", MIGRATION_V23),
     ] {
         if table == "task_run_workspace_lineage" && lineage_v37 {
-            // Version-strict: a v37 structure must carry the v37 lineage DDL
+            // Version-strict: a v39 structure must carry the v39 lineage DDL
             // exactly — the historical v18 shape is drift, not a fallback.
-            if !v37_lineage_table_matches(connection)? {
+            if !v39_lineage_table_matches(connection)? {
                 return Ok(false);
             }
         } else if !table_sql_matches_migration(connection, table, migration)? {

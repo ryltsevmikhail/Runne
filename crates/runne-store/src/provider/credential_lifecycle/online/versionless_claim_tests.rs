@@ -37,9 +37,17 @@ fn versionless_claim_requires_legacy_binding_but_accepts_bound_migration() {
             ticket(id, 1, id.wrapping_add(1), id.wrapping_add(2)),
         );
         if action == CredentialOperationAction::LegacySourceCleanup {
-            assert_eq!(receipt, Err(runne_provider::CredentialLifecycleError::Conflict));
-            assert_eq!(store.load_operation(CredentialOperationId::from_bytes([id; 16]).unwrap())
-                .unwrap().state(), CredentialOperationState::Prepared);
+            assert_eq!(
+                receipt,
+                Err(runne_provider::CredentialLifecycleError::Conflict)
+            );
+            assert_eq!(
+                store
+                    .load_operation(CredentialOperationId::from_bytes([id; 16]).unwrap())
+                    .unwrap()
+                    .state(),
+                CredentialOperationState::Prepared
+            );
             continue;
         }
         let receipt = receipt.unwrap();

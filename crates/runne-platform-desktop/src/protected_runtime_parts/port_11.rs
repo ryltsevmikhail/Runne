@@ -131,6 +131,47 @@ mod tests {
             ProtectedBundledRuntimeLaunchSpec::new(&unsafe_daemon, &runtime_root),
             Err(ProtectedBundledRuntimeError::ExecutableUnavailable)
         );
+
+        let group_writable_parent = temporary.path().join("group-writable-parent");
+        std::fs::create_dir(&group_writable_parent).expect("create group-writable parent");
+        std::fs::set_permissions(
+            &group_writable_parent,
+            std::fs::Permissions::from_mode(0o770),
+        )
+        .expect("weaken parent group permissions");
+        let group_daemon = group_writable_parent.join("runned");
+        executable(&group_daemon, 0o755);
+        assert_eq!(
+            ProtectedBundledRuntimeLaunchSpec::new(&group_daemon, &runtime_root),
+            Err(ProtectedBundledRuntimeError::ExecutableUnavailable)
+        );
+    }
+
+    #[test]
+    fn directory_write_bits_match_the_macos_release_reality() {
+        let euid = rustix::process::geteuid().as_raw();
+        // The privileged-group allowance exists for the macOS release
+        // reality (stock /Applications is root:admin 0775, no sticky bit);
+        // on other unix systems gid 80 carries no privileged meaning and
+        // the pre-existing sticky-bit rule applies unchanged.
+        let applications_shape_accepted = cfg!(target_os = "macos");
+        assert_eq!(
+            directory_write_bits_are_secure(0o775, 0, 80, 1234, euid),
+            applications_shape_accepted,
+        );
+        assert_eq!(
+            directory_write_bits_are_secure(0o775, 0, 0, 1234, euid),
+            applications_shape_accepted,
+        );
+        assert!(!directory_write_bits_are_secure(0o775, 0, 20, euid, euid));
+        assert!(!directory_write_bits_are_secure(0o777, 0, 80, euid, euid));
+        assert!(!directory_write_bits_are_secure(0o775, 1000, 80, 1000, 1000));
+        assert!(!directory_write_bits_are_secure(0o770, 1000, 1000, 1000, 1000));
+        assert!(directory_write_bits_are_secure(0o1775, 1000, 80, 0, 1000));
+        assert!(!directory_write_bits_are_secure(0o1775, 1000, 80, 1001, 1002));
+        assert!(directory_write_bits_are_secure(0o1777, 0, 80, euid, euid));
+        assert!(!directory_write_bits_are_secure(0o1777, 0, 80, 1001, euid));
+        assert!(directory_write_bits_are_secure(0o755, 0, 80, 1001, euid));
     }
 
     #[test]

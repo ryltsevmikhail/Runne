@@ -58,6 +58,11 @@ fn admitted_admission_verifies_once_for_the_current_session() {
     let claims = authority.verify(issued.admission).expect("verdict accepts");
     assert_eq!(claims.workspace_id(), fixture::workspace());
     assert_eq!(claims.expected_version(), 1);
+    // Verify is a pure verdict: promotion happens only at confirm time.
+    assert_eq!(authority.retained_effect(), (1, 0));
+    authority
+        .confirm_root_admission(&claims)
+        .expect("verdict promotes the retained root");
     assert_eq!(authority.retained_effect(), (1, 1));
     assert_eq!(
         fixture::database_state(&path),

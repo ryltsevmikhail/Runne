@@ -36,7 +36,16 @@ impl AuthenticatedPairSecretSealer {
         credential: Zeroizing<Vec<u8>>,
     ) -> Result<Zeroizing<Vec<u8>>, BrokerHandoffError> {
         let transcript = self.verify(frame)?;
-        seal_envelope(&transcript, credential)
+        seal_envelope(&transcript, credential, false)
+    }
+
+    pub(super) fn seal_native_oauth(
+        self,
+        frame: &[u8],
+        credential: Zeroizing<Vec<u8>>,
+    ) -> Result<Zeroizing<Vec<u8>>, BrokerHandoffError> {
+        let transcript = self.verify(frame)?;
+        seal_envelope(&transcript, credential, true)
     }
 
     fn verify(self, frame: &[u8]) -> Result<OfferTranscript, BrokerHandoffError> {
@@ -106,9 +115,11 @@ fn publication_message(bytes: &[u8]) -> Vec<u8> {
 fn seal_envelope(
     transcript: &OfferTranscript,
     mut credential: Zeroizing<Vec<u8>>,
+    native_oauth: bool,
 ) -> Result<Zeroizing<Vec<u8>>, BrokerHandoffError> {
+    let max = if native_oauth { 32 * 1024 } else { 4096 };
     if credential.is_empty()
-        || credential.len() > 4096
+        || credential.len() > max
         || credential
             .iter()
             .any(|byte| matches!(byte, b'\n' | b'\r' | 0))
@@ -132,7 +143,12 @@ fn seal_envelope(
     })
     .map_err(|_| BrokerHandoffError::Rejected)??;
     let mut envelope = Zeroizing::new(vec![0; 124 + credential.len()]);
-    envelope[..2].copy_from_slice(&[runne_provider::CredentialSecretEnvelopeCodec::VERSION, 2]);
+    let version = if native_oauth {
+        runne_provider::CredentialSecretEnvelopeCodec::VERSION + 1
+    } else {
+        runne_provider::CredentialSecretEnvelopeCodec::VERSION
+    };
+    envelope[..2].copy_from_slice(&[version, 2]);
     envelope[2..18].copy_from_slice(&transcript.operation);
     envelope[18..26].copy_from_slice(&transcript.attempt);
     envelope[26..58].copy_from_slice(&transcript.claim);

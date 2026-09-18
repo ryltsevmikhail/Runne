@@ -204,6 +204,8 @@ describe('workspace page lifecycle', () => {
     reconnect.vm.$emit('connected', WORKSPACE_A, generation)
     await flushPromises()
     expect(wrapper.get('h1').text()).toBe(projectB.displayName)
+    // The stale reconnect completion is ignored (the bounded file retry is
+    // scheduled on a timer and not observed here).
     expect(loadProject.mock.calls.filter(([id]) => id === WORKSPACE_B)).toHaveLength(1)
   })
 })

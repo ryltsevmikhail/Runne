@@ -5,13 +5,19 @@ const V30_TRIGGERS: [&str; 4] = [
     "provider_credential_remote_verification_binding",
 ];
 
+mod trigger_catalog;
+
+fn v30_trigger_source(name: &str) -> &'static str {
+    trigger_catalog::source(name)
+}
+
 pub(super) fn v30_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
     if version != 30 || !v30_predecessor_matches(connection)? || !v30_columns_match(connection)? {
         return Ok(false);
     }
     if !V30_TRIGGERS.into_iter().try_fold(true, |valid, name| {
         Ok::<bool, rusqlite::Error>(
-            valid && v24_trigger_matches(connection, name, v30_trigger_source(name))?,
+            valid && v24_trigger_matches(connection, name, trigger_catalog::source(name))?,
         )
     })? {
         return Ok(false);
@@ -58,7 +64,15 @@ pub(super) fn v30_predecessor_matches_with_v32(
     insert_trigger: &str,
     head_trigger: &str,
 ) -> SqliteResult<bool> {
-    v30_predecessor_matches_with_successors(connection, insert_trigger, head_trigger, true, &CredentialSchemaExtensions::default(), false, false)
+    v30_predecessor_matches_with_successors(
+        connection,
+        insert_trigger,
+        head_trigger,
+        true,
+        &CredentialSchemaExtensions::default(),
+        false,
+        false,
+    )
 }
 
 fn v30_predecessor_matches_with_successors(
@@ -123,13 +137,30 @@ fn v30_v26_base_matches_with(
     lineage_v37: bool,
 ) -> SqliteResult<bool> {
     if !v18_global_trigger_matches(connection)?
-        || !v30_trigger_catalog_matches_with(connection, insert_trigger, head_trigger, extensions)?
+        || !trigger_catalog::matches_with(connection, insert_trigger, head_trigger, extensions)?
     {
         return Ok(false);
     }
     let v12 = provider_v12_core_matches(connection)?;
-    let v13 = v13_unchanged_tables_match(connection)?;
-    let v14 = provider_schema::v14_base_matches(connection, v12, v13)?;
+    let is_v37 = connection.query_row(
+        "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+        [],
+        |row| row.get::<_, i64>(0),
+    )? == 37;
+    let v13 = if is_v37 {
+        v13_unchanged_tables_match_for_v37(connection)?
+    } else {
+        v13_unchanged_tables_match(connection)?
+    };
+    let v14 = if is_v37 {
+        provider_schema::v14_base_matches_for_v37(
+            connection,
+            v12,
+            v13 && v37_accounting_tables_match(connection)?,
+        )?
+    } else {
+        provider_schema::v14_base_matches(connection, v12, v13)?
+    };
     if !v14
         || !provider_schema::v15_base_matches(connection, v14)?
         || !v28_operation_table_matches(connection)?
@@ -175,9 +206,9 @@ fn v30_v26_base_matches_with(
         ("approvals", MIGRATION_V23),
     ] {
         if table == "task_run_workspace_lineage" && lineage_v37 {
-            // Version-strict: a v37 structure must carry the v37 lineage DDL
+            // Version-strict: a v39 structure must carry the v39 lineage DDL
             // exactly — the historical v18 shape is drift, not a fallback.
-            if !v37_lineage_table_matches(connection)? {
+            if !v39_lineage_table_matches(connection)? {
                 return Ok(false);
             }
         } else if !(table_sql_matches_migration(connection, table, migration)?
@@ -226,7 +257,9 @@ fn v30_v26_base_matches_with(
         }
     }
     for (name, source) in V24_TRIGGERS {
-        let expected = if let Some((_, replacement)) = extensions.replacements.iter().find(|(n, _)| *n == name) {
+        let expected = if let Some((_, replacement)) =
+            extensions.replacements.iter().find(|(n, _)| *n == name)
+        {
             (*replacement).to_owned()
         } else if name == "provider_credential_operation_insert_prepared" {
             insert_trigger.to_owned()
@@ -255,43 +288,4 @@ fn v30_columns_match(connection: &Connection) -> SqliteResult<bool> {
         ("readiness_revision".to_owned(), "INTEGER".to_owned()),
         ("release_tuple_digest".to_owned(), "BLOB".to_owned()),
     ]))
-}
-
-fn v30_trigger_catalog_matches_with(
-    connection: &Connection,
-    insert_trigger: &str,
-    head_trigger: &str,
-    extensions: &CredentialSchemaExtensions<'_>,
-) -> SqliteResult<bool> {
-    let additional = V27_TRIGGERS
-        .map(|name| (name, v27_trigger_source(name)))
-        .into_iter()
-        .chain(V28_TRIGGERS.map(|name| (name, v28_trigger_source(name))))
-        .chain(V29_TRIGGERS.map(|name| (name, v29_trigger_source(name))))
-        .chain(V30_TRIGGERS.map(|name| (name, v30_trigger_source(name))))
-        .chain(extensions.triggers.iter().copied())
-        .map(|(name, source)| (name, extensions.replacements.iter().find(|(n, _)| *n == name).map_or(source, |(_, replacement)| *replacement)))
-        .collect::<Vec<_>>();
-    let mut replacements = vec![
-        ("provider_credential_operation_insert_prepared", insert_trigger),
-        ("provider_credential_head_active_lifecycle", head_trigger),
-    ];
-    replacements.extend_from_slice(extensions.replacements);
-    v26_trigger_catalog::matches_with_replacements(
-        connection,
-        &additional,
-        &replacements,
-    )
-}
-
-fn v30_trigger_source(name: &str) -> &'static str {
-    let start = MIGRATION_V30
-        .find(&format!("CREATE TRIGGER {name}"))
-        .expect("V30 trigger exists");
-    let end = MIGRATION_V30[start..]
-        .find("END;")
-        .expect("V30 trigger ends")
-        + start
-        + 4;
-    &MIGRATION_V30[start..end]
 }

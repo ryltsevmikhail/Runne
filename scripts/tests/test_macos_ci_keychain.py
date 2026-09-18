@@ -21,15 +21,18 @@ class MacOsCiKeychainTests(unittest.TestCase):
             scratch = root / "tmp"
             home.mkdir(mode=0o700)
             scratch.mkdir(mode=0o700)
+            # Cleanup runs from the ci.sh EXIT trap under `set -euo pipefail`;
+            # exercising that exact path guards against a non-zero cleanup
+            # return overriding a successful script exit (cube PASSED + failed).
             script = """
 set -euo pipefail
 source "$1"
+trap runne_ci_macos_keychain_cleanup EXIT
 runne_ci_macos_keychain_setup
 /usr/bin/security show-keychain-info "$RUNNE_CI_MACOS_KEYCHAIN"
 /usr/bin/security add-generic-password -a fixture -s runne-ci-fixture \
   -w fixture-value "$RUNNE_CI_MACOS_KEYCHAIN" >/dev/null
-runne_ci_macos_keychain_cleanup
-find "$HOME" -mindepth 1 -print
+echo "=== CI fixture: PASSED ==="
 """
             environment = {
                 "HOME": os.fspath(home),
@@ -47,7 +50,9 @@ find "$HOME" -mindepth 1 -print
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("no-timeout", result.stdout + result.stderr)
+            self.assertIn("PASSED", result.stdout)
             self.assertEqual(list(home.iterdir()), [])
+            self.assertEqual(list(scratch.iterdir()), [])
 
 
 if __name__ == "__main__":

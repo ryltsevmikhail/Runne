@@ -1,0 +1,6 @@
+data: {"candidates":[{"content":{"parts":[{"text":"Gem"}],"role":"model"},"index":0}],"modelVersion":"gemini-native-test","responseId":"response_fixture_1"}
+
+data: {"candidates":[{"content":{"parts":[{"text":"ini"}],"role":"model"},"index":0}],"modelVersion":"gemini-native-test","responseId":"response_fixture_1"}
+
+data: {"candidates":[{"content":{"parts":[],"role":"model"},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":12,"cachedContentTokenCount":2,"candidatesTokenCount":4,"thoughtsTokenCount":1,"totalTokenCount":17},"modelVersion":"gemini-native-test","responseId":"response_fixture_1"}
+

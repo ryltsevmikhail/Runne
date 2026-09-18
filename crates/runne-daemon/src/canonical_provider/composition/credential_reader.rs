@@ -41,7 +41,10 @@ pub(super) fn production(
         credential_access_policy(credential_id)?,
         protected_activation,
     )?;
-    let adapter = adapter_factory(Arc::clone(&credentials.dispatch))?;
+    let adapter = adapter_factory(
+        Arc::clone(&credentials.dispatch),
+        Arc::clone(&credentials.store),
+    )?;
     Ok(CredentialBoundary {
         store: credentials.store,
         readback: Some(credentials.readback),

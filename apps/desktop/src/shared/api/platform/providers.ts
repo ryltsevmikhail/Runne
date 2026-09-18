@@ -1,5 +1,21 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 
+import {
+  projectProviderQuotaSnapshot,
+  type ProviderQuotaProjection,
+} from '@/pages/providers/model/providerQuota'
+
+import {
+  isCredentialProvider,
+  isProviderId,
+  type ProviderCredentialProvider,
+  type ProviderId,
+} from './providerCatalog'
+
+export { CREDENTIAL_PROVIDER_IDS, PROVIDER_CATALOG } from './providerCatalog'
+export type { ProviderCredentialProvider, ProviderId } from './providerCatalog'
+export type { ProviderQuotaProjection } from '@/pages/providers/model/providerQuota'
+
 export type ProviderReadiness =
   | 'ready'
   | 'credential_missing'
@@ -9,7 +25,7 @@ export type ProviderReadiness =
   | 'not_selected'
 
 export interface ProviderStatusSnapshot {
-  readonly providerId: 'deterministic' | 'openai' | 'deepseek'
+  readonly providerId: ProviderId
   readonly mode: string
   readonly profileId: string
   readonly profileDigest: string
@@ -17,10 +33,18 @@ export interface ProviderStatusSnapshot {
   readonly selected: boolean
 }
 
+export type ProviderCatalogSnapshot = Readonly<{
+  providerId: string
+  displayName: string
+  protocol: 'responses' | 'chat_completions' | 'anthropic_messages' | 'gemini' | 'bedrock' | 'pi_messages' | 'multi_protocol'
+  authOptions: readonly ('none' | 'api_key' | 'oauth' | 'aws')[]
+  quota: 'subscription_window' | 'payg' | 'unqualified'
+  implementation: 'catalog_only' | 'implemented' | 'live_qualified'
+}>
+
 type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>
 
-export type ProviderCredentialProvider = 'openai' | 'deepseek'
-export type ProviderCredentialAction = 'pair' | 'revoke' | 'migrate_legacy'
+export type ProviderCredentialAction = 'pair' | 'revoke' | 'migrate_legacy' | 'verify'
 export type ProviderCredentialIntentDisposition = 'pending' | 'completed' | 'cancelled' | 'unavailable'
 export type ProviderCredentialProjection = Readonly<{
   providerId: ProviderCredentialProvider
@@ -36,11 +60,11 @@ export type ProviderCredentialProjection = Readonly<{
   lastDisposition: ProviderCredentialDisposition | null
 }>
 
-type ProviderCredentialState = 'configured' | 'missing' | 'access_denied' | 'unsupported' | 'unavailable'
-type ProviderCredentialReadiness = 'ready' | 'missing' | 'stale' | 'unavailable' | 'unsupported' | 'access_denied' | 'conflict' | 'invariant_failure'
-type ProviderCredentialVerificationState = 'not_verified' | 'local_verified' | 'remote_verified' | 'failed' | 'unsupported' | 'unavailable' | 'access_denied' | 'stale'
-type ProviderCredentialPendingOperation = 'pairing' | 'rotating' | 'revoking' | 'reconciling' | 'verifying'
-type ProviderCredentialDisposition = 'completed' | 'access_denied' | 'unsupported' | 'unavailable' | 'conflict' | 'invalid_request' | 'invariant_failure'
+export type ProviderCredentialState = 'configured' | 'missing' | 'access_denied' | 'unsupported' | 'unavailable'
+export type ProviderCredentialReadiness = 'ready' | 'missing' | 'stale' | 'unavailable' | 'unsupported' | 'access_denied' | 'conflict' | 'invariant_failure'
+export type ProviderCredentialVerificationState = 'not_verified' | 'local_verified' | 'remote_verified' | 'failed' | 'unsupported' | 'unavailable' | 'access_denied' | 'stale'
+export type ProviderCredentialPendingOperation = 'pairing' | 'rotating' | 'revoking' | 'reconciling' | 'verifying'
+export type ProviderCredentialDisposition = 'completed' | 'access_denied' | 'unsupported' | 'unavailable' | 'conflict' | 'invalid_request' | 'invariant_failure'
 
 const credentialProjectionKeys = [
   'providerId', 'credentialState', 'readiness', 'lifecycleRevision', 'readinessRevision',
@@ -62,6 +86,33 @@ export async function getProviderStatus(
   return value
 }
 
+/** Fetches backend-authoritative provider metadata without credentials. */
+export async function getProviderCatalog(
+  invoke: Invoke = tauriInvoke,
+): Promise<readonly ProviderCatalogSnapshot[]> {
+  const value = await invoke('get_provider_catalog')
+  if (!Array.isArray(value) || !value.every(isProviderCatalogSnapshot)) {
+    throw new Error('Invalid provider catalog')
+  }
+  if (new Set(value.map(item => item.providerId)).size !== value.length) {
+    throw new Error('Invalid provider catalog identities')
+  }
+  return value
+}
+
+/** Reads runtime-captured quota evidence; no provider refresh is initiated. */
+export async function getProviderQuota(
+  invoke: Invoke = tauriInvoke,
+): Promise<readonly ProviderQuotaProjection[]> {
+  const value = await invoke('get_provider_quota')
+  if (!Array.isArray(value)) throw new Error('Invalid provider quota')
+  const projections = value.map(projectProviderQuotaSnapshot)
+  if (new Set(projections.map(projection => projection.providerId)).size !== projections.length) {
+    throw new Error('Invalid provider quota identities')
+  }
+  return projections
+}
+
 export async function requestProviderCredentialIntent(
   provider: ProviderCredentialProvider,
   action: ProviderCredentialAction,
@@ -69,6 +120,10 @@ export async function requestProviderCredentialIntent(
   rendererGeneration: number,
   invoke: Invoke = tauriInvoke,
 ): Promise<ProviderCredentialIntentDisposition> {
+  if (!isCredentialProvider(provider)) throw new Error('Invalid provider credential provider')
+  if (action !== 'pair' && action !== 'revoke' && action !== 'migrate_legacy' && action !== 'verify') {
+    throw new Error('Invalid provider credential action')
+  }
   if (!Number.isSafeInteger(expectedRevision) || expectedRevision <= 0) {
     throw new Error('Invalid expected lifecycle revision')
   }
@@ -76,7 +131,10 @@ export async function requestProviderCredentialIntent(
     throw new Error('Invalid renderer generation')
   }
   return parseIntentDisposition(await invoke('request_provider_credential_intent', {
-    request: { provider, action, expectedRevision, rendererGeneration },
+    request: {
+      provider, action, expectedRevision, rendererGeneration,
+      ...(action === 'verify' ? { verificationKind: 'remote' } : {}),
+    },
   }))
 }
 
@@ -85,13 +143,14 @@ export async function getProviderCredentialEnrollmentStatus(
   provider: ProviderCredentialProvider,
   invoke: Invoke = tauriInvoke,
 ): Promise<ProviderCredentialProjection> {
+  if (!isCredentialProvider(provider)) throw new Error('Invalid provider credential provider')
   return projectProviderCredentialSnapshot(await invoke('get_provider_credential_enrollment_status', { provider }))
 }
 
 /** Parses the exact safe V2 projection and rejects every non-renderer field. */
 export function projectProviderCredentialSnapshot(value: unknown): ProviderCredentialProjection {
   if (!isRecord(value) || !hasExactCredentialProjectionKeys(value)
-    || !isOneOf(value.providerId, ['openai', 'deepseek'])
+    || !isCredentialProvider(value.providerId)
     || !isOneOf(value.credentialState, ['configured', 'missing', 'access_denied', 'unsupported', 'unavailable'])
     || !isOneOf(value.readiness, ['ready', 'missing', 'stale', 'unavailable', 'unsupported', 'access_denied', 'conflict', 'invariant_failure'])
     || !isPositiveInteger(value.lifecycleRevision)
@@ -119,9 +178,7 @@ function isProviderStatus(value: unknown): value is ProviderStatusSnapshot {
   const candidate = value as Record<string, unknown>
   const expected = ['providerId', 'mode', 'profileId', 'profileDigest', 'readiness', 'selected']
   if (Object.keys(candidate).length !== expected.length || expected.some(key => !(key in candidate))) return false
-  return (candidate.providerId === 'deterministic'
-      || candidate.providerId === 'openai'
-      || candidate.providerId === 'deepseek')
+  return isProviderId(candidate.providerId)
     && typeof candidate.mode === 'string'
     && candidate.mode.length > 0
     && candidate.mode.length <= 128
@@ -132,6 +189,23 @@ function isProviderStatus(value: unknown): value is ProviderStatusSnapshot {
     && isReadiness(candidate.readiness)
     && typeof candidate.selected === 'boolean'
     && (candidate.selected || candidate.readiness === 'not_selected')
+}
+
+function isProviderCatalogSnapshot(value: unknown): value is ProviderCatalogSnapshot {
+  if (!isRecord(value)) return false
+  const expected = ['providerId', 'displayName', 'protocol', 'authOptions', 'quota', 'implementation']
+  if (Object.keys(value).length !== expected.length || expected.some(key => !(key in value))) return false
+  return typeof value.providerId === 'string'
+    && value.providerId.length > 0
+    && isProviderId(value.providerId)
+    && typeof value.displayName === 'string'
+    && value.displayName.length > 0
+    && isOneOf(value.protocol, ['responses', 'chat_completions', 'anthropic_messages', 'gemini', 'bedrock', 'pi_messages', 'multi_protocol'])
+    && Array.isArray(value.authOptions)
+    && value.authOptions.length > 0
+    && value.authOptions.every(auth => isOneOf(auth, ['none', 'api_key', 'oauth', 'aws']))
+    && isOneOf(value.quota, ['subscription_window', 'payg', 'unqualified'])
+    && isOneOf(value.implementation, ['catalog_only', 'implemented', 'live_qualified'])
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
