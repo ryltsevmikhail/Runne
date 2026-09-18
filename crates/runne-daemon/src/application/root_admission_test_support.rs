@@ -6,7 +6,7 @@ use runne_api::{LaunchAuthorityError, ProtectedActivationKeys, ProtectedOwnedLau
 use runne_application::local_session::LocalSessionService;
 use runne_store::ProjectWorkspaceStore;
 
-use super::root_handle_admission::RootHandleAdmissionAuthority;
+use super::root_handle_admission::{RootHandleAdmissionAuthority, TrustGate};
 
 pub(crate) struct RootAdmissionHarness {
     authority: Arc<RootHandleAdmissionAuthority>,
@@ -19,7 +19,8 @@ impl RootAdmissionHarness {
         runtime_authority: String,
         sessions: Arc<Mutex<LocalSessionService>>,
     ) -> Self {
-        let authority = RootHandleAdmissionAuthority::new(keys, store, runtime_authority, sessions);
+        let authority =
+            RootHandleAdmissionAuthority::new(keys, store, runtime_authority, sessions, TrustGate::closed());
         Self { authority }
     }
 

@@ -1,29 +1,9 @@
-use std::collections::BTreeMap;
-
 use runne_api::{
     WorkspaceChangeEntry, WorkspaceChangeKind, WorkspaceChangeListRequest, WorkspaceChangeSet,
     WorkspaceDiff, WorkspaceDiffHostError, WorkspaceDiffLine, WorkspaceDiffLineKind,
     WorkspaceDiffReadRequest,
 };
 use runne_application::ports::WorkspaceDiffProvider;
-use runne_platform_desktop::RootHandleBrokerError;
-
-const MAX_BASELINE_FILE_BYTES: usize = 256 * 1024;
-const MAX_BASELINE_BYTES: usize = 8 * runne_api::MAX_WORKSPACE_DIFF_BYTES;
-const MAX_BASELINE_ENTRIES: usize = runne_api::MAX_WORKSPACE_CHANGE_ENTRIES;
-
-#[derive(Clone, Default)]
-struct WorkspaceBaseline {
-    files: BTreeMap<String, String>,
-}
-
-impl WorkspaceBaseline {
-    fn capture(root: &VerifiedRootHandle) -> Result<Self, RootHandleBrokerError> {
-        Ok(Self {
-            files: capture_text_files(root)?,
-        })
-    }
-}
 
 impl WorkspaceDiffProvider for RootAdmissionGateway {
     fn list_changes(
@@ -34,10 +14,15 @@ impl WorkspaceDiffProvider for RootAdmissionGateway {
         (principal == PRINCIPAL)
             .then_some(())
             .ok_or(WorkspaceDiffHostError::Forbidden)?;
+        self.admit_workspace_source(request.workspace_id(), SourceChannel::FilesList, None)
+            .map_err(TrustSourceError::into_diff)?;
         self.with_active_root(request.workspace_id(), |active| {
+            let Some(baseline) = active.baseline.files() else {
+                return Err(WorkspaceDiffHostError::Forbidden);
+            };
             let current = capture_text_files(&active.handle).map_err(|_| WorkspaceDiffHostError::Unavailable)?;
             let mut entries = Vec::new();
-            for (path, (before, after)) in changed_files(&active.baseline.files, &current) {
+            for (path, (before, after)) in changed_files(baseline, &current) {
                 let (kind, additions, deletions) = change_summary(before, after);
                 entries.push(
                     WorkspaceChangeEntry::new(path, kind, additions, deletions)
@@ -59,9 +44,18 @@ impl WorkspaceDiffProvider for RootAdmissionGateway {
         (principal == PRINCIPAL)
             .then_some(())
             .ok_or(WorkspaceDiffHostError::Forbidden)?;
+        self.admit_workspace_source(
+            request.workspace_id(),
+            SourceChannel::FilesRead,
+            Some(request.relative_path()),
+        )
+        .map_err(TrustSourceError::into_diff)?;
         self.with_active_root(request.workspace_id(), |active| {
+            let Some(baseline) = active.baseline.files() else {
+                return Err(WorkspaceDiffHostError::Forbidden);
+            };
             let current = capture_text_files(&active.handle).map_err(|_| WorkspaceDiffHostError::Unavailable)?;
-            let before = active.baseline.files.get(request.relative_path()).map(String::as_str);
+            let before = baseline.get(request.relative_path()).map(String::as_str);
             let after = current.get(request.relative_path()).map(String::as_str);
             if before.is_none() && after.is_none() {
                 return Err(WorkspaceDiffHostError::NotFound);
@@ -106,77 +100,6 @@ impl RootAdmissionGateway {
             }),
         }
     }
-}
-
-fn capture_text_files(
-    root: &VerifiedRootHandle,
-) -> Result<BTreeMap<String, String>, RootHandleBrokerError> {
-    let mut directories = vec![String::new()];
-    let mut files = BTreeMap::new();
-    let mut bytes = 0usize;
-    let mut entries_seen = 0usize;
-    while let Some(directory) = directories.pop() {
-        let entries = if directory.is_empty() {
-            root.list_root(runne_api::MAX_WORKSPACE_CHANGE_ENTRIES + 1)?
-        } else {
-            root.list_relative(&directory, runne_api::MAX_WORKSPACE_CHANGE_ENTRIES + 1)?
-        };
-        for entry in entries {
-            entries_seen = entries_seen
-                .checked_add(1)
-                .ok_or(RootHandleBrokerError::Rejected)?;
-            if entries_seen > MAX_BASELINE_ENTRIES {
-                return Err(RootHandleBrokerError::Rejected);
-            }
-            if sensitive_path(entry.relative_path()) {
-                continue;
-            }
-            match entry.kind() {
-                RootFileKind::Directory => directories.push(entry.relative_path().to_owned()),
-                RootFileKind::File if entry.size_bytes() <= MAX_BASELINE_FILE_BYTES as u64 => {
-                    if let Ok(content) = root.read_text_relative(
-                        entry.relative_path(),
-                        MAX_BASELINE_FILE_BYTES,
-                    ) {
-                        let next = bytes.saturating_add(content.len());
-                        if next <= MAX_BASELINE_BYTES {
-                            bytes = next;
-                            files.insert(entry.relative_path().to_owned(), content);
-                        }
-                    }
-                }
-                RootFileKind::File => {}
-            }
-        }
-    }
-    Ok(files)
-}
-
-fn changed_files<'a>(
-    before: &'a BTreeMap<String, String>,
-    after: &'a BTreeMap<String, String>,
-) -> impl Iterator<Item = (String, (Option<&'a String>, Option<&'a String>))> {
-    before
-        .keys()
-        .chain(after.keys())
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .filter_map(move |path| {
-            let pair = (before.get(path), after.get(path));
-            (pair.0 != pair.1).then_some((path.clone(), pair))
-        })
-}
-
-fn change_summary(before: Option<&String>, after: Option<&String>) -> (WorkspaceChangeKind, u32, u32) {
-    let kind = match (before, after) {
-        (None, Some(_)) => WorkspaceChangeKind::Added,
-        (Some(_), None) => WorkspaceChangeKind::Deleted,
-        (Some(_), Some(_)) => WorkspaceChangeKind::Modified,
-        (None, None) => WorkspaceChangeKind::Modified,
-    };
-    let deletions = before.map_or(0, |value| value.lines().count());
-    let additions = after.map_or(0, |value| value.lines().count());
-    (kind, u32::try_from(additions).unwrap_or(u32::MAX), u32::try_from(deletions).unwrap_or(u32::MAX))
 }
 
 fn replacement_diff(
@@ -230,9 +153,8 @@ fn replacement_diff(
 
 #[cfg(test)]
 mod diff_tests {
-    use super::{capture_text_files, replacement_diff};
+    use super::replacement_diff;
     use runne_api::{WorkspaceChangeKind, WorkspaceDiffLineKind};
-    use runne_platform_desktop::VerifiedRootHandle;
 
     #[test]
     fn replacement_diff_produces_bounded_structured_hunk() {
@@ -259,20 +181,5 @@ mod diff_tests {
             diff.hunks()[0].lines().len(),
             runne_api::MAX_WORKSPACE_DIFF_LINES_PER_HUNK
         );
-    }
-
-    #[test]
-    fn baseline_capture_excludes_sensitive_and_binary_files() {
-        let directory = tempfile::tempdir().expect("temporary workspace");
-        std::fs::create_dir(directory.path().join("src")).expect("source directory");
-        std::fs::write(directory.path().join("src/README.md"), "hello\n").expect("text file");
-        std::fs::write(directory.path().join(".env"), "TOKEN=secret\n").expect("secret file");
-        std::fs::write(directory.path().join("image.bin"), [0, 159, 146, 150]).expect("binary file");
-        let canonical = std::fs::canonicalize(directory.path()).expect("canonical root path");
-        let root = VerifiedRootHandle::open(&canonical).expect("verified root");
-        let snapshot = capture_text_files(&root).expect("baseline snapshot");
-        assert!(snapshot.contains_key("src/README.md"));
-        assert!(!snapshot.contains_key(".env"));
-        assert!(!snapshot.contains_key("image.bin"));
     }
 }

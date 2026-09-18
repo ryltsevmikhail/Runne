@@ -170,6 +170,9 @@ pub(super) async fn start_http_and_runtime(
     );
     let command_hosts = command_hosts::compose(
         &store,
+        std::path::Path::new(&config.db_path),
+        bootstrap.authority_id,
+        Arc::clone(&prohibited_content),
         root_admission_keys,
         protected_activation,
         Arc::clone(&local_session_service),

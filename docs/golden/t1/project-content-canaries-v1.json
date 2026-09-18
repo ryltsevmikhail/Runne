@@ -1,0 +1,81 @@
+{
+  "fixture_kind": "t1-project-content-canaries",
+  "fixture_id": "project-content-canaries-v1",
+  "frozen_at": "2026-09-17",
+  "purpose": "Canary-маркеры запрещённого project-controlled content. Маркер в любом sink (model-visible request, replay, export, telemetry) означает, что project-content пересёк границу без trust admission.",
+  "constraints": {
+    "real_secrets_forbidden": true,
+    "note": "Маркеры синтетические и не встречаются в production-коде Runne."
+  },
+  "canaries": [
+    {
+      "id": "PROJ-CANARY-INSTRUCTION",
+      "channel": "instructions",
+      "marker": "RUNNE_T1_PROJ_INSTRUCTION_CANARY_9d4e2a",
+      "expected": "not present in any sink until project trust state is trusted/managed for exact revision"
+    },
+    {
+      "id": "PROJ-CANARY-SKILL",
+      "channel": "skills",
+      "marker": "RUNNE_T1_PROJ_SKILL_CANARY_51b8c3",
+      "expected": "not present in any sink"
+    },
+    {
+      "id": "PROJ-CANARY-HOOK",
+      "channel": "hooks",
+      "marker": "RUNNE_T1_PROJ_HOOK_CANARY_77aa01",
+      "expected": "not present in any sink; hook dispatch not activated"
+    },
+    {
+      "id": "PROJ-CANARY-HELPER",
+      "channel": "helpers",
+      "marker": "RUNNE_T1_PROJ_HELPER_CANARY_2f0e9d",
+      "expected": "not present in any sink; helper process not started"
+    },
+    {
+      "id": "PROJ-CANARY-MCP",
+      "channel": "local_mcp",
+      "marker": "RUNNE_T1_PROJ_MCP_CANARY_c4b6f8",
+      "expected": "not present in any sink; MCP root not admitted"
+    },
+    {
+      "id": "PROJ-CANARY-FILE",
+      "channel": "files",
+      "marker": "RUNNE_T1_PROJ_FILE_CANARY_8ad3e5",
+      "expected": "not present in any sink without admitted workspace root"
+    },
+    {
+      "id": "PROJ-CANARY-UNICODE-NFC",
+      "channel": "any",
+      "marker": "RUNNE_T1_PROJ_UNICODЕ_CANARY_3ab9",
+      "expected": "not present in any sink",
+      "note": "Содержит кириллическую Е (U+0415) в слове UNICODЕ — NFC-вариант для case/Unicode-обхода deny (NM-03)."
+    },
+    {
+      "id": "PROJ-CANARY-UNICODE-NFD",
+      "channel": "any",
+      "marker": "RUNNE_T1_PROJ_UNICODE_CANARY_3ab9",
+      "expected": "not present in any sink",
+      "note": "ASCII-базовая форма; сопоставление маркеров не должно зависеть от нормализации."
+    },
+    {
+      "id": "PROJ-CANARY-MANAGED-DENY",
+      "channel": "any",
+      "marker": "RUNNE_T1_MANAGED_DENY_CANARY_e17c44",
+      "expected": "not present in any sink at any permission mode",
+      "note": "Managed deny не снимается повышением permission mode (plan 18 §T1)."
+    }
+  ],
+  "sink_scan_targets": [
+    "canonical provider request bytes",
+    "conversation projection inputs",
+    "replay wire payloads",
+    "provider dispatch call bytes",
+    "verification export",
+    "backup archive",
+    "observability/telemetry surfaces",
+    "process helper argv/stdout/stderr captured pages"
+  ],
+  "verification_status": "frozen_not_implemented",
+  "next_verification": "Проверяется вместе с NM-01..NM-12; недоступность канала не заменяет скан sink."
+}

@@ -10,7 +10,7 @@ use runne_application::ports::{
     CurrentRootAdmissionContext, ProjectWorkspaceRepository, RootAdmissionLease,
     RootAdmissionVerifier, RootAdmissionVerifierError,
 };
-use runne_platform_desktop::VerifiedRootHandle;
+use runne_platform_desktop::{RootHandleBrokerError, VerifiedRootHandle};
 use runne_store::ProjectWorkspaceStore;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -24,6 +24,13 @@ include!("root_handle_admission/editor.rs");
 include!("root_handle_admission/diffs.rs");
 include!("root_handle_admission/process.rs");
 include!("root_handle_admission/verdict.rs");
+mod diff_baseline;
+mod trust_gate;
+pub(crate) use trust_gate::TrustGate;
+use diff_baseline::{
+    capture_text_files, changed_files, change_summary, sensitive_path, WorkspaceBaseline,
+};
+use trust_gate::TrustSourceError;
 #[derive(Clone)]
 pub(crate) struct RootAdmissionGateway(Option<Arc<RootHandleAdmissionAuthority>>);
 impl RootAdmissionGateway {
@@ -41,6 +48,7 @@ pub(crate) struct RootHandleAdmissionAuthority {
     sessions: Arc<Mutex<LocalSessionService>>,
     store: ProjectWorkspaceStore,
     runtime_authority: Arc<str>,
+    trust: TrustGate,
 }
 include!("root_handle_admission/state.rs");
 pub(crate) struct Lease(Arc<RootHandleAdmissionAuthority>);
@@ -57,6 +65,7 @@ impl RootHandleAdmissionAuthority {
         store: ProjectWorkspaceStore,
         runtime_authority: String,
         sessions: Arc<Mutex<LocalSessionService>>,
+        trust: TrustGate,
     ) -> Arc<Self> {
         Arc::new(Self {
             state: Arc::new(Mutex::new(State {
@@ -69,6 +78,7 @@ impl RootHandleAdmissionAuthority {
             sessions,
             store,
             runtime_authority: Arc::from(runtime_authority),
+            trust,
         })
     }
     /// Retains the verified descriptor and issues a claim only for a current owned Workspace.
@@ -102,8 +112,7 @@ impl RootHandleAdmissionAuthority {
                 if version != transfer.expected_version() {
                     return Err(ProjectWorkspaceRepositoryError::Unavailable);
                 }
-                WorkspaceBaseline::capture(&root)
-                    .map_err(|_| ProjectWorkspaceRepositoryError::Unavailable)
+                self.trust_gated_baseline(transfer.workspace_id(), &root)
             })
             .map_err(|_| RootAdmissionVerifierError::Unavailable)?;
         let mut nonce = [0; 16];

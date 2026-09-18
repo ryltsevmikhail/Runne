@@ -120,6 +120,11 @@ path = "tests/provider_credential_writer_authority.rs"
 required-features = ["test-support", "desktop-protected"]
 
 [[test]]
+name = "project_trust_admission_wiring"
+path = "tests/project_trust_admission_wiring.rs"
+required-features = ["test-support", "desktop-protected"]
+
+[[test]]
 name = "root_handle_admission_authority"
 path = "tests/root_handle_admission_authority.rs"
 required-features = ["test-support", "desktop-protected"]

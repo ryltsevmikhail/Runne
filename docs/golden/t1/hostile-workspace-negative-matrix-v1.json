@@ -1,0 +1,149 @@
+{
+  "fixture_kind": "t1-hostile-workspace-negative-matrix",
+  "fixture_id": "hostile-workspace-negative-matrix-v1",
+  "frozen_at": "2026-09-17",
+  "purpose": "Замороженная negative matrix T1: hostile-workspace сценарии, которые реализация Project Trust Gate обязана закрывать с exact typed disposition. Норматив: plan 18 §T1 (проверка T1).",
+  "status_semantics": {
+    "frozen_not_implemented": "Сценарий заморожен до реализации; прогонов нет; unavailable-канал не считается прошедшим.",
+    "note": "Каждый сценарий после реализации получает evidence-ссылку на exact test + result; отсутствие прогона не является PASS."
+  },
+  "scenarios": [
+    {
+      "id": "NM-01",
+      "title": "Symlink escape из workspace root",
+      "threat_class": "path_escape",
+      "targets": ["files list/read", "workspace root admission"],
+      "precondition": "В admitted workspace существует symlink, указывающий вне root; цель содержит PROJ-CANARY-FILE.",
+      "steps": "read_file/list_files по пути через symlink; затем symlink-цепочки и symlink на директорию.",
+      "expected_disposition": "Forbidden/Rejected до чтения content; canary не появляется ни в одном sink; OS-слой: O_NOFOLLOW per-component + same-device (inventory B).",
+      "plan_ref": "plan 18 §T1: symlink не обходят deny",
+      "status": "frozen_not_implemented"
+    },
+    {
+      "id": "NM-02",
+      "title": "Rename/TOCTOU вокруг admission",
+      "threat_class": "race",
+      "targets": ["workspace root admission", "files read"],
+      "precondition": "Файл прошёл проверку; между проверкой и чтением путь переименован/заменён на symlink (hostile rename).",
+      "steps": "Гонка rename/replace между admission-проверкой и open; повтор после открытия дескриптора.",
+      "expected_disposition": "Чтение только через дескриптор, открытый под root (dirfd-based); вне-root цель недоступна; unstable outcome — fail-closed, не частичный success.",
+      "plan_ref": "plan 18 §T1",
+      "status": "frozen_not_implemented"
+    },
+    {
+      "id": "NM-03",
+      "title": "Unicode/case обход deny-правил и маркеров",
+      "threat_class": "encoding_confusion",
+      "targets": ["sensitive_path denylist", "canary scan", "instructions/files"],
+      "precondition": "Имена с NFC/NFD-формами, mixed-case (`.ENV`, `.Git`), кириллическими омоглифами (см. PROJ-CANARY-UNICODE-NFC/NFD).",
+      "steps": "Попытка чтения denied-имени во всех вариантах нормализации/регистра; скан sink на оба Unicode-маркера.",
+      "expected_disposition": "Deny решение не зависит от NFC/NFD и регистра компонент пути; ни один Unicode-canary не появляется в sink.",
+      "plan_ref": "plan 18 §T1: Unicode/case не обходят deny",
+      "status": "frozen_not_implemented"
+    },
+    {
+      "id": "NM-04",
+      "title": "Относительные пути и traversal",
+      "threat_class": "path_traversal",
+      "targets": ["files list/read", "все относительные ingestion-пути"],
+      "precondition": "Запросы с `..`, `./`, absolute-path injection, пустыми компонентами, `~`-формами.",
+      "steps": "read/list по каждому варианту; абсолютный путь, указывающий на sensitive-цель вне root.",
+      "expected_disposition": "Only Normal components ниже root (inventory B: open_directory_below отклоняет не-Normal); Forbidden/Rejected; canary вне sink.",
+      "plan_ref": "plan 18 §T1: относительные пути не обходят deny",
+      "status": "frozen_not_implemented"
+    },
+    {
+      "id": "NM-05",
+      "title": "Managed deny при повышении permission mode",
+      "threat_class": "authority_escalation",
+      "targets": ["permission modes", "policy admission"],
+      "precondition": "Контент запрещён managed policy (PROJ-CANARY-MANAGED-DENY).",
+      "steps": "Пользователь/UI повышает permission mode (ask → confirm-for-me → full access) и повторяет запрос.",
+      "expected_disposition": "Managed deny сохраняется во всех режимах; provenance виден в Effective Policy; ошибка managed policy блокирует admission (fail-closed), не расширяет его.",
+      "plan_ref": "plan 18 §T1: managed deny не снимается повышением permission mode",
+      "status": "frozen_not_implemented"
+    },
+    {
+      "id": "NM-06",
+      "title": "Stale authority/policy revision в cache/replay/export",
+      "threat_class": "stale_revision_replay",
+      "targets": ["replay API", "verification export", "backup archive", "provider dispatch bytes"],
+      "precondition": "Копия разрешена при revision N; текущая policy revision M > N вводит deny (managed) на тот же content.",
+      "steps": "Replay/export/dispatch ранее разрешённой копии после смены revision; подача устаревшего policy_epoch.",
+      "expected_disposition": "Повторная проверка текущей authority/policy revision до выдачи; ранее разрешённая копия не обходит новый deny; stale policy_epoch → typed reject.",
+      "plan_ref": "plan 18 §T1: cache/replay/export повторно проверяют текущую authority/policy revision",
+      "status": "frozen_not_implemented"
+    },
+    {
+      "id": "NM-07",
+      "title": "Restart сохраняет deny и trust state",
+      "threat_class": "state_reset_bypass",
+      "targets": ["project trust revision storage", "policy admission", "replay"],
+      "precondition": "Проект untrusted/managed-deny; происходит полный restart runtime/daemon.",
+      "steps": "Restart; повторная попытка активации того же project-content; чтение trust state из persistent store.",
+      "expected_disposition": "Trust revision/deny переживает restart; после restart загрузка не разрешается; нет default-trusted состояния.",
+      "plan_ref": "plan 18 §T1: restart не разрешают загрузку",
+      "status": "frozen_not_implemented"
+    },
+    {
+      "id": "NM-08",
+      "title": "Смена режима/trust state в живой сессии",
+      "threat_class": "mid_session_state_change",
+      "targets": ["project trust state", "context assembly", "active ingestion"],
+      "precondition": "Активная сессия с admitted workspace; trust state проекта меняется (up/down) или переключается режим доступа.",
+      "steps": "Смена untrusted→trusted и trusted→untrusted во время активной сессии; уже загруженный content и последующие чтения.",
+      "expected_disposition": "Смена режима не активирует недоступный канал retroactively; downgrade останавливает последующее чтение уже admitted источника с typed disposition; уже собранный context не мутирует молча.",
+      "plan_ref": "plan 18 §T1: смена режима не разрешают загрузку",
+      "status": "frozen_not_implemented"
+    },
+    {
+      "id": "NM-09",
+      "title": "Поддельный trusted flag из payload/UI",
+      "threat_class": "forged_attestation",
+      "targets": ["trust admission", "UI metadata projection"],
+      "precondition": "Клиент/UI/env передаёт project_trusted=true или crafted trust revision в payload, env, header.",
+      "steps": "Прямая подача флага через все ingress-формы; origin не является trust authority.",
+      "expected_disposition": "Trust state выводится только из runtime-owned authority; чужой флаг игнорируется/отклоняется; активация не происходит.",
+      "plan_ref": "plan 18 §T1: поддельный trusted flag не разрешают загрузку; UI получает только безопасную metadata projection",
+      "status": "frozen_not_implemented"
+    },
+    {
+      "id": "NM-10",
+      "title": "Canary forbidden content не появляется ни в одном sink",
+      "threat_class": "sink_leakage",
+      "targets": ["все sinks inventory C-E, включая crash-report sink при его появлении"],
+      "precondition": "Hostile workspace содержит все fake canaries (secret + project-content fixtures) во всех каналах; harness заранее зарегистрировал fake env-секреты (FAKE-SECRET-003/006) в тестовом secret registry (см. harness_registration в fake-canary-secrets-v1.json).",
+      "steps": "Полный цикл run/exec/resume/replay/export при hostile workspace; скан всех sink-целей правилами SCAN-PLAIN/SCAN-BASE64-STD/SCAN-MARKER с учётом scanner_whitelist (точные locations в fixture).",
+      "expected_disposition": "Ни один canary не обнаружен ни в одном sink; проверки per-sink, не только строковый unit-test.",
+      "plan_ref": "plan 18 §T1: canary forbidden content не появляется ни в одном sink",
+      "status": "frozen_not_implemented"
+    },
+    {
+      "id": "NM-11",
+      "title": "Unavailable-каналы остаются unavailable до T1 PASS",
+      "threat_class": "premature_activation",
+      "targets": ["instructions", "skills", "hooks", "helpers", "local MCP"],
+      "precondition": "Чистый text-only DP1 hostile workspace с instructions/skills/hooks/helpers/.mcp.json-подобными файлами.",
+      "steps": "run/exec, resume, replay при их наличии; попытки активации любым путём.",
+      "expected_disposition": "Все каналы недоступны (inventory A: Unavailable/Fail-closed); их presence не меняет поведение; evidence фиксируется в reports D1.4b/D1.6 и T1.",
+      "plan_ref": "plan 18 §T1: до PASS запрещена активация; D1.4b/D1.6 обязаны доказать hostile-workspace negative tests",
+      "status": "frozen_not_implemented"
+    },
+    {
+      "id": "NM-12",
+      "title": "Sensitive-path policy deny set: варианты обхода",
+      "threat_class": "denylist_evasion",
+      "targets": ["policy deny set (inventory §G3; до wiring — sensitive_path files.rs:65-67)"],
+      "precondition": "Цели frozen deny set §G3: компоненты .git/.ssh/.aws/.env/.netrc/.npmrc/id_rsa/credentials.json и суффиксы .key/.pem/.p12/.ppk/.gpg в вариантах: смешанный регистр (.ENV, .Git, ID_RSA), вложенные директории, точка-префиксы, двойные расширения (x.key.txt), trailing slashes/dots, NFC/NFD-формы.",
+      "steps": "read/list каждого варианта при admitted root после wiring policy admission; до wiring — против существующего denylist как baseline.",
+      "expected_disposition": "Формы, совпадающие с frozen set §G3 после ASCII-case-fold + NFC (включая .ENV, .Git, ID_RSA, вложенные директории и trailing-варианты совпадающих имён), отклонены на admission. Формы, не совпадающие с frozen set (например x.key.txt), автоматически не denied: их контент подчиняется stage-2 inspect (S2) и расширению set только через новую policy revision — это фиксируется как scoped behavior, не как gap.",
+      "plan_ref": "plan 18 §T1 (единая deny-policy на ingestion и export); Decision S3 закрыт до wiring",
+      "status": "frozen_not_implemented"
+    }
+  ],
+  "x2_intersections": [
+    "NM-06/NM-07: replay/restart повторная проверка revision взаимодействует с session writer lease и fencing token X2 (разные revision-пространства: authorization vs lease — не смешивать, plan 18 §D1.3/X2)",
+    "NM-08: смена trust state mid-session fencing с X2 writer takeover semantics",
+    "NM-10: replay delivery path общий для T1 sink-scan и X2 duplicate-delivery проверок"
+  ]
+}

@@ -7,6 +7,7 @@ pub mod certification;
 pub mod cleanup;
 pub mod fencing;
 pub mod process_contract;
+pub mod project_trust_policy;
 pub mod prohibited_content;
 
 pub use audit::AuditLogger;

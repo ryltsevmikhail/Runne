@@ -13,6 +13,7 @@ serde = { version = "1", features = ["derive"] }
 uuid = { version = "1", features = ["v4", "v7"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
+unicode-normalization.workspace = true
 sha2.workspace = true
 base64.workspace = true
 hex.workspace = true
