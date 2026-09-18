@@ -9,17 +9,20 @@ runne_ci_macos_keychain_cleanup() {
         return 0
     fi
 
-    local cleanup_status=0
-    if [ -n "${RUNNE_CI_MACOS_KEYCHAIN:-}" ] && [ -e "$RUNNE_CI_MACOS_KEYCHAIN" ]; then
-        /usr/bin/security delete-keychain "$RUNNE_CI_MACOS_KEYCHAIN" || cleanup_status=1
+    # Cleanup must be best-effort: this runs from an EXIT trap in ci.sh under
+    # `set -e`, and a non-zero return there overrides the script's successful
+    # exit status, marking a PASSED cube as failed. Stale leftovers from a
+    # killed run are already handled idempotently by setup on the next run.
+    if [ -n "${RUNNE_CI_MACOS_KEYCHAIN:-}" ]; then
+        /usr/bin/security delete-keychain "$RUNNE_CI_MACOS_KEYCHAIN" 2>/dev/null \
+            || echo "warn: skipped keychain deregister: $RUNNE_CI_MACOS_KEYCHAIN" >&2
+        /bin/rm -f "$RUNNE_CI_MACOS_KEYCHAIN" 2>/dev/null || true
     fi
     if [ -n "${RUNNE_CI_MACOS_KEYCHAIN_DIRECTORY:-}" ]; then
-        /bin/rmdir "$RUNNE_CI_MACOS_KEYCHAIN_DIRECTORY" 2>/dev/null || cleanup_status=1
-        /bin/rmdir "$(/usr/bin/dirname "$RUNNE_CI_MACOS_KEYCHAIN_DIRECTORY")" \
-            2>/dev/null || cleanup_status=1
+        /bin/rmdir "$RUNNE_CI_MACOS_KEYCHAIN_DIRECTORY" 2>/dev/null || true
     fi
     unset RUNNE_CI_MACOS_KEYCHAIN RUNNE_CI_MACOS_KEYCHAIN_DIRECTORY
-    return "$cleanup_status"
+    return 0
 }
 
 runne_ci_macos_keychain_setup() {
@@ -27,17 +30,17 @@ runne_ci_macos_keychain_setup() {
         return 0
     fi
 
-    RUNNE_CI_MACOS_KEYCHAIN_DIRECTORY="$HOME/Library/Keychains"
-    RUNNE_CI_MACOS_KEYCHAIN="$RUNNE_CI_MACOS_KEYCHAIN_DIRECTORY/runne-ci.keychain-db"
+    # One disposable directory per process: the runtime-ci macos-pinned and
+    # macos-msrv cubes can run concurrently on the same self-hosted worker,
+    # and a fixed keychain path let one cube's setup destroy a keychain that
+    # the other cube's tests were actively using.
+    local directory
+    directory="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/runne-ci-keychain.XXXXXX")"
+    RUNNE_CI_MACOS_KEYCHAIN="$directory/runne-ci.keychain-db"
+    RUNNE_CI_MACOS_KEYCHAIN_DIRECTORY="$directory"
     export RUNNE_CI_MACOS_KEYCHAIN RUNNE_CI_MACOS_KEYCHAIN_DIRECTORY
     local keychain_password="runne-ci-isolated-keychain"
 
-    /bin/mkdir -p "$RUNNE_CI_MACOS_KEYCHAIN_DIRECTORY"
-    /bin/chmod 700 "$HOME/Library" "$RUNNE_CI_MACOS_KEYCHAIN_DIRECTORY"
-    # A task killed by its timeout leaves the keychain behind, so setup must
-    # be idempotent or every subsequent task fails at create.
-    /usr/bin/security delete-keychain "$RUNNE_CI_MACOS_KEYCHAIN" 2>/dev/null || true
-    /bin/rm -f "$RUNNE_CI_MACOS_KEYCHAIN" 2>/dev/null || true
     /usr/bin/security create-keychain -p "$keychain_password" "$RUNNE_CI_MACOS_KEYCHAIN"
     /usr/bin/security set-keychain-settings "$RUNNE_CI_MACOS_KEYCHAIN"
     /usr/bin/security unlock-keychain -p "$keychain_password" "$RUNNE_CI_MACOS_KEYCHAIN"
