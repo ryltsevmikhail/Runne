@@ -150,26 +150,27 @@ mod tests {
     #[test]
     fn directory_write_bits_match_the_macos_release_reality() {
         let euid = rustix::process::geteuid().as_raw();
-        // macOS default /Applications: root:admin mode 0775, no sticky bit,
-        // no other-write — must be accepted, including for a third-party
-        // child (the allowance deliberately ignores child ownership).
-        assert!(directory_write_bits_are_secure(0o775, 0, 80, 1234, euid));
-        // root:wheel group-write is equally privileged.
-        assert!(directory_write_bits_are_secure(0o775, 0, 0, 1234, euid));
-        // A root-owned directory group-writable by a non-privileged group
-        // (staff is every local user's primary group) stays rejected.
+        // The privileged-group allowance exists for the macOS release
+        // reality (stock /Applications is root:admin 0775, no sticky bit);
+        // on other unix systems gid 80 carries no privileged meaning and
+        // the pre-existing sticky-bit rule applies unchanged.
+        let applications_shape_accepted = cfg!(target_os = "macos");
+        assert_eq!(
+            directory_write_bits_are_secure(0o775, 0, 80, 1234, euid),
+            applications_shape_accepted,
+        );
+        assert_eq!(
+            directory_write_bits_are_secure(0o775, 0, 0, 1234, euid),
+            applications_shape_accepted,
+        );
         assert!(!directory_write_bits_are_secure(0o775, 0, 20, euid, euid));
-        // Root-owned with other-write still needs the sticky rule.
         assert!(!directory_write_bits_are_secure(0o777, 0, 80, euid, euid));
-        // Group-write on a non-root-owned directory needs the sticky rule.
         assert!(!directory_write_bits_are_secure(0o775, 1000, 80, 1000, 1000));
         assert!(!directory_write_bits_are_secure(0o770, 1000, 1000, 1000, 1000));
         assert!(directory_write_bits_are_secure(0o1775, 1000, 80, 0, 1000));
         assert!(!directory_write_bits_are_secure(0o1775, 1000, 80, 1001, 1002));
-        // Other-write relies on the sticky rule regardless of ownership.
         assert!(directory_write_bits_are_secure(0o1777, 0, 80, euid, euid));
         assert!(!directory_write_bits_are_secure(0o1777, 0, 80, 1001, euid));
-        // Read-only directories are always fine.
         assert!(directory_write_bits_are_secure(0o755, 0, 80, 1001, euid));
     }
 
