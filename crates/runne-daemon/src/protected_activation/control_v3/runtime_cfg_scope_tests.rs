@@ -27,12 +27,14 @@ fn qualification_test_support_matches_native_platform_scope() {
         assert_eq!(preceding_cfg(initial_exchange, consumer), NATIVE_TEST_GATE);
     }
 
-    let runtime = include_str!("runtime.rs");
+    // The V3 dispatch struct (with its test-support fields) lives in its own
+    // included file since the 300-line source split.
+    let dispatch = include_str!("runtime/dispatch.rs");
     for consumer in [
         "qualification_verifier:",
         "pub(crate) fn with_test_qualification(",
     ] {
-        assert_eq!(preceding_cfg(runtime, consumer), NATIVE_TEST_GATE);
+        assert_eq!(preceding_cfg(dispatch, consumer), NATIVE_TEST_GATE);
     }
 
     let control_v3 = include_str!("../control_v3.rs");
