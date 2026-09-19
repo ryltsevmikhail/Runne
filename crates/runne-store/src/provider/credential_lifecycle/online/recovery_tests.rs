@@ -7,8 +7,8 @@ use runne_provider::{
 
 use super::online_claim_test_support::{open_test_store, seal_claim};
 use super::online_test_support::{
-    admit_claim, begin, claim_at, digest, issue_ticket, operation, qualified_release, store, ticket_at,
-    ticket_state,
+    admit_claim, begin, claim_at, digest, issue_ticket, operation, qualified_release, store,
+    ticket_at, ticket_state,
 };
 
 #[test]
@@ -38,11 +38,7 @@ fn credential_online_recovery_tombstones_expired_prepared_ticket_before_clock_ro
     let store = open_test_store(&path, 100);
     ProviderCredentialEnrollmentStore::begin(&store, begin(82, "recover-expired-ticket", 83))
         .unwrap();
-    issue_ticket(
-        &store,
-        ticket_at(82, 1, 84, 85, 100, 200),
-    )
-    .unwrap();
+    issue_ticket(&store, ticket_at(82, 1, 84, 85, 100, 200)).unwrap();
 
     assert!(
         ProviderCredentialEnrollmentStore::reconcile_online(&store, 201)

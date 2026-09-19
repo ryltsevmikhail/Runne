@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 const MAX_PENDING: usize = 64;
 const TTL_MILLIS: u64 = 30_000;
-const PRINCIPAL: &str = "local-owner";
+pub(super) const PRINCIPAL: &str = "local-owner";
 include!("root_handle_admission/issued.rs");
 include!("root_handle_admission/files.rs");
 include!("root_handle_admission/editor.rs");
@@ -266,23 +266,24 @@ impl RootAdmissionVerifier for RootAdmissionGateway {
             && claims.admission_digest() == pending.digest
             && claims.expires_at_unix_millis() == pending.expires_at
             && pending.expires_at > moment;
-        if matching {
-            let baseline = pending.baseline.clone();
-            let handle = pending
-                ._handle
-                .try_clone()
-                .map_err(|_| RootAdmissionVerifierError::Unavailable)?;
-            state.active.insert(
-                claims.workspace_id(),
-                ActiveRoot {
-                    version: claims.expected_version(),
-                    baseline,
-                    handle,
-                },
-            );
-        }
+        // Serving state is promoted only by confirm_root_admission after the
+        // consuming command durably commits; verify stays a pure verdict.
         matching
             .then_some(claims)
             .ok_or(RootAdmissionVerifierError::Rejected)
+    }
+
+    fn confirm_root_admission(
+        &self,
+        claims: &VerifiedRootAdmissionClaims,
+    ) -> Result<(), RootAdmissionVerifierError> {
+        let Some(authority) = &self.0 else {
+            return Err(RootAdmissionVerifierError::Unavailable);
+        };
+        let mut state = authority
+            .state
+            .lock()
+            .map_err(|_| RootAdmissionVerifierError::Unavailable)?;
+        promote_pending(&mut state, claims, now()?)
     }
 }

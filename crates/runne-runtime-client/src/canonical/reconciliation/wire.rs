@@ -46,6 +46,7 @@ pub(super) enum OutcomeWire {
         reason: StrictOptional<FailureReasonWire>,
     },
     CancelTaskRun { task_run_id: CanonicalId, new_version: u64 },
+    SubmitTaskRun { task_run_id: CanonicalId, new_version: u64 },
     ApprovalDecision {
         approval_id: CanonicalId,
         new_version: u64,

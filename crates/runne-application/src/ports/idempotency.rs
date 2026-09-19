@@ -41,6 +41,8 @@ pub enum OperationTag {
     GenerateConversationText = 18,
     /// Request cancellation of an existing task run.
     CancelTaskRun = 19,
+    /// Client-authorized atomic TaskRun submit (created + queued in one commit).
+    SubmitTaskRun = 20,
 }
 
 /// The aggregate scope within which idempotency is enforced.

@@ -5,6 +5,7 @@ use std::fmt;
 mod ids;
 mod intent_binding;
 mod operation;
+mod provider;
 mod snapshot;
 mod verify_intent_binding;
 
@@ -14,6 +15,7 @@ pub use operation::{
     ProviderCredentialOperationKindV2, ProviderCredentialOperationSnapshotV2,
     ProviderCredentialOperationStateV2,
 };
+pub use provider::ProviderCredentialProviderV2;
 pub use snapshot::{
     ProviderCredentialLastDispositionV2, ProviderCredentialPendingOperationV2,
     ProviderCredentialReadinessV2, ProviderCredentialSafeSnapshotV2, ProviderCredentialStateV2,
@@ -28,15 +30,6 @@ pub enum ProviderCredentialEnrollmentActionV2 {
     Pair,
     Revoke,
     MigrateLegacy,
-}
-
-/// Closed provider identities accepted by protected enrollment V2.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub enum ProviderCredentialProviderV2 {
-    #[serde(rename = "openai")]
-    OpenAi,
-    #[serde(rename = "deepseek")]
-    DeepSeek,
 }
 
 /// Explicit verification effect selected by a fresh native intent.

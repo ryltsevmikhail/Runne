@@ -51,6 +51,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
             || self.qualification_snapshot.is_some()
             || self.pending.is_some()
             || self.begun.is_some()
+            || self.verified.is_some()
             || self.recovery.started
         {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);

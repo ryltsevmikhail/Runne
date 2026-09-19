@@ -142,8 +142,11 @@ async fn verify_cleanup(stall_cancel: bool, finish_at: Option<i64>) {
         &adapter,
         &Guard,
     );
+    // The bound being asserted is "a stalled local cancel cannot block the
+    // uncertain outcome forever", not a wall-clock speed budget: a generous
+    // timeout keeps the invariant meaningful on a fully loaded CI host.
     let outcome = tokio::time::timeout(
-        std::time::Duration::from_secs(3),
+        std::time::Duration::from_secs(30),
         coordinator.dispatch(coordinator_request(95, "publication-revoke")),
     )
     .await

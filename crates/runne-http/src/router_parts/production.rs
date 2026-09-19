@@ -104,7 +104,7 @@ impl SecureLocalHttpHost {
             .merge(runtime_profile_session_router(
                 runtime_profile_state.clone(),
             ))
-            .merge(task_run_router(task_run_state))
+            .merge(canonical_task_run_router(task_run_state))
             .merge(conversation_router(conversation_state))
             .merge(replay_router(replay_state))
             .layer(axum_mw::from_fn_with_state(

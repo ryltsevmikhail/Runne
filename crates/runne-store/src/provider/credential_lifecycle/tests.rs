@@ -130,3 +130,86 @@ fn provision_replay_rejects_changed_source_before_native_create() {
         runne_provider::CredentialLifecycleError::StaleLease
     );
 }
+
+#[test]
+fn subscription_budget_ignores_stale_absolute_refills_after_spend() {
+    use crate::provider::SUBSCRIPTION_LOCAL_TOKEN_BUDGET;
+    use runne_provider_quota::{RemainingState, SubscriptionBudgetAuthority};
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("subscription-budget-ordering.sqlite");
+    let store = SqliteProviderCredentialLifecycleStore::open_at(&path, 100).unwrap();
+    let provider = "subscription-fixture";
+    assert_eq!(
+        store.seed_and_remaining(provider, 1).unwrap(),
+        RemainingState::Remaining(SUBSCRIPTION_LOCAL_TOKEN_BUDGET)
+    );
+    store.refill_if_known(provider, 1, 800, 20);
+    assert_eq!(
+        store.spend(provider, 1, 300).unwrap(),
+        RemainingState::Remaining(500)
+    );
+    store.refill_if_known(provider, 1, 999, 19);
+    assert_eq!(
+        store.seed_and_remaining(provider, 1).unwrap(),
+        RemainingState::Remaining(500)
+    );
+    store.refill_if_known(provider, 1, 700, 21);
+    assert_eq!(
+        store.seed_and_remaining(provider, 1).unwrap(),
+        RemainingState::Remaining(700)
+    );
+    assert_eq!(
+        store.spend(provider, 1, 1_000).unwrap(),
+        RemainingState::Exhausted
+    );
+    store.refill_if_known(provider, 1, 400, 20);
+    assert_eq!(
+        store.seed_and_remaining(provider, 1).unwrap(),
+        RemainingState::Exhausted
+    );
+}
+
+#[test]
+fn subscription_budget_persists_spend_across_reopen_and_refill_semantics() {
+    use crate::provider::SUBSCRIPTION_LOCAL_TOKEN_BUDGET;
+    use runne_provider_quota::{RemainingState, SubscriptionBudgetAuthority};
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("subscription-budget-restart.sqlite");
+    {
+        let store = SqliteProviderCredentialLifecycleStore::open_at(&path, 100).unwrap();
+        assert_eq!(
+            store.seed_and_remaining("subscription-fixture", 1),
+            Ok(RemainingState::Remaining(SUBSCRIPTION_LOCAL_TOKEN_BUDGET))
+        );
+        assert_eq!(
+            store.spend("subscription-fixture", 1, 250),
+            Ok(RemainingState::Remaining(999_750))
+        );
+        store.refill_if_known("subscription-fixture", 1, 600, 30);
+        assert_eq!(
+            store.seed_and_remaining("subscription-fixture", 1),
+            Ok(RemainingState::Remaining(600))
+        );
+    }
+    let store = SqliteProviderCredentialLifecycleStore::open_at(&path, 100).unwrap();
+    assert_eq!(
+        store.seed_and_remaining("subscription-fixture", 1),
+        Ok(RemainingState::Remaining(600))
+    );
+    store.refill_if_known("subscription-fixture", 1, 900, 30);
+    assert_eq!(
+        store.seed_and_remaining("subscription-fixture", 1),
+        Ok(RemainingState::Remaining(600))
+    );
+    store.refill_if_known("subscription-fixture", 1, 900, 31);
+    assert_eq!(
+        store.seed_and_remaining("subscription-fixture", 1),
+        Ok(RemainingState::Remaining(900))
+    );
+    assert_eq!(
+        store.spend("subscription-fixture", 1, 1_000),
+        Ok(RemainingState::Exhausted)
+    );
+}

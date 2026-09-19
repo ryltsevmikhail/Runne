@@ -140,11 +140,8 @@ where
 fn provider(
     value: ProviderCredentialProviderV2,
 ) -> Result<ProviderId, ProviderCredentialEnrollmentHostError> {
-    ProviderId::new(match value {
-        ProviderCredentialProviderV2::OpenAi => "openai",
-        ProviderCredentialProviderV2::DeepSeek => "deepseek",
-    })
-    .map_err(|_| ProviderCredentialEnrollmentHostError::InvalidRequest)
+    ProviderId::new(value.as_str())
+        .map_err(|_| ProviderCredentialEnrollmentHostError::InvalidRequest)
 }
 
 fn observation_id() -> Result<CredentialOperationId, ProviderCredentialEnrollmentHostError> {

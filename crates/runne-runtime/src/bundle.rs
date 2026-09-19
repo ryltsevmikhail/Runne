@@ -16,7 +16,7 @@ pub const GENERATOR_SCHEMA_VERSION: u32 = 1;
 ///
 /// Updated only by the authoritative contract generator.
 pub const PUBLISHED_BUNDLE_HASH: &str =
-    "2120239d6f11db7fbd6ac61360dd677ac92d6b7f7b52e15cfee3816b0795222a";
+    "f9744ae62f1245480122dfd73560e49532f2313cc9ce1360ac10987d7318b3dd";
 
 /// Exact additive command/query and Aggregate replay surface mounted by the
 /// current local daemon.
@@ -24,6 +24,7 @@ pub const PUBLISHED_RUNTIME_CAPABILITIES: &[&str] = &[
     "conversation.create.v1",
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
+    "task_run.submit.v1",
     "task_run.get.v1",
     "task_run.cancel.v1",
     "replay.aggregate.open.v1",
@@ -59,6 +60,7 @@ pub const ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES: &[&str] = &[
     "conversation.create.v1",
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
+    "task_run.submit.v1",
     "task_run.get.v1",
     "task_run.cancel.v1",
     "replay.aggregate.open.v1",
@@ -94,6 +96,7 @@ pub const BASE_RUNTIME_CAPABILITIES: &[&str] = &[
     "conversation.create.v1",
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
+    "task_run.submit.v1",
     "task_run.get.v1",
     "task_run.cancel.v1",
     "replay.aggregate.open.v1",
@@ -124,6 +127,7 @@ pub const RUNTIME_CAPABILITY_CATALOG: &[&str] = &[
     "conversation.create.v1",
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
+    "task_run.submit.v1",
     "task_run.get.v1",
     "task_run.cancel.v1",
     "replay.aggregate.open.v1",
@@ -164,6 +168,7 @@ mod tests {
             "conversation.create.v1",
             "conversation.generate_text.v1",
             "conversation.list_messages.v1",
+            "task_run.submit.v1",
             "task_run.get.v1",
             "task_run.cancel.v1",
             "replay.aggregate.open.v1",

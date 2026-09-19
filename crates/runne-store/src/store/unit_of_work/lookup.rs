@@ -77,20 +77,38 @@ impl StoreTransaction {
                         runne_application::ports::StorageFailureKind::CorruptData,
                     )
                 })?;
-                if idempotency_scope.operation == OperationTag::CreateTaskRun {
-                    let runne_application::commands::CommandOutcome::TaskRunCreated {
-                        taskrun_id,
-                        new_version: 1,
-                    } = &stored_result
-                    else {
-                        return Err(storage_failure(StorageFailureKind::IntegrityViolation));
-                    };
-                    crate::project_workspace::lineage::validate_direct_taskrun_lineage(
-                        &tx,
-                        idempotency_scope,
-                        *taskrun_id,
-                        command_id,
-                    )?;
+                match idempotency_scope.operation {
+                    OperationTag::CreateTaskRun => {
+                        let runne_application::commands::CommandOutcome::TaskRunCreated {
+                            taskrun_id,
+                            new_version: 1,
+                        } = &stored_result
+                        else {
+                            return Err(storage_failure(StorageFailureKind::IntegrityViolation));
+                        };
+                        crate::project_workspace::lineage::validate_direct_taskrun_lineage(
+                            &tx,
+                            idempotency_scope,
+                            *taskrun_id,
+                            command_id,
+                        )?;
+                    }
+                    OperationTag::SubmitTaskRun => {
+                        let runne_application::commands::CommandOutcome::TaskRunSubmitted {
+                            taskrun_id,
+                            new_version: 2,
+                        } = &stored_result
+                        else {
+                            return Err(storage_failure(StorageFailureKind::IntegrityViolation));
+                        };
+                        crate::project_workspace::lineage::validate_direct_taskrun_lineage(
+                            &tx,
+                            idempotency_scope,
+                            *taskrun_id,
+                            command_id,
+                        )?;
+                    }
+                    _ => {}
                 }
                 return Ok(ReceiptLookup::Duplicate { stored_result });
             } else {

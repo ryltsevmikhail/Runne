@@ -31,6 +31,15 @@ pub struct CreateTaskRunCommand {
     pub workspace_id: WorkspaceId,
 }
 
+/// Canonical input for the atomic client-authorized TaskRun submit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SubmitTaskRunCommand {
+    /// Conversation referenced by the new TaskRun.
+    pub conversation_id: ConversationId,
+    /// Workspace referenced by the new TaskRun.
+    pub workspace_id: WorkspaceId,
+}
+
 /// Canonical input for a transition on an existing TaskRun.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExistingTaskRunCommand {
@@ -68,6 +77,8 @@ pub struct CompleteTaskRunCommand {
 pub enum TaskRunCommandAckKind {
     /// A TaskRun was created.
     Created,
+    /// One atomic submit committed `Created + Queued` as a single unit.
+    Submitted,
     /// A TaskRun entered the queue.
     Queued,
     /// Cancellation was durably requested.
@@ -208,6 +219,19 @@ pub trait TaskRunCommandHostPort: Send + Sync {
         context: TaskRunCommandContext,
         command: CreateTaskRunCommand,
     ) -> impl std::future::Future<Output = Result<TaskRunCommandAck, TaskRunHostError>> + Send;
+
+    /// Submits one TaskRun as one atomic `Created + Queued` unit-of-work.
+    ///
+    /// Never implemented as a `create` then `queue` sequence. Hosts that do
+    /// not yet authorize the bounded submit command fail closed as
+    /// unavailable until the capability contract is published.
+    fn submit_task_run(
+        &self,
+        _context: TaskRunCommandContext,
+        _command: SubmitTaskRunCommand,
+    ) -> impl std::future::Future<Output = Result<TaskRunCommandAck, TaskRunHostError>> + Send {
+        async { Err(TaskRunHostError::Unavailable) }
+    }
 
     /// Queues one created TaskRun.
     fn queue_task_run(

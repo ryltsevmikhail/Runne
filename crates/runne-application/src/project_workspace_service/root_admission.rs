@@ -8,18 +8,18 @@ use runne_api::{
 };
 use runne_domain::id::WorkspaceId;
 
-pub(super) struct VerifiedRootAdmissionAuthorizer<L> {
+pub(super) struct VerifiedRootAdmissionAuthorizer<'a, L> {
     lease: L,
-    claims: VerifiedRootAdmissionClaims,
+    claims: &'a VerifiedRootAdmissionClaims,
     principal_digest: [u8; 32],
     workspace_id: WorkspaceId,
     expected_version: u64,
 }
 
-impl<L: RootAdmissionLease> VerifiedRootAdmissionAuthorizer<L> {
+impl<'a, L: RootAdmissionLease> VerifiedRootAdmissionAuthorizer<'a, L> {
     pub(super) fn new(
         lease: L,
-        claims: VerifiedRootAdmissionClaims,
+        claims: &'a VerifiedRootAdmissionClaims,
         command: &ProjectCommandContext,
         workspace_id: WorkspaceId,
         expected_version: u64,
@@ -36,7 +36,7 @@ impl<L: RootAdmissionLease> VerifiedRootAdmissionAuthorizer<L> {
     }
 }
 
-impl<L: RootAdmissionLease> RootAdmissionAuthorizer for VerifiedRootAdmissionAuthorizer<L> {
+impl<L: RootAdmissionLease> RootAdmissionAuthorizer for VerifiedRootAdmissionAuthorizer<'_, L> {
     fn authorize_root_admission(
         &mut self,
     ) -> Result<RootAdmissionConsumption, ProjectWorkspaceRepositoryError> {
@@ -58,7 +58,7 @@ impl<L: RootAdmissionLease> RootAdmissionAuthorizer for VerifiedRootAdmissionAut
             && self.claims.workspace_id() == self.workspace_id
             && self.claims.expected_version() == self.expected_version;
         bindings_match
-            .then(|| RootAdmissionConsumption::from_claims(&self.claims))
+            .then(|| RootAdmissionConsumption::from_claims(self.claims))
             .ok_or(ProjectWorkspaceRepositoryError::Forbidden)
     }
 }

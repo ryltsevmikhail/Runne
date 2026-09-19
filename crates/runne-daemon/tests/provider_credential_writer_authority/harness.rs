@@ -99,9 +99,29 @@ fn run_outer(selector: &'static str, scenario: &str) {
     let leaked = reap_fixture_processes(keychain.root());
     let service_stderr =
         std::fs::read(keychain.root().join("credential-service.stderr")).unwrap_or_default();
+    // Read the fixture writer log exactly once, bounded, before the
+    // keychain cleanup deletes the fixture root; the raw bytes feed only
+    // the secret scan below, and the sanitized summary is the only writer
+    // output allowed into failure messages.
+    let writer_log = crate::writer_diagnostics::observe_writer_log(keychain.root());
     let cleanup = keychain.cleanup();
     assert!(cleanup.is_ok(), "explicit Keychain cleanup failed");
-    for sink in [&output.stdout, &output.stderr, &service_stderr] {
+    let writer_log = match writer_log {
+        Ok(observation) => observation,
+        Err(failure) => panic!("writer stderr log observation failed closed: {failure}"),
+    };
+    assert!(
+        !writer_log.overflow,
+        "writer stderr log exceeded the collection bound; the secret scan \
+         would only cover a truncated log: {}",
+        writer_log.summary
+    );
+    for sink in [
+        &output.stdout,
+        &output.stderr,
+        &service_stderr,
+        &writer_log.raw,
+    ] {
         for pattern in &patterns {
             assert!(!contains(sink, pattern));
         }
@@ -109,10 +129,11 @@ fn run_outer(selector: &'static str, scenario: &str) {
     assert!(
         output.status.success(),
         "package desktop failed: scenario={scenario} leaked={leaked:?} stdout={} stderr={} \
-         service_stderr={}",
+         service_stderr={} {}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr),
         String::from_utf8_lossy(&service_stderr),
+        writer_log.summary,
     );
 }
 

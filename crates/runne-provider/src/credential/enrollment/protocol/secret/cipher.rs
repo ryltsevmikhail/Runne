@@ -83,9 +83,16 @@ pub(super) fn open(
     Ok(ciphertext)
 }
 
-pub(super) fn validate_credential(credential: &[u8]) -> Result<(), CredentialEnrollmentError> {
+pub(super) fn validate_credential(
+    credential: &[u8],
+    kind: super::crypto::CredentialSecretEnvelopeKind,
+) -> Result<(), CredentialEnrollmentError> {
+    let max = match kind {
+        super::crypto::CredentialSecretEnvelopeKind::Legacy => 4096,
+        super::crypto::CredentialSecretEnvelopeKind::NativeOAuth => 32 * 1024,
+    };
     if credential.is_empty()
-        || credential.len() > 4096
+        || credential.len() > max
         || credential
             .iter()
             .any(|byte| matches!(byte, b'\n' | b'\r' | 0))

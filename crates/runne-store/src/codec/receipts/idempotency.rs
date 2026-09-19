@@ -103,6 +103,7 @@ impl StoreCodec<IdempotencyScope> for IdempotencyScopeCodec {
             17 => OperationTag::ResumeLoopWait,
             18 => OperationTag::GenerateConversationText,
             19 => OperationTag::CancelTaskRun,
+            20 => OperationTag::SubmitTaskRun,
             t => {
                 return Err(StoreCodecError::UnknownTag {
                     tag: t,

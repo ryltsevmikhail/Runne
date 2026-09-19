@@ -51,7 +51,7 @@
     },
     {
       "path": "openapi.json",
-      "sha256": "720edbda982794173eb46c0833dfd107d9242c0c00dc73db5ba1c1d96e829214"
+      "sha256": "4a270adaa6e362f62ec3a0a7769720440e2ba8db63006f23d8578a17a974fab2"
     },
     {
       "path": "schemas/approval-v1.schema.json",
@@ -59,7 +59,7 @@
     },
     {
       "path": "schemas/local-runtime-profile-v3.schema.json",
-      "sha256": "d285ece7adf398e1e90e3c05f97234ea2ea6d2d240f4120dc157c537b6ff7187"
+      "sha256": "2f992d3cc70650ae53f2d0ddb314c75d1a8f834af4256c07d60e68a0d7d74a9e"
     },
     {
       "path": "schemas/local-session-v2.schema.json",
@@ -91,7 +91,7 @@
     },
     {
       "path": "schemas/task-run-v1.schema.json",
-      "sha256": "6ba894873c4c41cfa97e0cfd4520babe9f8915e4f7c288ef62fe47770fb51111"
+      "sha256": "147eb68ddad2f8cd7467664a7287f4cc91d3c964996ad09985c72d172d1252bf"
     },
     {
       "path": "schemas/workspace-diffs-v1.schema.json",
@@ -110,6 +110,7 @@
     "conversation.create.v1",
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
+    "task_run.submit.v1",
     "task_run.get.v1",
     "task_run.cancel.v1",
     "replay.aggregate.open.v1",
@@ -144,6 +145,7 @@
     "conversation.create.v1",
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
+    "task_run.submit.v1",
     "task_run.get.v1",
     "task_run.cancel.v1",
     "replay.aggregate.open.v1",

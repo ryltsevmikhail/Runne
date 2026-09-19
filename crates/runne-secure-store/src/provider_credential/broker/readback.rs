@@ -207,12 +207,8 @@ impl LegacyCredentialSourceReadback for crate::NativeProviderCredentialStore {
         provider: &runne_provider::ProviderId,
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialStatus, SecureStoreError> {
-        let provider = match provider.as_str() {
-            "openai" => ProviderCredentialId::OpenAi,
-            "deepseek" => ProviderCredentialId::DeepSeek,
-            "local-engine" => ProviderCredentialId::LocalEngine,
-            _ => return Err(BrokerError::Unsupported.into()),
-        };
+        let provider = ProviderCredentialId::from_account(provider.as_str())
+            .ok_or(BrokerError::Unsupported)?;
         #[cfg(target_os = "macos")]
         {
             self.legacy_source_metadata_presence(provider, access)

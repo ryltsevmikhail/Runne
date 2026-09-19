@@ -8,7 +8,7 @@ use crate::agent_loop::{
     LoopDisposition, PendingLoopCheckpoint, PendingLoopWait, PendingRetry, PendingSuccessorCycle,
     StepOutcomeRecord, StepOutcomeRef, StepOutcomeType, WakeEvidenceRef,
 };
-use crate::command::{CreateTaskRun, TaskRunCommand, TerminalResult};
+use crate::command::{CreateTaskRun, SubmitTaskRun, TaskRunCommand, TerminalResult};
 use crate::context::ContextManifestRef;
 use crate::error::{DomainError, LoopInvariantViolation};
 use crate::event::{AggregateType, DomainEventDraft, EventEnvelope, Sensitivity};

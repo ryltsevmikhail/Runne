@@ -11,8 +11,7 @@ fn credential_online_foreign_receipt_is_denied_without_consuming_ticket() {
     let path = directory.path().join("foreign-receipt.sqlite");
     let local = open_test_store(&path, 100);
     ProviderCredentialEnrollmentStore::begin(&local, begin(170, "foreign-receipt", 171)).unwrap();
-    issue_ticket(&local, ticket(170, 1, 172, 173))
-        .unwrap();
+    issue_ticket(&local, ticket(170, 1, 172, 173)).unwrap();
     let persisted =
         ProviderCredentialEnrollmentStore::load_operation(&local, operation(170)).unwrap();
     let (foreign, _) = runne_provider::CredentialEnrollmentAuthorityPair::new().split();
@@ -46,11 +45,7 @@ fn credential_online_restart_hydrates_same_owner_receipt_for_claim() {
     drop(initial);
 
     let restarted = open_test_store(&path, 100);
-    let receipt = issue_ticket(
-        &restarted,
-        ticket(180, 1, 182, 183),
-    )
-    .unwrap();
+    let receipt = issue_ticket(&restarted, ticket(180, 1, 182, 183)).unwrap();
     let claim = seal_claim(
         &restarted,
         ClaimCredentialOperation::new(receipt, digest(182), digest(183), digest(184), 1, 1)

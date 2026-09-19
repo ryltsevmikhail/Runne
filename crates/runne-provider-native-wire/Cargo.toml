@@ -1,0 +1,15 @@
+[package]
+name = "runne-provider-native-wire"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+hex.workspace = true
+runne-provider = { path = "../runne-provider" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

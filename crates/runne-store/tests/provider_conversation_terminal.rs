@@ -27,10 +27,25 @@ use rusqlite::Connection;
 use std::sync::Arc;
 #[path = "support/v36_receipt_downgrade.rs"]
 mod v36_receipt_downgrade;
+#[path = "support/v37_accounting_downgrade.rs"]
+mod v37_accounting_downgrade;
+#[path = "support/v39_lineage_downgrade.rs"]
+mod v39_lineage_downgrade;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 fn available_guard() -> Arc<dyn ProhibitedContentPort> {
     Arc::new(SecretBroker::new().prohibited_content_guard())
+}
+
+fn assert_reopen_rejected(database: &std::path::Path) {
+    assert!(
+        StoreTransaction::open(
+            database.to_str().unwrap(),
+            RuntimeAuthorityId("provider-conversation-terminal".into()),
+            available_guard(),
+        )
+        .is_err()
+    );
 }
 
 fn context(command: &str, key: &str) -> ApplicationCommandContext {
@@ -182,11 +197,13 @@ fn production_terminal_application_reconstructs_started_command_and_finishes_onc
              DROP INDEX IF EXISTS idx_process_registry_owner;
              DROP TABLE IF EXISTS process_registry;
              DROP INDEX IF EXISTS idx_approvals_pending;
-             DROP TABLE IF EXISTS approvals; DROP TABLE IF EXISTS provider_online_credential_effect_bindings; DROP TABLE IF EXISTS provider_online_dispatch_claim_providers; DROP TABLE IF EXISTS provider_online_dispatch_issuance_evidence; DROP TABLE IF EXISTS provider_credential_completion_receipts; DROP TABLE IF EXISTS provider_credential_process_attachments; DROP TABLE IF EXISTS provider_credential_operations; DROP TABLE IF EXISTS provider_credential_ticket_attempts; DROP TABLE IF EXISTS provider_credential_authority_heads; DROP TABLE IF EXISTS provider_credential_readiness_observations; DROP TABLE IF EXISTS provider_credential_verification_observations;
+             DROP TABLE IF EXISTS approvals; DROP TABLE IF EXISTS provider_online_credential_effect_bindings; DROP TABLE IF EXISTS provider_online_dispatch_claim_providers; DROP TABLE IF EXISTS provider_online_dispatch_issuance_evidence; DROP TABLE IF EXISTS provider_credential_completion_receipts; DROP TABLE IF EXISTS provider_credential_process_attachments; DROP TABLE IF EXISTS provider_credential_operations; DROP TABLE IF EXISTS provider_credential_ticket_attempts; DROP TABLE IF EXISTS provider_credential_authority_heads; DROP TABLE IF EXISTS provider_credential_readiness_observations; DROP TABLE IF EXISTS provider_credential_verification_observations; DROP TABLE IF EXISTS provider_subscription_budgets;
              DELETE FROM schema_version WHERE version >= 19;",
     )
         .unwrap();
+    v37_accounting_downgrade::restore_v36_accounting(&connection).unwrap();
     v36_receipt_downgrade::restore_v18_receipt(&connection).unwrap();
+    v39_lineage_downgrade::restore_v18_lineage(&connection).unwrap();
     apply_migrations(&connection).unwrap();
     let backfilled: i64 = connection
         .query_row(
@@ -212,14 +229,7 @@ fn production_terminal_application_reconstructs_started_command_and_finishes_onc
         )
         .unwrap();
     drop(connection);
-    assert!(
-        StoreTransaction::open(
-            database.to_str().unwrap(),
-            RuntimeAuthorityId("provider-conversation-terminal".into()),
-            available_guard(),
-        )
-        .is_err()
-    );
+    assert_reopen_rejected(&database);
     let connection = Connection::open(&database).unwrap();
     connection
         .execute(
@@ -249,14 +259,7 @@ fn production_terminal_application_reconstructs_started_command_and_finishes_onc
         )
         .unwrap();
     drop(connection);
-    assert!(
-        StoreTransaction::open(
-            database.to_str().unwrap(),
-            RuntimeAuthorityId("provider-conversation-terminal".into()),
-            available_guard(),
-        )
-        .is_err()
-    );
+    assert_reopen_rejected(&database);
     let connection = Connection::open(&database).unwrap();
     connection
         .execute(
@@ -266,14 +269,7 @@ fn production_terminal_application_reconstructs_started_command_and_finishes_onc
         )
         .unwrap();
     drop(connection);
-    assert!(
-        StoreTransaction::open(
-            database.to_str().unwrap(),
-            RuntimeAuthorityId("provider-conversation-terminal".into()),
-            available_guard(),
-        )
-        .is_err()
-    );
+    assert_reopen_rejected(&database);
     let connection = Connection::open(&database).unwrap();
     connection
         .execute(
@@ -289,12 +285,5 @@ fn production_terminal_application_reconstructs_started_command_and_finishes_onc
         )
         .unwrap();
     drop(connection);
-    assert!(
-        StoreTransaction::open(
-            database.to_str().unwrap(),
-            RuntimeAuthorityId("provider-conversation-terminal".into()),
-            available_guard(),
-        )
-        .is_err()
-    );
+    assert_reopen_rejected(&database);
 }

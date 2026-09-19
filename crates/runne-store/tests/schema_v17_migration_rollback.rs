@@ -15,6 +15,10 @@ use rusqlite::{Connection, params};
 
 #[path = "support/v36_receipt_downgrade.rs"]
 mod v36_receipt_downgrade;
+#[path = "support/v37_accounting_downgrade.rs"]
+mod v37_accounting_downgrade;
+#[path = "support/v39_lineage_downgrade.rs"]
+mod v39_lineage_downgrade;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 
@@ -112,10 +116,13 @@ fn v16_fixture(
          DROP TABLE IF EXISTS provider_credential_completion_receipts;
          DROP TABLE IF EXISTS provider_credential_process_attachments;
          DROP TABLE IF EXISTS provider_credential_operations;
+         DROP TABLE IF EXISTS provider_subscription_budgets;
          DELETE FROM schema_version WHERE version >= 19;",
     )
-        .unwrap();
+    .unwrap();
+    v37_accounting_downgrade::restore_v36_accounting(&connection).unwrap();
     v36_receipt_downgrade::restore_v18_receipt(&connection).unwrap();
+    v39_lineage_downgrade::restore_v18_lineage(&connection).unwrap();
     (directory, database, conversation_id, started.taskrun_id)
 }
 

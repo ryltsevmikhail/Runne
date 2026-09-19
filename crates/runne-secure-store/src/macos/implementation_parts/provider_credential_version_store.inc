@@ -17,10 +17,8 @@ impl NativeProviderCredentialVersionStore for MacOsProviderCredentialStore {
     ) -> Result<(), SecureStoreError> {
         let authority = self.version_authority()?;
         let reference = claim.version_ref().clone();
-        self.version_store(&reference)?.create_immutable_version(
-            credential,
-            access,
-            || {
+        self.version_store(&reference)?
+            .create_immutable_version(credential, access, || {
                 let authorization = authority
                     .authorize_create(&claim)
                     .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
@@ -28,8 +26,7 @@ impl NativeProviderCredentialVersionStore for MacOsProviderCredentialStore {
                     return Err(SecureStoreError::CredentialAccessDenied);
                 }
                 Ok(authorization)
-            },
-        )
+            })
     }
 
     fn load_version(
@@ -74,9 +71,8 @@ impl MacOsProviderCredentialStore {
             .validate_writer_current()
             .map_err(map_identity_access_error)?;
         access.remeasure().map_err(map_identity_access_error)?;
-        let exact_access =
-            ExactKeychainAccess::new(access.writer_path(), access.reader_path())
-                .map_err(map_acl_error)?;
+        let exact_access = ExactKeychainAccess::new(access.writer_path(), access.reader_path())
+            .map_err(map_acl_error)?;
         access.remeasure().map_err(map_identity_access_error)?;
         let metadata = ProviderCredentialMetadata::from_access(access, exact_access.digest());
         let encoded = StoredProviderCredential::encode(credential, access, exact_access.digest())?;
@@ -143,10 +139,17 @@ impl MacOsProviderCredentialStore {
         })
     }
 
-    fn version_store(
+    pub(crate) fn load_provider_version_for_verification(
         &self,
         reference: &CredentialVersionRef,
-    ) -> Result<Self, SecureStoreError> {
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
+        let provider = provider_id_from_version_ref(reference)?;
+        self.version_store(reference)?
+            .load_provider_credential(provider, access)
+    }
+
+    fn version_store(&self, reference: &CredentialVersionRef) -> Result<Self, SecureStoreError> {
         let provider = provider_id_from_version_ref(reference)?;
         let account = if self.account == ProviderCredentialId::OpenAi.account() {
             provider.account().to_owned()
@@ -175,9 +178,6 @@ impl MacOsProviderCredentialStore {
 fn provider_id_from_version_ref(
     reference: &CredentialVersionRef,
 ) -> Result<ProviderCredentialId, SecureStoreError> {
-    match reference.provider().as_str() {
-        "openai" => Ok(ProviderCredentialId::OpenAi),
-        "deepseek" => Ok(ProviderCredentialId::DeepSeek),
-        _ => Err(SecureStoreError::ProviderCredentialOperationFailed),
-    }
+    ProviderCredentialId::from_account(reference.provider().as_str())
+        .ok_or(SecureStoreError::ProviderCredentialOperationFailed)
 }

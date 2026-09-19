@@ -39,6 +39,7 @@ fn command_response(
 fn ack_to_wire(ack: TaskRunCommandAck) -> TaskRunAckWire {
     let (transition, attempt_id, terminal_result) = match ack.kind {
         TaskRunCommandAckKind::Created => ("created", None, None),
+        TaskRunCommandAckKind::Submitted => ("submitted", None, None),
         TaskRunCommandAckKind::Queued => ("queued", None, None),
         TaskRunCommandAckKind::CancellationRequested => {
             ("cancellation_requested", None, None)

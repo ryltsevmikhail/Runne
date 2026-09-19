@@ -32,8 +32,10 @@ include!("credential_lifecycle/diagnostics.rs");
 include!("credential_lifecycle/provision.rs");
 include!("credential_lifecycle/online.rs");
 
+mod budget;
 #[cfg(test)]
 mod tests;
+pub use budget::SUBSCRIPTION_LOCAL_TOKEN_BUDGET;
 
 const TOMBSTONE_DOMAIN: &[u8] = b"GOCODE_CREDENTIAL_TOMBSTONE_V1\0";
 

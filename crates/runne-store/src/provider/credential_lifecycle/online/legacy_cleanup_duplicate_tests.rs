@@ -10,17 +10,30 @@ fn legacy_cleanup_binding_rejects_multiple_matching_imports() {
         "SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='provider_credential_operations'"
     ).unwrap().query_map([], |row| row.get(0)).unwrap().collect::<Result<_, _>>().unwrap();
     for trigger in triggers {
-        connection.execute_batch(&format!("DROP TRIGGER \"{}\"", trigger.replace('"', "\"\""))).unwrap();
+        connection
+            .execute_batch(&format!(
+                "DROP TRIGGER \"{}\"",
+                trigger.replace('"', "\"\"")
+            ))
+            .unwrap();
     }
-    let columns: Vec<String> = connection.prepare("PRAGMA table_info(provider_credential_operations)")
-        .unwrap().query_map([], |row| row.get(1)).unwrap().collect::<Result<_, _>>().unwrap();
-    let selected: Vec<String> = columns.iter().map(|column| match column.as_str() {
-        "operation_id" => "?1".to_owned(),
-        "command_id" => "?2".to_owned(),
-        "begin_proof_digest" => "?4".to_owned(),
-        "idempotency_key" => "'corrupt-duplicate-import'".to_owned(),
-        _ => format!("\"{}\"", column.replace('"', "\"\"")),
-    }).collect();
+    let columns: Vec<String> = connection
+        .prepare("PRAGMA table_info(provider_credential_operations)")
+        .unwrap()
+        .query_map([], |row| row.get(1))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let selected: Vec<String> = columns
+        .iter()
+        .map(|column| match column.as_str() {
+            "operation_id" => "?1".to_owned(),
+            "command_id" => "?2".to_owned(),
+            "begin_proof_digest" => "?4".to_owned(),
+            "idempotency_key" => "'corrupt-duplicate-import'".to_owned(),
+            _ => format!("\"{}\"", column.replace('"', "\"\"")),
+        })
+        .collect();
     connection.execute(&format!(
         "INSERT INTO provider_credential_operations SELECT {} FROM provider_credential_operations WHERE operation_id=?3",
         selected.join(", ")
@@ -30,6 +43,8 @@ fn legacy_cleanup_binding_rejects_multiple_matching_imports() {
         [digest(65).as_bytes().as_slice()], |row| row.get(0)).unwrap();
     assert_eq!(matches, 2);
     drop(connection);
-    assert_eq!(ProviderCredentialEnrollmentStore::load_operation(&store, cleanup),
-        Err(CredentialLifecycleError::CorruptState));
+    assert_eq!(
+        ProviderCredentialEnrollmentStore::load_operation(&store, cleanup),
+        Err(CredentialLifecycleError::CorruptState)
+    );
 }

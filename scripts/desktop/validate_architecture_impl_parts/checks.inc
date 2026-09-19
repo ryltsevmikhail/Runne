@@ -50,8 +50,13 @@ ALLOWED_RUST_DEPENDENCIES: dict[str, set[str]] = {
         "runne-macos-keychain-acl",
         "runne-macos-xpc",
         "runne-provider",
+        # Pure bounded OAuth envelope codec.  It has no platform, network, or
+        # authority dependencies; secure-store uses it only at the broker
+        # boundary to stamp the admitted credential version.
+        "runne-provider-oauth",
     },
 }
+OAUTH_CODEC_CONSUMERS = {"runne-secure-store", "runne-daemon-responses-effect"}
 RENDERER_ROOT = Path("apps/desktop/src")
 CONVERSATION_ENTITY_API = Path("apps/desktop/src/entities/conversation/api")
 PROVIDER_TERMINAL_PERSISTENCE_ALLOWED = {
@@ -113,6 +118,29 @@ def find_rust_dependency_violations(dependencies: dict[str, set[str]]) -> list[s
             if dependency.startswith("runne-") and dependency not in allowed:
                 violations.append(f"{package} -> {dependency} is forbidden")
     return violations
+
+
+def find_oauth_codec_dependency_violations(packages: list[dict]) -> list[str]:
+    """Keep the pure OAuth codec edge explicit and tightly shaped."""
+    errors = []
+    for package in packages:
+        for dependency in package.get("dependencies", []):
+            if dependency.get("name") != "runne-provider-oauth":
+                continue
+            owner = package.get("name", "<unknown>")
+            valid_owner = owner in OAUTH_CODEC_CONSUMERS
+            valid_shape = (
+                dependency.get("kind") is None
+                and dependency.get("target") is None
+                and dependency.get("rename") is None
+                and dependency.get("optional") is False
+                and dependency.get("path", "").endswith("/crates/runne-provider-oauth")
+            )
+            if not valid_owner or not valid_shape:
+                errors.append(
+                    f"{owner} -> runne-provider-oauth has forbidden dependency shape"
+                )
+    return errors
 
 
 def _tracked_dependency(package: str, dependency: dict) -> bool:

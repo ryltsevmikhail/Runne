@@ -108,13 +108,6 @@ impl ProviderCredentialAdmission {
     }
 
     /// Binds a verification proof to its exact provider, revision, kind, and command context.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Task 6 admission is prepared before the protected verification host is composed"
-        )
-    )]
     pub(crate) fn require_verify_command(
         &self,
         authority: &ProviderCredentialBaseRequestAuthority,
@@ -246,11 +239,8 @@ fn allocate_operation_id() -> Result<CredentialOperationId, ProviderCredentialEn
 fn provider(
     value: runne_api::ProviderCredentialProviderV2,
 ) -> Result<ProviderId, ProviderCredentialEnrollmentHostError> {
-    ProviderId::new(match value {
-        runne_api::ProviderCredentialProviderV2::OpenAi => "openai",
-        runne_api::ProviderCredentialProviderV2::DeepSeek => "deepseek",
-    })
-    .map_err(|_| ProviderCredentialEnrollmentHostError::InvalidRequest)
+    ProviderId::new(value.as_str())
+        .map_err(|_| ProviderCredentialEnrollmentHostError::InvalidRequest)
 }
 
 fn version(

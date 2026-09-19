@@ -12,6 +12,9 @@ use std::os::unix::net::UnixStream;
 #[path = "provider_credential_broker_cli/source_helpers.rs"]
 mod source_helpers;
 use source_helpers::{broker_sources, source_path_ends_with};
+#[cfg(target_os = "macos")]
+#[path = "provider_credential_broker_cli/stage_expectations.rs"]
+mod stage_expectations;
 
 const BROKER_MODE: &str = "__provider-credential-broker-v1";
 #[cfg(target_os = "macos")]
@@ -38,7 +41,7 @@ fn broker_mode_without_inherited_endpoint_is_closed() {
         .output()
         .expect("run broker mode");
 
-    assert_closed(&output, OPERATION_FAILED);
+    assert_closed(&output, stage_expectations::ENDPOINT_RECEIVE_FAILED);
 }
 
 #[test]
@@ -53,19 +56,19 @@ fn non_macos_broker_mode_is_typed_unsupported_without_stdin() {
 #[cfg(target_os = "macos")]
 fn broker_mode_rejects_missing_descriptor() {
     let output = broker_output(&prepared_response(), &[]);
-    assert_closed(&output, OPERATION_FAILED);
+    assert_closed(&output, stage_expectations::ENDPOINT_RECEIVE_FAILED);
 }
 
 #[test]
 #[cfg(target_os = "macos")]
 fn broker_mode_rejects_malformed_or_trailing_response() {
     let malformed = broker_output_one(&prepared_response()[..RESPONSE_BYTES - 1]);
-    assert_closed(&malformed, OPERATION_FAILED);
+    assert_closed(&malformed, stage_expectations::ENDPOINT_RECEIVE_FAILED);
 
     let mut trailing = prepared_response().to_vec();
     trailing.push(1);
     let trailing = broker_output_one(&trailing);
-    assert_closed(&trailing, OPERATION_FAILED);
+    assert_closed(&trailing, stage_expectations::ENDPOINT_RECEIVE_FAILED);
 }
 
 #[test]
@@ -74,7 +77,10 @@ fn broker_mode_rejects_zero_binding_or_publication_key() {
     for range in [0..32, 96..128] {
         let mut frame = prepared_response();
         frame[range].fill(0);
-        assert_closed(&broker_output_one(&frame), OPERATION_FAILED);
+        assert_closed(
+            &broker_output_one(&frame),
+            stage_expectations::ENDPOINT_RECEIVE_FAILED,
+        );
     }
 }
 
@@ -84,14 +90,14 @@ fn broker_mode_rejects_multiple_descriptors() {
     let (first, _) = UnixStream::pair().expect("first endpoint");
     let (second, _) = UnixStream::pair().expect("second endpoint");
     let output = broker_output(&prepared_response(), &[first.as_fd(), second.as_fd()]);
-    assert_closed(&output, OPERATION_FAILED);
+    assert_closed(&output, stage_expectations::ENDPOINT_RECEIVE_FAILED);
 }
 
 #[test]
 #[cfg(target_os = "macos")]
 fn prepared_broker_endpoint_fails_closed_during_pinned_observation() {
     let output = broker_output_one(&prepared_response());
-    assert_closed(&output, OPERATION_FAILED);
+    assert_closed(&output, stage_expectations::SESSION_OBSERVE_FAILED);
 }
 
 #[test]

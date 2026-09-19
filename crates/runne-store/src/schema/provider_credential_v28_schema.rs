@@ -33,7 +33,7 @@ pub(super) fn v28_matches(connection: &Connection, version: i64) -> SqliteResult
 }
 
 fn v28_predecessor_matches(connection: &Connection) -> SqliteResult<bool> {
-    Ok(v26_predecessor_matches_with(connection, v28_operation_table_matches, v28_trigger_catalog_matches)?
+    Ok(v26_predecessor_matches_with(connection, v28_operation_table_matches, v28_trigger_catalog_matches, false)?
         && v28_catalog_matches(connection)?
         && [V26_ISSUANCE_EVIDENCE_TABLE, V26_CLAIM_PROVIDER_TABLE, V26_TABLE]
             .into_iter()
@@ -101,6 +101,66 @@ fn v28_operation_table_matches(connection: &Connection) -> SqliteResult<bool> {
         [], |row| row.get(0),
     ).optional()?;
     Ok(actual.is_some_and(|sql| normalize_v24_ddl(&sql) == v28_table_source("provider_credential_operations")))
+}
+
+pub(super) fn catalog_marker_matches(connection: &Connection) -> SqliteResult<bool> {
+    [
+        "provider_credential_qualified_release_tuple_immutable",
+        "provider_credential_completion_receipt_append_only",
+        "provider_credential_completion_receipt_no_delete",
+    ]
+    .iter()
+    .try_fold(true, |matches, name| -> SqliteResult<bool> {
+        let current = v24_trigger_matches(connection, name, v28_trigger_source(name))?;
+        Ok(matches && current)
+    })
+}
+
+/// Guards inherited by the current schema even when a newer migration uses an
+/// alternate structure path instead of re-running every historical matcher.
+pub(super) fn inherited_credential_guards_match(connection: &Connection) -> SqliteResult<bool> {
+    for table in [
+        V26_ISSUANCE_EVIDENCE_TABLE,
+        V26_CLAIM_PROVIDER_TABLE,
+        V26_TABLE,
+    ] {
+        let actual: Option<String> = connection.query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?1",
+            [table],
+            |row| row.get(0),
+        ).optional()?;
+        if actual.is_none_or(|sql| normalize_v24_ddl(&sql) != v26_table_source(table)) {
+            return Ok(false);
+        }
+    }
+
+    for name in V26_TRIGGERS {
+        if !v24_trigger_matches(connection, name, v26_trigger_source(name))? {
+            return Ok(false);
+        }
+    }
+
+    if !v24_index_matches_with_source(
+        connection,
+        "credential_cleanup_recovery_one_live",
+        MIGRATION_V33.split(';').map(str::trim).find(|sql| {
+            sql.starts_with("CREATE UNIQUE INDEX credential_cleanup_recovery_one_live")
+        }),
+    )? {
+        return Ok(false);
+    }
+
+    let actual: Option<String> = connection.query_row(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='provider_qualification_admission_fences'",
+        [],
+        |row| row.get(0),
+    ).optional()?;
+    let expected = MIGRATION_V35.split(';').map(str::trim).find(|sql| {
+        sql.starts_with("CREATE TABLE provider_qualification_admission_fences ")
+    });
+    Ok(actual.zip(expected).is_some_and(|(actual, expected)| {
+        normalize_v24_ddl(&actual) == normalize_v24_ddl(expected)
+    }))
 }
 
 fn v28_trigger_catalog_matches(connection: &Connection) -> SqliteResult<bool> {

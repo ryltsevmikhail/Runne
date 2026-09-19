@@ -7,9 +7,23 @@ import {
   type ConversationChatOptions,
 } from '../model/useConversationChat'
 import ConversationCapabilityControls from './ConversationCapabilityControls.vue'
+import { tryUseRuntimeSession, type RuntimeSessionContext } from '@/app/providers/runtime-session'
 import { translate } from '@/shared/i18n'
 
 const props = defineProps<ConversationChatOptions>()
+
+// The chat must never run its own runtime handshake: it reuses the proven
+// session; only the user's Retry button may re-arm a terminal session.
+const runtimeSession = tryUseRuntimeSession()
+
+async function connectThroughSession(session: RuntimeSessionContext, allowRetry: boolean) {
+  const current = session.snapshot.value
+  if (current.status === 'live' && current.canMutate) return 'live'
+  // Only an explicit user retry may re-arm a terminal session.
+  if (!allowRetry) return 'unconfigured'
+  const after = await session.retry()
+  return after.status === 'live' && after.canMutate ? 'live' : 'unconfigured'
+}
 
 const {
   snapshot,
@@ -26,7 +40,12 @@ const {
   loadConversation,
   submitMessage,
   resyncConversation,
-} = useConversationChat(props)
+} = useConversationChat(
+  props,
+  runtimeSession
+    ? (allowRetry: boolean) => connectThroughSession(runtimeSession, allowRetry)
+    : undefined,
+)
 </script>
 
 <template>
@@ -72,7 +91,7 @@ const {
       </GcAlert>
       <GcButton
         variant="secondary"
-        @click="loadConversation"
+        @click="loadConversation(false, true)"
       >
         {{ translate('conversation.retry') }}
       </GcButton>

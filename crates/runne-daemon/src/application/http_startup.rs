@@ -76,6 +76,8 @@ pub(super) async fn start_http_and_runtime(
     let task_run_host = RuntimeTaskRunHost::new(handle.clone(), store.clone());
     let conversation_host = if provider_activation.requires_openai_execution()
         || provider_activation.requires_deepseek_execution()
+        || provider_activation.requires_native_execution()
+        || provider_activation.requires_radius_execution()
     {
         RuntimeCanonicalConversationHost::<_, _, _, DeterministicTextProvider>::new_provider(
             handle,

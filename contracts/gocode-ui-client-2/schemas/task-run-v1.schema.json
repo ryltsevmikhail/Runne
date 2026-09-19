@@ -45,6 +45,56 @@
         "transition"
       ],
       "type": "object"
+    },
+    "submitAcknowledgement": {
+      "additionalProperties": false,
+      "properties": {
+        "attemptId": {
+          "type": "null"
+        },
+        "streamVersion": {
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "taskRunId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "terminalResult": {
+          "type": "null"
+        },
+        "transition": {
+          "const": "submitted",
+          "type": "string"
+        }
+      },
+      "required": [
+        "attemptId",
+        "streamVersion",
+        "taskRunId",
+        "terminalResult",
+        "transition"
+      ],
+      "type": "object"
+    },
+    "submitRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "conversationId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "workspaceId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "conversationId",
+        "workspaceId"
+      ],
+      "type": "object"
     }
   },
   "$id": "gocode://schemas/task-run-v1",

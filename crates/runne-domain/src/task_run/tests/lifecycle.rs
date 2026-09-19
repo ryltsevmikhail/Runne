@@ -9,6 +9,31 @@
     }
 
     #[test]
+    fn decide_submit_emits_the_exact_created_then_queued_batch() {
+        let events = TaskRun::decide_submit(make_submit()).unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| event.payload().kind())
+                .collect::<Vec<_>>(),
+            vec![TaskRunEventKind::TaskRunCreated, TaskRunEventKind::TaskRunQueued]
+        );
+        assert!(events.iter().all(|event| event.schema_version() == 1));
+        assert!(
+            events
+                .iter()
+                .all(|event| event.sensitivity() == &Sensitivity::Public)
+        );
+        let aggregate_id = AggregateId::TaskRun(TASKRUN_ID.parse().unwrap());
+        assert!(
+            events
+                .iter()
+                .all(|event| event.aggregate_id() == &aggregate_id
+                    && event.correlation_id() == &aggregate_id)
+        );
+    }
+
+    #[test]
     fn decide_create_running_emits_the_exact_valid_lifecycle_prefix() {
         let events = TaskRun::decide_create_running(
             make_create(),

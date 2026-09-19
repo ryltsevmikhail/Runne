@@ -1,5 +1,7 @@
 use syn::{Expr, Pat, Stmt};
 
+use super::stages::{self, Stage, StageAdapter};
+
 pub fn is_secret_local(statement: &Stmt) -> bool {
     let Stmt::Local(local) = statement else {
         return false;
@@ -16,7 +18,12 @@ pub fn is_secret_local(statement: &Stmt) -> bool {
     let Expr::MethodCall(mapped) = tried.expr.as_ref() else {
         return false;
     };
-    let Expr::Call(inspect) = mapped.receiver.as_ref() else {
+    let StageAdapter::Reviewed(inner) =
+        stages::failed_stage_adapter(mapped.receiver.as_ref(), Stage::SecretInspect)
+    else {
+        return false;
+    };
+    let Expr::Call(inspect) = inner else {
         return false;
     };
     binding.ident == "secret"

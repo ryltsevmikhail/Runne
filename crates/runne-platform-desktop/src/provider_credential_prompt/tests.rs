@@ -6,10 +6,12 @@ use runne_platform_ports::provider_credential_prompt::{
 use super::LinuxPinentryPrompt;
 use super::pinentry_protocol::decode_pinentry_response;
 use runne_platform_ports::provider_credential_prompt::CredentialPromptAction;
+use runne_platform_ports::provider_credential_prompt::CredentialPromptProvider;
 
 #[test]
 fn pinentry_response_decodes_only_one_percent_escaped_secret() {
     let disposition = decode_pinentry_response(
+        CredentialPromptProvider::OpenAi,
         CredentialPromptAction::Pair,
         b"OK ready\nOK\nOK\nD sk%2Dtest%25key\nOK\n",
     )
@@ -22,6 +24,29 @@ fn pinentry_response_decodes_only_one_percent_escaped_secret() {
 }
 
 #[test]
+fn native_oauth_prompt_accepts_large_material_with_typed_kind() {
+    let mut response = b"OK ready\nOK\nOK\nD ".to_vec();
+    response.extend(std::iter::repeat_n(b'o', 4097));
+    response.extend_from_slice(b"\nOK\n");
+    let disposition = decode_pinentry_response(
+        CredentialPromptProvider::Catalog(
+            runne_platform_ports::provider_credential_prompt::CredentialPromptCatalogId::OpenAiCodex,
+        ),
+        CredentialPromptAction::Pair,
+        &response,
+    )
+    .unwrap();
+    let SecureCredentialPromptDisposition::Submitted(material) = disposition else {
+        panic!("expected submitted material");
+    };
+    assert_eq!(
+        material.kind(),
+        runne_platform_ports::provider_credential_prompt::SecureCredentialMaterialKind::NativeOAuth
+    );
+    assert_eq!(material.into_pipe_bytes().as_bytes().len(), 4097);
+}
+
+#[test]
 fn pinentry_response_rejects_multiple_or_malformed_material_lines() {
     for response in [
         b"D key\nD other\nOK\n".as_slice(),
@@ -30,22 +55,41 @@ fn pinentry_response_rejects_multiple_or_malformed_material_lines() {
         b"OK ready\nOK\nOK\nD key\n",
         b"OK ready\nOK\nOK\nD key\nOK\nOK\n",
     ] {
-        assert!(decode_pinentry_response(CredentialPromptAction::Pair, response).is_err());
+        assert!(
+            decode_pinentry_response(
+                CredentialPromptProvider::OpenAi,
+                CredentialPromptAction::Pair,
+                response
+            )
+            .is_err()
+        );
     }
 }
 
 #[test]
 fn pinentry_ok_only_confirms_only_non_secret_actions() {
     assert!(matches!(
-        decode_pinentry_response(CredentialPromptAction::Pair, b"OK ready\nOK\nOK\nOK\n"),
+        decode_pinentry_response(
+            CredentialPromptProvider::OpenAi,
+            CredentialPromptAction::Pair,
+            b"OK ready\nOK\nOK\nOK\n"
+        ),
         Err(SecureCredentialPromptError::Rejected)
     ));
     assert!(matches!(
-        decode_pinentry_response(CredentialPromptAction::Revoke, b"OK ready\nOK\nOK\nOK\n"),
+        decode_pinentry_response(
+            CredentialPromptProvider::OpenAi,
+            CredentialPromptAction::Revoke,
+            b"OK ready\nOK\nOK\nOK\n"
+        ),
         Ok(SecureCredentialPromptDisposition::Confirmed)
     ));
     assert!(matches!(
-        decode_pinentry_response(CredentialPromptAction::Revoke, b"OK ready\nOK\nOK\n"),
+        decode_pinentry_response(
+            CredentialPromptProvider::OpenAi,
+            CredentialPromptAction::Revoke,
+            b"OK ready\nOK\nOK\n"
+        ),
         Err(SecureCredentialPromptError::Rejected)
     ));
 }

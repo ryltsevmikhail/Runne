@@ -20,10 +20,10 @@ pub(super) fn v35_matches(connection: &Connection, version: i64) -> SqliteResult
 }
 
 pub(super) fn v35_structure_matches(connection: &Connection) -> SqliteResult<bool> {
-    v35_structure_matches_with_v36_receipt(connection, false)
+    v35_structure_matches_with_v36_receipt(connection, false, false)
 }
 
-pub(super) fn v35_structure_matches_with_v36_receipt(connection: &Connection, allows_v36_project_receipt: bool) -> SqliteResult<bool> {
+pub(super) fn v35_structure_matches_with_v36_receipt(connection: &Connection, allows_v36_project_receipt: bool, lineage_v37: bool) -> SqliteResult<bool> {
     let mut triggers = V33_TRIGGERS
         .map(|name| (name, v33_trigger_source(name)))
         .to_vec();
@@ -51,6 +51,7 @@ pub(super) fn v35_structure_matches_with_v36_receipt(connection: &Connection, al
         true,
         &extensions,
         allows_v36_project_receipt,
+        lineage_v37,
     )?
         || !v30_columns_match(connection)?
         || !table_sql_matches_migration(connection, V29_TABLE, MIGRATION_V29)?

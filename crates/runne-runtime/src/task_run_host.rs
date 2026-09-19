@@ -2,12 +2,13 @@
 
 use runne_api::{
     CanonicalTaskRunState, CanonicalTerminalResult, CompleteTaskRunCommand, CreateTaskRunCommand,
-    ExistingTaskRunCommand, TaskRunCommandAck, TaskRunCommandAckKind, TaskRunCommandContext,
-    TaskRunCommandHostPort, TaskRunHostError, TaskRunQueryHostPort, TaskRunSnapshot,
+    ExistingTaskRunCommand, SubmitTaskRunCommand, TaskRunCommandAck, TaskRunCommandAckKind,
+    TaskRunCommandContext, TaskRunCommandHostPort, TaskRunHostError, TaskRunQueryHostPort,
+    TaskRunSnapshot,
 };
 use runne_application::commands::{
     AdmitTaskRunInput, CancelTaskRunInput, CommandOutcome, CompleteTaskRunInput,
-    CreateTaskRunInput, QueueTaskRunInput, StartAttemptInput,
+    CreateTaskRunInput, QueueTaskRunInput, StartAttemptInput, SubmitTaskRunInput,
 };
 use runne_application::errors::ApplicationError;
 use runne_application::ports::{

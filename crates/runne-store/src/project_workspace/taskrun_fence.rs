@@ -118,6 +118,7 @@ fn validate_origin(
     match operation {
         1 => validate_direct_origin(scope, &row.1, taskrun_id, workspace_id),
         18 => validate_text_origin(scope, &row.1, taskrun_id, workspace_id),
+        20 => validate_submit_origin(scope, &row.1, taskrun_id, workspace_id),
         _ => Err(Error::InvariantViolation),
     }
 }
@@ -131,6 +132,21 @@ fn validate_direct_origin(
     if scope.operation != OperationTag::CreateTaskRun
         || !matches!(scope.aggregate_scope, AggregateScope::NewTaskRun { workspace_id: value, .. } if value == workspace_id)
         || !matches!(CommandOutcomeCodec.decode(outcome), Ok(CommandOutcome::TaskRunCreated { taskrun_id: value, new_version: 1 }) if value == taskrun_id)
+    {
+        return Err(Error::InvariantViolation);
+    }
+    Ok(())
+}
+
+fn validate_submit_origin(
+    scope: IdempotencyScope,
+    outcome: &[u8],
+    taskrun_id: TaskRunId,
+    workspace_id: WorkspaceId,
+) -> Result<(), Error> {
+    if scope.operation != OperationTag::SubmitTaskRun
+        || !matches!(scope.aggregate_scope, AggregateScope::NewTaskRun { workspace_id: value, .. } if value == workspace_id)
+        || !matches!(CommandOutcomeCodec.decode(outcome), Ok(CommandOutcome::TaskRunSubmitted { taskrun_id: value, new_version: 2 }) if value == taskrun_id)
     {
         return Err(Error::InvariantViolation);
     }

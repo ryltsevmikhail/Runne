@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 36;
+pub const CURRENT_SCHEMA_VERSION: i64 = 39;
 
 /// Fail-closed reason returned before a file-backed database is made writable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,11 +121,19 @@ include!("schema/v33_recovery_triggers.rs");
 include!("schema/migrations/v34_legacy_cleanup_completion.rs");
 include!("schema/migrations/v35_provider_qualification_fence.rs");
 include!("schema/provider_qualification_v35_schema.rs");
+include!("schema/migrations/v37_subscription_accounting.rs");
+include!("schema/migrations/v38_subscription_budgets.rs");
+include!("schema/migrations/v39_taskrun_lineage_origin.rs");
 mod project_workspace_backfill;
 mod project_workspace_schema;
 #[cfg(test)]
+pub(crate) mod project_workspace_test_helpers;
+#[cfg(test)]
 pub(crate) use project_workspace_schema::restore_v18_project_workspace_receipt_for_test;
+#[cfg(test)]
+pub(crate) use project_workspace_test_helpers::restore_v18_taskrun_lineage_for_test;
 pub(crate) mod provider_schema;
+pub mod recovery_diagnosis;
 mod replay_promotion_snapshot_schema;
 mod replay_snapshot_schema;
 include!("schema/open.rs");
@@ -205,5 +213,7 @@ mod tests {
     include!("schema/tests/credential_v35.rs");
     include!("schema/tests/credential_v35_adversarial.rs");
     include!("schema/tests/project_workspace_v36.rs");
+    include!("schema/tests/project_workspace_v39.rs");
     include!("schema/tests/frozen_migrations.rs");
+    include!("schema/tests/provider_accounting_v37.rs");
 }

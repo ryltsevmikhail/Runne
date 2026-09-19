@@ -90,6 +90,24 @@ pub struct CreateTaskRun {
     pub workspace_id: WorkspaceId,
 }
 
+// ── SubmitTaskRun ──────────────────────────────────────────────────────────
+
+/// Client-authorized command creating one TaskRun already bound to the
+/// runtime-owned admission queue.
+///
+/// Unlike [`CreateTaskRun`], submitting commits `TaskRunCreated` and
+/// `TaskRunQueued` as one atomic event batch; admission, attempt start, and
+/// terminal completion stay runtime-owned.
+#[derive(Debug, Clone)]
+pub struct SubmitTaskRun {
+    /// The ID to assign to the new task run.
+    pub taskrun_id: TaskRunId,
+    /// The conversation this task run belongs to.
+    pub conversation_id: ConversationId,
+    /// The workspace this task run belongs to.
+    pub workspace_id: WorkspaceId,
+}
+
 // ── TaskRunCommand ────────────────────────────────────────────────────────
 
 /// All commands that can be sent to an existing [`TaskRun`](crate::task_run::TaskRun) aggregate.

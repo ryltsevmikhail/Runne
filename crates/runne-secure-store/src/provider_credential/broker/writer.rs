@@ -1,10 +1,8 @@
 use runne_provider::{
-    BrokerChannelBinding, ClaimedWriterAuthorization, CredentialBindingDigest,
-    CredentialBrokerCommand, CredentialWriterEffectAuthority, NativeCredentialDeletionProof,
-    PendingCredentialSecretOpening, SealedCredentialEnvelope,
+    ClaimedWriterAuthorization, NativeCredentialDeletionProof, PendingCredentialSecretOpening,
+    SealedCredentialEnvelope,
 };
 
-use super::errors::BrokerError;
 use super::{
     BrokeredCreateInput, BrokeredDeleteInput, BrokeredLegacySourceDeleteInput,
     BrokeredMigrateLegacyInput, BrokeredWriterIdentityMigrationInput,
@@ -12,12 +10,15 @@ use super::{
 };
 use crate::{ProviderCredentialAccessPolicy, ProviderCredentialMaterial, SecureStoreError};
 
+#[path = "writer/adapter.rs"]
+mod adapter;
 mod legacy_source;
 #[cfg(test)]
 mod legacy_source_tests;
 mod native;
 #[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
 mod native_authenticated;
+mod oauth;
 pub use legacy_source::BrokeredProviderCredentialLegacySource;
 #[cfg(test)]
 pub use native::NativeBrokeredProviderCredentialWriter;
@@ -143,146 +144,7 @@ pub(super) trait BrokeredProviderCredentialWriterNative: Send + Sync {
     ) -> Result<(), SecureStoreError>;
 }
 
-pub(super) struct BrokeredProviderCredentialWriterAdapter<N> {
-    effects: CredentialWriterEffectAuthority,
-    native: N,
-    access: ProviderCredentialAccessPolicy,
-}
-
-impl<N> BrokeredProviderCredentialWriterAdapter<N> {
-    pub(super) const fn new(
-        effects: CredentialWriterEffectAuthority,
-        native: N,
-        access: ProviderCredentialAccessPolicy,
-    ) -> Self {
-        Self {
-            effects,
-            native,
-            access,
-        }
-    }
-}
-
-impl<N> BrokeredProviderCredentialWriter for BrokeredProviderCredentialWriterAdapter<N>
-where
-    N: BrokeredProviderCredentialWriterNative,
-{
-    fn create_sealed_exact(
-        &self,
-        authorization: ClaimedWriterAuthorization,
-        input: BrokeredCreateInput,
-        pending: PendingCredentialSecretOpening,
-        envelope: SealedCredentialEnvelope,
-    ) -> Result<(), SecureStoreError> {
-        self.native.preflight_create_exact(&input, &self.access)?;
-        self.effects
-            .authorize_and_consume_sealed_pair(
-                authorization,
-                input.command().clone(),
-                input.binding(),
-                input.channel(),
-                pending,
-                envelope,
-                |secret| {
-                    let material = ProviderCredentialMaterial::new(secret.to_vec())?;
-                    self.native.create_exact(&input, &material, &self.access)
-                },
-            )
-            .map_err(|_| BrokerError::AccessDenied)?
-    }
-
-    fn delete_exact(
-        &self,
-        authorization: ClaimedWriterAuthorization,
-        input: BrokeredDeleteInput,
-    ) -> Result<NativeCredentialDeletionProof, SecureStoreError> {
-        authorize(
-            &self.effects,
-            authorization,
-            input.command(),
-            input.binding(),
-            input.channel(),
-        )?;
-        self.native.delete_exact(&input, &self.access)
-    }
-
-    fn import_legacy_exact(
-        &self,
-        authorization: ClaimedWriterAuthorization,
-        input: BrokeredMigrateLegacyInput,
-    ) -> Result<(), SecureStoreError> {
-        authorize(
-            &self.effects,
-            authorization,
-            input.command(),
-            input.binding(),
-            input.channel(),
-        )?;
-        self.native.import_legacy_exact(&input, &self.access)
-    }
-
-    fn delete_legacy_source_exact(
-        &self,
-        authorization: ClaimedWriterAuthorization,
-        input: BrokeredLegacySourceDeleteInput,
-    ) -> Result<(), SecureStoreError> {
-        authorize(
-            &self.effects,
-            authorization,
-            input.command(),
-            input.binding(),
-            input.channel(),
-        )?;
-        self.native.delete_legacy_source_exact(&input, &self.access)
-    }
-
-    fn migrate_writer_identity_exact(
-        &self,
-        authorization: ClaimedWriterAuthorization,
-        input: BrokeredWriterIdentityMigrationInput,
-    ) -> Result<WriterIdentityMigrationObservation, SecureStoreError> {
-        authorize(
-            &self.effects,
-            authorization,
-            input.command(),
-            input.binding(),
-            input.channel(),
-        )?;
-        self.native
-            .migrate_writer_identity_exact(&input, &self.access)?;
-        Ok(WriterIdentityMigrationObservation::new(input.binding()))
-    }
-
-    fn verify_writer_identity_exact(
-        &self,
-        authorization: ClaimedWriterAuthorization,
-        input: BrokeredWriterIdentityVerificationInput,
-    ) -> Result<WriterIdentityMigrationObservation, SecureStoreError> {
-        authorize(
-            &self.effects,
-            authorization,
-            input.command(),
-            input.binding(),
-            input.channel(),
-        )?;
-        self.native
-            .verify_writer_identity_exact(&input, &self.access)?;
-        Ok(WriterIdentityMigrationObservation::new(input.binding()))
-    }
-}
-
-fn authorize(
-    effects: &CredentialWriterEffectAuthority,
-    authorization: ClaimedWriterAuthorization,
-    command: &CredentialBrokerCommand,
-    binding: CredentialBindingDigest,
-    channel: &BrokerChannelBinding,
-) -> Result<(), SecureStoreError> {
-    effects
-        .authorize(authorization, command.clone(), binding, channel)
-        .map(|_| ())
-        .map_err(|_| BrokerError::AccessDenied.into())
-}
+pub use adapter::BrokeredProviderCredentialWriterAdapter;
 
 #[cfg(test)]
 #[path = "writer/pair_tests.rs"]

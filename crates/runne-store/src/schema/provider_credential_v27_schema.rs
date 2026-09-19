@@ -2,7 +2,7 @@ const V27_TRIGGERS: [&str; 3] = ["provider_credential_migration_provenance_inser
 
 pub(super) fn v27_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
     if version != 27
-        || !v26_predecessor_matches_with(connection, v27_operation_table_matches, v27_trigger_catalog_matches)?
+        || !v26_predecessor_matches_with(connection, v27_operation_table_matches, v27_trigger_catalog_matches, false)?
         || !v26_catalog_matches(connection)?
     {
         return Ok(false);

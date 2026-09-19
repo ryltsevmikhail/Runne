@@ -1,14 +1,13 @@
 use runne_domain::id::{CommandId, IdempotencyKey};
 use runne_provider::{
     BeginCredentialOperation, BindCredentialReadback, ClaimCredentialOperation,
-    CompleteCredentialOperation, CredentialBindingDigest, CredentialFence,
-    CredentialInstallationOwnerId, CredentialLifecycleRevision, CredentialNativeEffectDisposition,
-    CredentialOperationAction, CredentialOperationId, CredentialReadbackDisposition,
-    CredentialReadinessDisposition, CredentialReadinessObservation, CredentialReadinessRevision,
-    CredentialEnrollmentAuthorityPair, CredentialTicketAttempt, CredentialVersionRef,
-    IssueCredentialTicketDigest,
-    IssuedCredentialTicketAttempt, ObserveNativeEffect, ProviderCredentialEnrollmentStore,
-    ProviderId,
+    CompleteCredentialOperation, CredentialBindingDigest, CredentialEnrollmentAuthorityPair,
+    CredentialFence, CredentialInstallationOwnerId, CredentialLifecycleRevision,
+    CredentialNativeEffectDisposition, CredentialOperationAction, CredentialOperationId,
+    CredentialReadbackDisposition, CredentialReadinessDisposition, CredentialReadinessObservation,
+    CredentialReadinessRevision, CredentialTicketAttempt, CredentialVersionRef,
+    IssueCredentialTicketDigest, IssuedCredentialTicketAttempt, ObserveNativeEffect,
+    ProviderCredentialEnrollmentStore, ProviderId,
 };
 
 use super::SqliteProviderCredentialLifecycleStore;

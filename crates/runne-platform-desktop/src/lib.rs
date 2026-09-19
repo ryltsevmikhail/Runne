@@ -46,9 +46,10 @@ pub use protected_runtime::FirstActivationFaultPoint;
 #[cfg(target_os = "macos")]
 pub use protected_runtime::{
     CredentialWriterHandoff, CredentialWriterHandoffError, CredentialWriterHandoffMode,
-    NativeProtectedCredentialEnrollmentBegin, PreparedCredentialServiceRejoin,
-    PreparedCredentialServiceSessionRegistration, PreparedProtectedCredentialEnrollment,
-    PreparedProtectedCredentialRecovery, RegisteredCredentialServiceSession,
+    NativeProtectedCredentialEnrollmentBegin, NativeProtectedCredentialVerificationBegin,
+    PreparedCredentialServiceRejoin, PreparedCredentialServiceSessionRegistration,
+    PreparedProtectedCredentialEnrollment, PreparedProtectedCredentialRecovery,
+    PreparedProtectedCredentialVerification, RegisteredCredentialServiceSession,
 };
 pub use protected_runtime::{
     DevelopmentBundledRuntimeLauncher, ProtectedBundledRuntimeError,
@@ -84,9 +85,10 @@ pub use runne_platform_ports::provider_credential_broker::{
     VerifiedWriterArtifact, VerifiedWriterArtifactError, VerifiedWriterArtifactPort,
 };
 pub use runne_platform_ports::provider_credential_prompt::{
-    CredentialPipeBytes, CredentialPromptAction, CredentialPromptProvider, MAX_CREDENTIAL_BYTES,
-    SecureCredentialMaterial, SecureCredentialPromptDisposition, SecureCredentialPromptError,
-    SecureCredentialPromptPort, SecureCredentialPromptRequest,
+    CredentialPipeBytes, CredentialPromptAction, CredentialPromptCatalogId,
+    CredentialPromptProvider, MAX_CREDENTIAL_BYTES, MAX_NATIVE_OAUTH_CREDENTIAL_BYTES,
+    SecureCredentialMaterial, SecureCredentialMaterialKind, SecureCredentialPromptDisposition,
+    SecureCredentialPromptError, SecureCredentialPromptPort, SecureCredentialPromptRequest,
 };
 pub use updater::{
     StagedUpdate, UpdateInstallError, UpdateInstallPlan, UpdateInstallState, UpdateMetadataV1,

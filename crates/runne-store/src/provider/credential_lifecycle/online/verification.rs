@@ -62,8 +62,16 @@ pub(super) fn complete(
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(map_sql)?;
     let row: Option<LeasedVerificationRow> = transaction.query_row("SELECT provider_id, lifecycle_revision, credential_fence, readiness_revision, release_tuple_digest, active_credential_version, active_ref_digest, expires_at_high_water FROM provider_credential_verification_observations WHERE observation_id=?1 AND state='LEASED'", [input.observation_id().as_bytes().as_slice()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?))).optional().map_err(map_sql)?;
-    let (provider, lifecycle, fence, readiness_revision, release_tuple, active_version, active_digest, expires) =
-        row.ok_or(CredentialLifecycleError::Conflict)?;
+    let (
+        provider,
+        lifecycle,
+        fence,
+        readiness_revision,
+        release_tuple,
+        active_version,
+        active_digest,
+        expires,
+    ) = row.ok_or(CredentialLifecycleError::Conflict)?;
     if lifecycle != input.expected_lifecycle_revision().get() as i64
         || fence != input.expected_prior_fence().get() as i64
         || input.observation().observed_at_high_water() >= expires
