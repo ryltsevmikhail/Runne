@@ -97,7 +97,9 @@ pub(super) fn open_process_files(
     executable: &Path,
     cwd: &Path,
 ) -> Result<NativeProcessFiles, RootHandleBrokerError> {
-    root.open_process_files(executable, cwd)
+    // The native validator accepts backslash separators only; process
+    // material arrives with the same `/`-joined shapes as file reads.
+    root.open_process_files(&canonical_path(executable)?, &canonical_path(cwd)?)
         .map(|inner| NativeProcessFiles { inner })
         .map_err(map_native_error)
 }
