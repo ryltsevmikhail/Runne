@@ -25,6 +25,7 @@ pub(crate) mod pipeline;
 mod pipeline_submit;
 pub mod ports;
 pub mod prohibited_content;
+pub mod project_trust;
 pub mod project_workspace_service;
 pub mod provider;
 pub mod replay_service;

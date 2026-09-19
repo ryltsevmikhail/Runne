@@ -8,6 +8,7 @@ pub mod cleanup;
 pub mod fencing;
 pub mod process_contract;
 pub mod prohibited_content;
+pub mod project_trust_policy;
 
 pub use audit::AuditLogger;
 pub use broker::fs::FilesystemBroker;

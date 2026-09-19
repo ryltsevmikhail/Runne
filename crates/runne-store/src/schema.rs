@@ -83,6 +83,7 @@ include!("schema/v12_rollback.rs");
 include!("schema/startup.rs");
 include!("schema/connection_profile.rs");
 include!("schema/scanner_recovery_sidecar.rs");
+include!("schema/project_trust_sidecar.rs");
 include!("schema/migrations/v1_v3.rs");
 include!("schema/migrations/v4.rs");
 include!("schema/migrations/v5_v6.rs");

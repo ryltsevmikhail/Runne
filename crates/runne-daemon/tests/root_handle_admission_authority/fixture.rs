@@ -212,6 +212,47 @@ pub(super) fn root_handle(directory: &tempfile::TempDir) -> VerifiedRootHandle {
         .expect("root handle")
 }
 
+/// Opens the durable trust sidecar next to the canonical store and builds the
+/// single policy authority (the daemon composition, in-process).
+pub(super) fn trust_composition(
+    canonical: &std::path::Path,
+) -> (
+    Arc<runne_store::ProjectTrustStore>,
+    Arc<runne_security::project_trust_policy::ProjectTrustPolicyAuthority>,
+) {
+    let store =
+        Arc::new(runne_store::ProjectTrustStore::open(canonical, AUTHORITY).expect("sidecar"));
+    let authority = Arc::new(
+        runne_security::project_trust_policy::ProjectTrustPolicyAuthority::new(store.clone())
+            .with_byte_inspection(Arc::new(
+                runne_security::SecretBroker::new().prohibited_content_guard(),
+            )),
+    );
+    (store, authority)
+}
+
+/// Grants the seed project the Trusted state through the durable store port.
+pub(super) fn grant_trusted(store: &runne_store::ProjectTrustStore) {
+    use runne_application::project_trust::{
+        ProjectTrustPersistence, ProjectTrustStatus, TrustToken,
+    };
+    let epoch = store.instance_epoch().expect("epoch");
+    store
+        .commit(
+            project_trust_id(),
+            ProjectTrustStatus::Trusted,
+            0,
+            TrustToken::new(epoch, 0),
+        )
+        .expect("grant trusted");
+}
+
+pub(super) fn project_trust_id() -> runne_application::project_trust::ProjectTrustProjectId {
+    runne_application::project_trust::ProjectTrustProjectId::from_bytes(
+        *PROJECT.parse::<ProjectId>().expect("project id").as_bytes(),
+    )
+}
+
 pub(super) fn fixture(
     store: StoreTransaction,
     sessions: Arc<Mutex<LocalSessionService>>,
@@ -221,5 +262,19 @@ pub(super) fn fixture(
         ProjectWorkspaceStore::from_store(store),
         AUTHORITY_NAME.into(),
         sessions,
+    )
+}
+
+pub(super) fn fixture_with_trust(
+    store: StoreTransaction,
+    sessions: Arc<Mutex<LocalSessionService>>,
+    trust: Arc<runne_security::project_trust_policy::ProjectTrustPolicyAuthority>,
+) -> RootAdmissionAuthorityFixture {
+    RootAdmissionAuthorityFixture::new_with_trust(
+        &keys(),
+        ProjectWorkspaceStore::from_store(store),
+        AUTHORITY_NAME.into(),
+        sessions,
+        trust,
     )
 }

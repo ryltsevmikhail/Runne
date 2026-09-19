@@ -17,6 +17,8 @@ impl WorkspaceEditorProvider for RootAdmissionGateway {
         {
             return Err(WorkspaceEditorHostError::Forbidden);
         }
+        self.admit_workspace_source(request.workspace_id(), SourceChannel::FilesRead, Some(request.relative_path()))
+            .map_err(TrustSourceError::into_editor)?;
         self.with_workspace_root(request.workspace_id(), |root| {
             root.launch_system_default_editor(request.relative_path())
                 .map_err(|error| match error {

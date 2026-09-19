@@ -1,6 +1,7 @@
 #![cfg(all(unix, feature = "desktop-protected", feature = "test-support"))]
 
 #[path = "root_handle_admission_authority/fixture.rs"]
+#[allow(dead_code)]
 mod fixture;
 
 use std::sync::{Arc, Mutex};

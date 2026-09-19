@@ -13,12 +13,14 @@ use runne_api::{
 };
 use runne_application::local_session::LocalSessionService;
 use runne_application::ports::{
-    RootAdmissionVerifier, RootAdmissionVerifierError, WorkspaceFileProvider,
+    RootAdmissionVerifier, RootAdmissionVerifierError, WorkspaceDiffProvider,
+    WorkspaceEditorProvider, WorkspaceFileProvider,
 };
 use runne_platform_desktop::VerifiedRootHandle;
+use runne_security::project_trust_policy::ProjectTrustPolicyAuthority;
 use runne_store::ProjectWorkspaceStore;
 
-use super::root_handle_admission::{PRINCIPAL, RootAdmissionGateway, RootHandleAdmissionAuthority};
+use super::root_handle_admission::{RootAdmissionGateway, RootHandleAdmissionAuthority, TrustGate};
 
 /// A daemon-issued admission plus every binding the daemon retained for it.
 pub struct IssuedTestAdmission {
@@ -53,11 +55,46 @@ impl RootAdmissionAuthorityFixture {
         runtime_authority: String,
         sessions: Arc<Mutex<LocalSessionService>>,
     ) -> Self {
+        Self::assemble(
+            keys,
+            store,
+            runtime_authority,
+            sessions,
+            TrustGate::closed(),
+        )
+    }
+
+    /// Composes the authority with the runtime-owned T1 trust gate installed.
+    pub fn new_with_trust(
+        keys: &ProtectedActivationKeys,
+        store: ProjectWorkspaceStore,
+        runtime_authority: String,
+        sessions: Arc<Mutex<LocalSessionService>>,
+        trust: Arc<ProjectTrustPolicyAuthority>,
+    ) -> Self {
+        Self::assemble(
+            keys,
+            store,
+            runtime_authority,
+            sessions,
+            TrustGate::open(trust),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn assemble(
+        keys: &ProtectedActivationKeys,
+        store: ProjectWorkspaceStore,
+        runtime_authority: String,
+        sessions: Arc<Mutex<LocalSessionService>>,
+        trust: TrustGate,
+    ) -> Self {
         let authority = RootHandleAdmissionAuthority::new(
             keys,
             store.clone(),
             runtime_authority,
             Arc::clone(&sessions),
+            trust,
         );
         let gateway = RootAdmissionGateway::protected(Arc::clone(&authority));
         let bind_host = Arc::new(runne_runtime::RuntimeProjectWorkspaceHost::new(
@@ -73,6 +110,51 @@ impl RootAdmissionAuthorityFixture {
             sessions,
             bind_host,
         }
+    }
+
+    /// Lists workspace files through the gateway behind the T1 pre-read gate.
+    pub fn list_files(
+        &self,
+        principal: &str,
+        request: &runne_api::WorkspaceFileListRequest,
+    ) -> Result<runne_api::WorkspaceFilePage, runne_api::WorkspaceFileHostError> {
+        WorkspaceFileProvider::list_files(&self.gateway, principal, request)
+    }
+
+    /// Reads one workspace file through the gateway behind the T1 gate.
+    pub fn read_file(
+        &self,
+        principal: &str,
+        request: &runne_api::WorkspaceFileReadRequest,
+    ) -> Result<runne_api::WorkspaceFileContent, runne_api::WorkspaceFileHostError> {
+        WorkspaceFileProvider::read_file(&self.gateway, principal, request)
+    }
+
+    /// Lists workspace changes through the gateway behind the T1 gate.
+    pub fn list_changes(
+        &self,
+        principal: &str,
+        request: &runne_api::WorkspaceChangeListRequest,
+    ) -> Result<runne_api::WorkspaceChangeSet, runne_api::WorkspaceDiffHostError> {
+        WorkspaceDiffProvider::list_changes(&self.gateway, principal, request)
+    }
+
+    /// Reads one diff through the gateway behind the T1 pre-read gate.
+    pub fn read_diff(
+        &self,
+        principal: &str,
+        request: &runne_api::WorkspaceDiffReadRequest,
+    ) -> Result<runne_api::WorkspaceDiff, runne_api::WorkspaceDiffHostError> {
+        WorkspaceDiffProvider::read_diff(&self.gateway, principal, request)
+    }
+
+    /// Opens the editor channel through the gateway behind the T1 gate.
+    pub fn open_editor(
+        &self,
+        principal: &str,
+        request: &runne_api::OpenEditorRequest,
+    ) -> Result<runne_api::EditorLaunchReceipt, runne_api::WorkspaceEditorHostError> {
+        WorkspaceEditorProvider::open_editor(&self.gateway, principal, request)
     }
 
     /// The daemon-pinned policy generation every signed claim must carry.
@@ -149,13 +231,5 @@ impl RootAdmissionAuthorityFixture {
         request: BindWorkspaceRootCommand,
     ) -> Result<WorkspaceCommandAck, ProjectWorkspaceHostError> {
         self.bind_host.bind_workspace_root(command, request).await
-    }
-
-    /// Lists one file page through the bound gateway, as the file host would.
-    pub fn list_files(
-        &self,
-        request: &runne_api::WorkspaceFileListRequest,
-    ) -> Result<runne_api::WorkspaceFilePage, runne_api::WorkspaceFileHostError> {
-        self.gateway.list_files(PRINCIPAL, request)
     }
 }

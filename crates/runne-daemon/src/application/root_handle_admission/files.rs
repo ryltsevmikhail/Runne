@@ -4,6 +4,7 @@ use runne_api::{
 };
 use runne_application::ports::WorkspaceFileProvider;
 use runne_application::ports::ProjectWorkspaceRepositoryError;
+use runne_application::project_trust::SourceChannel;
 use runne_domain::id::WorkspaceId;
 use runne_platform_desktop::RootFileKind;
 
@@ -42,6 +43,9 @@ impl WorkspaceFileProvider for RootAdmissionGateway {
     fn list_files(&self, principal: &str, request: &WorkspaceFileListRequest) -> Result<WorkspaceFilePage, WorkspaceFileHostError> {
         (principal == PRINCIPAL).then_some(()).ok_or(WorkspaceFileHostError::Forbidden)?;
         if sensitive_path(request.relative_path()) { return Err(WorkspaceFileHostError::Forbidden); }
+        let listing_path = (!request.relative_path().is_empty()).then_some(request.relative_path());
+        self.admit_workspace_source(request.workspace_id(), SourceChannel::FilesList, listing_path)
+            .map_err(TrustSourceError::into_files)?;
         self.with_workspace_root(request.workspace_id(), |root| {
             let entries = root.list_relative(request.relative_path(), usize::from(request.limit())).map_err(|_| WorkspaceFileHostError::Unavailable)?;
             let items = entries.into_iter().filter(|entry| !sensitive_path(entry.relative_path())).map(|entry| {
@@ -55,15 +59,13 @@ impl WorkspaceFileProvider for RootAdmissionGateway {
     fn read_file(&self, principal: &str, request: &WorkspaceFileReadRequest) -> Result<WorkspaceFileContent, WorkspaceFileHostError> {
         (principal == PRINCIPAL).then_some(()).ok_or(WorkspaceFileHostError::Forbidden)?;
         if sensitive_path(request.relative_path()) { return Err(WorkspaceFileHostError::Forbidden); }
+        self.admit_workspace_source(request.workspace_id(), SourceChannel::FilesRead, Some(request.relative_path()))
+            .map_err(TrustSourceError::into_files)?;
         self.with_workspace_root(request.workspace_id(), |root| {
             let content = root.read_text_relative(request.relative_path(), runne_api::MAX_WORKSPACE_FILE_CONTENT_BYTES).map_err(|_| WorkspaceFileHostError::Unavailable)?;
             WorkspaceFileContent::new(request.relative_path(), content.clone(), content.len() as u64)
         })
     }
-}
-
-fn sensitive_path(path: &str) -> bool {
-    path.split('/').any(|part| matches!(part, ".git" | ".ssh" | ".env") || part.ends_with(".key") || part.ends_with(".pem"))
 }
 
 #[cfg(test)]

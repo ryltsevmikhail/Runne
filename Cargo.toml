@@ -51,6 +51,7 @@ thiserror = "=2.0.18"
 tokio = { version = "1", features = ["full"] }
 tokio-rustls = { version = "=0.26.4", default-features = false, features = ["ring", "tls12"] }
 uuid = { version = "1", features = ["v7"] }
+unicode-normalization = "=0.1.24"
 zeroize = "=1.9.0"
 runne-release-authority = { path = "crates/runne-release-authority" }
 runne-promotion-contracts = { path = "crates/runne-promotion-contracts" }
