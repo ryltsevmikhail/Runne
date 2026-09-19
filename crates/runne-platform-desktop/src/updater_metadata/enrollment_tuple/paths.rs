@@ -2,13 +2,13 @@
     not(all(target_os = "macos", target_arch = "aarch64")),
     allow(dead_code)
 )]
+#[cfg(unix)]
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
-use super::{
-    MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentTupleError,
-    enrollment_measurement::{self, OpenedNativeEnrollmentFile},
-};
+use super::{MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentTupleError};
+#[cfg(unix)]
+use super::enrollment_measurement::{self, OpenedNativeEnrollmentFile};
 #[path = "paths/admission.rs"]
 mod admission;
 #[path = "paths/live_identity.rs"]
@@ -192,10 +192,10 @@ impl NativeEnrollmentArtifactPathsV1 {
         {
             return Err(NativeEnrollmentTupleError::Rejected);
         }
-        let application =
-            std::fs::canonicalize(application).map_err(|_| NativeEnrollmentTupleError::Rejected)?;
         #[cfg(unix)]
         {
+            let application = std::fs::canonicalize(application)
+                .map_err(|_| NativeEnrollmentTupleError::Rejected)?;
             let root = open_absolute_directory(&application)?;
             let desktop = macos.join("runne-desktop");
             let desktop_file = open_rooted_file(&root, &["Contents", "MacOS", "runne-desktop"])?;
