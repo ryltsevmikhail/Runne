@@ -101,7 +101,6 @@ runne-native-enrollment-authority = { path = "../runne-native-enrollment-authori
 
 [dev-dependencies]
 futures = "0.3"
-core-foundation = "=0.10.1"
 ed25519-dalek.workspace = true
 runne-provider = { path = "../runne-provider", features = ["test-support"] }
 runne-pairing-crypto = { path = "../runne-pairing-crypto" }
@@ -113,8 +112,13 @@ runne-runtime-client = { path = "../runne-runtime-client", features = ["test-sup
 runne-secure-store = { path = "../runne-secure-store", default-features = false, features = ["test-support"] }
 runne-sqlite-handle-identity = { path = "../runne-sqlite-handle-identity" }
 tempfile = "3"
-security-framework = { version = "=3.7.0", features = ["OSX_10_15"] }
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }
+
+# macOS keychain writer-authority tests only; core-foundation does not build
+# on Windows targets.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+core-foundation = "=0.10.1"
+security-framework = { version = "=3.7.0", features = ["OSX_10_15"] }
 
 [[bin]]
 name = "runned"
