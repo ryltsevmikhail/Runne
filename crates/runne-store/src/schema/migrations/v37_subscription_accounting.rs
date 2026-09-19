@@ -130,7 +130,7 @@ pub(super) fn v37_matches(conn: &Connection, version: i64) -> SqliteResult<bool>
 }
 
 pub(super) fn v37_structure_matches(conn: &Connection) -> SqliteResult<bool> {
-    let inherited = v35_structure_matches_with_v36_receipt(conn, true)?;
+    let inherited = v35_structure_matches_with_v36_receipt(conn, true, false)?;
     let reservation = migrated_table_matches(
         conn,
         RESERVATIONS,

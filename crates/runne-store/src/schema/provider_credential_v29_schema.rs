@@ -30,7 +30,7 @@ pub(super) fn v29_matches(connection: &Connection, version: i64) -> SqliteResult
 }
 
 fn v29_predecessor_matches(connection: &Connection) -> SqliteResult<bool> {
-    if !v26_predecessor_matches_with(connection, v28_operation_table_matches, v29_trigger_catalog_matches)? {
+    if !v26_predecessor_matches_with(connection, v28_operation_table_matches, v29_trigger_catalog_matches, false)? {
         return Ok(false);
     }
     for table in [V26_ISSUANCE_EVIDENCE_TABLE, V26_CLAIM_PROVIDER_TABLE, V26_TABLE] {

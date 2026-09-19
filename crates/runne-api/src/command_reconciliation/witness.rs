@@ -1,3 +1,4 @@
+use super::witness_ref::CommandReconciliationWitnessRef;
 use crate::{ApprovalDecision, CanonicalMessageText, ProjectWorkspaceDisplayNameInput};
 use runne_domain::id::{ApprovalId, ConversationId, ProjectId, TaskRunId, WorkspaceId};
 
@@ -21,6 +22,7 @@ enum Witness {
     CreateConversation(ConversationId, WorkspaceId),
     GenerateConversationText(ConversationId, u64, CanonicalMessageText),
     CancelTaskRun(TaskRunId, u64),
+    SubmitTaskRun(ConversationId, WorkspaceId),
     ApprovalDecision(ApprovalId, u64, ApprovalDecision, [u8; 32], u64, u64),
 }
 
@@ -108,6 +110,13 @@ impl CommandReconciliationWitness {
     }
 
     #[must_use]
+    pub const fn submit_task_run(conversation: ConversationId, workspace: WorkspaceId) -> Self {
+        Self {
+            inner: Witness::SubmitTaskRun(conversation, workspace),
+        }
+    }
+
+    #[must_use]
     pub const fn approval_decision(
         id: ApprovalId,
         version: u64,
@@ -143,6 +152,7 @@ impl CommandReconciliationWitness {
                 ReconciliationOperation::GenerateConversationText
             }
             Witness::CancelTaskRun(..) => ReconciliationOperation::CancelTaskRun,
+            Witness::SubmitTaskRun(..) => ReconciliationOperation::SubmitTaskRun,
             Witness::ApprovalDecision(..) => ReconciliationOperation::ApprovalDecision,
         }
     }
@@ -212,6 +222,12 @@ impl CommandReconciliationWitness {
                     expected_version: *expected_version,
                 }
             }
+            Witness::SubmitTaskRun(conversation_id, workspace_id) => {
+                CommandReconciliationWitnessRef::SubmitTaskRun {
+                    conversation_id: *conversation_id,
+                    workspace_id: *workspace_id,
+                }
+            }
             Witness::ApprovalDecision(
                 id,
                 expected_version,
@@ -229,61 +245,4 @@ impl CommandReconciliationWitness {
             },
         }
     }
-}
-
-/// Borrowed typed semantic fields for an authoritative store adapter.
-#[derive(Debug, Clone, Copy)]
-pub enum CommandReconciliationWitnessRef<'a> {
-    CreateProject {
-        project_id: ProjectId,
-        display_name: &'a ProjectWorkspaceDisplayNameInput,
-    },
-    ArchiveProject {
-        project_id: ProjectId,
-        expected_version: u64,
-    },
-    DeleteProject {
-        project_id: ProjectId,
-        expected_version: u64,
-    },
-    RenameProject {
-        project_id: ProjectId,
-        expected_version: u64,
-        display_name: &'a ProjectWorkspaceDisplayNameInput,
-    },
-    CreateWorkspace {
-        workspace_id: WorkspaceId,
-        project_id: ProjectId,
-        display_name: &'a ProjectWorkspaceDisplayNameInput,
-    },
-    BindWorkspaceRoot {
-        workspace_id: WorkspaceId,
-        expected_version: u64,
-        admission_digest: [u8; 32],
-    },
-    OpenWorkspace {
-        workspace_id: WorkspaceId,
-        expected_version: u64,
-    },
-    CreateConversation {
-        conversation_id: ConversationId,
-        workspace_id: WorkspaceId,
-    },
-    GenerateConversationText {
-        conversation_id: ConversationId,
-        expected_version: u64,
-        text: &'a CanonicalMessageText,
-    },
-    CancelTaskRun {
-        task_run_id: TaskRunId,
-        expected_version: u64,
-    },
-    ApprovalDecision {
-        approval_id: ApprovalId,
-        expected_version: u64,
-        decision: ApprovalDecision,
-        action_digest: [u8; 32],
-        policy_revision: u64,
-        renderer_generation: u64,
-    },
 }

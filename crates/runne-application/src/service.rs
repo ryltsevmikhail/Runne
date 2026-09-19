@@ -12,7 +12,7 @@ use crate::commands::{
     CommitContextInput, CommitLoopCheckpointInput, CommitPlanInput, CommitRecoveryResumeInput,
     CompleteLoopCycleInput, CompleteTaskRunInput, CreateNextCycleInput, CreateTaskRunInput,
     QueueTaskRunInput, RecordStepOutcomeInput, ResumeLoopWaitInput, ScheduleRetryInput,
-    StartAttemptInput, StartLoopCycleInput,
+    StartAttemptInput, StartLoopCycleInput, SubmitTaskRunInput,
 };
 use crate::errors::ApplicationError;
 use crate::fingerprint::{CommandFingerprint, checkpoint_body_digest};

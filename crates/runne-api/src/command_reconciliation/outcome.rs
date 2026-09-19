@@ -51,6 +51,7 @@ enum Outcome {
     ConversationCreated(ConversationCreatedAck),
     ConversationText(AuthoritativeTextGenerationOutcome),
     TaskRunCancellationRequested(TaskRunCommandAck),
+    TaskRunSubmitted(TaskRunCommandAck),
     ApprovalDecision(ApprovalDecisionAck),
 }
 
@@ -116,6 +117,12 @@ impl AuthoritativeCommandOutcome {
         }
     }
     #[must_use]
+    pub const fn task_run_submitted(value: TaskRunCommandAck) -> Self {
+        Self {
+            inner: Outcome::TaskRunSubmitted(value),
+        }
+    }
+    #[must_use]
     pub const fn approval_decision(value: ApprovalDecisionAck) -> Self {
         Self {
             inner: Outcome::ApprovalDecision(value),
@@ -135,6 +142,7 @@ impl AuthoritativeCommandOutcome {
             Outcome::ConversationCreated(_) => ReconciliationOperation::CreateConversation,
             Outcome::ConversationText(_) => ReconciliationOperation::GenerateConversationText,
             Outcome::TaskRunCancellationRequested(_) => ReconciliationOperation::CancelTaskRun,
+            Outcome::TaskRunSubmitted(_) => ReconciliationOperation::SubmitTaskRun,
             Outcome::ApprovalDecision(_) => ReconciliationOperation::ApprovalDecision,
         }
     }
@@ -165,6 +173,9 @@ impl AuthoritativeCommandOutcome {
             Outcome::TaskRunCancellationRequested(value) => {
                 AuthoritativeCommandOutcomeRef::TaskRunCancellationRequested(value)
             }
+            Outcome::TaskRunSubmitted(value) => {
+                AuthoritativeCommandOutcomeRef::TaskRunSubmitted(value)
+            }
             Outcome::ApprovalDecision(value) => {
                 AuthoritativeCommandOutcomeRef::ApprovalDecision(value)
             }
@@ -184,6 +195,7 @@ pub enum AuthoritativeCommandOutcomeRef<'a> {
     ConversationCreated(&'a ConversationCreatedAck),
     ConversationText(AuthoritativeTextGenerationOutcomeRef<'a>),
     TaskRunCancellationRequested(&'a TaskRunCommandAck),
+    TaskRunSubmitted(&'a TaskRunCommandAck),
     ApprovalDecision(&'a ApprovalDecisionAck),
 }
 #[derive(Debug, Clone, Copy)]

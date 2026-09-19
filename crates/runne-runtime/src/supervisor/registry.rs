@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use runne_application::commands::{CommandOutcome, CreateTaskRunInput};
+use runne_application::commands::{CommandOutcome, CreateTaskRunInput, SubmitTaskRunInput};
 use runne_application::conversation_text_service::ConversationTextCommandService;
 use runne_application::ports::{ApplicationCommandContext, EventStore, IdGenerator, UnitOfWork};
 use runne_application::service::TaskRunService;
@@ -41,6 +41,10 @@ enum RuntimeTaskExit {
     Worker(WorkerExit),
     Create {
         taskrun_id: Option<TaskRunId>,
+        outcome: Result<CommandOutcome, RuntimeError>,
+        reply: Reply,
+    },
+    Submit {
         outcome: Result<CommandOutcome, RuntimeError>,
         reply: Reply,
     },
@@ -186,6 +190,24 @@ where
                 outcome,
                 reply,
             }
+        });
+    }
+
+    /// Spawns the atomic submit unit-of-work for a new aggregate. The
+    /// TaskRun id is generated inside `submit_task_run`, so this task never
+    /// routes through a per-run worker mailbox.
+    fn spawn_submit_task(
+        &mut self,
+        context: ApplicationCommandContext,
+        input: SubmitTaskRunInput,
+        service: Arc<TaskRunService<E, U, I>>,
+        reply: Reply,
+    ) {
+        self.join_set.spawn(async move {
+            let outcome = service
+                .submit_task_run(&context, input)
+                .map_err(RuntimeError::Application);
+            RuntimeTaskExit::Submit { outcome, reply }
         });
     }
 

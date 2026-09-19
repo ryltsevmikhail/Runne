@@ -49,6 +49,24 @@
         ));
     }
 
+    #[test]
+    fn command_outcome_codec_pins_submitted_receipt_bytes() {
+        let codec = CommandOutcomeCodec;
+        let taskrun_id: TaskRunId = TR_ID.parse().unwrap();
+        let outcome = runne_application::commands::CommandOutcome::TaskRunSubmitted {
+            taskrun_id,
+            new_version: 2,
+        };
+
+        let bytes = codec.encode(&outcome).unwrap();
+
+        let mut expected = vec![0, 1, 0x12];
+        expected.extend_from_slice(taskrun_id.as_bytes());
+        expected.extend_from_slice(&2_u64.to_be_bytes());
+        assert_eq!(bytes, expected);
+        assert_eq!(codec.decode(&bytes).unwrap(), outcome);
+    }
+
     // ── IdempotencyScope round-trip ────────────────────────────────────
 
     #[test]

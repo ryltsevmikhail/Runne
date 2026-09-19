@@ -43,7 +43,8 @@ fn lookup(
         | CommandReconciliationWitnessRef::GenerateConversationText { .. } => {
             conversation_lookup(transaction, store, context, witness)
         }
-        CommandReconciliationWitnessRef::CancelTaskRun { .. } => {
+        CommandReconciliationWitnessRef::CancelTaskRun { .. }
+        | CommandReconciliationWitnessRef::SubmitTaskRun { .. } => {
             task_run::lookup(transaction, store, context, witness)
         }
         CommandReconciliationWitnessRef::ApprovalDecision { .. } => {

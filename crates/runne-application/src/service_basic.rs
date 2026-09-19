@@ -1,4 +1,21 @@
 impl<E: EventStore, U: UnitOfWork, I: IdGenerator, A> TaskRunService<E, U, I, A> {
+    /// Client-authorized atomic TaskRun submit.
+    ///
+    /// Commits `TaskRunCreated + TaskRunQueued` as one unit of work with one
+    /// receipt and returns `TaskRunSubmitted`; admission, attempt start, and
+    /// terminal completion stay runtime-owned. A duplicate of the same
+    /// command/idempotency identity and payload replays the stored
+    /// acknowledgement; a different payload under the same identity conflicts.
+    pub fn submit_task_run(
+        &self,
+        context: &ApplicationCommandContext,
+        input: SubmitTaskRunInput,
+    ) -> Result<CommandOutcome, ApplicationError> {
+        let fp = CommandFingerprint::for_submit(&input.conversation_id, &input.workspace_id);
+        self.pipeline
+            .execute_submit(context, input.conversation_id, input.workspace_id, &fp)
+    }
+
     pub fn create_task_run(
         &self,
         context: &ApplicationCommandContext,

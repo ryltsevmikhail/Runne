@@ -111,6 +111,9 @@ pub(crate) async fn run_supervisor<E, U, I>(
                     Some(Ok(RuntimeTaskExit::Create { reply, outcome, .. })) => {
                         let _ = reply.send(outcome);
                     }
+                    Some(Ok(RuntimeTaskExit::Submit { reply, outcome })) => {
+                        let _ = reply.send(outcome);
+                    }
                     Some(Ok(RuntimeTaskExit::ConversationText { reply, outcome })) => {
                         let _ = reply.send(outcome);
                     }

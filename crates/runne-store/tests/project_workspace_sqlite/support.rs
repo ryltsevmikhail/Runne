@@ -65,6 +65,16 @@ impl Database {
         )
     }
 
+    /// TaskRun commands over a validated reopen of the same database file.
+    pub fn reopened_task_runs(
+        &self,
+    ) -> TaskRunService<StoreTransaction, StoreTransaction, StoreTransaction> {
+        let store =
+            validated_reopen::reopen_store(self.file.path(), self.identity, authority(), guard())
+                .unwrap();
+        TaskRunService::new(store.clone(), store.clone(), store, authority())
+    }
+
     pub fn connection(&self) -> ManagedConnection {
         validated_reopen::open_validated_connection(self.file.path(), self.identity).unwrap()
     }

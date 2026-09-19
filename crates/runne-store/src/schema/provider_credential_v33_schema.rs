@@ -46,6 +46,7 @@ fn v33_family_matches(connection: &Connection, version: i64, cleanup_completion:
             true,
             &extensions,
             false,
+            false,
         )?
         || !v30_columns_match(connection)?
         || !table_sql_matches_migration(connection, V29_TABLE, MIGRATION_V29)?

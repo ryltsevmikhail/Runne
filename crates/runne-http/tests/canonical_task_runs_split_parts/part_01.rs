@@ -3,9 +3,9 @@ use std::sync::{Arc, Mutex};
 use axum::body::{Body, to_bytes};
 use runne_api::{
     ApiActor, CanonicalTaskRunState, CanonicalTerminalResult, CompleteTaskRunCommand,
-    CreateTaskRunCommand, ExistingTaskRunCommand, TaskRunCommandAck, TaskRunCommandAckKind,
-    TaskRunCommandContext, TaskRunCommandHostPort, TaskRunHostError, TaskRunQueryHostPort,
-    TaskRunSnapshot,
+    CreateTaskRunCommand, ExistingTaskRunCommand, SubmitTaskRunCommand, TaskRunCommandAck,
+    TaskRunCommandAckKind, TaskRunCommandContext, TaskRunCommandHostPort, TaskRunHostError,
+    TaskRunQueryHostPort, TaskRunSnapshot,
 };
 use runne_domain::id::{AttemptId, TaskRunId};
 use runne_http::admission::AdmissionState;
@@ -25,6 +25,7 @@ const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-000000000043";
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Call {
     Create(TaskRunCommandContext, CreateTaskRunCommand),
+    Submit(TaskRunCommandContext, SubmitTaskRunCommand),
     Queue(TaskRunCommandContext, ExistingTaskRunCommand),
     Admit(TaskRunCommandContext, ExistingTaskRunCommand),
     Cancel(TaskRunCommandContext, ExistingTaskRunCommand),
@@ -68,6 +69,19 @@ impl TaskRunCommandHostPort for RecordingHost {
             taskrun_id: TASKRUN_ID.parse().unwrap(),
             new_version: 1,
             kind: TaskRunCommandAckKind::Created,
+        })
+    }
+
+    async fn submit_task_run(
+        &self,
+        context: TaskRunCommandContext,
+        command: SubmitTaskRunCommand,
+    ) -> Result<TaskRunCommandAck, TaskRunHostError> {
+        self.record(Call::Submit(context, command))?;
+        Ok(TaskRunCommandAck {
+            taskrun_id: TASKRUN_ID.parse().unwrap(),
+            new_version: 2,
+            kind: TaskRunCommandAckKind::Submitted,
         })
     }
 

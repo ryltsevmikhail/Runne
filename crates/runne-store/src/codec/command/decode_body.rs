@@ -30,6 +30,14 @@
                     new_version: nv,
                 }
             }
+            CO_TAG_SUBMITTED => {
+                let tr_id = TaskRunId::from_bytes(read_uuid(bytes, &mut pos)?);
+                let nv = read_u64_be(bytes, &mut pos)?;
+                CommandOutcome::TaskRunSubmitted {
+                    taskrun_id: tr_id,
+                    new_version: nv,
+                }
+            }
             CO_TAG_CANCELLATION_REQUESTED => {
                 let tr_id = TaskRunId::from_bytes(read_uuid(bytes, &mut pos)?);
                 let nv = read_u64_be(bytes, &mut pos)?;

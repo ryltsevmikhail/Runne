@@ -79,6 +79,9 @@ pub(super) fn upgraded_v25_for_provider(
         .execute("DROP TABLE provider_subscription_budgets", [])
         .unwrap();
     crate::schema::restore_v18_project_workspace_receipt_for_test(&connection).unwrap();
+    // V39 rebuilt the lineage table with the submit origin; the historical
+    // V25 validators pin the V18 shape, so rebuild it from the frozen DDL.
+    crate::schema::restore_v18_taskrun_lineage_for_test(&connection).unwrap();
     crate::schema::restore_v25_credential_triggers_for_test(&connection).unwrap();
     assert_eq!(
         connection

@@ -64,6 +64,18 @@ impl CommandFingerprint {
         Self(hasher.finalize().into())
     }
 
+    /// Create a fingerprint for the client-authorized atomic TaskRun submit.
+    ///
+    /// The fingerprint includes only the conversation and workspace IDs
+    /// (not the server-generated `TaskRunId`), so a lost-ack replay of the
+    /// same submit identity produces the exact stored acknowledgement.
+    pub fn for_submit(conversation_id: &ConversationId, workspace_id: &WorkspaceId) -> Self {
+        let mut hasher = begin(TAG_SUBMIT_TASK_RUN);
+        hasher.update(conversation_id.as_bytes());
+        hasher.update(workspace_id.as_bytes());
+        Self(hasher.finalize().into())
+    }
+
     /// Create a fingerprint for `Queue`.
     pub fn for_queue(taskrun_id: &TaskRunId, expected_version: u64) -> Self {
         let mut hasher = Sha256::new();

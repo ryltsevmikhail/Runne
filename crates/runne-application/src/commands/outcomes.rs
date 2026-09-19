@@ -17,6 +17,13 @@ pub enum CommandOutcome {
         /// The new stream version.
         new_version: u64,
     },
+    /// A task run was submitted: created and queued by one atomic commit.
+    TaskRunSubmitted {
+        /// The task run ID.
+        taskrun_id: TaskRunId,
+        /// The committed stream version after `Created + Queued` (always 2).
+        new_version: u64,
+    },
     /// Cancellation was durably requested for a task run.
     TaskRunCancellationRequested {
         /// The task run ID.

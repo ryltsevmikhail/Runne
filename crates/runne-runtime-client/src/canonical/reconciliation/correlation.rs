@@ -3,6 +3,7 @@ use super::{
     ConversationCreated, ConversationGenerationFailureReason, ConversationMessage,
     ConversationMessageRole, ConversationTextRejection, ConversationTextResult,
     ProjectCommandAcknowledgement, RuntimeApiError, TaskRunCancellationAcknowledgement,
+    TaskRunSubmitAcknowledgement,
     WorkspaceCommandAcknowledgement, ApprovalDecisionAcknowledgementDto, ApprovalStateDto,
     invalid_response, validate_message_text,
 };
@@ -27,6 +28,7 @@ pub(super) fn correlate(
         (CommandReconciliationWitness::CreateConversation { conversation_id, workspace_id }, OutcomeWire::CreateConversation { conversation_id: id, workspace_id: workspace, stream_version: 1, committed_at }) if *conversation_id == id && *workspace_id == workspace => Ok(CommandReconciliationOutcome::ConversationCreated(ConversationCreated { conversation_id: id, workspace_id: workspace, stream_version: 1, committed_at })),
         (CommandReconciliationWitness::GenerateConversationText { conversation_id, expected_version, text }, OutcomeWire::GenerateConversationText { terminal, conversation_id: actual, task_run_id, attempt_id, conversation_stream_version, task_run_stream_version, user_message, assistant_message, reserved_assistant_message_id, reason }) => correlate_text(*conversation_id, *expected_version, text, TextTerminalWire { terminal, conversation_id: actual, task_run_id, attempt_id, conversation_stream_version, task_run_stream_version, user_message, assistant_message, reserved_assistant_message_id, reason }),
         (CommandReconciliationWitness::CancelTaskRun { task_run_id, expected_version }, OutcomeWire::CancelTaskRun { task_run_id: actual, new_version }) if *task_run_id == actual && expected_version.checked_add(1) == Some(new_version) => Ok(CommandReconciliationOutcome::TaskRunCancellationRequested(TaskRunCancellationAcknowledgement::observed(actual, new_version))),
+        (CommandReconciliationWitness::SubmitTaskRun { .. }, OutcomeWire::SubmitTaskRun { task_run_id: actual, new_version: 2 }) => Ok(CommandReconciliationOutcome::TaskRunSubmitted(TaskRunSubmitAcknowledgement::observed(actual, 2))),
         (CommandReconciliationWitness::ApprovalDecision { approval_id, expected_version, decision, .. }, OutcomeWire::ApprovalDecision { approval_id: actual, new_version, task_run_id, state }) if *approval_id == actual && expected_version.checked_add(1) == Some(new_version) && decision_state_matches(*decision, state) => Ok(CommandReconciliationOutcome::ApprovalDecision(ApprovalDecisionAcknowledgementDto::observed(actual, task_run_id, new_version, approval_state(state)) .map_err(|_| invalid_response())?)),
         _ => Err(invalid_response()),
     }

@@ -2,7 +2,7 @@ use rusqlite::{
     Connection, OptionalExtension, Result as SqliteResult, Transaction, TransactionBehavior,
 };
 
-mod validation;
+pub(super) mod validation;
 
 pub(super) const MIGRATION_V18: &str = r#"
 CREATE TABLE projects (
@@ -137,7 +137,7 @@ pub(super) fn v36_matches(connection: &Connection, version: i64) -> SqliteResult
 }
 
 pub(super) fn v36_structure_matches(connection: &Connection) -> SqliteResult<bool> {
-    super::v35_structure_matches_with_v36_receipt(connection, true).and_then(|inherited| {
+    super::v35_structure_matches_with_v36_receipt(connection, true, false).and_then(|inherited| {
         Ok(inherited
             && v36_receipt_table_matches(connection)?
             && validation::global_command_triggers_match(connection)?)

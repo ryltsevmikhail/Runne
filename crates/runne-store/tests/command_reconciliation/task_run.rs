@@ -2,6 +2,7 @@ use super::*;
 
 use runne_application::commands::{
     AdmitTaskRunInput, CancelTaskRunInput, CommandOutcome, CreateTaskRunInput, QueueTaskRunInput,
+    SubmitTaskRunInput,
 };
 use runne_application::service::TaskRunService;
 
@@ -69,4 +70,67 @@ fn task_run_cancellation_is_reconciled_from_the_authoritative_receipt() {
             .reconcile_command(&context(command(10)), &witness),
         Ok(CommandReconciliationEvidence::Terminal(_))
     ));
+}
+
+#[test]
+fn task_run_submit_is_reconciled_from_the_authoritative_receipt() {
+    let fixture = Fixture::new("command-reconciliation-task-run-submit");
+    fixture.project_workspace();
+    let task_service = TaskRunService::new(
+        fixture.store.clone(),
+        fixture.store.clone(),
+        fixture.store.clone(),
+        RuntimeAuthorityId("authority".into()),
+    );
+    let submitted = task_service
+        .submit_task_run(
+            &application_context(command(11), "key"),
+            SubmitTaskRunInput {
+                conversation_id: conversation(),
+                workspace_id: workspace(),
+            },
+        )
+        .unwrap();
+    assert!(matches!(
+        submitted,
+        CommandOutcome::TaskRunSubmitted {
+            taskrun_id: submitted_id,
+            new_version: 2,
+        } if submitted_id != taskrun_zero()
+    ));
+
+    let witness = CommandReconciliationWitness::submit_task_run(conversation(), workspace());
+    assert!(matches!(
+        fixture
+            .repository
+            .reconcile_command(&context(command(11)), &witness),
+        Ok(CommandReconciliationEvidence::Terminal(_))
+    ));
+
+    let other_workspace: runne_domain::id::WorkspaceId =
+        "018f47a2-4f8c-7b52-8c35-7a3a14c2d913".parse().unwrap();
+    let changed = CommandReconciliationWitness::submit_task_run(conversation(), other_workspace);
+    assert!(matches!(
+        fixture
+            .repository
+            .reconcile_command(&context(command(11)), &changed),
+        Err(CommandReconciliationRepositoryError::Conflict)
+    ));
+
+    let unseen = CommandReconciliationWitness::submit_task_run(conversation(), workspace());
+    let unseen_context = CommandReconciliationContext::new(
+        command(12),
+        IdempotencyKey::new("unseen-submit-key").unwrap(),
+        ApiPrincipalId::new("owner").unwrap(),
+    );
+    assert!(matches!(
+        fixture
+            .repository
+            .reconcile_command(&unseen_context, &unseen),
+        Ok(CommandReconciliationEvidence::NotCommitted)
+    ));
+}
+
+fn taskrun_zero() -> runne_domain::id::TaskRunId {
+    "00000000-0000-7000-8000-000000000000".parse().unwrap()
 }

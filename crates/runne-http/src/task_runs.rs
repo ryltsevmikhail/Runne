@@ -12,8 +12,8 @@ use axum::{
 use runne_api::{
     ApiActor, CanonicalTaskRunState, CanonicalTerminalResult, CompleteTaskRunCommand,
     CreateTaskRunCommand, ExistingTaskRunCommand, MAX_CANONICAL_TERMINAL_REASON_BYTES,
-    TaskRunCommandAck, TaskRunCommandAckKind, TaskRunCommandContext, TaskRunCommandHostPort,
-    TaskRunHostError, TaskRunQueryHostPort, TaskRunSnapshot,
+    SubmitTaskRunCommand, TaskRunCommandAck, TaskRunCommandAckKind, TaskRunCommandContext,
+    TaskRunCommandHostPort, TaskRunHostError, TaskRunQueryHostPort, TaskRunSnapshot,
 };
 use runne_domain::id::{CommandId, ConversationId, IdempotencyKey, TaskRunId, WorkspaceId};
 use serde::{Deserialize, Serialize};
@@ -103,4 +103,6 @@ struct TaskRunListWire {
 
 include!("task_runs/handlers.rs");
 include!("task_runs/list.rs");
+include!("task_runs/submit.rs");
+include!("task_runs/canonical.rs");
 include!("task_runs/helpers.rs");

@@ -143,6 +143,9 @@ pub(crate) fn reconciliation_outcome_to_ledger(
             task_run_id: id(value.task_run_id())?,
             new_version: value.stream_version(),
         },
+        // The local ledger v7 outcome codec has no submit representation yet;
+        // fail closed until the ledger gains an explicit submit outcome.
+        Outcome::TaskRunSubmitted(_) => return Err(AppCoreError::MutationUnavailable),
         Outcome::ApprovalDecision(value) => LedgerOutcome::ApprovalRespond {
             approval_id: id(value.approval_id())?,
             new_version: value.new_version(),
