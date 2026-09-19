@@ -4,6 +4,29 @@ fn task_run_openapi(document: &mut Value) {
         .and_then(Value::as_object_mut)
         .expect("OpenAPI document has paths object");
     paths.insert(
+        "/v1/task-runs/submit".to_owned(),
+        json!({
+            "post": {
+                "requestBody": {
+                    "content": {"application/json": {"schema": {"$ref": "schemas/task-run-v1.schema.json#/$defs/submitRequest"}}},
+                    "required": true,
+                },
+                "security": [{"sessionAuth": []}],
+                "responses": {
+                    "202": {
+                        "content": {"application/json": {"schema": {"$ref": "schemas/task-run-v1.schema.json#/$defs/submitAcknowledgement"}}},
+                        "description": "Atomic submit committed",
+                    },
+                    "400": task_run_error_response(),
+                    "401": task_run_error_response(),
+                    "404": task_run_error_response(),
+                    "409": task_run_error_response(),
+                    "503": task_run_error_response(),
+                },
+            },
+        }),
+    );
+    paths.insert(
         "/v1/task-runs/{taskRunId}".to_owned(),
         json!({
             "get": {

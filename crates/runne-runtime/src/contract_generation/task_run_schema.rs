@@ -64,6 +64,23 @@ fn task_run_schema() -> Value {
                 }),
                 &["attemptId", "streamVersion", "taskRunId", "terminalResult", "transition"],
             ),
+            "submitRequest": closed_object(
+                json!({
+                    "conversationId": uuid_v7_schema(),
+                    "workspaceId": uuid_v7_schema(),
+                }),
+                &["conversationId", "workspaceId"],
+            ),
+            "submitAcknowledgement": closed_object(
+                json!({
+                    "attemptId": {"type": "null"},
+                    "streamVersion": positive_integer_schema(),
+                    "taskRunId": uuid_v7_schema(),
+                    "terminalResult": {"type": "null"},
+                    "transition": {"const": "submitted", "type": "string"},
+                }),
+                &["attemptId", "streamVersion", "taskRunId", "terminalResult", "transition"],
+            ),
         }),
     );
     object.insert("$id".to_owned(), json!("gocode://schemas/task-run-v1"));

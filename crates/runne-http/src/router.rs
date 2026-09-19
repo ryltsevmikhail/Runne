@@ -36,7 +36,7 @@ use crate::replay::{ReplayHttpState, replay_router};
 use crate::runtime_profile::{
     RuntimeProfileHttpState, runtime_profile_router, runtime_profile_session_router,
 };
-use crate::task_runs::{TaskRunHttpState, task_run_router};
+use crate::task_runs::{TaskRunHttpState, canonical_task_run_router, task_run_router};
 use crate::workspace_diffs::{WorkspaceDiffHttpState, workspace_diff_router};
 use crate::workspace_files::{WorkspaceFileHttpState, workspace_file_router};
 

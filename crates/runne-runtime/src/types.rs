@@ -3,7 +3,7 @@
 use runne_application::commands::{
     AdmitTaskRunInput, BeginConversationTextInput, CancelTaskRunInput, CommandOutcome,
     CompleteTaskRunInput, CreateTaskRunInput, FinishConversationTextInput, QueueTaskRunInput,
-    StartAttemptInput,
+    StartAttemptInput, SubmitTaskRunInput,
 };
 use runne_application::conversation_text_service::ConversationTextCommandService;
 use runne_application::errors::ApplicationError;
@@ -62,6 +62,11 @@ pub(crate) enum RuntimeRequest {
         input: CreateTaskRunInput,
         reply: Reply,
     },
+    Submit {
+        context: ApplicationCommandContext,
+        input: SubmitTaskRunInput,
+        reply: Reply,
+    },
     Queue {
         context: ApplicationCommandContext,
         input: QueueTaskRunInput,
@@ -105,10 +110,11 @@ pub(crate) enum RuntimeRequest {
 
 impl RuntimeRequest {
     /// Extract the [`TaskRunId`] from the request, if applicable.
-    /// Returns `None` for `Create` (which has no TaskRunId yet).
+    /// Returns `None` for `Create` and `Submit` (no TaskRunId yet: the id is
+    /// generated inside the atomic submit unit-of-work).
     pub(crate) fn taskrun_id(&self) -> Option<runne_domain::id::TaskRunId> {
         match self {
-            Self::Create { .. } => None,
+            Self::Create { .. } | Self::Submit { .. } => None,
             Self::Queue { input, .. } => Some(input.taskrun_id),
             Self::Admit { input, .. } => Some(input.taskrun_id),
             Self::StartAttempt { input, .. } => Some(input.taskrun_id),

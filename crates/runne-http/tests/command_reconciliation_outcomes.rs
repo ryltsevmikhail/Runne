@@ -4,7 +4,7 @@ use runne_api::{
     AuthoritativeCommandOutcome, CommandReconciliationContext, CommandReconciliationDisposition,
     CommandReconciliationHostError, CommandReconciliationHostPort, CommandReconciliationWitness,
     CommandReconciliationWitnessRef, ConversationCreatedAck, NonNegativeUnixMillis,
-    ProjectCommandAck, WorkspaceCommandAck,
+    ProjectCommandAck, TaskRunCommandAck, TaskRunCommandAckKind, WorkspaceCommandAck,
 };
 use runne_http::{
     admission::AdmissionState,
@@ -18,6 +18,7 @@ const TOKEN: [u8; 32] = [0xA5; 32];
 const PROJECT: &str = "018f2e3a-7000-7000-8000-000000000302";
 const WORKSPACE: &str = "018f2e3a-7000-7000-8000-000000000303";
 const CONVERSATION: &str = "018f2e3a-7000-7000-8000-000000000304";
+const TASK_RUN: &str = "018f2e3a-7000-7000-8000-000000000305";
 
 #[derive(Clone)]
 struct OutcomeHost;
@@ -82,6 +83,13 @@ impl CommandReconciliationHostPort for OutcomeHost {
             }),
             CommandReconciliationWitnessRef::GenerateConversationText { .. } => unreachable!(),
             CommandReconciliationWitnessRef::CancelTaskRun { .. } => unreachable!(),
+            CommandReconciliationWitnessRef::SubmitTaskRun { .. } => {
+                AuthoritativeCommandOutcome::task_run_submitted(TaskRunCommandAck {
+                    taskrun_id: TASK_RUN.parse().unwrap(),
+                    new_version: 2,
+                    kind: TaskRunCommandAckKind::Submitted,
+                })
+            }
             CommandReconciliationWitnessRef::ApprovalDecision { .. } => unreachable!(),
         };
         CommandReconciliationDisposition::durably_recorded(&witness, outcome)
@@ -146,6 +154,14 @@ async fn eight_non_text_operations_have_exact_closed_response_bodies() {
             ),
             format!(
                 r#"{{"disposition":"durably_recorded","outcome":{{"operation":"open_workspace","workspaceId":"{WORKSPACE}","newVersion":2}}}}"#
+            ),
+        ),
+        (
+            format!(
+                r#"{{"operation":"submit_task_run","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}"}}"#
+            ),
+            format!(
+                r#"{{"disposition":"durably_recorded","outcome":{{"operation":"submit_task_run","taskRunId":"{TASK_RUN}","newVersion":2}}}}"#
             ),
         ),
         (

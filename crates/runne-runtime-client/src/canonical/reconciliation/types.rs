@@ -1,5 +1,6 @@
 use super::ApprovalDecisionAcknowledgementDto;
 use super::TaskRunCancellationAcknowledgement;
+use super::TaskRunSubmitAcknowledgement;
 use super::{
     CanonicalId, ConversationCreated, ConversationMessage, ConversationTextResult,
     ProjectCommandAcknowledgement, WorkspaceCommandAcknowledgement,
@@ -28,6 +29,7 @@ pub enum CommandReconciliationOutcome {
     ConversationTextRejected(Box<ConversationTextRejection>),
     ConversationTextProhibitedInputRejected(Box<ConversationTextRejection>),
     TaskRunCancellationRequested(TaskRunCancellationAcknowledgement),
+    TaskRunSubmitted(TaskRunSubmitAcknowledgement),
     ApprovalDecision(ApprovalDecisionAcknowledgementDto),
 }
 

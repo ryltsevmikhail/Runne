@@ -2741,6 +2741,97 @@
         ]
       }
     },
+    "/v1/task-runs/submit": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/task-run-v1.schema.json#/$defs/submitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/task-run-v1.schema.json#/$defs/submitAcknowledgement"
+                }
+              }
+            },
+            "description": "Atomic submit committed"
+          },
+          "400": {
+            "description": "Static redacted error response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Static redacted error response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Static redacted error response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Static redacted error response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Static redacted error response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
+    },
     "/v1/task-runs/{taskRunId}": {
       "get": {
         "parameters": [

@@ -3,10 +3,19 @@
     const CONVERSATION_ID: &str = "018f2e3a-7000-7000-8000-000000000002";
     const ATTEMPT_ID: &str = "018f2e3a-7000-7000-8000-000000000003";
     const ATTEMPT_ID2: &str = "018f2e3a-7000-7000-8000-000000000004";
+    const TASKRUN_ID: &str = "018f2e3a-7000-7000-8000-000000000005";
 
     fn make_create() -> CreateTaskRun {
         CreateTaskRun {
             taskrun_id: VALID_UUID.parse().unwrap(),
+            conversation_id: CONVERSATION_ID.parse().unwrap(),
+            workspace_id: WORKSPACE_ID.parse().unwrap(),
+        }
+    }
+
+    fn make_submit() -> SubmitTaskRun {
+        SubmitTaskRun {
+            taskrun_id: TASKRUN_ID.parse().unwrap(),
             conversation_id: CONVERSATION_ID.parse().unwrap(),
             workspace_id: WORKSPACE_ID.parse().unwrap(),
         }

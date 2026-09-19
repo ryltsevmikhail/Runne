@@ -1,4 +1,6 @@
-/// Builds the real canonical TaskRun route set.
+/// Builds the authority TaskRun route set: every runtime-owned transition
+/// plus the client-facing submit/list/get/cancel subset. Client profiles
+/// mount [`canonical_task_run_router`] instead.
 pub fn task_run_router<H>(state: TaskRunHttpState<H>) -> Router
 where
     H: TaskRunCommandHostPort + TaskRunQueryHostPort + 'static,
@@ -8,6 +10,7 @@ where
             "/v1/task-runs",
             get(list_task_runs::<H>).post(create_task_run::<H>),
         )
+        .route("/v1/task-runs/submit", post(submit_task_run::<H>))
         .route("/v1/task-runs/{taskrun_id}", get(get_task_run::<H>))
         .route(
             "/v1/task-runs/{taskrun_id}/queue",

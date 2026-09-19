@@ -19,6 +19,32 @@ impl TaskRun {
         ))
     }
 
+    /// Handles a [`SubmitTaskRun`] command —
+    /// produces the client-authorized entry batch.
+    ///
+    /// Assumes the aggregate does not exist yet. The only valid submit commit
+    /// is this exact two-event batch: `TaskRunCreated` followed by
+    /// `TaskRunQueued`. Admission, attempt start, and terminal completion stay
+    /// runtime-owned and are never part of a client submit.
+    pub fn decide_submit(
+        command: SubmitTaskRun,
+    ) -> Result<Vec<DomainEventDraft<TaskRunEvent>>, DomainError> {
+        let aggregate_id = AggregateId::TaskRun(command.taskrun_id);
+        let draft = |payload| {
+            DomainEventDraft::new(
+                aggregate_id.clone(),
+                aggregate_id.clone(),
+                1,
+                Sensitivity::Public,
+                payload,
+            )
+        };
+        Ok(vec![
+            draft(TaskRunEvent::TaskRunCreated),
+            draft(TaskRunEvent::TaskRunQueued),
+        ])
+    }
+
     /// Creates and starts one TaskRun as a single valid event batch.
     ///
     /// This is used by coordinators that durably bind accepted work to an

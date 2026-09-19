@@ -1,6 +1,8 @@
 use rusqlite::{Connection, OptionalExtension, Result as SqliteResult};
 
-pub(super) fn global_command_triggers_match(connection: &Connection) -> SqliteResult<bool> {
+pub(in crate::schema) fn global_command_triggers_match(
+    connection: &Connection,
+) -> SqliteResult<bool> {
     [
         (
             "global_command_id_from_command_receipts",

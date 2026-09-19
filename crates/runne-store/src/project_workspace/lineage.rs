@@ -11,7 +11,8 @@ pub(crate) fn record_direct_taskrun_lineage(
     command_id: CommandId,
 ) -> Result<(), CommitError> {
     let workspace_id = match (&scope.operation, &scope.aggregate_scope) {
-        (OperationTag::CreateTaskRun, AggregateScope::NewTaskRun { workspace_id, .. }) => {
+        (OperationTag::CreateTaskRun, AggregateScope::NewTaskRun { workspace_id, .. })
+        | (OperationTag::SubmitTaskRun, AggregateScope::NewTaskRun { workspace_id, .. }) => {
             *workspace_id
         }
         _ => return Ok(()),
@@ -21,7 +22,7 @@ pub(crate) fn record_direct_taskrun_lineage(
         taskrun_id,
         workspace_id,
         command_id,
-        OperationTag::CreateTaskRun as i64,
+        scope.operation as i64,
         &scope.principal_id.0,
     )
 }
@@ -57,7 +58,7 @@ pub(crate) fn validate_direct_taskrun_lineage(
         taskrun_id,
         workspace_id,
         command_id,
-        OperationTag::CreateTaskRun as i64,
+        scope.operation as i64,
         &scope.principal_id.0,
     )
 }

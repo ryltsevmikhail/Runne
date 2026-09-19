@@ -74,22 +74,38 @@ impl StoreTransaction {
                         runne_application::ports::StorageFailureKind::CorruptData,
                     )
                 })?;
-                if payload.idempotency_scope.operation
-                    == runne_application::ports::OperationTag::CreateTaskRun
-                {
-                    let runne_application::commands::CommandOutcome::TaskRunCreated {
-                        taskrun_id: stored_taskrun_id,
-                        new_version: 1,
-                    } = &stored_result
-                    else {
-                        return Err(storage_failure(StorageFailureKind::IntegrityViolation));
-                    };
-                    crate::project_workspace::lineage::validate_direct_taskrun_lineage(
-                        &tx,
-                        &payload.idempotency_scope,
-                        *stored_taskrun_id,
-                        payload.command_id,
-                    )?;
+                match payload.idempotency_scope.operation {
+                    runne_application::ports::OperationTag::CreateTaskRun => {
+                        let runne_application::commands::CommandOutcome::TaskRunCreated {
+                            taskrun_id: stored_taskrun_id,
+                            new_version: 1,
+                        } = &stored_result
+                        else {
+                            return Err(storage_failure(StorageFailureKind::IntegrityViolation));
+                        };
+                        crate::project_workspace::lineage::validate_direct_taskrun_lineage(
+                            &tx,
+                            &payload.idempotency_scope,
+                            *stored_taskrun_id,
+                            payload.command_id,
+                        )?;
+                    }
+                    runne_application::ports::OperationTag::SubmitTaskRun => {
+                        let runne_application::commands::CommandOutcome::TaskRunSubmitted {
+                            taskrun_id: stored_taskrun_id,
+                            new_version: 2,
+                        } = &stored_result
+                        else {
+                            return Err(storage_failure(StorageFailureKind::IntegrityViolation));
+                        };
+                        crate::project_workspace::lineage::validate_direct_taskrun_lineage(
+                            &tx,
+                            &payload.idempotency_scope,
+                            *stored_taskrun_id,
+                            payload.command_id,
+                        )?;
+                    }
+                    _ => {}
                 }
                 tx.commit().map_err(|_| {
                     CommitError::StorageFailure(
