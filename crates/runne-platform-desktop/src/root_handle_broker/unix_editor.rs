@@ -43,11 +43,12 @@ fn root_path(root: &NativeDirectoryHandle) -> Result<std::path::PathBuf, RootHan
         // macOS 27 no longer resolves /dev/fd/N through readlink (EINVAL for
         // every process), which silently failed every editor launch at base.
         // F_GETPATH is the supported fd-to-path API; like the previous
-        // best-effort readlink it reports the vnode's current name.
+        // best-effort readlink it reports the vnode's current name. On this
+        // platform the block is the function tail.
         let mut path = std::path::PathBuf::new();
         nix::fcntl::fcntl(root, nix::fcntl::FcntlArg::F_GETPATH(&mut path))
             .map_err(|_| RootHandleBrokerError::Unavailable)?;
-        return Ok(path);
+        Ok(path)
     }
     #[cfg(target_os = "linux")]
     fs::read_link(descriptor).map_err(|_| RootHandleBrokerError::Unavailable)
