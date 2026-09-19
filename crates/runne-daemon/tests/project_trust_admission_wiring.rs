@@ -13,6 +13,10 @@ mod channels;
 mod diffs_canary;
 #[path = "project_trust_admission_wiring/harness.rs"]
 mod harness;
+#[path = "support/nm10_rules.rs"]
+mod nm10_rules;
+#[path = "project_trust_admission_wiring/nm10_scan.rs"]
+mod nm10_scan;
 #[path = "project_trust_admission_wiring/nm_matrix.rs"]
 mod nm_matrix;
 #[path = "project_trust_admission_wiring/nm_restart.rs"]

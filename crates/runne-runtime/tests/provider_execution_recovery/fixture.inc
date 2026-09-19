@@ -80,6 +80,11 @@ impl Fixture {
     pub(crate) fn keyring(&self) -> Arc<MemoryKeyring> {
         Arc::clone(&self.keyring)
     }
+
+    #[allow(dead_code, reason = "consumed by the nm10 sink-scan part only")]
+    pub(crate) fn database_path(&self) -> &std::path::Path {
+        &self.path
+    }
 }
 
 fn runtime_authority_config() -> ProviderRuntimeAuthorityConfig {

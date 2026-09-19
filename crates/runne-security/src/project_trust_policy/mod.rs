@@ -5,6 +5,13 @@
 //! boundary and is exposed through the same authority so callers observe one
 //! authority and one epoch. Authority errors are fail-closed.
 
+mod path;
+
+pub use path::{
+    FROZEN_DENY_COMPONENTS, FROZEN_DENY_PREFIXES, FROZEN_DENY_SUFFIXES, PathRejection,
+    denied_by_frozen_set, normalize_source_path,
+};
+
 use runne_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ContentGuardError, ProhibitedContentPort,
 };
@@ -14,111 +21,6 @@ use runne_application::project_trust::{
     TrustAdmissionError,
 };
 use std::sync::Arc;
-use unicode_normalization::UnicodeNormalization;
-
-/// Path components rejected before deny comparison.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PathRejection {
-    /// Absolute path or rooted component.
-    Absolute,
-    /// Parent traversal component.
-    ParentTraversal,
-    /// Home shorthand or shell-ish prefix.
-    HomePrefix,
-    /// Empty component (double separator or trailing separator).
-    EmptyComponent,
-    /// Backslash is ambiguous across platforms.
-    Backslash,
-    /// Control characters are never legitimate in a source path.
-    ControlCharacter,
-    /// Reserved characters rejected cross-platform (F5: Windows drive
-    /// letters and NTFS ADS colons are unsupported path forms).
-    ReservedCharacter,
-}
-
-/// Frozen component deny set (inventory §G3): exact component matches.
-pub const FROZEN_DENY_COMPONENTS: [&str; 8] = [
-    ".git",
-    ".ssh",
-    ".aws",
-    ".env",
-    ".netrc",
-    ".npmrc",
-    "id_rsa",
-    "credentials.json",
-];
-
-/// Frozen suffix deny set (inventory §G3).
-pub const FROZEN_DENY_SUFFIXES: [&str; 5] = [".key", ".pem", ".p12", ".ppk", ".gpg"];
-
-/// NFC-normalizes and validates a workspace-relative path.
-///
-/// Returns the normalized components. Ambiguous and unsupported shapes are
-/// rejected, never repaired: absolute paths, `..`, `~`, backslashes, empty
-/// components, control characters and reserved `:` all fail closed.
-pub fn normalize_source_path(raw: &str) -> Result<Vec<String>, PathRejection> {
-    if raw.starts_with('/') {
-        return Err(PathRejection::Absolute);
-    }
-    if raw.contains('\\') {
-        return Err(PathRejection::Backslash);
-    }
-    if raw.contains('\0') || raw.chars().any(char::is_control) {
-        return Err(PathRejection::ControlCharacter);
-    }
-    if raw.is_empty() {
-        return Err(PathRejection::EmptyComponent);
-    }
-    let mut components = Vec::new();
-    for component in raw.split('/') {
-        if component.is_empty() {
-            return Err(PathRejection::EmptyComponent);
-        }
-        if component == "." {
-            return Err(PathRejection::EmptyComponent);
-        }
-        if component == ".." {
-            return Err(PathRejection::ParentTraversal);
-        }
-        if component.starts_with('~') {
-            return Err(PathRejection::HomePrefix);
-        }
-        if component.contains(':') {
-            return Err(PathRejection::ReservedCharacter);
-        }
-        let normalized: String = component.nfc().collect();
-        if normalized.starts_with('/') {
-            return Err(PathRejection::Absolute);
-        }
-        components.push(normalized);
-    }
-    Ok(components)
-}
-
-/// ASCII case-insensitive byte equality (deny names are all-ASCII).
-fn ascii_case_fold_bytes(left: &[u8], right: &[u8]) -> bool {
-    left.len() == right.len()
-        && left
-            .iter()
-            .map(u8::to_ascii_lowercase)
-            .zip(right.iter().map(u8::to_ascii_lowercase))
-            .all(|(a, b)| a == b)
-}
-
-/// Whether normalized components match the frozen deny set (§G3).
-pub fn denied_by_frozen_set(components: &[String]) -> bool {
-    components.iter().any(|component| {
-        let bytes = component.as_bytes();
-        FROZEN_DENY_COMPONENTS
-            .iter()
-            .any(|denied| ascii_case_fold_bytes(bytes, denied.as_bytes()))
-            || FROZEN_DENY_SUFFIXES.iter().any(|suffix| {
-                let suffix = suffix.as_bytes();
-                suffix.len() <= bytes.len()
-                    && ascii_case_fold_bytes(&bytes[bytes.len() - suffix.len()..], suffix)
-            })
-    })
-}
 
 /// One policy authority owning both admission stages for a process.
 pub struct ProjectTrustPolicyAuthority {
@@ -230,10 +132,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn case_folding_covers_mixed_registry() {
-        assert!(ascii_case_fold_bytes(b".ENV", b".env"));
-        assert!(ascii_case_fold_bytes(b"ID_RSA", b"id_rsa"));
-        assert!(!ascii_case_fold_bytes(b".envx", b".env"));
+    fn frozen_version_pins_the_revision_two_deny_semantics() {
+        // The revision bumped the frozen policy identity; consumers (pinned
+        // claims, admissions) must observe the same generation.
+        assert_eq!(FROZEN_POLICY_VERSION, 2);
     }
 
     #[test]
@@ -253,6 +155,12 @@ mod tests {
         assert_eq!(
             normalize_source_path("data/ads:stream"),
             Err(PathRejection::ReservedCharacter)
+        );
+        // Revision 2 keeps the rejection-not-repair discipline for the Win32
+        // trailing-strip family (see path.rs tests for full coverage).
+        assert_eq!(
+            normalize_source_path("host.key."),
+            Err(PathRejection::TrailingReservedSuffix)
         );
     }
 }
