@@ -17,7 +17,7 @@
 //! blocks AFTER the native validation step: validate via
 //! `read_text_relative` (the production native opener), swap, then read the
 //! path string the opener would receive. It does NOT launch the production
-//! editor or LaunchServices, so it is a model of the swap window, not proof
+//! editor or `LaunchServices`, so it is a model of the swap window, not proof
 //! of delivery through a actually-spawned editor. A related,
 //! separately-decided defect: on macOS 27 the production launch is blocked
 //! even earlier — `root_path` reads `/dev/fd/N` via readlink, which returns
