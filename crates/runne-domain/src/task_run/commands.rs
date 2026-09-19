@@ -19,7 +19,7 @@ impl TaskRun {
         ))
     }
 
-    /// Handles a [`SubmitTaskRun`](crate::command::SubmitTaskRun) command —
+    /// Handles a [`SubmitTaskRun`] command —
     /// produces the client-authorized entry batch.
     ///
     /// Assumes the aggregate does not exist yet. The only valid submit commit
