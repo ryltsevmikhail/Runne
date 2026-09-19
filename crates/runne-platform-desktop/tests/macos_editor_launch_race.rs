@@ -4,7 +4,7 @@
 //! Production sequence on macOS
 //! (crates/runne-platform-desktop/src/root_handle_broker/unix_editor.rs):
 //! `open_file_below` validates the file through the admitted root handle
-//! (per-component O_NOFOLLOW, same-device, regular-file check) and drops the
+//! (per-component `O_NOFOLLOW`, same-device, regular-file check) and drops the
 //! descriptor; `root_path` derives the root as a path string; the joined
 //! target string is handed to `/usr/bin/open`, which re-resolves it from
 //! scratch. Nothing re-checks the target between validation and the
