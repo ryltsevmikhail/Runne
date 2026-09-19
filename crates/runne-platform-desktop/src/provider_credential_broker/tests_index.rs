@@ -18,6 +18,7 @@ mod tests_macos_writer_admission;
 #[cfg(unix)]
 #[path = "tests_prepared_daemon_rendezvous.rs"]
 mod tests_prepared_daemon_rendezvous;
+#[cfg(unix)]
 #[path = "tests_protocol_tags.rs"]
 mod tests_protocol_tags;
 #[path = "tests_unix_descriptor.rs"]

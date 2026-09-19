@@ -118,7 +118,7 @@ impl UpdateCoordinator {
             .is_some_and(|admission| confirmed.matches_admission(&admission)))
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn refresh_installed_native_enrollment_at(
         &self,
         prepared: PreparedInstalledNativeEnrollment,
