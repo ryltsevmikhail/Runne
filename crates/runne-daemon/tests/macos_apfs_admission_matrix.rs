@@ -1,14 +1,21 @@
 #![cfg(target_os = "macos")]
-//! macOS native regression: the frozen source-path deny set versus real APFS
-//! name resolution. The policy decides on NFC-normalized components with
-//! ASCII-only case folding; case-insensitive APFS additionally equates the
-//! Unicode simple-case-fold pair U+017F (LATIN SMALL LETTER LONG S) with
-//! ASCII 's', which the ASCII-only policy does not fold. Experiments on
-//! macOS 27 arm64 (SHA d0f1d7d0) confirmed that long-s variants of denied
-//! names open the denied files' content while the frozen policy admits them.
-//! U+212A KELVIN SIGN also folds on APFS but is covered by the policy: it has
-//! a canonical decomposition to 'k', so NFC normalization denies it. ASCII
-//! case, NFC/NFD forms, and non-folding lookalikes hold.
+//! macOS native regression for the T1 source-path admission.
+//!
+//! The file separates two concerns that must not be conflated:
+//!
+//! 1. Observed APFS name equivalence — which requested names resolve onto
+//!    which existing files on a case-insensitive volume. This is a property
+//!    of the filesystem and carries no policy expectation.
+//! 2. The admission security invariant — whatever native resolution can
+//!    deliver must be denied by the policy. This is the security claim.
+//!
+//! Experiments on macOS 27 arm64 confirmed that U+017F (LATIN SMALL LETTER
+//! LONG S) and U+212A (KELVIN SIGN) fold into ASCII on case-insensitive
+//! APFS. Revision 1 of the frozen policy (ASCII-only case folding) admitted
+//! the long-s variants, so the invariant test fails on revision 1 by design
+//! and stays in the normal (non-ignored) suite: it turns green exactly when
+//! the policy revision covers the fold (revision 2 intentionally over-denies
+//! here). NFC/NFD forms, ASCII case, and non-folding lookalikes hold.
 
 use runne_platform_desktop::VerifiedRootHandle;
 use runne_security::project_trust_policy::{denied_by_frozen_set, normalize_source_path};
@@ -64,9 +71,12 @@ fn volume_is_case_insensitive(root: &VerifiedRootHandle) -> bool {
     opens_content(root, "MODE_PROBE.txt", "mode")
 }
 
-/// Long-s variants of denied names that case-insensitive APFS resolves onto
-/// the denied files: (variant name, denied canary path, canary content).
-const CONFIRMED_LONG_S_BYPASS_PAIRS: [(&str, &str, &str); 4] = [
+/// Names that case-insensitive APFS resolves onto an existing denied file:
+/// (variant name, existing denied file, that file's unique canary content).
+/// U+017F folds to ASCII 's', U+212A folds to ASCII 'k'; the `.ssh` pair
+/// shows the fold also applies to a directory component mid-path. This is
+/// observed filesystem behavior only — no admission expectation attaches.
+const APFS_FOLD_EQUIVALENCE_PAIRS: [(&str, &str, &str); 5] = [
     ("id_r\u{017F}a", "id_rsa", "CANARY-IDRSA"),
     (
         "credential\u{017F}.json",
@@ -75,7 +85,56 @@ const CONFIRMED_LONG_S_BYPASS_PAIRS: [(&str, &str, &str); 4] = [
     ),
     (".aw\u{017F}", ".aws", "CANARY-AWS"),
     (".\u{017F}\u{017F}h/config", ".ssh/config", "CANARY-SSHCONF"),
+    ("host.\u{212A}ey", "host.key", "CANARY-HOSTKEY"),
 ];
+
+#[test]
+fn fold_pairs_resolve_onto_their_existing_files_on_case_insensitive_volumes() {
+    let fixture = fixture_with_mode_probe(&[
+        ("id_rsa", "CANARY-IDRSA"),
+        ("credentials.json", "CANARY-CREDS"),
+        (".aws", "CANARY-AWS"),
+        (".ssh/config", "CANARY-SSHCONF"),
+        ("host.key", "CANARY-HOSTKEY"),
+    ]);
+    if !volume_is_case_insensitive(&fixture.root) {
+        return; // Fold behavior is a property of the case-insensitive mode.
+    }
+    for (variant, existing, content) in APFS_FOLD_EQUIVALENCE_PAIRS {
+        assert!(
+            opens_content(&fixture.root, variant, content),
+            "{variant} must resolve onto the existing file {existing} on this volume"
+        );
+    }
+}
+
+/// Security invariant: every variant that native resolution can deliver
+/// (proven above) must be denied by admission. Red on policy revision 1 by
+/// design — that is the documented macOS bypass — and green once the policy
+/// revision covers the fold; it stays in the normal (non-ignored) suite.
+#[test]
+fn every_resolvable_variant_of_a_denied_name_is_admission_denied() {
+    let fixture = fixture_with_mode_probe(&[
+        ("id_rsa", "CANARY-IDRSA"),
+        ("credentials.json", "CANARY-CREDS"),
+        (".aws", "CANARY-AWS"),
+        (".ssh/config", "CANARY-SSHCONF"),
+        ("host.key", "CANARY-HOSTKEY"),
+    ]);
+    if !volume_is_case_insensitive(&fixture.root) {
+        return; // The fold only delivers on the case-insensitive mode.
+    }
+    for (variant, existing, content) in APFS_FOLD_EQUIVALENCE_PAIRS {
+        assert!(
+            opens_content(&fixture.root, variant, content),
+            "precondition: {variant} resolves onto {existing} on this volume"
+        );
+        assert!(
+            production_sensitive_path(variant),
+            "{variant} resolves onto denied file {existing} ({content}) and must be denied"
+        );
+    }
+}
 
 #[test]
 fn ascii_case_variants_are_denied_and_open_the_same_file() {
@@ -109,105 +168,34 @@ fn normalization_forms_name_one_file_and_stay_denied() {
     assert!(production_sensitive_path(".env"));
 }
 
-/// U+212A folds to 'k' on case-insensitive APFS *and* in the policy: it has a
-/// canonical decomposition to ASCII, so NFC normalization denies it. Both
-/// layers agree; no bypass.
+/// Non-folding lookalikes name no existing file: each negative case is
+/// checked against its real target file and that target's unique canary
+/// (including the id_rsa fixture for the dotless-i / I-with-dot cases).
+/// No admission expectation attaches (a revision may intentionally
+/// over-deny); the security-relevant half is that nothing resolves.
 #[test]
-fn kelvin_sign_fold_is_covered_by_nfc_canonical_decomposition() {
-    let fixture = fixture_with_mode_probe(&[("host.key", "CANARY-HOSTKEY")]);
-    let variant = "host.\u{212A}ey";
-    if volume_is_case_insensitive(&fixture.root) {
-        assert!(
-            opens_content(&fixture.root, variant, "CANARY-HOSTKEY"),
-            "APFS must fold U+212A onto 'k' for this regression to stay meaningful"
-        );
-    }
-    assert!(
-        production_sensitive_path(variant),
-        "policy NFC must fold U+212A to 'k' and deny the .key suffix"
-    );
-}
-
-#[test]
-fn non_folding_lookalikes_open_no_file() {
-    let fixture = fixture_with_mode_probe(&[(".env", "CANARY-DOTENV"), (".aws", "CANARY-AWS")]);
-    for variant in [
-        // Fullwidth dot: compatibility character, NFC keeps it, APFS does not fold it.
-        ".\u{FF0E}env",
-        // Cyrillic homoglyph for 'e'.
-        ".\u{0435}nv",
-        // Greek final sigma and fullwidth 's' do not fold into ASCII 's'.
-        ".aw\u{03C2}",
-        ".aw\u{FF53}",
-        // Dotless i and I-with-dot do not fold into ASCII 'i'.
-        "\u{0131}d_rsa",
-        "\u{0130}D_RSA",
-    ] {
-        assert!(
-            !production_sensitive_path(variant),
-            "{variant} is not fold-equivalent to a deny name; policy must admit it"
-        );
-        assert!(
-            !opens_content(&fixture.root, variant, "CANARY-DOTENV"),
-            "{variant} must not open .env content"
-        );
-        assert!(
-            !opens_content(&fixture.root, variant, "CANARY-AWS"),
-            "{variant} must not open .aws content"
-        );
-    }
-}
-
-/// Pins the observed APFS fold behavior this regression is built on: on a
-/// case-insensitive volume the long-s variant resolves to the denied file
-/// while the frozen policy admits it (the confirmed macOS bypass). If macOS
-/// changes this folding, this test fails and the matrix must be re-derived.
-#[test]
-fn long_s_variants_reach_denied_content_on_case_insensitive_volumes() {
+fn non_folding_lookalikes_deliver_no_canary() {
     let fixture = fixture_with_mode_probe(&[
-        ("id_rsa", "CANARY-IDRSA"),
-        ("credentials.json", "CANARY-CREDS"),
+        (".env", "CANARY-DOTENV"),
         (".aws", "CANARY-AWS"),
-        (".ssh/config", "CANARY-SSHCONF"),
+        ("id_rsa", "CANARY-IDRSA"),
     ]);
     if !volume_is_case_insensitive(&fixture.root) {
-        return; // Fold behavior is a property of the case-insensitive mode.
+        return;
     }
-    for (variant, denied, content) in CONFIRMED_LONG_S_BYPASS_PAIRS {
+    // (variant, real target, that target's canary) — the variant opens none.
+    let cases: [(&str, &str, &str); 6] = [
+        (".\u{FF0E}env", ".env", "CANARY-DOTENV"),
+        (".\u{0435}nv", ".env", "CANARY-DOTENV"),
+        (".aw\u{03C2}", ".aws", "CANARY-AWS"),
+        (".aw\u{FF53}", ".aws", "CANARY-AWS"),
+        ("\u{0131}d_rsa", "id_rsa", "CANARY-IDRSA"),
+        ("\u{0130}D_RSA", "id_rsa", "CANARY-IDRSA"),
+    ];
+    for (variant, target, canary) in cases {
         assert!(
-            !production_sensitive_path(variant),
-            "{variant}: the frozen policy stopped admitting a long-s variant; \
-             close IGNORed admission-invariant test and re-derive the matrix"
-        );
-        assert!(
-            opens_content(&fixture.root, variant, content),
-            "{variant} stopped resolving to {denied}; re-derive the fold matrix"
-        );
-    }
-}
-
-/// Security invariant: whatever native resolution can deliver must be denied
-/// by admission. Currently VIOLATED by the long-s fold pairs (the policy
-/// admits what APFS resolves onto denied files), so this test is ignored
-/// until the frozen-policy owner (Linux) closes the gap. Run explicitly:
-/// `cargo test -p runne-daemon --test macos_apfs_admission_matrix -- --ignored`
-#[test]
-#[ignore = "known bypass: case-insensitive APFS folds U+017F into deny names the frozen policy admits (owned by the frozen-policy authority)"]
-fn every_resolvable_variant_of_a_denied_name_is_admission_denied() {
-    let fixture = fixture_with_mode_probe(&[
-        ("id_rsa", "CANARY-IDRSA"),
-        ("credentials.json", "CANARY-CREDS"),
-        (".aws", "CANARY-AWS"),
-        (".ssh/config", "CANARY-SSHCONF"),
-    ]);
-    if !volume_is_case_insensitive(&fixture.root) {
-        return; // Fold delivery requires the case-insensitive mode.
-    }
-    for (variant, denied, content) in CONFIRMED_LONG_S_BYPASS_PAIRS {
-        assert!(
-            production_sensitive_path(variant),
-            "{variant} resolves to denied file {denied} ({content}) on this volume \
-             and must be denied by admission"
+            !opens_content(&fixture.root, variant, canary),
+            "{variant} must not deliver {target} content"
         );
     }
 }
