@@ -66,7 +66,7 @@ impl FileIdentity {
 #[cfg(windows)]
 impl FileIdentity {
     pub const fn links(self) -> u64 {
-        u64::from(self.links)
+        self.links as u64
     }
 }
 
