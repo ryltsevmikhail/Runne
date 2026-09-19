@@ -68,7 +68,8 @@ pub(super) fn compose(
     protected_activation: bool,
     sessions: Arc<Mutex<LocalSessionService>>,
 ) -> CommandHosts {
-    let trust_gate = compose_trust_gate(canonical_db_path, runtime_authority_id, &prohibited_content);
+    let trust_gate =
+        compose_trust_gate(canonical_db_path, runtime_authority_id, &prohibited_content);
     let repository = ProjectWorkspaceStore::from_store(store.clone());
     let authority = root_admission_keys
         .filter(|_| protected_activation)

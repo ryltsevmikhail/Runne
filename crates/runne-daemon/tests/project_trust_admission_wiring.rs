@@ -7,17 +7,23 @@
 
 #![cfg(all(unix, feature = "desktop-protected", feature = "test-support"))]
 
-#[path = "project_trust_admission_wiring/harness.rs"]
-mod harness;
+#[path = "project_trust_admission_wiring/channels.rs"]
+mod channels;
 #[path = "project_trust_admission_wiring/diffs_canary.rs"]
 mod diffs_canary;
+#[path = "project_trust_admission_wiring/harness.rs"]
+mod harness;
+#[path = "project_trust_admission_wiring/nm_matrix.rs"]
+mod nm_matrix;
+#[path = "project_trust_admission_wiring/nm_restart.rs"]
+mod nm_restart;
 #[path = "project_trust_admission_wiring/trust_tokens.rs"]
 mod trust_tokens;
 
 use harness::*;
 use runne_api::{
-    EditorLaunchTargetV1, OpenEditorRequest, WorkspaceChangeListRequest, WorkspaceDiffReadRequest,
-    WorkspaceFileListRequest, WorkspaceFileReadRequest,
+    WorkspaceChangeListRequest, WorkspaceDiffReadRequest, WorkspaceFileListRequest,
+    WorkspaceFileReadRequest,
 };
 use runne_application::project_trust::SourceChannel;
 
@@ -39,22 +45,42 @@ fn untrusted_pre_read_is_zero_content_access() {
     bind_active_root(&fixture, &directory, workspace(), real_now());
 
     let files = &fixture;
-    let error = files.list_files(PRINCIPAL, &list(workspace(), "")).expect_err("untrusted list denied");
-    assert!(matches!(error, runne_api::WorkspaceFileHostError::Forbidden), "{error:?}");
+    let error = files
+        .list_files(PRINCIPAL, &list(workspace(), ""))
+        .expect_err("untrusted list denied");
+    assert!(
+        matches!(error, runne_api::WorkspaceFileHostError::Forbidden),
+        "{error:?}"
+    );
     let error = files
         .read_file(PRINCIPAL, &read(workspace(), "notes/plan.md"))
         .expect_err("untrusted read denied");
-    assert!(matches!(error, runne_api::WorkspaceFileHostError::Forbidden), "{error:?}");
+    assert!(
+        matches!(error, runne_api::WorkspaceFileHostError::Forbidden),
+        "{error:?}"
+    );
 
     let diffs = &fixture;
     let error = diffs
-        .list_changes(PRINCIPAL, &WorkspaceChangeListRequest::new(workspace(), 200).expect("changes"))
+        .list_changes(
+            PRINCIPAL,
+            &WorkspaceChangeListRequest::new(workspace(), 200).expect("changes"),
+        )
         .expect_err("untrusted diff listing denied");
-    assert!(matches!(error, runne_api::WorkspaceDiffHostError::Forbidden), "{error:?}");
+    assert!(
+        matches!(error, runne_api::WorkspaceDiffHostError::Forbidden),
+        "{error:?}"
+    );
     let error = diffs
-        .read_diff(PRINCIPAL, &WorkspaceDiffReadRequest::new(workspace(), "notes/plan.md").expect("diff"))
+        .read_diff(
+            PRINCIPAL,
+            &WorkspaceDiffReadRequest::new(workspace(), "notes/plan.md").expect("diff"),
+        )
         .expect_err("untrusted diff read denied");
-    assert!(matches!(error, runne_api::WorkspaceDiffHostError::Forbidden), "{error:?}");
+    assert!(
+        matches!(error, runne_api::WorkspaceDiffHostError::Forbidden),
+        "{error:?}"
+    );
 }
 
 #[test]
@@ -75,9 +101,16 @@ fn trusted_reads_nonsecret_file_and_lists() {
     let page = fixture
         .list_files(PRINCIPAL, &list(workspace(), ""))
         .expect("trusted listing");
-    let paths: Vec<&str> = page.items().iter().map(|entry| entry.relative_path()).collect();
+    let paths: Vec<&str> = page
+        .items()
+        .iter()
+        .map(|entry| entry.relative_path())
+        .collect();
     assert!(paths.contains(&"README.md"), "{paths:?}");
-    assert!(!paths.contains(&".env"), "frozen deny names stay hidden: {paths:?}");
+    assert!(
+        !paths.contains(&".env"),
+        "frozen deny names stay hidden: {paths:?}"
+    );
 }
 
 #[test]
@@ -137,7 +170,10 @@ fn managed_deny_mask_blocks_files_read_channel() {
     let error = files
         .read_file(PRINCIPAL, &read(workspace(), "notes/plan.md"))
         .expect_err("managed deny blocks the channel");
-    assert!(matches!(error, runne_api::WorkspaceFileHostError::Forbidden), "{error:?}");
+    assert!(
+        matches!(error, runne_api::WorkspaceFileHostError::Forbidden),
+        "{error:?}"
+    );
     files
         .list_files(PRINCIPAL, &list(workspace(), ""))
         .expect("listing channel is not masked");
@@ -178,42 +214,17 @@ fn revoke_before_read_denies_content_access() {
     let error = files
         .read_file(PRINCIPAL, &read(workspace(), "notes/plan.md"))
         .expect_err("revocation denies before read");
-    assert!(matches!(error, runne_api::WorkspaceFileHostError::Forbidden), "{error:?}");
+    assert!(
+        matches!(error, runne_api::WorkspaceFileHostError::Forbidden),
+        "{error:?}"
+    );
     let error = files
         .list_files(PRINCIPAL, &list(workspace(), ""))
         .expect_err("revocation denies listing too");
-    assert!(matches!(error, runne_api::WorkspaceFileHostError::Forbidden), "{error:?}");
-}
-
-#[test]
-fn fresh_workspace_in_ungranted_project_stays_denied() {
-    let (directory, path, store) = store();
-    seed_projects(&store);
-    seed_workspace_files(&directory);
-    let (trust_store, authority) = trust_composition(&path);
-    let fixture = fixture_with_trust(&store, authority, sessions());
-    let now = real_now();
-    bind_active_root(&fixture, &directory, workspace(), now);
-    bind_active_root(&fixture, &directory, workspace2(), now);
-    grant_trusted(&trust_store, project_trust_id(PROJECT));
-
-    let files = &fixture;
-    files
-        .read_file(PRINCIPAL, &read(workspace(), "notes/plan.md"))
-        .expect("granted project reads");
-    let error = files
-        .read_file(PRINCIPAL, &read(workspace2(), "notes/plan.md"))
-        .expect_err("fresh project is default-deny");
-    assert!(matches!(error, runne_api::WorkspaceFileHostError::Forbidden), "{error:?}");
-    let error = files
-        .list_files(PRINCIPAL, &list(workspace2(), ""))
-        .expect_err("no auto-trust compensation for fresh projects");
-    assert!(matches!(error, runne_api::WorkspaceFileHostError::Forbidden), "{error:?}");
-
-    grant_trusted(&trust_store, project_trust_id(PROJECT2));
-    fixture
-        .read_file(PRINCIPAL, &read(workspace2(), "notes/plan.md"))
-        .expect("explicit grant admits the fresh project");
+    assert!(
+        matches!(error, runne_api::WorkspaceFileHostError::Forbidden),
+        "{error:?}"
+    );
 }
 
 #[test]
@@ -229,7 +240,8 @@ fn symlink_escape_and_relative_paths_remain_contained() {
     let outside = tempfile::tempdir().expect("outside dir");
     let outside_secret = outside.path().join("outside-secret.txt");
     std::fs::write(&outside_secret, format!("OUTSIDE {CANARY}\n")).expect("outside canary");
-    std::os::unix::fs::symlink(&outside_secret, directory.path().join("leak.txt")).expect("symlink");
+    std::os::unix::fs::symlink(&outside_secret, directory.path().join("leak.txt"))
+        .expect("symlink");
 
     let error = fixture
         .read_file(PRINCIPAL, &read(workspace(), "leak.txt"))
@@ -245,27 +257,3 @@ fn symlink_escape_and_relative_paths_remain_contained() {
         Err(runne_api::WorkspaceFileHostError::InvalidPath)
     ));
 }
-
-#[test]
-fn editor_denies_untrusted_before_launch() {
-    let (directory, path, store) = store();
-    seed_projects(&store);
-    seed_workspace_files(&directory);
-    let (_trust_store, authority) = trust_composition(&path);
-    let fixture = fixture_with_trust(&store, authority, sessions());
-    bind_active_root(&fixture, &directory, workspace(), real_now());
-
-    let request = |path: &str| {
-        OpenEditorRequest::new(workspace(), path, EditorLaunchTargetV1::SystemDefault)
-            .expect("editor request")
-    };
-    let error = fixture
-        .open_editor(PRINCIPAL, &request("notes/plan.md"))
-        .expect_err("editor denied for untrusted project before any launch");
-    assert!(matches!(error, runne_api::WorkspaceEditorHostError::Forbidden), "{error:?}");
-    let error = fixture
-        .open_editor(PRINCIPAL, &request(".env"))
-        .expect_err("frozen deny names never reach the editor");
-    assert!(matches!(error, runne_api::WorkspaceEditorHostError::Forbidden), "{error:?}");
-}
-

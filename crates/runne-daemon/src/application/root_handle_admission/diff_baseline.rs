@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use runne_api::WorkspaceChangeKind;
-use runne_platform_desktop::{RootHandleBrokerError, RootFileKind, VerifiedRootHandle};
+use runne_platform_desktop::{RootFileKind, RootHandleBrokerError, VerifiedRootHandle};
 
 const MAX_BASELINE_FILE_BYTES: usize = 256 * 1024;
 const MAX_BASELINE_BYTES: usize = 8 * runne_api::MAX_WORKSPACE_DIFF_BYTES;
@@ -18,9 +18,7 @@ const MAX_BASELINE_ENTRIES: usize = runne_api::MAX_WORKSPACE_CHANGE_ENTRIES;
 #[derive(Clone)]
 pub(super) enum WorkspaceBaseline {
     /// Approved capture taken while trust admitted the FilesList channel.
-    Captured {
-        files: BTreeMap<String, String>,
-    },
+    Captured { files: BTreeMap<String, String> },
     /// No approved capture exists (untrusted or fail-closed bind).
     Unverified,
 }
@@ -82,10 +80,9 @@ pub(super) fn capture_text_files(
             match entry.kind() {
                 RootFileKind::Directory => directories.push(entry.relative_path().to_owned()),
                 RootFileKind::File if entry.size_bytes() <= MAX_BASELINE_FILE_BYTES as u64 => {
-                    if let Ok(content) = root.read_text_relative(
-                        entry.relative_path(),
-                        MAX_BASELINE_FILE_BYTES,
-                    ) {
+                    if let Ok(content) =
+                        root.read_text_relative(entry.relative_path(), MAX_BASELINE_FILE_BYTES)
+                    {
                         let next = bytes.saturating_add(content.len());
                         if next <= MAX_BASELINE_BYTES {
                             bytes = next;
@@ -115,7 +112,10 @@ pub(super) fn changed_files<'a>(
         })
 }
 
-pub(super) fn change_summary(before: Option<&String>, after: Option<&String>) -> (WorkspaceChangeKind, u32, u32) {
+pub(super) fn change_summary(
+    before: Option<&String>,
+    after: Option<&String>,
+) -> (WorkspaceChangeKind, u32, u32) {
     let kind = match (before, after) {
         (None, Some(_)) => WorkspaceChangeKind::Added,
         (Some(_), None) => WorkspaceChangeKind::Deleted,
@@ -124,7 +124,11 @@ pub(super) fn change_summary(before: Option<&String>, after: Option<&String>) ->
     };
     let deletions = before.map_or(0, |value| value.lines().count());
     let additions = after.map_or(0, |value| value.lines().count());
-    (kind, u32::try_from(additions).unwrap_or(u32::MAX), u32::try_from(deletions).unwrap_or(u32::MAX))
+    (
+        kind,
+        u32::try_from(additions).unwrap_or(u32::MAX),
+        u32::try_from(deletions).unwrap_or(u32::MAX),
+    )
 }
 
 #[cfg(test)]
@@ -138,7 +142,8 @@ mod tests {
         std::fs::create_dir(directory.path().join("src")).expect("source directory");
         std::fs::write(directory.path().join("src/README.md"), "hello\n").expect("text file");
         std::fs::write(directory.path().join(".env"), "TOKEN=secret\n").expect("secret file");
-        std::fs::write(directory.path().join("image.bin"), [0, 159, 146, 150]).expect("binary file");
+        std::fs::write(directory.path().join("image.bin"), [0, 159, 146, 150])
+            .expect("binary file");
         let canonical = std::fs::canonicalize(directory.path()).expect("canonical root path");
         let root = VerifiedRootHandle::open(&canonical).expect("verified root");
         let snapshot = capture_text_files(&root).expect("baseline snapshot");

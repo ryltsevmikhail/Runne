@@ -26,10 +26,10 @@ include!("root_handle_admission/process.rs");
 include!("root_handle_admission/verdict.rs");
 mod diff_baseline;
 mod trust_gate;
-pub(crate) use trust_gate::TrustGate;
 use diff_baseline::{
-    capture_text_files, changed_files, change_summary, sensitive_path, WorkspaceBaseline,
+    WorkspaceBaseline, capture_text_files, change_summary, changed_files, sensitive_path,
 };
+pub(crate) use trust_gate::TrustGate;
 use trust_gate::TrustSourceError;
 #[derive(Clone)]
 pub(crate) struct RootAdmissionGateway(Option<Arc<RootHandleAdmissionAuthority>>);

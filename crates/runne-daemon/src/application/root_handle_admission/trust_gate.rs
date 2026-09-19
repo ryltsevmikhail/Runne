@@ -9,12 +9,10 @@
 
 use std::sync::Arc;
 
-use runne_application::ports::{
-    ProjectWorkspaceRepository, ProjectWorkspaceRepositoryError,
-};
+use runne_application::ports::{ProjectWorkspaceRepository, ProjectWorkspaceRepositoryError};
 use runne_application::project_trust::{
-    PermissionMode, ProjectTrustProjectId, SourceAdmission, SourceAdmissionRequest,
-    SourceChannel, TrustAdmissionError,
+    PermissionMode, ProjectTrustProjectId, SourceAdmission, SourceAdmissionRequest, SourceChannel,
+    TrustAdmissionError,
 };
 use runne_domain::id::WorkspaceId;
 use runne_platform_desktop::VerifiedRootHandle;
@@ -141,7 +139,7 @@ impl RootHandleAdmissionAuthority {
     /// baseline — the workspace is not pre-read at bind time, and diffs stay
     /// denied instead of fabricating a plausible empty-baseline diff. Only an
     /// approved capture (admission of the FilesList channel) reads content.
-    pub(crate) fn trust_gated_baseline(
+    pub(super) fn trust_gated_baseline(
         &self,
         workspace_id: WorkspaceId,
         root: &VerifiedRootHandle,

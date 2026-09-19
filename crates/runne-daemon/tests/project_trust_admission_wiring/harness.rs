@@ -9,17 +9,17 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use runne_api::{
-    LaunchSecret, ProtectedActivationKeys, RootHandleTransferAuthenticator,
-    RootHandleTransferContext, RootHandleTransferOffer, RootAdmissionVerificationContext,
+    LaunchSecret, ProtectedActivationKeys, RootAdmissionVerificationContext,
+    RootHandleTransferAuthenticator, RootHandleTransferContext, RootHandleTransferOffer,
     RuntimeSessionBinding, StableRuntimeBinding, WorkspaceId,
 };
 use runne_application::local_session::LocalSessionService;
 use runne_application::ports::{ProjectWorkspaceRepository, RuntimeAuthorityId};
+use runne_application::prohibited_content::ProhibitedContentPort;
 use runne_application::project_trust::{
     ProjectTrustPersistence, ProjectTrustProjectId, ProjectTrustRecord, ProjectTrustStatus,
     TrustToken,
 };
-use runne_application::prohibited_content::ProhibitedContentPort;
 use runne_daemon::application::root_admission_authority_fixture::RootAdmissionAuthorityFixture;
 use runne_domain::event::Sensitivity;
 use runne_domain::id::{CommandId, DaemonInstanceId, EventLogLineageId, IdempotencyKey, ProjectId};
@@ -33,14 +33,11 @@ pub(super) const AUTHORITY_NAME: &str = "t1-trust-wiring";
 /// Sidecar authority identity (daemon passes `bootstrap.authority_id` here).
 pub(super) const SIDECAR_AUTHORITY: [u8; 16] =
     [0, 0, 0, 0, 0, 0, 0x71, 0, 0x80, 0, 0, 0, 0, 0, 0, 1];
-pub(super) const SESSION: [u8; 16] =
-    [0, 0, 0, 0, 0, 0, 0x71, 0, 0x80, 0, 0, 0, 0, 0, 0, 4];
+pub(super) const SESSION: [u8; 16] = [0, 0, 0, 0, 0, 0, 0x71, 0, 0x80, 0, 0, 0, 0, 0, 0, 4];
 pub(super) const PROJECT: &str = "018f47a2-4f8c-7b52-8c35-7a3a14c2d9e1";
 pub(super) const PROJECT2: &str = "018f47a2-4f8c-7b52-8c35-7a3a14c2d9e2";
-pub(super) const WORKSPACE: [u8; 16] =
-    [0, 0, 0, 0, 0, 0, 0x71, 0, 0x80, 0, 0, 0, 0, 0, 0, 6];
-pub(super) const WORKSPACE2: [u8; 16] =
-    [0, 0, 0, 0, 0, 0, 0x71, 0, 0x80, 0, 0, 0, 0, 0, 0, 7];
+pub(super) const WORKSPACE: [u8; 16] = [0, 0, 0, 0, 0, 0, 0x71, 0, 0x80, 0, 0, 0, 0, 0, 0, 6];
+pub(super) const WORKSPACE2: [u8; 16] = [0, 0, 0, 0, 0, 0, 0x71, 0, 0x80, 0, 0, 0, 0, 0, 0, 7];
 pub(super) const PRINCIPAL: &str = "local-owner";
 /// Synthetic canary marker only (never a real secret).
 pub(super) const CANARY: &str = "RUNNE_T1_FAKE_CANARY_zq71";
@@ -93,7 +90,11 @@ pub(super) fn project_trust_id(raw: &str) -> ProjectTrustProjectId {
     ProjectTrustProjectId::from_bytes(*raw.parse::<ProjectId>().expect("project id").as_bytes())
 }
 
-pub(super) fn offer(keys: &ProtectedActivationKeys, ws: WorkspaceId, now: u64) -> RootHandleTransferOffer {
+pub(super) fn offer(
+    keys: &ProtectedActivationKeys,
+    ws: WorkspaceId,
+    now: u64,
+) -> RootHandleTransferOffer {
     let context = RootHandleTransferContext::new(
         SIDECAR_AUTHORITY,
         SESSION,
@@ -112,6 +113,7 @@ pub(super) fn offer(keys: &ProtectedActivationKeys, ws: WorkspaceId, now: u64) -
     RootHandleTransferOffer::new(context, 1, &authenticator).expect("offer")
 }
 
+#[allow(dead_code)] // used by sibling admission targets sharing this harness family
 pub(super) fn claims_context(now: u64) -> RootAdmissionVerificationContext {
     RootAdmissionVerificationContext::new(
         RootAdmissionVerificationContext::authority_digest_for(AUTHORITY_NAME),
@@ -198,7 +200,12 @@ pub(super) fn grant_trusted(
 ) -> ProjectTrustRecord {
     let epoch = store.instance_epoch().expect("epoch");
     store
-        .commit(project, ProjectTrustStatus::Trusted, 0, TrustToken::new(epoch, 0))
+        .commit(
+            project,
+            ProjectTrustStatus::Trusted,
+            0,
+            TrustToken::new(epoch, 0),
+        )
         .expect("grant")
 }
 
@@ -221,9 +228,13 @@ pub(super) fn load_record(
     store.load(project).expect("trust load")
 }
 
-pub(super) fn root_handle(directory: &tempfile::TempDir) -> runne_platform_desktop::VerifiedRootHandle {
-    runne_platform_desktop::VerifiedRootHandle::open(&std::fs::canonicalize(directory.path()).expect("canonical"))
-        .expect("root handle")
+pub(super) fn root_handle(
+    directory: &tempfile::TempDir,
+) -> runne_platform_desktop::VerifiedRootHandle {
+    runne_platform_desktop::VerifiedRootHandle::open(
+        &std::fs::canonicalize(directory.path()).expect("canonical"),
+    )
+    .expect("root handle")
 }
 
 /// Workspace fixture data: one non-secret canary file plus frozen deny names.
@@ -261,5 +272,12 @@ pub(super) fn bind_active_root(
     let issued = fixture
         .issue(&offer(&keys(), ws, now), root_handle(directory), now)
         .expect("issue admission");
-    fixture.verify(issued.admission).expect("verify activates root");
+    let claims = fixture
+        .verify(issued.admission)
+        .expect("verify activates root");
+    // Serving state is promoted only by the consuming command's durable
+    // confirm; the bind flow is that command in these fixtures.
+    fixture
+        .confirm_root_admission(&claims)
+        .expect("confirm promotes the root");
 }

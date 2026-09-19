@@ -80,7 +80,9 @@ async fn bind_at(
 fn list_paths(authority: &RootAdmissionAuthorityFixture) -> Vec<String> {
     let request =
         WorkspaceFileListRequest::new(fixture::workspace(), "", 50).expect("list request");
-    let page = authority.list_files(&request).expect("bound root lists");
+    let page = authority
+        .list_files(fixture::PRINCIPAL, &request)
+        .expect("bound root lists");
     page.items()
         .iter()
         .map(|entry| entry.relative_path().to_owned())
@@ -92,12 +94,14 @@ fn list_paths(authority: &RootAdmissionAuthorityFixture) -> Vec<String> {
 // keep serving file reads (including the empty root listing path) there.
 #[tokio::test]
 async fn bound_root_lists_its_files_after_the_bind_advances_the_version() {
-    let (_directory, _path, store) = fixture::store();
+    let (_directory, path, store) = fixture::store();
     let root_dir = tempfile::tempdir().expect("workspace root");
     std::fs::write(root_dir.path().join("pr24-open.txt"), b"marker").expect("marker file");
     fixture::seed_workspace(&store);
     let sessions = Arc::new(Mutex::new(fixture::session_service(fixture::SESSION)));
-    let authority = fixture::fixture(store, sessions);
+    let (_trust_store, trust) = fixture::trust_composition(&path);
+    fixture::grant_trusted(&_trust_store);
+    let authority = fixture::fixture_with_trust(store, sessions, trust);
     let issued = authority
         .issue(
             &offer_at_version(&fixture::keys(), fixture::workspace(), 1, real_now()),
@@ -110,7 +114,9 @@ async fn bound_root_lists_its_files_after_the_bind_advances_the_version() {
         .expect("bind accepted");
     let request =
         WorkspaceFileListRequest::new(fixture::workspace(), "", 50).expect("list request");
-    let page = authority.list_files(&request).expect("bound root lists");
+    let page = authority
+        .list_files(fixture::PRINCIPAL, &request)
+        .expect("bound root lists");
     let paths: Vec<&str> = page
         .items()
         .iter()
@@ -125,14 +131,16 @@ async fn bound_root_lists_its_files_after_the_bind_advances_the_version() {
 // restoring it (the >= currency check assumes this invalidation exists).
 #[tokio::test]
 async fn rebinding_replaces_the_served_root_and_stale_admissions_cannot_restore_it() {
-    let (_directory, _path, store) = fixture::store();
+    let (_directory, path, store) = fixture::store();
     let root_a = tempfile::tempdir().expect("root A");
     std::fs::write(root_a.path().join("a.txt"), b"a").expect("marker a");
     let root_b = tempfile::tempdir().expect("root B");
     std::fs::write(root_b.path().join("b.txt"), b"b").expect("marker b");
     fixture::seed_workspace(&store);
     let sessions = Arc::new(Mutex::new(fixture::session_service(fixture::SESSION)));
-    let authority = fixture::fixture(store, sessions);
+    let (_trust_store, trust) = fixture::trust_composition(&path);
+    fixture::grant_trusted(&_trust_store);
+    let authority = fixture::fixture_with_trust(store, sessions, trust);
     let now = real_now();
 
     // Three admissions for folder A at v1; only the first is ever bound.

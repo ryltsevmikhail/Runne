@@ -31,7 +31,10 @@ fn stale_revision_and_foreign_epoch_tokens_fail_closed() {
     // The composition authority itself rejects stale/foreign tokens even under
     // the strongest permission-mode claim.
     authority
-        .admit_source(project_trust_id(PROJECT), request(Some(granted.token()), PermissionMode::FullAccess))
+        .admit_source(
+            project_trust_id(PROJECT),
+            request(Some(granted.token()), PermissionMode::FullAccess),
+        )
         .expect("current token admits");
 
     let revoked = commit_status(
@@ -42,25 +45,43 @@ fn stale_revision_and_foreign_epoch_tokens_fail_closed() {
         granted.token(),
     );
     let error = authority
-        .admit_source(project_trust_id(PROJECT), request(Some(granted.token()), PermissionMode::FullAccess))
+        .admit_source(
+            project_trust_id(PROJECT),
+            request(Some(granted.token()), PermissionMode::FullAccess),
+        )
         .expect_err("stale token fails closed");
     assert_eq!(
         error,
-        TrustAdmissionError::StaleRevision { observed: granted.revision, current: revoked.revision }
+        TrustAdmissionError::StaleRevision {
+            observed: granted.revision,
+            current: revoked.revision
+        }
     );
-    let foreign = runne_application::project_trust::TrustToken::new(granted.instance_epoch + 1, revoked.revision);
+    let foreign = runne_application::project_trust::TrustToken::new(
+        granted.instance_epoch + 1,
+        revoked.revision,
+    );
     let error = authority
-        .admit_source(project_trust_id(PROJECT), request(Some(foreign), PermissionMode::FullAccess))
+        .admit_source(
+            project_trust_id(PROJECT),
+            request(Some(foreign), PermissionMode::FullAccess),
+        )
         .expect_err("foreign epoch fails closed");
-    assert_eq!(error, TrustAdmissionError::ForeignEpoch {
-        observed_epoch: foreign.instance_epoch,
-        current_epoch: revoked.instance_epoch,
-    });
+    assert_eq!(
+        error,
+        TrustAdmissionError::ForeignEpoch {
+            observed_epoch: foreign.instance_epoch,
+            current_epoch: revoked.instance_epoch,
+        }
+    );
 
     let error = fixture
         .read_file(PRINCIPAL, &read(workspace(), "notes/plan.md"))
         .expect_err("gateway reads fresh durable state, not client tokens");
-    assert!(matches!(error, runne_api::WorkspaceFileHostError::Forbidden), "{error:?}");
+    assert!(
+        matches!(error, runne_api::WorkspaceFileHostError::Forbidden),
+        "{error:?}"
+    );
 }
 
 #[test]
@@ -89,7 +110,10 @@ fn sidecar_recreation_defaults_deny_without_resurrection() {
     let error = fixture
         .read_file(PRINCIPAL, &read(workspace(), "notes/plan.md"))
         .expect_err("fresh sidecar defaults to deny");
-    assert!(matches!(error, runne_api::WorkspaceFileHostError::Forbidden), "{error:?}");
+    assert!(
+        matches!(error, runne_api::WorkspaceFileHostError::Forbidden),
+        "{error:?}"
+    );
 
     let error = authority
         .admit_source(
@@ -102,7 +126,10 @@ fn sidecar_recreation_defaults_deny_without_resurrection() {
             },
         )
         .expect_err("old-epoch token stays foreign after recreation");
-    assert!(matches!(error, TrustAdmissionError::ForeignEpoch { .. }), "{error:?}");
+    assert!(
+        matches!(error, TrustAdmissionError::ForeignEpoch { .. }),
+        "{error:?}"
+    );
 
     grant_trusted(&trust_store, project_trust_id(PROJECT));
     fixture
@@ -127,11 +154,14 @@ fn composition_authority_exposes_single_policy_version() {
         )
         .expect_err("absent project row is the untrusted default");
     // Fresh authority load: absent row -> untrusted default deny.
-    assert!(matches!(
-        admission,
-        TrustAdmissionError::DeniedByPolicy {
-            reason: runne_application::project_trust::SourceDenyReason::Untrusted
-        }
-    ), "{admission:?}");
+    assert!(
+        matches!(
+            admission,
+            TrustAdmissionError::DeniedByPolicy {
+                reason: runne_application::project_trust::SourceDenyReason::Untrusted
+            }
+        ),
+        "{admission:?}"
+    );
     let _policy: &ProjectTrustPolicyAuthority = &authority;
 }

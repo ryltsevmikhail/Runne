@@ -20,9 +20,7 @@ use runne_platform_desktop::VerifiedRootHandle;
 use runne_security::project_trust_policy::ProjectTrustPolicyAuthority;
 use runne_store::ProjectWorkspaceStore;
 
-use super::root_handle_admission::{
-    PRINCIPAL, RootAdmissionGateway, RootHandleAdmissionAuthority, TrustGate,
-};
+use super::root_handle_admission::{RootAdmissionGateway, RootHandleAdmissionAuthority, TrustGate};
 
 /// A daemon-issued admission plus every binding the daemon retained for it.
 pub struct IssuedTestAdmission {
@@ -57,7 +55,13 @@ impl RootAdmissionAuthorityFixture {
         runtime_authority: String,
         sessions: Arc<Mutex<LocalSessionService>>,
     ) -> Self {
-        Self::assemble(keys, store, runtime_authority, sessions, TrustGate::closed())
+        Self::assemble(
+            keys,
+            store,
+            runtime_authority,
+            sessions,
+            TrustGate::closed(),
+        )
     }
 
     /// Composes the authority with the runtime-owned T1 trust gate installed.
@@ -227,13 +231,5 @@ impl RootAdmissionAuthorityFixture {
         request: BindWorkspaceRootCommand,
     ) -> Result<WorkspaceCommandAck, ProjectWorkspaceHostError> {
         self.bind_host.bind_workspace_root(command, request).await
-    }
-
-    /// Lists one file page through the bound gateway, as the file host would.
-    pub fn list_files(
-        &self,
-        request: &runne_api::WorkspaceFileListRequest,
-    ) -> Result<runne_api::WorkspaceFilePage, runne_api::WorkspaceFileHostError> {
-        self.gateway.list_files(PRINCIPAL, request)
     }
 }

@@ -19,8 +19,13 @@ impl RootAdmissionHarness {
         runtime_authority: String,
         sessions: Arc<Mutex<LocalSessionService>>,
     ) -> Self {
-        let authority =
-            RootHandleAdmissionAuthority::new(keys, store, runtime_authority, sessions, TrustGate::closed());
+        let authority = RootHandleAdmissionAuthority::new(
+            keys,
+            store,
+            runtime_authority,
+            sessions,
+            TrustGate::closed(),
+        );
         Self { authority }
     }
 

@@ -18,38 +18,78 @@ fn diffs_denied_until_trusted_baseline_capture() {
 
     let diffs = &fixture;
     let error = diffs
-        .list_changes(PRINCIPAL, &WorkspaceChangeListRequest::new(workspace(), 200).expect("changes"))
+        .list_changes(
+            PRINCIPAL,
+            &WorkspaceChangeListRequest::new(workspace(), 200).expect("changes"),
+        )
         .expect_err("diffs denied before trusted capture");
-    assert!(matches!(error, runne_api::WorkspaceDiffHostError::Forbidden), "{error:?}");
+    assert!(
+        matches!(error, runne_api::WorkspaceDiffHostError::Forbidden),
+        "{error:?}"
+    );
 
     grant_trusted(&trust_store, project_trust_id(PROJECT));
     fixture
         .read_file(PRINCIPAL, &read(workspace(), "notes/plan.md"))
         .expect("files read from fresh durable state");
     let error = diffs
-        .list_changes(PRINCIPAL, &WorkspaceChangeListRequest::new(workspace(), 200).expect("changes"))
+        .list_changes(
+            PRINCIPAL,
+            &WorkspaceChangeListRequest::new(workspace(), 200).expect("changes"),
+        )
         .expect_err("an unverified baseline never fabricates a plausible diff");
-    assert!(matches!(error, runne_api::WorkspaceDiffHostError::Forbidden), "{error:?}");
+    assert!(
+        matches!(error, runne_api::WorkspaceDiffHostError::Forbidden),
+        "{error:?}"
+    );
     let error = diffs
-        .read_diff(PRINCIPAL, &WorkspaceDiffReadRequest::new(workspace(), "notes/plan.md").expect("diff"))
+        .read_diff(
+            PRINCIPAL,
+            &WorkspaceDiffReadRequest::new(workspace(), "notes/plan.md").expect("diff"),
+        )
         .expect_err("diff read stays denied until an approved capture exists");
-    assert!(matches!(error, runne_api::WorkspaceDiffHostError::Forbidden), "{error:?}");
+    assert!(
+        matches!(error, runne_api::WorkspaceDiffHostError::Forbidden),
+        "{error:?}"
+    );
 
     // A re-bind while trusted performs the approved baseline capture.
     bind_active_root(&fixture, &directory, workspace(), real_now());
-    std::fs::write(directory.path().join("notes/plan.md"), format!("plan changed {CANARY}\n")).expect("edit");
+    std::fs::write(
+        directory.path().join("notes/plan.md"),
+        format!("plan changed {CANARY}\n"),
+    )
+    .expect("edit");
     let changes = diffs
-        .list_changes(PRINCIPAL, &WorkspaceChangeListRequest::new(workspace(), 200).expect("changes"))
+        .list_changes(
+            PRINCIPAL,
+            &WorkspaceChangeListRequest::new(workspace(), 200).expect("changes"),
+        )
         .expect("captured baseline serves diffs");
     assert!(
-        changes.entries().iter().any(|entry| entry.path() == "notes/plan.md"),
+        changes
+            .entries()
+            .iter()
+            .any(|entry| entry.path() == "notes/plan.md"),
         "{:?}",
-        changes.entries().iter().map(|entry| entry.path().to_owned()).collect::<Vec<_>>()
+        changes
+            .entries()
+            .iter()
+            .map(|entry| entry.path().to_owned())
+            .collect::<Vec<_>>()
     );
     let diff = diffs
-        .read_diff(PRINCIPAL, &WorkspaceDiffReadRequest::new(workspace(), "notes/plan.md").expect("diff"))
+        .read_diff(
+            PRINCIPAL,
+            &WorkspaceDiffReadRequest::new(workspace(), "notes/plan.md").expect("diff"),
+        )
         .expect("diff read after approved capture");
-    assert!(diff.hunks()[0].lines().iter().any(|line| line.text().contains(CANARY)));
+    assert!(
+        diff.hunks()[0]
+            .lines()
+            .iter()
+            .any(|line| line.text().contains(CANARY))
+    );
 }
 
 /// Canary: while trusted, a secret planted into the frozen-deny `.env` after
@@ -65,21 +105,38 @@ fn trusted_rebind_baseline_excludes_secret_canary_from_diffs() {
     grant_trusted(&trust_store, project_trust_id(PROJECT));
     bind_active_root(&fixture, &directory, workspace(), real_now());
 
-    std::fs::write(directory.path().join(".env"), format!("TOKEN={CANARY}\n")).expect("edit secret");
+    std::fs::write(directory.path().join(".env"), format!("TOKEN={CANARY}\n"))
+        .expect("edit secret");
 
     let diffs = &fixture;
     let changes = diffs
-        .list_changes(PRINCIPAL, &WorkspaceChangeListRequest::new(workspace(), 200).expect("changes"))
+        .list_changes(
+            PRINCIPAL,
+            &WorkspaceChangeListRequest::new(workspace(), 200).expect("changes"),
+        )
         .expect("captured baseline serves diffs");
     assert!(
         !changes.entries().iter().any(|entry| entry.path() == ".env"),
         "frozen deny names never surface as changes: {:?}",
-        changes.entries().iter().map(|entry| entry.path().to_owned()).collect::<Vec<_>>()
+        changes
+            .entries()
+            .iter()
+            .map(|entry| entry.path().to_owned())
+            .collect::<Vec<_>>()
     );
 
     let error = diffs
-        .read_diff(PRINCIPAL, &WorkspaceDiffReadRequest::new(workspace(), ".env").expect("diff"))
+        .read_diff(
+            PRINCIPAL,
+            &WorkspaceDiffReadRequest::new(workspace(), ".env").expect("diff"),
+        )
         .expect_err("frozen deny names are denied on diff reads");
-    assert!(matches!(error, runne_api::WorkspaceDiffHostError::Forbidden), "{error:?}");
-    assert!(!format!("{error:?}").contains(CANARY), "no canary text in the denial");
+    assert!(
+        matches!(error, runne_api::WorkspaceDiffHostError::Forbidden),
+        "{error:?}"
+    );
+    assert!(
+        !format!("{error:?}").contains(CANARY),
+        "no canary text in the denial"
+    );
 }

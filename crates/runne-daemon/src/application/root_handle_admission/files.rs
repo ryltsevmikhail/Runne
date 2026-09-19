@@ -68,14 +68,6 @@ impl WorkspaceFileProvider for RootAdmissionGateway {
     }
 }
 
-fn active_root_is_current(workspace_version: u64, admitted_version: u64) -> bool {
-    workspace_version == admitted_version
-}
-
-fn sensitive_path(path: &str) -> bool {
-    path.split('/').any(|part| matches!(part, ".git" | ".ssh" | ".env") || part.ends_with(".key") || part.ends_with(".pem"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::active_root_is_current;
