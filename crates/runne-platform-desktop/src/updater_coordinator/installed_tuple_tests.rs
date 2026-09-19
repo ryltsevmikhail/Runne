@@ -52,6 +52,10 @@ fn installed_tuple_admission_rejects_non_current_or_substituted_artifacts() {
         .is_none());
 }
 
+// The retained-paths fixture requires the unix-only macOS-bundle admission;
+// the expiry/trust contract itself keeps cross-platform coverage through the
+// digest-based admission and revalidation tests in this file.
+#[cfg(unix)]
 #[test]
 fn prepared_enrollment_refresh_rejects_expiry_and_advanced_trust() {
     let directory = tempfile::tempdir().unwrap();
@@ -97,6 +101,7 @@ fn confirmed_enrollment_revalidation_is_atomic_against_expiry_and_trust() {
         .unwrap());
 }
 
+#[cfg(unix)]
 fn retained_prepared(
     directory: &std::path::Path,
     verified: &crate::VerifiedUpdateV2,

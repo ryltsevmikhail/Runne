@@ -76,3 +76,15 @@ fn replacement_at_same_path_is_detected() {
     std::fs::write(&path, b"replacement").unwrap();
     assert!(!opened.matches_file(&open_regular_file(&path).unwrap()).unwrap());
 }
+
+#[cfg(windows)]
+#[test]
+fn measured_digest_and_read_bytes_follow_the_file_content() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("role");
+    std::fs::write(&path, b"measured payload").unwrap();
+    let opened = OpenedNativeEnrollmentFile::new(open_regular_file(&path).unwrap()).unwrap();
+    let digest = opened.measure().unwrap();
+    assert_eq!(digest, hex::encode(Sha256::digest(b"measured payload")));
+    assert_eq!(opened.read_bytes(1024).unwrap(), b"measured payload");
+}

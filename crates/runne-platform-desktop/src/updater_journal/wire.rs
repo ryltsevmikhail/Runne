@@ -1,3 +1,6 @@
+#[cfg(windows)]
+use std::fs::OpenOptions;
+#[cfg(not(windows))]
 use std::fs::{self, File, OpenOptions};
 use std::io::Read;
 use std::path::{Path, PathBuf};
