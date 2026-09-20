@@ -140,6 +140,8 @@ mod begin;
 mod begin_admission;
 #[path = "tests/begin_admission_support.rs"]
 pub(crate) mod begin_admission_support;
+// Races the unix broker rendezvous reservation transport.
+#[cfg(unix)]
 #[path = "tests/begin_race.rs"]
 mod begin_race;
 mod broker;
@@ -152,6 +154,8 @@ mod broker_publication;
 pub(crate) mod broker_recovery_issue;
 #[path = "tests/broker_support.rs"]
 mod broker_support;
+// Drives begin through the unix broker rendezvous host flow.
+#[cfg(unix)]
 mod host;
 pub(super) mod recovery;
 // This module drives the real SQLite store through runne-store's

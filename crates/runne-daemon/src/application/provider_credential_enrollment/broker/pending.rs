@@ -3,6 +3,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[cfg(unix)]
+use runne_api::ProviderCredentialBrokerHandoffWitness;
 #[cfg(any(
     all(test, unix),
     all(
@@ -13,9 +15,11 @@ use std::{
 ))]
 use runne_api::ProviderCredentialBrokerTransferAuthority;
 use runne_api::{
-    ProviderCredentialBaseRequestAuthority, ProviderCredentialBrokerHandoffWitness,
-    ProviderCredentialEnrollmentHostError, ProviderCredentialIntentConsumptionProof,
+    ProviderCredentialBaseRequestAuthority, ProviderCredentialEnrollmentHostError,
+    ProviderCredentialIntentConsumptionProof,
 };
+#[cfg(unix)]
+use runne_provider::CredentialOperationSnapshot;
 #[cfg(any(
     all(test, unix),
     all(
@@ -27,12 +31,11 @@ use runne_api::{
 use runne_provider::CredentialOperationState;
 use runne_provider::{
     CredentialBindingDigest, CredentialInstallationOwnerId, CredentialOperationId,
-    CredentialOperationSnapshot,
 };
 
-use super::super::{
-    ProviderCredentialEffectAuthority, operation_handle::ProviderCredentialOperationHandleIssuer,
-};
+#[cfg(unix)]
+use super::super::ProviderCredentialEffectAuthority;
+use super::super::operation_handle::ProviderCredentialOperationHandleIssuer;
 #[cfg(any(
     all(test, unix),
     all(
@@ -44,6 +47,7 @@ use super::super::{
 pub(crate) mod recovery;
 mod reservation;
 pub(in crate::application::provider_credential_enrollment::broker) use reservation::PendingBrokerRendezvousBinding;
+#[cfg(unix)]
 use reservation::ReservedTransitionRendezvous;
 
 #[cfg(any(
@@ -104,6 +108,7 @@ impl Clone for PendingBrokerRendezvousRegistry {
     }
 }
 
+#[cfg_attr(not(unix), allow(dead_code))]
 const MAX_PENDING: usize = 64;
 
 struct PendingEntry {
@@ -150,6 +155,7 @@ impl PendingBrokerRendezvousRegistry {
 
     /// Registers exactly one daemon-created rendezvous for a fresh durable operation.
     #[cfg(all(test, unix))]
+    #[cfg(unix)]
     pub(crate) fn register(
         &self,
         operation: &CredentialOperationSnapshot,

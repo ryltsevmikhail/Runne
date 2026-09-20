@@ -21,6 +21,8 @@ use super::super::broker::writer_session_test_support::writer_session_claims;
 use super::super::broker::{CredentialBrokerChannel, ProviderCredentialBroker};
 
 pub(crate) struct Fixture {
+    // Read by the unix broker transport scenarios only.
+    #[cfg_attr(not(unix), allow(dead_code))]
     pub(crate) enrollment_authority: runne_provider::CredentialEnrollmentStoreAuthority,
     pub(in crate::application::provider_credential_enrollment) broker: ProviderCredentialBroker,
     pub(crate) measurements: Arc<runne_provider::CredentialEnrollmentMeasurementAuthority>,
