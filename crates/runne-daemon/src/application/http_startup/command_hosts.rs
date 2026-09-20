@@ -8,7 +8,6 @@ use runne_runtime::{
     RuntimeProjectWorkspaceHost, RuntimeWorkspaceDiffHost, RuntimeWorkspaceEditorHost,
     RuntimeWorkspaceFileHost,
 };
-#[cfg(feature = "desktop-protected")]
 use runne_security::project_trust_policy::ProjectTrustPolicyAuthority;
 use runne_store::{ProjectWorkspaceStore, store::StoreTransaction};
 
