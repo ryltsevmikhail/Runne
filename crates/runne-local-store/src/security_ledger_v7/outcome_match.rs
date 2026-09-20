@@ -164,6 +164,21 @@ fn generation_matches(
         && generation_assistant_matches(*terminal, user_message, task_run_id, attempt_id, assistant)
 }
 
+/// Daemon event timestamps give `committed_at` millisecond granularity, so a
+/// fast provider can append the assistant message within the user message's
+/// millisecond. Within one millisecond the daemon's monotonic `UUIDv7` counter
+/// (`StoreTransaction::generate_uuid`) still mints the assistant id after the
+/// user id, so the lexicographic `(committed_at, message_id)` order proves the
+/// generation order even when the millisecond values are equal.
+fn committed_order_provable(
+    assistant: &super::outcome::LedgerMessage,
+    user: &super::outcome::LedgerMessage,
+) -> bool {
+    assistant.committed_at > user.committed_at
+        || (assistant.committed_at == user.committed_at
+            && assistant.message_id.as_bytes() > user.message_id.as_bytes())
+}
+
 fn generation_assistant_matches(
     terminal: super::outcome::GenerationTerminal,
     user: &super::outcome::LedgerMessage,
@@ -180,7 +195,7 @@ fn generation_assistant_matches(
                 && value.task_run_id == *task
                 && value.attempt_id == *attempt
                 && value.message_id != user.message_id
-                && value.committed_at > user.committed_at
+                && committed_order_provable(value, user)
         }
         (
             super::outcome::GenerationTerminal::Rejected
