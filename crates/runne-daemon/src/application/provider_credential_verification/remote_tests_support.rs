@@ -166,7 +166,16 @@ fn seed_local_verification(store: &SqliteProviderCredentialLifecycleStore) {
     let provider = ProviderId::new("kimi-coding").unwrap();
     let current =
         ProviderCredentialEnrollmentStore::current_verification_context(store, &provider).unwrap();
-    let observation = CredentialOperationId::from_bytes([4; 16]).unwrap();
+    // The insert contract pins every verification on the current readiness to
+    // started_at == head high-water, so the later remote verification ties this
+    // seed and safe_projection decides by `observation_id DESC`. The minimal
+    // non-zero id (from_bytes rejects all-zero) loses every byte comparison
+    // except an exactly equal random draw, which the store rejects earlier as
+    // a duplicate observation.
+    let observation = CredentialOperationId::from_bytes([
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    ])
+    .unwrap();
     let lease = ProviderCredentialEnrollmentStore::begin_verification(
         store,
         BeginCredentialVerification::new(
