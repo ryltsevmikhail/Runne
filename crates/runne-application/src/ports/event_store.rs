@@ -8,13 +8,17 @@ pub trait ConversationRepository {
 
     /// Looks up the durable result of a create-conversation command.
     /// A duplicate requires the exact command ID, scope, idempotency key, and
-    /// semantic fingerprint; changing any field is a conflict.
+    /// semantic fingerprint (which binds the delivery-context
+    /// `context_scope`); changing any field is a conflict. Receipts stored by
+    /// older fingerprint formats stay exact replays when the durable
+    /// context-scope marker agrees with `context_scope`.
     fn lookup_conversation_receipt(
         &self,
         command_id: CommandId,
         idempotency_key: &IdempotencyKey,
         idempotency_scope: &IdempotencyScope,
         fingerprint: &CommandFingerprint,
+        context_scope: runne_domain::conversation::ConversationContextScope,
     ) -> Result<ConversationReceiptLookup, CommitError>;
 
     /// Atomically rechecks the full command identity, appends conversation

@@ -83,6 +83,7 @@ fn conversation_command_id_rejects_changed_idempotency_key() {
             &original.idempotency_key,
             &scope,
             &CommandFingerprint::from_bytes([0x70; 32]),
+            runne_api::ConversationContextScope::Workspace,
         ),
         Err(CommitError::IdempotencyConflict { .. })
     ));

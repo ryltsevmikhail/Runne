@@ -8,6 +8,9 @@
 
 use super::super::parse_helpers::*;
 use super::super::*;
+use super::fingerprint_compat::{
+    marker_agrees_with_scope, new_conversation_ids, stored_fingerprint_matches,
+};
 
 /// Durable create-command idempotency pre-checks, extracted from
 /// [`StoreTransaction::commit_conversation_impl`] to keep both files within
@@ -67,14 +70,20 @@ pub(super) fn check_create_receipts(
     {
         let stored_key = parse_idempotency_key_for_commit(stored_key)?;
         let stored_fingerprint = parse_fingerprint(stored_fingerprint)?;
-        if stored_scope == scope
-            && stored_key == payload.idempotency_key
-            && stored_fingerprint == payload.command_fingerprint
-        {
-            let stored_result = ConversationReceiptCodec
-                .decode(&stored_outcome)
-                .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
-            return Ok(CreateReceiptCheck::Duplicate(stored_result));
+        if stored_scope == scope && stored_key == payload.idempotency_key {
+            let (conversation_id, workspace_id) = new_conversation_ids(&payload.idempotency_scope)?;
+            if stored_fingerprint_matches(
+                &stored_fingerprint,
+                &payload.command_fingerprint,
+                conversation_id,
+                workspace_id,
+            ) && marker_agrees_with_scope(tx, conversation_id, payload.context_scope)?
+            {
+                let stored_result = ConversationReceiptCodec
+                    .decode(&stored_outcome)
+                    .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+                return Ok(CreateReceiptCheck::Duplicate(stored_result));
+            }
         }
         return Ok(CreateReceiptCheck::Conflict(
             CommitError::IdempotencyConflict {

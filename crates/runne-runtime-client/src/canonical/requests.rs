@@ -1,5 +1,3 @@
-use runne_api::ConversationContextScope;
-
 /// Validated request for creating a Conversation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CreateConversationRequest {

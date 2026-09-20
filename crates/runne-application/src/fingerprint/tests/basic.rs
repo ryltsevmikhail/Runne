@@ -27,13 +27,37 @@
         let conversation_id: ConversationId = CONV_ID_STR.parse().unwrap();
         let workspace_id: WorkspaceId = WS_ID_STR.parse().unwrap();
 
-        let first = CommandFingerprint::for_create_conversation(&conversation_id, &workspace_id);
-        let second = CommandFingerprint::for_create_conversation(&conversation_id, &workspace_id);
+        let first = CommandFingerprint::for_create_conversation(
+            &conversation_id,
+            &workspace_id,
+            ConversationContextScope::Workspace,
+        );
+        let second = CommandFingerprint::for_create_conversation(
+            &conversation_id,
+            &workspace_id,
+            ConversationContextScope::Workspace,
+        );
 
         assert_eq!(first, second);
         assert_ne!(
             first,
             CommandFingerprint::for_create(&conversation_id, &workspace_id)
+        );
+        // The security-significant delivery-context scope is part of the
+        // semantic identity: flipping it changes the fingerprint.
+        assert_ne!(
+            first,
+            CommandFingerprint::for_create_conversation(
+                &conversation_id,
+                &workspace_id,
+                ConversationContextScope::TextOnly,
+            )
+        );
+        // The legacy scope-less format stays a distinct, stable digest so
+        // durable receipt checks can recognize pre-scope receipts.
+        assert_ne!(
+            first,
+            CommandFingerprint::for_create_conversation_legacy(&conversation_id, &workspace_id)
         );
     }
 

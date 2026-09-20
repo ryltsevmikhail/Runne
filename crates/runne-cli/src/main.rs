@@ -6,8 +6,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use runne_runtime_client::{
-    CanonicalId, CommandIdentity, CreateConversationRequest, GenerateTextRequest,
-    LocalProfileError, LocalRuntimeProfile, RuntimeApiError, default_local_profile_path,
+    CanonicalId, CommandIdentity, ConversationContextScope, CreateConversationRequest,
+    GenerateTextRequest, LocalProfileError, LocalRuntimeProfile, RuntimeApiError,
+    default_local_profile_path,
 };
 use runne_secure_store::{
     NativeProviderCredentialStore, ProviderCredentialAccessPolicy, ProviderCredentialId,

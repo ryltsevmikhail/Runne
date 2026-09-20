@@ -99,6 +99,7 @@ where
         let fingerprint = CommandFingerprint::for_create_conversation(
             &input.conversation_id,
             &input.workspace_id,
+            input.scope,
         );
         let scope = IdempotencyScope {
             runtime_authority_id: self.runtime_authority_id.clone(),
@@ -117,6 +118,7 @@ where
                 &input.idempotency_key,
                 &scope,
                 &fingerprint,
+                input.scope,
             )
             .map_err(ConversationServiceError::Commit)?
         {

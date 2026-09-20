@@ -62,8 +62,11 @@ impl StoreTransaction {
                 && scoped_conversation_id == &conversation_id
                 && scoped_workspace_id == &payload.workspace_id
         );
-        let expected_fingerprint =
-            CommandFingerprint::for_create_conversation(&conversation_id, &payload.workspace_id);
+        let expected_fingerprint = CommandFingerprint::for_create_conversation(
+            &conversation_id,
+            &payload.workspace_id,
+            payload.context_scope,
+        );
         if !scope_matches
             || event.command_id() != &payload.command_id
             || event.idempotency_key() != &payload.idempotency_key

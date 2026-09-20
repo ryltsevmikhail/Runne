@@ -1,5 +1,9 @@
 //! Authenticated canonical command/query transport.
 
+// Re-exported so clients can name the create-conversation scope type without
+// a direct runne-api dependency (runne-api is optional for some clients).
+pub use runne_api::ConversationContextScope;
+
 include!("canonical/types.rs");
 include!("canonical/task_run.rs");
 include!("canonical/task_run_list.rs");
