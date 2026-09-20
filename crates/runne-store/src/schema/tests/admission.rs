@@ -1,7 +1,7 @@
 #[test]
 fn immutable_preflight_does_not_create_wal_sidecars() {
     let temporary = tempfile::tempdir().unwrap();
-    let path = temporary.path().join("event log.db");
+    let path = { let daemon = temporary.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("event log.db") };
     let connection = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
     apply_migrations(&connection).unwrap();
     drop(connection);

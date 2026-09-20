@@ -1,7 +1,10 @@
 use super::*;
 mod binding;
 pub(in crate::application::provider_credential_enrollment::broker) use binding::PendingBrokerRendezvousBinding;
-use binding::{ReservedAuthorityBinding, validate_authority};
+#[cfg(unix)]
+use binding::ReservedAuthorityBinding;
+#[cfg(unix)]
+use binding::validate_authority;
 
 #[cfg(any(
     all(test, unix),

@@ -1,5 +1,8 @@
 // NM-06 E2E: replay authorization re-checks current trust revision per delivery.
+#[cfg(feature = "test-support")]
 use runne_application::project_trust::ProjectTrustStatus;
+// Consumed by the test-support-gated NM-06 delivery scenario below.
+#[cfg(feature = "test-support")]
 use runne_security::project_trust_policy::ProjectTrustPolicyAuthority;
 
 #[cfg(feature = "test-support")]

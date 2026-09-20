@@ -55,7 +55,11 @@ fn resume_authenticates_the_handle_and_installation_before_recovery() {
     let (enrollment_authority, measurements) = CredentialEnrollmentAuthorityPair::new().split();
     let store =
         runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_authorities(
-            &directory.path().join("resume.sqlite"),
+            &{
+                let daemon = directory.path().join("runne-daemon");
+                std::fs::create_dir_all(&daemon).unwrap();
+                daemon.join("resume.sqlite")
+            },
             lifecycle_authority,
             enrollment_authority,
         )

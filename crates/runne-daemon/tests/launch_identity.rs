@@ -7,7 +7,11 @@ use tempfile::tempdir;
 #[test]
 fn launches_are_unique_and_generation_survives_database_reopen() {
     let directory = tempdir().unwrap();
-    let database = directory.path().join("event-log.sqlite");
+    let database = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("event-log.sqlite")
+    };
     let first_generation = {
         let connection = open_managed_connection(&database, ConnectionMode::Writer).unwrap();
         apply_migrations(&connection).unwrap();
@@ -43,7 +47,11 @@ fn launch_profile_never_contains_private_key_bytes() {
 fn corrupt_launch_generations_are_never_rewritten() {
     for value in ["zero", "0", "18446744073709551615"] {
         let directory = tempdir().unwrap();
-        let database = directory.path().join("event-log.sqlite");
+        let database = {
+            let daemon = directory.path().join("runne-daemon");
+            std::fs::create_dir_all(&daemon).unwrap();
+            daemon.join("event-log.sqlite")
+        };
         let connection = open_managed_connection(&database, ConnectionMode::Writer).unwrap();
         apply_migrations(&connection).unwrap();
         connection

@@ -34,6 +34,7 @@ pub(super) fn read_bounded(path: &Path) -> Result<Vec<u8>, CliError> {
 }
 
 #[cfg(any(test, target_os = "macos"))]
+#[cfg_attr(not(unix), allow(unused_variables))]
 pub(super) fn existing_exact(path: &Path, expected: &[u8], mode: u32) -> Result<bool, CliError> {
     let bytes = read_bounded(path)?;
     let metadata = path.metadata().map_err(|_| CliError::AuthorityArtifactIo)?;
@@ -53,7 +54,7 @@ pub(super) fn create_new(path: &Path, bytes: &[u8], mode: u32) -> Result<(), Cli
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(super) fn create_new_with_failing_post_commit(
     path: &Path,
     bytes: &[u8],
@@ -97,6 +98,7 @@ fn create_new_inner(
 }
 
 #[cfg(any(test, target_os = "macos"))]
+#[cfg_attr(not(unix), allow(unused_variables))]
 fn validate_staged_file(file: &File, expected_len: usize, mode: u32) -> Result<(), CliError> {
     let metadata = file
         .metadata()
@@ -154,7 +156,7 @@ fn fill_random(bytes: &mut [u8]) -> Result<(), CliError> {
 }
 
 #[cfg(all(not(unix), any(test, target_os = "macos")))]
-fn fill_random(_: &mut [u8]) -> Result<(), CliError> {
+const fn fill_random(_: &mut [u8]) -> Result<(), CliError> {
     Err(CliError::AuthorityUnavailable)
 }
 
@@ -167,19 +169,17 @@ fn set_mode_and_sync(file: &File, mode: u32) -> std::io::Result<()> {
     file.sync_all()
 }
 
-#[cfg(any(test, target_os = "macos"))]
+#[cfg(all(unix, any(test, target_os = "macos")))]
 fn sync_parent(parent: &Path) -> Result<(), CliError> {
-    #[cfg(unix)]
-    {
-        File::open(parent)
-            .and_then(|directory| directory.sync_all())
-            .map_err(|_| CliError::AuthorityUnavailable)
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = parent;
-        Ok(())
-    }
+    File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|_| CliError::AuthorityUnavailable)
+}
+
+#[cfg(all(not(unix), any(test, target_os = "macos")))]
+#[allow(clippy::unnecessary_wraps)] // signature parity with the unix fsync
+const fn sync_parent(_parent: &Path) -> Result<(), CliError> {
+    Ok(())
 }
 
 pub(super) fn is_link_or_reparse(path: &Path) -> Result<bool, CliError> {

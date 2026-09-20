@@ -61,7 +61,7 @@ fn qualified_crash_child() {
 fn qualified_process_kill_before_and_after_commit_preserves_exact_durable_consumption() {
     for stage in ["before", "after"] {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("crash.sqlite");
+        let path = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("crash.sqlite") };
         let marker = directory.path().join("ready");
         let mut child = Command::new(std::env::current_exe().unwrap())
             .args([

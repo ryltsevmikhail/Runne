@@ -1,4 +1,5 @@
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
+#[cfg_attr(not(unix), allow(dead_code))]
 fn serve_v3_transcript(
     channel: &mut ProtectedActivationChannel,
     keys: &ProtectedActivationKeys,

@@ -80,8 +80,13 @@ fn broker_rejects_pid_reuse_and_mixed_child_evidence() {
 
 #[test]
 fn writer_command_clears_environment_and_uses_only_the_fixed_mode() {
+    let writer = if cfg!(windows) {
+        PathBuf::from(r"C:\bundle\runne")
+    } else {
+        PathBuf::from("/bundle/runne")
+    };
     let artifact = runne_platform_ports::provider_credential_broker::VerifiedWriterArtifact::new(
-        PathBuf::from("/bundle/runne"),
+        writer.clone(),
         [1; 32],
         [2; 32],
     )
@@ -91,7 +96,7 @@ fn writer_command_clears_environment_and_uses_only_the_fixed_mode() {
 
     let command = launch::writer_command(&spec);
 
-    assert_eq!(command.get_program(), "/bundle/runne");
+    assert_eq!(command.get_program(), writer.as_os_str());
     assert_eq!(
         command.get_args().collect::<Vec<_>>(),
         ["__provider-credential-broker-v1"]

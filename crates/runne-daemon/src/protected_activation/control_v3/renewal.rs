@@ -1,6 +1,7 @@
 use super::*;
 
 #[allow(clippy::too_many_arguments)]
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(super) fn rotate(
     channel: &mut ProtectedActivationChannel,
     keys: &ProtectedActivationKeys,
@@ -74,4 +75,7 @@ pub(super) fn rotate(
 }
 
 #[cfg(test)]
+// The tests drive the unix enrollment_v3 transport (UnixStream + the
+// unix-gated enrollment_v3 fixtures); Windows enrollment is Unsupported.
+#[cfg(all(test, unix))]
 mod tests;

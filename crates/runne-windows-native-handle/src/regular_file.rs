@@ -1,10 +1,13 @@
 use std::fmt;
 use std::os::windows::ffi::OsStrExt;
+use std::os::windows::io::AsRawHandle;
 use std::path::Path;
 use std::ptr;
 
 use sha2::Digest;
-use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, ERROR_FILE_EXISTS, GetLastError};
+use windows_sys::Win32::Foundation::{
+    ERROR_ALREADY_EXISTS, ERROR_FILE_EXISTS, GetLastError, HANDLE,
+};
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO,
     FILE_FLAG_OPEN_REPARSE_POINT, FILE_GENERIC_WRITE, FILE_ID_INFO, FILE_READ_ATTRIBUTES,
@@ -148,14 +151,30 @@ fn open(path: &Path, access: u32) -> Result<OwnedHandle, NativeFileError> {
     OwnedHandle::new(handle).map_err(|_| NativeFileError::Unavailable)
 }
 
+/// Measures the stable identity of an already-open file without owning its
+/// handle. Fails closed for non-regular objects and reparse points.
+///
+/// # Errors
+///
+/// Returns a redacted error when the handle cannot be inspected or does not
+/// name a supported regular file.
+pub fn identity_of_open_file(file: &std::fs::File) -> Result<RegularFileId, NativeFileError> {
+    // SAFETY: the borrowed handle stays valid for the synchronous query.
+    snapshot_raw(file.as_raw_handle()).map(|snapshot| snapshot.id)
+}
+
 fn snapshot(handle: &OwnedHandle) -> Result<RegularFileSnapshot, NativeFileError> {
+    snapshot_raw(handle.raw())
+}
+
+fn snapshot_raw(handle: HANDLE) -> Result<RegularFileSnapshot, NativeFileError> {
     let mut attributes = FILE_ATTRIBUTE_TAG_INFO::default();
     let mut file_id = FILE_ID_INFO::default();
     let mut standard = FILE_STANDARD_INFO::default();
     // SAFETY: each output has the exact size required by its information class.
     let attributes_ok = unsafe {
         GetFileInformationByHandleEx(
-            handle.raw(),
+            handle,
             FileAttributeTagInfo,
             (&raw mut attributes).cast(),
             size::<FILE_ATTRIBUTE_TAG_INFO>(),
@@ -164,7 +183,7 @@ fn snapshot(handle: &OwnedHandle) -> Result<RegularFileSnapshot, NativeFileError
     // SAFETY: each output has the exact size required by its information class.
     let id_ok = unsafe {
         GetFileInformationByHandleEx(
-            handle.raw(),
+            handle,
             FileIdInfo,
             (&raw mut file_id).cast(),
             size::<FILE_ID_INFO>(),
@@ -173,7 +192,7 @@ fn snapshot(handle: &OwnedHandle) -> Result<RegularFileSnapshot, NativeFileError
     // SAFETY: each output has the exact size required by its information class.
     let standard_ok = unsafe {
         GetFileInformationByHandleEx(
-            handle.raw(),
+            handle,
             FileStandardInfo,
             (&raw mut standard).cast(),
             size::<FILE_STANDARD_INFO>(),

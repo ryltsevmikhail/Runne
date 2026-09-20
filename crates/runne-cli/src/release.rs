@@ -178,6 +178,8 @@ fn valid_value(flag: &str, value: &str) -> bool {
 }
 
 /// Maximum bytes accepted for one raw release artifact.
+/// Its reader is unix-gated (see `read_artifact` below).
+#[cfg_attr(not(unix), allow(dead_code))]
 const MAX_ARTIFACT_BYTES: u64 = 1 << 20;
 
 /// Safe bounded nofollow read of one raw release artifact.

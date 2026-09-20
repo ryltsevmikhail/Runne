@@ -16,7 +16,11 @@ use crate::vectors::{EVIDENCE_DIGEST, INTENT_DIGEST, file_snapshot, sidecar_path
 #[test]
 fn source_pinned_intent_row_reopens_without_mutation_and_runne_alias_rejects() {
     let root = tempfile::tempdir().unwrap();
-    let canonical = root.path().join("canonical.sqlite");
+    let canonical = {
+        let daemon = root.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("canonical.sqlite")
+    };
     let store = SqliteIntentStore::open(&canonical).unwrap();
     seed_intent(&canonical, INTENT_DIGEST);
     let before = file_snapshot(&canonical);
@@ -32,7 +36,11 @@ fn source_pinned_intent_row_reopens_without_mutation_and_runne_alias_rejects() {
     assert_eq!(reopened.integrity_digest.as_bytes(), &INTENT_DIGEST);
     assert_eq!(file_snapshot(&canonical), before);
 
-    let alias = root.path().join("runne-alias.sqlite");
+    let alias = {
+        let daemon = root.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("runne-alias.sqlite")
+    };
     let store = SqliteIntentStore::open(&alias).unwrap();
     let mut runne_digest = INTENT_DIGEST;
     runne_digest[0] ^= 0x80;
@@ -54,7 +62,11 @@ fn source_pinned_intent_row_reopens_without_mutation_and_runne_alias_rejects() {
 #[tokio::test]
 async fn source_pinned_evidence_row_is_read_without_current_writer() {
     let root = tempfile::tempdir().unwrap();
-    let path = root.path().join("evidence.sqlite");
+    let path = {
+        let daemon = root.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("evidence.sqlite")
+    };
     let store = SqliteEvidenceStore::open(&path).unwrap();
     let run = Uuid::from_bytes([7; 16]);
     let evidence = Uuid::from_bytes([8; 16]);

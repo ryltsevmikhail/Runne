@@ -32,6 +32,7 @@ pub(in crate::application::provider_credential_enrollment::broker) struct Pendin
     pub(in crate::application::provider_credential_enrollment::broker) expires_at_high_water: i64,
 }
 
+#[cfg(unix)]
 impl ReservedAuthorityBinding {
     pub(super) fn new(
         authority: &ProviderCredentialBaseRequestAuthority,
@@ -55,14 +56,18 @@ impl PendingBrokerRendezvousBinding {
         feature = "desktop-protected",
         any(test, all(target_os = "macos", target_arch = "aarch64"))
     ))]
+    // Read by the macOS projection; the accessor stays compiled everywhere.
+    #[cfg_attr(not(unix), allow(dead_code))]
     pub(in crate::application::provider_credential_enrollment::broker) const fn release_tuple(
         &self,
     ) -> CredentialBindingDigest {
         self.release_tuple
     }
 
+    // The binding is minted only from the unix broker transport (and the
+    // macOS protected qualification suites); windows begin refuses earlier.
     #[cfg(any(
-        test,
+        all(test, unix),
         all(
             feature = "desktop-protected",
             target_os = "macos",
@@ -112,6 +117,7 @@ impl PendingBrokerRendezvousBinding {
     }
 }
 
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(super) fn validate_authority(
     authority: &ProviderCredentialBaseRequestAuthority,
     proof: &ProviderCredentialIntentConsumptionProof,

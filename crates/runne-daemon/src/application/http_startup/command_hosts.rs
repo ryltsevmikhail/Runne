@@ -120,6 +120,7 @@ pub(super) fn compose(
 }
 
 #[cfg(not(feature = "desktop-protected"))]
+#[allow(clippy::too_many_arguments)]
 pub(super) fn compose(
     store: &StoreTransaction,
     _canonical_db_path: &Path,

@@ -191,6 +191,9 @@ mod tests {
 
     include!("schema/tests/admission.rs");
     include!("schema/tests/actual_handle_identity.rs");
+    include!("schema/tests/windows_live_wal.rs");
+    include!("schema/tests/dacl_isolation_windows.rs");
+    include!("schema/tests/windows_v39_v40_live_wal.rs");
     include!("schema/tests/migrations.rs");
     include!("schema/tests/released.rs");
     include!("schema/tests/recovery_compatibility.rs");

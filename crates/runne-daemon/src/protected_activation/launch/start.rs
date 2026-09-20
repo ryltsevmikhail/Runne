@@ -106,7 +106,7 @@ impl VerifiedProtectedApplicationStart {
     ) -> (ConfigurationSnapshot, BootstrapOutcome, ProviderActivation) {
         (self.config, self.bootstrap, self.provider_activation)
     }
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn from_test_parts(
         config: ConfigurationSnapshot,
         provider_activation: ProviderActivation,

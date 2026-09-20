@@ -1,14 +1,14 @@
 #![cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 use std::fs::{File, Metadata};
-#[cfg(test)]
-use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom};
-#[cfg(test)]
-use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
 use super::NativeEnrollmentTupleError;
+
+#[cfg(test)]
+#[path = "measurement_tests.rs"]
+mod measurement_tests;
 
 const MAX_NATIVE_ROLE_BYTES: u64 = 64 * 1024 * 1024;
 
@@ -90,17 +90,32 @@ impl MeasuredNativeEnrollmentArtifactsV1 {
 pub(super) struct OpenedNativeEnrollmentFile {
     file: File,
     metadata: Metadata,
+    #[cfg(windows)]
+    identity: runne_windows_native_handle::RegularFileId,
 }
 
 impl OpenedNativeEnrollmentFile {
     pub(super) fn new(file: File) -> Result<Self, NativeEnrollmentTupleError> {
         let metadata = file.metadata().map_err(|_| NativeEnrollmentTupleError::Rejected)?;
-        valid_regular(&metadata).then_some(Self { file, metadata }).ok_or(NativeEnrollmentTupleError::Rejected)
+        if !valid_regular(&metadata) { return Err(NativeEnrollmentTupleError::Rejected); }
+        #[cfg(windows)]
+        let identity = runne_windows_native_handle::identity_of_open_file(&file)
+            .map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+        Ok(Self {
+            file,
+            metadata,
+            #[cfg(windows)]
+            identity,
+        })
     }
 
     pub(super) fn matches_file(&self, file: &File) -> Result<bool, NativeEnrollmentTupleError> {
-        Ok(same_identity(&self.metadata, &file.metadata().map_err(|_| NativeEnrollmentTupleError::Rejected)?)
-            && same_security(&self.metadata, &file.metadata().map_err(|_| NativeEnrollmentTupleError::Rejected)?))
+        let other = file.metadata().map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+        #[cfg(windows)]
+        let identity_match = same_identity(&self.identity, file);
+        #[cfg(not(windows))]
+        let identity_match = same_identity(&self.metadata, &other);
+        Ok(identity_match && same_security(&self.metadata, &other))
     }
 
     pub(super) fn matches_opened(&self, other: &Self) -> Result<bool, NativeEnrollmentTupleError> {
@@ -128,7 +143,11 @@ impl OpenedNativeEnrollmentFile {
 
     pub(super) fn measure(&self) -> Result<String, NativeEnrollmentTupleError> {
         let before = self.file.metadata().map_err(|_| NativeEnrollmentTupleError::Rejected)?;
-        if !valid_regular(&before) || !same_identity(&self.metadata, &before) || !same_security(&self.metadata, &before) {
+        #[cfg(windows)]
+        let identity_stable = same_identity(&self.identity, &self.file);
+        #[cfg(not(windows))]
+        let identity_stable = same_identity(&self.metadata, &before);
+        if !valid_regular(&before) || !identity_stable || !same_security(&self.metadata, &before) {
             return Err(NativeEnrollmentTupleError::Rejected);
         }
         let expected_len = before.len();
@@ -148,14 +167,22 @@ impl OpenedNativeEnrollmentFile {
             return Err(NativeEnrollmentTupleError::Rejected);
         }
         let after = self.file.metadata().map_err(|_| NativeEnrollmentTupleError::Rejected)?;
-        (valid_regular(&after) && same_identity(&before, &after) && same_security(&before, &after))
+        #[cfg(windows)]
+        let identity_held = same_identity(&self.identity, &self.file);
+        #[cfg(not(windows))]
+        let identity_held = same_identity(&before, &after);
+        (valid_regular(&after) && identity_held && same_security(&before, &after))
             .then(|| hex::encode(hasher.finalize()))
             .ok_or(NativeEnrollmentTupleError::Rejected)
     }
 
     pub(super) fn read_bytes(&self, maximum: u64) -> Result<Vec<u8>, NativeEnrollmentTupleError> {
         let before = self.file.metadata().map_err(|_| NativeEnrollmentTupleError::Rejected)?;
-        if !valid_regular(&before) || !same_identity(&self.metadata, &before)
+        #[cfg(windows)]
+        let identity_stable = same_identity(&self.identity, &self.file);
+        #[cfg(not(windows))]
+        let identity_stable = same_identity(&self.metadata, &before);
+        if !valid_regular(&before) || !identity_stable
             || !same_security(&self.metadata, &before) || before.len() > maximum {
             return Err(NativeEnrollmentTupleError::Rejected);
         }
@@ -165,33 +192,13 @@ impl OpenedNativeEnrollmentFile {
         let mut bytes = Vec::with_capacity(capacity);
         file.read_to_end(&mut bytes).map_err(|_| NativeEnrollmentTupleError::Rejected)?;
         let after = self.file.metadata().map_err(|_| NativeEnrollmentTupleError::Rejected)?;
-        (same_identity(&before, &after) && same_security(&before, &after))
+        #[cfg(windows)]
+        let identity_held = same_identity(&self.identity, &self.file);
+        #[cfg(not(windows))]
+        let identity_held = same_identity(&before, &after);
+        (identity_held && same_security(&before, &after))
             .then_some(bytes).ok_or(NativeEnrollmentTupleError::Rejected)
     }
-}
-
-#[cfg(test)]
-fn open_regular_file(path: &Path) -> Result<File, NativeEnrollmentTupleError> {
-    #[cfg(unix)]
-    let file = {
-        use std::os::unix::fs::OpenOptionsExt;
-        OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(path)
-    };
-    #[cfg(windows)]
-    let file = {
-        use std::os::windows::fs::OpenOptionsExt;
-        OpenOptions::new()
-            .read(true)
-            .custom_flags(0x0020_0000)
-            .open(path)
-    };
-    #[cfg(not(any(unix, windows)))]
-    let file = OpenOptions::new().read(true).open(path);
-    let file = file.map_err(|_| NativeEnrollmentTupleError::Rejected)?;
-    OpenedNativeEnrollmentFile::new(file).map(|opened| opened.file)
 }
 
 fn valid_regular(metadata: &Metadata) -> bool {
@@ -218,25 +225,26 @@ fn same_security(first: &Metadata, second: &Metadata) -> bool {
     { first.permissions().readonly() == second.permissions().readonly() }
 }
 
+#[cfg(unix)]
 fn same_identity(first: &Metadata, second: &Metadata) -> bool {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        first.dev() == second.dev()
-            && first.ino() == second.ino()
-            && first.len() == second.len()
-            && first.nlink() == second.nlink()
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        first.volume_serial_number() == second.volume_serial_number()
-            && first.file_index() == second.file_index()
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        first.len() == second.len()
-    }
+    use std::os::unix::fs::MetadataExt;
+    first.dev() == second.dev()
+        && first.ino() == second.ino()
+        && first.len() == second.len()
+        && first.nlink() == second.nlink()
+}
+
+// std's windows_by_handle metadata accessors are unstable on the pinned stable
+// Windows toolchain; the native-handle crate publishes the same FILE_ID_INFO
+// identity from an open descriptor and fails closed.
+#[cfg(windows)]
+fn same_identity(expected: &runne_windows_native_handle::RegularFileId, file: &File) -> bool {
+    matches!(runne_windows_native_handle::identity_of_open_file(file), Ok(actual) if actual == *expected)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn same_identity(first: &Metadata, second: &Metadata) -> bool {
+    first.len() == second.len()
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -245,34 +253,4 @@ fn valid_digest(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn refuses_oversized_native_role() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("role");
-        File::create(&path)
-            .unwrap()
-            .set_len(MAX_NATIVE_ROLE_BYTES + 1)
-            .unwrap();
-        assert!(open_regular_file(&path).is_err());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn identity_mismatch_is_detected() {
-        let directory = tempfile::tempdir().unwrap();
-        let first = directory.path().join("first");
-        let second = directory.path().join("second");
-        std::fs::write(&first, b"first").unwrap();
-        std::fs::write(&second, b"second").unwrap();
-        assert!(!same_identity(
-            &std::fs::metadata(first).unwrap(),
-            &std::fs::metadata(second).unwrap()
-        ));
-    }
 }

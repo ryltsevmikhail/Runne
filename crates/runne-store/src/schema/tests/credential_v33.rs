@@ -20,7 +20,7 @@ fn v35_preserves_v33_admission_and_rejects_old_completion_guard_after_upgrade() 
 #[test]
 fn v33_managed_reopen_rejects_missing_recovery_uniqueness_guard() {
     let temporary = tempfile::tempdir().unwrap();
-    let path = temporary.path().join("cleanup-recovery.sqlite");
+    let path = { let daemon = temporary.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("cleanup-recovery.sqlite") };
     let connection = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
     apply_migrations(&connection).unwrap();
     let guard_exists: bool = connection

@@ -181,7 +181,7 @@ where
 async fn session_create_commits_binding_and_only_a_conversation_stream() {
     let (runtime_fixture, runtime_store) = RuntimeFixture::new("session-create-success");
     let binding_directory = tempfile::tempdir().unwrap();
-    let binding_path = binding_directory.path().join("binding.sqlite");
+    let binding_path = { let daemon = binding_directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("binding.sqlite") };
 
     let binding = SqliteSessionBindingStore::open(&binding_path).unwrap();
     let host = open_host(runtime_store);
