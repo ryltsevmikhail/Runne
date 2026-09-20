@@ -15,8 +15,12 @@ fn expected_desktop_profile_digest() -> [u8; 32] {
 /// is unavailable (all trait defaults) must deny production open before any
 /// database file exists. Unlike the native-keyring probe below, this never
 /// depends on whether the host secret service happens to be writable.
+/// Only its non-macOS test constructs it; on macOS the production open path
+/// itself is fail-closed without native keychain support.
+#[cfg(not(target_os = "macos"))]
 struct UnavailableSecureStore;
 
+#[cfg(not(target_os = "macos"))]
 impl runne_secure_store::SecureStore for UnavailableSecureStore {}
 
 #[cfg(not(target_os = "macos"))]
