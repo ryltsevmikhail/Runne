@@ -2,14 +2,16 @@
 // followed by guarded managed access (owner-private hot reader and validated
 // reopen), with a REAL pre-v40 conversation stream built through the
 // historical codec (`Conversation::decide_create` → `materialize_batch` →
-// `ConversationEventCodec` → the store's own profile-2 digest function).
+// `ConversationEventCodec` → the store's own profile-2 digest function),
+// all on ONE database.
 //
 // Lifecycle fidelity: the v39 schema is staged on a plain connection in WAL
 // mode; the upgrade runs through the public `apply_migrations` on the
 // WAL-owning connection (its own Exclusive transaction and trailing
-// `wal_checkpoint(FULL)`); the sidecar reaches its documented end of life by
-// the clean close; a second concurrent writer is refused with the exact
-// typed `SidecarPresent` diagnostic while the sidecars are live.
+// `wal_checkpoint(FULL)`); the hot reader is admitted while the sidecars
+// are still live; the sidecar reaches its documented end of life by the
+// clean close; a second concurrent writer is refused with the exact typed
+// `SidecarPresent` diagnostic while the sidecars are live.
 //
 // Contract: pre-v40 conversations keep their durable events but gain NO
 // context-scope marker — unknown provenance stays denied, nothing is
@@ -21,22 +23,26 @@ fn derived_bytes(mut value: [u8; 16], marker: u8) -> [u8; 16] {
     value
 }
 
-
 #[cfg(windows)]
 #[test]
 fn windows_v39_to_v40_migration_preserves_live_wal_conversations_without_scope_backfill() {
-        use runne_application::ports::ConversationRepository;
+    use runne_application::fingerprint::CommandFingerprint;
+    use crate::codec::StoreCodec;
+    use runne_application::ports::ConversationRepository;
+    use runne_application::ports::ProjectWorkspaceRepository;
     use runne_application::ports::RuntimeAuthorityId;
-    use runne_domain::conversation::{Conversation, ConversationEvent};
+    use runne_application::ports::{
+        AggregateScope, ConversationCommit, IdempotencyScope, OperationTag,
+    };
+    use runne_application::prohibited_content::ProhibitedContentPort;
+    use runne_domain::conversation::{Conversation, ConversationContextScope, ConversationEvent};
     use runne_domain::event::{materialize_batch, Actor, CommandContext};
     use runne_domain::id::{
         AggregateId, CommandId, ConversationId, EventId, IdempotencyKey, IntegrityDigest,
         WorkspaceId,
     };
     use runne_domain::timestamp::Timestamp;
-    use runne_application::prohibited_content::ProhibitedContentPort;
     use runne_security::SecretBroker;
-    use crate::codec::StoreCodec;
 
     const CORRELATION_TYPE_CONVERSATION: i64 = 2;
     const INTEGRITY_PROFILE_V2: i64 = 2;
@@ -101,37 +107,41 @@ fn windows_v39_to_v40_migration_preserves_live_wal_conversations_without_scope_b
             &envelope, global, &payload,
         )
         .unwrap();
-        staging.execute(
-            "INSERT INTO aggregate_streams
-             (aggregate_type, aggregate_id, current_version, last_event_id,
-              last_timestamp, created_at)
-             VALUES (2, ?1, 1, ?2, ?3, ?3)",
-            params![conversation_id.as_bytes(), event.event_id().as_bytes(), now],
-        ).unwrap();
-        staging.execute(
-            "INSERT INTO events
-             (event_id, aggregate_type, aggregate_id, sequence, global_position,
-              timestamp, sensitivity, schema_version, causation_id, command_id,
-              idempotency_key, actor, payload, integrity_digest, correlation_id,
-              correlation_type, integrity_profile)
-             VALUES (?1, ?2, ?3, 1, ?4, ?5, 0, ?6, ?7, ?8, ?9, ?10, ?11,
-                     ?12, ?3, ?2, ?13)",
-            params![
-                event.event_id().as_bytes(),
-                CORRELATION_TYPE_CONVERSATION,
-                conversation_id.as_bytes(),
-                global,
-                now,
-                event.schema_version() as i64,
-                event.causation_id().map(EventId::as_bytes),
-                event.command_id().as_bytes(),
-                event.idempotency_key().as_str().as_bytes(),
-                event.actor().as_str().as_bytes(),
-                payload,
-                digest.as_bytes(),
-                INTEGRITY_PROFILE_V2,
-            ],
-        ).unwrap();
+        staging
+            .execute(
+                "INSERT INTO aggregate_streams
+                 (aggregate_type, aggregate_id, current_version, last_event_id,
+                  last_timestamp, created_at)
+                 VALUES (2, ?1, 1, ?2, ?3, ?3)",
+                params![conversation_id.as_bytes(), event.event_id().as_bytes(), now],
+            )
+            .unwrap();
+        staging
+            .execute(
+                "INSERT INTO events
+                 (event_id, aggregate_type, aggregate_id, sequence, global_position,
+                  timestamp, sensitivity, schema_version, causation_id, command_id,
+                  idempotency_key, actor, payload, integrity_digest, correlation_id,
+                  correlation_type, integrity_profile)
+                 VALUES (?1, ?2, ?3, 1, ?4, ?5, 0, ?6, ?7, ?8, ?9, ?10, ?11,
+                         ?12, ?3, ?2, ?13)",
+                params![
+                    event.event_id().as_bytes(),
+                    CORRELATION_TYPE_CONVERSATION,
+                    conversation_id.as_bytes(),
+                    global,
+                    now,
+                    event.schema_version() as i64,
+                    event.causation_id().map(EventId::as_bytes),
+                    event.command_id().as_bytes(),
+                    event.idempotency_key().as_str().as_bytes(),
+                    event.actor().as_str().as_bytes(),
+                    payload,
+                    digest.as_bytes(),
+                    INTEGRITY_PROFILE_V2,
+                ],
+            )
+            .unwrap();
     }
     // The seeded events consumed global positions; move the log state
     // forward exactly as the production writer would have.
@@ -153,17 +163,23 @@ fn windows_v39_to_v40_migration_preserves_live_wal_conversations_without_scope_b
     .unwrap();
     snapshot_tx.commit().unwrap();
 
-    // v39 probe: the context-scope table does not exist at this version.
-    assert!(staging
-        .execute(
-            "INSERT INTO conversation_context_scope
-             (conversation_id, context_scope, recorded_at) VALUES (?1, 'workspace', 1)",
-            params![conversation_id.as_bytes()],
-        )
-        .is_err());
+    // v39 probe: the context-scope table does not exist at this version —
+    // pin the exact SQLite failure, not just any error.
+    let probe = staging.execute(
+        "INSERT INTO conversation_context_scope
+         (conversation_id, context_scope, recorded_at) VALUES (?1, 'workspace', 1)",
+        params![conversation_id.as_bytes()],
+    );
+    match probe {
+        Err(rusqlite::Error::SqliteFailure(_, message)) => assert!(message
+            .as_deref()
+            .is_some_and(|m| m.contains("no such table: conversation_context_scope"))),
+        other => panic!("v39 probe must fail on the missing scope table, got {other:?}"),
+    }
 
-    // Live-WAL pin: the staging connection holds the sidecar open.
+    // Live-WAL pin: the staging connection holds the sidecars open.
     assert!(sidecar_path(&path, "-wal").exists());
+    assert!(sidecar_path(&path, "-shm").exists());
 
     // A second concurrent writer is refused while the sidecars are live —
     // with the exact typed diagnostic, not just any error.
@@ -177,56 +193,33 @@ fn windows_v39_to_v40_migration_preserves_live_wal_conversations_without_scope_b
     assert!(typed_refusal);
 
     // The upgrade runs on the WAL-owning connection through the public API;
-    // the sidecar stays present until close, then reaches its documented end
-    // of life by the clean close.
+    // its trailing checkpoint may shrink the WAL but the sidecar stays
+    // present until the clean close.
     apply_migrations(&staging).unwrap();
     assert_eq!(schema_marker(&staging), 40);
     assert!(sidecar_path(&path, "-wal").exists());
-    let preserved: i64 = staging.query_row(
-        "SELECT COUNT(*) FROM aggregate_streams WHERE aggregate_type = 2",
-        [], |row| row.get(0)).unwrap();
+    let preserved: i64 = staging
+        .query_row(
+            "SELECT COUNT(*) FROM aggregate_streams WHERE aggregate_type = 2",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
     assert_eq!(preserved, 1, "the pre-v40 conversation was lost");
-    let scope_rows: i64 = staging.query_row(
-        "SELECT COUNT(*) FROM conversation_context_scope", [], |row| row.get(0)).unwrap();
+    let scope_rows: i64 = staging
+        .query_row(
+            "SELECT COUNT(*) FROM conversation_context_scope",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
     assert_eq!(scope_rows, 0, "migration must not backfill scope markers");
-    drop(staging);
-    assert!(!sidecar_path(&path, "-wal").exists());
 
-    // Managed access through the store API: the migrated conversation loads
-    // with its full event stream and stays without a scope marker.
-    let prohibited: Arc<dyn ProhibitedContentPort> =
-        Arc::new(SecretBroker::new().prohibited_content_guard());
-    let store = crate::store::StoreTransaction::open(
-        path.to_str().unwrap(),
-        RuntimeAuthorityId(String::from("integration-v39-v40")),
-        Arc::clone(&prohibited),
-    )
-    .unwrap();
-    let loaded = store.load_conversation(conversation_id).unwrap();
-    assert_eq!(loaded.events.len(), 1, "event stream must be preserved");
-    let expected_workspace = workspace_id;
-    assert!(matches!(
-        loaded.events[0].payload(),
-        ConversationEvent::ConversationCreated { workspace_id }
-            if *workspace_id == expected_workspace
-    ));
-    assert_eq!(
-        store.conversation_context_scope(conversation_id).unwrap(),
-        None,
-        "pre-v40 conversations must stay unclassified"
-    );
-
-    // The guarded validated reopen re-admits the migrated database.
-    let reopened = reopen_managed_connection_validated(
-        &path,
-        ConnectionMode::ValidatedReopen,
-        |_| Ok(()),
-    );
-    assert!(reopened.is_ok());
-    drop(reopened);
-
-    // Guarded hot-reader reads on the migrated database: the historical
-    // stream is preserved and stays unclassified (no scope backfill).
+    // Hot-reader stage on the still-live WAL: the sidecars are explicitly
+    // present and the guarded owner-private Reader profile is admitted
+    // alongside the WAL-owning writer, observing the migrated state.
+    assert!(sidecar_path(&path, "-wal").exists());
+    assert!(sidecar_path(&path, "-shm").exists());
     let reader = open_managed_connection(&path, ConnectionMode::Reader).unwrap();
     let version: i64 = reader
         .query_row(
@@ -263,4 +256,36 @@ fn windows_v39_to_v40_migration_preserves_live_wal_conversations_without_scope_b
         .unwrap();
     assert_eq!(old_scope, None);
     drop(reader);
+
+    // Documented WAL end of life: the staging connection's clean close
+    // checkpoints and removes the sidecars.
+    drop(staging);
+    assert!(!sidecar_path(&path, "-wal").exists());
+    assert!(!sidecar_path(&path, "-shm").exists());
+
+    // Managed access through the store API: the migrated conversation loads
+    // with its full event stream and stays without a scope marker.
+    let prohibited: Arc<dyn ProhibitedContentPort> =
+        Arc::new(SecretBroker::new().prohibited_content_guard());
+    let store = crate::store::StoreTransaction::open(
+        path.to_str().unwrap(),
+        RuntimeAuthorityId(String::from("integration-v39-v40")),
+        Arc::clone(&prohibited),
+    )
+    .unwrap();
+    let loaded = store.load_conversation(conversation_id).unwrap();
+    assert_eq!(loaded.events.len(), 1, "event stream must be preserved");
+    let expected_workspace = workspace_id;
+    assert!(matches!(
+        loaded.events[0].payload(),
+        ConversationEvent::ConversationCreated { workspace_id }
+            if *workspace_id == expected_workspace
+    ));
+    assert_eq!(
+        store.conversation_context_scope(conversation_id).unwrap(),
+        None,
+        "pre-v40 conversations must stay unclassified"
+    );
+
+    include!("windows_v39_v40_phase2.rs");
 }

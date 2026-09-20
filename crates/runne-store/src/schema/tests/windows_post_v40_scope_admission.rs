@@ -120,4 +120,13 @@ use runne_application::ports::ProjectWorkspaceRepository;
         .unwrap()
         .map(|scope| scope.as_str().to_string());
     assert_eq!(scope.as_deref(), Some("workspace"));
+
+    // The promised validated reopen: the repository holds an Arc clone of
+    // the store, so it must be released before `drop(store)` performs the
+    // clean close; the guarded re-admission then succeeds on the fresh v40
+    // database.
+    drop(repository);
+    drop(store);
+    reopen_managed_connection_validated(&path, ConnectionMode::ValidatedReopen, |_| Ok(()))
+        .expect("validated reopen must succeed");
 }
