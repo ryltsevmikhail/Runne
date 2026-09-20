@@ -15,8 +15,13 @@
 #[cfg(windows)]
 #[test]
 fn windows_hot_reader_serves_a_live_wal_without_false_rejections() {
+    // The database nests under a test-owned daemon directory: the guard
+    // validates and re-ACLs db_path's parent and grandparent, and the
+    // grandparent must be the tempdir we own, never the shared %TEMP% root.
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("event-log.sqlite");
+    let daemon = directory.path().join("runne-daemon");
+    fs::create_dir(&daemon).unwrap();
+    let path = daemon.join("event-log.sqlite");
     let writer = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
     apply_migrations(&writer).unwrap();
     // An allowed write creates the live WAL the reader will anchor.
@@ -29,11 +34,13 @@ fn windows_hot_reader_serves_a_live_wal_without_false_rejections() {
     let wal = sidecar_path(&path, "-wal");
     assert!(wal.exists());
 
-    // The reader takes the owner-private hot-reader path (sidecars present);
-    // its guard must pass the journal/WAL identity comparison branch against
-    // the object SQLite actually holds open. Reaching the Classified stage
-    // proves the anchor-vs-live-handle comparisons in verify() and
-    // verify_with_sidecar_handle() ran and passed.
+    // The live writer keeps both sidecars present, so the reader
+    // deterministically takes the owner-private hot-reader path whose guard
+    // anchors the WAL and runs the journal identity comparison. The proof is
+    // the conjunction: reaching Classified shows verify() passed, and the
+    // open returning Ok shows verify_with_sidecar_handle() (which runs after
+    // Classified) compared SQLite's live journal handle against the retained
+    // WAL anchor and matched.
     let reached_classified = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let hook_flag = std::sync::Arc::clone(&reached_classified);
     let reader = open_connection_for_profile_with_hook(&path, ConnectionMode::Reader, |stage| {
@@ -99,8 +106,13 @@ fn windows_hot_reader_serves_a_live_wal_without_false_rejections() {
 #[cfg(windows)]
 #[test]
 fn windows_substituting_a_live_wal_is_os_blocked() {
+    // The database nests under a test-owned daemon directory: the guard
+    // validates and re-ACLs db_path's parent and grandparent, and the
+    // grandparent must be the tempdir we own, never the shared %TEMP% root.
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("event-log.sqlite");
+    let daemon = directory.path().join("runne-daemon");
+    fs::create_dir(&daemon).unwrap();
+    let path = daemon.join("event-log.sqlite");
     let writer = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
     apply_migrations(&writer).unwrap();
     writer
@@ -115,7 +127,8 @@ fn windows_substituting_a_live_wal_is_os_blocked() {
     // mismatch scenario cannot be staged; the pre-open substitution window
     // is covered by windows_retained_stage_main_file_swap_is_rejected.
     let displaced = wal.with_extension("displaced");
-    assert!(fs::rename(&wal, &displaced).is_err());
+    let error = fs::rename(&wal, &displaced).expect_err("live WAL must not be renameable");
+    assert_eq!(error.raw_os_error(), Some(32)); // ERROR_SHARING_VIOLATION
     assert!(wal.exists());
     drop(writer);
 }
