@@ -269,6 +269,13 @@ pub const fn test_transfer_receiver(
     }
 }
 
+#[cfg(all(unix, feature = "test-support"))]
+#[doc(hidden)]
+#[must_use]
+pub fn launcher_spawn_attempt_count() -> u32 {
+    platform::launcher_spawn_attempt_count()
+}
+
 impl fmt::Debug for RootHandleTransferSender {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
