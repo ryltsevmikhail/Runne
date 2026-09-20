@@ -8,7 +8,7 @@ use std::time::Duration;
 use runne_runtime_client::{
     CanonicalId, CommandIdentity, ConversationContextScope, CreateConversationRequest,
     GenerateTextRequest, LocalProfileError, LocalRuntimeProfile, RuntimeApiError,
-    default_local_profile_path,
+    TaskRunSnapshot, TaskRunState, TaskRunTerminalResult, default_local_profile_path,
 };
 use runne_secure_store::{
     NativeProviderCredentialStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
@@ -194,6 +194,8 @@ include!("cli/provider_checks.rs");
 include!("cli/format.rs");
 include!("cli/completion.rs");
 include!("cli/conversation.rs");
+include!("cli/task.rs");
+include!("cli/task_help.rs");
 include!("cli/provider_credential.rs");
 include!("cli/provider_credential_broker.rs");
 include!("cli/parsing.rs");
@@ -223,3 +225,7 @@ pub mod credential_test_support;
 mod provider_credential_legacy_tests;
 #[cfg(test)]
 mod provider_credential_tests;
+#[cfg(test)]
+mod task_render_escape_tests;
+#[cfg(test)]
+mod task_render_tests;
