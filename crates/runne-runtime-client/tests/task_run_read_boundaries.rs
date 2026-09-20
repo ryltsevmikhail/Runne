@@ -15,7 +15,7 @@ const FIRST_SUFFIX: usize = 0x210;
 /// `MAXIMUM_CANONICAL_RESPONSE_BYTES` (`src/canonical/types.rs`).
 const MAXIMUM_CANONICAL_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 
-/// Builds the `index`-th distinct valid UUIDv7 identity by advancing the node
+/// Builds the `index`-th distinct valid `UUIDv7` identity by advancing the node
 /// suffix of the shared fixture ID shape (version 7, RFC 4122 variant kept).
 fn distinct_task_run_id(index: usize) -> String {
     format!("018f2e3a-7000-7000-8000-{:012x}", FIRST_SUFFIX + index)
@@ -33,9 +33,11 @@ fn distinct_list_body(count: usize) -> String {
 /// identifiers, preserves their order, and issues exactly one list request.
 #[tokio::test]
 async fn task_run_read_list_4096_distinct_ids_accepted_in_order() {
+    let body = distinct_list_body(4_096);
+    println!("measured_list_body_bytes_4096={}", body.len());
     let (result, requests) = support::drive(
         support::session(),
-        vec![support::ok_json(distinct_list_body(4_096))],
+        vec![support::ok_json(body)],
         |client| async move { client.list_task_runs().await },
     )
     .await;
@@ -57,6 +59,7 @@ async fn task_run_read_list_4096_distinct_ids_accepted_in_order() {
 #[tokio::test]
 async fn task_run_read_list_4097_distinct_ids_exact_response_too_large() {
     let body = distinct_list_body(4_097);
+    println!("measured_list_body_bytes_4097={}", body.len());
     assert!(
         body.len() < MAXIMUM_CANONICAL_RESPONSE_BYTES,
         "measured serialized body is {} bytes and must stay under the {} byte HTTP cap so the rejection proves the count limit",
