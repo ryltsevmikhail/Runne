@@ -122,25 +122,48 @@ pub fn profile_check_invalid_credential(profile_path: &Path) -> DiagnosticCheck 
 /// Display form of the daemon-reported `/health` version.
 ///
 /// The wire format only bounds the version (non-empty, ≤64 bytes, no control
-/// characters), so path- and token-like strings parse fine. Only a
-/// semver-shaped value — the format the daemon actually sends
-/// (`env!("CARGO_PKG_VERSION")`) — is rendered verbatim: it starts with the
-/// numeric major version, carries at least one dot and stays inside the
-/// ASCII semver charset `[A-Za-z0-9.+-]` and the wire length bound. Every
-/// other value is replaced by a fixed placeholder that echoes no part of the
-/// input.
+/// characters), so arbitrary daemon-controlled strings parse fine. Only a
+/// *verified numeric core* is rendered: the value must split at the first
+/// `-`/`+` into exactly three non-empty ASCII-digit components and keep the
+/// same ≤64-byte wire bound; a prerelease/build tail, when present, must be
+/// non-empty and stay inside the ASCII version charset `[A-Za-z0-9.+-]`. The
+/// output is rebuilt from the verified digit components (`major.minor.patch`)
+/// — the tail is never rendered and no input fragment is ever echoed. Every
+/// other value is replaced wholesale by a fixed placeholder that echoes no
+/// part of the input.
+///
+/// Deliberate deviation from strict semver: this is a display allowlist, not
+/// a semver validator — leading zeros and arbitrary component lengths are
+/// accepted, and the tail is never parsed into prerelease/build identifiers.
+/// The daemon's real `env!("CARGO_PKG_VERSION")` value renders unchanged.
 #[must_use]
 fn display_version(version: &str) -> String {
-    let allowed = |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'+' | b'-');
-    if version.len() <= 64
-        && version.as_bytes().first().is_some_and(u8::is_ascii_digit)
-        && version.contains('.')
-        && version.bytes().all(allowed)
-    {
-        version.to_owned()
-    } else {
-        "withheld (unexpected format)".to_owned()
+    const WITHHELD: &str = "withheld (unexpected format)";
+    // Same ceiling the wire parser enforces; the display allowlist never
+    // widens the `RuntimeHealth::parse` bounds.
+    if version.len() > 64 {
+        return WITHHELD.to_owned();
     }
+    let in_version_charset =
+        |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'+' | b'-');
+    let numeric = |component: &str| {
+        !component.is_empty() && component.bytes().all(|byte| byte.is_ascii_digit())
+    };
+    let (core, tail) = version
+        .find(['-', '+'])
+        .map_or((version, None), |end| (&version[..end], Some(&version[end + 1..])));
+    let tail_ok = tail.is_none_or(|tail| !tail.is_empty() && tail.bytes().all(in_version_charset));
+    let mut parts = core.split('.');
+    let shape = (parts.next(), parts.next(), parts.next(), parts.next());
+    if tail_ok
+        && let (Some(major), Some(minor), Some(patch), None) = shape
+        && numeric(major)
+        && numeric(minor)
+        && numeric(patch)
+    {
+        return format!("{major}.{minor}.{patch}");
+    }
+    WITHHELD.to_owned()
 }
 
 /// Runtime check with daemon-reported health status and format-gated version

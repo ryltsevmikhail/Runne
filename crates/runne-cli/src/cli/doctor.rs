@@ -255,5 +255,9 @@ mod doctor_redaction_tests;
 mod doctor_redaction_version_tests;
 
 #[cfg(test)]
+#[path = "doctor_redaction_canary_tests.rs"]
+mod doctor_redaction_canary_tests;
+
+#[cfg(test)]
 #[path = "doctor_credential_builder_tests.rs"]
 mod doctor_credential_builder_tests;

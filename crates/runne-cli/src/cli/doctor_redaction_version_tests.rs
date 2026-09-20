@@ -1,10 +1,11 @@
-// Hermetic canary suite for the doctor `Version` display gate (slice A).
+// Hermetic canary suite for the doctor `Version` display gate (slice A,
+// narrowed to numeric-core-only rendering in slice C).
 //
 // The `/health` wire parser only bounds the version (non-empty, ≤64 bytes,
 // no control characters), so path- and token-like strings parse fine; the
 // display gate in `runtime_health_check` is what keeps them out of the
-// report by requiring the semver shape the daemon actually sends (leading
-// digit, at least one dot, ASCII `[A-Za-z0-9.+-]`, ≤64 bytes). These tests
+// report by rendering only a verified numeric core (`major.minor.patch`)
+// and replacing every other value with a fixed placeholder. These tests
 // drive the REAL parsing path (`RuntimeHealth::parse`) and the REAL report
 // formatter for both output channels, using synthetic private canaries only.
 // No network, no host state, no real daemon.
@@ -92,15 +93,26 @@ fn gated_checks_keep_their_ids_and_status_tiers() {
 }
 
 #[test]
-fn semver_charset_versions_render_verbatim_in_both_channels() {
-    for version in ["0.0.0-test", "1.2.3-canary.0+build"] {
-        assert!(RuntimeHealth::parse(200, &payload("ok", version)).is_ok());
-        for check in all_runtime_builders(version) {
-            let (_, text, json) = channels(check);
-            let needle = format!("Version: {version}");
-            assert!(text.contains(&needle), "text lost {needle}");
-            assert!(json.contains(&needle), "json lost {needle}");
-        }
+fn tailed_versions_render_numeric_core_only_in_both_channels() {
+    // Slice C: only the numeric core renders; prerelease/build tails are
+    // never echoed even though the wire parser accepts the full value.
+    assert!(RuntimeHealth::parse(200, &payload("ok", "0.0.0-test")).is_ok());
+    for check in all_runtime_builders("0.0.0-test") {
+        let (_, text, json) = channels(check);
+        assert!(text.contains("Version: 0.0.0"), "text lost numeric core");
+        assert!(json.contains("Version: 0.0.0"), "json lost numeric core");
+        assert!(!text.contains("-test"), "text echoed prerelease tail");
+        assert!(!json.contains("-test"), "json echoed prerelease tail");
+    }
+    assert!(RuntimeHealth::parse(200, &payload("ok", "1.2.3-canary.0+build")).is_ok());
+    for check in all_runtime_builders("1.2.3-canary.0+build") {
+        let (_, text, json) = channels(check);
+        assert!(text.contains("Version: 1.2.3"), "text lost numeric core");
+        assert!(json.contains("Version: 1.2.3"), "json lost numeric core");
+        assert!(!text.contains("canary.0"), "text echoed prerelease tail");
+        assert!(!text.contains("+build"), "text echoed build tail");
+        assert!(!json.contains("canary.0"), "json echoed prerelease tail");
+        assert!(!json.contains("+build"), "json echoed build tail");
     }
 }
 
@@ -117,12 +129,15 @@ fn gate_mirrors_wire_bounds_and_tightens_the_shape() {
     let control = "1.2.3\nx";
     assert!(RuntimeHealth::parse(200, &payload("ok", control)).is_err());
     assert!(!runtime_check_ok(control).details.as_deref().unwrap().contains(control));
-    // 64 bytes of semver shape: parser accepts, gate renders verbatim.
+    // 64 bytes of wire-bounded shape: parser accepts, display renders only
+    // the numeric core — build metadata never enters the report (regression
+    // on the slice-A leak).
     let exact_64 = format!("1.2.3+{}", "a".repeat(58));
     assert_eq!(exact_64.len(), 64);
     assert!(RuntimeHealth::parse(200, &payload("ok", &exact_64)).is_ok());
     let details = runtime_check_ok(&exact_64).details.expect("details");
-    assert!(details.contains(&exact_64));
+    assert!(details.contains("Version: 1.2.3"));
+    assert!(!details.contains(&exact_64));
     // Semver shape is required, not only the charset: a parser-accepted
     // value without a leading digit or without a dot stays withheld.
     for shaped in ["no-leading-digit.1.2", "nodots-1-2-3", "1.2.3 with spaces"] {
