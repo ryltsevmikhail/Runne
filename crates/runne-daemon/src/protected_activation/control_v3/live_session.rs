@@ -57,4 +57,7 @@ impl LiveEnrollmentSession {
 }
 
 #[cfg(test)]
+// The tests drive the unix enrollment_v3 transport (UnixStream + the
+// unix-gated enrollment_v3 fixtures); Windows enrollment is Unsupported.
+#[cfg(all(test, unix))]
 mod tests;
