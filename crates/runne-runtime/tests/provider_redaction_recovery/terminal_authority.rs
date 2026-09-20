@@ -96,7 +96,7 @@ fn corrupt_terminalization_rejects_healthy_rows_and_stale_stable_authority() {
         durable.terminalize_corrupt_checkpoint(current),
         Err(ScannerRecoveryPersistenceError::Conflict)
     );
-    let database = directory.path().join("provider.sqlite.scanner-recovery");
+    let database = directory.path().join("runne-daemon").join("provider.sqlite.scanner-recovery");
     rusqlite::Connection::open(&database)
         .unwrap()
         .execute(
@@ -134,7 +134,7 @@ fn corrupt_terminalization_is_idempotent_dominant_and_replaces_completed() {
     let current = advanced_binding();
     let checkpoint = checkpoint_for(&MemoryTailStore::default(), current);
     durable.persist_checkpoint(checkpoint).unwrap();
-    let database = directory.path().join("provider.sqlite.scanner-recovery");
+    let database = directory.path().join("runne-daemon").join("provider.sqlite.scanner-recovery");
     let connection = rusqlite::Connection::open(&database).unwrap();
     connection
         .execute(
@@ -178,7 +178,7 @@ fn unproven_completed_record_is_corrupt_and_cannot_publish() {
     durable.advance_checkpoint(checkpoint).unwrap();
 
     let connection = rusqlite::Connection::open(
-        directory.path().join("provider.sqlite.scanner-recovery"),
+        directory.path().join("runne-daemon").join("provider.sqlite.scanner-recovery"),
     )
     .unwrap();
     connection

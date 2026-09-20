@@ -16,7 +16,11 @@ fn production_startup_has_no_legacy_credential_import_path() {
 #[test]
 fn expired_active_pending_command_completes_before_gc_and_uses_next_version() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("expired-active-pending.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("expired-active-pending.sqlite")
+    };
     let (lifecycle, _) = CredentialAuthorityPair::new().split();
     let store =
         SqliteProviderCredentialLifecycleStore::open_at_with_authority(&path, lifecycle, 100)
@@ -72,7 +76,11 @@ fn expired_active_pending_command_completes_before_gc_and_uses_next_version() {
 #[test]
 fn explicit_fixture_native_dependency_rotates_across_two_launch_generations() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("two-launch-credential.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("two-launch-credential.sqlite")
+    };
     let counters = Arc::new(FixtureNativeCounters::default());
     let factory: Arc<FixtureCredentialVersionStoreFactory> = Arc::new({
         let counters = Arc::clone(&counters);

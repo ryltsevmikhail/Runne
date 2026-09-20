@@ -151,7 +151,11 @@ pub(super) fn control() -> (
     tempfile::TempDir,
 ) {
     let directory = tempfile::tempdir().unwrap();
-    let database = directory.path().join("relay-control.sqlite3");
+    let database = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("relay-control.sqlite3")
+    };
     let (lifecycle, _) = CredentialAuthorityPair::new().split();
     let (enrollment_store, measurements) = CredentialEnrollmentAuthorityPair::new().split();
     let store =

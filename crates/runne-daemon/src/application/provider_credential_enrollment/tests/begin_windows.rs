@@ -55,7 +55,11 @@ fn begin_returns_the_typed_unsupported_refusal_on_windows() {
     let (enrollment_authority, measurements) = CredentialEnrollmentAuthorityPair::new().split();
     let store =
         runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_authorities(
-            &directory.path().join("begin.sqlite"),
+            &{
+                let daemon = directory.path().join("runne-daemon");
+                std::fs::create_dir_all(&daemon).unwrap();
+                daemon.join("begin.sqlite")
+            },
             lifecycle_authority,
             enrollment_authority,
         )

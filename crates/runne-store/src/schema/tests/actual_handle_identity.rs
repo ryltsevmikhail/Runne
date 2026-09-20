@@ -181,7 +181,7 @@ fn scanner_sidecar_reopen_rejects_actual_handle_aba() {
 #[test]
 fn windows_ordinary_write_and_validated_reopen_succeed() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("event-log.sqlite");
+    let path = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("event-log.sqlite") };
     let writer = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
     apply_migrations(&writer).unwrap();
     // An allowed write on the genuine object must succeed and stay admitted.
@@ -202,7 +202,7 @@ fn initialized_database(path: &Path) {
 #[test]
 fn windows_retained_stage_main_file_swap_is_rejected() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("event-log.sqlite");
+    let path = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("event-log.sqlite") };
     initialized_database(&path);
     let replacement = path.with_extension("replacement");
     initialized_database(&replacement);
@@ -223,7 +223,7 @@ fn windows_retained_stage_main_file_swap_is_rejected() {
 #[test]
 fn windows_retained_stage_inspection_failure_is_rejected() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("event-log.sqlite");
+    let path = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("event-log.sqlite") };
     initialized_database(&path);
     let result = open_connection_for_profile_with_hook(&path, ConnectionMode::Writer, |stage| {
         if matches!(stage, IdentityHookStage::Retained) {

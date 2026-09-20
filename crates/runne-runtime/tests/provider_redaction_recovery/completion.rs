@@ -168,7 +168,7 @@ fn durable_checkpoint_digest_mismatch_is_checkpoint_secret_state_unavailable() {
         ProviderRedactionRecovery::start(binding(), &tails, &durable, &matcher).unwrap();
     first.ingest(b"prefix cred", &mut staged).unwrap();
     let connection =
-        rusqlite::Connection::open(directory.path().join("provider.sqlite.scanner-recovery"))
+        rusqlite::Connection::open(directory.path().join("runne-daemon").join("provider.sqlite.scanner-recovery"))
             .unwrap();
     connection
         .execute(

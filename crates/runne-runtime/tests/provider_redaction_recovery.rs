@@ -127,9 +127,13 @@ fn corrupt_ref_or_checkpoint_is_checkpoint_secret_state_unavailable() {
     let mut first =
         ProviderRedactionRecovery::start(binding(), &tails, &durable, &matcher).unwrap();
     first.ingest(b"prefix cred", &mut staged).unwrap();
-    let connection =
-        rusqlite::Connection::open(directory.path().join("provider.sqlite.scanner-recovery"))
-            .unwrap();
+    let connection = rusqlite::Connection::open(
+        directory
+            .path()
+            .join("runne-daemon")
+            .join("provider.sqlite.scanner-recovery"),
+    )
+    .unwrap();
     connection
         .execute(
             "UPDATE provider_scanner_recovery SET checkpoint_digest=zeroblob(32)",

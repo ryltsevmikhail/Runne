@@ -64,7 +64,11 @@ fn concurrent_begin_proof_returns_one_effect_authority_and_one_idempotent_projec
     let (enrollment_authority, measurements) = CredentialEnrollmentAuthorityPair::new().split();
     let store =
         runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_authorities(
-            &directory.path().join("admission.sqlite"),
+            &{
+                let daemon = directory.path().join("runne-daemon");
+                std::fs::create_dir_all(&daemon).unwrap();
+                daemon.join("admission.sqlite")
+            },
             lifecycle_authority,
             enrollment_authority,
         )

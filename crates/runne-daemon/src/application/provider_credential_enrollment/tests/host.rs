@@ -74,7 +74,11 @@ async fn composed_host_begins_then_resumes_the_same_safe_operation() {
     let legacy_import_authority = enrollment_authority.clone();
     let store =
         runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_authorities(
-            &directory.path().join("host.sqlite"),
+            &{
+                let daemon = directory.path().join("runne-daemon");
+                std::fs::create_dir_all(&daemon).unwrap();
+                daemon.join("host.sqlite")
+            },
             lifecycle_authority,
             enrollment_authority,
         )

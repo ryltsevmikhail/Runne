@@ -88,7 +88,11 @@ fn restart_after_durable_prepare_reuses_exact_prepared_version() {
         use std::os::unix::fs::PermissionsExt as _;
         std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     }
-    let path = directory.path().join("credential-prepare-restart.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("credential-prepare-restart.sqlite")
+    };
     let initial = SqliteProviderCredentialLifecycleStore::open_with_connection(
         runne_store::schema::open_managed_connection(
             &path,
@@ -134,7 +138,11 @@ fn restart_after_durable_prepare_reuses_exact_prepared_version() {
 #[test]
 fn restart_after_native_create_replays_exact_version_and_activates() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("credential-native-restart.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("credential-native-restart.sqlite")
+    };
     let (lifecycle, native_authority) = CredentialAuthorityPair::new().split();
     let store =
         SqliteProviderCredentialLifecycleStore::open_at_with_authority(&path, lifecycle, 100)
@@ -179,9 +187,11 @@ fn restart_after_native_create_replays_exact_version_and_activates() {
 #[test]
 fn provisioning_rejects_conflicting_operation_and_native_payload() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory
-        .path()
-        .join("credential-provision-conflict.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("credential-provision-conflict.sqlite")
+    };
     let (lifecycle, native_authority) = CredentialAuthorityPair::new().split();
     let store =
         SqliteProviderCredentialLifecycleStore::open_at_with_authority(&path, lifecycle, 100)
@@ -242,9 +252,11 @@ fn provisioning_rejects_conflicting_operation_and_native_payload() {
 #[test]
 fn ambiguous_prepared_orphans_remain_untouched_and_fail_closed() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory
-        .path()
-        .join("credential-ambiguous-prepared.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("credential-ambiguous-prepared.sqlite")
+    };
     let store = SqliteProviderCredentialLifecycleStore::open_at(&path, 100).unwrap();
     let provider = ProviderId::new("openai").unwrap();
     let first = CredentialVersionRef::new(provider.clone(), 1).unwrap();

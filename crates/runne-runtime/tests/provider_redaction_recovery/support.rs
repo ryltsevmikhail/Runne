@@ -81,7 +81,7 @@ fn binding() -> TailBinding {
 
 fn stores() -> (tempfile::TempDir, SqliteProviderRecoveryStore) {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("provider.sqlite");
+    let path = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("provider.sqlite") };
     drop(SqliteProviderDispatchStore::open(&path).unwrap());
     let recovery = SqliteProviderRecoveryStore::open(&path, [1; 16]).unwrap();
     (directory, recovery)

@@ -54,7 +54,11 @@ fn fixture_with_action(action: CredentialOperationAction, idempotency: &str) -> 
     let measurements = Arc::new(measurements);
     let store =
         runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_authorities(
-            &directory.path().join("broker.sqlite"),
+            &{
+                let daemon = directory.path().join("runne-daemon");
+                std::fs::create_dir_all(&daemon).unwrap();
+                daemon.join("broker.sqlite")
+            },
             lifecycle,
             enrollment.clone(),
         )

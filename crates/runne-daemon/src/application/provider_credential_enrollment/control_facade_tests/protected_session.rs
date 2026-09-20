@@ -42,7 +42,11 @@ fn protected_begin_without_verified_request_admission_is_rejected_before_store()
     let (enrollment_store, measurements) = CredentialEnrollmentAuthorityPair::new().split();
     let store =
         runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_authorities(
-            &directory.path().join("protected-session.sqlite"),
+            &{
+                let daemon = directory.path().join("runne-daemon");
+                std::fs::create_dir_all(&daemon).unwrap();
+                daemon.join("protected-session.sqlite")
+            },
             lifecycle,
             enrollment_store.clone(),
         )

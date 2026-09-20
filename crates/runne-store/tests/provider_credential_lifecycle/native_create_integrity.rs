@@ -12,7 +12,11 @@ use super::support::*;
 #[test]
 fn native_created_stage_cannot_issue_a_new_native_create_claim() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("post-mark-claim.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("post-mark-claim.sqlite")
+    };
     let (store, _native) = store_with_native(&path);
     let provider = ProviderId::new("openai").unwrap();
     let source = store.provision_source([0xE6; 16]).unwrap();
@@ -30,7 +34,11 @@ fn native_created_stage_cannot_issue_a_new_native_create_claim() {
 #[test]
 fn post_mark_claim_is_rejected_after_delayed_use_through_deleted() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("delayed-post-mark-claim.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("delayed-post-mark-claim.sqlite")
+    };
     let (store, native) = store_with_native(&path);
     let provider = ProviderId::new("openai").unwrap();
     let source = store.provision_source([0xE8; 16]).unwrap();
@@ -73,7 +81,11 @@ fn post_mark_claim_is_rejected_after_delayed_use_through_deleted() {
 #[test]
 fn native_create_revalidates_durable_prepared_stage_at_point_of_use() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("durable-create-revalidation.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("durable-create-revalidation.sqlite")
+    };
     let (store, native) = store_with_native(&path);
     let provider = ProviderId::new("openai").unwrap();
     let source = store.provision_source([0xEA; 16]).unwrap();
@@ -100,7 +112,11 @@ fn native_create_revalidates_durable_prepared_stage_at_point_of_use() {
 #[test]
 fn active_transition_invalidates_an_outstanding_native_create_claim() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("active-invalidates-create.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("active-invalidates-create.sqlite")
+    };
     let (store, native) = store_with_native(&path);
     let provider = ProviderId::new("openai").unwrap();
     let source = store.provision_source([0xEC; 16]).unwrap();
@@ -127,7 +143,11 @@ fn active_transition_invalidates_an_outstanding_native_create_claim() {
 #[test]
 fn claim_generation_stays_exclusive_until_stage_progression_commits() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("generation-commit-boundary.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("generation-commit-boundary.sqlite")
+    };
     let (lifecycle, native) = CredentialAuthorityPair::new().split();
     let store = Arc::new(
         runne_store::provider::SqliteProviderCredentialLifecycleStore::open_at_with_authority(

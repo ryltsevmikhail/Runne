@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(unix)]
 use crate::provider_activation::ProviderAccountingMode;
 use std::fs;
 
@@ -11,6 +12,9 @@ fn private_config(path: &std::path::Path, contents: &str) {
     }
 }
 
+// The external-config loader validates only on unix; non-unix hosts get the
+// typed unsupported refusal, so the success path is unix-only by contract.
+#[cfg(unix)]
 #[test]
 fn external_native_accounting_roundtrips_into_snapshot() {
     let directory = tempfile::tempdir().unwrap();
@@ -54,6 +58,9 @@ fn external_settings_for_another_provider_are_rejected() {
     ));
 }
 
+// The external-config loader validates only on unix; non-unix hosts get the
+// typed unsupported refusal, so the success path is unix-only by contract.
+#[cfg(unix)]
 #[test]
 fn external_responses_payg_config_recomputes_derived_profile_digest() {
     let directory = tempfile::tempdir().unwrap();
@@ -84,6 +91,9 @@ fn external_responses_payg_config_recomputes_derived_profile_digest() {
     );
 }
 
+// The external-config loader validates only on unix; non-unix hosts get the
+// typed unsupported refusal, so the success path is unix-only by contract.
+#[cfg(unix)]
 #[test]
 fn external_radius_config_recomputes_derived_profile_digest() {
     let directory = tempfile::tempdir().unwrap();

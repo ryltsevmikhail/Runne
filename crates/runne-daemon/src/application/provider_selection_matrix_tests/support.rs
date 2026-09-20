@@ -54,7 +54,11 @@ pub(super) fn assert_selects_and_prepares(activation: ProviderActivation, expect
     let directory = tempfile::tempdir().expect("temporary provider store");
     let store = Arc::new(
         runne_store::provider::SqliteProviderCredentialLifecycleStore::open_at(
-            &directory.path().join("matrix.sqlite"),
+            &{
+                let daemon = directory.path().join("runne-daemon");
+                std::fs::create_dir_all(&daemon).unwrap();
+                daemon.join("matrix.sqlite")
+            },
             0,
         )
         .expect("provider store"),

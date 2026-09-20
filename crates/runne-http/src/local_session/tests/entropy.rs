@@ -70,7 +70,7 @@ fn entropy_state(
 ) -> (LocalSessionHttpState, tempfile::TempDir, Arc<AtomicUsize>) {
     let directory = tempfile::tempdir().unwrap();
     let connection = open_managed_connection(
-        &directory.path().join("entropy.sqlite"),
+        &{ let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("entropy.sqlite") },
         ConnectionMode::Writer,
     )
     .unwrap();
