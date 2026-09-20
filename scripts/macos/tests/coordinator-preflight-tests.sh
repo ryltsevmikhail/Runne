@@ -161,21 +161,49 @@ printf '%s' "$(plist '<key>CFBundleIdentifier</key><string>com.runne.credential-
 printf '%s' "$(profile_fixture "$FUTURE" com.runne.desktop 758F9Z45SR)" > "$WORK/profiles/e2e-desktop.provisionprofile"
 printf '%s' "$(profile_fixture "$FUTURE" com.runne.credential-service 758F9Z45SR)" > "$WORK/profiles/e2e-credential-service.provisionprofile"
 E2E_IDENTITY="Developer ID Application: Owner (758F9Z45SR)"
-if "$HERE/prepare-signing-manifest.sh" "$e2e_app" "$WORK/e2e/manifest.json" >/dev/null 2>&1 \
-   && "$HERE/coordinator-preflight.sh" --identity "$E2E_IDENTITY" --app "$e2e_app" \
-        --manifest "$WORK/e2e/manifest.json" --entitlements-dir "$WORK/e2e/entitlements" \
-        --profile-desktop "$WORK/profiles/e2e-desktop.provisionprofile" \
-        --profile-credential-service "$WORK/profiles/e2e-credential-service.provisionprofile" >/dev/null 2>&1; then
-    note "ok   end-to-end prepare→preflight passes with real repo entitlements"
+"$HERE/prepare-signing-manifest.sh" "$e2e_app" "$WORK/e2e/manifest.json" >/dev/null 2>&1
+E2E_OUT="$("$HERE/coordinator-preflight.sh" --identity "$E2E_IDENTITY" --app "$e2e_app" \
+    --manifest "$WORK/e2e/manifest.json" --entitlements-dir "$WORK/e2e/entitlements" \
+    --profile-desktop "$WORK/profiles/e2e-desktop.provisionprofile" \
+    --profile-credential-service "$WORK/profiles/e2e-credential-service.provisionprofile" 2>&1)"; E2E_RC=$?
+if [[ "$E2E_RC" -ne 0 && "$E2E_OUT" == *"standalone executable claims restricted"* \
+      && "$E2E_OUT" == *"Runne.app/Contents/MacOS/runne"* \
+      && "$E2E_OUT" == *"Runne.app/Contents/MacOS/runned"* ]]; then
+    note "ok   end-to-end: real repo entitlements refused with the explicit standalone-claims message (current contract)"
 else
-    fail "end-to-end prepare→preflight failed; violations:"
-    "$HERE/coordinator-preflight.sh" --identity "$E2E_IDENTITY" --app "$e2e_app" \
-        --manifest "$WORK/e2e/manifest.json" --entitlements-dir "$WORK/e2e/entitlements" \
-        --profile-desktop "$WORK/profiles/e2e-desktop.provisionprofile" \
-        --profile-credential-service "$WORK/profiles/e2e-credential-service.provisionprofile" 2>&1 | sed 's/^/     | /' >&2
-    { echo "     | --- e2e-desktop.provisionprofile:"; sed 's/^/     | /' "$WORK/profiles/e2e-desktop.provisionprofile"; } >&2
+    fail "end-to-end: expected the explicit standalone-claims refusal on real repo entitlements"
+    printf '%s\n' "$E2E_OUT" | sed 's/^/     | /' >&2
 fi
 
+# Transfer completeness: unpack ONLY the documented archive into a clean
+# directory (no repository checkout) and run the documented preflight there.
+mkdir -p "$WORK/transfer"
+cp -R "$e2e_app" "$WORK/transfer/Runne.app"
+cp "$WORK/e2e/manifest.json" "$WORK/transfer/manifest.json"
+cp -R "$WORK/e2e/entitlements" "$WORK/transfer/entitlements"
+cp "$HERE/coordinator-sign.sh" "$HERE/coordinator-preflight.sh" "$WORK/transfer/"
+tar -C "$WORK/transfer" -czf "$WORK/runne-artifact.tar.gz" \
+    "$(basename "$e2e_app")" manifest.json entitlements coordinator-sign.sh coordinator-preflight.sh
+rm -rf "$WORK/unpacked" && mkdir -p "$WORK/unpacked"
+tar -C "$WORK/unpacked" -xzf "$WORK/runne-artifact.tar.gz"
+for required in Runne.app manifest.json entitlements coordinator-sign.sh coordinator-preflight.sh; do
+    [[ -e "$WORK/unpacked/$required" ]] || fail "transfer package missing: $required"
+done
+note "ok   transfer package inventory complete"
+TC_OUT="$("$WORK/unpacked/coordinator-sign.sh" --dry-run --identity "$E2E_IDENTITY" \
+    --app "$WORK/unpacked/Runne.app" --manifest "$WORK/unpacked/manifest.json" \
+    --entitlements-dir "$WORK/unpacked/entitlements" \
+    --profile-desktop "$WORK/profiles/e2e-desktop.provisionprofile" \
+    --profile-credential-service "$WORK/profiles/e2e-credential-service.provisionprofile" 2>&1)"; TC_RC=$?
+if [[ "$TC_RC" -ne 0 && "$TC_OUT" == *"standalone executable claims restricted"* \
+      && "$TC_OUT" != *"No such file"* && "$TC_OUT" != *"command not found"* ]]; then
+    note "ok   documented preflight runs standalone from the unpacked package (refuses on the current contract)"
+else
+    fail "documented preflight did not run standalone from the unpacked package"
+    printf '%s\n' "$TC_OUT" | sed 's/^/     | /' >&2
+fi
+
+# Manifest violations.
 # Manifest violations.
 make_manifest
 python3 -c "

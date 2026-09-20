@@ -5,13 +5,13 @@
 #   manifest.json           — the signing manifest consumed by the coordinator
 #   entitlements/           — STAGED entitlements files the coordinator signs with
 #
-# The staging step is where the standalone-entitlements model is applied
-# (TN3125: a standalone executable cannot embed a provisioning profile, so a
-# restricted keychain-access-groups claim on one is unauthorizable): the
-# cli.entitlements and daemon.entitlements copies are written WITHOUT the
-# keychain-access-groups claim. The repository production plists are never
-# modified; restoring restricted claims for these binaries requires the
-# app-like packaging proposal (DISTRIBUTED_SIGNING.md) and is out of scope.
+# Staging is a VERBATIM copy of the repository entitlements: the signing
+# contract stays under the repository's control. Standalone members (runne,
+# runned) whose entitlements claim the restricted keychain-access-groups
+# entitlement are refused by coordinator-preflight with an explicit message
+# (TN3125: such a claim cannot be authorized for a standalone executable) —
+# removing those claims is an explicit contract decision, see
+# DISTRIBUTED_SIGNING.md ("Process entitlements model").
 #
 # Read-only over the artifact; writes only under the manifest's directory.
 #
@@ -52,21 +52,11 @@ print(digest.hexdigest())
 EOF
 }
 
-# Stage every repo entitlements file. Standalone members get a claim-free
-# copy; bundle members are copied verbatim.
+# Stage every repo entitlements file verbatim.
 for plist in "$ENTS"/*.entitlements; do
     name="$(basename "$plist")"
-    case "$name" in
-        cli.entitlements|daemon.entitlements)
-            plutil -remove keychain-access-groups -o "$STAGE/$name" "$plist" 2>/dev/null \
-                || cp "$plist" "$STAGE/$name"
-            echo "staged (claim-free): $name"
-            ;;
-        *)
-            cp "$plist" "$STAGE/$name"
-            echo "staged: $name"
-            ;;
-    esac
+    cp "$plist" "$STAGE/$name"
+    echo "staged: $name"
 done
 
 CRED_SERVICE="$(find "$APP/Contents" -maxdepth 5 -name 'RunneCredentialService.app' -type d 2>/dev/null | head -1 || true)"
@@ -133,7 +123,7 @@ manifest = {
     "profile_embedding": {
         "Runne.app": "Runne.app/Contents/embedded.provisionprofile (profile must authorize com.runne.desktop + keychain-access-groups)",
         "RunneCredentialService.app": "embedded into the nested .app bundle (profile must authorize its bundle id)",
-        "runne/runned": "standalone executables cannot embed a profile (TN3125); staged copies carry no restricted claims",
+        "runne/runned": "standalone executables cannot embed a profile (TN3125); restricted claims on them are refused at preflight",
     },
     "notes": [
         "pre-sign SHA-256 values: verify on the coordinator before signing",
