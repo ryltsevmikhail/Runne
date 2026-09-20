@@ -1,8 +1,15 @@
 // Doctor command implementation - comprehensive system diagnostics.
+//
+// Redaction invariant: no local path, raw profile/config content or raw
+// transport error enters any check `message` or `details`. Profile locations
+// are reduced by `doctor_redaction.rs`; check ids stay distinguishable via
+// stable bracketed suffixes in `message`.
 
 use std::fmt::Write as _;
 
 const DOCTOR_HEALTH_TIMEOUT: Duration = Duration::from_secs(5);
+
+include!("doctor_redaction.rs");
 
 /// Diagnostic check result.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,105 +63,83 @@ impl DiagnosticReport {
 ///
 /// Returns `CliError` if critical system components fail.
 async fn run_doctor(profile_path: Option<PathBuf>) -> Result<DiagnosticReport, CliError> {
-    let mut report = DiagnosticReport::new();
-
-    // Check 1: Profile existence and readability
     let profile_path = profile_path
         .or_else(|| default_local_profile_path().ok())
         .ok_or(CliError::Profile)?;
+    build_doctor_report(&profile_path, probe_active_provider()).await
+}
 
-    let profile_check = match LocalRuntimeProfile::load(&profile_path) {
-        Ok(_profile) => DiagnosticCheck {
-            name: "Profile".to_string(),
-            status: CheckStatus::Ok,
-            message: "Valid and readable".to_string(),
-            details: Some(format!("Path: {}", profile_path.display())),
-        },
-        Err(LocalProfileError::Unavailable) => DiagnosticCheck {
-            name: "Profile".to_string(),
-            status: CheckStatus::Error,
-            message: "Profile not found".to_string(),
-            details: Some(format!("Expected at: {}", profile_path.display())),
-        },
-        Err(LocalProfileError::InsecurePermissions) => DiagnosticCheck {
-            name: "Profile".to_string(),
-            status: CheckStatus::Error,
-            message: "Insecure permissions".to_string(),
-            details: Some(format!(
-                "Profile at {} has insecure permissions (should be 0600)",
-                profile_path.display()
-            )),
-        },
-        Err(LocalProfileError::InvalidProfile) => DiagnosticCheck {
-            name: "Profile".to_string(),
-            status: CheckStatus::Error,
-            message: "Invalid or incompatible profile".to_string(),
-            details: Some(format!("Profile at {} is invalid", profile_path.display())),
-        },
-        Err(LocalProfileError::InvalidCredential) => DiagnosticCheck {
-            name: "Profile".to_string(),
-            status: CheckStatus::Error,
-            message: "Invalid credential in profile".to_string(),
-            details: None,
-        },
+/// Builds the doctor report for an explicit profile location and provider
+/// probe. Tests pass synthetic inputs (`ActiveProviderProbe::Deterministic`)
+/// so no host external config is read.
+///
+/// # Errors
+///
+/// Currently infallible for any profile state; the `Result` keeps the
+/// production call shape (`CliError::Profile` is raised by `run_doctor`
+/// when no profile location can be resolved at all).
+async fn build_doctor_report(
+    profile_path: &Path,
+    provider_probe: ActiveProviderProbe,
+) -> Result<DiagnosticReport, CliError> {
+    let mut report = DiagnosticReport::new();
+
+    // Check 1: Profile existence and readability (location redacted on every
+    // branch; the typed error variant preserves the failure cause)
+    let profile_check = match LocalRuntimeProfile::load(profile_path) {
+        Ok(_profile) => profile_check_ok(profile_path),
+        Err(LocalProfileError::Unavailable) => profile_check_unavailable(profile_path),
+        Err(LocalProfileError::InsecurePermissions) => {
+            profile_check_insecure_permissions(profile_path)
+        }
+        Err(LocalProfileError::InvalidProfile) => profile_check_invalid(profile_path),
+        Err(LocalProfileError::InvalidCredential) => profile_check_invalid_credential(profile_path),
     };
     report.add_check(profile_check);
 
-    // Check 2: Runtime connectivity and health
-    let health_check = match check_runtime_health(&profile_path).await {
-        Ok((status, version)) => {
-            let (check_status, message) = match status.as_str() {
-                "ok" => (CheckStatus::Ok, "Runtime is healthy".to_string()),
-                "degraded" => (
-                    CheckStatus::Warning,
-                    "Runtime is degraded (recovery blocked)".to_string(),
-                ),
-                "unavailable" => (
-                    CheckStatus::Error,
-                    "Runtime is unavailable (integrity blocked)".to_string(),
-                ),
-                "shutting_down" => (
-                    CheckStatus::Warning,
-                    "Runtime is shutting down".to_string(),
-                ),
-                _ => (CheckStatus::Error, "Unknown runtime status".to_string()),
-            };
-            DiagnosticCheck {
-                name: "Runtime".to_string(),
-                status: check_status,
-                message,
-                details: Some(format!("Status: {status}\nVersion: {version}")),
-            }
-        }
-        Err(_e) => DiagnosticCheck {
-            name: "Runtime".to_string(),
-            status: CheckStatus::Error,
-            message: "Cannot connect to runtime".to_string(),
-            details: Some("Runtime daemon may not be running".to_string()),
+    // Check 2: Runtime connectivity and health (raw errors never rendered)
+    let health_check = match check_runtime_health(profile_path).await {
+        Ok((status, version)) => match status.as_str() {
+            "ok" => runtime_check_ok(&version),
+            "degraded" => runtime_check_degraded(&version),
+            "unavailable" => runtime_check_unavailable(&version),
+            "shutting_down" => runtime_check_shutting_down(&version),
+            _ => runtime_check_unknown_status(),
         },
+        Err(_e) => runtime_check_unreachable(),
     };
     report.add_check(health_check);
 
     // Check 3: Active provider selection (mirrors the daemon's exact config)
-    let provider_probe = probe_active_provider();
     let active_openai = matches!(&provider_probe, ActiveProviderProbe::Live(live) if live.provider == "openai");
     let active_deepseek =
         matches!(&provider_probe, ActiveProviderProbe::Live(live) if live.provider == "deepseek");
-    report.add_check(active_provider_check(&provider_probe));
+    report.add_check(with_check_id(
+        active_provider_check(&provider_probe),
+        active_provider_check_id(&provider_probe),
+    ));
 
     // Check 4: Credential metadata per provider (no secret material)
-    report.add_check(credential_check(
+    report.add_check(credentialed_check(
         ProviderCredentialId::OpenAi,
         "openai",
         active_openai,
     ));
-    report.add_check(credential_check(
+    report.add_check(credentialed_check(
         ProviderCredentialId::DeepSeek,
         "deepseek",
         active_deepseek,
     ));
 
     Ok(report)
+}
+
+/// One credential check tagged with its stable id. The probe is classified
+/// first (best-effort idempotent status query), then `credential_check`
+/// re-probes to build the message — `provider_checks.rs` stays untouched.
+fn credentialed_check(id: ProviderCredentialId, provider: &str, active: bool) -> DiagnosticCheck {
+    let check_id = credential_check_id(probe_credential(id), active);
+    with_check_id(credential_check(id, provider, active), check_id)
 }
 
 async fn check_runtime_health(profile_path: &Path) -> Result<(String, String), ()> {
@@ -256,3 +241,7 @@ fn diagnostic_json_data(report: &DiagnosticReport) -> serde_json::Value {
         "checks": checks,
     })
 }
+
+#[cfg(test)]
+#[path = "doctor_redaction_tests.rs"]
+mod doctor_redaction_tests;
