@@ -33,13 +33,17 @@ while [[ $# -gt 0 ]]; do
         *) echo "unknown option: $1" >&2; exit 64 ;;
     esac
 done
-[[ -n "$IDENTITY" && -n "$APP" && -n "$MANIFEST" && -n "$ENTS_DIR" ]] || { echo "missing required options" >&2; exit 64; }
-[[ -d "$APP" && -f "$MANIFEST" && -d "$ENTS_DIR" ]] || { echo "missing input paths" >&2; exit 64; }
+[[ -n "$IDENTITY" && -n "$APP" && -n "$MANIFEST" && -n "$ENTS_DIR" && -n "$PROFILE_DESKTOP" && -n "$PROFILE_CRED" ]] || { echo "missing required options (--profile-desktop and --profile-credential-service are required)" >&2; exit 64; }
+[[ -d "$APP" && -f "$MANIFEST" && -d "$ENTS_DIR" && -f "$PROFILE_DESKTOP" && -f "$PROFILE_CRED" ]] || { echo "missing input paths" >&2; exit 64; }
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PLAN="$(mktemp /tmp/runne-coordinator-plan.XXXXXX)"
 RESULTS="$(mktemp /tmp/runne-coordinator-result.XXXXXX)"
-trap 'rm -f "$PLAN" "$RESULTS"' EXIT
+MANIFEST_SNAPSHOT="$(mktemp /tmp/runne-coordinator-manifest.XXXXXX)"
+trap 'rm -f "$PLAN" "$RESULTS" "$MANIFEST_SNAPSHOT"' EXIT
+# Freeze the manifest once: preflight and the signing plan must observe the
+# exact same bytes even if the transfer directory changes underneath.
+cp "$MANIFEST" "$MANIFEST_SNAPSHOT"
 
 say() { printf '\n== %s\n' "$1"; }
 run() { if [[ "$DRY_RUN" -eq 1 ]]; then echo "DRY-RUN: $*"; else "$@"; fi; }
@@ -69,12 +73,12 @@ EOF
 
 say "preflight (read-only; every check runs before any mutation)"
 "$HERE/coordinator-preflight.sh" \
-    --identity "$IDENTITY" --app "$APP" --manifest "$MANIFEST" \
+    --identity "$IDENTITY" --app "$APP" --manifest "$MANIFEST_SNAPSHOT" \
     --entitlements-dir "$ENTS_DIR" \
     ${PROFILE_DESKTOP:+--profile-desktop "$PROFILE_DESKTOP"} \
     ${PROFILE_CRED:+--profile-credential-service "$PROFILE_CRED"}
 
-python3 - "$MANIFEST" > "$PLAN" <<'EOF'
+python3 - "$MANIFEST_SNAPSHOT" > "$PLAN" <<'EOF'
 import json, sys
 manifest = json.load(open(sys.argv[1]))
 for member in manifest["members"]:
@@ -129,5 +133,8 @@ for line in open(results):
 json.dump({"members": post}, open(out, "w"), indent=1)
 print(f"return manifest: {out}")
 EOF
-    echo "transfer back: $APP, $OUTPUT"
+    bundle_dir="$(cd "$APP/.." && pwd)"
+    tar -C "$bundle_dir" -czf "$bundle_dir/runne-signed.tar.gz" "$(basename "$APP")" "$(basename "$OUTPUT")"
+    echo "transfer back: $bundle_dir/runne-signed.tar.gz"
+    shasum -a 256 "$bundle_dir/runne-signed.tar.gz" | awk '{print "sha256: " $1}'
 fi

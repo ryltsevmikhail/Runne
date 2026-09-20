@@ -15,7 +15,10 @@
 #      RESTRICTED keychain-access-groups entitlement (TN3125): a profile is
 #      provided, decodes, matches the identity team, covers the member's App
 #      ID, is not expired, and its groups cover every claimed group.
-#      File presence alone is NOT acceptance: contents are verified.
+#      File presence alone is NOT acceptance: contents are verified. NOTE:
+#      `security cms -D` verifies the CMS container structure, not that Apple
+#      signed the profile — origin trust is established at runtime, which is
+#      the final authority.
 #   4. standalone members (non-bundle executables) claiming restricted
 #      entitlements are a violation by definition: a standalone executable
 #      cannot embed a profile (TN3125). There is no bypass flag; see
@@ -48,30 +51,49 @@ done
 
 APP_ROOT="$(cd "$APP/.." && pwd)"
 
-# 2. Identity: team token + presence among valid identities.
+# 2. Identity: team token + presence among VALID identities (section-aware:
+# "Matching identities" also lists expired/revoked certificates marked
+# "(invalid)" — they must not pass). Pure bash: a nested quoted interpreter
+# inside $() breaks the bash 3.2 parser used on stock macOS hosts.
 TEAM="$(printf '%s' "$IDENTITY" | sed -n 's/.*(\([A-Z0-9]\{10\}\)).*/\1/p')"
-# Capture first: `grep -q` closes the pipe early and pipefail would turn the
-# closed pipe into a failure even on a match.
 identity_list="$(security find-identity -p codesigning 2>/dev/null || true)"
+identity_verdict="NOT-VALID"
+in_valid=0
+while IFS= read -r line; do
+    case "$line" in
+        *"Valid identities only"*) in_valid=1 ;;
+        *"Matching identities"*) in_valid=0 ;;
+        *"(invalid)"*) ;;
+        *"$IDENTITY"*) [[ "$in_valid" -eq 1 ]] && identity_verdict="OK" ;;
+    esac
+done <<< "$identity_list"
 if [[ -z "$TEAM" ]]; then
-    violated "identity does not contain a 10-character team token: '$IDENTITY'"
-elif ! printf '%s' "$identity_list" | grep -qF "$IDENTITY"; then
-    violated "identity not found among VALID codesigning identities: '$IDENTITY'"
+    violated "identity does not contain a 10-character team token"
+elif [[ "$identity_verdict" != "OK" ]]; then
+    violated "identity not found among VALID codesigning identities"
 fi
 
-# 1. Manifest structure and path safety, in python (single source of truth).
-manifest_report="$(python3 - "$MANIFEST" "$APP_ROOT" <<'EOF'
+PY_MANIFEST="$(mktemp /tmp/runne-pf-manifest.XXXXXX)"
+PY_ENTS="$(mktemp /tmp/runne-pf-ents.XXXXXX)"
+PY_PROFILES="$(mktemp /tmp/runne-pf-profiles.XXXXXX)"
+trap 'rm -f "$PY_MANIFEST" "$PY_ENTS" "$PY_PROFILES"' EXIT
+
+# python payloads live in temp files: a heredoc inside "$( ... )" makes the
+# stock macOS bash 3.2 parse the body as shell text (quote-state corruption).
+cat > "$PY_MANIFEST" <<'PYEOF'
 import json, os, sys
 
 manifest_path, app_root = sys.argv[1], sys.argv[2]
 problems = []
 EXPECTED = [  # fixed composition and order (paths relative to artifact root)
     ("Runne.app/Contents/Library/Helpers/RunneCredentialService.app",
-     "credential-service.entitlements"),
-    ("Runne.app/Contents/MacOS/runne", "cli.entitlements"),
-    ("Runne.app/Contents/MacOS/runned", "daemon.entitlements"),
-    ("Runne.app", "desktop.entitlements"),
+     "macos/credential-service.entitlements"),
+    ("Runne.app/Contents/MacOS/runne", "macos/cli.entitlements"),
+    ("Runne.app/Contents/MacOS/runned", "macos/daemon.entitlements"),
+    ("Runne.app", "macos/desktop.entitlements"),
 ]
+import re
+ENT_FIELD = re.compile(r"^macos/[A-Za-z0-9._-]+\.entitlements$")
 try:
     manifest = json.load(open(manifest_path))
 except Exception as error:
@@ -85,12 +107,14 @@ else:
     paths = [member.get("path") for member in members]
     if len(set(paths)) != len(paths):
         problems.append("duplicate member paths in manifest")
-    order = [member.get("entitlements") for member in members]
-    expected_ents = [ent for _, ent in EXPECTED]
-    if order != expected_ents:
-        problems.append(f"member set/order differs from the fixed chain: {order} != {expected_ents}")
+    order = [(member.get("path"), member.get("entitlements")) for member in members]
+    if order != EXPECTED:
+        problems.append(f"member set/order differs from the fixed chain: {order} != {EXPECTED}")
     for member in members:
         path = member.get("path") or ""
+        ent_field = member.get("entitlements") or ""
+        if not ENT_FIELD.match(ent_field):
+            problems.append(f"entitlements field must be macos/<name>.entitlements, got: {ent_field!r}")
         if os.path.isabs(path):
             problems.append(f"absolute member path: {path}")
         if ".." in path.split("/"):
@@ -106,14 +130,13 @@ else:
 if not problems:
     problems.append("OK")
 print("\n".join(problems))
-EOF
-)"
+PYEOF
+manifest_report="$(python3 - "$MANIFEST" "$APP_ROOT" < "$PY_MANIFEST")"
 if [[ "$manifest_report" != "OK" ]]; then
     while IFS= read -r line; do violated "manifest: $line"; done <<< "$manifest_report"
 fi
 
-# Entitlements confinement: every referenced file stays inside ENTS_DIR.
-ents_report="$(python3 - "$MANIFEST" "$ENTS_DIR" <<'EOF'
+cat > "$PY_ENTS" <<'PYEOF'
 import json, os, sys
 
 manifest_path, ents_dir = sys.argv[1], sys.argv[2]
@@ -124,7 +147,11 @@ except Exception as error:
     raise SystemExit(0)  # already reported
 ents_root = os.path.realpath(ents_dir)
 for member in manifest.get("members", []):
-    rel = (member.get("entitlements") or "").split("/")[-1]
+    ent_field = member.get("entitlements") or ""
+    rel = ent_field.split("/", 1)[1] if "/" in ent_field else ent_field
+    if (not rel or "/" in rel.rstrip("/")) and os.path.basename(rel) != rel:
+        problems.append(f"entitlements field not a bare staged file name: {ent_field}")
+        continue
     full = os.path.join(ents_dir, rel)
     if not os.path.isfile(full):
         problems.append(f"entitlements missing for {member.get('member')}: {rel}")
@@ -132,14 +159,13 @@ for member in manifest.get("members", []):
     if not os.path.realpath(full).startswith(ents_root + os.sep):
         problems.append(f"entitlements escape the entitlements dir via symlink: {rel}")
 print("\n".join(problems) if problems else "OK")
-EOF
-)"
+PYEOF
+ents_report="$(python3 - "$MANIFEST" "$ENTS_DIR" < "$PY_ENTS")"
 if [[ "$ents_report" != "OK" ]]; then
     while IFS= read -r line; do violated "entitlements: $line"; done <<< "$ents_report"
 fi
 
-# 3./4. Profile adequacy per bundle member claiming keychain-access-groups.
-profile_report="$(python3 - "$MANIFEST" "$APP_ROOT" "$ENTS_DIR" "$TEAM" "$PROFILE_DESKTOP" "$PROFILE_CRED" <<'EOF'
+cat > "$PY_PROFILES" <<'PYEOF'
 import json, os, plistlib, subprocess, sys
 from datetime import datetime, timezone
 
@@ -183,14 +209,14 @@ def group_covered(claimed, allowed):
 
 for member in manifest.get("members", []):
     path = member.get("path") or ""
-    rel_plist = (member.get("entitlements") or "").split("/")[-1]
-    full = os.path.join(ents_dir, rel_plist)
+    ent_field = member.get("entitlements") or ""
+    full = os.path.join(ents_dir, ent_field.split("/", 1)[1] if "/" in ent_field else ent_field)
     if not os.path.isfile(full):
         continue  # already reported
     try:
         claims = plist_json(full)
     except Exception:
-        problems.append(f"entitlements plist unparsable: {rel_plist}")
+        problems.append(f"entitlements plist unparsable: {ent_field}")
         continue
     claimed_groups = [str(as_text(g)) for g in (claims.get("keychain-access-groups") or [])]
     is_bundle = path.endswith(".app")
@@ -204,7 +230,7 @@ for member in manifest.get("members", []):
         continue
     profile = profile_desktop if path == "Runne.app" else (
         profile_cred if "RunneCredentialService" in path else None)
-    if profile is None:
+    if not profile:
         problems.append(f"no provisioning profile provided for {path} "
                         f"(claims {claimed_groups})")
         continue
@@ -221,7 +247,7 @@ for member in manifest.get("members", []):
         try:
             # plistlib decodes <date> as naive UTC; compare against naive now.
             moment = datetime.fromisoformat(str(expiration).replace("Z", "+00:00")).replace(tzinfo=None)
-            if moment <= datetime.utcnow():
+            if moment <= datetime.now(timezone.utc).replace(tzinfo=None):
                 problems.append(f"provisioning profile EXPIRED {expiration}: {profile}")
         except ValueError:
             problems.append(f"provisioning profile expiration unparsable: {expiration}")
@@ -234,17 +260,29 @@ for member in manifest.get("members", []):
     for claimed in claimed_groups:
         if not group_covered(claimed, allowed_groups):
             problems.append(f"profile does not authorize claimed group "
-                            f"'{claimed}' ({path}); profile allows {allowed_groups}")
+                            f"{claimed} for {path}; profile allows {allowed_groups}")
     app_id = as_text(entitlements_block.get("application-identifier", ""))
-    bundle_id = member.get("bundle_id")
+    # bundle_id comes from the ARTIFACT Info.plist, never from the manifest.
+    info_plist = os.path.join(app_root, path, "Contents", "Info.plist")
+    bundle_id = None
+    if os.path.isfile(info_plist):
+        try:
+            with open(info_plist, "rb") as handle:
+                bundle_id = str(plistlib.load(handle).get("CFBundleIdentifier", "")) or None
+        except Exception:
+            problems.append(f"unreadable Info.plist for {path}")
+    declared = member.get("bundle_id")
+    if bundle_id and declared and declared != bundle_id:
+        problems.append(f"manifest bundle_id {declared} does not match the "
+                        f"artifact bundle id {bundle_id} for {path}")
     if app_id and bundle_id and not (
             app_id == f"{team}.{bundle_id}"
-            or app_id.endswith("*") and app_id.split(".", 1)[-1] == bundle_id):
-        problems.append(f"profile App ID '{app_id}' does not cover bundle id "
-                        f"'{bundle_id}' ({path})")
+            or (app_id.endswith("*") and bundle_id.startswith(app_id[:-1]))):
+        problems.append(f"profile App ID {app_id} does not cover bundle id "
+                        f"{bundle_id} for {path}")
 print("\n".join(problems) if problems else "OK")
-EOF
-)"
+PYEOF
+profile_report="$(python3 - "$MANIFEST" "$APP_ROOT" "$ENTS_DIR" "$TEAM" "$PROFILE_DESKTOP" "$PROFILE_CRED" < "$PY_PROFILES")"
 if [[ "$profile_report" != "OK" ]]; then
     while IFS= read -r line; do violated "profile: $line"; done <<< "$profile_report"
 fi

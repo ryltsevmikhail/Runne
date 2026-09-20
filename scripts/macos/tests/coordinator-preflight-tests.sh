@@ -28,9 +28,11 @@ fi
 if [[ "${1:-}" == "find-identity" ]]; then
     printf 'Policy: Code Signing\n  Matching identities\n'
     printf '  1) abcdef0123456789abcdef0123456789abcdef01 "Developer ID Application: Tester (AAAABBBBCC)"\n'
-    printf '     1 identity found\n  Valid identities only\n'
+    printf '  2) 1234567890abcdef1234567890abcdef12345678 "Developer ID Application: Owner (758F9Z45SR)"\n'
+    printf '     2 identities found\n  Valid identities only\n'
     printf '  1) abcdef0123456789abcdef0123456789abcdef01 "Developer ID Application: Tester (AAAABBBBCC)"\n'
-    printf '     1 valid identity found\n'
+    printf '  2) 1234567890abcdef1234567890abcdef12345678 "Developer ID Application: Owner (758F9Z45SR)"\n'
+    printf '     2 valid identities found\n'
     exit 0
 fi
 exit 1
@@ -60,7 +62,9 @@ printf '%s' "$(ent com.runne.desktop)" > "$WORK/entitlements/desktop.entitlement
 
 FUTURE="$(date -u -v+1y '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -d '+1 year' '+%Y-%m-%dT%H:%M:%SZ')"
 PAST="$(date -u -v-1y '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -d '-1 year' '+%Y-%m-%dT%H:%M:%SZ')"
-profile_fixture() { plist "<key>TeamIdentifier</key><array><string>${3:-AAAABBBBCC}</string></array><key>ExpirationDate</key><date>$1</date><key>Entitlements</key><dict><key>application-identifier</key><string>AAAABBBBCC.$2</string><key>keychain-access-groups</key><array><string>AAAABBBBCC.$2</string></array></dict>"; }
+profile_fixture() { # $1 expiration, $2 app-id suffix, $3 team prefix
+    plist "<key>TeamIdentifier</key><array><string>${3:-AAAABBBBCC}</string></array><key>ExpirationDate</key><date>$1</date><key>Entitlements</key><dict><key>application-identifier</key><string>${3:-AAAABBBBCC}.$2</string><key>keychain-access-groups</key><array><string>${3:-AAAABBBBCC}.$2</string></array></dict>"
+}
 printf '%s' "$(profile_fixture "$FUTURE" com.runne.desktop)" > "$WORK/profiles/desktop.provisionprofile"
 printf '%s' "$(profile_fixture "$FUTURE" com.runne.credential-service)" > "$WORK/profiles/credential-service.provisionprofile"
 
@@ -86,13 +90,13 @@ def tree(path):
 members = [
     {"path": "Runne.app/Contents/Library/Helpers/RunneCredentialService.app",
      "member": "RunneCredentialService.app", "bundle_id": "com.runne.credential-service",
-     "entitlements": "credential-service.entitlements"},
+     "entitlements": "macos/credential-service.entitlements"},
     {"path": "Runne.app/Contents/MacOS/runne", "member": "runne", "bundle_id": None,
-     "entitlements": "cli.entitlements"},
+     "entitlements": "macos/cli.entitlements"},
     {"path": "Runne.app/Contents/MacOS/runned", "member": "runned", "bundle_id": None,
-     "entitlements": "daemon.entitlements"},
+     "entitlements": "macos/daemon.entitlements"},
     {"path": "Runne.app", "member": "Runne.app (outer bundle)",
-     "bundle_id": "com.runne.desktop", "entitlements": "desktop.entitlements"},
+     "bundle_id": "com.runne.desktop", "entitlements": "macos/desktop.entitlements"},
 ]
 for member in members:
     if overrides:
@@ -103,7 +107,7 @@ EOF
 }
 
 expect_refusal() {
-    local case_name="$1"; shift
+    local case_name="$1" cause="$2"; shift 2
     local before after rc
     before="$(hash_tree)"
     OUT="$("$HERE/coordinator-sign.sh" --dry-run --identity "$IDENTITY" --app "$APP" --manifest "$WORK/manifest.json" "$@" 2>&1)"; rc=$?
@@ -112,6 +116,10 @@ expect_refusal() {
     if [[ "$before" != "$after" ]]; then fail "$case_name: artifact mutated by a refusal"; fi
     if [[ "$OUT" == *"== signing (inner-first)"* || "$OUT" == *"DRY-RUN: codesign"* ]]; then
         fail "$case_name: reached the signing phase"
+    fi
+    if [[ "$OUT" != *"$cause"* ]]; then
+        fail "$case_name: expected cause '$cause' in output; actual:"
+        printf '%s\n' "$OUT" | sed 's/^/     | /' >&2
     fi
     note "ok   refusal: $case_name (rc=$rc)"
 }
@@ -140,6 +148,34 @@ rc=$?
 if [[ "$rc" -ne 0 ]]; then fail "happy-path dry-run exited $rc: $OUT"; fi
 if [[ "$OUT" == *"PREFLIGHT FAILED"* ]]; then fail "happy-path dry-run reported violations"; fi
 
+# End-to-end: the REAL repository prepare script and the REAL repo
+# entitlements files must produce a manifest + staged copies that pass
+# preflight (repo cli/daemon claims get staged claim-free by the script).
+e2e_root="$WORK/e2e"; e2e_app="$e2e_root/Runne.app"
+mkdir -p "$e2e_app/Contents/MacOS" "$e2e_app/Contents/Library/Helpers/RunneCredentialService.app/Contents/MacOS"
+printf 'main' > "$e2e_app/Contents/MacOS/runne-desktop"; printf 'cli' > "$e2e_app/Contents/MacOS/runne"
+printf 'daemon' > "$e2e_app/Contents/MacOS/runned"
+printf 'helper' > "$e2e_app/Contents/Library/Helpers/RunneCredentialService.app/Contents/MacOS/runne-credential-service"
+printf '%s' "$(plist '<key>CFBundleIdentifier</key><string>com.runne.desktop</string>')" > "$e2e_app/Contents/Info.plist"
+printf '%s' "$(plist '<key>CFBundleIdentifier</key><string>com.runne.credential-service</string>')" > "$e2e_app/Contents/Library/Helpers/RunneCredentialService.app/Contents/Info.plist"
+printf '%s' "$(profile_fixture "$FUTURE" com.runne.desktop 758F9Z45SR)" > "$WORK/profiles/e2e-desktop.provisionprofile"
+printf '%s' "$(profile_fixture "$FUTURE" com.runne.credential-service 758F9Z45SR)" > "$WORK/profiles/e2e-credential-service.provisionprofile"
+E2E_IDENTITY="Developer ID Application: Owner (758F9Z45SR)"
+if "$HERE/prepare-signing-manifest.sh" "$e2e_app" "$WORK/e2e/manifest.json" >/dev/null 2>&1 \
+   && "$HERE/coordinator-preflight.sh" --identity "$E2E_IDENTITY" --app "$e2e_app" \
+        --manifest "$WORK/e2e/manifest.json" --entitlements-dir "$WORK/e2e/entitlements" \
+        --profile-desktop "$WORK/profiles/e2e-desktop.provisionprofile" \
+        --profile-credential-service "$WORK/profiles/e2e-credential-service.provisionprofile" >/dev/null 2>&1; then
+    note "ok   end-to-end prepare→preflight passes with real repo entitlements"
+else
+    fail "end-to-end prepare→preflight failed; violations:"
+    "$HERE/coordinator-preflight.sh" --identity "$E2E_IDENTITY" --app "$e2e_app" \
+        --manifest "$WORK/e2e/manifest.json" --entitlements-dir "$WORK/e2e/entitlements" \
+        --profile-desktop "$WORK/profiles/e2e-desktop.provisionprofile" \
+        --profile-credential-service "$WORK/profiles/e2e-credential-service.provisionprofile" 2>&1 | sed 's/^/     | /' >&2
+    { echo "     | --- e2e-desktop.provisionprofile:"; sed 's/^/     | /' "$WORK/profiles/e2e-desktop.provisionprofile"; } >&2
+fi
+
 # Manifest violations.
 make_manifest
 python3 -c "
@@ -147,7 +183,7 @@ import json
 m = json.load(open('$WORK/manifest.json'))
 m['members'][2]['path'] = '/etc/passwd'
 json.dump(m, open('$WORK/manifest.json', 'w'))"
-expect_refusal "absolute member path" --entitlements-dir "$WORK/entitlements" \
+expect_refusal "absolute member path" "absolute member path" --entitlements-dir "$WORK/entitlements" \
     --profile-desktop "$WORK/profiles/desktop.provisionprofile" \
     --profile-credential-service "$WORK/profiles/credential-service.provisionprofile"
 
@@ -157,7 +193,7 @@ import json
 m = json.load(open('$WORK/manifest.json'))
 m['members'][2]['path'] = 'Runne.app/Contents/../../escaped'
 json.dump(m, open('$WORK/manifest.json', 'w'))"
-expect_refusal "parent traversal in member path" --entitlements-dir "$WORK/entitlements" \
+expect_refusal "parent traversal in member path" "parent traversal" --entitlements-dir "$WORK/entitlements" \
     --profile-desktop "$WORK/profiles/desktop.provisionprofile" \
     --profile-credential-service "$WORK/profiles/credential-service.provisionprofile"
 
@@ -167,7 +203,7 @@ import json
 m = json.load(open('$WORK/manifest.json'))
 m['members'].append(dict(m['members'][1]))
 json.dump(m, open('$WORK/manifest.json', 'w'))"
-expect_refusal "duplicate member" --entitlements-dir "$WORK/entitlements" \
+expect_refusal "duplicate member" "duplicate member paths" --entitlements-dir "$WORK/entitlements" \
     --profile-desktop "$WORK/profiles/desktop.provisionprofile" \
     --profile-credential-service "$WORK/profiles/credential-service.provisionprofile"
 
@@ -177,19 +213,36 @@ import json
 m = json.load(open('$WORK/manifest.json'))
 del m['members'][1]
 json.dump(m, open('$WORK/manifest.json', 'w'))"
-expect_refusal "missing member breaks fixed chain" --entitlements-dir "$WORK/entitlements" \
+expect_refusal "missing member breaks fixed chain" "fixed chain" --entitlements-dir "$WORK/entitlements" \
     --profile-desktop "$WORK/profiles/desktop.provisionprofile" \
     --profile-credential-service "$WORK/profiles/credential-service.provisionprofile"
 
 # Entitlements violations.
-make_manifest "outside.entitlements" "daemon.entitlements" "desktop.entitlements" "credential-service.entitlements"
-printf 'x' > "$WORK/outside.entitlements"
-expect_refusal "entitlements outside the directory" --entitlements-dir "$WORK/entitlements" \
+point_cli_at() {
+    python3 -c "
+import json
+m = json.load(open('$WORK/manifest.json'))
+m['members'][1]['entitlements'] = 'macos/$1'
+json.dump(m, open('$WORK/manifest.json', 'w'))"
+}
+printf 'secret' > "$WORK/secret-outside.entitlements"
+ln -sf "$WORK/secret-outside.entitlements" "$WORK/entitlements/escaped-link.entitlements"
+point_cli_at "escaped-link.entitlements"
+expect_refusal "entitlements symlink escape" \
+    "escape the entitlements dir" --entitlements-dir "$WORK/entitlements" \
     --profile-desktop "$WORK/profiles/desktop.provisionprofile" \
     --profile-credential-service "$WORK/profiles/credential-service.provisionprofile"
+point_cli_at "../../desktop.entitlements"
+expect_refusal "traversal in entitlements field" \
+    "entitlements field must be macos/" --entitlements-dir "$WORK/entitlements" \
+    --profile-desktop "$WORK/profiles/desktop.provisionprofile" \
+    --profile-credential-service "$WORK/profiles/credential-service.provisionprofile"
+rm -f "$WORK/entitlements/escaped-link.entitlements" "$WORK/secret-outside.entitlements"
+printf '%s' "$(claim_free com.runne.cli)" > "$WORK/entitlements/cli.entitlements"
+printf '%s' "$(claim_free com.runne.daemon)" > "$WORK/entitlements/daemon.entitlements"
 
 make_manifest "missing.entitlements" "daemon.entitlements" "desktop.entitlements" "credential-service.entitlements"
-expect_refusal "entitlements file missing" --entitlements-dir "$WORK/entitlements" \
+expect_refusal "entitlements file missing" "entitlements missing" --entitlements-dir "$WORK/entitlements" \
     --profile-desktop "$WORK/profiles/desktop.provisionprofile" \
     --profile-credential-service "$WORK/profiles/credential-service.provisionprofile"
 
@@ -197,7 +250,7 @@ expect_refusal "entitlements file missing" --entitlements-dir "$WORK/entitlement
 printf '%s' "$(ent com.runne.cli)" > "$WORK/entitlements/cli.entitlements"
 printf '%s' "$(ent com.runne.daemon)" > "$WORK/entitlements/daemon.entitlements"
 make_manifest
-expect_refusal "standalone member with restricted claims" --entitlements-dir "$WORK/entitlements" \
+expect_refusal "standalone member with restricted claims" "standalone executable claims restricted" --entitlements-dir "$WORK/entitlements" \
     --profile-desktop "$WORK/profiles/desktop.provisionprofile" \
     --profile-credential-service "$WORK/profiles/credential-service.provisionprofile"
 
@@ -207,36 +260,36 @@ printf '%s' "$(plist '<key>com.apple.application-identifier</key><string>AAAABBB
 printf '%s' "$(plist '<key>com.apple.application-identifier</key><string>AAAABBBBCC.com.runne.daemon</string>')" > "$WORK/entitlements/daemon.entitlements"
 
 make_manifest
-expect_refusal "desktop profile missing" --entitlements-dir "$WORK/entitlements"
+expect_refusal "profiles not provided" "missing required options" --entitlements-dir "$WORK/entitlements"
 
 printf '%s' "$(profile_fixture "$PAST" com.runne.desktop)" > "$WORK/profiles/desktop-expired.provisionprofile"
 make_manifest
-expect_refusal "expired profile" --entitlements-dir "$WORK/entitlements" \
+expect_refusal "expired profile" "EXPIRED" --entitlements-dir "$WORK/entitlements" \
     --profile-desktop "$WORK/profiles/desktop-expired.provisionprofile" \
     --profile-credential-service "$WORK/profiles/credential-service.provisionprofile"
 
 printf '%s' "$(profile_fixture "$FUTURE" com.runne.credential-service)" > "$WORK/profiles/desktop-wrongapp.provisionprofile"
 make_manifest
-expect_refusal "profile App ID mismatch" --entitlements-dir "$WORK/entitlements" \
+expect_refusal "profile App ID mismatch" "does not cover bundle id" --entitlements-dir "$WORK/entitlements" \
     --profile-desktop "$WORK/profiles/desktop-wrongapp.provisionprofile" \
     --profile-credential-service "$WORK/profiles/credential-service.provisionprofile"
 
 printf '%s' "$(profile_fixture "$FUTURE" com.runne.desktop DDDDCCCCBBBB)" > "$WORK/profiles/desktop-wrongteam.provisionprofile"
 make_manifest
-expect_refusal "profile team mismatch" --entitlements-dir "$WORK/entitlements" \
+expect_refusal "profile team mismatch" "does not match the " --entitlements-dir "$WORK/entitlements" \
     --profile-desktop "$WORK/profiles/desktop-wrongteam.provisionprofile" \
     --profile-credential-service "$WORK/profiles/credential-service.provisionprofile"
 
 plist_groups() { plist "<key>TeamIdentifier</key><array><string>AAAABBBBCC</string></array><key>ExpirationDate</key><date>$1</date><key>Entitlements</key><dict><key>application-identifier</key><string>AAAABBBBCC.$2</string><key>keychain-access-groups</key><array><string>AAAABBBBCC.other</string></array></dict>"; }
 printf '%s' "$(plist_groups "$FUTURE" com.runne.desktop)" > "$WORK/profiles/desktop-nogroups.provisionprofile"
 make_manifest
-expect_refusal "profile groups do not cover claims" --entitlements-dir "$WORK/entitlements" \
+expect_refusal "profile groups do not cover claims" "does not authorize claimed group" --entitlements-dir "$WORK/entitlements" \
     --profile-desktop "$WORK/profiles/desktop-nogroups.provisionprofile" \
     --profile-credential-service "$WORK/profiles/credential-service.provisionprofile"
 
 printf 'not a profile' > "$WORK/profiles/desktop-garbage.provisionprofile"
 make_manifest
-expect_refusal "profile does not decode" --entitlements-dir "$WORK/entitlements" \
+expect_refusal "profile does not decode" "does not decode" --entitlements-dir "$WORK/entitlements" \
     --profile-desktop "$WORK/profiles/desktop-garbage.provisionprofile" \
     --profile-credential-service "$WORK/profiles/credential-service.provisionprofile"
 
