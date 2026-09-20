@@ -88,7 +88,7 @@ async fn task_run_read_get_zero_stream_version_yields_invalid_response() {
 }
 
 #[tokio::test]
-async fn task_run_read_get_state_invariant_violations_yield_invalid_response() {
+async fn task_run_read_get_running_without_active_attempt_yields_invalid_response() {
     expect_invalid_snapshot(support::snapshot_json(
         support::TASK_RUN_ID,
         "running",
@@ -97,6 +97,10 @@ async fn task_run_read_get_state_invariant_violations_yield_invalid_response() {
         None,
     ))
     .await;
+}
+
+#[tokio::test]
+async fn task_run_read_get_succeeded_with_active_attempt_yields_invalid_response() {
     expect_invalid_snapshot(support::snapshot_json(
         support::TASK_RUN_ID,
         "succeeded",
@@ -105,6 +109,10 @@ async fn task_run_read_get_state_invariant_violations_yield_invalid_response() {
         Some("{\"type\":\"success\"}"),
     ))
     .await;
+}
+
+#[tokio::test]
+async fn task_run_read_get_cancelling_with_terminal_result_yields_invalid_response() {
     expect_invalid_snapshot(support::snapshot_json(
         support::TASK_RUN_ID,
         "cancelling",

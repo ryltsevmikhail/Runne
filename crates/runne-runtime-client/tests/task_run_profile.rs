@@ -51,8 +51,13 @@ async fn task_run_read_protected_profile_matches_rejects_external_session() {
     );
 }
 
+/// Observation of a client constructed through the mock transport: a snapshot
+/// read against a session whose capabilities lack the `TaskRun` read family
+/// proceeds and emits exactly one canonical request. This records observed
+/// client behaviour, not a contract about capability gating; the normative
+/// decision on per-method capability gates is outside this slice's scope.
 #[tokio::test]
-async fn task_run_read_external_client_has_no_per_method_capability_gate() {
+async fn task_run_read_external_client_request_proceeds_observed() {
     let capabilities = vec!["workspace.files.read.v1".to_owned()];
     let body = support::snapshot_json(
         support::TASK_RUN_ID,
@@ -68,7 +73,8 @@ async fn task_run_read_external_client_has_no_per_method_capability_gate() {
         move |client| async move { client.get_task_run(task_run_id).await },
     )
     .await;
-    let snapshot = result.expect("read methods must not be capability-gated client-side");
+    let snapshot = result
+        .expect("observed: request proceeds without per-method gate for a mock-constructed client");
     assert_eq!(requests.len(), 1);
     assert_eq!(
         requests[0].start_line,

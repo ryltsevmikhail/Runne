@@ -3,66 +3,16 @@ use std::net::Ipv4Addr;
 #[cfg(unix)]
 use std::net::SocketAddr;
 
-use base64::{Engine as _, engine::general_purpose::STANDARD};
 use runne_runtime_client::{
-    ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES, EXPECTED_BUNDLE_ID, GOLDEN_BUNDLE_HASH,
-    LocalProfileError, LocalRuntimeProfile, PROTECTED_RUNTIME_CAPABILITIES,
-    REQUIRED_RUNTIME_CAPABILITIES,
+    ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES, GOLDEN_BUNDLE_HASH, LocalProfileError,
+    LocalRuntimeProfile, PROTECTED_RUNTIME_CAPABILITIES, REQUIRED_RUNTIME_CAPABILITIES,
 };
 use sha2::{Digest, Sha256};
 
 #[path = "local_profile/support.rs"]
 mod local_profile_support;
 
-use local_profile_support::{certificate_der, ordered_capability_digest, secure};
-
-fn write_profile(directory: &std::path::Path, endpoint: &str) -> std::path::PathBuf {
-    let bootstrap_path = directory.join("bootstrap.secret");
-    fs::write(&bootstrap_path, [0x7b; 32]).expect("write bootstrap secret");
-    secure(&bootstrap_path);
-    let certificate = certificate_der();
-    let profile_path = directory.join("client-profile.json");
-    fs::write(
-        &profile_path,
-        serde_json::to_vec(&serde_json::json!({
-            "schemaVersion": 3,
-            "transportProfileId": "gocode-local-runtime/2",
-            "profileId": EXPECTED_BUNDLE_ID,
-            "schemaHash": GOLDEN_BUNDLE_HASH,
-            "capabilities": REQUIRED_RUNTIME_CAPABILITIES,
-            "capabilityDigest": hex::encode(ordered_capability_digest(REQUIRED_RUNTIME_CAPABILITIES)),
-            "endpoint": endpoint,
-            "certificateDerBase64": STANDARD.encode(&certificate),
-            "certificateSha256": hex::encode(Sha256::digest(&certificate)),
-            "executableSha256": "0e".repeat(32),
-            "bootstrapSecretPath": bootstrap_path,
-            "authorityId": "018f2e3a700070008000000000000001",
-            "launchAuthorityId": "018f2e3a700070008000000000000006",
-            "principalId": "local-owner",
-            "eventLogLineageId": "018f2e3a-7000-7000-8000-000000000003",
-            "daemonInstanceId": "018f2e3a-7000-7000-8000-000000000002",
-            "launchGeneration": 7,
-            "sessionId": "018f2e3a700070008000000000000005"
-        }))
-        .expect("profile JSON"),
-    )
-    .expect("write profile");
-    secure(&profile_path);
-    profile_path
-}
-
-fn rewrite_profile(profile_path: &std::path::Path, mutate: impl FnOnce(&mut serde_json::Value)) {
-    let mut profile: serde_json::Value =
-        serde_json::from_slice(&fs::read(profile_path).expect("read profile"))
-            .expect("parse profile");
-    mutate(&mut profile);
-    fs::write(
-        profile_path,
-        serde_json::to_vec(&profile).expect("profile JSON"),
-    )
-    .expect("rewrite profile");
-    secure(profile_path);
-}
+use local_profile_support::{ordered_capability_digest, rewrite_profile, secure, write_profile};
 
 #[cfg(unix)]
 #[test]
