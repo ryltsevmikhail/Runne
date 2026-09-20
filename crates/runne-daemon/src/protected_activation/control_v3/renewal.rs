@@ -1,6 +1,7 @@
 use super::*;
 
 #[allow(clippy::too_many_arguments)]
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(super) fn rotate(
     channel: &mut ProtectedActivationChannel,
     keys: &ProtectedActivationKeys,

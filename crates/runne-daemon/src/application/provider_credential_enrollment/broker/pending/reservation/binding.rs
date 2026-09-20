@@ -56,6 +56,8 @@ impl PendingBrokerRendezvousBinding {
         feature = "desktop-protected",
         any(test, all(target_os = "macos", target_arch = "aarch64"))
     ))]
+    // Read by the macOS projection; the accessor stays compiled everywhere.
+    #[cfg_attr(not(unix), allow(dead_code))]
     pub(in crate::application::provider_credential_enrollment::broker) const fn release_tuple(
         &self,
     ) -> CredentialBindingDigest {
