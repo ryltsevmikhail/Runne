@@ -69,6 +69,7 @@ async fn nm06_replay_delivery_rechecks_current_trust_revision() {
         CreateCanonicalConversationCommand {
             conversation_id,
             workspace_id: WORKSPACE_ID.parse::<WorkspaceId>().unwrap(),
+            scope: runne_api::ConversationContextScope::Workspace,
         },
     )
     .await

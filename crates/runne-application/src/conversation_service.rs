@@ -153,6 +153,7 @@ where
                 expected_version: 0,
                 events,
                 workspace_id: input.workspace_id,
+                context_scope: input.scope,
             })
             .map_err(ConversationServiceError::Commit)?;
 

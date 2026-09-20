@@ -37,6 +37,10 @@ fn v6_to_v8_migration() {
          DROP TABLE process_registry;
          DROP INDEX idx_approvals_pending;
          DROP TABLE approvals;
+         DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_insert;
+         DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_update;
+         DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_delete;
+         DROP TABLE IF EXISTS conversation_context_scope;
          DELETE FROM schema_version WHERE version >= 7;",
     )
     .unwrap();

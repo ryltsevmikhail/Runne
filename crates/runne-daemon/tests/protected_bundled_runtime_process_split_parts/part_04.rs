@@ -81,7 +81,7 @@ async fn generated_protected_material_is_absent_from_every_forbidden_local_sink(
     let project = core
         .open_local_project(&project_directory)
         .expect("open audit project");
-    prepare_canonical_conversation_workspace(&core, project).await;
+    prepare_canonical_conversation_workspace(&core, project, &runtime_root.join("runne-daemon").join("event-log.db")).await;
     core.open_project_conversation(project)
         .await
         .expect("open audited conversation");

@@ -134,6 +134,10 @@ async fn exchange_once(
             identity(create_command_id, CREATE_IDEMPOTENCY_KEY),
             conversation_id,
             workspace_id,
+            // The fixture exchange is a bounded local text-only echo: the
+            // explicit durable marker (not the seeded workspace) is what the
+            // delivery gate admits it by.
+            runne_api::ConversationContextScope::TextOnly,
         ))
         .await
         .inspect_err(|error| {

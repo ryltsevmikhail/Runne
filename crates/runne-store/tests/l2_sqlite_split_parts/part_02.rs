@@ -12,6 +12,7 @@ fn conversation_create_is_durable_idempotent_and_replayable_after_reopen() {
         workspace_id,
         command_id,
         idempotency_key: IdempotencyKey::new("conversation-create").unwrap(),
+        scope: runne_api::ConversationContextScope::Workspace,
     };
 
     let first = {

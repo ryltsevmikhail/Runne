@@ -1,11 +1,10 @@
 //! NM-10 §C-E sink scans at the daemon composition level (export, backup,
-//! conversation mutation) with the S7-registered fake env secrets: registered
-//! material never traverses a sink; delivered bytes and store files stay clean.
+//! conversation mutation): registered material never traverses a sink.
 
 use std::io::Cursor;
 use std::sync::Arc;
 
-use runne_api::CreateConversationInput;
+use runne_api::{ConversationContextScope, CreateConversationInput};
 use runne_application::commands::{BeginConversationTextInput, FinishConversationTextInput};
 use runne_application::conversation_service::ConversationService;
 use runne_application::conversation_text_service::{
@@ -135,6 +134,7 @@ fn seed_conversation(store: &StoreTransaction) {
             workspace_id: WORKSPACE_ID.parse().expect("workspace id"),
             command_id: seed_context.command_id,
             idempotency_key: key("nm10-create-conversation"),
+            scope: ConversationContextScope::Workspace,
         },
     )
     .expect("seed conversation");

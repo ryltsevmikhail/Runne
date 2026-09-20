@@ -52,6 +52,7 @@ fn conversation_command_id_rejects_changed_idempotency_key() {
         workspace_id,
         command_id,
         idempotency_key: IdempotencyKey::new("original-conversation-key").unwrap(),
+        scope: runne_api::ConversationContextScope::Workspace,
     };
     service.create(&api_context(), original.clone()).unwrap();
     let changed = CreateConversationInput {
@@ -59,6 +60,7 @@ fn conversation_command_id_rejects_changed_idempotency_key() {
         workspace_id,
         command_id,
         idempotency_key: IdempotencyKey::new("changed-conversation-key").unwrap(),
+        scope: runne_api::ConversationContextScope::Workspace,
     };
     assert!(matches!(
         service.create(&api_context(), changed),

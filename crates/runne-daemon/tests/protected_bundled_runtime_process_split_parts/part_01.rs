@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -108,7 +109,11 @@ fn assert_tracked_fixtures_absent(scanner: &secret_scan::SecretScanner) {
     }
 }
 
-async fn prepare_canonical_conversation_workspace(core: &AppCore, local_project_id: i64) {
+async fn prepare_canonical_conversation_workspace(
+    core: &AppCore,
+    local_project_id: i64,
+    daemon_database: &Path,
+) {
     let runtime_project_id = CanonicalId::now_v7();
     let workspace_id = CanonicalId::now_v7();
     core.create_runtime_project(runtime_project_id, "protected audit".into())
@@ -124,6 +129,31 @@ async fn prepare_canonical_conversation_workspace(core: &AppCore, local_project_
         workspace_id,
     )
     .expect("install canonical audit conversation reference");
+    // NM-06 context-scope contract: a project-scoped conversation delivers
+    // only through an explicit trust record on the daemon's authority.
+    grant_daemon_project_trust(daemon_database);
+}
+
+fn grant_daemon_project_trust(daemon_database: &Path) {
+    use runne_application::project_trust::{
+        ProjectTrustPersistence, ProjectTrustProjectId, ProjectTrustStatus,
+    };
+    let connection = rusqlite::Connection::open(daemon_database)
+        .expect("open bundled daemon database");
+    let authority = runne_store::schema::read_authority_id(&connection)
+        .expect("read authority id")
+        .expect("authority id present");
+    let project_id: [u8; 16] = connection
+        .query_row("SELECT project_id FROM projects LIMIT 1", [], |row| row.get(0))
+        .expect("canonical project row");
+    drop(connection);
+    let store = runne_store::ProjectTrustStore::open(daemon_database, authority)
+        .expect("open bundled trust sidecar");
+    let project = ProjectTrustProjectId::from_bytes(project_id);
+    let record = store.load(project).expect("trust record");
+    store
+        .commit(project, ProjectTrustStatus::Trusted, 0, record.token())
+        .expect("grant project trust");
 }
 
 #[test]

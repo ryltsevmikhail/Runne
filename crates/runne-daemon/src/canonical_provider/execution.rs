@@ -15,10 +15,13 @@ impl CanonicalProviderExecutionService for DaemonCanonicalProviderService {
             // dispatch before the coordinator runs (fail-closed, no durable
             // side effects; `PolicyDenied` is the closed typed outcome).
             if let Some(trust) = &self.trust {
-                // NM-06: the gate consults the conversation (the content
-                // source): replay-proof of the text-only stream, then the
-                // governed project's CURRENT revision. Revocations between
-                // preparation (begin_text) and dispatch deny here.
+                // NM-06: the gate consults the conversation's durable
+                // context marker and, for workspace-scoped conversations,
+                // the governed project's CURRENT revision. Revocations
+                // between preparation (begin_text) and dispatch deny here;
+                // a retention gap carries no trust verdict here either —
+                // the projection below still needs the full stream, so a
+                // gapped stream fails the dispatch without delivering.
                 trust
                     .ensure_conversation_trusted(
                         job.context.principal_id.0.as_str(),

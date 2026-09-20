@@ -127,6 +127,7 @@ pub fn seed_conversation(store: &StoreTransaction) {
                 workspace_id: WORKSPACE_ID.parse().unwrap(),
                 command_id: create_context.command_id,
                 idempotency_key: create_context.idempotency_key.clone(),
+                scope: runne_api::ConversationContextScope::Workspace,
             },
         )
         .unwrap();

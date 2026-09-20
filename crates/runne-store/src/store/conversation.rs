@@ -1,6 +1,10 @@
 mod commit;
+mod context_scope;
+mod diagnose;
 mod load;
 mod receipts;
+
+pub use diagnose::ConversationStreamHealth;
 
 use super::*;
 

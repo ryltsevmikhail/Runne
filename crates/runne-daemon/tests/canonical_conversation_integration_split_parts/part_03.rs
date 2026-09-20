@@ -75,6 +75,7 @@ async fn production_replay_handoff_delivers_conversation_created_over_sse() {
         json!({
             "conversationId": CONVERSATION_ID,
             "workspaceId": WORKSPACE_ID,
+            "scope": "workspace",
         }),
     )
     .await;
@@ -135,6 +136,7 @@ async fn acknowledged_replay_cursor_reopens_inclusively_after_daemon_restart() {
         json!({
             "conversationId": CONVERSATION_ID,
             "workspaceId": WORKSPACE_ID,
+            "scope": "workspace",
         }),
     )
     .await;

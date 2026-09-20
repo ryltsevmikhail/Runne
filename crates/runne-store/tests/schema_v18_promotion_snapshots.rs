@@ -96,6 +96,7 @@ fn writes_promotions_with_exact_times_taskrun_view_and_tamper_rejection() {
                 workspace_id,
                 command_id: create.command_id,
                 idempotency_key: create.idempotency_key.clone(),
+                scope: runne_api::ConversationContextScope::Workspace,
             },
         )
         .unwrap();

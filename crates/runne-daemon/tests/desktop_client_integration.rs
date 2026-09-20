@@ -58,6 +58,10 @@ async fn desktop_host_restores_the_same_authoritative_conversation_after_restart
         RuntimeAvailability::Live
     );
     prepare_canonical_conversation_workspace(&first, project).await;
+    // NM-06 context-scope contract: the project-scoped conversation delivers
+    // only through an explicit trust record (the former never-governed allow
+    // is removed).
+    grant_daemon_project_trust(std::path::Path::new(&config.db_path));
 
     let opened = first
         .open_project_conversation(project)
@@ -132,4 +136,27 @@ async fn prepare_canonical_conversation_workspace(
         workspace_id,
     )
     .expect("install canonical conversation reference");
+}
+
+fn grant_daemon_project_trust(db_path: &std::path::Path) {
+    use runne_application::project_trust::{
+        ProjectTrustPersistence, ProjectTrustProjectId, ProjectTrustStatus,
+    };
+    let connection = rusqlite::Connection::open(db_path).expect("open daemon database");
+    let authority = runne_store::schema::read_authority_id(&connection)
+        .expect("read authority id")
+        .expect("authority id present");
+    let project_id: [u8; 16] = connection
+        .query_row("SELECT project_id FROM projects LIMIT 1", [], |row| {
+            row.get(0)
+        })
+        .expect("canonical project row");
+    drop(connection);
+    let store = runne_store::ProjectTrustStore::open(db_path, authority)
+        .expect("open daemon trust sidecar");
+    let project = ProjectTrustProjectId::from_bytes(project_id);
+    let record = store.load(project).expect("trust record");
+    store
+        .commit(project, ProjectTrustStatus::Trusted, 0, record.token())
+        .expect("grant project trust");
 }

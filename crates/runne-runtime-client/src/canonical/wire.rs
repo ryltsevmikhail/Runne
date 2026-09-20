@@ -3,6 +3,7 @@
 struct CreateConversationWire {
     conversation_id: CanonicalId,
     workspace_id: CanonicalId,
+    scope: &'static str,
 }
 
 #[derive(Serialize)]

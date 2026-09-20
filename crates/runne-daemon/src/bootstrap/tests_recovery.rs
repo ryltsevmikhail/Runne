@@ -83,6 +83,7 @@
                 workspace_id,
                 command_id,
                 idempotency_key: key,
+                scope: runne_api::ConversationContextScope::Workspace,
             },
         )
         .unwrap();

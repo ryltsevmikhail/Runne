@@ -129,6 +129,7 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
                 .unwrap(),
             command_id: create_context.command_id,
             idempotency_key: create_context.idempotency_key.clone(),
+            scope: runne_api::ConversationContextScope::Workspace,
         },
     )
     .unwrap();

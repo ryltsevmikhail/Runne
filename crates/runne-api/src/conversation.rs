@@ -1,5 +1,6 @@
 //! Transport-neutral canonical Conversation command and query contracts.
 
+use runne_domain::conversation::ConversationContextScope;
 use runne_domain::id::{
     AttemptId, CommandId, ConversationId, IdempotencyKey, MessageId, TaskRunId, WorkspaceId,
 };
@@ -27,6 +28,8 @@ pub struct CreateCanonicalConversationCommand {
     pub conversation_id: ConversationId,
     /// Owning workspace.
     pub workspace_id: WorkspaceId,
+    /// Durable delivery context recorded with the conversation.
+    pub scope: ConversationContextScope,
 }
 
 /// Durable acknowledgement of Conversation creation.

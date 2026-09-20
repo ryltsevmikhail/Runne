@@ -173,6 +173,7 @@ fn direct_conversation_commit(
         expected_version: 0,
         events,
         workspace_id,
+        context_scope: runne_domain::conversation::ConversationContextScope::Workspace,
     }
 }
 

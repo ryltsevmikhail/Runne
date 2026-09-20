@@ -1,21 +1,22 @@
 //! NM-06 delivery-side trust re-check: replay delivery and provider dispatch
-//! consult the single project trust authority for the CURRENT durable
-//! revision before any delivery happens.
+//! consult the conversation's durable context marker plus the single project
+//! trust authority for the CURRENT durable revision before any delivery.
 //!
-//! The check deliberately reuses the existing `admit_source` contract
-//! (FilesList channel, no path, no observed token): delivering project-scoped
-//! material requires the project to be currently trusted/managed — the same
-//! predicate as pre-read admission. Fail-closed: workspace/conversation
-//! resolution failures, a closed gate (protected composition without a usable
-//! authority) and authority errors all deny. Scopes that never carry
-//! project-controlled content (task-run state feeds, audit feeds) are not
-//! gated by this type; see the T1 phase report for the scope rationale.
+//! Explicit text-only conversations deliver from their marker alone.
+//! Workspace-scoped (or unmarked) conversations deliver only through the
+//! existing `admit_source` contract (FilesList channel, no path, no observed
+//! token) after their workspace resolves and an explicit trust record exists.
+//! Fail-closed: a missing marker never widens provenance; workspace/
+//! conversation resolution failures, a closed gate (protected composition
+//! without a usable authority) and authority errors all deny. Scopes that
+//! never carry project-controlled content (task-run state feeds, audit feeds)
+//! are not gated by this type; see the T1 phase report for the scope
+//! rationale.
 
 use std::sync::Arc;
 
 use runne_application::ports::{
-    ConversationRepository, EventStoreError, ProjectWorkspaceRepository,
-    ProjectWorkspaceRepositoryError,
+    EventStoreError, ProjectWorkspaceRepository, ProjectWorkspaceRepositoryError,
 };
 use runne_application::project_trust::{
     PermissionMode, ProjectTrustProjectId, SourceAdmissionRequest, SourceChannel,
@@ -121,15 +122,20 @@ impl DeliveryTrustGate {
     }
 
     /// Replay delivery: the committed conversation must currently satisfy the
-    /// admission predicate of its registered project.
+    /// delivery-context contract of its durable marker.
     ///
-    /// Explicit text-only delivery contract (DP1): a stream is deliverable
-    /// only when it replays as a canonical text-only Conversation — every
-    /// committed event is a user/assistant text message. Project-controlled
-    /// content channels (instructions/skills/hooks/local MCP) are
-    /// unavailable-by-absence (inventory §A), so a successfully replayed
-    /// aggregate proves no project-controlled content is being delivered.
-    /// Read/decode failures and non-replayable streams deny (fail-closed).
+    /// Provenance contract (T1 policy revision 2): the replay proof is NOT a
+    /// text-only proof — replaying as a canonical text-only Conversation says
+    /// nothing about which context will be delivered. Delivery is allowed
+    /// only from (a) an EXPLICIT durable text-only context marker recorded in
+    /// the creation transaction, or (b) a workspace-scoped conversation whose
+    /// workspace resolves and whose project carries an explicit, currently
+    /// admitted trust record. A missing marker is unknown provenance and
+    /// follows the stricter (b) path; the former absence-based allows
+    /// (unregistered workspace, never-governed project) are removed.
+    /// Read/decode failures and corrupted streams deny (fail-closed); a
+    /// genuine retention gap carries no trust verdict and falls through so
+    /// the store's recovery contract answers (410 + baseline).
     pub(crate) fn ensure_conversation_trusted(
         &self,
         principal: &str,
@@ -138,41 +144,56 @@ impl DeliveryTrustGate {
         let Some(inner) = self.active()? else {
             return Ok(());
         };
-        let stream = match inner.conversations.load_conversation(conversation_id) {
+        let stream = match inner
+            .conversations
+            .diagnose_conversation_stream(conversation_id)
+        {
             // Confirmed absence: live-only sessions (open before the first
             // message) carry no captured material.
             Err(EventStoreError::NotFound) => return Ok(()),
-            // Read failures block delivery: a corrupt or unreadable stream is
-            // never classified as "nothing to deliver".
-            Err(_) => return Err(TrustDeliveryDenied),
-            Ok(stream) => stream,
+            // Standard retention gap: every present row is intact and only
+            // the header disagrees. No trust verdict — the store's
+            // open_session answers with its recovery contract.
+            Ok(runne_store::store::ConversationStreamHealth::RetentionGap { .. }) => return Ok(()),
+            // Corrupt or unreadable streams and other read failures block
+            // delivery: they are never classified as "nothing to deliver".
+            Ok(runne_store::store::ConversationStreamHealth::Intact(stream)) => stream,
+            Ok(runne_store::store::ConversationStreamHealth::Corrupt) | Err(_) => {
+                return Err(TrustDeliveryDenied);
+            }
         };
         if stream.events.is_empty() {
+            // Nothing to deliver regardless of scope.
             return Ok(());
         }
-        // Replay success IS the text-only proof (DP1): every committed event
-        // is a user/assistant text message and project-controlled channels
-        // are unavailable by absence (inventory §A). A stream that fails to
-        // replay proves nothing, so it never delivers (fail-closed) — decode
-        // errors must not be classified as deliverable text-only context.
+        let scope = inner
+            .conversations
+            .conversation_context_scope(conversation_id)
+            .map_err(|_| TrustDeliveryDenied)?;
+        if scope == Some(runne_domain::conversation::ConversationContextScope::TextOnly) {
+            // Explicit durable text-only context recorded at creation.
+            return Ok(());
+        }
+        // Workspace-scoped (or unmarked/unknown) conversation: provenance
+        // must resolve to a registered project identity with an explicit,
+        // current trust record.
         let aggregate = Conversation::replay(&stream.events).map_err(|_| TrustDeliveryDenied)?;
         let workspace = match inner
             .workspaces
             .get_workspace(principal, aggregate.workspace_id)
         {
-            // Replay-proven text-only stream, unregistered workspace: no
-            // governed project identity exists (R-9 residual).
-            Err(ProjectWorkspaceRepositoryError::NotFound) => return Ok(()),
             Ok(workspace) => workspace,
+            // Unknown ownership never becomes deliverable.
+            Err(ProjectWorkspaceRepositoryError::NotFound) => return Err(TrustDeliveryDenied),
             Err(_) => return Err(TrustDeliveryDenied),
         };
         let project = ProjectTrustProjectId::from_bytes(*workspace.project_id().as_bytes());
         match inner.authority.has_explicit_record(project) {
             // Governed project: re-check the CURRENT trust admission.
             Ok(true) => self.ensure_current(inner, project),
-            // Never-governed project: pre-T1 delivery behavior under the
-            // explicit text-only contract (residual R-11).
-            Ok(false) => Ok(()),
+            // A lost trust record does not upgrade the project: without an
+            // explicit record there is no trust to deliver against.
+            Ok(false) => Err(TrustDeliveryDenied),
             Err(_) => Err(TrustDeliveryDenied),
         }
     }

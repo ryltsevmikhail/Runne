@@ -120,6 +120,7 @@ impl AuthenticatedRuntimeClient {
         let body = serde_json::to_vec(&CreateConversationWire {
             conversation_id: request.conversation_id,
             workspace_id: request.workspace_id,
+            scope: request.scope.as_str(),
         })
         .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest))?;
         let response = self

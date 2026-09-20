@@ -63,6 +63,7 @@ impl Harness {
                     .unwrap(),
                 command_id: create.command_id,
                 idempotency_key: create.idempotency_key.clone(),
+                scope: runne_api::ConversationContextScope::Workspace,
             },
         )
         .unwrap();

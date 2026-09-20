@@ -233,6 +233,7 @@ impl<B: SessionBindingStore, H: SessionHostPort> OpenCodeSessionCreateService<B,
             workspace_id: context.workspace_id,
             command_id: context.command_id,
             idempotency_key: context.idempotency_key.clone(),
+            scope: runne_api::ConversationContextScope::Workspace,
         };
         let host_output = self
             .host

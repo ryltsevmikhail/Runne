@@ -46,5 +46,5 @@ fn production_store_open_creates_and_reopens_v35() {
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&path).unwrap());
 
     let connection = Connection::open(path).unwrap();
-    assert!(v39_matches(&connection, 39).unwrap());
+    assert!(v40_matches(&connection, 40).unwrap());
 }

@@ -137,6 +137,7 @@ async fn run_conversation(
                     new_command_identity()?,
                     conversation_id,
                     workspace_id,
+                    runne_api::ConversationContextScope::Workspace,
                 ))
                 .await
                 .map_err(CliError::Api)?;

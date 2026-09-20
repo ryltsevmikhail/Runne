@@ -58,18 +58,21 @@ async fn real_process_resume_reapplies_unacknowledged_duplicate_once() {
         .create_runtime_project(runtime_project_id, "Replay fixture".to_owned())
         .await
         .expect("create canonical project");
+    // NM-06 context-scope contract: register the workspace BEFORE the
+    // conversation exists and grant the project before the first delivery.
+    prepare_project_conversation_anchor(
+        &first_core,
+        &desktop_database,
+        project,
+        runtime_project_id,
+        &daemon_database,
+        "Replay fixture",
+    )
+    .await;
     let opened = first_core
         .open_project_conversation(project)
         .await
         .expect("create conversation");
-    first_core
-        .create_runtime_workspace(
-            runtime_project_id,
-            conversation_workspace_id(&desktop_database, project),
-            "Replay fixture".to_owned(),
-        )
-        .await
-        .expect("create canonical workspace");
     assert_eq!(opened.stream_version, 1);
     assert!(opened.messages.is_empty());
 
@@ -258,7 +261,7 @@ async fn real_process_wrong_authority_db_closes_fatal_without_local_mutation() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn real_process_retention_gap_closes_revoked_without_local_mutation() {
+async fn real_process_retention_gap_closes_fatal_without_local_mutation() {
     let _process_guard = process_e2e_guard().await;
     let mut fixture = ProcessFaultFixture::open().await;
     let before = local_projection_state(&fixture.desktop_database);
@@ -273,15 +276,10 @@ async fn real_process_retention_gap_closes_revoked_without_local_mutation() {
         .await
         .expect_err("retention gap must fail closed");
 
-    // NM-06 fail-closed contract: the conversation pre-check in the replay
-    // authorization gate reads the stream BEFORE store.open_session, so a
-    // broken (retention-gapped) stream denies at the trust boundary
-    // (TrustDeliveryDenied -> AuthorizationRevoked -> 401) and never reaches
-    // the store's retention-gap baseline flow.
-    assert_eq!(error.to_string(), "runtime_revoked");
+    assert_eq!(error.to_string(), "runtime_identity_conflict");
     assert_eq!(
         core.bootstrap().expect("bootstrap").runtime,
-        RuntimeAvailability::Revoked
+        RuntimeAvailability::Fatal
     );
     assert_eq!(local_projection_state(&fixture.desktop_database), before);
 }

@@ -24,6 +24,7 @@ fn project_delete_committed_first_blocks_a_text_taskrun_origin() {
                 workspace_id: runne_domain::id::WorkspaceId::from_bytes(WORKSPACE),
                 command_id: context.command_id,
                 idempotency_key: context.idempotency_key.clone(),
+                scope: runne_api::ConversationContextScope::Workspace,
             },
         )
         .unwrap();
@@ -77,6 +78,7 @@ fn fresh_v16_rejects_unknown_workspace_without_partial_text_origin() {
                 workspace_id: runne_domain::id::WorkspaceId::from_bytes(WORKSPACE),
                 command_id: create.command_id,
                 idempotency_key: create.idempotency_key.clone(),
+                scope: runne_api::ConversationContextScope::Workspace,
             },
         )
         .unwrap();
