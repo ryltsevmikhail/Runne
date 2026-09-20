@@ -15,10 +15,14 @@ impl CanonicalProviderExecutionService for DaemonCanonicalProviderService {
             // dispatch before the coordinator runs (fail-closed, no durable
             // side effects; `PolicyDenied` is the closed typed outcome).
             if let Some(trust) = &self.trust {
+                // NM-06: the gate consults the conversation (the content
+                // source): replay-proof of the text-only stream, then the
+                // governed project's CURRENT revision. Revocations between
+                // preparation (begin_text) and dispatch deny here.
                 trust
-                    .ensure_workspace_trusted(
+                    .ensure_conversation_trusted(
                         job.context.principal_id.0.as_str(),
-                        job.started.workspace_id,
+                        job.started.conversation_id,
                     )
                     .map_err(|_| CanonicalProviderExecutionError::PolicyDenied)?;
             }

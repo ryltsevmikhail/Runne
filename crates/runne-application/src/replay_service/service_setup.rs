@@ -67,7 +67,9 @@ impl ReplayService {
         epoch: i64,
     ) -> Result<(), ReplayError> {
         // Unknown session: fall through to the store's own not-found handling.
-        let Some((aggregate_type, aggregate_id)) = self.store.session_delivery_scope(session_id)
+        // Storage failure: deny — an unresolvable delivery scope is never
+        // treated as "nothing to re-check" (NM-06 fail-closed).
+        let Some((aggregate_type, aggregate_id)) = self.store.session_delivery_scope(session_id)?
         else {
             return Ok(());
         };

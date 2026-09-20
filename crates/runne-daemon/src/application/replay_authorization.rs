@@ -30,13 +30,14 @@ impl DaemonReplayAuthorization {
 
     /// NM-06 pre-delivery check: a conversation-scope request must satisfy the
     /// CURRENT trust admission before delivery. Session-scope requests carry
-    /// no aggregate; their per-delivery enforcement happens through the
-    /// authorized delivery guard, which re-runs the SAVED open-request scope
-    /// (this same check) inside the store transaction. Resolving the session's
-    /// aggregate here would touch the replay store from inside its own locked
-    /// transaction — a lock inversion — so session requests fall through: a
-    /// session cannot exist unless its open passed this gate, and every
-    /// content delivery on it re-runs the open scope check.
+    /// no aggregate here; their per-delivery enforcement is the replay
+    /// service's session gate, which resolves the session's aggregate scope
+    /// per call and re-enters this port with it. That resolver must NOT run
+    /// inside this port: it queries the replay store while
+    /// `mutate_with_current_lease` executes inside the store's locked
+    /// transaction — a reentrant lock (observed deadlock) — so the split
+    /// stays: aggregate scopes are checked here, session scopes at the
+    /// service layer, both outside any store transaction.
     fn ensure_scope_trusted(
         &self,
         request: &ReplayAuthorizationRequest,

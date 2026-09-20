@@ -3,6 +3,7 @@ use super::*;
 use runne_api::{DaemonInstanceId, RuntimeSessionBinding};
 use runne_domain::id::EventLogLineageId;
 
+mod nm06_delivery_gate;
 mod replay_authorization_resume_v2;
 
 fn replay_binding() -> RuntimeSessionBinding {

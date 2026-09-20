@@ -14,13 +14,14 @@
 use std::sync::Arc;
 
 use runne_application::ports::{
-    ConversationRepository, ProjectWorkspaceRepository, ProjectWorkspaceRepositoryError,
+    ConversationRepository, EventStoreError, ProjectWorkspaceRepository,
+    ProjectWorkspaceRepositoryError,
 };
 use runne_application::project_trust::{
     PermissionMode, ProjectTrustProjectId, SourceAdmissionRequest, SourceChannel,
 };
 use runne_domain::conversation::Conversation;
-use runne_domain::id::{ConversationId, WorkspaceId};
+use runne_domain::id::ConversationId;
 use runne_security::project_trust_policy::ProjectTrustPolicyAuthority;
 use runne_store::ProjectWorkspaceStore;
 use runne_store::store::StoreTransaction;
@@ -53,11 +54,13 @@ pub(crate) fn replay_trust_gate(
 pub(crate) struct TrustDeliveryDenied;
 
 #[derive(Clone)]
+#[cfg_attr(not(feature = "desktop-protected"), allow(dead_code))]
 pub(crate) struct DeliveryTrustGate {
     state: GateState,
 }
 
 #[derive(Clone)]
+#[cfg_attr(not(feature = "desktop-protected"), allow(dead_code))]
 enum GateState {
     /// Trust admission enforced against the single process authority.
     Active(GateInner),
@@ -78,6 +81,7 @@ struct GateInner {
 
 impl DeliveryTrustGate {
     /// Active gate over the single process authority.
+    #[cfg_attr(not(feature = "desktop-protected"), allow(dead_code))]
     pub(crate) fn open(
         authority: Arc<ProjectTrustPolicyAuthority>,
         store: &StoreTransaction,
@@ -92,6 +96,7 @@ impl DeliveryTrustGate {
     }
 
     /// Protected composition without a usable authority: fail closed.
+    #[cfg_attr(not(feature = "desktop-protected"), allow(dead_code))]
     pub(crate) fn closed() -> Self {
         Self {
             state: GateState::Closed,
@@ -115,32 +120,16 @@ impl DeliveryTrustGate {
         }
     }
 
-    /// Provider dispatch delivery: the workspace that owns the conversation
-    /// being served must currently satisfy the admission predicate.
-    pub(crate) fn ensure_workspace_trusted(
-        &self,
-        principal: &str,
-        workspace_id: WorkspaceId,
-    ) -> Result<(), TrustDeliveryDenied> {
-        let Some(inner) = self.active()? else {
-            return Ok(());
-        };
-        // Governed-project exemption mirrors the replay path: only projects
-        // with an explicit trust record are subject to the dispatch-time
-        // re-check; never-governed projects keep pre-T1 dispatch behavior
-        // until the grant path ships (T1 PASS).
-        match inner.workspaces.get_workspace(principal, workspace_id) {
-            // R-9 residual: an unregistered runtime workspace has no governed
-            // project identity; content stays under content-policy guards.
-            Err(ProjectWorkspaceRepositoryError::NotFound) => return Ok(()),
-            Err(_) => return Err(TrustDeliveryDenied),
-            Ok(_) => {}
-        }
-        self.ensure_governed_then_current(inner, principal, workspace_id)
-    }
-
-    /// Replay delivery: the workspace that owns the replayed conversation
-    /// must currently satisfy the admission predicate.
+    /// Replay delivery: the committed conversation must currently satisfy the
+    /// admission predicate of its registered project.
+    ///
+    /// Explicit text-only delivery contract (DP1): a stream is deliverable
+    /// only when it replays as a canonical text-only Conversation — every
+    /// committed event is a user/assistant text message. Project-controlled
+    /// content channels (instructions/skills/hooks/local MCP) are
+    /// unavailable-by-absence (inventory §A), so a successfully replayed
+    /// aggregate proves no project-controlled content is being delivered.
+    /// Read/decode failures and non-replayable streams deny (fail-closed).
     pub(crate) fn ensure_conversation_trusted(
         &self,
         principal: &str,
@@ -149,69 +138,53 @@ impl DeliveryTrustGate {
         let Some(inner) = self.active()? else {
             return Ok(());
         };
-        let stream = inner.conversations.load_conversation(conversation_id);
-        // A missing aggregate has no captured material to leak: live-only
-        // sessions (open before the first message) stay admissible.
-        let Ok(stream) = stream else {
-            return Ok(());
+        let stream = match inner.conversations.load_conversation(conversation_id) {
+            // Confirmed absence: live-only sessions (open before the first
+            // message) carry no captured material.
+            Err(EventStoreError::NotFound) => return Ok(()),
+            // Read failures block delivery: a corrupt or unreadable stream is
+            // never classified as "nothing to deliver".
+            Err(_) => return Err(TrustDeliveryDenied),
+            Ok(stream) => stream,
         };
         if stream.events.is_empty() {
             return Ok(());
         }
+        // Replay success IS the text-only proof (DP1): every committed event
+        // is a user/assistant text message and project-controlled channels
+        // are unavailable by absence (inventory §A). A stream that fails to
+        // replay proves nothing, so it never delivers (fail-closed) — decode
+        // errors must not be classified as deliverable text-only context.
         let aggregate = Conversation::replay(&stream.events).map_err(|_| TrustDeliveryDenied)?;
-        match inner
+        let workspace = match inner
             .workspaces
             .get_workspace(principal, aggregate.workspace_id)
         {
-            // R-9 residual: an unregistered runtime workspace has no governed
-            // project identity; content stays under content-policy guards.
+            // Replay-proven text-only stream, unregistered workspace: no
+            // governed project identity exists (R-9 residual).
             Err(ProjectWorkspaceRepositoryError::NotFound) => return Ok(()),
-            Err(_) => return Err(TrustDeliveryDenied),
-            Ok(_) => {}
-        }
-        self.ensure_governed_then_current(inner, principal, aggregate.workspace_id)
-    }
-
-    /// Delivery-time governance gate: only projects with an explicit trust
-    /// record (granted/managed/revoked at least once) are subject to the
-    /// delivery-time re-check; never-governed projects keep pre-T1 delivery
-    /// behavior until the grant path ships (T1 PASS).
-    fn ensure_governed_then_current(
-        &self,
-        inner: &GateInner,
-        principal: &str,
-        workspace_id: WorkspaceId,
-    ) -> Result<(), TrustDeliveryDenied> {
-        let workspace = match inner.workspaces.get_workspace(principal, workspace_id) {
             Ok(workspace) => workspace,
-            Err(ProjectWorkspaceRepositoryError::NotFound) => return Ok(()),
             Err(_) => return Err(TrustDeliveryDenied),
         };
         let project = ProjectTrustProjectId::from_bytes(*workspace.project_id().as_bytes());
         match inner.authority.has_explicit_record(project) {
-            Ok(true) => self.ensure_current(inner, principal, workspace_id),
+            // Governed project: re-check the CURRENT trust admission.
+            Ok(true) => self.ensure_current(inner, project),
+            // Never-governed project: pre-T1 delivery behavior under the
+            // explicit text-only contract (residual R-11).
             Ok(false) => Ok(()),
             Err(_) => Err(TrustDeliveryDenied),
         }
     }
 
+    /// Current-revision admission for an already-identified project. The
+    /// caller resolves the project from the workspace row it just loaded, so
+    /// no second workspace lookup happens here (no TOCTOU re-read window).
     fn ensure_current(
         &self,
         inner: &GateInner,
-        principal: &str,
-        workspace_id: WorkspaceId,
+        project: ProjectTrustProjectId,
     ) -> Result<(), TrustDeliveryDenied> {
-        let workspace = match inner.workspaces.get_workspace(principal, workspace_id) {
-            Ok(workspace) => workspace,
-            // R-9 residual: a workspace that is not registered yet (e.g. the
-            // desktop local flow opens the conversation before the runtime
-            // workspace row exists) carries no governed project identity;
-            // its content stays under the content-policy guards. Any other
-            // resolution error fails closed.
-            Err(ProjectWorkspaceRepositoryError::NotFound) => return Ok(()),
-            Err(_) => return Err(TrustDeliveryDenied),
-        };
-        let project = ProjectTrustProjectId::from_bytes(*workspace.project_id().as_bytes());
         inner
             .authority
             .admit_source(
@@ -224,7 +197,7 @@ impl DeliveryTrustGate {
                     permission_mode: PermissionMode::Ask,
                 },
             )
-            .map_err(|_| TrustDeliveryDenied)?;
-        Ok(())
+            .map(|_| ())
+            .map_err(|_| TrustDeliveryDenied)
     }
 }

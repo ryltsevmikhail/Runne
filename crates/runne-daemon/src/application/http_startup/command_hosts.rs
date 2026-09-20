@@ -125,7 +125,7 @@ pub(super) fn compose(
     _canonical_db_path: &Path,
     _runtime_authority_id: [u8; 16],
     _prohibited_content: Arc<dyn ProhibitedContentPort>,
-    trust_authority: Option<Arc<ProjectTrustPolicyAuthority>>,
+    _trust_authority: Option<Arc<ProjectTrustPolicyAuthority>>,
     _root_admission_keys: Option<runne_api::ProtectedActivationKeys>,
     _protected_activation: bool,
     _sessions: Arc<Mutex<LocalSessionService>>,

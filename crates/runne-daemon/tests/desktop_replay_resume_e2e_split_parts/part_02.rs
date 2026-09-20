@@ -258,7 +258,7 @@ async fn real_process_wrong_authority_db_closes_fatal_without_local_mutation() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn real_process_retention_gap_closes_fatal_without_local_mutation() {
+async fn real_process_retention_gap_closes_revoked_without_local_mutation() {
     let _process_guard = process_e2e_guard().await;
     let mut fixture = ProcessFaultFixture::open().await;
     let before = local_projection_state(&fixture.desktop_database);
@@ -273,10 +273,15 @@ async fn real_process_retention_gap_closes_fatal_without_local_mutation() {
         .await
         .expect_err("retention gap must fail closed");
 
-    assert_eq!(error.to_string(), "runtime_identity_conflict");
+    // NM-06 fail-closed contract: the conversation pre-check in the replay
+    // authorization gate reads the stream BEFORE store.open_session, so a
+    // broken (retention-gapped) stream denies at the trust boundary
+    // (TrustDeliveryDenied -> AuthorizationRevoked -> 401) and never reaches
+    // the store's retention-gap baseline flow.
+    assert_eq!(error.to_string(), "runtime_revoked");
     assert_eq!(
         core.bootstrap().expect("bootstrap").runtime,
-        RuntimeAvailability::Fatal
+        RuntimeAvailability::Revoked
     );
     assert_eq!(local_projection_state(&fixture.desktop_database), before);
 }

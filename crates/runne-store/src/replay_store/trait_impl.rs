@@ -17,7 +17,10 @@ impl ReplayStorePort for ReplayStore {
         .await
     }
 
-    fn session_delivery_scope(&self, session_id: &[u8; 16]) -> Option<(i32, [u8; 16])> {
+    fn session_delivery_scope(
+        &self,
+        session_id: &[u8; 16],
+    ) -> Result<Option<(i32, [u8; 16])>, ReplayError> {
         self.session_delivery_scope_impl(session_id)
     }
 
