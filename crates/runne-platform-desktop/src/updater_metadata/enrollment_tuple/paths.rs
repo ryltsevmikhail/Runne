@@ -90,58 +90,67 @@ impl NativeEnrollmentArtifactPathsV1 {
         self.writer.clone()
     }
 
+    #[cfg(unix)]
     pub(crate) fn measure(
         &self,
     ) -> Result<MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentTupleError> {
-        #[cfg(unix)]
-        {
-            let measured = enrollment_measurement::MeasuredNativeEnrollmentArtifactsV1::measure(
-                &self.desktop_file,
-                &self.writer_file,
-                &self.daemon_file,
-                &self.contract_file,
-            )?;
-            self.confirm_current()?;
-            Ok(measured)
-        }
-        #[cfg(not(unix))]
-        {
-            Err(NativeEnrollmentTupleError::Rejected)
-        }
+        let measured = enrollment_measurement::MeasuredNativeEnrollmentArtifactsV1::measure(
+            &self.desktop_file,
+            &self.writer_file,
+            &self.daemon_file,
+            &self.contract_file,
+        )?;
+        self.confirm_current()?;
+        Ok(measured)
     }
 
-    #[cfg_attr(test, allow(dead_code))]
+    /// Non-unix hosts have no rooted bundle to measure and fail closed.
+    #[cfg(not(unix))]
+    pub(crate) const fn measure(
+        &self,
+    ) -> Result<MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentTupleError> {
+        let _ = self;
+        Err(NativeEnrollmentTupleError::Rejected)
+    }
+
+    #[cfg(unix)]
     pub(crate) fn confirm_current(&self) -> Result<(), NativeEnrollmentTupleError> {
-        #[cfg(unix)]
-        {
-            self.revalidate_rooted_entries()?;
-            self.verify_live_desktop()
-        }
-        #[cfg(not(unix))]
-        {
-            Err(NativeEnrollmentTupleError::Rejected)
-        }
+        self.revalidate_rooted_entries()?;
+        self.verify_live_desktop()
     }
 
+    /// Non-unix hosts have no rooted bundle to revalidate and fail closed.
+    #[cfg(not(unix))]
+    pub(crate) const fn confirm_current(&self) -> Result<(), NativeEnrollmentTupleError> {
+        let _ = self;
+        Err(NativeEnrollmentTupleError::Rejected)
+    }
+
+    #[cfg(unix)]
     pub(super) fn matches_retained(
         &self,
         fresh: &Self,
     ) -> Result<bool, NativeEnrollmentTupleError> {
-        #[cfg(unix)]
-        {
-            self.confirm_current()?;
-            fresh.confirm_current()?;
-            Ok(same_directory(&self.root, &fresh.root)
-                && self.desktop_file.matches_opened(&fresh.desktop_file)?
-                && self.writer_file.matches_opened(&fresh.writer_file)?
-                && self.daemon_file.matches_opened(&fresh.daemon_file)?
-                && self.contract_file.matches_opened(&fresh.contract_file)?)
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = fresh;
-            Ok(false)
-        }
+        self.confirm_current()?;
+        fresh.confirm_current()?;
+        Ok(same_directory(&self.root, &fresh.root)
+            && self.desktop_file.matches_opened(&fresh.desktop_file)?
+            && self.writer_file.matches_opened(&fresh.writer_file)?
+            && self.daemon_file.matches_opened(&fresh.daemon_file)?
+            && self.contract_file.matches_opened(&fresh.contract_file)?)
+    }
+
+    /// Non-unix hosts retain no descriptor-rooted identity to match. The
+    /// `Result` shape stays for signature parity with the fallible unix twin.
+    #[cfg(not(unix))]
+    #[cfg_attr(test, allow(dead_code))]
+    #[allow(clippy::unnecessary_wraps)]
+    pub(super) const fn matches_retained(
+        &self,
+        fresh: &Self,
+    ) -> Result<bool, NativeEnrollmentTupleError> {
+        let _ = (self, fresh);
+        Ok(false)
     }
 
     #[cfg(target_os = "macos")]

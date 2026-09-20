@@ -1,7 +1,8 @@
-#[cfg(windows)]
-use std::fs::OpenOptions;
 #[cfg(not(windows))]
-use std::fs::{self, File, OpenOptions};
+use std::fs;
+#[cfg(unix)]
+use std::fs::File;
+use std::fs::OpenOptions;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -183,12 +184,11 @@ pub(super) fn publish_no_replace(
     }
 }
 
+/// Durable-installed layouts only need a parent-directory fsync on unix;
+/// Windows publication already moves write-through through the native layer.
+#[cfg(unix)]
 pub(super) fn sync_parent(parent: &Path) -> Result<(), UpdateJournalError> {
-    #[cfg(unix)]
     File::open(parent)
         .and_then(|directory| directory.sync_all())
-        .map_err(|_| UpdateJournalError::Io)?;
-    #[cfg(windows)]
-    let _ = parent;
-    Ok(())
+        .map_err(|_| UpdateJournalError::Io)
 }

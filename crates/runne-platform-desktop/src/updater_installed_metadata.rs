@@ -57,6 +57,7 @@ impl InstalledUpdateMetadataJournal {
             .map_err(|_| InstalledUpdateMetadataError::Io)?;
         drop(file);
         publish_no_replace(&temporary, &final_path)?;
+        #[cfg(unix)]
         sync_parent(parent)?;
         for path in self.candidate_paths()? {
             if path != final_path {
@@ -202,14 +203,13 @@ fn publish_no_replace(
     }
 }
 
+/// Durable-installed layouts only need a parent-directory fsync on unix;
+/// Windows publication already moves write-through through the native layer.
+#[cfg(unix)]
 fn sync_parent(parent: &Path) -> Result<(), InstalledUpdateMetadataError> {
-    #[cfg(unix)]
     File::open(parent)
         .and_then(|directory| directory.sync_all())
-        .map_err(|_| InstalledUpdateMetadataError::Io)?;
-    #[cfg(windows)]
-    let _ = parent;
-    Ok(())
+        .map_err(|_| InstalledUpdateMetadataError::Io)
 }
 
 #[cfg(test)]

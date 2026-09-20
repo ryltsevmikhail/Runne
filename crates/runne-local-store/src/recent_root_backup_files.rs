@@ -1,7 +1,9 @@
 use super::recent_root_backup_failpoint::{
     AFTER_FILE_DURABLE, AFTER_PRIVATE_CREATE, AFTER_PUBLISH, AFTER_PUBLISH_DURABLE, hit,
 };
-use super::recent_root_backup_identity::{FileIdentity, file_identity, sync_parent_directory};
+#[cfg(not(windows))]
+use super::recent_root_backup_identity::sync_parent_directory;
+use super::recent_root_backup_identity::{FileIdentity, file_identity};
 use super::{Path, StoreOpenError, backup_sidecars_absent};
 
 pub fn artifact_exists(path: &Path) -> Result<bool, StoreOpenError> {
@@ -104,17 +106,17 @@ pub fn promote_temporary(temporary: &Path, final_path: &Path) -> Result<(), Stor
             identity.native_id(),
         )
         .map_err(|error| match error {
-            runne_windows_native_handle::NativeFileError::DestinationExists => {
+            runne_windows_native_handle::NativeFileError::DestinationExists
+            | runne_windows_native_handle::NativeFileError::Rejected => {
                 StoreOpenError::PreV5BackupConflict
             }
-            runne_windows_native_handle::NativeFileError::Rejected => {
-                StoreOpenError::PreV5BackupConflict
+            runne_windows_native_handle::NativeFileError::Unavailable => {
+                StoreOpenError::PreV5BackupRecoveryRequired
             }
-            _ => StoreOpenError::PreV5BackupRecoveryRequired,
         })?;
         hit(AFTER_PUBLISH)?;
         sync_file(final_path, identity)?;
-        return hit(AFTER_PUBLISH_DURABLE);
+        hit(AFTER_PUBLISH_DURABLE)
     }
     #[cfg(not(windows))]
     {

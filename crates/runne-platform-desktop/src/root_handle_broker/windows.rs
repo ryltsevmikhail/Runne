@@ -7,6 +7,9 @@ use super::{
     RootHandleBrokerError, RootHandleTransferBinding, StableFilesystemIdentity, VerifiedRootHandle,
 };
 
+// Accessors for the desktop-side broker wiring; the consumer lands with the
+// remaining windows port slices.
+#[allow(dead_code)]
 impl VerifiedRootHandle {
     pub(crate) const fn native_handle(&self) -> &DirectoryHandle {
         &self.handle
@@ -172,7 +175,7 @@ pub(super) const fn receive(
 }
 
 #[cfg(feature = "test-support")]
-pub(super) fn test_pair()
+pub(super) const fn test_pair()
 -> Result<(NativeTransferChannel, NativeTransferChannel), RootHandleBrokerError> {
     Err(RootHandleBrokerError::Unavailable)
 }

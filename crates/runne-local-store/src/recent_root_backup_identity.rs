@@ -122,7 +122,7 @@ pub fn sync_parent_directory(path: &Path) -> Result<(), StoreOpenError> {
         .map_err(|_| StoreOpenError::PreV5BackupRecoveryRequired)
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 pub fn sync_parent_directory(_: &Path) -> Result<(), StoreOpenError> {
     Ok(())
 }

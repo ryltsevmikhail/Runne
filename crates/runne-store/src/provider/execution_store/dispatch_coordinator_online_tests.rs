@@ -275,6 +275,7 @@ pub(super) fn coordinator_request(call: u8, key: &str) -> ProviderCoordinatorReq
     }
 }
 
+#[cfg_attr(not(unix), allow(unused_variables))]
 pub(super) fn secure_directory(path: &std::path::Path) {
     #[cfg(unix)]
     {
