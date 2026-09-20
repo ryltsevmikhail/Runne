@@ -154,8 +154,10 @@ fn uncertain_ack_reopen_alone_creates_no_new_receipt_rows() {
     assert_eq!(receipt_count(&database_path), receipts_before);
 }
 
+#[cfg(unix)]
 struct KillChild(std::process::Child);
 
+#[cfg(unix)]
 impl Drop for KillChild {
     fn drop(&mut self) {
         let _ = self.0.kill();

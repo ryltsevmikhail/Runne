@@ -153,10 +153,10 @@ fn install_windows(
     kind: UpdateArtifactKind,
     staged: &Path,
 ) -> Result<(), NativeUpdateInstallError> {
+    use std::os::windows::process::CommandExt;
     if kind != UpdateArtifactKind::WindowsNsis {
         return Err(NativeUpdateInstallError::UnsupportedPlatform);
     }
-    use std::os::windows::process::CommandExt;
     Command::new(staged)
         .args(["/S", "/CLOSEAPPLICATIONS", "/NORESTART"])
         .creation_flags(0x0000_0008 | 0x0000_0200)

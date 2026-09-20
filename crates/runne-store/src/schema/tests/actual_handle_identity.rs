@@ -176,3 +176,62 @@ fn scanner_sidecar_reopen_rejects_actual_handle_aba() {
     });
     assert!(result.is_err());
 }
+
+#[cfg(windows)]
+#[test]
+fn windows_ordinary_write_and_validated_reopen_succeed() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("event-log.sqlite") };
+    let writer = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
+    apply_migrations(&writer).unwrap();
+    // An allowed write on the genuine object must succeed and stay admitted.
+    writer.execute_batch("BEGIN IMMEDIATE; COMMIT;").unwrap();
+    drop(writer);
+    let reopened =
+        reopen_managed_connection_validated_with_hook(&path, ConnectionMode::ValidatedReopen, |_| Ok(()), |_| Ok(()));
+    assert!(reopened.is_ok());
+}
+
+#[cfg(windows)]
+fn initialized_database(path: &Path) {
+    let connection = open_managed_connection(path, ConnectionMode::Writer).unwrap();
+    apply_migrations(&connection).unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_retained_stage_main_file_swap_is_rejected() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("event-log.sqlite") };
+    initialized_database(&path);
+    let replacement = path.with_extension("replacement");
+    initialized_database(&replacement);
+    // The win32 engine blocks renaming its open handles, so the only live
+    // swap window is the guard's own retained anchor: anchor A, open B.
+    let result = open_connection_for_profile_with_hook(&path, ConnectionMode::Writer, |stage| {
+        if matches!(stage, IdentityHookStage::Retained) {
+            let retained = path.with_extension("retained");
+            fs::rename(&path, &retained).unwrap();
+            fs::rename(&replacement, &path).unwrap();
+        }
+        Ok(())
+    });
+    assert!(result.is_err());
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_retained_stage_inspection_failure_is_rejected() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("event-log.sqlite") };
+    initialized_database(&path);
+    let result = open_connection_for_profile_with_hook(&path, ConnectionMode::Writer, |stage| {
+        if matches!(stage, IdentityHookStage::Retained) {
+            let displaced = path.with_extension("displaced");
+            fs::rename(&path, &displaced).unwrap();
+            fs::create_dir(&path).unwrap();
+        }
+        Ok(())
+    });
+    assert!(result.is_err());
+}

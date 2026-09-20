@@ -66,7 +66,7 @@ impl FileIdentity {
 #[cfg(windows)]
 impl FileIdentity {
     pub const fn links(self) -> u64 {
-        u64::from(self.links)
+        self.links as u64
     }
 }
 
@@ -122,7 +122,7 @@ pub fn sync_parent_directory(path: &Path) -> Result<(), StoreOpenError> {
         .map_err(|_| StoreOpenError::PreV5BackupRecoveryRequired)
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 pub fn sync_parent_directory(_: &Path) -> Result<(), StoreOpenError> {
     Ok(())
 }

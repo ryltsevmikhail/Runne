@@ -2,6 +2,9 @@ fn expected_profile() -> Result<ProtectedRuntimeProfileV1, ProtectedBundledRunti
     profile_for_capabilities(PROTECTED_RUNTIME_CAPABILITIES)
 }
 
+// Common profile-selection logic; its launcher caller is unix today and the
+// windows launcher port will consume the same functions.
+#[cfg_attr(not(unix), allow(dead_code))]
 fn expected_profile_for_launch(
     runtime_root: &Path,
     provider_bound: bool,
@@ -15,6 +18,7 @@ fn expected_profile_for_launch(
     selected_launch_profile(provider_bound, qualified)
 }
 
+#[cfg_attr(not(unix), allow(dead_code))]
 fn selected_launch_profile(
     provider_bound: bool,
     qualified: bool,

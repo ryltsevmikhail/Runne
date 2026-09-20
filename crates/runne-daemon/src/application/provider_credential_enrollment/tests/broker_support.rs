@@ -21,6 +21,8 @@ use super::super::broker::writer_session_test_support::writer_session_claims;
 use super::super::broker::{CredentialBrokerChannel, ProviderCredentialBroker};
 
 pub(crate) struct Fixture {
+    // Read by the unix broker transport scenarios only.
+    #[cfg_attr(not(unix), allow(dead_code))]
     pub(crate) enrollment_authority: runne_provider::CredentialEnrollmentStoreAuthority,
     pub(in crate::application::provider_credential_enrollment) broker: ProviderCredentialBroker,
     pub(crate) measurements: Arc<runne_provider::CredentialEnrollmentMeasurementAuthority>,
@@ -52,7 +54,11 @@ fn fixture_with_action(action: CredentialOperationAction, idempotency: &str) -> 
     let measurements = Arc::new(measurements);
     let store =
         runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_authorities(
-            &directory.path().join("broker.sqlite"),
+            &{
+                let daemon = directory.path().join("runne-daemon");
+                std::fs::create_dir_all(&daemon).unwrap();
+                daemon.join("broker.sqlite")
+            },
             lifecycle,
             enrollment.clone(),
         )

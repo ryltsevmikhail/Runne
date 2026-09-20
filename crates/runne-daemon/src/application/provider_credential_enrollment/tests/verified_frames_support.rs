@@ -148,7 +148,11 @@ pub(crate) fn fixture(key: [u8; 32]) -> Fixture {
     let (enrollment_authority, measurements) = CredentialEnrollmentAuthorityPair::new().split();
     let store =
         runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_authorities(
-            &directory.path().join("frames.sqlite"),
+            &{
+                let daemon = directory.path().join("runne-daemon");
+                std::fs::create_dir_all(&daemon).unwrap();
+                daemon.join("frames.sqlite")
+            },
             lifecycle_authority,
             enrollment_authority,
         )

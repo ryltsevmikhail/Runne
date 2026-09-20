@@ -3,7 +3,9 @@ use super::recent_root_backup_files::{
     artifact_exists, create_private_temporary, empty_private_temporary, promote_temporary,
     secure_and_sync, sync_file,
 };
-use super::recent_root_backup_identity::{FileIdentity, file_identity, sync_parent_directory};
+#[cfg(unix)]
+use super::recent_root_backup_identity::sync_parent_directory;
+use super::recent_root_backup_identity::{FileIdentity, file_identity};
 use super::{
     Connection, LocalStore, Path, PathBuf, StoreOpenError, backup_uri, params,
     verify_pre_v4_backup_path,

@@ -3,8 +3,11 @@ use std::path::PathBuf;
 use runne_store::schema::{
     ConnectionMode, ManagedConnection, ManagedConnectionAuthority, PublicationPermit, Readiness,
     apply_migrations, open_managed_connection, publication_from_managed, readiness_from_managed,
-    reopen_managed_connection_validated,
 };
+// The validated-reopen API rejects a runtime identity only through the
+// unix handle movement control today.
+#[cfg(unix)]
+use runne_store::schema::reopen_managed_connection_validated;
 use rusqlite::{Connection, Result as SqliteResult};
 
 struct Database {

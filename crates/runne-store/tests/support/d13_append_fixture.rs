@@ -30,6 +30,7 @@ pub const CONVERSATION_ID: &str = "018f2e3a-7000-7000-8001-0000000000a1";
 pub const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8002-0000000000a2";
 pub const PROJECT_ID: &str = "018f2e3a-7000-7000-8002-0000000000a3";
 pub const GENERATE_COMMAND_ID: &str = "018f2e3a-7000-7000-8000-0000000000a4";
+#[cfg(unix)]
 pub const KILL_TEST_NAME: &str =
     "real_sigkill_between_commit_and_ack_preserves_exactly_once_append";
 

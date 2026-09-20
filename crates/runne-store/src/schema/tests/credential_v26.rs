@@ -78,7 +78,7 @@ fn v26_claim_provider_insert_requires_an_existing_admission() {
 #[test]
 fn online_issuance_guard_clears_on_success_error_and_unwind() {
     let directory = tempfile::tempdir().unwrap();
-    let managed = open_test_shared_writer(&directory.path().join("guard.sqlite")).unwrap();
+    let managed = open_test_shared_writer(&{ let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("guard.sqlite") }).unwrap();
     let guard = managed.online_issuance_guard();
     let active = || {
         managed
@@ -176,7 +176,7 @@ fn genuine_v19_fixture_history_remains_valid_through_v26() {
 #[test]
 fn file_backed_v25_preflight_rejects_v26_without_sidecars_or_mutation() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("frozen-v25.sqlite");
+    let path = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("frozen-v25.sqlite") };
     let connection = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
     apply_migrations_internal(&connection, 25).unwrap();
     connection

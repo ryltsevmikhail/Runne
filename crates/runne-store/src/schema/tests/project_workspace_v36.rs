@@ -2,7 +2,7 @@
 fn v36_reopens_full_and_no_v19_v35_lineages() {
     for no_v19_lineage in [false, true] {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("project-workspace-v36.sqlite");
+        let path = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("project-workspace-v36.sqlite") };
         let connection = Connection::open(&path).unwrap();
         if no_v19_lineage {
             apply_migrations_internal(&connection, 35).unwrap();

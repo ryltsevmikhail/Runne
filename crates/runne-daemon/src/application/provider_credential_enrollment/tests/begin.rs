@@ -24,6 +24,8 @@ impl CredentialEnrollmentReadback for NoReadback {
     }
 }
 
+// The prepared projection flows through the unix broker rendezvous transport.
+#[cfg(unix)]
 #[test]
 fn begin_recovers_then_returns_the_exact_idempotent_prepared_projection() {
     let (issuer, verifier) = ProviderCredentialRequestAuthorityPair::new().split();
@@ -55,7 +57,11 @@ fn begin_recovers_then_returns_the_exact_idempotent_prepared_projection() {
     let (enrollment_authority, measurements) = CredentialEnrollmentAuthorityPair::new().split();
     let store =
         runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_authorities(
-            &directory.path().join("begin.sqlite"),
+            &{
+                let daemon = directory.path().join("runne-daemon");
+                std::fs::create_dir_all(&daemon).unwrap();
+                daemon.join("begin.sqlite")
+            },
             lifecycle_authority,
             enrollment_authority,
         )

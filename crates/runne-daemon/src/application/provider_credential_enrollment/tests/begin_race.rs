@@ -55,7 +55,11 @@ fn two_identical_begins_share_one_reserved_effect_and_exact_projection() {
     let (enrollment_authority, measurements) = CredentialEnrollmentAuthorityPair::new().split();
     let store =
         runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_authorities(
-            &directory.path().join("begin-race.sqlite"),
+            &{
+                let daemon = directory.path().join("runne-daemon");
+                std::fs::create_dir_all(&daemon).unwrap();
+                daemon.join("begin-race.sqlite")
+            },
             lifecycle_authority,
             enrollment_authority,
         )

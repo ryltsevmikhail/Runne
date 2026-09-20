@@ -40,6 +40,7 @@ struct DurableFileProof {
 }
 
 fn durable_file_proof(path: &Path) -> DurableFileProof {
+    #[cfg(unix)]
     let metadata = std::fs::metadata(path).unwrap();
     #[cfg(unix)]
     use std::os::unix::fs::MetadataExt as _;

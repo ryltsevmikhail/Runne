@@ -66,6 +66,7 @@ const LAUNCH_TIMEOUT: Duration = Duration::from_secs(30);
 const LOCAL_PROCESS_TIMEOUT: Duration = Duration::from_mins(2);
 
 #[cfg(feature = "test-support")]
+#[cfg_attr(not(unix), allow(dead_code))]
 fn launch_timeout() -> Duration {
     if runne_api::test_support::local_native_enrollment_enabled() {
         return LOCAL_PROCESS_TIMEOUT;
@@ -73,6 +74,7 @@ fn launch_timeout() -> Duration {
     LAUNCH_TIMEOUT
 }
 #[cfg(not(feature = "test-support"))]
+#[cfg_attr(not(unix), allow(dead_code))]
 const fn launch_timeout() -> Duration {
     LAUNCH_TIMEOUT
 }

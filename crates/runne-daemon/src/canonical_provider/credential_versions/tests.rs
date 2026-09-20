@@ -97,7 +97,11 @@ impl NativeProviderCredentialVersionStore for DeletingNative {
 #[test]
 fn production_reconcile_deletes_native_before_permanent_tombstone() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("credential-reconcile.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("credential-reconcile.sqlite")
+    };
     let (lifecycle, native_authority) = CredentialAuthorityPair::new().split();
     let store =
         SqliteProviderCredentialLifecycleStore::open_at_with_authority(&path, lifecycle, 100)

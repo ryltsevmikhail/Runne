@@ -1,7 +1,7 @@
 #[test]
 fn v20_rejects_released_v8_fixture_without_a_valid_complete_replay_history() {
     let temporary = tempfile::tempdir().unwrap();
-    let path = temporary.path().join("released-v8.sqlite");
+    let path = { let daemon = temporary.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("released-v8.sqlite") };
     let conn = Connection::open(&path).unwrap();
     initialize_released_v8(&conn);
     conn.execute(
@@ -66,7 +66,7 @@ fn corrupt_v24_catalog_is_rejected_before_open() {
 #[test]
 fn v23_to_v36_catalog_reopens_after_restart() {
     let temporary = tempfile::tempdir().unwrap();
-    let path = temporary.path().join("v23-to-v24.sqlite");
+    let path = { let daemon = temporary.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("v23-to-v24.sqlite") };
     let conn = Connection::open(&path).unwrap();
     initialize_released_v23(&conn);
     assert_eq!(current_schema_marker(&conn), 23);
