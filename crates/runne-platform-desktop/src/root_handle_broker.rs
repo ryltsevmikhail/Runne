@@ -214,67 +214,13 @@ impl RootHandleTransferReceiver {
 }
 
 #[cfg(feature = "test-support")]
-/// Creates a test-only one-shot local sender/receiver pair.
-///
-/// # Errors
-///
-/// Returns a closed error when the native test transport is unavailable.
-pub fn test_transfer_pair(
-    sender_authenticator: RootHandleTransferAuthenticator,
-    receiver_authenticator: RootHandleTransferAuthenticator,
-    binding: RootHandleTransferBinding,
-) -> Result<(RootHandleTransferSender, RootHandleTransferReceiver), RootHandleBrokerError> {
-    let (sender, receiver) = platform::test_pair()?;
-    Ok((
-        RootHandleTransferSender {
-            channel: Some(sender),
-            authenticator: sender_authenticator,
-            binding: binding.clone(),
-        },
-        RootHandleTransferReceiver {
-            channel: Some(receiver),
-            authenticator: receiver_authenticator,
-            binding,
-        },
-    ))
-}
-
+mod transfer_test_support;
+#[cfg(feature = "test-support")]
+pub use transfer_test_support::test_transfer_pair;
 #[cfg(all(unix, feature = "test-support"))]
-#[doc(hidden)]
-#[must_use]
-pub const fn test_transfer_sender(
-    channel: std::os::unix::net::UnixStream,
-    authenticator: RootHandleTransferAuthenticator,
-    binding: RootHandleTransferBinding,
-) -> RootHandleTransferSender {
-    RootHandleTransferSender {
-        channel: Some(channel),
-        authenticator,
-        binding,
-    }
-}
-
-#[cfg(all(unix, feature = "test-support"))]
-#[doc(hidden)]
-#[must_use]
-pub const fn test_transfer_receiver(
-    channel: std::os::unix::net::UnixStream,
-    authenticator: RootHandleTransferAuthenticator,
-    binding: RootHandleTransferBinding,
-) -> RootHandleTransferReceiver {
-    RootHandleTransferReceiver {
-        channel: Some(channel),
-        authenticator,
-        binding,
-    }
-}
-
-#[cfg(all(unix, feature = "test-support"))]
-#[doc(hidden)]
-#[must_use]
-pub fn launcher_spawn_attempt_count() -> u32 {
-    platform::launcher_spawn_attempt_count()
-}
+pub use transfer_test_support::{
+    launcher_spawn_attempt_count, test_transfer_receiver, test_transfer_sender,
+};
 
 impl fmt::Debug for RootHandleTransferSender {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
