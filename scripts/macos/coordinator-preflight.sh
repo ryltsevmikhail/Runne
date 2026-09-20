@@ -74,9 +74,9 @@ elif [[ "$identity_verdict" != "OK" ]]; then
 fi
 
 PY_MANIFEST="$(mktemp /tmp/runne-pf-manifest.XXXXXX)"
+trap 'rm -f "${PY_MANIFEST:-}" "${PY_ENTS:-}" "${PY_PROFILES:-}"' EXIT
 PY_ENTS="$(mktemp /tmp/runne-pf-ents.XXXXXX)"
 PY_PROFILES="$(mktemp /tmp/runne-pf-profiles.XXXXXX)"
-trap 'rm -f "$PY_MANIFEST" "$PY_ENTS" "$PY_PROFILES"' EXIT
 
 # python payloads live in temp files: a heredoc inside "$( ... )" makes the
 # stock macOS bash 3.2 parse the body as shell text (quote-state corruption).
@@ -275,9 +275,10 @@ for member in manifest.get("members", []):
     if bundle_id and declared and declared != bundle_id:
         problems.append(f"manifest bundle_id {declared} does not match the "
                         f"artifact bundle id {bundle_id} for {path}")
+    local_part = app_id.split(".", 1)[1] if "." in app_id else app_id
     if app_id and bundle_id and not (
-            app_id == f"{team}.{bundle_id}"
-            or (app_id.endswith("*") and bundle_id.startswith(app_id[:-1]))):
+            local_part == bundle_id
+            or (local_part.endswith("*") and bundle_id.startswith(local_part[:-1]))):
         problems.append(f"profile App ID {app_id} does not cover bundle id "
                         f"{bundle_id} for {path}")
 print("\n".join(problems) if problems else "OK")

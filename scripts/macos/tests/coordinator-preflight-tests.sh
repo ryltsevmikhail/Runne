@@ -149,8 +149,8 @@ if [[ "$rc" -ne 0 ]]; then fail "happy-path dry-run exited $rc: $OUT"; fi
 if [[ "$OUT" == *"PREFLIGHT FAILED"* ]]; then fail "happy-path dry-run reported violations"; fi
 
 # End-to-end: the REAL repository prepare script and the REAL repo
-# entitlements files must produce a manifest + staged copies that pass
-# preflight (repo cli/daemon claims get staged claim-free by the script).
+# entitlements files produce the manifest + verbatim staged copies;
+# the standalone-claims refusal is the expected current-contract outcome.
 e2e_root="$WORK/e2e"; e2e_app="$e2e_root/Runne.app"
 mkdir -p "$e2e_app/Contents/MacOS" "$e2e_app/Contents/Library/Helpers/RunneCredentialService.app/Contents/MacOS"
 printf 'main' > "$e2e_app/Contents/MacOS/runne-desktop"; printf 'cli' > "$e2e_app/Contents/MacOS/runne"

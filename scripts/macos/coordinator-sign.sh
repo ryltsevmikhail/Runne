@@ -38,9 +38,9 @@ done
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PLAN="$(mktemp /tmp/runne-coordinator-plan.XXXXXX)"
+trap 'rm -f "$PLAN" "${RESULTS:-}" "${MANIFEST_SNAPSHOT:-}"' EXIT
 RESULTS="$(mktemp /tmp/runne-coordinator-result.XXXXXX)"
 MANIFEST_SNAPSHOT="$(mktemp /tmp/runne-coordinator-manifest.XXXXXX)"
-trap 'rm -f "$PLAN" "$RESULTS" "$MANIFEST_SNAPSHOT"' EXIT
 # Freeze the manifest once: preflight and the signing plan must observe the
 # exact same bytes even if the transfer directory changes underneath.
 cp "$MANIFEST" "$MANIFEST_SNAPSHOT"
@@ -123,9 +123,11 @@ while IFS=$'\t' read -r path expected ents member; do
 done < "$PLAN"
 
 if [[ "$DRY_RUN" -ne 1 ]]; then
-    python3 - "$MANIFEST" "$RESULTS" "$OUTPUT" <<'EOF'
-import json, sys
-manifest, results, out = sys.argv[1], sys.argv[2], sys.argv[3]
+    mkdir -p "$(dirname "$OUTPUT")"
+    python3 - "$MANIFEST_SNAPSHOT" "$RESULTS" "$OUTPUT" <<'EOF'
+import json, os, sys
+results, out = sys.argv[2], sys.argv[3]
+os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
 post = {}
 for line in open(results):
     member, sha256, cdhash = line.rstrip("\n").split("\t")
@@ -134,7 +136,8 @@ json.dump({"members": post}, open(out, "w"), indent=1)
 print(f"return manifest: {out}")
 EOF
     bundle_dir="$(cd "$APP/.." && pwd)"
-    tar -C "$bundle_dir" -czf "$bundle_dir/runne-signed.tar.gz" "$(basename "$APP")" "$(basename "$OUTPUT")"
+    tar -C "$bundle_dir" -czf "$bundle_dir/runne-signed.tar.gz" "$(basename "$APP")" \
+        -C "$(cd "$(dirname "$OUTPUT")" && pwd)" "$(basename "$OUTPUT")"
     echo "transfer back: $bundle_dir/runne-signed.tar.gz"
     shasum -a 256 "$bundle_dir/runne-signed.tar.gz" | awk '{print "sha256: " $1}'
 fi
