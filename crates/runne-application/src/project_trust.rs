@@ -269,6 +269,14 @@ pub trait ProjectTrustPersistence: Send + Sync {
         project: ProjectTrustProjectId,
     ) -> Result<ProjectTrustRecord, TrustPersistenceError>;
 
+    /// Whether the project has an explicitly committed trust row (i.e. it is
+    /// under T1 delivery governance). Projects without any committed row keep
+    /// pre-T1 delivery behavior until the grant path ships.
+    fn has_explicit_record(
+        &self,
+        project: ProjectTrustProjectId,
+    ) -> Result<bool, TrustPersistenceError>;
+
     /// Instance epoch of the durable sidecar (0 only when unavailable).
     fn instance_epoch(&self) -> Result<u64, TrustPersistenceError>;
 

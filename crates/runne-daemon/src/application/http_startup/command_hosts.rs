@@ -9,7 +9,7 @@ use runne_runtime::{
     RuntimeWorkspaceFileHost,
 };
 use runne_security::project_trust_policy::ProjectTrustPolicyAuthority;
-use runne_store::{ProjectTrustStore, ProjectWorkspaceStore, store::StoreTransaction};
+use runne_store::{ProjectWorkspaceStore, store::StoreTransaction};
 
 #[cfg(not(feature = "desktop-protected"))]
 use super::super::process_unavailable::UnavailableProcessProvider;
@@ -59,17 +59,24 @@ pub(super) struct CommandHosts {
 }
 
 #[cfg(feature = "desktop-protected")]
+#[allow(clippy::too_many_arguments)]
 pub(super) fn compose(
     store: &StoreTransaction,
     canonical_db_path: &Path,
     runtime_authority_id: [u8; 16],
     prohibited_content: Arc<dyn ProhibitedContentPort>,
+    trust_authority: Option<Arc<ProjectTrustPolicyAuthority>>,
     root_admission_keys: Option<runne_api::ProtectedActivationKeys>,
     protected_activation: bool,
     sessions: Arc<Mutex<LocalSessionService>>,
 ) -> CommandHosts {
-    let trust_gate =
-        compose_trust_gate(canonical_db_path, runtime_authority_id, &prohibited_content);
+    let _ = (canonical_db_path, runtime_authority_id, prohibited_content);
+    // T1/NM-06: the shared process-wide authority (opened once in the
+    // bootstrap flow). A missing authority keeps the gate closed.
+    let trust_gate = match trust_authority {
+        Some(authority) => TrustGate::open(authority),
+        None => TrustGate::closed(),
+    };
     let repository = ProjectWorkspaceStore::from_store(store.clone());
     let authority = root_admission_keys
         .filter(|_| protected_activation)
@@ -112,33 +119,13 @@ pub(super) fn compose(
     }
 }
 
-#[cfg(feature = "desktop-protected")]
-/// Opens the durable trust sidecar next to the canonical store and installs
-/// the single runtime-owned policy authority over the store ports (T1).
-/// Any open failure stays fail-closed: without the authority no project
-/// source is admitted.
-fn compose_trust_gate(
-    canonical_db_path: &Path,
-    runtime_authority_id: [u8; 16],
-    prohibited_content: &Arc<dyn ProhibitedContentPort>,
-) -> TrustGate {
-    ProjectTrustStore::open(canonical_db_path, runtime_authority_id)
-        .ok()
-        .map(|trust_store| {
-            Arc::new(
-                ProjectTrustPolicyAuthority::new(Arc::new(trust_store))
-                    .with_byte_inspection(Arc::clone(prohibited_content)),
-            )
-        })
-        .map_or_else(TrustGate::closed, TrustGate::open)
-}
-
 #[cfg(not(feature = "desktop-protected"))]
 pub(super) fn compose(
     store: &StoreTransaction,
     _canonical_db_path: &Path,
     _runtime_authority_id: [u8; 16],
     _prohibited_content: Arc<dyn ProhibitedContentPort>,
+    trust_authority: Option<Arc<ProjectTrustPolicyAuthority>>,
     _root_admission_keys: Option<runne_api::ProtectedActivationKeys>,
     _protected_activation: bool,
     _sessions: Arc<Mutex<LocalSessionService>>,

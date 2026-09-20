@@ -58,6 +58,13 @@ pub trait ReplayStorePort: Send + Sync {
         ))
     }
 
+    /// Resolves one open session's delivery scope for delivery-time trust
+    /// re-checks (NM-06). `None` marks an unresolvable session; callers with
+    /// an active trust gate must fail closed on `None`.
+    fn session_delivery_scope(&self, _session_id: &[u8; 16]) -> Option<(i32, [u8; 16])> {
+        None
+    }
+
     async fn open_session(
         &self,
         principal_id: &str,

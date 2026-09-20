@@ -199,3 +199,28 @@ fn decode_hex<const N: usize>(value: &Value) -> [u8; N] {
     hex::decode_to_slice(value.as_str().expect("hex string"), &mut output).expect("decode hex");
     output
 }
+
+/// Grants project trust through the durable sidecar next to the daemon DB
+/// (test support for flows that replay conversation content).
+#[allow(dead_code)] // used by replay/conversation targets only
+pub fn grant_project_trust(config: &ConfigurationSnapshot, project_id: &str) {
+    use runne_application::project_trust::{
+        ProjectTrustPersistence, ProjectTrustProjectId, ProjectTrustStatus, TrustToken,
+    };
+    let conn = rusqlite::Connection::open(&config.db_path).unwrap();
+    let authority = runne_store::schema::read_authority_id(&conn)
+        .unwrap()
+        .expect("daemon authority id");
+    let store =
+        runne_store::ProjectTrustStore::open(Path::new(&config.db_path), authority).unwrap();
+    let project = ProjectTrustProjectId::from_bytes(
+        *project_id
+            .parse::<runne_domain::id::ProjectId>()
+            .unwrap()
+            .as_bytes(),
+    );
+    let token = TrustToken::new(store.instance_epoch().unwrap(), 0);
+    store
+        .commit(project, ProjectTrustStatus::Trusted, 0, token)
+        .unwrap();
+}

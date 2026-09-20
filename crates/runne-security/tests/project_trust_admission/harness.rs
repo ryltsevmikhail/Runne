@@ -33,6 +33,10 @@ impl FakePersistence {
 }
 
 impl ProjectTrustPersistence for FakePersistence {
+    fn has_explicit_record(&self, _: ProjectTrustProjectId) -> Result<bool, TrustPersistenceError> {
+        Ok(true)
+    }
+
     fn load(&self, _: ProjectTrustProjectId) -> Result<ProjectTrustRecord, TrustPersistenceError> {
         if self.fail {
             return Err(TrustPersistenceError::Unavailable);

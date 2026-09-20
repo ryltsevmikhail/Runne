@@ -1,7 +1,6 @@
 mod profile;
-use super::replay_authorization::DaemonReplayAuthorization;
-use super::shutdown::map_recovery_state;
 use super::*;
+use runne_security::project_trust_policy::ProjectTrustPolicyAuthority;
 mod command_hosts;
 mod enrollment;
 mod provider_credentials;
@@ -19,6 +18,7 @@ pub(super) async fn start_http_and_runtime(
     conversation_text_service: Arc<dyn ConversationTextCommandService>,
     secret_broker: Arc<Mutex<SecretBroker>>,
     prohibited_content: Arc<dyn ProhibitedContentPort>,
+    trust_authority: Option<Arc<ProjectTrustPolicyAuthority>>,
     provider_activation: ProviderActivation,
     provider_service: Option<Arc<DaemonCanonicalProviderService>>,
     protected_activation: bool,
@@ -94,7 +94,7 @@ pub(super) async fn start_http_and_runtime(
             Arc::clone(&prohibited_content),
         )
     };
-    let http_recovery_state = map_recovery_state(recovery_state);
+    let http_recovery_state = super::shutdown::map_recovery_state(recovery_state);
     let actor = ApiActor::new("runne-daemon").expect("the built-in daemon actor identity is valid");
     let replay_binding = ReplayHttpBinding::new(
         bootstrap.authority_id,
@@ -106,7 +106,8 @@ pub(super) async fn start_http_and_runtime(
     let replay_integrity_secret = super::http_startup_support::replay_cursor_integrity_secret(
         &bootstrap.replay_integrity_key,
     );
-    let replay_store = ReplayStore::new(replay_connection);
+    let replay_store = Arc::new(ReplayStore::new(replay_connection))
+        as Arc<dyn runne_application::replay_service::ReplayStorePort>;
     let retention_manifest = replay_store
         .retention_manifest(&replay_lineage, &replay_integrity_secret)
         .await
@@ -157,15 +158,21 @@ pub(super) async fn start_http_and_runtime(
         store.clone(),
         protected_activation,
     )?;
-    let replay_service = ReplayService::new(
-        Arc::new(replay_store),
-        replay_integrity_secret,
-        replay_lineage,
-        Arc::new(DaemonReplayAuthorization::new(
+    let build_replay_state = |guard: Arc<dyn ProhibitedContentPort>| {
+        super::http_startup_support::compose_replay_http_state(
+            replay_store.clone(),
+            replay_integrity_secret,
+            replay_lineage,
             bootstrap.authority_id,
-            Arc::clone(&local_session_service),
-        )),
-    );
+            local_session_service.clone(),
+            trust_authority.as_ref(),
+            &store,
+            guard,
+            replay_binding,
+            runtime_capabilities
+                .contains(&runne_http::replay::REPLAY_BASELINE_RESUME_V2_CAPABILITY),
+        )
+    };
     let telemetry_state = super::http_startup_support::operational_telemetry_state(
         provider_service.as_ref(),
         &binding,
@@ -175,6 +182,7 @@ pub(super) async fn start_http_and_runtime(
         std::path::Path::new(&config.db_path),
         bootstrap.authority_id,
         Arc::clone(&prohibited_content),
+        trust_authority.clone(),
         root_admission_keys,
         protected_activation,
         Arc::clone(&local_session_service),
@@ -217,16 +225,7 @@ pub(super) async fn start_http_and_runtime(
             command_hosts.reconciliation,
         ),
         runne_http::approvals::ApprovalHttpState::new(command_hosts.approval, actor.clone()),
-        ReplayHttpState::new(
-            replay_service,
-            replay_binding,
-            LimitsConfig::default(),
-            prohibited_content,
-        )
-        .with_baseline_resume_v2(
-            runtime_capabilities
-                .contains(&runne_http::replay::REPLAY_BASELINE_RESUME_V2_CAPABILITY),
-        ),
+        build_replay_state(prohibited_content),
         telemetry_state,
         enrollment_routes,
     )

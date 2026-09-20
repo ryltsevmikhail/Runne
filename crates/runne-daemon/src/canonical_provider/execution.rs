@@ -10,6 +10,18 @@ impl CanonicalProviderExecutionService for DaemonCanonicalProviderService {
         Result<runne_application::ports::TextGenerationReceipt, CanonicalProviderExecutionError>,
     > {
         Box::pin(async move {
+            // NM-06: re-check the CURRENT trust revision right before any
+            // provider delivery. Revocations and authority failures deny the
+            // dispatch before the coordinator runs (fail-closed, no durable
+            // side effects; `PolicyDenied` is the closed typed outcome).
+            if let Some(trust) = &self.trust {
+                trust
+                    .ensure_workspace_trusted(
+                        job.context.principal_id.0.as_str(),
+                        job.started.workspace_id,
+                    )
+                    .map_err(|_| CanonicalProviderExecutionError::PolicyDenied)?;
+            }
             let call = project_call(
                 &self.conversation_store,
                 &job,

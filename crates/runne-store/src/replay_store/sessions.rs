@@ -35,6 +35,29 @@ fn build_catch_up_completion_proof(session: &ReplaySession, server_secret: &[u8;
     mac.finalize().into_bytes().to_vec()
 }
 
+impl ReplayStore {
+/// NM-06: resolves one open session's delivery scope so the daemon
+/// authorization can re-check the project trust revision per delivery.
+pub(crate) fn session_delivery_scope_impl(&self, session_id: &[u8; 16]) -> Option<(i32, [u8; 16])> {
+    let conn = self.conn.lock().ok()?;
+    let row = conn
+        .query_row(
+            "SELECT aggregate_type, aggregate_id
+             FROM _replay_subscriptions
+             WHERE session_id = ?1",
+            params![session_id.as_slice()],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?)),
+        )
+        .optional()
+        .ok()?;
+    let (aggregate_type, aggregate_id) = row?;
+    let aggregate_type = i32::try_from(aggregate_type).ok()?;
+    let mut id = [0u8; 16];
+    id.copy_from_slice(&aggregate_id);
+    Some((aggregate_type, id))
+}
+}
+
 /// Read a [`ReplaySession`] from a rusqlite row.
 fn read_replay_session(row: &rusqlite::Row) -> rusqlite::Result<ReplaySession> {
     let session_id_blob: Vec<u8> = row.get(0)?;
