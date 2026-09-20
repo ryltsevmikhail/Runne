@@ -2,6 +2,7 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 
 import type { TaskRunRecovery } from '@/entities/task-run'
+import { currentLocale } from '@/shared/i18n'
 
 import TaskRunRecoveryPanel from './TaskRunRecoveryPanel.vue'
 
@@ -49,19 +50,33 @@ describe('TaskRunRecoveryPanel', () => {
     expect(wrapper.find('[role="alert"]').exists()).toBe(true)
   })
 
-  it('exposes stale confirmed-snapshot metadata through a status region', () => {
+  it('exposes stale confirmed-snapshot metadata without a raw timestamp', () => {
     const wrapper = mountPanel('resync_required')
     const stale = wrapper.get('[role="status"]')
     expect(stale.text()).toContain('revision 3')
     expect(stale.text()).toContain('stream 4')
-    expect(stale.text()).toContain('event at 42')
+    expect(stale.text()).not.toContain('event at')
     expect(stale.text()).toContain('data may be outdated')
+    expect(wrapper.text()).not.toContain('42')
   })
 
   it('reports the absence of confirmed events without a fake timestamp', () => {
     const wrapper = mountPanel('fatal', null)
+    expect(wrapper.get('[role="status"]').text()).toContain('revision 3')
     expect(wrapper.get('[role="status"]').text()).toContain('no confirmed events')
     expect(wrapper.text()).not.toContain('event at')
+  })
+
+  it('renders recovery texts through the active locale', () => {
+    const previousLocale = currentLocale.value
+    currentLocale.value = 'ru'
+    try {
+      const wrapper = mountPanel('reconnecting')
+      expect(wrapper.text()).toContain('Соединение с потоком задач потеряно.')
+      expect(wrapper.get('[role="status"]').text()).toContain('поток 4')
+    } finally {
+      currentLocale.value = previousLocale
+    }
   })
 
   it('renders nothing in the live state', () => {

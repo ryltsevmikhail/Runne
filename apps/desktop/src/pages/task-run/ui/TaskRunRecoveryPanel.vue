@@ -3,6 +3,7 @@ import { GcAlert } from '@runne/product/shared/ui'
 import { computed } from 'vue'
 
 import type { TaskRunRecovery } from '@/entities/task-run'
+import { translate, type LocaleKey } from '@/shared/i18n'
 
 const props = defineProps<{
   readonly recovery: TaskRunRecovery
@@ -11,19 +12,29 @@ const props = defineProps<{
   readonly lastCommittedAt: number | null
 }>()
 
+// Единицы committedAt не зафиксированы TS-контрактом (микросекунды известны
+// только по crates/runne-domain/src/timestamp.rs), поэтому значение не
+// рендерится: lastCommittedAt используется лишь как сигнал наличия
+// подтверждённых событий.
 // Отдельный читаемый текст на каждое не-live recovery: пользователь должен
 // различать потерю связи, требуемую ревалидацию и терминальные отказы.
-const recoveryAlerts: Record<Exclude<TaskRunRecovery, 'live'>, { level: 'warning' | 'error', text: string }> = {
-  reconnecting: { level: 'warning', text: 'Connection to the task stream was lost.' },
-  resync_required: { level: 'warning', text: 'Replay recovery needs revalidation.' },
-  fatal: { level: 'error', text: 'Replay recovery failed permanently.' },
-  revoked: { level: 'error', text: 'Access to this task run was revoked.' },
-  incompatible: { level: 'error', text: 'Runtime is incompatible with this task run.' },
+// Хранится ключ локали, translate() вызывается внутри computed — иначе текст
+// зафиксируется на локали момента setup и перестанет реагировать на её смену.
+const recoveryAlerts: Record<Exclude<TaskRunRecovery, 'live'>, { level: 'warning' | 'error', key: LocaleKey }> = {
+  reconnecting: { level: 'warning', key: 'taskRun.connectionLost' },
+  resync_required: { level: 'warning', key: 'taskRun.replayNeedsRevalidation' },
+  fatal: { level: 'error', key: 'taskRun.replayFailedPermanently' },
+  revoked: { level: 'error', key: 'taskRun.accessRevoked' },
+  incompatible: { level: 'error', key: 'taskRun.runtimeIncompatible' },
 }
-const recoveryAlert = computed(() => props.recovery === 'live' ? null : recoveryAlerts[props.recovery])
+const recoveryAlert = computed(() => {
+  if (props.recovery === 'live') return null
+  const alert = recoveryAlerts[props.recovery]
+  return { level: alert.level, text: translate(alert.key) }
+})
 const staleText = computed(() => {
-  const event = props.lastCommittedAt === null ? 'no confirmed events' : `event at ${props.lastCommittedAt}`
-  return `Last confirmed snapshot: revision ${props.projectionRevision} · stream ${props.streamVersion} · ${event} — data may be outdated`
+  const event = props.lastCommittedAt === null ? ` · ${translate('taskRun.noConfirmedEvents')}` : ''
+  return translate('taskRun.staleSnapshot', { revision: props.projectionRevision, stream: props.streamVersion, event })
 })
 </script>
 

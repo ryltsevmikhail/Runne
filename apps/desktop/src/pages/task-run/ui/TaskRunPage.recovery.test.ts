@@ -60,7 +60,7 @@ describe('TaskRun page recovery projection', () => {
     const stale = wrapper.get('[role="status"]')
     expect(stale.text()).toContain('revision 1')
     expect(stale.text()).toContain('stream 1')
-    expect(stale.text()).toContain('event at 42')
+    expect(stale.text()).not.toContain('event at')
     expect(stale.text()).toContain('data may be outdated')
     expect(wrapper.find('[data-task-run-action="cancel"]').exists()).toBe(false)
     expect(wrapper.find('button').exists()).toBe(false)
@@ -156,6 +156,25 @@ describe('TaskRun page recovery projection', () => {
       const { wrapper } = await mountTaskRunPage({ loadTaskRun: async () => timelineWith(recovery) })
       expect(wrapper.find('button').exists()).toBe(false)
       expect(wrapper.find('[role="status"]').exists()).toBe(true)
+    }
+  })
+
+  it('shows the waiting placeholder while the runtime session has not gone live', async () => {
+    const { wrapper } = await mountTaskRunPage({ initialStatus: 'stale' })
+    expect(wrapper.get('section[aria-live="polite"]').text()).toBe('Waiting for the runtime session…')
+    expect(wrapper.find('h1').exists()).toBe(false)
+    expect(wrapper.find('button').exists()).toBe(false)
+  })
+
+  it('localizes the waiting placeholder for the ru locale', async () => {
+    const previousLocale = currentLocale.value
+    currentLocale.value = 'ru'
+    try {
+      const { wrapper } = await mountTaskRunPage({ initialStatus: 'stale' })
+      expect(wrapper.get('section[aria-live="polite"]').text()).toBe('Ожидание runtime-сессии…')
+      expect(wrapper.text()).not.toContain('Waiting for the runtime session')
+    } finally {
+      currentLocale.value = previousLocale
     }
   })
 })

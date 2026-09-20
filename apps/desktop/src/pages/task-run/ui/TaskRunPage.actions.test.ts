@@ -93,7 +93,7 @@ describe('TaskRun page actions', () => {
     await wrapper.get('[data-task-run-action="cancel"]').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('The last operation failed')
-    expect(wrapper.text()).toContain('The displayed data has not changed.')
+    expect(wrapper.text()).toContain('The operation did not complete; the displayed snapshot may be out of date.')
     expect(wrapper.get('h1').text()).toBe('running')
     expect(wrapper.text()).not.toContain('Last confirmed snapshot')
   })

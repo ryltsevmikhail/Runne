@@ -50,7 +50,7 @@ const lastCommittedAt = computed(() => snapshot.value?.entries.at(-1)?.committed
 const placeholder = computed(() => {
   if (unavailable.value) return translate('taskRun.unavailable')
   if (runtimeStatus.value === 'live') return translate('taskRun.loading')
-  return 'Waiting for the runtime session…'
+  return translate('taskRun.waitingForRuntime')
 })
 
 function detachSession() {
@@ -157,7 +157,7 @@ onBeforeUnmount(() => { requestGeneration += 1; resyncOperation += 1; resyncing.
 
 <template>
   <section v-if="snapshot === null && runtimeStatus === 'empty'" role="status">
-    Runtime is not configured for task runs.
+    {{ translate('taskRun.runtimeNotConfigured') }}
   </section>
   <section v-else-if="snapshot === null" aria-live="polite">
     {{ placeholder }}
@@ -172,7 +172,7 @@ onBeforeUnmount(() => { requestGeneration += 1; resyncOperation += 1; resyncing.
       :approval-attention="approvalAttention"
     />
     <p v-if="snapshot.entries.length === 0" role="status">
-      Task run has no recorded events yet.
+      {{ translate('taskRun.noRecordedEvents') }}
     </p>
     <TaskRunRecoveryPanel
       v-if="snapshot.recovery !== 'live'"
@@ -181,8 +181,8 @@ onBeforeUnmount(() => { requestGeneration += 1; resyncOperation += 1; resyncing.
       :stream-version="snapshot.streamVersion"
       :last-committed-at="lastCommittedAt"
     />
-    <GcAlert v-if="unavailable" level="error" title="The last operation failed">
-      The displayed data has not changed.
+    <GcAlert v-if="unavailable" level="error" :title="translate('taskRun.lastOperationFailed')">
+      {{ translate('taskRun.operationFailedNotice') }}
     </GcAlert>
   </template>
   <CancelTaskRun
