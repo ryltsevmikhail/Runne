@@ -65,3 +65,77 @@ fn editor_target_string_resolves_onto_denied_content_after_a_swap() {
          by this branch"
     );
 }
+
+/// Ordinary mutability of an ALLOWED file is not a boundary crossing: the
+/// opener sees whatever the allowed file currently contains, and a deny-set
+/// name is never involved. Pinned so it is not confused with the race above.
+#[test]
+fn allowed_file_content_mutation_is_not_a_boundary_crossing() {
+    let dir = tempfile::tempdir().expect("temporary workspace");
+    std::fs::create_dir_all(dir.path().join("notes")).expect("notes directory");
+    std::fs::write(dir.path().join("notes/plan.md"), "VERSION-1").expect("allowed file");
+    let canonical = std::fs::canonicalize(dir.path()).expect("canonical workspace");
+    let root = VerifiedRootHandle::open(&canonical).expect("verified root");
+
+    assert_eq!(
+        root.read_text_relative("notes/plan.md", 4096)
+            .expect("validated read"),
+        "VERSION-1"
+    );
+    std::fs::write(dir.path().join("notes/plan.md"), "VERSION-2").expect("content edit");
+    assert_eq!(
+        std::fs::read_to_string(canonical.join("notes/plan.md")).expect("opener-visible content"),
+        "VERSION-2",
+        "the allowed file's own content may change at any time; no denied name is involved"
+    );
+}
+
+/// Root-escape model: after validating the in-root file, renaming a symlink
+/// that points OUTSIDE the workspace onto the validated name makes the path
+/// string handed to the opener resolve outside the admitted root. At
+/// validation time the same symlink shape is rejected by `O_NOFOLLOW` — the
+/// production boundary holds before the swap; the model shows only what the
+/// post-validation swap would deliver IF the production launch were
+/// reachable (it is not on macOS 27, see the module doc).
+#[test]
+fn post_validation_symlink_swap_delivers_out_of_root_content() {
+    let dir = tempfile::tempdir().expect("temporary workspace");
+    let outside = tempfile::tempdir().expect("outside root");
+    std::fs::create_dir_all(dir.path().join("notes")).expect("notes directory");
+    std::fs::write(dir.path().join("notes/plan.md"), "CANARY-PLAN").expect("allowed file");
+    std::fs::write(outside.path().join("secret.txt"), "CANARY-OUTSIDE").expect("outside canary");
+    let canonical = std::fs::canonicalize(dir.path()).expect("canonical workspace");
+    let root = VerifiedRootHandle::open(&canonical).expect("verified root");
+
+    // The boundary itself holds: a symlink in place at validation time is
+    // rejected by the native opener (`O_NOFOLLOW`).
+    std::os::unix::fs::symlink(
+        outside.path().join("secret.txt"),
+        dir.path().join("notes/escape"),
+    )
+    .expect("staged escape symlink");
+    assert!(
+        root.read_text_relative("notes/escape", 4096).is_err(),
+        "native validation must reject a symlink component"
+    );
+
+    // Validate the benign in-root file, THEN swap the name onto the outside
+    // symlink: the string the opener receives now resolves outside the root.
+    assert_eq!(
+        root.read_text_relative("notes/plan.md", 4096)
+            .expect("validated read"),
+        "CANARY-PLAN"
+    );
+    let staged = dir.path().join("notes/escape-src");
+    std::os::unix::fs::symlink(outside.path().join("secret.txt"), &staged)
+        .expect("staged escape symlink");
+    std::fs::rename(&staged, dir.path().join("notes/plan.md"))
+        .expect("post-validation symlink swap");
+    assert_eq!(
+        std::fs::read_to_string(canonical.join("notes/plan.md"))
+            .expect("modeled opener-visible content"),
+        "CANARY-OUTSIDE",
+        "OPEN DEFECT (model): post-validation symlink swap delivers out-of-root content; \
+          not reachable through production on macOS 27 (launch is fail-closed)"
+    );
+}
