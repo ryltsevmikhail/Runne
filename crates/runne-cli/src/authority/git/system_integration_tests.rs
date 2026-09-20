@@ -38,6 +38,10 @@ fn write_profile_documents(root: &Path) {
 
 fn initialize(root: &Path) {
     git(root, &["init", "-q"]);
+    // Pin deterministic line endings: the host default (core.autocrlf=true
+    // on Windows) makes `worktree add` and submodule checkouts rewrite files
+    // with CRLF, which the size-based dirty check then reports as changes.
+    git(root, &["config", "core.autocrlf", "false"]);
     git(root, &["config", "user.email", "authority@example.invalid"]);
     git(root, &["config", "user.name", "Authority Test"]);
     write_profile_documents(root);
