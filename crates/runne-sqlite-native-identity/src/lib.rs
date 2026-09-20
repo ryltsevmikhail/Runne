@@ -2,9 +2,14 @@
 #[cfg(unix)]
 mod trusted_vfs;
 #[cfg(windows)]
-use std::path::Path;
+mod windows_file;
 #[cfg(unix)]
 use std::{os::fd::FromRawFd, os::unix::fs::MetadataExt};
+#[cfg(windows)]
+pub use windows_file::{
+    file_database_identity, opened_database_identity, opened_journal_identity,
+    path_database_identity,
+};
 #[cfg(unix)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DatabaseFileIdentity {
@@ -194,94 +199,7 @@ unsafe extern "C" {
     fn dup(fd: std::ffi::c_int) -> std::ffi::c_int;
 }
 
-#[cfg(windows)]
-/// # Errors
-/// Returns an error unless `path` has a stable single-linked Windows file id.
-pub fn path_database_identity(path: &Path) -> Result<DatabaseFileIdentity, IdentityError> {
-    use std::os::windows::io::AsRawHandle;
-    identity(
-        std::fs::File::open(path)
-            .map_err(|_| IdentityError)?
-            .as_raw_handle()
-            .cast(),
-    )
-}
-#[cfg(windows)]
-/// # Errors
-/// Returns an error unless SQLite reveals its exact opened Win32 main-file handle.
-pub fn opened_database_identity(
-    connection: &rusqlite::Connection,
-) -> Result<DatabaseFileIdentity, IdentityError> {
-    if !exact_sqlite() {
-        return Err(IdentityError);
-    }
-    let mut handle = std::ptr::null_mut::<std::ffi::c_void>(); /* SAFETY: SQLite writes the Win32 HANDLE. */
-    let status = unsafe {
-        rusqlite::ffi::sqlite3_file_control(
-            connection.handle(),
-            c"main".as_ptr(),
-            rusqlite::ffi::SQLITE_FCNTL_WIN32_GET_HANDLE,
-            std::ptr::addr_of_mut!(handle).cast(),
-        )
-    };
-    if status != rusqlite::ffi::SQLITE_OK || handle.is_null() {
-        return Err(IdentityError);
-    }
-    identity(handle)
-}
-#[cfg(windows)]
-fn exact_sqlite() -> bool {
-    // SAFETY: SQLite owns its source-id static string.
-    let source = unsafe { rusqlite::ffi::sqlite3_sourceid() };
-    if source.is_null() {
-        return false;
-    }
-    // SAFETY: checked non-null and SQLite owns the NUL-terminated source id.
-    let source = unsafe { std::ffi::CStr::from_ptr(source) };
-    (unsafe { rusqlite::ffi::sqlite3_libversion_number() }) == 3_049_001
-        && source.to_bytes() == b"2025-02-18 13:38:58 873d4e274b4988d260ba8354a9718324a1c26187a4ab4c1cc0227c03d0f10e70"
-}
-#[cfg(windows)]
-fn identity(
-    handle: windows_sys::Win32::Foundation::HANDLE,
-) -> Result<DatabaseFileIdentity, IdentityError> {
-    use windows_sys::Win32::Storage::FileSystem::{
-        FILE_ID_INFO, FILE_STANDARD_INFO, FileIdInfo, FileStandardInfo,
-        GetFileInformationByHandleEx,
-    };
-    let mut id = FILE_ID_INFO::default();
-    let mut standard = FILE_STANDARD_INFO::default(); /* SAFETY: exact output buffers. */
-    let a = unsafe {
-        GetFileInformationByHandleEx(
-            handle,
-            FileIdInfo,
-            (&raw mut id).cast(),
-            u32::try_from(std::mem::size_of::<FILE_ID_INFO>()).map_err(|_| IdentityError)?,
-        )
-    }; /* SAFETY: exact output buffers. */
-    let b = unsafe {
-        GetFileInformationByHandleEx(
-            handle,
-            FileStandardInfo,
-            (&raw mut standard).cast(),
-            u32::try_from(std::mem::size_of::<FILE_STANDARD_INFO>()).map_err(|_| IdentityError)?,
-        )
-    };
-    if a == 0
-        || b == 0
-        || id.VolumeSerialNumber == 0
-        || id.FileId.Identifier == [0; 16]
-        || standard.NumberOfLinks != 1
-    {
-        return Err(IdentityError);
-    }
-    Ok(DatabaseFileIdentity {
-        volume: id.VolumeSerialNumber,
-        file: id.FileId.Identifier,
-    })
-}
-
-#[cfg(test)]
+#[cfg(all(test, unix))]
 static PRIVATE_PREFIX_ATTEMPTS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]

@@ -20,16 +20,13 @@ fn descriptor_identity(file: &fs::File) -> Result<FileIdentity, SchemaOpenDiagno
 
 #[cfg(windows)]
 #[derive(Debug, PartialEq, Eq)]
-struct FileIdentity(same_file::Handle);
+struct FileIdentity(runne_sqlite_native_identity::DatabaseFileIdentity);
 
 #[cfg(windows)]
 fn descriptor_identity(file: &fs::File) -> Result<FileIdentity, SchemaOpenDiagnostic> {
-    same_file::Handle::from_file(
-        file.try_clone()
-            .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?,
-    )
-    .map(FileIdentity)
-    .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)
+    runne_sqlite_native_identity::file_database_identity(file)
+        .map(FileIdentity)
+        .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)
 }
 
 fn file_identity(path: &Path) -> Result<FileIdentity, SchemaOpenDiagnostic> {
@@ -55,7 +52,7 @@ fn file_identity(path: &Path) -> Result<FileIdentity, SchemaOpenDiagnostic> {
     {
         runne_windows_native_handle::inspect_regular_file(path)
             .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
-        same_file::Handle::from_path(path)
+        runne_sqlite_native_identity::path_database_identity(path)
             .map(FileIdentity)
             .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)
     }
@@ -139,7 +136,7 @@ impl ConnectionIdentityGuard {
 
     fn verify(&self, connection: &Connection) -> SqliteResult<()> {
         if !self.database.unchanged().map_err(diagnostic_error)?
-            || sqlite_main_has_moved(connection)?
+            || !sqlite_main_matches_expected(connection, &self.database.identity)
         {
             return Err(diagnostic_error(
                 SchemaOpenDiagnostic::FileIdentityUncertain,
@@ -165,12 +162,32 @@ impl ConnectionIdentityGuard {
     fn verify_with_sidecar_handle(&self, connection: &Connection) -> SqliteResult<()> {
         self.verify(connection)?;
         if self.owner_private && (self.wal.is_some() || self.shm.is_some()) {
-            match runne_sqlite_handle_identity::journal_file_has_moved(connection) {
-                Ok(Some(false)) => {}
-                Ok(Some(true)) | Ok(None) | Err(_) => {
-                    return Err(diagnostic_error(
-                        SchemaOpenDiagnostic::FileIdentityUncertain,
-                    ));
+            #[cfg(unix)]
+            {
+                match runne_sqlite_handle_identity::journal_file_has_moved(connection) {
+                    Ok(Some(false)) => {}
+                    Ok(Some(true)) | Ok(None) | Err(_) => {
+                        return Err(diagnostic_error(
+                            SchemaOpenDiagnostic::FileIdentityUncertain,
+                        ));
+                    }
+                }
+            }
+            #[cfg(windows)]
+            {
+                // The win32 VFS has no HAS_MOVED; compare the journal handle
+                // SQLite actually holds against the retained WAL anchor. A
+                // missing anchor or a missing journal is uncertain, not moved.
+                let anchor = self.wal.as_ref().map(|wal| &wal.identity);
+                let journal = runne_sqlite_native_identity::opened_journal_identity(connection);
+                match (journal, anchor) {
+                    (Ok(Some(actual)), Some(expected))
+                        if FileIdentity(actual) == *expected => {}
+                    _ => {
+                        return Err(diagnostic_error(
+                            SchemaOpenDiagnostic::FileIdentityUncertain,
+                        ));
+                    }
                 }
             }
         }
@@ -228,7 +245,28 @@ fn optional_retained_unchanged(
     }
 }
 
-#[cfg(any(unix, windows))]
+#[cfg(unix)]
+fn sqlite_main_matches_expected(
+    connection: &Connection,
+    _expected: &FileIdentity,
+) -> bool {
+    sqlite_main_has_moved(connection).map(|moved| !moved).unwrap_or(false)
+}
+
+/// The win32 VFS answers `SQLITE_NOTFOUND` to `SQLITE_FCNTL_HAS_MOVED`, so the
+/// movement check compares the exact handle SQLite holds open against the
+/// guard's retained anchor instead of a second path lookup.
+#[cfg(windows)]
+fn sqlite_main_matches_expected(
+    connection: &Connection,
+    expected: &FileIdentity,
+) -> bool {
+    runne_sqlite_native_identity::opened_database_identity(connection)
+        .map(|actual| FileIdentity(actual) == *expected)
+        .unwrap_or(false)
+}
+
+#[cfg(unix)]
 fn sqlite_main_has_moved(connection: &Connection) -> SqliteResult<bool> {
     runne_sqlite_handle_identity::main_file_has_moved(connection).map_err(|_| {
         diagnostic_error(SchemaOpenDiagnostic::FileIdentityUncertain)
