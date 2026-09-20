@@ -38,7 +38,6 @@ impl ReplayStore {
                 .optional()
                 .map_err(|e| ReplayError::Storage(format!("read session: {}", e)))?
                 .ok_or(ReplayError::SessionNotFound)?;
-
             validate_auth(&session, &principal_id, generation, &authority_id, epoch)?;
             if session.state == ReplayState::CatchUpComplete
                 && session.catch_up_completion.is_some()

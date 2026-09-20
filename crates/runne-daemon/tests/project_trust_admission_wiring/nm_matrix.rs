@@ -238,7 +238,7 @@ fn nm10_secret_canaries_never_reach_any_gateway_sink() {
 
 /// NM-03 revision 2: Unicode case-mapped collision forms of deny names are
 /// denied at the gateway admission on a trusted project — the file is never
-/// read even though it does not byte-equal the frozen name (NT UPCATE maps
+/// read even though it does not byte-equal the frozen name (NT UPCASE maps
 /// U+0131 to ASCII I, so a case-insensitive platform would open `id_rsa`).
 #[test]
 fn nm03_unicode_case_mapped_deny_forms_stay_denied() {

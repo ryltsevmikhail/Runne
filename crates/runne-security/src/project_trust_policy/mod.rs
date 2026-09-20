@@ -44,6 +44,17 @@ impl ProjectTrustPolicyAuthority {
         self
     }
 
+    /// Whether the project carries an explicit trust record (T1 delivery
+    /// governance applies only to governed projects).
+    pub fn has_explicit_record(
+        &self,
+        project: ProjectTrustProjectId,
+    ) -> Result<bool, TrustAdmissionError> {
+        self.persistence
+            .has_explicit_record(project)
+            .map_err(|_| TrustAdmissionError::AuthorityUnavailable)
+    }
+
     fn load_record(
         &self,
         project: ProjectTrustProjectId,

@@ -40,6 +40,23 @@ fn row_to_record(
 }
 
 impl ProjectTrustPersistence for ProjectTrustStore {
+    fn has_explicit_record(
+        &self,
+        project: ProjectTrustProjectId,
+    ) -> Result<bool, TrustPersistenceError> {
+        self.with_connection(|connection| {
+            let row: Option<i64> = connection
+                .query_row(
+                    "SELECT 1 FROM project_trust WHERE project_id = ?1",
+                    params![project.as_bytes()],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|_| TrustPersistenceError::Unavailable)?;
+            Ok(row.is_some())
+        })
+    }
+
     fn load(
         &self,
         project: ProjectTrustProjectId,

@@ -21,6 +21,7 @@ pub(crate) struct DaemonCanonicalProviderComposition {
     pub(crate) conversation_store: StoreTransaction,
     pub(crate) conversation_service: Arc<dyn ConversationTextCommandService>,
     pub(crate) prohibited_content: Arc<dyn ProhibitedContentPort>,
+    pub(crate) trust: Option<crate::application::trust_delivery::DeliveryTrustGate>,
     pub(crate) profile: Arc<SharedTextProviderProfile>,
     pub(crate) adapter_factory: Arc<ProviderEffectFactory>,
     pub(crate) provider_id: Cow<'static, str>,

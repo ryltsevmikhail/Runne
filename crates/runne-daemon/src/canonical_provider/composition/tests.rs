@@ -16,6 +16,7 @@ use runne_application::ports::{
     ApplicationCommandContext, Clock, ClockError, PrincipalId, RuntimeAuthorityId,
 };
 use runne_application::prohibited_content::ProhibitedContentPort;
+use runne_application::project_trust::ProjectTrustPersistence;
 use runne_application::provider::ProviderExecutionStore;
 use runne_domain::timestamp::Timestamp;
 use runne_domain::{
@@ -151,6 +152,36 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
         let terminal: Arc<dyn ProviderTerminalPersistence> = store;
         (execution, terminal)
     });
+    // NM-06: compose the service with an active delivery gate over a trusted
+    // project so the happy-path wiring keeps exercising the real gate.
+    let trust = {
+        let trust_store =
+            runne_store::ProjectTrustStore::open(std::path::Path::new(&db_path), authority)
+                .unwrap();
+        let authority_arc = std::sync::Arc::new(
+            runne_security::project_trust_policy::ProjectTrustPolicyAuthority::new(
+                std::sync::Arc::new(trust_store),
+            )
+            .with_byte_inspection(std::sync::Arc::clone(&prohibited)),
+        );
+        let gate =
+            crate::application::trust_delivery::DeliveryTrustGate::open(authority_arc, &store);
+        let trust_sidecar =
+            runne_store::ProjectTrustStore::open(std::path::Path::new(&db_path), authority)
+                .unwrap();
+        let epoch = trust_sidecar.instance_epoch().unwrap();
+        trust_sidecar
+            .commit(
+                runne_application::project_trust::ProjectTrustProjectId::from_bytes([
+                    0x01, 0x8f, 0x2e, 0x3a, 0x70, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 0x11,
+                ]),
+                runne_application::project_trust::ProjectTrustStatus::Trusted,
+                0,
+                runne_application::project_trust::TrustToken::new(epoch, 0),
+            )
+            .unwrap();
+        gate
+    };
     let service = DaemonCanonicalProviderService::compose(DaemonCanonicalProviderComposition {
         db_path: db_path.clone(),
         dispatch_connection: managed_test_connection(
@@ -178,6 +209,7 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
         conversation_store: store,
         conversation_service,
         prohibited_content: prohibited,
+        trust: Some(trust),
         profile: openai_profile(),
         adapter_factory: fixture_adapter_factory(),
         provider_id: Cow::Borrowed("openai"),

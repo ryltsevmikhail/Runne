@@ -41,6 +41,7 @@ fn v2_precommit_fences_concurrent_revocation_through_commit() {
         Arc::new(DaemonReplayAuthorization::new(
             *binding.stable().authority_id(),
             Arc::clone(&local_session),
+            None,
         )),
     );
     let wire = v2_resume_wire(&binding, [0x13; 32]);

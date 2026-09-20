@@ -117,7 +117,9 @@ fn ascii_fold(value: &str) -> String {
 /// openers fold case with full Unicode mappings (NT `OBJ_CASE_INSENSITIVE`
 /// upcase table, APFS case-insensitive volumes), while the pre-revision
 /// comparison folded ASCII bytes only, so e.g. `ıd_rsa` (U+0131 → `I`) or a
-/// KELVIN-sign `.key` form passed admission and still opened the denied file.
+/// long-s `id_rſa` (U+017F → `S`, confirmed on APFS) passed admission and
+/// still opened the denied file; a KELVIN `.key` form is absorbed by NFC
+/// composition before the fold even runs.
 /// The keys over-approximate every case-mapped form; over-deny is the safe
 /// direction, and characters whose mappings never reach ASCII (İ, Cyrillic)
 /// keep their exact names admissible.

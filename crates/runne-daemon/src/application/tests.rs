@@ -43,7 +43,8 @@ fn production_replay_authorization_reads_live_local_session_state() {
         replay_binding(),
         [0x88; 32],
     )));
-    let authorization = DaemonReplayAuthorization::new([0x99; 16], Arc::clone(&local_session));
+    let authorization =
+        DaemonReplayAuthorization::new([0x99; 16], Arc::clone(&local_session), None);
     let request = ReplayAuthorizationRequest {
         principal_id: "local-owner".to_owned(),
         authority_id: [0x99; 16],
@@ -91,7 +92,7 @@ fn replay_admission_callback_completes_while_daemon_authorization_holds_session_
     };
     let (sent, received) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let authorization = DaemonReplayAuthorization::new([0x99; 16], local_session);
+        let authorization = DaemonReplayAuthorization::new([0x99; 16], local_session, None);
         let result = authorization
             .mutate_session_admission(&request, &mut |_| Err(ReplayError::AuthorizationRevoked));
         sent.send(matches!(result, Err(ReplayError::AuthorizationRevoked)))

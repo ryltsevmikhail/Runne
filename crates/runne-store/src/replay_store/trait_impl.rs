@@ -17,6 +17,10 @@ impl ReplayStorePort for ReplayStore {
         .await
     }
 
+    fn session_delivery_scope(&self, session_id: &[u8; 16]) -> Option<(i32, [u8; 16])> {
+        self.session_delivery_scope_impl(session_id)
+    }
+
     async fn open_session(
         &self,
         principal_id: &str,
