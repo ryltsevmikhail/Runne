@@ -8,8 +8,11 @@ use runne_runtime::{
     RuntimeProjectWorkspaceHost, RuntimeWorkspaceDiffHost, RuntimeWorkspaceEditorHost,
     RuntimeWorkspaceFileHost,
 };
+#[cfg(feature = "desktop-protected")]
 use runne_security::project_trust_policy::ProjectTrustPolicyAuthority;
-use runne_store::{ProjectTrustStore, ProjectWorkspaceStore, store::StoreTransaction};
+#[cfg(feature = "desktop-protected")]
+use runne_store::ProjectTrustStore;
+use runne_store::{ProjectWorkspaceStore, store::StoreTransaction};
 
 #[cfg(not(feature = "desktop-protected"))]
 use super::super::process_unavailable::UnavailableProcessProvider;
