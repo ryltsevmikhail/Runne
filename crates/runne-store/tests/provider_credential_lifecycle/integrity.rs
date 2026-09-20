@@ -6,14 +6,18 @@ use rusqlite::Connection;
 
 use super::support::*;
 
+/// Nested daemon-directory database path: the identity guard validates and
+/// restricts the parent and grandparent, so both must stay test-owned.
+fn nested_db(root: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let daemon = root.join("runne-daemon");
+    std::fs::create_dir_all(&daemon).unwrap();
+    daemon.join(name)
+}
+
 #[test]
 fn sqlite_transition_checks_reject_unfenced_retirement_and_skips() {
     let directory = tempfile::tempdir().unwrap();
-    let path = {
-        let daemon = directory.path().join("runne-daemon");
-        std::fs::create_dir_all(&daemon).unwrap();
-        daemon.join("transition-checks.sqlite")
-    };
+    let path = nested_db(directory.path(), "transition-checks.sqlite");
     let store = store(&path);
     let active = version(1);
     let prepared = version(2);
@@ -66,11 +70,7 @@ fn sqlite_transition_checks_reject_unfenced_retirement_and_skips() {
 #[test]
 fn activation_rejects_expired_lease_and_provider_fence_rollback() {
     let directory = tempfile::tempdir().unwrap();
-    let path = {
-        let daemon = directory.path().join("runne-daemon");
-        std::fs::create_dir_all(&daemon).unwrap();
-        daemon.join("activation-fence.sqlite")
-    };
+    let path = nested_db(directory.path(), "activation-fence.sqlite");
     let store = store(&path);
     let expired = version(1);
     prepare(&store, expired.clone());
@@ -101,11 +101,7 @@ fn activation_rejects_expired_lease_and_provider_fence_rollback() {
 #[test]
 fn activation_rejects_durable_provider_clock_rollback_after_reopen() {
     let directory = tempfile::tempdir().unwrap();
-    let path = {
-        let daemon = directory.path().join("runne-daemon");
-        std::fs::create_dir_all(&daemon).unwrap();
-        daemon.join("activation-clock-rollback.sqlite")
-    };
+    let path = nested_db(directory.path(), "activation-clock-rollback.sqlite");
     let first = version(1);
     let initial = SqliteProviderCredentialLifecycleStore::open_at(&path, 200).unwrap();
     prepare(&initial, first.clone());
@@ -154,11 +150,7 @@ fn activation_rejects_durable_provider_clock_rollback_after_reopen() {
 #[test]
 fn reconcile_rejects_corrupt_stored_reference_digest() {
     let directory = tempfile::tempdir().unwrap();
-    let path = {
-        let daemon = directory.path().join("runne-daemon");
-        std::fs::create_dir_all(&daemon).unwrap();
-        daemon.join("corrupt-ref.sqlite")
-    };
+    let path = nested_db(directory.path(), "corrupt-ref.sqlite");
     let reference = version(1);
     let lifecycle = store(&path);
     prepare(&lifecycle, reference.clone());
@@ -209,11 +201,7 @@ fn reconcile_rejects_corrupt_stored_reference_digest() {
 #[test]
 fn reconcile_validates_existing_gc_batch_before_mutating_retired_rows() {
     let directory = tempfile::tempdir().unwrap();
-    let path = {
-        let daemon = directory.path().join("runne-daemon");
-        std::fs::create_dir_all(&daemon).unwrap();
-        daemon.join("mixed-corrupt-gc.sqlite")
-    };
+    let path = nested_db(directory.path(), "mixed-corrupt-gc.sqlite");
     let lifecycle = store(&path);
     let corrupt = version(1);
     prepare(&lifecycle, corrupt.clone());
@@ -255,11 +243,7 @@ fn reconcile_validates_existing_gc_batch_before_mutating_retired_rows() {
 #[test]
 fn deleted_tombstone_rejects_every_row_mutation() {
     let directory = tempfile::tempdir().unwrap();
-    let path = {
-        let daemon = directory.path().join("runne-daemon");
-        std::fs::create_dir_all(&daemon).unwrap();
-        daemon.join("immutable-tombstone.sqlite")
-    };
+    let path = nested_db(directory.path(), "immutable-tombstone.sqlite");
     let reference = version(1);
     let (store, native) = store_with_native(&path);
     prepare(&store, reference.clone());

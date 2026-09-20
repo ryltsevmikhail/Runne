@@ -1,3 +1,5 @@
+#![cfg(windows)]
+
 use runne_api::{
     BeginProviderCredentialEnrollment, ProviderCredentialBeginIntentBinding,
     ProviderCredentialEnrollmentActionV2, ProviderCredentialEnrollmentHostError,

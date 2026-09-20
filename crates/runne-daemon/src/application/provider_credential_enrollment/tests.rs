@@ -177,3 +177,12 @@ mod verified_frames;
 #[path = "tests/verified_frames_support.rs"]
 mod verified_frames_support;
 mod verify_admission;
+
+/// Nested daemon-directory database path for store fixtures: the identity
+/// guard validates and restricts the parent and grandparent, so both must
+/// stay inside the test-owned tempdir.
+pub(super) fn nested_db(root: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let daemon = root.join("runne-daemon");
+    std::fs::create_dir_all(&daemon).unwrap();
+    daemon.join(name)
+}
