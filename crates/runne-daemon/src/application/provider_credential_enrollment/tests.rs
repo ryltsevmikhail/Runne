@@ -136,10 +136,14 @@ fn broker_rendezvous_id_has_a_separate_hmac_domain_from_resume_handles() {
     );
 }
 
+// Drives the prepared projection through the unix broker rendezvous transport.
+#[cfg(unix)]
 mod begin;
 mod begin_admission;
 #[path = "tests/begin_admission_support.rs"]
 pub(crate) mod begin_admission_support;
+#[path = "tests/begin_windows.rs"]
+mod begin_windows;
 // Races the unix broker rendezvous reservation transport.
 #[cfg(unix)]
 #[path = "tests/begin_race.rs"]

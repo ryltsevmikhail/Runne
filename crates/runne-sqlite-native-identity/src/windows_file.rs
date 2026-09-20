@@ -63,8 +63,10 @@ pub fn opened_database_identity(
     identity(handle)
 }
 
-/// Measures the journal (or write-ahead log) file `SQLite` currently holds
-/// open. `Ok(None)` means `SQLite` holds no open journal handle at all.
+/// Measures the journal (or write-ahead log) file `SQLite` currently holds open.
+///
+/// A null journal pointer or missing public methods is rejected, so the only
+/// success shape is a measured, single-linked journal file identity.
 ///
 /// # Errors
 /// Returns an error when the journal pointer cannot be revealed or its handle

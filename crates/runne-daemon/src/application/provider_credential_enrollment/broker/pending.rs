@@ -155,6 +155,7 @@ impl PendingBrokerRendezvousRegistry {
 
     /// Registers exactly one daemon-created rendezvous for a fresh durable operation.
     #[cfg(all(test, unix))]
+    // Only the unix broker transport registers prepared operations.
     #[cfg(unix)]
     pub(crate) fn register(
         &self,
