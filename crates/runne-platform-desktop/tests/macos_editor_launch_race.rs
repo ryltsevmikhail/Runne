@@ -1,41 +1,42 @@
-//! Reproduction of the OPEN macOS editor-launch TOCTOU (kept for a separate
-//! decision; the editor path is NOT fixed by this branch).
+//! Editor-launch boundary models: classification fixtures, not defect
+//! reproductions.
 //!
-//! Production sequence on macOS
+//! Production state on macOS
 //! (crates/runne-platform-desktop/src/root_handle_broker/unix_editor.rs):
-//! `open_file_below` validates the file through the admitted root handle
-//! (per-component `O_NOFOLLOW`, same-device, regular-file check) and drops the
-//! descriptor; `root_path` derives the root as a path string; the joined
-//! target string is handed to `/usr/bin/open`, which re-resolves it from
-//! scratch. Nothing re-checks the target between validation and the
-//! opener's own resolution, so a same-volume rename (or a rename of a
-//! staged symlink) between the two steps swaps the delivered file. The
-//! validation descriptor is dropped before the spawn, so no identity pin
-//! survives to detect the swap.
+//! the launcher path has been REMOVED BY DECISION.
+//! `launch_system_default_editor` validates the file through the admitted
+//! root handle (`open_file_below`: per-component `O_NOFOLLOW`, same-device,
+//! regular-file check) and then deterministically returns the existing typed
+//! `Unavailable` — a deliberate, temporary macOS-backend limitation. No
+//! opener is spawned and no path string is handed to anything on macOS.
 //!
-//! This test models the swap deterministically through public building
-//! blocks AFTER the native validation step: validate via
-//! `read_text_relative` (the production native opener), swap, then read the
-//! path string the opener would receive. It does NOT launch the production
-//! editor or `LaunchServices`, so it is a model of the swap window, not proof
-//! of delivery through a actually-spawned editor. A related,
-//! separately-decided defect: on macOS 27 the production launch is blocked
-//! even earlier — `root_path` reads `/dev/fd/N` via readlink, which returns
-//! EINVAL for every process on that OS, so every editor launch fails
-//! `Unavailable` at base before the race window is even reachable; deriving
-//! the path via `fcntl(F_GETPATH)` is the candidate remedy and is
-//! intentionally NOT part of the integration diff (an fd-to-path change
-//! re-enables a previously dead path and needs its own review).
+//! What these tests therefore model is the general property of any
+//! path-string handoff design (as still used on the Linux backend): a path
+//! string is re-resolved by whoever receives it, and workspace objects can
+//! be replaced under an unchanged name at any time. They pin that property
+//! through public building blocks only and launch no production editor or
+//! `LaunchServices`, so none of them is a proven production exploit.
+//!
+//! The OS observation that motivated the earlier macOS launcher design is
+//! recorded separately by the opt-in diagnostic
+//! `macos_devfd_readlink_observation.rs` (`--ignored`): ONE observation of
+//! `readlink` on `/dev/fd/N` on ONE host running ONE macOS build — not a
+//! claim about all processes or macOS versions.
 #![cfg(target_os = "macos")]
 
 use runne_platform_desktop::VerifiedRootHandle;
 
+/// Replacement of the OBJECT under an ALLOWED name — ordinary mutability of
+/// workspace objects, not a boundary crossing: the denied NAME (`.env`) is
+/// never opened, and an opener resolving the path string simply sees
+/// whatever object currently bears the allowed name. Pinned so this
+/// mutability is not misread as a defect.
 #[test]
-fn editor_target_string_resolves_onto_denied_content_after_a_swap() {
+fn allowed_name_object_replacement_is_ordinary_workspace_mutability() {
     let dir = tempfile::tempdir().expect("temporary workspace");
     std::fs::create_dir_all(dir.path().join("notes")).expect("notes directory");
     std::fs::write(dir.path().join("notes/plan.md"), "CANARY-PLAN").expect("benign file");
-    std::fs::write(dir.path().join(".env"), "CANARY-DOTENV").expect("denied file");
+    std::fs::write(dir.path().join(".env"), "CANARY-DOTENV").expect("denied-name file");
     let canonical = std::fs::canonicalize(dir.path()).expect("canonical workspace");
     let root = VerifiedRootHandle::open(&canonical).expect("verified root");
 
@@ -47,28 +48,31 @@ fn editor_target_string_resolves_onto_denied_content_after_a_swap() {
         "CANARY-PLAN"
     );
 
-    // Step 2 — attacker window: a same-volume rename swaps the validated
-    // name onto the denied file (a staged symlink swap behaves the same).
+    // Step 2 — the object under the allowed name is replaced (a plain
+    // workspace rename). The denied NAME `.env` is never opened; only the
+    // object identity behind the allowed name changes, as it may at any
+    // time.
     std::fs::rename(dir.path().join(".env"), dir.path().join("notes/plan.md"))
-        .expect("attacker rename");
+        .expect("object replacement under the allowed name");
 
-    // Step 3 — the opener re-resolves only the path string it was handed;
-    // nothing in production re-checks the target, so the denied content is
-    // what the modeled opener read observes. (Modeled substitution only —
-    // no production editor/LaunchServices was launched in this test.)
+    // Step 3 — mutability pin: an opener resolving the path string observes
+    // whatever object currently holds the allowed name. (Modeled resolution
+    // only — no production editor/LaunchServices was launched in this test;
+    // on macOS the production launch itself is refused by decision.)
     let target = canonical.join("notes/plan.md");
     assert_eq!(
         std::fs::read_to_string(&target).expect("modeled opener-visible content"),
         "CANARY-DOTENV",
-        "OPEN DEFECT: after the swap, the path string handed to the opener \
-         resolves onto the denied file; the editor launch path is not fixed \
-         by this branch"
+        "mutability pin: the path string handed to an opener resolves onto \
+         whatever object currently holds the allowed name; the denied name \
+         `.env` was never opened"
     );
 }
 
 /// Ordinary mutability of an ALLOWED file is not a boundary crossing: the
 /// opener sees whatever the allowed file currently contains, and a deny-set
-/// name is never involved. Pinned so it is not confused with the race above.
+/// name is never involved. Same mutability principle as the object-replacement
+/// pin above — content mutation instead of object identity.
 #[test]
 fn allowed_file_content_mutation_is_not_a_boundary_crossing() {
     let dir = tempfile::tempdir().expect("temporary workspace");
@@ -90,15 +94,17 @@ fn allowed_file_content_mutation_is_not_a_boundary_crossing() {
     );
 }
 
-/// Root-escape model: after validating the in-root file, renaming a symlink
-/// that points OUTSIDE the workspace onto the validated name makes the path
-/// string handed to the opener resolve outside the admitted root. At
-/// validation time the same symlink shape is rejected by `O_NOFOLLOW` — the
-/// production boundary holds before the swap; the model shows only what the
-/// post-validation swap would deliver IF the production launch were
-/// reachable (it is not on macOS 27, see the module doc).
+/// RISK MODEL of the potential editor-side re-resolution of a path string:
+/// after validating the in-root file, renaming a symlink that points
+/// OUTSIDE the workspace onto the validated name makes the path string
+/// handed to an opener resolve outside the admitted root. At validation
+/// time the same symlink shape is rejected by `O_NOFOLLOW` — the production
+/// boundary holds before the swap. This is a model of a residual risk for
+/// any future path-string handoff design, NOT a proven production exploit:
+/// the macOS production launch is refused by decision (see the module doc)
+/// and no production editor was launched here.
 #[test]
-fn post_validation_symlink_swap_delivers_out_of_root_content() {
+fn post_validation_symlink_swap_is_an_editor_reresolution_risk_model() {
     let dir = tempfile::tempdir().expect("temporary workspace");
     let outside = tempfile::tempdir().expect("outside root");
     std::fs::create_dir_all(dir.path().join("notes")).expect("notes directory");
@@ -135,7 +141,8 @@ fn post_validation_symlink_swap_delivers_out_of_root_content() {
         std::fs::read_to_string(canonical.join("notes/plan.md"))
             .expect("modeled opener-visible content"),
         "CANARY-OUTSIDE",
-        "OPEN DEFECT (model): post-validation symlink swap delivers out-of-root content; \
-          not reachable through production on macOS 27 (launch is fail-closed)"
+        "RISK MODEL: a post-validation symlink swap makes the path string an \
+         opener receives resolve outside the admitted root; NOT a proven \
+         production exploit — the macOS launch is refused by decision"
     );
 }
