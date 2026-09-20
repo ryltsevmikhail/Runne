@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { TaskRunWorkspace } from '@runne/product/task-run-workspace'
 import { CancelTaskRun } from '@runne/product/cancel-task-run'
-import { GcButton } from '@runne/product/shared/ui'
+import { GcAlert, GcButton } from '@runne/product/shared/ui'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
@@ -15,6 +15,8 @@ import {
 import { listPendingApprovals } from '@/entities/approval'
 import { tryUseRuntimeSession } from '@/app/providers/runtime-session'
 import { translate } from '@/shared/i18n'
+
+import TaskRunRecoveryPanel from './TaskRunRecoveryPanel.vue'
 
 type LoadTaskRun = (id: string) => Promise<TaskRunTimeline>
 type SubscribeTaskRun = (id: string, initial: TaskRunTimeline, onTimeline: (value: TaskRunTimeline) => void) => Promise<TaskRunSession>
@@ -42,6 +44,14 @@ let resyncOperation = 0
 const runtimeSession = tryUseRuntimeSession()
 const runtimeStatus = computed(() => runtimeSession?.snapshot.value.status ?? 'unavailable')
 const taskRunId = computed(() => typeof route.params.taskRunId === 'string' ? route.params.taskRunId : '')
+const lastCommittedAt = computed(() => snapshot.value?.entries.at(-1)?.committedAt ?? null)
+// Ветки placeholder'а упорядочены: empty (runtime не сконфигурирован) →
+// недоступность операции → loading при живом runtime → ожидание runtime.
+const placeholder = computed(() => {
+  if (unavailable.value) return translate('taskRun.unavailable')
+  if (runtimeStatus.value === 'live') return translate('taskRun.loading')
+  return translate('taskRun.waitingForRuntime')
+})
 
 function detachSession() {
   const currentSession = session
@@ -146,20 +156,37 @@ onBeforeUnmount(() => { requestGeneration += 1; resyncOperation += 1; resyncing.
 </script>
 
 <template>
-  <section v-if="snapshot === null" aria-live="polite">
-    {{ unavailable ? translate('taskRun.unavailable') : translate('taskRun.loading') }}
+  <section v-if="snapshot === null && runtimeStatus === 'empty'" role="status">
+    {{ translate('taskRun.runtimeNotConfigured') }}
   </section>
-  <TaskRunWorkspace
-    v-else
-    :state="snapshot.state"
-    :entries="snapshot.entries"
-    :active-attempt-id="snapshot.activeAttemptId"
-    :terminal="snapshot.terminal"
-    :recovery="snapshot.recovery"
-    :approval-attention="approvalAttention"
-  />
+  <section v-else-if="snapshot === null" aria-live="polite">
+    {{ placeholder }}
+  </section>
+  <template v-else>
+    <TaskRunWorkspace
+      :state="snapshot.state"
+      :entries="snapshot.entries"
+      :active-attempt-id="snapshot.activeAttemptId"
+      :terminal="snapshot.terminal"
+      :recovery="snapshot.recovery"
+      :approval-attention="approvalAttention"
+    />
+    <p v-if="snapshot.entries.length === 0" role="status">
+      {{ translate('taskRun.noRecordedEvents') }}
+    </p>
+    <TaskRunRecoveryPanel
+      v-if="snapshot.recovery !== 'live'"
+      :recovery="snapshot.recovery"
+      :projection-revision="snapshot.projectionRevision"
+      :stream-version="snapshot.streamVersion"
+      :last-committed-at="lastCommittedAt"
+    />
+    <GcAlert v-if="unavailable" level="error" :title="translate('taskRun.lastOperationFailed')">
+      {{ translate('taskRun.operationFailedNotice') }}
+    </GcAlert>
+  </template>
   <CancelTaskRun
-    v-if="snapshot?.recovery === 'live' && ['created', 'queued', 'admitted', 'running', 'waiting', 'retrying', 'checkpointing'].includes(snapshot.state)"
+    v-if="snapshot?.recovery === 'live' && snapshot.terminal === null && ['created', 'queued', 'admitted', 'running', 'waiting', 'retrying', 'checkpointing'].includes(snapshot.state)"
     :disabled="runtimeStatus !== 'live'"
     :pending="cancelling"
     @request="requestCancellation"
@@ -167,7 +194,7 @@ onBeforeUnmount(() => { requestGeneration += 1; resyncOperation += 1; resyncing.
   <GcButton
     v-if="snapshot?.recovery === 'resync_required'"
     variant="secondary"
-    :disabled="resyncing"
+    :disabled="resyncing || runtimeStatus !== 'live'"
     @click="resyncTaskRun"
   >
     {{ translate('taskRun.revalidate') }}
