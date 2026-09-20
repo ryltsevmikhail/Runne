@@ -219,3 +219,80 @@ fn pre_v40_receipt_without_marker_keeps_exact_replay_duplicate() {
         (1, 1, 0, ROUND5_EMPTY_MARKER.to_owned())
     );
 }
+
+// ── Round 6: an arbitrary attempted digest is rejected in BOTH duplicate
+// paths even when the stored row carries byte-identical bytes — only the
+// explicitly supported legacy (tag 6) / v2 (tag 21) encodings of the passed
+// identity yield a duplicate.
+#[test]
+fn round6_arbitrary_attempted_digest_conflicts_despite_stored_byte_equality() {
+    let database = validated_reopen::ValidatedTestDatabase::new("round6-arbitrary-attempted");
+    let db_path = database.path().to_owned();
+    let conversation_id: ConversationId = "018f2e3a-7000-7000-8000-0000000001f1".parse().unwrap();
+    let workspace_id: WorkspaceId = "018f2e3a-7000-7000-8000-0000000001f2".parse().unwrap();
+    let command_id: CommandId = "018f2e3a-7000-7000-8000-0000000001f3".parse().unwrap();
+    let key = IdempotencyKey::new("round6-arbitrary").unwrap();
+    let (store, identity) = validated_reopen::initialize_store(
+        &db_path,
+        RuntimeAuthorityId("test-host".into()),
+        available_guard(),
+    )
+    .unwrap();
+    store
+        .commit_conversation(direct_conversation_commit(
+            &store,
+            conversation_id,
+            workspace_id,
+            command_id,
+            key.clone(),
+        ))
+        .unwrap();
+    drop(store);
+    let arbitrary = CommandFingerprint::from_bytes([0x2b; 32]);
+    let writer = validated_reopen_store::open_validated_writer(&db_path, identity).unwrap();
+    writer
+        .execute(
+            "UPDATE command_receipts SET fingerprint = ?1 WHERE command_id = ?2",
+            rusqlite::params![arbitrary.as_bytes(), command_id.as_bytes()],
+        )
+        .unwrap();
+    drop(writer);
+    let store = validated_reopen::reopen_store(
+        &db_path,
+        identity,
+        RuntimeAuthorityId("test-host".into()),
+        available_guard(),
+    )
+    .unwrap();
+    let scope = IdempotencyScope {
+        runtime_authority_id: store.runtime_authority_id().clone(),
+        principal_id: PrincipalId("test-principal".into()),
+        operation: OperationTag::CreateConversation,
+        aggregate_scope: AggregateScope::NewConversation {
+            conversation_id,
+            workspace_id,
+        },
+    };
+    // Byte-equality with the stored row no longer yields a duplicate.
+    assert!(matches!(
+        store.lookup_conversation_receipt(
+            command_id,
+            &key,
+            &scope,
+            &arbitrary,
+            runne_api::ConversationContextScope::Workspace,
+        ),
+        Err(CommitError::IdempotencyConflict { .. })
+    ));
+    let mut payload =
+        direct_conversation_commit(&store, conversation_id, workspace_id, command_id, key);
+    payload.command_fingerprint = arbitrary;
+    assert!(matches!(
+        store.commit_conversation(payload),
+        Err(CommitError::IdempotencyConflict { .. })
+    ));
+    assert_eq!(
+        round5_counts(&db_path, &command_id),
+        (1, 1, 1, "workspace".to_owned())
+    );
+}

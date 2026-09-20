@@ -77,6 +77,7 @@ pub(super) fn check_create_receipts(
                 &payload.command_fingerprint,
                 conversation_id,
                 workspace_id,
+                payload.context_scope,
             ) && marker_agrees_with_scope(tx, conversation_id, payload.context_scope)?
             {
                 let stored_result = ConversationReceiptCodec

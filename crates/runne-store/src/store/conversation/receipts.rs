@@ -64,6 +64,7 @@ impl StoreTransaction {
                     fingerprint,
                     conversation_id,
                     workspace_id,
+                    context_scope,
                 ) && marker_agrees_with_scope(&conn, conversation_id, context_scope)?
                 {
                     let stored_result = ConversationReceiptCodec

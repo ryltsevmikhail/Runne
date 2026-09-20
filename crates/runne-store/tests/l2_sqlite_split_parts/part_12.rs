@@ -190,3 +190,110 @@ fn conversation_exact_replay_stays_idempotent_after_reopen() {
         (1, 1, 1, ROUND5_TEXT_ONLY_SCOPE.to_owned())
     );
 }
+
+// ── Round 6: only an explicitly supported encoding (v2 tag 21 of the passed
+// IDs+scope, or legacy tag 6 of the same IDs) yields a duplicate; arbitrary
+// digests conflict in BOTH paths; legacy vs v2-stored stays fail-closed.
+#[test]
+fn round6_unsupported_attempted_digest_conflicts_in_both_duplicate_paths() {
+    let database = validated_reopen::ValidatedTestDatabase::new("round6-unsupported-attempted");
+    let db_path = database.path().to_owned();
+    let conversation_id: ConversationId = "018f2e3a-7000-7000-8000-0000000001e1".parse().unwrap();
+    let workspace_id: WorkspaceId = "018f2e3a-7000-7000-8000-0000000001e2".parse().unwrap();
+    let command_id: CommandId = "018f2e3a-7000-7000-8000-0000000001e3".parse().unwrap();
+    let other_conversation_id: ConversationId =
+        "018f2e3a-7000-7000-8000-0000000001e4".parse().unwrap();
+    let key = IdempotencyKey::new("round6-unsupported").unwrap();
+    let (store, identity) = validated_reopen::initialize_store(
+        &db_path,
+        RuntimeAuthorityId("test-host".into()),
+        available_guard(),
+    )
+    .unwrap();
+    store
+        .commit_conversation(direct_conversation_commit(
+            &store,
+            conversation_id,
+            workspace_id,
+            command_id,
+            key.clone(),
+        ))
+        .unwrap();
+    drop(store);
+    let store = validated_reopen::reopen_store(
+        &db_path,
+        identity,
+        RuntimeAuthorityId("test-host".into()),
+        available_guard(),
+    )
+    .unwrap();
+    let scope = IdempotencyScope {
+        runtime_authority_id: store.runtime_authority_id().clone(),
+        principal_id: PrincipalId("test-principal".into()),
+        operation: OperationTag::CreateConversation,
+        aggregate_scope: AggregateScope::NewConversation {
+            conversation_id,
+            workspace_id,
+        },
+    };
+    let v2 =
+        |scope| CommandFingerprint::for_create_conversation(&conversation_id, &workspace_id, scope);
+    let foreign_ids = CommandFingerprint::for_create_conversation(
+        &other_conversation_id,
+        &workspace_id,
+        runne_api::ConversationContextScope::Workspace,
+    );
+    let legacy = CommandFingerprint::for_create_conversation_legacy(&conversation_id, &workspace_id);
+    for (attempted, attempted_scope) in [
+        // Arbitrary digest; foreign IDs; other scope; legacy vs v2-stored (fail-closed).
+        (CommandFingerprint::from_bytes([0x5a; 32]), runne_api::ConversationContextScope::Workspace),
+        (foreign_ids, runne_api::ConversationContextScope::Workspace),
+        (
+            v2(runne_api::ConversationContextScope::TextOnly),
+            runne_api::ConversationContextScope::TextOnly,
+        ),
+        (legacy, runne_api::ConversationContextScope::Workspace),
+    ] {
+        assert!(matches!(
+            store.lookup_conversation_receipt(command_id, &key, &scope, &attempted, attempted_scope,),
+            Err(CommitError::IdempotencyConflict { .. })
+        ));
+        let mut payload = direct_conversation_commit(
+            &store,
+            conversation_id,
+            workspace_id,
+            command_id,
+            key.clone(),
+        );
+        payload.command_fingerprint = attempted;
+        payload.context_scope = attempted_scope;
+        assert!(matches!(
+            store.commit_conversation(payload),
+            Err(CommitError::IdempotencyConflict { .. })
+        ));
+    }
+    // Correct v2 replay stays a duplicate in both paths.
+    let exact = v2(runne_api::ConversationContextScope::Workspace);
+    assert!(matches!(
+        store
+            .lookup_conversation_receipt(
+                command_id,
+                &key,
+                &scope,
+                &exact,
+                runne_api::ConversationContextScope::Workspace,
+            )
+            .unwrap(),
+        runne_application::ports::ConversationReceiptLookup::Duplicate { .. }
+    ));
+    let payload =
+        direct_conversation_commit(&store, conversation_id, workspace_id, command_id, key);
+    assert!(matches!(
+        store.commit_conversation(payload),
+        Ok(runne_application::ports::ConversationCommitResult::Duplicate { .. })
+    ));
+    assert_eq!(
+        round5_counts(&db_path, &command_id),
+        (1, 1, 1, "workspace".to_owned())
+    );
+}

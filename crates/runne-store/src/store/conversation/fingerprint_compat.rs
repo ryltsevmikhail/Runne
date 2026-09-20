@@ -3,12 +3,15 @@
 //! The create-conversation semantic fingerprint binds the delivery-context
 //! scope (fingerprint format v2). Receipts stored by older builds used the
 //! scope-less legacy format, so fingerprint equality alone cannot arbitrate
-//! replays of those rows. The durable `conversation_context_scope` marker —
-//! written in the SAME transaction as the receipt — is the authority: when it
-//! exists it must agree with the attempted scope, and when it is missing
-//! (pre-V40 receipt) the exact replay stays a duplicate and no scope is ever
-//! derived from the absence: the NM-06 delivery gate keeps unknown provenance
-//! denied regardless.
+//! replays of those rows. Two gates decide a duplicate, and BOTH must pass:
+//! the attempted fingerprint must be an explicitly supported encoding of the
+//! passed identity (v2 over the passed IDs+scope, or legacy over the same
+//! IDs — an arbitrary digest never yields a duplicate), and the durable
+//! `conversation_context_scope` marker — written in the SAME transaction as
+//! the receipt — is the authority: when it exists it must agree with the
+//! attempted scope, and when it is missing (pre-V40 receipt) the exact replay
+//! stays a duplicate and no scope is ever derived from the absence: the NM-06
+//! delivery gate keeps unknown provenance denied regardless.
 
 use super::super::parse_helpers::*;
 use super::super::*;
@@ -51,21 +54,51 @@ pub(super) fn new_conversation_ids(
     }
 }
 
+/// Whether the attempted fingerprint is an explicitly supported encoding of
+/// the passed command identity: the current v2 format (tag 21) over the
+/// passed IDs and attempted context scope, or the legacy scope-less format
+/// (tag 6) over the same IDs. Any other digest — fabricated, random, or one
+/// derived from different IDs/scope — is rejected BEFORE a duplicate receipt
+/// can be returned, even when the stored row happens to carry the same bytes.
+pub(super) fn attempted_fingerprint_supported(
+    attempted_fingerprint: &CommandFingerprint,
+    conversation_id: ConversationId,
+    workspace_id: WorkspaceId,
+    context_scope: runne_domain::conversation::ConversationContextScope,
+) -> bool {
+    *attempted_fingerprint
+        == CommandFingerprint::for_create_conversation(
+            &conversation_id,
+            &workspace_id,
+            context_scope,
+        )
+        || *attempted_fingerprint
+            == CommandFingerprint::for_create_conversation_legacy(&conversation_id, &workspace_id)
+}
+
 /// Whether the stored receipt fingerprint identifies the same create command
-/// as the attempted fingerprint. Besides the current-format equality this
-/// accepts the legacy scope-less digest of the same conversation/workspace —
-/// an exact replay of a receipt committed by an older build must not become a
-/// false conflict after the fingerprint format gained the scope field. Scope
-/// agreement itself is arbitrated by [`durable_context_scope`].
+/// as the attempted fingerprint. The attempted digest must be an explicitly
+/// supported encoding (see [`attempted_fingerprint_supported`]); given that,
+/// this accepts exact-format equality plus the legacy scope-less digest of
+/// the same conversation/workspace — an exact replay of a receipt committed
+/// by an older build must not become a false conflict after the fingerprint
+/// format gained the scope field. Scope agreement itself is arbitrated by
+/// [`durable_context_scope`].
 pub(super) fn stored_fingerprint_matches(
     stored_fingerprint: &CommandFingerprint,
     attempted_fingerprint: &CommandFingerprint,
     conversation_id: ConversationId,
     workspace_id: WorkspaceId,
+    context_scope: runne_domain::conversation::ConversationContextScope,
 ) -> bool {
-    *stored_fingerprint == *attempted_fingerprint
+    attempted_fingerprint_supported(
+        attempted_fingerprint,
+        conversation_id,
+        workspace_id,
+        context_scope,
+    ) && (*stored_fingerprint == *attempted_fingerprint
         || *stored_fingerprint
-            == CommandFingerprint::for_create_conversation_legacy(&conversation_id, &workspace_id)
+            == CommandFingerprint::for_create_conversation_legacy(&conversation_id, &workspace_id))
 }
 
 /// Whether the durable marker agrees with the attempted delivery-context
