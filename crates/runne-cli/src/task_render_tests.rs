@@ -2,7 +2,8 @@
 //! full 15-state lifecycle is exercised through the CLI-side view DTO without
 //! a runtime server, because the opaque `TaskRunSnapshot` has no public
 //! constructor and terminal states are not reachable through the client-facing
-//! submit path in fixtures.
+//! submit path in fixtures. Control-character escaping of terminal failure
+//! reasons lives in the sibling `task_render_escape_tests` module.
 
 use super::*;
 
@@ -31,7 +32,7 @@ const ALL_STATES: &[(TaskRunState, &str)] = &[
 fn view(
     state: TaskRunState,
     attempt: Option<&str>,
-    terminal: Option<TaskTerminalResultView>,
+    terminal: Option<TaskRunTerminalResult>,
 ) -> TaskRunView {
     TaskRunView {
         task_run_id: SAMPLE_ID.to_owned(),
@@ -42,10 +43,9 @@ fn view(
     }
 }
 
-fn failure_result(reason: &str) -> TaskTerminalResultView {
-    TaskTerminalResultView {
-        outcome: "failure",
-        reason: Some(reason.to_owned()),
+fn failure_result(reason: &str) -> TaskRunTerminalResult {
+    TaskRunTerminalResult::Failure {
+        reason: reason.to_owned(),
     }
 }
 
@@ -69,10 +69,7 @@ fn terminal_results_render_success_failure_and_dash() {
     let success = view(
         TaskRunState::Succeeded,
         None,
-        Some(TaskTerminalResultView {
-            outcome: "success",
-            reason: None,
-        }),
+        Some(TaskRunTerminalResult::Success),
     );
     let success_json = task_get_json_data(&success);
     assert!(
@@ -103,6 +100,30 @@ fn terminal_results_render_success_failure_and_dash() {
         format_task_get_text(&pending)
     );
     assert!(task_get_json_data(&pending)["terminalResult"].is_null());
+}
+
+#[test]
+fn success_has_no_failure_prefix_and_no_reason_key() {
+    let succeeded = view(
+        TaskRunState::Succeeded,
+        None,
+        Some(TaskRunTerminalResult::Success),
+    );
+    let block = format_task_get_text(&succeeded);
+    assert!(block.contains("terminal result: success"), "{block}");
+    assert!(!block.contains("failure:"), "{block}");
+    let outcome = process_outcome(
+        Ok(CommandOutput::typed(
+            format_task_get_text(&succeeded),
+            task_get_json_data(&succeeded),
+        )),
+        OutputFormat::Json,
+    );
+    let envelope: serde_json::Value =
+        serde_json::from_str(&outcome.stdout).expect("one-parse JSON envelope");
+    let terminal = &envelope["data"]["terminalResult"];
+    assert_eq!(terminal["type"], "success");
+    assert!(terminal.get("reason").is_none(), "{terminal}");
 }
 
 #[test]
@@ -138,10 +159,7 @@ fn list_rows_have_five_tab_separated_columns() {
         view(
             TaskRunState::Succeeded,
             None,
-            Some(TaskTerminalResultView {
-                outcome: "success",
-                reason: None,
-            }),
+            Some(TaskRunTerminalResult::Success),
         ),
     ];
     let text = format_task_list_text(&views);

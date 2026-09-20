@@ -90,17 +90,15 @@ fn parse_task_get(mut arguments: VecDeque<OsString>) -> Result<TaskCommand, CliE
 
 /// Flat CLI-side view over the opaque [`TaskRunSnapshot`]; rendering works on
 /// this DTO so the full state matrix stays testable without a runtime server.
+/// The terminal result keeps the runtime [`TaskRunTerminalResult`] enum
+/// verbatim: the exhaustive matches below make a new runtime variant a
+/// compile error here on purpose, like [`task_state_name`].
 struct TaskRunView {
     task_run_id: String,
     state: &'static str,
     stream_version: u64,
     active_attempt_id: Option<String>,
-    terminal_result: Option<TaskTerminalResultView>,
-}
-
-struct TaskTerminalResultView {
-    outcome: &'static str,
-    reason: Option<String>,
+    terminal_result: Option<TaskRunTerminalResult>,
 }
 
 impl TaskRunView {
@@ -110,16 +108,7 @@ impl TaskRunView {
             state: task_state_name(snapshot.state()),
             stream_version: snapshot.stream_version(),
             active_attempt_id: snapshot.active_attempt_id().map(|id| id.to_string()),
-            terminal_result: snapshot.terminal_result().map(|result| match result {
-                TaskRunTerminalResult::Success => TaskTerminalResultView {
-                    outcome: "success",
-                    reason: None,
-                },
-                TaskRunTerminalResult::Failure { reason } => TaskTerminalResultView {
-                    outcome: "failure",
-                    reason: Some(reason.clone()),
-                },
-            }),
+            terminal_result: snapshot.terminal_result().cloned(),
         }
     }
 }
@@ -146,17 +135,42 @@ const fn task_state_name(state: TaskRunState) -> &'static str {
     }
 }
 
-/// Human-readable terminal result column: `-`, `success`, or `failure: reason`.
-fn terminal_result_text(result: Option<&TaskTerminalResultView>) -> String {
-    let Some(result) = result else {
-        return "-".to_owned();
-    };
-    result
-        .reason
-        .as_deref()
-        .map_or_else(|| result.outcome.to_owned(), |reason| {
-            format!("failure: {reason}")
-        })
+/// Human-readable terminal result column: `-`, `success`, or `failure: reason`
+/// with every control character in the reason made visible (see
+/// [`escape_terminal_reason_text`]).
+fn terminal_result_text(result: Option<&TaskRunTerminalResult>) -> String {
+    match result {
+        None => "-".to_owned(),
+        Some(TaskRunTerminalResult::Success) => "success".to_owned(),
+        Some(TaskRunTerminalResult::Failure { reason }) => {
+            format!("failure: {}", escape_terminal_reason_text(reason))
+        }
+    }
+}
+
+/// Escapes control characters in a terminal failure `reason` for the text
+/// renderer: TAB, LF and CR become the visible sequences `\t`, `\n`, `\r`;
+/// every other control character (C0, DEL, C1) becomes `\u{<lowercase hex>}`.
+/// Readable Unicode — quotes, Cyrillic, CJK, emoji — passes through
+/// unchanged. Escaping keeps each list row a single line of exactly five
+/// TAB-separated columns and neutralizes ANSI/OSC terminal control
+/// sequences.
+fn escape_terminal_reason_text(reason: &str) -> String {
+    use std::fmt::Write as _;
+
+    let mut escaped = String::with_capacity(reason.len());
+    for character in reason.chars() {
+        match character {
+            '\t' => escaped.push_str("\\t"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            control if control.is_control() => {
+                let _ = write!(escaped, "\\u{{{:x}}}", control as u32);
+            }
+            readable => escaped.push(readable),
+        }
+    }
+    escaped
 }
 
 /// One TAB-separated row per task run: id, state, stream version, active
@@ -193,10 +207,12 @@ fn format_task_get_text(view: &TaskRunView) -> String {
     )
 }
 
-fn terminal_result_json(result: &TaskTerminalResultView) -> serde_json::Value {
-    match result.outcome {
-        "success" => serde_json::json!({ "type": "success" }),
-        _ => serde_json::json!({ "type": "failure", "reason": result.reason }),
+fn terminal_result_json(result: &TaskRunTerminalResult) -> serde_json::Value {
+    match result {
+        TaskRunTerminalResult::Success => serde_json::json!({ "type": "success" }),
+        TaskRunTerminalResult::Failure { reason } => {
+            serde_json::json!({ "type": "failure", "reason": reason })
+        }
     }
 }
 

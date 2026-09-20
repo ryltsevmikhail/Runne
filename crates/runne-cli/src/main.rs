@@ -226,4 +226,6 @@ mod provider_credential_legacy_tests;
 #[cfg(test)]
 mod provider_credential_tests;
 #[cfg(test)]
+mod task_render_escape_tests;
+#[cfg(test)]
 mod task_render_tests;
