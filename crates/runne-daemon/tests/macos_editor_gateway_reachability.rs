@@ -2,21 +2,33 @@
 //! measured through the REAL daemon admission gateway
 //! (issue → bind → `open_editor` → `launch_system_default_editor`).
 //!
-//! Recorded outcome on macOS 27 (26A5388g): `launch_system_default_editor`
-//! derives the opener target from `root_path`, which reads `/dev/fd/N` via
-//! `readlink`; that syscall returns EINVAL for every process on macOS 27, so
-//! the production editor launch fails closed with
-//! `WorkspaceEditorHostError::Unavailable` BEFORE any opener spawn. This test
-//! pins that fail-closed state as the current production behavior — the
-//! validate-then-path TOCTOU (see
-//! crates/runne-platform-desktop/tests/macos_editor_launch_race.rs) is
-//! therefore NOT reachable through production on this OS until the fd→path
-//! mechanism is replaced, and neither model counts as a demonstrated
-//! production exploit.
+//! The macOS native backend currently refuses the system-default editor
+//! launch BY DECISION: `launch_system_default_editor` runs the shared
+//! fd-relative validation and then returns
+//! `RootHandleBrokerError::Unavailable` without deriving any opener target
+//! and without spawning anything. This is a deliberate, temporary
+//! macOS-backend limitation (the opener target would have to be re-resolved
+//! from a path the validation cannot pin to the checked object), NOT a
+//! claim that the feature never worked on any macOS version. The gateway
+//! maps that verdict to `WorkspaceEditorHostError::Unavailable`, which is
+//! the deterministic outcome the main test pins.
+//!
+//! Two early rejections through the same gateway prove the verdict is
+//! specific to the launch stage: a foreign principal and a sensitive path
+//! (`.env`) are both answered `Forbidden` before the editor host is ever
+//! consulted.
+//!
+//! `runne_platform_desktop::launcher_spawn_attempt_count()` is incremented
+//! only immediately before `Command::spawn`, so it reading 0 after every
+//! `open_editor` call proves no opener process was ever attempted.
 //!
 //! The benign read control proves the gateway itself is live (admission,
 //! bind and file serving all work) so the Unavailable verdict is attributable
 //! to the editor launch path alone.
+//!
+//! If the macOS backend gains a pinned opener-target mechanism, the
+//! `Unavailable` assertion MUST be revisited together with the TOCTOU model
+//! in crates/runne-platform-desktop/tests/macos_editor_launch_race.rs.
 #![cfg(all(
     target_os = "macos",
     unix,
@@ -38,11 +50,13 @@ use runne_api::{
     OpenEditorRequest, ProjectCommandContext, ProtectedActivationKeys, RootAdmissionAuthenticator,
     RootAdmissionRequest, RootAdmissionVerificationContext, RootHandleAdmission,
     RootHandleTransferAuthenticator, RootHandleTransferContext, RootHandleTransferOffer,
-    RuntimeSessionBinding, StableRuntimeBinding, WorkspaceFileReadRequest,
+    RuntimeSessionBinding, StableRuntimeBinding, WorkspaceEditorHostError,
+    WorkspaceFileReadRequest,
 };
 use runne_application::local_session::LocalSessionService;
 use runne_daemon::application::root_admission_authority_fixture::RootAdmissionAuthorityFixture;
 use runne_domain::id::{CommandId, IdempotencyKey};
+use runne_platform_desktop::launcher_spawn_attempt_count;
 
 fn real_now() -> u64 {
     SystemTime::now()
@@ -126,23 +140,54 @@ async fn production_editor_launch_is_fail_closed_on_this_macos() {
         "CANARY-PLAN"
     );
 
-    // Production editor launch on this host: fail-closed Unavailable (the
-    // /dev/fd readlink dependency dies on macOS 27 before any opener runs).
-    // Recorded as the current production outcome; if the fd→path mechanism is
-    // replaced, this assertion MUST be revisited together with the TOCTOU
-    // model in crates/runne-platform-desktop/tests/macos_editor_launch_race.rs.
-    let request = OpenEditorRequest::new(
+    let plan_request = OpenEditorRequest::new(
         fixture::workspace(),
         "notes/plan.md",
         EditorLaunchTargetV1::SystemDefault,
     )
     .expect("editor request");
-    let outcome = authority.open_editor(fixture::PRINCIPAL, &request);
-    match outcome {
-        Err(runne_api::WorkspaceEditorHostError::Unavailable) => {}
-        other => panic!(
-            "editor launch outcome changed on this host: {other:?} — revisit the \
-             reachability model and the TOCTOU analysis before trusting either"
-        ),
-    }
+    let env_request = OpenEditorRequest::new(
+        fixture::workspace(),
+        ".env",
+        EditorLaunchTargetV1::SystemDefault,
+    )
+    .expect("sensitive editor request");
+
+    // Early rejection (a): a foreign principal never reaches the editor host.
+    assert_eq!(
+        authority.open_editor("other-principal", &plan_request),
+        Err(WorkspaceEditorHostError::Forbidden),
+        "open_editor must reject a foreign principal with Forbidden"
+    );
+
+    // Early rejection (b): sensitive workspace files never reach the editor host.
+    assert_eq!(
+        authority.open_editor(fixture::PRINCIPAL, &env_request),
+        Err(WorkspaceEditorHostError::Forbidden),
+        "open_editor must reject a sensitive path (.env) with Forbidden"
+    );
+    assert_eq!(
+        launcher_spawn_attempt_count(),
+        0,
+        "the early rejections must not reach the launcher"
+    );
+
+    // Main: the macOS backend refuses the launch by decision after the shared
+    // fd-relative validation — a deterministic Unavailable, no opener target
+    // derivation, no spawn. If the backend gains a pinned opener-target
+    // mechanism, this assertion MUST be revisited together with the TOCTOU
+    // model in crates/runne-platform-desktop/tests/macos_editor_launch_race.rs.
+    assert_eq!(
+        authority.open_editor(fixture::PRINCIPAL, &plan_request),
+        Err(WorkspaceEditorHostError::Unavailable),
+        "the macOS backend must fail the editor launch closed by decision"
+    );
+
+    // The counter increments only immediately before Command::spawn, so 0
+    // after the full open_editor sequence proves no opener was ever attempted.
+    assert_eq!(
+        launcher_spawn_attempt_count(),
+        0,
+        "open_editor must not attempt any opener spawn on this host"
+    );
 }

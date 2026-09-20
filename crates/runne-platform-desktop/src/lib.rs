@@ -75,7 +75,9 @@ pub use root_handle_broker::{
 };
 pub use root_handle_broker::{RootFileEntry, RootFileKind};
 #[cfg(all(unix, feature = "test-support"))]
-pub use root_handle_broker::{test_transfer_receiver, test_transfer_sender};
+pub use root_handle_broker::{
+    launcher_spawn_attempt_count, test_transfer_receiver, test_transfer_sender,
+};
 pub use runne_api::CompiledUpdateTrustRootV2;
 pub use runne_api::WorkspaceId;
 pub use runne_api::{PROTECTED_BUNDLED_SESSION_RENEW_AFTER, ProtectedRootHandleAdmission};
