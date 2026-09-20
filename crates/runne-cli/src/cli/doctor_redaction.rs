@@ -28,8 +28,9 @@ pub fn redacted_profile_location(path: &Path) -> String {
 
 /// Tags a builder-produced check with its stable bracketed check id.
 ///
-/// Used for checks whose constructors live in `provider_checks.rs` (which
-/// this slice must not modify): only the `message` value is amended.
+/// Used for checks whose constructors build a bare `message` — the active
+/// provider selection and the credential checks, both in
+/// `provider_checks.rs`: only the `message` value is amended.
 #[must_use]
 pub fn with_check_id(mut check: DiagnosticCheck, id: &'static str) -> DiagnosticCheck {
     check.message = format!("{} [{id}]", check.message);
@@ -118,7 +119,32 @@ pub fn profile_check_invalid_credential(profile_path: &Path) -> DiagnosticCheck 
     }
 }
 
-/// Runtime check with daemon-reported health status and bounded version.
+/// Display form of the daemon-reported `/health` version.
+///
+/// The wire format only bounds the version (non-empty, ≤64 bytes, no control
+/// characters), so path- and token-like strings parse fine. Only a
+/// semver-shaped value — the format the daemon actually sends
+/// (`env!("CARGO_PKG_VERSION")`) — is rendered verbatim: it starts with the
+/// numeric major version, carries at least one dot and stays inside the
+/// ASCII semver charset `[A-Za-z0-9.+-]` and the wire length bound. Every
+/// other value is replaced by a fixed placeholder that echoes no part of the
+/// input.
+#[must_use]
+fn display_version(version: &str) -> String {
+    let allowed = |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'+' | b'-');
+    if version.len() <= 64
+        && version.as_bytes().first().is_some_and(u8::is_ascii_digit)
+        && version.contains('.')
+        && version.bytes().all(allowed)
+    {
+        version.to_owned()
+    } else {
+        "withheld (unexpected format)".to_owned()
+    }
+}
+
+/// Runtime check with daemon-reported health status and format-gated version
+/// display (see `display_version`).
 fn runtime_health_check(
     status: CheckStatus,
     wire_status: &'static str,
@@ -130,7 +156,10 @@ fn runtime_health_check(
         name: "Runtime".to_owned(),
         status,
         message: format!("{message} [{id}]"),
-        details: Some(format!("Status: {wire_status}\nVersion: {version}")),
+        details: Some(format!(
+            "Status: {wire_status}\nVersion: {}",
+            display_version(version)
+        )),
     }
 }
 

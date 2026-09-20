@@ -134,12 +134,16 @@ async fn build_doctor_report(
     Ok(report)
 }
 
-/// One credential check tagged with its stable id. The probe is classified
-/// first (best-effort idempotent status query), then `credential_check`
-/// re-probes to build the message — `provider_checks.rs` stays untouched.
+/// One credential check tagged with its stable id. The store is probed
+/// exactly once: the message and the bracketed id derive from the same
+/// observation, so they cannot disagree even if the store state changes
+/// afterwards.
 fn credentialed_check(id: ProviderCredentialId, provider: &str, active: bool) -> DiagnosticCheck {
-    let check_id = credential_check_id(probe_credential(id), active);
-    with_check_id(credential_check(id, provider, active), check_id)
+    let probe = probe_credential(id);
+    with_check_id(
+        credential_check_from_probe(probe, provider, active),
+        credential_check_id(probe, active),
+    )
 }
 
 async fn check_runtime_health(profile_path: &Path) -> Result<(String, String), ()> {
@@ -245,3 +249,11 @@ fn diagnostic_json_data(report: &DiagnosticReport) -> serde_json::Value {
 #[cfg(test)]
 #[path = "doctor_redaction_tests.rs"]
 mod doctor_redaction_tests;
+
+#[cfg(test)]
+#[path = "doctor_redaction_version_tests.rs"]
+mod doctor_redaction_version_tests;
+
+#[cfg(test)]
+#[path = "doctor_credential_builder_tests.rs"]
+mod doctor_credential_builder_tests;

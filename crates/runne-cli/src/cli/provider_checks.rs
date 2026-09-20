@@ -58,10 +58,18 @@ pub fn active_provider_check(probe: &ActiveProviderProbe) -> DiagnosticCheck {
     }
 }
 
-/// Builds the doctor check for one provider credential (metadata only).
+/// Builds the doctor check for one provider credential (metadata only) from
+/// an already-taken probe.
+///
+/// Callers must probe the store exactly once and derive both this check and
+/// its stable id (`credential_check_id`) from that single observation, so the
+/// message and the id cannot disagree.
 #[must_use]
-pub fn credential_check(id: ProviderCredentialId, provider: &str, active: bool) -> DiagnosticCheck {
-    let probe = probe_credential(id);
+pub fn credential_check_from_probe(
+    probe: CredentialProbe,
+    provider: &str,
+    active: bool,
+) -> DiagnosticCheck {
     let (status, message) = match probe {
         CredentialProbe::Configured => {
             (CheckStatus::Ok, format!("{provider} credential configured"))
