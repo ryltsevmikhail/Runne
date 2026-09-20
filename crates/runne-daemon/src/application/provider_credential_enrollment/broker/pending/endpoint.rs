@@ -3,6 +3,11 @@ use super::*;
 /// Move-only pending rendezvous removed before its current authority is validated.
 pub(crate) struct PendingBrokerEndpointHandoff {
     pub(super) binding: PendingBrokerRendezvousBinding,
+    // The witness belongs to the production handoff path; unit-test builds
+    // never read it. Unconditional `allow` under `test` (not `expect`): on
+    // platforms where a test does read it, an expectation would be
+    // unfulfilled and break `-D warnings`.
+    #[cfg_attr(test, allow(dead_code))]
     pub(super) authority_witness: ProviderCredentialBrokerHandoffWitness,
     #[cfg_attr(
         all(test, not(all(target_os = "macos", target_arch = "aarch64"))),
