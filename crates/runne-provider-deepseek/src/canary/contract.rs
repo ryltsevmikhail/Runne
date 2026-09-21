@@ -3,25 +3,27 @@ use core::fmt;
 use sha2::{Digest, Sha256};
 /// Digest of the pinned provider profile sidecar.
 pub const PROFILE_DIGEST: &str =
-    "sha256:25670ffe78dbc7ef4db8911356d9eb4e274167ff9eed0a7cc9b5e66e4085d853";
+    "sha256:0112c4b6ce64739810bb79802ebb5ae6fd8ac563d1d1397ac51f07a190538195";
 /// Digest of the single compiled canary candidate.
 pub const CANARY_DIGEST: &str =
-    "sha256:27b47cd539754d7da86f7ba40f16b80aeb6fc71a0b6e81404c477e365b33a422";
+    "sha256:f69bbad907ac7b5ba9e72fc37ae4ea5fe541fae3396bd04f5035dbcfe2b6e410";
 const RAW_PROFILE_DIGEST: [u8; 32] = [
-    0x25, 0x67, 0x0f, 0xfe, 0x78, 0xdb, 0xc7, 0xef, 0x4d, 0xb8, 0x91, 0x13, 0x56, 0xd9, 0xeb, 0x4e,
-    0x27, 0x41, 0x67, 0xff, 0x9e, 0xed, 0x0a, 0x7c, 0xc9, 0xb5, 0xe6, 0x6e, 0x40, 0x85, 0xd8, 0x53,
+    0x01, 0x12, 0xc4, 0xb6, 0xce, 0x64, 0x73, 0x98, 0x10, 0xbb, 0x79, 0x80, 0x2e, 0xbb, 0x5a, 0xe6,
+    0xfd, 0x8a, 0xc5, 0x63, 0xd1, 0xd1, 0x39, 0x7a, 0xc5, 0x1f, 0x07, 0xa1, 0x90, 0x53, 0x81, 0x95,
 ];
 const PROFILE_ID: &str = "gocode-deepseek-responses-text/1";
-const PROFILE_REVISION: u32 = 1;
+const PROFILE_REVISION: u32 = 2;
 const PROVIDER: &str = "deepseek";
 const ORIGIN: &str = "https://api.deepseek.com";
 const METHOD: &str = "POST";
-const PATH: &str = "/v1/responses";
-const REQUEST_MODEL: &str = "deepseek-chat";
-const MODEL_ID: &str = "deepseek-chat";
-const MODEL_REVISION: &str = "2026-08-16";
+const PATH: &str = "/responses";
+const REQUEST_MODEL: &str = "deepseek-flash";
+const MODEL_ID: &str = "deepseek-flash";
+const MODEL_REVISION: &str = "2026-09-21";
+/// Legacy compiled identity field; the rendered request carries no
+/// `service_tier` and the request digest excludes it.
 const SERVICE_TIER: &str = "default";
-pub(super) const PRICING_REVISION: &str = "deepseek-chat-base-2026-08-16/1";
+pub(super) const PRICING_REVISION: &str = "deepseek-flash-peak-2026-09-21/1";
 const PROMPT: &str = "Reply with exactly: OK";
 const RESULT: &str = "OK";
 /// Closed result of candidate preparation.
@@ -188,13 +190,13 @@ impl CanaryCandidate {
         let zero = 0_u64.to_be_bytes();
         let sixteen = 16_u64.to_be_bytes();
         let prompt_length = overlay.prompt_length.to_be_bytes();
-        let request_components: [&[u8]; 22] = components!(
+        let request_components: [&[u8]; 21] = components!(
             &RAW_PROFILE_DIGEST; METHOD.as_bytes(); ORIGIN.as_bytes(); PATH.as_bytes();
-            REQUEST_MODEL.as_bytes(); SERVICE_TIER.as_bytes(); &one; &[1];
+            REQUEST_MODEL.as_bytes(); &one; &[1];
             &overlay.prompt_digest; &prompt_length; &[0]; &[0]; &[1]; &[0]; &[0]; &[0];
             &zero; b"none"; b"none"; &sixteen; &[1]; &[1];
         );
-        let request_length = 384_u64;
+        let request_length = 218_u64;
         let request_digest = digest(b"gocode.canary.request/1", &request_components);
         let result_digest = digest(b"gocode.canary.result/1", &[RESULT.as_bytes()]);
         let request_length_bytes = request_length.to_be_bytes();

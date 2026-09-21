@@ -259,7 +259,7 @@ mod tests {
         assert!(!report.execution_ready());
         let formatted = format_report(&report);
         assert!(formatted.contains("credential deepseek: missing"));
-        assert!(formatted.contains("model: deepseek-chat"));
+        assert!(formatted.contains("model: deepseek-flash"));
         assert!(formatted.contains("[config.present]"));
     }
 

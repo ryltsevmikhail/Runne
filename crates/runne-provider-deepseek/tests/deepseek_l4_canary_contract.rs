@@ -42,19 +42,19 @@ fn accepts_the_exact_compiled_candidate() {
             .expect("the compiled candidate must prepare");
 
     assert_eq!(candidate.profile_id(), "gocode-deepseek-responses-text/1");
-    assert_eq!(candidate.profile_revision(), 1);
+    assert_eq!(candidate.profile_revision(), 2);
     assert_eq!(candidate.candidate_digest(), CANARY_DIGEST);
     assert_eq!(candidate.provider(), "deepseek");
     assert_eq!(candidate.origin(), "https://api.deepseek.com");
     assert_eq!(candidate.method(), "POST");
-    assert_eq!(candidate.path(), "/v1/responses");
-    assert_eq!(candidate.request_model(), "deepseek-chat");
-    assert_eq!(candidate.model_id(), "deepseek-chat");
-    assert_eq!(candidate.model_revision(), "2026-08-16");
+    assert_eq!(candidate.path(), "/responses");
+    assert_eq!(candidate.request_model(), "deepseek-flash");
+    assert_eq!(candidate.model_id(), "deepseek-flash");
+    assert_eq!(candidate.model_revision(), "2026-09-21");
     assert_eq!(candidate.service_tier(), "default");
     assert_eq!(
         candidate.pricing_revision(),
-        "deepseek-chat-base-2026-08-16/1"
+        "deepseek-flash-peak-2026-09-21/1"
     );
     assert_eq!(candidate.disposition(), CandidateDisposition::NotActivated);
     assert_eq!(format!("{candidate:?}"), "CanaryCandidate");
@@ -77,9 +77,8 @@ fn separates_profile_and_candidate_digests_with_closed_evidence() {
             &profile,
             b"POST",
             b"https://api.deepseek.com",
-            b"/v1/responses",
-            b"deepseek-chat",
-            b"default",
+            b"/responses",
+            b"deepseek-flash",
             &one,
             &[1],
             &prompt,
@@ -98,7 +97,7 @@ fn separates_profile_and_candidate_digests_with_closed_evidence() {
             &[1],
         ],
     );
-    let request_length = 384_u64.to_be_bytes();
+    let request_length = 218_u64.to_be_bytes();
     let candidate_digest = digest(
         "gocode.canary.candidate/1",
         &[
@@ -114,11 +113,11 @@ fn separates_profile_and_candidate_digests_with_closed_evidence() {
 
     assert_eq!(
         PROFILE_DIGEST,
-        "sha256:25670ffe78dbc7ef4db8911356d9eb4e274167ff9eed0a7cc9b5e66e4085d853"
+        "sha256:0112c4b6ce64739810bb79802ebb5ae6fd8ac563d1d1397ac51f07a190538195"
     );
     assert_eq!(
         CANARY_DIGEST,
-        "sha256:27b47cd539754d7da86f7ba40f16b80aeb6fc71a0b6e81404c477e365b33a422"
+        "sha256:f69bbad907ac7b5ba9e72fc37ae4ea5fe541fae3396bd04f5035dbcfe2b6e410"
     );
     assert_ne!(CANARY_DIGEST, PROFILE_DIGEST);
     assert_eq!(
@@ -131,11 +130,11 @@ fn separates_profile_and_candidate_digests_with_closed_evidence() {
     );
     assert_eq!(
         request,
-        digest_bytes("sha256:61ff3470e77e9550163e04be31e7f4f7ddd6f22eef02144fd779517a2f2eadb2")
+        digest_bytes("sha256:b6b0ff55974aa5ae4f428b86ad65885e62acf49ed5b67ad79595a02e0750738d")
     );
     assert_eq!(
         candidate_digest,
-        digest_bytes("sha256:27b47cd539754d7da86f7ba40f16b80aeb6fc71a0b6e81404c477e365b33a422")
+        digest_bytes("sha256:f69bbad907ac7b5ba9e72fc37ae4ea5fe541fae3396bd04f5035dbcfe2b6e410")
     );
     assert_eq!(candidate.candidate_digest(), CANARY_DIGEST);
     assert_eq!(evidence.candidate_digest(), &candidate_digest);
@@ -143,7 +142,7 @@ fn separates_profile_and_candidate_digests_with_closed_evidence() {
     assert_eq!(evidence.request_digest(), &request);
     assert_eq!(evidence.prompt_digest(), &prompt);
     assert_eq!(evidence.result_digest(), &result);
-    assert_eq!(evidence.request_length(), 384);
+    assert_eq!(evidence.request_length(), 218);
     assert_eq!(evidence.prompt_length(), 22);
     assert_eq!(evidence.result_length(), 2);
     assert_eq!(format!("{evidence:?}"), "CanaryEvidence");
@@ -239,7 +238,7 @@ fn rejects_developer_entries_and_other_fixed_overlay_fields() {
 fn derives_the_fixed_budget_with_checked_tenths() {
     let accounting = CanaryAccounting::reconcile(
         TerminalUsage::new(MAX_INPUT_TOKENS, MAX_OUTPUT_TOKENS, 0),
-        "deepseek-chat-base-2026-08-16/1",
+        "deepseek-flash-peak-2026-09-21/1",
     )
     .expect("fixed budget must reconcile");
 
@@ -286,7 +285,7 @@ fn reports_checked_accounting_failures_without_values() {
 
 #[test]
 fn rejects_usage_outside_the_hard_authorization_cap() {
-    let pricing_revision = "deepseek-chat-base-2026-08-16/1";
+    let pricing_revision = "deepseek-flash-peak-2026-09-21/1";
 
     for usage in [
         TerminalUsage::new(257, 17, 0),

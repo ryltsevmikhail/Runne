@@ -5,7 +5,7 @@ use runne_provider::DispatchError;
 use std::time::Duration;
 use zeroize::{Zeroize, Zeroizing};
 
-const DEEPSEEK_RESPONSES_URL: &str = "https://api.deepseek.com/v1/responses";
+const DEEPSEEK_RESPONSES_URL: &str = "https://api.deepseek.com/responses";
 
 pub(super) enum ResponseContract {
     Sse,

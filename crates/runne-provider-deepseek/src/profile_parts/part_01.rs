@@ -9,25 +9,26 @@ use thiserror::Error;
 /// Exact immutable `DeepSeek` Responses text profile identity.
 pub const DEEPSEEK_RESPONSES_PROFILE_ID: &str = "gocode-deepseek-responses-text/1";
 /// Exact provider request model snapshot.
-pub const DEEPSEEK_REQUEST_MODEL: &str = "deepseek-chat";
-/// Exact Standard processing tier requested and required in response evidence.
+pub const DEEPSEEK_REQUEST_MODEL: &str = "deepseek-flash";
+/// Legacy pinned Standard tier; the documented `/responses` contract neither
+/// sends nor validates `service_tier`. Retained for workspace compatibility.
 pub const DEEPSEEK_SERVICE_TIER: &str = "default";
 /// Provider-neutral model family bound into `ModelRef`.
-pub const DEEPSEEK_MODEL_ID: &str = "deepseek-chat";
+pub const DEEPSEEK_MODEL_ID: &str = "deepseek-flash";
 /// Provider-neutral immutable model revision bound into `ModelRef`.
-pub const DEEPSEEK_MODEL_REVISION: &str = "2026-08-16";
+pub const DEEPSEEK_MODEL_REVISION: &str = "2026-09-21";
 
 const PROFILE_SCHEMA_VERSION: u64 = 1;
-const PROFILE_REVISION: u64 = 1;
+const PROFILE_REVISION: u64 = 2;
 const PROVIDER_ID: &str = "deepseek";
 const ORIGIN: &str = "https://api.deepseek.com";
-const PATH: &str = "/v1/responses";
-const PRICING_REVISION: &str = "deepseek-chat-base-2026-08-16/1";
+const PATH: &str = "/responses";
+const PRICING_REVISION: &str = "deepseek-flash-peak-2026-09-21/1";
 const PRICING_CURRENCY: &str = "USD";
 const PRICING_UNIT_TOKENS: u64 = 1_000_000;
-const INPUT_MICROS: u64 = 270_000;
-const CACHED_INPUT_MICROS: u64 = 28_000;
-const OUTPUT_MICROS: u64 = 1_100_000;
+const INPUT_MICROS: u64 = 300_000;
+const CACHED_INPUT_MICROS: u64 = 6_000;
+const OUTPUT_MICROS: u64 = 1_200_000;
 const LONG_CONTEXT_THRESHOLD_TOKENS: u64 = 1_000_000;
 const MAX_INPUT_ENTRIES: usize = 64;
 const MAX_INPUT_ENTRY_BYTES: usize = 65_536;
@@ -37,8 +38,8 @@ const MAX_REQUEST_BYTES: usize = 524_288;
 const MAX_PROFILE_BYTES: usize = 16 * 1024;
 const PRICING_DIGEST_DOMAIN: &[u8] = b"GOCODE_DEEPSEEK_RESPONSES_TEXT_PRICING_V1\0";
 const PROFILE_SOURCE_DIGEST: [u8; 32] = [
-    0x25, 0x67, 0x0f, 0xfe, 0x78, 0xdb, 0xc7, 0xef, 0x4d, 0xb8, 0x91, 0x13, 0x56, 0xd9, 0xeb, 0x4e,
-    0x27, 0x41, 0x67, 0xff, 0x9e, 0xed, 0x0a, 0x7c, 0xc9, 0xb5, 0xe6, 0x6e, 0x40, 0x85, 0xd8, 0x53,
+    0x01, 0x12, 0xc4, 0xb6, 0xce, 0x64, 0x73, 0x98, 0x10, 0xbb, 0x79, 0x80, 0x2e, 0xbb, 0x5a, 0xe6,
+    0xfd, 0x8a, 0xc5, 0x63, 0xd1, 0xd1, 0x39, 0x7a, 0xc5, 0x1f, 0x07, 0xa1, 0x90, 0x53, 0x81, 0x95,
 ];
 
 /// Exact-profile validation or pricing failure.
@@ -96,12 +97,9 @@ struct PricingProfile {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RequestProfile {
-    service_tier: String,
     reasoning_effort: String,
     tools: Vec<Value>,
     tool_choice: String,
-    background: bool,
-    store: bool,
     stream: bool,
 }
 

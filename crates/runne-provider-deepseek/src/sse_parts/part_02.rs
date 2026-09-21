@@ -1,7 +1,11 @@
 impl Lifecycle {
     fn accept_item_added(&mut self, event: &Map<String, Value>) -> Result<(), DeepSeekStreamError> {
         require_keys(event, &["item", "output_index", "sequence_number", "type"])?;
-        if self.stage != LifecycleStage::InProgress || required_u64(event, "output_index")? != 0 {
+        if !matches!(
+            self.stage,
+            LifecycleStage::Created | LifecycleStage::InProgress
+        ) || required_u64(event, "output_index")? != 0
+        {
             return Err(DeepSeekStreamError::IllegalTransition);
         }
         let item = required_object(event, "item")?;

@@ -25,5 +25,6 @@ http = "1"
 rcgen = { workspace = true }
 rusqlite = { workspace = true }
 rustls = { workspace = true }
+serde_json = { workspace = true }
 tempfile = "3"
 tokio-rustls = { workspace = true }
