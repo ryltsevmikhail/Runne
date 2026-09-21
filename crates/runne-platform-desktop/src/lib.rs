@@ -18,6 +18,10 @@ pub mod provider_credential_broker;
 mod provider_credential_prompt;
 mod root_handle_broker;
 mod updater;
+#[cfg(target_os = "linux")]
+pub use protected_runtime::linux_enrollment_peer::{
+    linux_enrollment_peer_binding, verify_linux_enrollment_peer,
+};
 #[cfg(all(
     target_os = "macos",
     target_arch = "aarch64",
@@ -29,10 +33,6 @@ pub use protected_runtime::test_only_crossed_broker_offer;
 pub use protected_runtime::{
     test_only_crossed_discovery, test_only_crossed_renewal, test_only_crossed_round,
     test_only_crossed_shutdown, test_only_pair_terminal,
-};
-#[cfg(target_os = "linux")]
-pub use protected_runtime::linux_enrollment_peer::{
-    linux_enrollment_peer_binding, verify_linux_enrollment_peer,
 };
 mod updater_artifact;
 #[cfg(all(target_os = "macos", feature = "test-support"))]
