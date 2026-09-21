@@ -282,4 +282,7 @@ include!("native_process_provider/lifecycle.rs");
 #[cfg(test)]
 mod tests {
     include!("native_process_provider/tests.rs");
+    mod p2_1_readopt_semantics {
+        include!("native_process_provider/tests/p2_1_readopt_semantics.rs");
+    }
 }
