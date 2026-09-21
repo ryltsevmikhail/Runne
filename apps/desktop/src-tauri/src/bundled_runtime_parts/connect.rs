@@ -149,9 +149,16 @@ impl BundledRuntimeController {
         &self,
         lease: BundledRuntimeActivationLease,
     ) -> Result<RuntimeAvailability, AppCoreError> {
-        // Linux local-runtime enrollment: every bundled launch starts at
-        // authorization epoch 0; the V2→V3 transition raises it to exactly 1
-        // before the first client connection. Any failure is fail-closed.
+        // Linux local-runtime enrollment re-order (OwnershipMismatch fix):
+        // every bundled launch starts at authorization epoch 0. The client is
+        // NEVER connected to the pre-transition epoch-0 session. Instead the
+        // V2→V3 transition runs first on the already-admitted protected
+        // channel; it rotates the daemon session to epoch 1 and replaces the
+        // pending V2 profile with the enrolled V3 one. The single client
+        // connection below therefore boots straight into the post-transition
+        // session, so `protected_profile_matches` sees the raised epoch and
+        // the open-folder flow no longer falls into `RuntimeUnavailable`.
+        // The transition is fail-closed: any rejection degrades the runtime.
         #[cfg(target_os = "linux")]
         if let Err(error) = self
             .run_supervisor(
@@ -159,7 +166,6 @@ impl BundledRuntimeController {
             )
             .await
         {
-            eprintln!("[enroll] transition rejected: {error:?}");
             return self
                 .reject_current_client(map_protected_failure(error))
                 .await;
