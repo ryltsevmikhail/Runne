@@ -86,7 +86,6 @@ pub fn response(status: &str, output: Value, usage: Value) -> Value {
         "id": RESPONSE_ID,
         "model": runne_provider_deepseek::DEEPSEEK_REQUEST_MODEL,
         "object": "response",
-        "service_tier": runne_provider_deepseek::DEEPSEEK_SERVICE_TIER,
         "status": status,
         "output": output,
         "usage": usage,

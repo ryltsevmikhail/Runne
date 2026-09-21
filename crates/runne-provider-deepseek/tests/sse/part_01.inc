@@ -1,7 +1,7 @@
 use runne_provider::{ProviderFinishReason, ProviderStreamEventKind, ProviderTerminalDisposition};
 use runne_provider_deepseek::{
-    DEEPSEEK_MAX_SSE_EVENTS, DEEPSEEK_MAX_SSE_LINES, DEEPSEEK_REQUEST_MODEL, DEEPSEEK_SERVICE_TIER,
-    DeepSeekSseDecoder, DeepSeekStreamError,
+    DEEPSEEK_MAX_SSE_EVENTS, DEEPSEEK_MAX_SSE_LINES, DEEPSEEK_REQUEST_MODEL, DeepSeekSseDecoder,
+    DeepSeekStreamError,
 };
 use serde_json::json;
 

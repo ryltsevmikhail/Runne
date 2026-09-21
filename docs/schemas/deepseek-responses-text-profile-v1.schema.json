@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://gocode.dev/schemas/deepseek-responses-text-profile-v1.schema.json",
-  "title": "GOCODE OpenAI Responses Text Profile V1",
+  "title": "GOCODE DeepSeek Responses Text Profile V1",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -26,7 +26,7 @@
       "const": "gocode-deepseek-responses-text/1"
     },
     "profile_revision": {
-      "const": 1
+      "const": 2
     },
     "provider_id": {
       "const": "deepseek"
@@ -35,21 +35,26 @@
       "const": "https://api.deepseek.com"
     },
     "path": {
-      "const": "/v1/responses"
+      "const": "/responses"
     },
     "model": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["request_id", "model_id", "revision", "aliases"],
+      "required": [
+        "request_id",
+        "model_id",
+        "revision",
+        "aliases"
+      ],
       "properties": {
         "request_id": {
-          "const": "deepseek-chat"
+          "const": "deepseek-flash"
         },
         "model_id": {
-          "const": "deepseek-chat"
+          "const": "deepseek-flash"
         },
         "revision": {
-          "const": "2026-08-16"
+          "const": "2026-09-21"
         },
         "aliases": {
           "const": []
@@ -71,7 +76,7 @@
       ],
       "properties": {
         "revision": {
-          "const": "deepseek-chat-base-2026-08-16/1"
+          "const": "deepseek-flash-peak-2026-09-21/1"
         },
         "currency": {
           "const": "USD"
@@ -80,13 +85,13 @@
           "const": 1000000
         },
         "input_micros": {
-          "const": 270000
+          "const": 300000
         },
         "cached_input_micros": {
-          "const": 28000
+          "const": 6000
         },
         "output_micros": {
-          "const": 1100000
+          "const": 1200000
         },
         "long_context_threshold_tokens": {
           "const": 1000000
@@ -97,7 +102,9 @@
       }
     },
     "capabilities": {
-      "const": ["streaming"]
+      "const": [
+        "streaming"
+      ]
     },
     "developer_prompt": {
       "type": "null"
@@ -106,18 +113,12 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "service_tier",
         "reasoning_effort",
         "tools",
         "tool_choice",
-        "background",
-        "store",
         "stream"
       ],
       "properties": {
-        "service_tier": {
-          "const": "default"
-        },
         "reasoning_effort": {
           "const": "none"
         },
@@ -126,12 +127,6 @@
         },
         "tool_choice": {
           "const": "none"
-        },
-        "background": {
-          "const": false
-        },
-        "store": {
-          "const": false
         },
         "stream": {
           "const": true

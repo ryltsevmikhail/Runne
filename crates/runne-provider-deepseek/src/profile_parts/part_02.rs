@@ -54,10 +54,11 @@ impl DeepSeekResponsesTextProfile {
         &self.raw.model.request_id
     }
 
-    /// Returns the exact Standard processing tier.
+    /// Legacy Standard-tier accessor; the profile no longer pins or sends
+    /// `service_tier`. Retained for workspace API compatibility.
     #[must_use]
-    pub fn service_tier(&self) -> &str {
-        &self.raw.request.service_tier
+    pub const fn service_tier(&self) -> &str {
+        DEEPSEEK_SERVICE_TIER
     }
 
     /// Returns the provider-neutral model identity.
@@ -215,12 +216,9 @@ fn validate_exact(profile: &RawProfile) -> Result<(), DeepSeekProfileError> {
         && !profile.pricing.long_context_enabled
         && profile.capabilities == ["streaming"]
         && profile.developer_prompt.is_null()
-        && profile.request.service_tier == DEEPSEEK_SERVICE_TIER
         && profile.request.reasoning_effort == "none"
         && profile.request.tools.is_empty()
         && profile.request.tool_choice == "none"
-        && !profile.request.background
-        && !profile.request.store
         && profile.request.stream
         && profile.limits.max_input_entries == MAX_INPUT_ENTRIES
         && profile.limits.max_input_entry_bytes == MAX_INPUT_ENTRY_BYTES

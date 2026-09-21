@@ -61,14 +61,11 @@ impl DeepSeekResponsesTextRenderer {
         let input = self.render_inputs(call)?;
         let request = ResponsesRequest {
             model: self.profile.request_model(),
-            service_tier: self.profile.service_tier(),
             input,
             max_output_tokens: call.max_output_tokens(),
             reasoning: Reasoning { effort: "none" },
             tools: Vec::new(),
             tool_choice: "none",
-            background: false,
-            store: false,
             stream: true,
         };
         let mut bytes =
@@ -192,14 +189,11 @@ const fn map_prepare_error(error: &PrepareError) -> DeepSeekRenderError {
 #[derive(Serialize)]
 struct ResponsesRequest<'a> {
     model: &'a str,
-    service_tier: &'a str,
     input: Vec<ResponsesInput<'a>>,
     max_output_tokens: u32,
     reasoning: Reasoning<'a>,
     tools: Vec<Value>,
     tool_choice: &'a str,
-    background: bool,
-    store: bool,
     stream: bool,
 }
 

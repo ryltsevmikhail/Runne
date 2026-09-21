@@ -9,7 +9,7 @@ use thiserror::Error;
 
 use crate::{
     DEEPSEEK_MAX_DECODED_STREAM_BYTES, DEEPSEEK_MAX_NORMALIZED_TEXT_BYTES, DEEPSEEK_MAX_SSE_EVENTS,
-    DEEPSEEK_MAX_SSE_FRAME_BYTES, DEEPSEEK_MAX_SSE_LINES, DEEPSEEK_REQUEST_MODEL, DEEPSEEK_SERVICE_TIER,
+    DEEPSEEK_MAX_SSE_FRAME_BYTES, DEEPSEEK_MAX_SSE_LINES, DEEPSEEK_REQUEST_MODEL,
 };
 
 const MAX_REMOTE_IDENTIFIER_BYTES: usize = 256;
@@ -61,7 +61,7 @@ struct Lifecycle {
     item_id: Option<String>,
     text: String,
     normalized: Vec<ProviderStreamEvent>,
-    next_remote_sequence: u64,
+    last_remote_sequence: Option<u64>,
 }
 
 impl Default for Lifecycle {
@@ -72,7 +72,7 @@ impl Default for Lifecycle {
             item_id: None,
             text: String::new(),
             normalized: Vec::new(),
-            next_remote_sequence: 0,
+            last_remote_sequence: None,
         }
     }
 }
@@ -222,13 +222,13 @@ impl Lifecycle {
             return Err(DeepSeekStreamError::CorrelationMismatch);
         }
         let sequence = required_u64(object, "sequence_number")?;
-        if sequence != self.next_remote_sequence {
+        if self
+            .last_remote_sequence
+            .is_some_and(|last| sequence <= last)
+        {
             return Err(DeepSeekStreamError::CorrelationMismatch);
         }
-        self.next_remote_sequence = self
-            .next_remote_sequence
-            .checked_add(1)
-            .ok_or(DeepSeekStreamError::StreamLimitExceeded)?;
+        self.last_remote_sequence = Some(sequence);
         match event_type {
             "response.created" => self.accept_created(object),
             "response.in_progress" => self.accept_in_progress(object),

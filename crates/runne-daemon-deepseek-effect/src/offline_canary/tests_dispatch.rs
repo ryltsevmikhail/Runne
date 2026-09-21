@@ -10,7 +10,7 @@ use super::{
     tests_authority::{approved_set, reserved_fence_with},
 };
 
-const PRICING: &str = "deepseek-chat-base-2026-08-16/1";
+const PRICING: &str = "deepseek-flash-peak-2026-09-21/1";
 
 struct FakeDispatchBoundaryMint {
     foreign: bool,

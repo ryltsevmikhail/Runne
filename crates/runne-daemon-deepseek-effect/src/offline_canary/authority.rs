@@ -8,10 +8,10 @@ pub(super) use super::approvals::{
 use core::fmt;
 use runne_provider_deepseek::canary::CanaryCandidate;
 
-const MODEL: &str = "deepseek-chat";
+const MODEL: &str = "deepseek-flash";
 const METHOD: &str = "POST";
 const ORIGIN: &str = "https://api.deepseek.com";
-const PRICING: &str = "deepseek-chat-base-2026-08-16/1";
+const PRICING: &str = "deepseek-flash-peak-2026-09-21/1";
 #[derive(Clone, PartialEq)]
 pub(super) enum TrustRoots {
     SystemTrustRootsOnly,
