@@ -7,7 +7,13 @@ pub(in crate::protected_activation) use completion::with_control;
 mod writer_driver;
 #[cfg(unix)]
 include!("runtime/shutdown.rs");
-
+#[cfg_attr(
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    allow(dead_code)
+)]
+#[path = "runtime_state.rs"]
+pub(super) mod runtime_state;
+pub(super) use runtime_state::V3EnrollmentRuntime;
 #[cfg_attr(
     not(all(target_os = "macos", target_arch = "aarch64")),
     allow(dead_code)
@@ -61,20 +67,6 @@ pub(crate) const fn enrollment_transcript_allows_rotation(
     terminal: bool,
 ) -> bool {
     !has_session || terminal
-}
-
-impl V3EnrollmentRuntime {
-    /// Off macOS there is no credential enrollment session in the V3 loop.
-    pub(super) const fn has_session(&self) -> bool {
-        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        {
-            self.session.is_some()
-        }
-        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-        {
-            false
-        }
-    }
 }
 
 pub(crate) struct V3EnrollmentDispatch {
@@ -138,135 +130,6 @@ impl V3EnrollmentDispatch {
         self.qualification_clock = Some(clock);
         self.qualification_verified = Some(verified);
         self
-    }
-}
-
-pub(super) struct V3EnrollmentRuntime {
-    #[cfg(target_os = "macos")]
-    pub(super) deferred_control: Option<zeroize::Zeroizing<Vec<u8>>>,
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    pub(super) round: Option<super::round::RoundContext>,
-    #[cfg_attr(
-        not(all(target_os = "macos", target_arch = "aarch64")),
-        allow(dead_code)
-    )]
-    pub(super) live: Option<super::live_session::LiveEnrollmentSession>,
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    pub(super) broker: Option<crate::protected_activation::broker_handoff::BrokerHandoffDispatch>,
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    pub(super) session: Option<
-        crate::application::provider_credential_enrollment::DaemonProtectedCredentialEnrollmentSession,
-    >,
-    pub(super) terminal: bool,
-    #[cfg(target_os = "macos")]
-    pub(super) claim_measurements: Option<(
-        runne_provider::CredentialMeasurementSnapshot,
-        runne_provider::CredentialBindingDigest,
-    )>,
-    #[cfg(target_os = "macos")]
-    pub(super) channel: Option<
-        crate::application::provider_credential_enrollment::broker::MacOsCredentialBrokerChannel,
-    >,
-    #[cfg(target_os = "macos")]
-    pub(super) credential_service:
-        Option<Arc<crate::protected_activation::CredentialServiceRuntimeGateway>>,
-    #[cfg(target_os = "macos")]
-    pub(super) credential_service_configuration:
-        Option<runne_macos_xpc::CredentialServiceEndpointConfiguration>,
-}
-
-impl V3EnrollmentRuntime {
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    pub(super) fn require_shutdown(&self) -> Result<(), runne_api::LaunchAuthorityError> {
-        require_shutdown_terminal(self.session.as_ref(), self.terminal)
-    }
-
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-    pub(super) fn require_shutdown(&self) -> Result<(), runne_api::LaunchAuthorityError> {
-        let _ = self.terminal;
-        Ok(())
-    }
-
-    #[cfg(target_os = "macos")]
-    pub(super) fn terminate_retained_writer(&mut self) {
-        if let Some(channel) = self.channel.take() {
-            channel.terminate_exact_writer();
-        }
-        if let Some(broker) = self.broker.as_mut() {
-            broker.terminate_retained_writer();
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    pub(super) fn drive_credential_service_rejoin(
-        &mut self,
-        protected: &mut crate::protected_activation::ProtectedActivationChannel,
-        keys: &runne_api::ProtectedActivationKeys,
-        owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
-    ) -> Result<bool, runne_api::LaunchAuthorityError> {
-        let Some(gateway) = self.credential_service.as_ref() else {
-            return Ok(false);
-        };
-        let Some(request) = gateway
-            .take_rejoin_request()
-            .map_err(map_enrollment_error)?
-        else {
-            return Ok(false);
-        };
-        let result = (|| {
-            let now = unix_now_millis()?;
-            let expiry = now
-                .checked_add(5_000)
-                .ok_or(runne_api::LaunchAuthorityError::InvalidContract)?;
-            let prepared = gateway
-                .prepare_rejoin_binding(request, owned, expiry)
-                .map_err(map_enrollment_error)?;
-            let frame =
-                runne_api::CredentialServiceSessionAuthenticator::from_protected_activation(keys)
-                    .require_rejoin(prepared.binding.clone())
-                    .into_control_frame();
-            protected.write_control_frame(&frame)?;
-            let configuration = self
-                .credential_service_configuration
-                .clone()
-                .ok_or(runne_api::LaunchAuthorityError::OwnershipMismatch)?;
-            let rejoined = crate::protected_activation::credential_service_registration::receive_rejoin_registration(
-                protected,
-                keys,
-                &prepared,
-                configuration,
-                unix_now_millis()?,
-            )?;
-            gateway
-                .install(rejoined.session)
-                .map_err(map_enrollment_error)?;
-            Ok(rejoined.deferred)
-        })();
-        gateway
-            .complete_rejoin(request, result.is_ok())
-            .map_err(map_enrollment_error)?;
-        self.deferred_control = result?;
-        Ok(true)
-    }
-
-    #[cfg(target_os = "macos")]
-    pub(super) fn yield_for_credential_service_rejoin(
-        &mut self,
-        protected: &mut crate::protected_activation::ProtectedActivationChannel,
-        keys: &runne_api::ProtectedActivationKeys,
-        owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
-    ) -> Result<bool, runne_api::LaunchAuthorityError> {
-        if self.deferred_control.is_some() {
-            return Ok(false);
-        }
-        if self.drive_credential_service_rejoin(protected, keys, owned)? {
-            return Ok(true);
-        }
-        if protected.control_frame_ready()? {
-            return Ok(false);
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
-        Ok(true)
     }
 }
 

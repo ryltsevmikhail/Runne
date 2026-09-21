@@ -107,6 +107,9 @@ mod enrollment_control_transition_fixture;
 ))]
 #[path = "protected_activation/enrollment_control_transition_tests.rs"]
 mod enrollment_control_transition_tests;
+#[cfg(all(unix, feature = "desktop-protected"))]
+#[path = "protected_activation/enrollment_exchange_platform.rs"]
+mod enrollment_exchange_platform;
 #[cfg(all(test, target_os = "macos"))]
 #[path = "protected_activation/installation_anchor_tests.rs"]
 mod installation_anchor_tests;
