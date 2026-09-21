@@ -42,6 +42,14 @@ fn initialize(root: &Path) {
     // on Windows) makes `worktree add` and submodule checkouts rewrite files
     // with CRLF, which the size-based dirty check then reports as changes.
     git(root, &["config", "core.autocrlf", "false"]);
+    // Pin byte-stable checkouts across clones: `submodule add` creates a
+    // fresh clone whose checkout follows the HOST configuration (repo-local
+    // settings are not inherited by the clone), while production capture
+    // reads with the hardened config-free environment where CRLF worktree
+    // bytes differ from the committed LF blobs. `* -text` disables
+    // end-of-line conversion everywhere, so every checkout of these
+    // repositories is byte-identical regardless of the host configuration.
+    fs::write(root.join(".gitattributes"), b"* -text\n").expect("write gitattributes");
     git(root, &["config", "user.email", "authority@example.invalid"]);
     git(root, &["config", "user.name", "Authority Test"]);
     write_profile_documents(root);
