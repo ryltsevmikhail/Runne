@@ -190,6 +190,13 @@ pub(super) fn command() -> BeginProviderCredentialEnrollment {
     .unwrap()
 }
 
+/// Relay fixture databases live at
+/// `<tempdir>/runne-daemon/relay-control.sqlite3` (nested for the identity
+/// guard); plain readers must open the same nested path.
+pub(super) fn relay_db(root: &std::path::Path) -> std::path::PathBuf {
+    root.join("runne-daemon").join("relay-control.sqlite3")
+}
+
 pub(super) fn assert_zero_operations(database: impl AsRef<std::path::Path>) {
     let connection = rusqlite::Connection::open(database).unwrap();
     let count: i64 = connection

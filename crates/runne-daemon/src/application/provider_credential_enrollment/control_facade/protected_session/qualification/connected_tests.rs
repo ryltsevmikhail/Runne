@@ -95,7 +95,7 @@ fn exchange(mutate_admission: bool) {
         Some(&service),
     );
     let issued = channel.original_ticket_digest().unwrap();
-    let connection = rusqlite::Connection::open(database.path().join("broker.sqlite")).unwrap();
+    let connection = rusqlite::Connection::open(super::tests::broker_db(&database)).unwrap();
     for table in [
         "provider_qualification_admission_fences",
         "provider_credential_ticket_attempts",
