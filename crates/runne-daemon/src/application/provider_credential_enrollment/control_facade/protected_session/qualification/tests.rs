@@ -69,19 +69,58 @@ pub(super) fn now() -> u64 {
 }
 
 pub(super) fn rows(database: &tempfile::TempDir, table: &str) -> i64 {
-    rusqlite::Connection::open(database.path().join("broker.sqlite"))
-        .unwrap()
-        .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
-            row.get(0)
-        })
-        .unwrap()
+    rusqlite::Connection::open_with_flags(
+        database.path().join("runne-daemon").join("broker.sqlite"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap()
+    .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+        row.get(0)
+    })
+    .unwrap()
 }
 
 fn head(database: &tempfile::TempDir) -> (i64, i64, Option<i64>, Option<Vec<u8>>) {
-    rusqlite::Connection::open(database.path().join("broker.sqlite")).unwrap().query_row(
+    rusqlite::Connection::open_with_flags(
+        database.path().join("runne-daemon").join("broker.sqlite"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap()
+    .query_row(
         "SELECT lifecycle_revision, credential_fence, active_credential_version, active_ref_digest FROM provider_credential_authority_heads WHERE provider_id='openai'",
-        [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-    ).unwrap()
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    )
+    .unwrap()
+}
+
+/// Assertion reads must fail WITHOUT creating a missing fixture database: a
+/// reverted create-mode open would silently create it and misreport `no such table`.
+#[test]
+fn assertion_reads_open_existing_fixture_database_read_only() {
+    let database = tempfile::tempdir().unwrap();
+    std::fs::create_dir(database.path().join("runne-daemon")).unwrap();
+    let nested = database.path().join("runne-daemon").join("broker.sqlite");
+    let flat = database.path().join("broker.sqlite");
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            rows(&database, "provider_credential_operations")
+        }))
+        .is_err(),
+        "rows() must fail on a missing fixture database"
+    );
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| head(&database))).is_err(),
+        "head() must fail on a missing fixture database"
+    );
+    assert!(
+        !nested.exists(),
+        "rows()/head() must not create the fixture database"
+    );
+    assert!(
+        !flat.exists(),
+        "rows()/head() must not fall back to a flat fixture path"
+    );
 }
 
 #[test]

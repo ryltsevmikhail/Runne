@@ -67,8 +67,14 @@ fn connected_pair(qualified: bool, exact_broker: bool) {
         verified.load(Ordering::SeqCst),
         if qualified { 2 } else { 1 }
     );
-    let connection =
-        rusqlite::Connection::open(database.path().join("relay-control.sqlite3")).unwrap();
+    let connection = rusqlite::Connection::open_with_flags(
+        database
+            .path()
+            .join("runne-daemon")
+            .join("relay-control.sqlite3"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
     for (table, expected) in [
         ("provider_credential_operations", i64::from(exact_broker)),
         ("provider_credential_ticket_attempts", 0),

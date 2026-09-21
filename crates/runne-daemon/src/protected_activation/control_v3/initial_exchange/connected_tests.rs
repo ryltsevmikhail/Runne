@@ -74,7 +74,12 @@ fn connected_valid_pair_with_extra_frame_closes_before_gcp_and_cannot_cross_sess
         2,
         "registration must complete before combined verification"
     );
-    assert_zero_operations(database.path().join("relay-control.sqlite3"));
+    assert_zero_operations(
+        database
+            .path()
+            .join("runne-daemon")
+            .join("relay-control.sqlite3"),
+    );
     let cleanup = BoundedThread::spawn(move || {
         let stopped = supervisor.stop();
         (stopped, supervisor.owns_runtime())
@@ -111,7 +116,12 @@ fn connected_valid_pair_with_extra_frame_closes_before_gcp_and_cannot_cross_sess
         2,
         "cross-session relay verified"
     );
-    assert_zero_operations(database.path().join("relay-control.sqlite3"));
+    assert_zero_operations(
+        database
+            .path()
+            .join("runne-daemon")
+            .join("relay-control.sqlite3"),
+    );
     drop(unused_peer);
     let cleanup = BoundedThread::spawn(move || next_supervisor.stop());
     assert_eq!(
