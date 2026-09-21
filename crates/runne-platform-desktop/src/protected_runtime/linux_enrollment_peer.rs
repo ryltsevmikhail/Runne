@@ -44,8 +44,11 @@ fn capture_linux_peer(stream: &UnixStream) -> Option<LinuxPeerIdentity> {
 #[cfg(target_os = "linux")]
 fn own_process_facts() -> Option<(u32, u32, String, u64)> {
     let pid = std::process::id();
-    let uid = u32::try_from(rustix::process::geteuid().as_raw()).ok()?;
-    let executable_path = std::fs::read_link("/proc/self/exe").ok()?.to_string_lossy().into_owned();
+    let uid = rustix::process::geteuid().as_raw();
+    let executable_path = std::fs::read_link("/proc/self/exe")
+        .ok()?
+        .to_string_lossy()
+        .into_owned();
     let process_start_ticks = read_process_start_ticks(pid)?;
     Some((pid, uid, executable_path, process_start_ticks))
 }
@@ -60,6 +63,7 @@ fn read_process_start_ticks(pid: u32) -> Option<u64> {
 }
 
 #[cfg(target_os = "linux")]
+#[allow(clippy::too_many_arguments)] // The binding tuple stays explicit.
 fn peer_binding_digest(
     release_tuple: [u8; 32],
     pid: u32,
@@ -90,6 +94,7 @@ fn peer_binding_digest(
 /// Daemon side: authenticates the control-channel peer as the same-uid live
 /// desktop supervisor whose signed V2 claims name exactly this process.
 #[cfg(target_os = "linux")]
+#[must_use]
 pub fn verify_linux_enrollment_peer(
     stream: &UnixStream,
     claims: &runne_api::VerifiedProtectedCredentialEnrollmentPrepareV2<'_>,
@@ -97,7 +102,7 @@ pub fn verify_linux_enrollment_peer(
     let Some(peer) = capture_linux_peer(stream) else {
         return false;
     };
-    let own_uid = u32::try_from(rustix::process::geteuid().as_raw()).unwrap_or(u32::MAX);
+    let own_uid = rustix::process::geteuid().as_raw();
     if peer.uid != own_uid || peer.pid == std::process::id() {
         return false;
     }
@@ -117,6 +122,7 @@ pub fn verify_linux_enrollment_peer(
 /// Supervisor side: measures this exact process into the peer binding digest
 /// the daemon independently recomputes from the live kernel peer.
 #[cfg(target_os = "linux")]
+#[must_use]
 pub fn linux_enrollment_peer_binding(
     release_tuple: [u8; 32],
     launch_authority: [u8; 16],

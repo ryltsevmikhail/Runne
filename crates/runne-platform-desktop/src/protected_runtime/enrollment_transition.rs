@@ -7,9 +7,10 @@
 
 #[cfg(unix)]
 use runne_api::{
-    CredentialBrokerTransferAuthenticator, ProtectedCredentialEnrollmentLaunchBindingV1,
-    ProtectedCredentialEnrollmentLaunchRequestV3, ProtectedCredentialEnrollmentPreludeV2,
-    ProtectedCredentialEnrollmentPrepareV2, ProtectedCredentialEnrollmentReadyV3,
+    CredentialBrokerTransferAuthenticator, DaemonEnrollmentLaunchPreludeV1,
+    ProtectedCredentialEnrollmentLaunchBindingV1, ProtectedCredentialEnrollmentLaunchRequestV3,
+    ProtectedCredentialEnrollmentPreludeV2, ProtectedCredentialEnrollmentPrepareV2,
+    ProtectedCredentialEnrollmentReadyV3,
 };
 
 /// Desktop-held enrollment claims for exactly one transition attempt.
@@ -178,54 +179,7 @@ impl ProtectedBundledRuntimeProcess {
             prelude.publication_key(),
         ));
 
-        let secret = random_nonce().ok_or_else(|| {
-            launch_error(LaunchAuthorityError::RenewalUnavailable)
-        })?;
-        let v1_request = ProtectedLaunchRequestV1::new(
-            compatibility.launch_authority_id(),
-            compatibility.desktop_host_instance_id(),
-            LaunchSecret::from_bytes(secret)
-                .map_err(|_| launch_error(LaunchAuthorityError::InvalidContract))?,
-            now,
-            now.saturating_add(ENROLLMENT_REQUEST_TTL_MILLIS),
-            compatibility.principal_id(),
-            compatibility.profile().clone(),
-            compatibility.executable().clone(),
-            compatibility.runtime_root().to_path_buf(),
-            ActivationDispositionV1::Existing(Box::new(
-                owned.compatibility_owned_launch().stable().clone(),
-            )),
-        )
-        .map_err(launch_error)?;
-        let v3_keys = v1_request.derive_keys();
-        let commitment = CredentialBrokerTransferAuthenticator::from_protected_activation(&v3_keys)
-            .enrollment_launch_commitment(&prelude);
-        let binding = if prelude.platform() == 2 {
-            ProtectedCredentialEnrollmentLaunchBindingV1::linux_arm64(
-                *prelude.installation_identity_digest(),
-                claims.release_tuple_digest,
-                claims.qualification_binding_digest,
-                claims.desktop_peer_binding_digest,
-                claims.desktop_supervisor_generation,
-                commitment,
-            )
-        } else {
-            ProtectedCredentialEnrollmentLaunchBindingV1::macos_apple_silicon(
-                *prelude.installation_identity_digest(),
-                claims.release_tuple_digest,
-                claims.qualification_binding_digest,
-                claims.desktop_peer_binding_digest,
-                claims.desktop_supervisor_generation,
-                commitment,
-            )
-        }
-        .map_err(launch_error)?;
-        let mut v3 = ProtectedCredentialEnrollmentLaunchRequestV3::new(
-            v1_request,
-            owned.provider_binding().clone(),
-            binding,
-        )
-        .map_err(launch_error)?;
+        let mut v3 = Self::build_enrollment_v3_request(claims, compatibility, owned, &prelude, now)?;
         write_frame(
             &mut self.channel,
             &Zeroizing::new(
@@ -250,6 +204,67 @@ impl ProtectedBundledRuntimeProcess {
             owned: owned_v3,
         };
         Ok(profile)
+    }
+
+    /// Builds the V3 launch request bound to the verified prelude: the fresh
+    /// launch secret, the binding chosen by the daemon's prelude platform,
+    /// and the commitment over the exact V3 keys.
+    #[cfg(unix)]
+    fn build_enrollment_v3_request(
+        claims: &EnrollmentTransitionClaims,
+        compatibility: &ProtectedLaunchRequestV1,
+        owned: &ProtectedOwnedLaunchV2,
+        prelude: &DaemonEnrollmentLaunchPreludeV1,
+        now: u64,
+    ) -> Result<ProtectedCredentialEnrollmentLaunchRequestV3, ProtectedBundledRuntimeError> {
+        let secret = random_nonce().ok_or_else(|| {
+            launch_error(LaunchAuthorityError::RenewalUnavailable)
+        })?;
+        let v1_request = ProtectedLaunchRequestV1::new(
+            compatibility.launch_authority_id(),
+            compatibility.desktop_host_instance_id(),
+            LaunchSecret::from_bytes(secret)
+                .map_err(|_| launch_error(LaunchAuthorityError::InvalidContract))?,
+            now,
+            now.saturating_add(ENROLLMENT_REQUEST_TTL_MILLIS),
+            compatibility.principal_id(),
+            compatibility.profile().clone(),
+            compatibility.executable().clone(),
+            compatibility.runtime_root().to_path_buf(),
+            ActivationDispositionV1::Existing(Box::new(
+                owned.compatibility_owned_launch().stable().clone(),
+            )),
+        )
+        .map_err(launch_error)?;
+        let v3_keys = v1_request.derive_keys();
+        let commitment = CredentialBrokerTransferAuthenticator::from_protected_activation(&v3_keys)
+            .enrollment_launch_commitment(prelude);
+        let binding = if prelude.platform() == 2 {
+            ProtectedCredentialEnrollmentLaunchBindingV1::linux_arm64(
+                *prelude.installation_identity_digest(),
+                claims.release_tuple_digest,
+                claims.qualification_binding_digest,
+                claims.desktop_peer_binding_digest,
+                claims.desktop_supervisor_generation,
+                commitment,
+            )
+        } else {
+            ProtectedCredentialEnrollmentLaunchBindingV1::macos_apple_silicon(
+                *prelude.installation_identity_digest(),
+                claims.release_tuple_digest,
+                claims.qualification_binding_digest,
+                claims.desktop_peer_binding_digest,
+                claims.desktop_supervisor_generation,
+                commitment,
+            )
+        }
+        .map_err(launch_error)?;
+        ProtectedCredentialEnrollmentLaunchRequestV3::new(
+            v1_request,
+            owned.provider_binding().clone(),
+            binding,
+        )
+        .map_err(launch_error)
     }
 
     fn fence_ambiguous_transition(&mut self) {
