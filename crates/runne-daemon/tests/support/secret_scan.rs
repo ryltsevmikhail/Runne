@@ -143,6 +143,7 @@ pub fn assert_reader_absent<R: Read>(scanner: &SecretScanner, sink: &str, reader
     }
 }
 
+#[allow(dead_code)] // direct #[path] targets compile this shared support separately
 fn path_label(scanner: &SecretScanner, path: &Path) -> String {
     let Some(path_str) = path.to_str() else {
         return "<unavailable-path>".to_owned();
@@ -154,6 +155,7 @@ fn path_label(scanner: &SecretScanner, path: &Path) -> String {
     }
 }
 
+#[allow(dead_code)] // direct #[path] targets compile this shared support separately
 pub fn assert_file_absent(scanner: &SecretScanner, sink: &str, path: &Path) {
     let label = path_label(scanner, path);
     let file = File::open(path)

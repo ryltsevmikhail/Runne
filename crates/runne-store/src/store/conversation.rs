@@ -1,6 +1,11 @@
 mod commit;
+mod context_scope;
+mod diagnose;
+mod fingerprint_compat;
 mod load;
 mod receipts;
+
+pub use diagnose::ConversationStreamHealth;
 
 use super::*;
 
@@ -18,12 +23,14 @@ impl ConversationRepository for StoreTransaction {
         idempotency_key: &runne_domain::id::IdempotencyKey,
         idempotency_scope: &IdempotencyScope,
         fingerprint: &CommandFingerprint,
+        context_scope: runne_domain::conversation::ConversationContextScope,
     ) -> Result<ConversationReceiptLookup, CommitError> {
         self.lookup_conversation_receipt_impl(
             command_id,
             idempotency_key,
             idempotency_scope,
             fingerprint,
+            context_scope,
         )
     }
 

@@ -140,20 +140,22 @@ impl ProcessFaultFixture {
         core.create_runtime_project(runtime_project_id, "Replay fixture".to_owned())
             .await
             .expect("create canonical project");
+        // NM-06: workspace registered BEFORE the conversation, trust granted.
+        let anchored = prepare_project_conversation_anchor(
+            core.as_ref(),
+            &desktop_database,
+            project_id,
+            runtime_project_id,
+            &daemon_database,
+            "Replay fixture",
+        )
+        .await;
         let snapshot = core
             .open_project_conversation(project_id)
             .await
             .expect("create conversation");
-        let workspace_id = conversation_workspace_id(&desktop_database, project_id);
-        core.create_runtime_workspace(
-            runtime_project_id,
-            workspace_id,
-            "Replay fixture".to_owned(),
-        )
-        .await
-        .expect("create canonical workspace");
-        let conversation_id =
-            CanonicalId::parse(&snapshot.conversation_id).expect("canonical conversation ID");
+        let conversation_id = CanonicalId::parse(&snapshot.conversation_id).expect("id");
+        assert_eq!(conversation_id, anchored);
         drop(core);
         first_child.stop();
         let second_stop = directory.path().join("fault-2.stop");
@@ -271,22 +273,6 @@ impl ProcessFaultFixture {
     fn client(&self) -> &AuthenticatedRuntimeClient {
         self.client.as_ref().expect("connected runtime client")
     }
-}
-
-fn conversation_workspace_id(database_path: &Path, project_id: i64) -> CanonicalId {
-    let connection = Connection::open(database_path).expect("open desktop database");
-    let key = format!("runtime.conversation.project.{project_id}");
-    let serialized: String = connection
-        .query_row("SELECT value FROM settings WHERE key = ?1", [&key], |row| row.get(0))
-        .expect("conversation reference");
-    let value: serde_json::Value =
-        serde_json::from_str(&serialized).expect("conversation reference JSON");
-    CanonicalId::parse(
-        value["workspaceId"]
-            .as_str()
-            .expect("conversation workspace id"),
-    )
-    .expect("canonical conversation workspace ID")
 }
 
 async fn authenticated_client(profile_path: &Path) -> AuthenticatedRuntimeClient {

@@ -24,10 +24,22 @@ pub(super) fn lookup(
     let Some((stored_scope, key, stored_fingerprint, outcome_bytes)) = row else {
         return scope_collision(transaction, context, &bytes);
     };
-    if stored_scope != bytes
-        || key != context.idempotency_key().as_str().as_bytes()
-        || stored_fingerprint != fingerprint.as_bytes()
-    {
+    if stored_scope != bytes || key != context.idempotency_key().as_str().as_bytes() {
+        return Err(Error::Conflict);
+    }
+    let fingerprint_matches = match witness.view() {
+        CommandReconciliationWitnessRef::CreateConversation {
+            conversation_id,
+            workspace_id,
+        } => identity::stored_create_receipt_fingerprint_matches(
+            transaction,
+            conversation_id,
+            workspace_id,
+            &stored_fingerprint,
+        )?,
+        _ => stored_fingerprint == fingerprint.as_bytes(),
+    };
+    if !fingerprint_matches {
         return Err(Error::Conflict);
     }
     match witness.view() {

@@ -20,3 +20,7 @@ include!("provider_execution_recovery/part_11.inc");
 include!("provider_execution_recovery/part_12.inc");
 include!("provider_execution_recovery/part_13.inc");
 include!("provider_execution_recovery/part_14.inc");
+include!("provider_execution_recovery/part_15.inc");
+
+#[path = "../../runne-daemon/tests/support/nm10_rules.rs"]
+mod nm10_rules;

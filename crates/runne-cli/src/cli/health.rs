@@ -104,10 +104,14 @@ pub async fn run_health(profile_path: Option<PathBuf>) -> Result<HealthInfo, Hea
 }
 
 fn format_health_text(info: &HealthInfo) -> String {
+    // Same numeric-core display gate as the doctor Runtime checks: only a
+    // verified `major.minor.patch` core is rendered; the raw daemon-
+    // controlled value (tails, unexpected formats) never reaches a channel.
+    let version = display_version(&info.version);
     if info.healthy {
-        format!("ok (version {})", info.version)
+        format!("ok (version {version})")
     } else {
-        format!("{} (version {})", info.status, info.version)
+        format!("{} (version {version})", info.status)
     }
 }
 
@@ -119,7 +123,7 @@ pub fn format_health(info: &HealthInfo) -> CommandOutput {
         format_health_text(info),
         serde_json::json!({
             "status": info.status,
-            "version": info.version,
+            "version": display_version(&info.version),
             "healthy": info.healthy
         }),
     )
@@ -200,3 +204,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "health_version_tests.rs"]
+mod health_version_tests;

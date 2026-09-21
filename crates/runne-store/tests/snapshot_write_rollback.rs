@@ -101,6 +101,7 @@ fn snapshot_failure_rolls_back_text_events_heads_receipt_lineage_and_both_snapsh
                 workspace_id,
                 command_id: create.command_id,
                 idempotency_key: create.idempotency_key.clone(),
+                scope: runne_api::ConversationContextScope::Workspace,
             },
         )
         .unwrap();

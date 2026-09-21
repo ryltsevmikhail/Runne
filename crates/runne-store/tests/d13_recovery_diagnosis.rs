@@ -109,7 +109,11 @@ fn checkpoint_and_remove_sidecars(database_path: &str) {
 #[test]
 fn zero_byte_database_diagnoses_without_opening() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("zero.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("zero.sqlite")
+    };
     std::fs::write(&path, b"").unwrap();
     assert_eq!(
         diagnose_managed_recovery(&path),
@@ -158,7 +162,11 @@ fn downgraded_schema_version_diagnoses_schema_version_mismatch() {
 #[test]
 fn garbage_file_from_byte_zero_diagnoses_unavailable() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("garbage.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("garbage.sqlite")
+    };
     let garbage = vec![0xC3_u8; 2048];
     std::fs::write(&path, garbage).unwrap();
     assert_eq!(

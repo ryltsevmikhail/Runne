@@ -1,5 +1,8 @@
 use super::super::parse_helpers::*;
 use super::super::*;
+use super::fingerprint_compat::{
+    marker_agrees_with_scope, new_conversation_ids, stored_fingerprint_matches,
+};
 
 impl StoreTransaction {
     pub(super) fn lookup_conversation_receipt_impl(
@@ -8,6 +11,7 @@ impl StoreTransaction {
         idempotency_key: &runne_domain::id::IdempotencyKey,
         idempotency_scope: &IdempotencyScope,
         fingerprint: &CommandFingerprint,
+        context_scope: runne_domain::conversation::ConversationContextScope,
     ) -> Result<ConversationReceiptLookup, CommitError> {
         let conn = self
             .inner
@@ -53,14 +57,21 @@ impl StoreTransaction {
         if let Some((stored_scope, stored_key, stored_fingerprint, stored_outcome)) = by_command {
             let stored_key = parse_idempotency_key_for_commit(stored_key)?;
             let stored_fingerprint = parse_fingerprint(stored_fingerprint)?;
-            if stored_scope == scope
-                && stored_key == *idempotency_key
-                && stored_fingerprint == *fingerprint
-            {
-                let stored_result = ConversationReceiptCodec
-                    .decode(&stored_outcome)
-                    .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
-                return Ok(ConversationReceiptLookup::Duplicate { stored_result });
+            if stored_scope == scope && stored_key == *idempotency_key {
+                let (conversation_id, workspace_id) = new_conversation_ids(idempotency_scope)?;
+                if stored_fingerprint_matches(
+                    &stored_fingerprint,
+                    fingerprint,
+                    conversation_id,
+                    workspace_id,
+                    context_scope,
+                ) && marker_agrees_with_scope(&conn, conversation_id, context_scope)?
+                {
+                    let stored_result = ConversationReceiptCodec
+                        .decode(&stored_outcome)
+                        .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+                    return Ok(ConversationReceiptLookup::Duplicate { stored_result });
+                }
             }
             return Err(CommitError::IdempotencyConflict {
                 stored_command_id: command_id,

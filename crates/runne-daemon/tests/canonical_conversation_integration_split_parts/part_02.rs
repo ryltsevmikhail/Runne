@@ -59,6 +59,7 @@ async fn text_generation_is_authenticated_idempotent_durable_and_queryable_after
         json!({
             "conversationId": CONVERSATION_ID,
             "workspaceId": WORKSPACE_ID,
+            "scope": "workspace",
         }),
     )
     .await;
@@ -76,6 +77,7 @@ async fn text_generation_is_authenticated_idempotent_durable_and_queryable_after
         WORKSPACE_ID,
     )
     .await;
+    support::grant_project_trust(&config, PROJECT_ID);
 
     let created = command(
         &client,
@@ -87,6 +89,7 @@ async fn text_generation_is_authenticated_idempotent_durable_and_queryable_after
         json!({
             "conversationId": CONVERSATION_ID,
             "workspaceId": WORKSPACE_ID,
+            "scope": "workspace",
         }),
     )
     .await;

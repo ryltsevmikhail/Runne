@@ -5,6 +5,8 @@ pub mod digest;
 mod outcome;
 mod outcome_generation;
 mod outcome_match;
+#[cfg(test)]
+mod outcome_match_tests;
 
 pub use command::{ApprovalDecisionKind, NormalizedMutationCommand};
 pub use outcome::{

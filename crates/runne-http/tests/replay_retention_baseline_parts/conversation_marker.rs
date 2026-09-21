@@ -44,7 +44,8 @@ async fn registered_historical_conversation_marker_at_raw_unaligned_offset_close
     let workspace_id = WorkspaceId::from_bytes(uuid_v7(0x61));
     seed_workspace(&store, workspace_id);
     let conversation_id = ConversationId::from_bytes(uuid_v7(0x62));
-    ConversationService::new(store.clone(), store.clone(), authority.clone()).create(&api_context(), CreateConversationInput { conversation_id, workspace_id, command_id: command(7), idempotency_key: key(7) }).unwrap();
+    ConversationService::new(store.clone(), store.clone(), authority.clone()).create(&api_context(), CreateConversationInput { conversation_id, workspace_id, command_id: command(7), idempotency_key: key(7), scope: runne_api::ConversationContextScope::Workspace,
+    }).unwrap();
     ConversationTextService::new(store.clone(), store.clone(), authority, Arc::new(AvailableGuard)).begin(&context(8), BeginConversationTextInput { conversation_id, expected_version: 1, text: MessageText::new(format!("x{marker}")).unwrap() }).unwrap();
     drop(store);
     let connection = open_validated_reader(&path);

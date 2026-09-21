@@ -22,6 +22,10 @@ fn paths_reject_a_layout_outside_the_macos_application_bundle() {
 fn paths_accept_only_the_exact_macos_application_layout() {
     let directory = tempfile::tempdir().unwrap();
     let paths = macos_layout(directory.path());
+    // Admission of the bundle layout is the descriptor-rooted unix production
+    // path; non-unix desktops reject every layout in production (covered by
+    // the swap and outside-bundle assertions below).
+    #[cfg(unix)]
     assert!(NativeEnrollmentArtifactPathsV1::new(&paths[0], &paths[1], &paths[2], &paths[3]).is_ok());
     assert!(NativeEnrollmentArtifactPathsV1::new(&paths[0], &paths[2], &paths[1], &paths[3]).is_err());
 }

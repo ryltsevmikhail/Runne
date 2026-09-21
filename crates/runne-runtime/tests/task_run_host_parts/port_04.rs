@@ -48,6 +48,7 @@ async fn uncertain_provider_effect_preserves_started_generation_for_reconciliati
         CreateCanonicalConversationCommand {
             conversation_id,
             workspace_id: WORKSPACE_ID.parse().unwrap(),
+            scope: runne_api::ConversationContextScope::Workspace,
         },
     )
     .await
@@ -147,6 +148,7 @@ async fn newly_prohibited_provider_input_is_rejected_before_provider_invocation(
         CreateCanonicalConversationCommand {
             conversation_id,
             workspace_id: WORKSPACE_ID.parse().unwrap(),
+            scope: runne_api::ConversationContextScope::Workspace,
         },
     )
     .await

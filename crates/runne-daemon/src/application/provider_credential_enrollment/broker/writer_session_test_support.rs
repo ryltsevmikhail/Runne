@@ -1,3 +1,4 @@
+#[cfg(all(test, unix))]
 use runne_provider::daemon_credential_publication::{
     CredentialSecretPublicationSigner, CredentialWriterSessionAttestationSigner,
 };
@@ -8,6 +9,7 @@ use runne_provider::{
     CredentialWriterSessionRuntimeClaimsV1, CredentialWriterSessionTicketClaimsV1,
 };
 
+#[cfg(all(test, unix))]
 pub(crate) fn attest_publication_signer(
     signer: CredentialWriterSessionAttestationSigner,
     frame: &CredentialBrokerFrame,

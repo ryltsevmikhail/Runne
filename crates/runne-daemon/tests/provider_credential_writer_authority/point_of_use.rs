@@ -97,6 +97,7 @@ async fn prepare_conversation(
             command(&format!("{label}-conversation"))?,
             conversation,
             workspace,
+            runne_api::ConversationContextScope::Workspace,
         ))
         .await
         .map_err(|_| "point-of-use-conversation")?;

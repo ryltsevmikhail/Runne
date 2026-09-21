@@ -9,7 +9,7 @@ pub fn enabled() -> bool {
 }
 
 #[cfg(not(feature = "test-support"))]
-pub fn enabled() -> bool {
+pub const fn enabled() -> bool {
     false
 }
 
@@ -21,9 +21,7 @@ pub fn step(step: &str) {
 }
 
 #[cfg(not(feature = "test-support"))]
-pub fn step(step: &str) {
-    let _ = step;
-}
+pub const fn step(_step: &str) {}
 
 #[cfg(feature = "test-support")]
 pub fn step_failed(step: &str) {
@@ -33,6 +31,4 @@ pub fn step_failed(step: &str) {
 }
 
 #[cfg(not(feature = "test-support"))]
-pub fn step_failed(step: &str) {
-    let _ = step;
-}
+pub const fn step_failed(_step: &str) {}

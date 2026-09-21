@@ -282,6 +282,7 @@ fn counts(path: &std::path::Path) -> (i64, i64, i64) {
         .unwrap()
 }
 
+#[cfg_attr(not(unix), allow(unused_variables))]
 fn secure_directory(path: &std::path::Path) {
     #[cfg(unix)]
     {

@@ -15,9 +15,11 @@ mod journal_wire;
 #[cfg(test)]
 #[path = "updater_journal/tests.rs"]
 mod tests;
+#[cfg(unix)]
+use journal_wire::sync_parent;
 use journal_wire::{
     WireRecord, decode, numbered_path, publish_no_replace, read_bounded_regular_file, sequence_any,
-    sequence_of, state_name, sync_parent, valid_transition, validate_record,
+    sequence_of, state_name, valid_transition, validate_record,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -157,6 +159,7 @@ impl UpdateJournal {
         file.sync_all().map_err(|_| UpdateJournalError::Io)?;
         drop(file);
         publish_no_replace(&temporary, &final_path)?;
+        #[cfg(unix)]
         sync_parent(parent)?;
         for path in self.candidate_paths()? {
             if path != final_path {

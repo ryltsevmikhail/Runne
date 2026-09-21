@@ -151,7 +151,12 @@ fn legacy_unbound_transaction_requires_explicit_native_recovery() {
         format!(
             r#"{{"schemaVersion":1,"state":"staged","version":"1.2.0","artifactSha256":"{}","stagedPath":"{}"}}"#,
             digest(b"desktop"),
-            directory.path().join("staged.update").display(),
+            directory
+                .path()
+                .join("staged.update")
+                .display()
+                .to_string()
+                .replace('\\', "\\\\"),
         ),
     )
     .unwrap();

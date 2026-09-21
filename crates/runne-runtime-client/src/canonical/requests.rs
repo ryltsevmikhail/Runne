@@ -4,21 +4,31 @@ pub struct CreateConversationRequest {
     identity: CommandIdentity,
     conversation_id: CanonicalId,
     workspace_id: CanonicalId,
+    scope: ConversationContextScope,
 }
 
 impl CreateConversationRequest {
-    /// Creates a typed create request.
+    /// Creates a typed create request. The delivery-context scope is part of
+    /// the durable conversation identity and must be stated explicitly.
     #[must_use]
     pub const fn new(
         identity: CommandIdentity,
         conversation_id: CanonicalId,
         workspace_id: CanonicalId,
+        scope: ConversationContextScope,
     ) -> Self {
         Self {
             identity,
             conversation_id,
             workspace_id,
+            scope,
         }
+    }
+
+    /// Durable delivery context carried by this request.
+    #[must_use]
+    pub const fn scope(&self) -> ConversationContextScope {
+        self.scope
     }
 }
 

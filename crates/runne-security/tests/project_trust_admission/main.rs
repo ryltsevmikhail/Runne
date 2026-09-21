@@ -223,6 +223,6 @@ fn path_deny_maps_to_typed_sensitive_path_error() {
             request(SourceChannel::FilesRead, Some("src/main.rs")),
         )
         .expect("clean path admitted");
-    assert_eq!(admitted.policy_version, 1);
+    assert_eq!(admitted.policy_version, 2);
     assert_eq!(admitted.token, TrustToken::new(EPOCH, 1));
 }

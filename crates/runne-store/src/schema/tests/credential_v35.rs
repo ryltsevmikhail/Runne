@@ -147,13 +147,13 @@ fn write_v35_fence(
 #[test]
 fn v35_creates_reopens_and_upgrades_from_v34() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("qualification-v35.sqlite");
+    let path = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("qualification-v35.sqlite") };
     let connection = Connection::open(&path).unwrap();
     apply_migrations_internal(&connection, 34).unwrap();
     assert!(v34_matches(&connection, 34).unwrap());
     apply_migrations(&connection).unwrap();
-    assert_eq!(CURRENT_SCHEMA_VERSION, 39);
-    assert!(v39_matches(&connection, 39).unwrap());
+    assert_eq!(CURRENT_SCHEMA_VERSION, 40);
+    assert!(v40_matches(&connection, 40).unwrap());
     drop(connection);
     drop(open_managed_connection(&path, ConnectionMode::Writer).unwrap());
 }

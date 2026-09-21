@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use runne_api::LaunchAuthorityError;
 
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(super) type TicketClock = Arc<dyn Fn() -> Result<u64, LaunchAuthorityError> + Send + Sync>;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(super) type QualificationClock =

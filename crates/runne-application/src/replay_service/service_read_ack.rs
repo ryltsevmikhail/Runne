@@ -18,6 +18,8 @@ impl ReplayService {
             authority_id,
             epoch,
         );
+        self.nm06_session_delivery_gate(session_id, principal_id, generation, authority_id, epoch)
+            .await?;
         let lease = self.acquire_lease(&request)?;
         self.store
             .read_page(

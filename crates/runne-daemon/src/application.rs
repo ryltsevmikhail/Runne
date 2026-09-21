@@ -32,8 +32,7 @@ use runne_application::prohibited_content::ProhibitedContentPort;
 use runne_application::replay_service::{
     REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES, REPLAY_FRAME_CAPACITY_BYTES,
     REPLAY_PAGE_CAPACITY_BYTES, ReplayAuthorizationLease, ReplayAuthorizationPort,
-    ReplayAuthorizationRequest, ReplayError, ReplayService, ReplayStorePort,
-    validate_replay_reader_capacity,
+    ReplayAuthorizationRequest, ReplayError, ReplayService, validate_replay_reader_capacity,
 };
 use runne_application::service::TaskRunService;
 use runne_domain::event::Sensitivity;
@@ -71,6 +70,9 @@ pub(crate) mod native_process;
 pub(crate) mod native_process_provider;
 #[cfg(feature = "desktop-protected")]
 mod native_process_registry;
+#[cfg(all(feature = "test-support", feature = "desktop-protected"))]
+#[cfg(any(test, feature = "test-support"))]
+pub mod process_gate_fixture;
 #[cfg(not(feature = "desktop-protected"))]
 mod process_unavailable;
 pub(crate) mod provider_credential_enrollment;
@@ -81,10 +83,12 @@ mod provider_status;
 mod quota;
 mod readiness;
 mod replay_authorization;
+#[cfg(feature = "test-support")]
+pub mod replay_authorization_fixture;
 #[cfg(all(unix, feature = "test-support", feature = "desktop-protected"))]
 #[doc(hidden)]
 pub mod root_admission_authority_fixture;
-#[cfg(all(feature = "test-support", feature = "desktop-protected"))]
+#[cfg(all(unix, feature = "test-support", feature = "desktop-protected"))]
 pub(crate) mod root_admission_test_support;
 #[cfg(not(feature = "desktop-protected"))]
 mod root_admission_unavailable;
@@ -96,6 +100,7 @@ mod shutdown;
 mod startup;
 #[cfg(test)]
 mod tests;
+pub(crate) mod trust_delivery;
 pub(crate) mod workspace_internal;
 
 use runtime_connection::open_runtime_connection;

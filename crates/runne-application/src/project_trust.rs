@@ -16,7 +16,11 @@
 use thiserror::Error;
 
 /// Frozen deny-policy version implemented by `runne-security`.
-pub const FROZEN_POLICY_VERSION: u64 = 1;
+/// Policy revision 2 (2026-09-19): Unicode case-mapped over-deny keys, the
+/// extended frozen deny set (OpenSSH defaults, `.git-credentials`, dotenv
+/// family prefix) and trailing-dot/space rejection. See
+/// docs/05-security/T1_SOURCE_PATH_INVENTORY.md §G3 revision history.
+pub const FROZEN_POLICY_VERSION: u64 = 2;
 
 /// Stable identifier of a project inside the trust store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -264,6 +268,14 @@ pub trait ProjectTrustPersistence: Send + Sync {
         &self,
         project: ProjectTrustProjectId,
     ) -> Result<ProjectTrustRecord, TrustPersistenceError>;
+
+    /// Whether the project has an explicitly committed trust row (i.e. it is
+    /// under T1 delivery governance). Projects without any committed row keep
+    /// pre-T1 delivery behavior until the grant path ships.
+    fn has_explicit_record(
+        &self,
+        project: ProjectTrustProjectId,
+    ) -> Result<bool, TrustPersistenceError>;
 
     /// Instance epoch of the durable sidecar (0 only when unavailable).
     fn instance_epoch(&self) -> Result<u64, TrustPersistenceError>;

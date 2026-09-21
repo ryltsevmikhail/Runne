@@ -58,6 +58,17 @@ pub trait ReplayStorePort: Send + Sync {
         ))
     }
 
+    /// Resolves one open session's delivery scope for delivery-time trust
+    /// re-checks (NM-06). `Ok(None)` marks an unknown session (callers fall
+    /// through to the store's own handling); `Err` is a storage failure and
+    /// must fail closed — never treated as absence.
+    fn session_delivery_scope(
+        &self,
+        _session_id: &[u8; 16],
+    ) -> Result<Option<(i32, [u8; 16])>, ReplayError> {
+        Ok(None)
+    }
+
     async fn open_session(
         &self,
         principal_id: &str,

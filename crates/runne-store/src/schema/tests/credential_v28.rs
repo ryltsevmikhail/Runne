@@ -47,14 +47,14 @@ fn v28_catalog_matches_the_applied_receipt_schema() {
 #[test]
 fn production_store_open_migrates_v28_to_v35() {
     let directory = tempfile::tempdir().unwrap();
-    let created = directory.path().join("created-v28.sqlite");
+    let created = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("created-v28.sqlite") };
     let connection = Connection::open(&created).unwrap();
     apply_migrations_internal(&connection, 28).unwrap();
     drop(connection);
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&created).unwrap());
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&created).unwrap());
 
-    let migrated = directory.path().join("migrated-v28.sqlite");
+    let migrated = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("migrated-v28.sqlite") };
     let connection = Connection::open(&migrated).unwrap();
     initialize_released_v23(&connection);
     apply_migrations_internal(&connection, 27).unwrap();
@@ -62,14 +62,14 @@ fn production_store_open_migrates_v28_to_v35() {
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&migrated).unwrap());
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&migrated).unwrap());
     let connection = Connection::open(&migrated).unwrap();
-    assert_eq!(current_schema_marker(&connection), 39);
-    assert!(v39_matches(&connection, 39).unwrap());
+    assert_eq!(current_schema_marker(&connection), 40);
+    assert!(v40_matches(&connection, 40).unwrap());
 }
 
 #[test]
 fn production_store_open_rejects_tampered_v28_catalog_without_writing() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("tampered-v28.sqlite");
+    let path = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("tampered-v28.sqlite") };
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&path).unwrap());
     let connection = Connection::open(&path).unwrap();
     connection

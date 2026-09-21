@@ -112,6 +112,7 @@ mod append_helpers;
 mod clock;
 mod component_guard;
 mod conversation;
+pub use conversation::ConversationStreamHealth;
 mod core;
 mod correlation;
 mod enrollment_launch;

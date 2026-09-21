@@ -7,8 +7,16 @@ async fn production_replay_handoff_delivers_conversation_created_over_sse() {
         client,
         authorization,
     } = connect_session(&config).await;
+    support::seed_project_workspace(
+        &client,
+        daemon.address,
+        &authorization,
+        PROJECT_ID,
+        WORKSPACE_ID,
+    )
+    .await;
+    support::grant_project_trust(&config, PROJECT_ID);
     let aggregate_id = hex::encode(uuid::Uuid::parse_str(CONVERSATION_ID).unwrap().as_bytes());
-
     let opened = client
         .post(url(daemon.address, "/v1/replay/open-session"))
         .header("authorization", &authorization)
@@ -24,7 +32,6 @@ async fn production_replay_handoff_delivers_conversation_created_over_sse() {
     assert_eq!(opened["events"], json!([]));
     assert_eq!(opened["hasMore"], false);
     let session_id = opened["sessionId"].as_str().unwrap();
-
     let completed = client
         .post(url(
             daemon.address,
@@ -68,6 +75,7 @@ async fn production_replay_handoff_delivers_conversation_created_over_sse() {
         json!({
             "conversationId": CONVERSATION_ID,
             "workspaceId": WORKSPACE_ID,
+            "scope": "workspace",
         }),
     )
     .await;
@@ -107,6 +115,15 @@ async fn acknowledged_replay_cursor_reopens_inclusively_after_daemon_restart() {
         client,
         authorization,
     } = connect_session(&config).await;
+    support::seed_project_workspace(
+        &client,
+        daemon.address,
+        &authorization,
+        PROJECT_ID,
+        WORKSPACE_ID,
+    )
+    .await;
+    support::grant_project_trust(&config, PROJECT_ID);
     let aggregate_id = hex::encode(uuid::Uuid::parse_str(CONVERSATION_ID).unwrap().as_bytes());
 
     let created = command(
@@ -119,6 +136,7 @@ async fn acknowledged_replay_cursor_reopens_inclusively_after_daemon_restart() {
         json!({
             "conversationId": CONVERSATION_ID,
             "workspaceId": WORKSPACE_ID,
+            "scope": "workspace",
         }),
     )
     .await;

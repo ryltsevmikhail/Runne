@@ -82,7 +82,7 @@ fn v35_classification_and_managed_reopen_reject_case_changed_literals() {
         ("'service'", "'SERVICE'"),
     ] {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("case-mutated-v35.sqlite");
+        let path = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("case-mutated-v35.sqlite") };
         let connection = Connection::open(&path).unwrap();
         apply_migrations(&connection).unwrap();
         replace_v35_table_with_case_mutation(&connection, from, to);

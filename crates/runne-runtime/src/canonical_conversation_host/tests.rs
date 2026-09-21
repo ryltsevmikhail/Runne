@@ -17,6 +17,7 @@ where
             workspace_id: command.workspace_id,
             command_id: application_context.command_id,
             idempotency_key: application_context.idempotency_key.clone(),
+            scope: command.scope,
         };
         let service = Arc::clone(&self.create_service);
         let output = tokio::task::spawn_blocking(move || {

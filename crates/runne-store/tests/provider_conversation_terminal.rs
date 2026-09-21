@@ -91,6 +91,7 @@ fn production_terminal_application_reconstructs_started_command_and_finishes_onc
                 workspace_id,
                 command_id: create_context.command_id,
                 idempotency_key: create_context.idempotency_key.clone(),
+                scope: runne_api::ConversationContextScope::Workspace,
             },
         )
         .unwrap();
@@ -198,7 +199,11 @@ fn production_terminal_application_reconstructs_started_command_and_finishes_onc
              DROP TABLE IF EXISTS process_registry;
              DROP INDEX IF EXISTS idx_approvals_pending;
              DROP TABLE IF EXISTS approvals; DROP TABLE IF EXISTS provider_online_credential_effect_bindings; DROP TABLE IF EXISTS provider_online_dispatch_claim_providers; DROP TABLE IF EXISTS provider_online_dispatch_issuance_evidence; DROP TABLE IF EXISTS provider_credential_completion_receipts; DROP TABLE IF EXISTS provider_credential_process_attachments; DROP TABLE IF EXISTS provider_credential_operations; DROP TABLE IF EXISTS provider_credential_ticket_attempts; DROP TABLE IF EXISTS provider_credential_authority_heads; DROP TABLE IF EXISTS provider_credential_readiness_observations; DROP TABLE IF EXISTS provider_credential_verification_observations; DROP TABLE IF EXISTS provider_subscription_budgets;
-             DELETE FROM schema_version WHERE version >= 19;",
+             DROP TABLE IF EXISTS conversation_context_scope;
+         DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_insert;
+         DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_update;
+         DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_delete;
+         DELETE FROM schema_version WHERE version >= 19;",
     )
         .unwrap();
     v37_accounting_downgrade::restore_v36_accounting(&connection).unwrap();

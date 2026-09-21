@@ -148,3 +148,70 @@ async fn real_process_live_epoch_revocation_closes_revoked_without_local_mutatio
     );
     assert_eq!(local_projection_state(&fixture.desktop_database), before);
 }
+
+/// Prepares the durable desktop-side conversation anchor and the runtime-side
+/// preconditions so the project conversation is deliverable under the NM-06
+/// context-scope contract: the workspace is REGISTERED before the
+/// conversation exists (no create->register window) and the project carries
+/// an explicit Trusted record before the first delivery.
+async fn prepare_project_conversation_anchor(
+    core: &AppCore,
+    desktop_database: &Path,
+    project_id: i64,
+    runtime_project_id: CanonicalId,
+    daemon_database: &Path,
+    display_name: &str,
+) -> CanonicalId {
+    let conversation_id = CanonicalId::now_v7();
+    let workspace_id = CanonicalId::now_v7();
+    let create_command_id = CanonicalId::now_v7();
+    let reference = serde_json::json!({
+        "schemaVersion": 1,
+        "conversationId": conversation_id.to_string(),
+        "workspaceId": workspace_id.to_string(),
+        "createCommandId": create_command_id.to_string(),
+        "idempotencyKey": create_command_id.to_string(),
+    });
+    Connection::open(desktop_database)
+        .expect("open desktop database")
+        .execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)",
+            rusqlite::params![
+                format!("runtime.conversation.project.{project_id}"),
+                reference.to_string()
+            ],
+        )
+        .expect("seed conversation reference");
+    grant_daemon_project_trust(daemon_database);
+    core.create_runtime_workspace(
+        runtime_project_id,
+        workspace_id,
+        display_name.to_owned(),
+    )
+    .await
+    .expect("register canonical workspace before the conversation");
+    conversation_id
+}
+
+/// Grants Trusted to the daemon's single canonical project by writing the
+/// daemon's trust sidecar with the daemon's own authority id.
+fn grant_daemon_project_trust(daemon_database: &Path) {
+    use runne_application::project_trust::{
+        ProjectTrustPersistence, ProjectTrustProjectId, ProjectTrustStatus,
+    };
+    let connection = Connection::open(daemon_database).expect("open daemon database");
+    let authority = runne_store::schema::read_authority_id(&connection)
+        .expect("read authority id")
+        .expect("authority id present");
+    let project_id: Vec<u8> = connection
+        .query_row("SELECT project_id FROM projects LIMIT 1", [], |row| row.get(0))
+        .expect("canonical project row");
+    drop(connection);
+    let store = runne_store::ProjectTrustStore::open(daemon_database, authority)
+        .expect("open daemon trust sidecar");
+    let project = ProjectTrustProjectId::from_bytes(fixed_16(&project_id));
+    let record = store.load(project).expect("trust record");
+    store
+        .commit(project, ProjectTrustStatus::Trusted, 0, record.token())
+        .expect("grant project trust");
+}

@@ -28,6 +28,20 @@ const FORBIDDEN: &[&str] = &[
     "provider_credential_status",
 ];
 
+/// Renders a relative path for diagnostics with forward slashes on every
+/// host, so violation text is stable and assertions are portable. The
+/// rendering goes through path components, so a separator character that is
+/// part of a file name (legal on unix) is never rewritten. Matching logic —
+/// allowlist containment, target validation, the file walk — keeps using
+/// `Path` semantics unchanged.
+fn rendered(relative: &Path) -> String {
+    relative
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 pub(super) fn daemon_source_violations(source: &Path) -> Vec<String> {
     collect_source_tree_violations(source, ALLOWED_WRITER_FIXTURES)
 }
@@ -44,7 +58,7 @@ pub(super) fn collect_source_tree_violations(source: &Path, allowed: &[&str]) ->
         .collect::<BTreeSet<_>>();
     let mut violations = allowed
         .difference(&present)
-        .map(|path| format!("{}: allowlisted writer fixture is missing", path.display()))
+        .map(|path| format!("{}: allowlisted writer fixture is missing", rendered(path)))
         .collect::<Vec<_>>();
 
     for path in files {
@@ -55,7 +69,7 @@ pub(super) fn collect_source_tree_violations(source: &Path, allowed: &[&str]) ->
             if !contents.starts_with("#![cfg(test)]\n") {
                 violations.push(format!(
                     "{}: allowed writer fixture must begin with #![cfg(test)]",
-                    relative.display()
+                    rendered(relative)
                 ));
             }
             continue;
@@ -66,7 +80,7 @@ pub(super) fn collect_source_tree_violations(source: &Path, allowed: &[&str]) ->
         for (index, line) in normalized.lines().enumerate() {
             for forbidden in FORBIDDEN {
                 if line.contains(forbidden) {
-                    violations.push(format!("{}:{}: {forbidden}", relative.display(), index + 1));
+                    violations.push(format!("{}:{}: {forbidden}", rendered(relative), index + 1));
                 }
             }
         }
@@ -97,7 +111,7 @@ fn collect_indirection_violations(
         } else {
             violations.push(format!(
                 "{}: dynamic source indirection is forbidden",
-                relative.display()
+                rendered(relative)
             ));
             continue;
         };
@@ -107,7 +121,7 @@ fn collect_indirection_violations(
             }
             _ => violations.push(format!(
                 "{}: dynamic source indirection is forbidden",
-                relative.display()
+                rendered(relative)
             )),
         }
     }
@@ -116,7 +130,7 @@ fn collect_indirection_violations(
             if path_tail.starts_with('/') {
                 violations.push(format!(
                     "{}: dynamic source indirection is forbidden",
-                    relative.display()
+                    rendered(relative)
                 ));
             }
             continue;
@@ -126,7 +140,7 @@ fn collect_indirection_violations(
             None if starts_string_literal(assignment) || assignment.starts_with('/') => {
                 violations.push(format!(
                     "{}: dynamic source indirection is forbidden",
-                    relative.display()
+                    rendered(relative)
                 ));
             }
             None => {}
@@ -184,7 +198,7 @@ fn validate_target(
     if !target_stays_within(source, file, target) {
         violations.push(format!(
             "{}: source indirection escapes scan root: {target}",
-            relative.display()
+            rendered(relative)
         ));
     }
 }

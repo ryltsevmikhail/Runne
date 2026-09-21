@@ -32,6 +32,7 @@ fn executable_tempdir() -> TempDir {
     directory
 }
 
+#[cfg_attr(not(unix), allow(unused_variables))]
 pub fn secure_directory(path: &Path) {
     #[cfg(unix)]
     {

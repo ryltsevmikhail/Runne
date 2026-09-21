@@ -9,6 +9,44 @@ pub enum ConversationState {
     Closed,
 }
 
+// ── ConversationContextScope ──────────────────────────────────────────────
+
+/// Durable delivery-context classification recorded when a Conversation is
+/// created. The marker — not the absence of records — is what a delivery
+/// trust gate reasons over: a missing marker is an unknown provenance, never
+/// an implicit text-only grant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConversationContextScope {
+    /// Project-scoped conversation: delivery requires a resolvable workspace
+    /// bound to an explicitly trusted, currently admitted project.
+    Workspace,
+    /// Explicitly local, bounded text-only conversation: delivery is allowed
+    /// without any workspace or project-trust resolution.
+    TextOnly,
+}
+
+impl ConversationContextScope {
+    /// Stable storage/wire representation of this scope.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Workspace => "workspace",
+            Self::TextOnly => "text_only",
+        }
+    }
+
+    /// Parses the stable storage/wire representation. Unknown values are
+    /// rejected instead of being widened into a permitted scope.
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "workspace" => Some(Self::Workspace),
+            "text_only" => Some(Self::TextOnly),
+            _ => None,
+        }
+    }
+}
+
 // ── ConversationEventKind ─────────────────────────────────────────────────
 
 /// Discriminant-only representation of a [`ConversationEvent`].

@@ -66,8 +66,8 @@ pub use protected_runtime::{
 pub use receiver::{CommittedDirectory, ReceiverDisposition, StagedHandleReceiver};
 #[cfg(windows)]
 pub use regular_file::{
-    NativeFileError, RegularFileId, RegularFileSnapshot, inspect_regular_file,
-    move_regular_file_no_replace_write_through, sync_regular_file,
+    NativeFileError, RegularFileId, RegularFileSnapshot, identity_of_open_file,
+    inspect_regular_file, move_regular_file_no_replace_write_through, sync_regular_file,
 };
 #[cfg(windows)]
 pub use transfer::{ProtectedHandleReceiver, ProtectedHandleSender};

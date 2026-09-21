@@ -84,6 +84,7 @@ async fn dispatch_command(
 ) -> Result<CommandOutput, CliError> {
     match command.as_str() {
         "conversation" => run_conversation(profile_path, arguments).await,
+        "task" => run_task(profile_path, arguments).await,
         "status" => run_status_command(profile_path, arguments).await.map(CommandOutput::text),
         "health" => run_health_command(profile_path, arguments).await,
         "doctor" => run_doctor_command(profile_path, arguments, format).await,
@@ -137,6 +138,7 @@ async fn run_conversation(
                     new_command_identity()?,
                     conversation_id,
                     workspace_id,
+                    ConversationContextScope::Workspace,
                 ))
                 .await
                 .map_err(CliError::Api)?;

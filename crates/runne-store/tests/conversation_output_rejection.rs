@@ -96,6 +96,7 @@ fn rejected_provider_output_is_terminal_idempotent_and_creates_no_assistant_mess
                 workspace_id,
                 command_id: create_context.command_id,
                 idempotency_key: create_context.idempotency_key.clone(),
+                scope: runne_api::ConversationContextScope::Workspace,
             },
         )
         .unwrap();

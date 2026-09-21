@@ -13,7 +13,11 @@ fn corrupt_v16_or_v17_catalog_is_rejected_before_open() {
         use std::os::unix::fs::PermissionsExt as _;
         std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     }
-    let v17 = directory.path().join("corrupt-v17.sqlite");
+    let v17 = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("corrupt-v17.sqlite")
+    };
     let connection = open_managed_connection(&v17, ConnectionMode::Writer).unwrap();
     apply_migrations(&connection).unwrap();
     connection
@@ -22,7 +26,11 @@ fn corrupt_v16_or_v17_catalog_is_rejected_before_open() {
     drop(connection);
     assert!(preflight_existing_file(&v17).is_err());
 
-    let v16 = directory.path().join("corrupt-v16.sqlite");
+    let v16 = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("corrupt-v16.sqlite")
+    };
     let connection = open_managed_connection(&v16, ConnectionMode::Writer).unwrap();
     apply_migrations(&connection).unwrap();
     connection

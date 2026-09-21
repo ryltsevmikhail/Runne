@@ -4788,6 +4788,8 @@ dependencies = [
 name = "runne-runtime"
 version = "0.1.0"
 dependencies = [
+ "aho-corasick",
+ "base64 0.22.1",
  "futures",
  "futures-timer",
  "hex",
@@ -4948,9 +4950,9 @@ dependencies = [
  "runne-secure-store",
  "runne-security",
  "runne-sqlite-handle-identity",
+ "runne-sqlite-native-identity",
  "runne-windows-native-handle",
  "rusqlite",
- "same-file",
  "serde",
  "serde_json",
  "sha2",

@@ -30,6 +30,17 @@ use diff_baseline::{
     WorkspaceBaseline, capture_text_files, change_summary, changed_files, sensitive_path,
 };
 pub(crate) use trust_gate::TrustGate;
+
+/// Test-support gateways for the process-channel pin (absent/present authority).
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn closed_gateway_for_tests() -> RootAdmissionGateway {
+    RootAdmissionGateway(None)
+}
+
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn gateway_for_tests(a: Arc<RootHandleAdmissionAuthority>) -> RootAdmissionGateway {
+    RootAdmissionGateway(Some(a))
+}
 use trust_gate::TrustSourceError;
 #[derive(Clone)]
 pub(crate) struct RootAdmissionGateway(Option<Arc<RootHandleAdmissionAuthority>>);

@@ -75,7 +75,7 @@ async fn real_bundled_process_rotates_session_restarts_and_stops_owned_child() {
     let project = core
         .open_local_project(&project_directory)
         .expect("open local project");
-    prepare_canonical_conversation_workspace(&core, project).await;
+    prepare_canonical_conversation_workspace(&core, project, &runtime_root.join("runne-daemon").join("event-log.db")).await;
     core.open_project_conversation(project)
         .await
         .expect("open runtime conversation");

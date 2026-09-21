@@ -1,4 +1,8 @@
 impl ProtectedBundledRuntimeProcess {
+    // The v3 renewal clock path is consumed only by the macOS continuous-clock
+    // caller and the macOS-gated renewal suites; other hosts keep it compiled
+    // (common protocol logic) and silence the platform-local dead-code lint.
+#[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
     fn renew_v3_profile_with_clock<F>(
         &mut self,
         clock: F,
@@ -65,6 +69,7 @@ impl ProtectedBundledRuntimeProcess {
     }
 
     #[cfg(test)]
+#[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
     fn renew_v3_profile_for_test<F>(
         &mut self,
         clock: F,
@@ -75,6 +80,7 @@ impl ProtectedBundledRuntimeProcess {
         self.renew_v3_profile_with_clock(clock)
     }
 
+#[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
     fn fence_ambiguous_v3_renewal(&mut self) {
         self.graceful_requested = true;
         self.graceful_acknowledged = false;
@@ -89,6 +95,7 @@ impl ProtectedBundledRuntimeProcess {
 }
 
 #[allow(clippy::too_many_arguments)] // The exact V3 authority tuple stays explicit.
+#[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 fn renew_v3_exchange<F>(
     channel: &mut ProtectedChannel,
     request: &runne_api::ProtectedCredentialEnrollmentLaunchRequestV3,
