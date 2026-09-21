@@ -1,10 +1,12 @@
 use super::*;
 
 /// Revalidates the runtime session while holding its rotation lock.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(super) struct LiveEnrollmentSession {
     expected: RuntimeSessionBinding,
 }
 
+#[cfg_attr(not(unix), allow(dead_code))]
 impl LiveEnrollmentSession {
     /// Captured binding only; callers must still compare it under the lock
     /// before a later mutation, since capture does not prevent rotation.
@@ -57,4 +59,7 @@ impl LiveEnrollmentSession {
 }
 
 #[cfg(test)]
+// The tests drive the unix enrollment_v3 transport (UnixStream + the
+// unix-gated enrollment_v3 fixtures); Windows enrollment is Unsupported.
+#[cfg(all(test, unix))]
 mod tests;

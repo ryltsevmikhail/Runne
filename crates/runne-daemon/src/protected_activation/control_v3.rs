@@ -36,6 +36,9 @@ pub(super) use runtime::{V3EnrollmentDispatch, enrollment_transcript_allows_rota
         reason = "standalone V3 entry awaits a launch-path consumer"
     )
 )]
+#[cfg_attr(not(unix), allow(dead_code))]
+// Windows keeps the serving path compiled; the enrollment flow that starts
+// it is typed-Unsupported here.
 pub(crate) fn run_control_loop_v3(
     channel: ProtectedActivationChannel,
     keys: ProtectedActivationKeys,
@@ -64,6 +67,7 @@ pub(crate) fn run_control_loop_v3(
 }
 /// Continues entered V3; failures retain kill authority and reject V1/V2 frames.
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(crate) fn run_control_loop_v3_entered(
     mut channel: ProtectedActivationChannel,
     keys: ProtectedActivationKeys,

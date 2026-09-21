@@ -71,6 +71,10 @@ pub(super) fn upgraded_v25_for_provider(
              DROP TABLE provider_online_dispatch_claim_providers;
              DROP TABLE provider_online_dispatch_issuance_evidence;
              DROP TABLE provider_online_credential_effect_bindings;
+             DROP TRIGGER schema_v12_fence_conversation_context_scope_insert;
+             DROP TRIGGER schema_v12_fence_conversation_context_scope_update;
+             DROP TRIGGER schema_v12_fence_conversation_context_scope_delete;
+             DROP TABLE conversation_context_scope;
              DELETE FROM schema_version WHERE version >= 26;",
     )
         .unwrap();

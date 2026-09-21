@@ -34,7 +34,12 @@ fn schema_v1_is_unbound_and_must_be_explicitly_discarded() {
         format!(
             r#"{{"schemaVersion":1,"state":"staged","version":"1.2.3","artifactSha256":"{}","stagedPath":"{}"}}"#,
             "a".repeat(64),
-            directory.path().join("staged.update").display()
+            directory
+                .path()
+                .join("staged.update")
+                .display()
+                .to_string()
+                .replace('\\', "\\\\")
         ),
     )
     .unwrap();

@@ -7,6 +7,9 @@ use super::{
     RootHandleBrokerError, RootHandleTransferBinding, StableFilesystemIdentity, VerifiedRootHandle,
 };
 
+// Accessors for the desktop-side broker wiring; the consumer lands with the
+// remaining windows port slices.
+#[allow(dead_code)]
 impl VerifiedRootHandle {
     pub(crate) const fn native_handle(&self) -> &DirectoryHandle {
         &self.handle
@@ -97,7 +100,9 @@ pub(super) fn open_process_files(
     executable: &Path,
     cwd: &Path,
 ) -> Result<NativeProcessFiles, RootHandleBrokerError> {
-    root.open_process_files(executable, cwd)
+    // The native validator accepts backslash separators only; process
+    // material arrives with the same `/`-joined shapes as file reads.
+    root.open_process_files(&canonical_path(executable)?, &canonical_path(cwd)?)
         .map(|inner| NativeProcessFiles { inner })
         .map_err(map_native_error)
 }
@@ -170,7 +175,7 @@ pub(super) const fn receive(
 }
 
 #[cfg(feature = "test-support")]
-pub(super) fn test_pair()
+pub(super) const fn test_pair()
 -> Result<(NativeTransferChannel, NativeTransferChannel), RootHandleBrokerError> {
     Err(RootHandleBrokerError::Unavailable)
 }

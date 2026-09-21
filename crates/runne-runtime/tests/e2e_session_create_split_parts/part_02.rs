@@ -159,6 +159,7 @@ async fn sqlite_writer_contention_does_not_block_unrelated_tokio_timers() {
         workspace_id: WORKSPACE_ID.parse().unwrap(),
         command_id: COMMAND_ID.parse().unwrap(),
         idempotency_key: IdempotencyKey::new("async-contention").unwrap(),
+        scope: runne_api::ConversationContextScope::Workspace,
     };
     let host_call = tokio::spawn(async move { host.create_conversation(&context, input).await });
     tokio::time::sleep(std::time::Duration::from_millis(20)).await;

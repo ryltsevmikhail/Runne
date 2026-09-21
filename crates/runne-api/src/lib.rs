@@ -60,6 +60,7 @@ pub mod workspace_diff_query;
 pub mod workspace_files;
 
 /// Stable workspace identifier transported across the public host boundary.
+pub use runne_domain::conversation::ConversationContextScope;
 pub use runne_domain::id::{EventLogLineageId, WorkspaceId};
 
 pub use approval::*;

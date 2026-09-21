@@ -14,3 +14,5 @@ include!("l2_sqlite_split_parts/part_07.rs");
 include!("l2_sqlite_split_parts/part_08.rs");
 include!("l2_sqlite_split_parts/part_09.rs");
 include!("l2_sqlite_split_parts/part_10.rs");
+include!("l2_sqlite_split_parts/part_12.rs");
+include!("l2_sqlite_split_parts/part_13.rs");

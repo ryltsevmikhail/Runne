@@ -169,10 +169,12 @@ fn direct_conversation_commit(
         command_fingerprint: CommandFingerprint::for_create_conversation(
             &conversation_id,
             &workspace_id,
+            runne_domain::conversation::ConversationContextScope::Workspace,
         ),
         expected_version: 0,
         events,
         workspace_id,
+        context_scope: runne_domain::conversation::ConversationContextScope::Workspace,
     }
 }
 

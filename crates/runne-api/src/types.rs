@@ -1,5 +1,6 @@
 //! API data transfer objects and timestamp newtypes.
 
+use runne_domain::conversation::ConversationContextScope;
 use runne_domain::id::{CommandId, ConversationId, IdempotencyKey, WorkspaceId};
 
 /// Unix millisecond timestamp, including timestamps before the Unix epoch.
@@ -45,6 +46,8 @@ pub struct CreateConversationInput {
     pub command_id: CommandId,
     /// Client supplied idempotency key.
     pub idempotency_key: IdempotencyKey,
+    /// Durable delivery context recorded with the conversation.
+    pub scope: ConversationContextScope,
 }
 
 /// Result returned after a conversation has been created durably.

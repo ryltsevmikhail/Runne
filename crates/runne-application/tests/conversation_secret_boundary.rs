@@ -61,6 +61,7 @@ impl ConversationRepository for RecordingRepository {
         _idempotency_key: &IdempotencyKey,
         _idempotency_scope: &IdempotencyScope,
         _fingerprint: &CommandFingerprint,
+        _context_scope: runne_domain::conversation::ConversationContextScope,
     ) -> Result<ConversationReceiptLookup, CommitError> {
         panic!("create-conversation lookup is outside this test")
     }

@@ -37,20 +37,6 @@ impl CommandFingerprint {
         Self(hasher.finalize().into())
     }
 
-    /// Create a fingerprint for `CreateConversation`.
-    pub fn for_create_conversation(
-        conversation_id: &ConversationId,
-        workspace_id: &WorkspaceId,
-    ) -> Self {
-        let mut hasher = Sha256::new();
-        hasher.update(DOMAIN_PREFIX);
-        hasher.update(SCHEMA_VERSION.to_be_bytes());
-        hasher.update([TAG_CREATE_CONVERSATION]);
-        hasher.update(conversation_id.as_bytes());
-        hasher.update(workspace_id.as_bytes());
-        Self(hasher.finalize().into())
-    }
-
     /// Create a fingerprint for one Conversation text execution.
     pub fn for_generate_conversation_text(
         conversation_id: &ConversationId,

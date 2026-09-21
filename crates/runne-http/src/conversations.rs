@@ -11,10 +11,10 @@ use axum::{
 };
 use runne_api::{
     ApiActor, CanonicalConversationMessage, CanonicalMessageText, CanonicalMessageTextError,
-    ConversationCommandContext, ConversationCommandHostPort, ConversationCreatedAck,
-    ConversationHostError, ConversationMessagesSnapshot, ConversationQueryHostPort,
-    ConversationTextResult, CreateCanonicalConversationCommand, GenerateConversationTextCommand,
-    max_message_text_bytes,
+    ConversationCommandContext, ConversationCommandHostPort, ConversationContextScope,
+    ConversationCreatedAck, ConversationHostError, ConversationMessagesSnapshot,
+    ConversationQueryHostPort, ConversationTextResult, CreateCanonicalConversationCommand,
+    GenerateConversationTextCommand, max_message_text_bytes,
 };
 use runne_domain::id::{CommandId, ConversationId, IdempotencyKey, WorkspaceId};
 use serde::{Deserialize, Serialize};
@@ -54,6 +54,7 @@ impl<H> ConversationHttpState<H> {
 struct CreateConversationBody {
     conversation_id: String,
     workspace_id: String,
+    scope: String,
 }
 
 #[derive(Deserialize)]
@@ -144,6 +145,10 @@ where
         Ok(value) => value,
         Err(_) => return bad_request("invalid_workspace_id", &request_id),
     };
+    let scope = match ConversationContextScope::parse(&body.scope) {
+        Some(scope) => scope,
+        None => return bad_request("invalid_conversation_scope", &request_id),
+    };
 
     match state
         .host
@@ -152,6 +157,7 @@ where
             CreateCanonicalConversationCommand {
                 conversation_id,
                 workspace_id,
+                scope,
             },
         )
         .await

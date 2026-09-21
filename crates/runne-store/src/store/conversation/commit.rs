@@ -3,6 +3,7 @@ use super::super::event_guard::*;
 use super::super::parse_helpers::*;
 use super::super::snapshot::refresh_conversation_snapshot;
 use super::super::*;
+use super::context_scope::{CreateReceiptCheck, check_create_receipts};
 
 impl StoreTransaction {
     pub(super) fn commit_conversation_impl(
@@ -21,75 +22,12 @@ impl StoreTransaction {
             .encode(&payload.idempotency_scope)
             .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
 
-        if let Some(stored_fingerprint) = tx
-            .query_row(
-                "SELECT semantic_fingerprint FROM project_workspace_command_receipts
-                 WHERE command_id = ?1",
-                params![payload.command_id.as_bytes()],
-                |row| row.get::<_, Vec<u8>>(0),
-            )
-            .optional()
-            .map_err(map_commit_read_error)?
-        {
-            return Err(CommitError::IdempotencyConflict {
-                stored_command_id: payload.command_id,
-                attempted_command_id: payload.command_id,
-                stored_fingerprint: parse_fingerprint(stored_fingerprint)?,
-                attempted_fingerprint: payload.command_fingerprint,
-            });
-        }
-
-        if let Some((stored_scope, stored_key, stored_fingerprint, stored_outcome)) = tx
-            .query_row(
-                "SELECT idempotency_scope_bytes, idempotency_key, fingerprint, command_outcome
-                 FROM command_receipts WHERE command_id = ?1",
-                params![payload.command_id.as_bytes()],
-                |row| {
-                    Ok((
-                        row.get::<_, Vec<u8>>(0)?,
-                        row.get::<_, Vec<u8>>(1)?,
-                        row.get::<_, Vec<u8>>(2)?,
-                        row.get::<_, Vec<u8>>(3)?,
-                    ))
-                },
-            )
-            .optional()
-            .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?
-        {
-            let stored_key = parse_idempotency_key_for_commit(stored_key)?;
-            let stored_fingerprint = parse_fingerprint(stored_fingerprint)?;
-            if stored_scope == scope
-                && stored_key == payload.idempotency_key
-                && stored_fingerprint == payload.command_fingerprint
-            {
-                let stored_result = ConversationReceiptCodec
-                    .decode(&stored_outcome)
-                    .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+        match check_create_receipts(&tx, &payload, &scope)? {
+            CreateReceiptCheck::Duplicate(stored_result) => {
                 return Ok(ConversationCommitResult::Duplicate { stored_result });
             }
-            return Err(CommitError::IdempotencyConflict {
-                stored_command_id: payload.command_id,
-                attempted_command_id: payload.command_id,
-                stored_fingerprint,
-                attempted_fingerprint: payload.command_fingerprint,
-            });
-        }
-        if let Some((stored_command, stored_fingerprint)) = tx
-            .query_row(
-                "SELECT command_id, fingerprint FROM command_receipts
-                 WHERE idempotency_scope_bytes = ?1 AND idempotency_key = ?2",
-                params![scope, payload.idempotency_key.as_str().as_bytes()],
-                |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?)),
-            )
-            .optional()
-            .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?
-        {
-            return Err(CommitError::IdempotencyConflict {
-                stored_command_id: parse_command_id_for_commit(stored_command)?,
-                attempted_command_id: payload.command_id,
-                stored_fingerprint: parse_fingerprint(stored_fingerprint)?,
-                attempted_fingerprint: payload.command_fingerprint,
-            });
+            CreateReceiptCheck::Conflict(error) => return Err(error),
+            CreateReceiptCheck::Proceed => {}
         }
 
         if payload.events.len() != 1 {
@@ -124,8 +62,11 @@ impl StoreTransaction {
                 && scoped_conversation_id == &conversation_id
                 && scoped_workspace_id == &payload.workspace_id
         );
-        let expected_fingerprint =
-            CommandFingerprint::for_create_conversation(&conversation_id, &payload.workspace_id);
+        let expected_fingerprint = CommandFingerprint::for_create_conversation(
+            &conversation_id,
+            &payload.workspace_id,
+            payload.context_scope,
+        );
         if !scope_matches
             || event.command_id() != &payload.command_id
             || event.idempotency_key() != &payload.idempotency_key
@@ -266,6 +207,9 @@ impl StoreTransaction {
             params![next_global_position],
         )
         .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+        // The delivery-context marker is durable in the SAME transaction as
+        // the creation event: provenance exists from the first commit.
+        self.record_conversation_context_scope(&tx, conversation_id, payload.context_scope, now)?;
         refresh_conversation_snapshot(&tx, conversation_id)?;
 
         let result = ConversationReceipt {

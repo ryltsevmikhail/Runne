@@ -18,6 +18,7 @@ use runne_domain::agent_loop::{
 };
 use runne_domain::command::TerminalResult;
 use runne_domain::context::ContextManifestRef;
+use runne_domain::conversation::ConversationContextScope;
 use runne_domain::id::{ConversationId, IntegrityDigest, TaskRunId, WorkspaceId};
 use runne_domain::message::MessageText;
 use runne_domain::plan::PlanRevisionRef;
@@ -36,6 +37,7 @@ use crate::errors::FingerprintError;
 
 include!("fingerprint/encoding.rs");
 include!("fingerprint/command.rs");
+include!("fingerprint/command_create_conversation.rs");
 
 #[cfg(test)]
 mod tests {

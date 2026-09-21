@@ -14,6 +14,14 @@ use runne_store::{
     },
 };
 
+/// Nested daemon-directory database path: the identity guard validates and
+/// restricts the parent and grandparent, so both must stay test-owned.
+fn nested_db(root: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let daemon = root.join("runne-daemon");
+    std::fs::create_dir_all(&daemon).unwrap();
+    daemon.join(name)
+}
+
 #[test]
 fn concurrent_legitimate_preallocation_has_one_reservation() {
     let directory = tempfile::tempdir().unwrap();
@@ -26,9 +34,12 @@ fn concurrent_legitimate_preallocation_has_one_reservation() {
         std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
-    let path = std::fs::canonicalize(daemon)
-        .unwrap()
-        .join("concurrent.sqlite");
+    // unix resolves the /tmp alias to the real absolute path for the guard;
+    // Windows canonicalize would produce a verbatim \\?\ path that
+    // path_is_safe rejects, and the plain absolute daemon path already is.
+    #[cfg(unix)]
+    let daemon = std::fs::canonicalize(daemon).unwrap();
+    let path = daemon.join("concurrent.sqlite");
     let stores = concurrent_stores(&path, 8);
     let barrier = Arc::new(Barrier::new(9));
     let threads = stores
@@ -62,7 +73,7 @@ fn concurrent_legitimate_preallocation_has_one_reservation() {
 #[test]
 fn clock_regression_rejects_before_allocation() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("clock.sqlite");
+    let path = nested_db(directory.path(), "clock.sqlite");
     let store = store(&path);
     assert_eq!(store.observe_clock(200).unwrap(), 200);
     assert!(matches!(
@@ -76,7 +87,7 @@ fn clock_regression_rejects_before_allocation() {
 #[test]
 fn restart_preserves_reservation_tombstone_clock_and_single_consume() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("restart.sqlite");
+    let path = nested_db(directory.path(), "restart.sqlite");
     let first_store = store(&path);
     let reservation = first_store.preallocate(input(1, 100)).unwrap();
     assert_eq!(first_store.observe_clock(150).unwrap(), 150);
@@ -128,7 +139,7 @@ fn restart_preserves_reservation_tombstone_clock_and_single_consume() {
 #[test]
 fn crash_after_reservation_before_response_reuses_durable_challenge() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("response-crash.sqlite");
+    let path = nested_db(directory.path(), "response-crash.sqlite");
     let before_crash = store(&path);
     let first = before_crash.preallocate(input(1, 100)).unwrap();
     drop(before_crash);
@@ -142,7 +153,7 @@ fn crash_after_reservation_before_response_reuses_durable_challenge() {
 #[test]
 fn reservation_key_collision_rejects_without_amplification() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("collision.sqlite");
+    let path = nested_db(directory.path(), "collision.sqlite");
     let store = store(&path);
     store.preallocate(input(1, 100)).unwrap();
     let mut collision = input(1, 101);
@@ -160,7 +171,7 @@ fn reservation_key_collision_rejects_without_amplification() {
 #[test]
 fn thirty_two_plus_load_is_bounded() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("bounded.sqlite");
+    let path = nested_db(directory.path(), "bounded.sqlite");
     let store = store(&path);
     for key in 0..32_u8 {
         store.preallocate(input(key, 100)).unwrap();
@@ -176,7 +187,7 @@ fn thirty_two_plus_load_is_bounded() {
 #[test]
 fn failed_attempt_fence_survives_restart() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("fenced.sqlite");
+    let path = nested_db(directory.path(), "fenced.sqlite");
     let first_store = store(&path);
     let reservation = first_store.preallocate(input(1, 100)).unwrap();
     let reject = |_: &_| false;

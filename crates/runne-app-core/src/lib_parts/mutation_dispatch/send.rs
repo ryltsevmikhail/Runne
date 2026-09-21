@@ -28,7 +28,7 @@ impl AppCore {
     async fn send_conversation(&self, client: &AuthenticatedRuntimeClient, lease: &PreparedMutationLease) -> Result<MutationDispatchResult, AppCoreError> {
         let unavailable = |_| AppCoreError::RuntimeUnavailable;
         match &lease.request.semantic_command {
-            CanonicalMutationCommand::CreateConversation { conversation_id, workspace_id } => client.create_conversation(CreateConversationRequest::new(lease.request.command_identity.clone(), *conversation_id, *workspace_id)).await.map(MutationDispatchResult::ConversationCreated).map_err(unavailable),
+            CanonicalMutationCommand::CreateConversation { conversation_id, workspace_id } => client.create_conversation(CreateConversationRequest::new(lease.request.command_identity.clone(), *conversation_id, *workspace_id, runne_api::ConversationContextScope::Workspace)).await.map(MutationDispatchResult::ConversationCreated).map_err(unavailable),
             CanonicalMutationCommand::GenerateText { conversation_id, text } => client.generate_text(GenerateTextRequest::new(lease.request.command_identity.clone(), *conversation_id, lease.request.expected_version, text).map_err(|_| AppCoreError::InvalidMutation)?).await.map(MutationDispatchResult::TextGenerated).map_err(unavailable),
             _ => Err(AppCoreError::InvalidMutation),
         }

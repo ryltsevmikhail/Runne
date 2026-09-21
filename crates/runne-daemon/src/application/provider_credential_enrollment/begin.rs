@@ -3,23 +3,26 @@ use runne_api::{
     ProviderCredentialCommandContext, ProviderCredentialEnrollmentHostError,
     ProviderCredentialIntentConsumptionProof, ProviderCredentialOperationSnapshotV2,
 };
-use runne_provider::{
-    ClosePreparedCredentialOperation, CredentialOperationState, ProviderCredentialEnrollmentStore,
-    ProviderId,
-};
+use runne_provider::ProviderCredentialEnrollmentStore;
+#[cfg(unix)]
+use runne_provider::{ClosePreparedCredentialOperation, CredentialOperationState, ProviderId};
 
+#[cfg(unix)]
+use super::operation_projection;
 use super::{
     CredentialEnrollmentReadback, CredentialEnrollmentRecoveryGateway, ProviderCredentialAdmission,
     broker::pending::PendingBrokerRendezvousRegistry,
-    operation_handle::ProviderCredentialOperationHandleIssuer, operation_projection,
+    operation_handle::ProviderCredentialOperationHandleIssuer,
 };
 
 /// Authenticated, recovery-first begin projection with no writer authority.
 pub(crate) struct ProviderCredentialEnrollmentBegin<'a, S: ?Sized, R: ?Sized> {
     admission: ProviderCredentialAdmission,
+    #[cfg_attr(not(unix), allow(dead_code))]
     handles: ProviderCredentialOperationHandleIssuer,
     store: &'a S,
     reader: &'a R,
+    #[cfg_attr(not(unix), allow(dead_code))]
     rendezvous: PendingBrokerRendezvousRegistry,
     #[cfg(test)]
     before_gate_barrier: Option<std::sync::Arc<std::sync::Barrier>>,
@@ -45,7 +48,8 @@ impl<'a, S: ?Sized, R: ?Sized> ProviderCredentialEnrollmentBegin<'a, S, R> {
         }
     }
 
-    #[cfg(test)]
+    // Consumed by the unix rendezvous race scenario only.
+    #[cfg(all(test, unix))]
     pub(crate) fn with_before_gate_barrier(
         mut self,
         barrier: std::sync::Arc<std::sync::Barrier>,
@@ -61,7 +65,6 @@ where
     R: CredentialEnrollmentReadback + ?Sized,
 {
     /// Begins or exactly replays metadata-only enrollment after shared recovery.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn admit(
         &self,
         authority: &ProviderCredentialBaseRequestAuthority,
@@ -78,10 +81,26 @@ where
         if let Some(barrier) = &self.before_gate_barrier {
             barrier.wait();
         }
-        #[cfg(unix)]
-        let gate = self.rendezvous.begin_gate(now_high_water)?;
         #[cfg(not(unix))]
         return Err(ProviderCredentialEnrollmentHostError::Unsupported);
+        #[cfg(unix)]
+        self.admit_with_rendezvous(authority, proof, context, command, now_high_water)
+    }
+
+    /// Unix rendezvous half of the begin flow: the reserved broker transition
+    /// exists only on the unix native transport, so non-unix hosts fail with
+    /// the typed unsupported refusal before reaching this method.
+    #[cfg(unix)]
+    #[allow(clippy::too_many_arguments)]
+    fn admit_with_rendezvous(
+        &self,
+        authority: &ProviderCredentialBaseRequestAuthority,
+        proof: &ProviderCredentialIntentConsumptionProof,
+        context: &ProviderCredentialCommandContext,
+        command: &BeginProviderCredentialEnrollment,
+        now_high_water: i64,
+    ) -> Result<ProviderCredentialOperationSnapshotV2, ProviderCredentialEnrollmentHostError> {
+        let gate = self.rendezvous.begin_gate(now_high_water)?;
         if let Some(operation) = self
             .store
             .find_by_command(context.command_id, &context.idempotency_key)
@@ -90,7 +109,6 @@ where
             drop(gate);
             return self.replay(authority, context, command, operation, now_high_water);
         }
-        #[cfg(unix)]
         let rendezvous = gate.preflight(authority, proof)?;
         let lifecycle = self
             .store
@@ -124,6 +142,7 @@ where
         )
     }
 
+    #[cfg(unix)]
     fn replay(
         &self,
         authority: &ProviderCredentialBaseRequestAuthority,
@@ -178,6 +197,7 @@ where
     }
 }
 
+#[cfg(unix)]
 fn provider(
     provider: runne_api::ProviderCredentialProviderV2,
 ) -> Result<ProviderId, ProviderCredentialEnrollmentHostError> {
@@ -185,6 +205,7 @@ fn provider(
         .map_err(|_| ProviderCredentialEnrollmentHostError::InvalidRequest)
 }
 
+#[cfg(unix)]
 fn action(
     action: runne_api::ProviderCredentialEnrollmentActionV2,
 ) -> Result<runne_provider::CredentialOperationAction, ProviderCredentialEnrollmentHostError> {
@@ -201,6 +222,7 @@ fn action(
     }
 }
 
+#[cfg(unix)]
 fn map_store(
     error: runne_provider::CredentialLifecycleError,
 ) -> ProviderCredentialEnrollmentHostError {

@@ -16,7 +16,7 @@ fn store_with_events(count: i64) -> ReplayStore {
 
 fn file_store_with_events(count: i64) -> (ReplayStore, Connection, TempDir) {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("replay.sqlite");
+    let path = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("replay.sqlite") };
     let connection = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
     apply_migrations(&connection).unwrap();
     connection

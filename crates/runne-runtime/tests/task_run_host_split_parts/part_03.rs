@@ -127,6 +127,7 @@ async fn prohibited_provider_output_is_rejected_durably_without_an_assistant_mes
         CreateCanonicalConversationCommand {
             conversation_id,
             workspace_id,
+            scope: runne_api::ConversationContextScope::Workspace,
         },
     )
     .await

@@ -38,7 +38,7 @@ impl VerifiedDaemonEnrollmentLaunchAuthority {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 impl VerifiedDaemonEnrollmentLaunchAuthority {
     pub(super) fn test_only(
         provider: ProviderActivationBindingV1,

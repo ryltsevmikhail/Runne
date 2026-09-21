@@ -84,6 +84,7 @@ fn project_command_id_blocks_conversation_and_text_receipt_writers() {
                     workspace_id: WorkspaceId::from_bytes(WORKSPACE),
                     command_id: command(40),
                     idempotency_key: key("conversation-collision"),
+                    scope: runne_api::ConversationContextScope::Workspace,
                 },
             )
             .is_err()
@@ -96,6 +97,7 @@ fn project_command_id_blocks_conversation_and_text_receipt_writers() {
                 workspace_id: WorkspaceId::from_bytes(WORKSPACE),
                 command_id: command(41),
                 idempotency_key: key("conversation-create"),
+                scope: runne_api::ConversationContextScope::Workspace,
             },
         )
         .unwrap();

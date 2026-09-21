@@ -19,9 +19,9 @@ fn v39_lineage_rebuild_preserves_rows_and_admits_the_submit_origin() {
 
     apply_migrations(&connection).unwrap();
 
-    assert_eq!(schema_marker(&connection), 39);
+    assert_eq!(schema_marker(&connection), 40);
     assert!(
-        v39_matches(&connection, 39).unwrap(),
+        v40_matches(&connection, 40).unwrap(),
         "upgraded structure: marker={:?} inherited={:?} receipts={:?} triggers={:?} lineage={:?}",
         connection
             .query_row(
@@ -113,7 +113,7 @@ fn lineage_ddl_drift_is_rejected_per_schema_version() {
     // must equally stay rejected.
     let rolled_back = Connection::open_in_memory().unwrap();
     apply_migrations(&rolled_back).unwrap();
-    assert!(v39_matches(&rolled_back, 39).unwrap());
+    assert!(v40_matches(&rolled_back, 40).unwrap());
     let v18_lineage = project_workspace_schema::MIGRATION_V18
         .split(';')
         .map(str::trim)
@@ -138,8 +138,8 @@ fn lineage_ddl_drift_is_rejected_per_schema_version() {
         )
         .unwrap();
     assert!(
-        !v39_matches(&rolled_back, 39).unwrap(),
-        "v18 lineage DDL under a v39 marker is DDL drift"
+        !v40_matches(&rolled_back, 40).unwrap(),
+        "v18 lineage DDL under a v40 marker is DDL drift"
     );
     assert!(classify_schema_version(&rolled_back).is_err());
 }
@@ -148,7 +148,7 @@ fn lineage_ddl_drift_is_rejected_per_schema_version() {
 fn v39_reopens_full_and_no_v19_lineages() {
     for no_v19_lineage in [false, true] {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("taskrun-lineage-v39.sqlite");
+        let path = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("taskrun-lineage-v39.sqlite") };
         let connection = Connection::open(&path).unwrap();
         if no_v19_lineage {
             apply_migrations_internal(&connection, 35).unwrap();
@@ -156,7 +156,7 @@ fn v39_reopens_full_and_no_v19_lineages() {
             apply_migrations_internal(&connection, 19).unwrap();
         }
         apply_migrations(&connection).unwrap();
-        assert!(v39_matches(&connection, 39).unwrap(), "lineage {no_v19_lineage}");
+        assert!(v40_matches(&connection, 40).unwrap(), "lineage {no_v19_lineage}");
         assert_eq!(
             connection
                 .query_row(
@@ -165,7 +165,7 @@ fn v39_reopens_full_and_no_v19_lineages() {
                     |row| row.get::<_, i64>(0),
                 )
                 .unwrap(),
-            if no_v19_lineage { 761 } else { 780 }
+            if no_v19_lineage { 801 } else { 820 }
         );
         drop(connection);
         drop(open_managed_connection(&path, ConnectionMode::Writer).unwrap());

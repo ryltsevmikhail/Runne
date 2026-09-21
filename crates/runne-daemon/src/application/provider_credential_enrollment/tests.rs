@@ -64,7 +64,11 @@ fn concurrent_begin_proof_returns_one_effect_authority_and_one_idempotent_projec
     let (enrollment_authority, measurements) = CredentialEnrollmentAuthorityPair::new().split();
     let store =
         runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_authorities(
-            &directory.path().join("admission.sqlite"),
+            &{
+                let daemon = directory.path().join("runne-daemon");
+                std::fs::create_dir_all(&daemon).unwrap();
+                daemon.join("admission.sqlite")
+            },
             lifecycle_authority,
             enrollment_authority,
         )
@@ -136,10 +140,16 @@ fn broker_rendezvous_id_has_a_separate_hmac_domain_from_resume_handles() {
     );
 }
 
+// Drives the prepared projection through the unix broker rendezvous transport.
+#[cfg(unix)]
 mod begin;
 mod begin_admission;
 #[path = "tests/begin_admission_support.rs"]
 pub(crate) mod begin_admission_support;
+#[path = "tests/begin_windows.rs"]
+mod begin_windows;
+// Races the unix broker rendezvous reservation transport.
+#[cfg(unix)]
 #[path = "tests/begin_race.rs"]
 mod begin_race;
 mod broker;
@@ -152,6 +162,8 @@ mod broker_publication;
 pub(crate) mod broker_recovery_issue;
 #[path = "tests/broker_support.rs"]
 mod broker_support;
+// Drives begin through the unix broker rendezvous host flow.
+#[cfg(unix)]
 mod host;
 pub(super) mod recovery;
 // This module drives the real SQLite store through runne-store's
@@ -165,3 +177,12 @@ mod verified_frames;
 #[path = "tests/verified_frames_support.rs"]
 mod verified_frames_support;
 mod verify_admission;
+
+/// Nested daemon-directory database path for store fixtures: the identity
+/// guard validates and restricts the parent and grandparent, so both must
+/// stay inside the test-owned tempdir.
+pub(super) fn nested_db(root: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let daemon = root.join("runne-daemon");
+    std::fs::create_dir_all(&daemon).unwrap();
+    daemon.join(name)
+}

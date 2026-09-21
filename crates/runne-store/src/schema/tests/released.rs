@@ -36,7 +36,7 @@ fn released_v8_upgrades_atomically_through_provider_v11() {
 
     apply_migrations(&conn).unwrap();
 
-    assert_eq!(CURRENT_SCHEMA_VERSION, 39);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 40);
     assert_eq!(
         conn.query_row("SELECT MAX(version) FROM schema_version", [], |row| row
             .get::<_, i64>(0))
@@ -54,7 +54,7 @@ fn released_v8_upgrades_atomically_through_provider_v11() {
 
 #[test]
 fn every_supported_schema_upgrades_to_current() {
-    for source in 8..=34 {
+    for source in 8..=39 {
         let conn = Connection::open_in_memory().unwrap();
         initialize_supported_schema(&conn, source);
         assert_eq!(schema_marker(&conn), source);
@@ -67,7 +67,7 @@ fn every_supported_schema_upgrades_to_current() {
             CURRENT_SCHEMA_VERSION,
             "source V{source}"
         );
-        assert!(v39_matches(&conn, 39).unwrap(), "source V{source}");
+        assert!(v40_matches(&conn, 40).unwrap(), "source V{source}");
     }
 }
 
@@ -97,7 +97,7 @@ fn initialize_supported_schema(conn: &Connection, version: i64) {
         17 => apply_migrations_through_v17_for_test(conn).unwrap(),
         18 => apply_migrations_through_v18_for_test(conn).unwrap(),
         19 => apply_migrations_through_v19_for_test(conn).unwrap(),
-        20..=34 => apply_migrations_internal(conn, version).unwrap(),
+        20..=39 => apply_migrations_internal(conn, version).unwrap(),
         _ => unreachable!("test controls supported schema versions"),
     }
 }

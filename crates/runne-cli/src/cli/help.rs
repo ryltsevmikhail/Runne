@@ -16,6 +16,7 @@ Options:
 
 Commands:
   conversation     Manage conversations
+  task             Inspect runtime task runs (read-only)
   provider         Manage provider credentials
   status           Show runtime connection status
   health           Check runtime health status
@@ -175,6 +176,9 @@ pub fn help_for(command_path: &[&str]) -> &'static str {
         ["conversation", "create"] => CONVERSATION_CREATE_HELP,
         ["conversation", "send"] => CONVERSATION_SEND_HELP,
         ["conversation", "messages"] => CONVERSATION_MESSAGES_HELP,
+        ["task"] => TASK_HELP,
+        ["task", "list"] => TASK_LIST_HELP,
+        ["task", "get"] => TASK_GET_HELP,
         ["provider"] => PROVIDER_HELP,
         ["provider", "credential"] => PROVIDER_CREDENTIAL_HELP,
         ["provider", "credential", "set"] => PROVIDER_CREDENTIAL_SET_HELP,

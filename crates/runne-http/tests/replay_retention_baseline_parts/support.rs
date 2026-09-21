@@ -146,6 +146,7 @@ async fn retention_gap_fixture_with_shape(
                 workspace_id,
                 command_id: command(2),
                 idempotency_key: key(2),
+                scope: runne_api::ConversationContextScope::Workspace,
             },
         )
         .unwrap();

@@ -46,7 +46,11 @@ fn binding_fixture(expires_at: i64) -> BindingFixture {
     let (enrollment, _) = CredentialEnrollmentAuthorityPair::new().split();
     let store =
         runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_authorities(
-            &directory.path().join("pending-writer.sqlite"),
+            &{
+                let daemon = directory.path().join("runne-daemon");
+                std::fs::create_dir_all(&daemon).unwrap();
+                daemon.join("pending-writer.sqlite")
+            },
             lifecycle,
             enrollment,
         )

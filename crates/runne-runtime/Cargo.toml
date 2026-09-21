@@ -30,6 +30,8 @@ zeroize.workspace = true
 
 [dev-dependencies]
 futures = "0.3"
+base64.workspace = true
+aho-corasick.workspace = true
 runne-api = { path = "../runne-api", features = ["test-support"] }
 runne-opencode-adapter-sqlite = { path = "../runne-opencode-adapter-sqlite" }
 runne-opencode-compat = { path = "../runne-opencode-compat" }

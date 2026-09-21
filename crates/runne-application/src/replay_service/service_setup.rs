@@ -53,6 +53,38 @@ impl ReplayService {
         }
     }
 
+    /// NM-06 pre-delivery gate for session requests: resolves the session's
+    /// delivery scope OUTSIDE any store transaction, then re-checks the
+    /// CURRENT trust admission for conversation-scoped sessions (fail-closed
+    /// on authority errors). Task-run and unknown sessions fall through to
+    /// the store's own handling.
+    async fn nm06_session_delivery_gate(
+        &self,
+        session_id: &[u8; 16],
+        principal_id: &str,
+        generation: i64,
+        authority_id: &[u8; 16],
+        epoch: i64,
+    ) -> Result<(), ReplayError> {
+        // Unknown session: fall through to the store's own not-found handling.
+        // Storage failure: deny — an unresolvable delivery scope is never
+        // treated as "nothing to re-check" (NM-06 fail-closed).
+        let Some((aggregate_type, aggregate_id)) = self.store.session_delivery_scope(session_id)?
+        else {
+            return Ok(());
+        };
+        let scope_request = Self::authorization_request(
+            principal_id,
+            generation,
+            authority_id,
+            epoch,
+            aggregate_type,
+            &aggregate_id,
+        )?;
+        self.authorization.current_lease(&scope_request)?;
+        Ok(())
+    }
+
     fn acquire_lease(
         &self,
         request: &ReplayAuthorizationRequest,

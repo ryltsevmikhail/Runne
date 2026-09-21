@@ -197,7 +197,7 @@ async fn production_tls_reconciles_shared_project_and_conversation_receipts_with
             "/v1/conversations",
             CONVERSATION_COMMAND,
             "conversation-create",
-            json!({"conversationId": CONVERSATION, "workspaceId": WORKSPACE}),
+            json!({"conversationId": CONVERSATION, "workspaceId": WORKSPACE, "scope": "workspace"}),
         )
         .await;
     assert_eq!(conversation.status(), StatusCode::ACCEPTED);

@@ -35,7 +35,7 @@ pub(super) const GUARDED_PATHS: [&str; 16] = ["crates/runne-daemon-deepseek-effe
 pub(super) const SEMANTIC_GUARDED_PATHS: [&str; 1] = ["docs/traceability/TASK5_DEEPSEEK_L4_CANARY.md"];
 #[rustfmt::skip]
 pub(super) const GATE_ORACLE_PATHS: [&str; 2] = ["crates/runne-daemon-deepseek-effect/src/offline_canary/tests_lifecycle.rs", "crates/runne-daemon-deepseek-effect/src/offline_canary/tests_redaction.rs"];
-const PRICING: &str = "deepseek-chat-base-2026-08-16/1";
+const PRICING: &str = "deepseek-flash-peak-2026-09-21/1";
 #[test]
 fn checkpoints_are_four_distinct_pre_boundary_checks() {
     #[rustfmt::skip]
@@ -175,7 +175,7 @@ fn template_and_traceability_are_offline_and_contain_no_rendered_markers() {
     for status in [REPORT_STATUS.0, REPORT_STATUS.1, REPORT_STATUS.2] {
         assert!(template.contains(status));
     }
-    assert!(template.contains("sha256:27b47cd539754d7da86f7ba40f16b80aeb6fc71a0b6e81404c477e365b33a422"));
+    assert!(template.contains("sha256:f69bbad907ac7b5ba9e72fc37ae4ea5fe541fae3396bd04f5035dbcfe2b6e410"));
     assert!(!template.contains("VERIFIED"));
     assert_markers_absent(&template);
     let traceability = read("docs/traceability/TASK5_DEEPSEEK_L4_CANARY.md");

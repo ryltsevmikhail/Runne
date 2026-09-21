@@ -4,7 +4,9 @@ const DOMAIN_PREFIX: &[u8] = b"gocode-cmd\x01";
 /// Current schema version for fingerprint encoding.
 const SCHEMA_VERSION: u16 = 1;
 
-/// Operation tags (must match [`crate::ports::OperationTag`]).
+/// Operation tags (must match [`crate::ports::OperationTag`], except
+/// [`TAG_CREATE_CONVERSATION_V2`], which versions the create-conversation
+/// fingerprint format instead of introducing a new operation).
 const TAG_CREATE: u8 = 1;
 const TAG_QUEUE: u8 = 2;
 const TAG_ADMIT: u8 = 3;
@@ -25,6 +27,11 @@ const TAG_RESUME_LOOP_WAIT: u8 = 17;
 const TAG_GENERATE_CONVERSATION_TEXT: u8 = 18;
 const TAG_CANCEL_TASK_RUN: u8 = 19;
 const TAG_SUBMIT_TASK_RUN: u8 = 20;
+/// Fingerprint-format version 2 for `CreateConversation`: the
+/// security-significant delivery-context scope is part of the semantic
+/// identity. [`TAG_CREATE_CONVERSATION`] remains only as the legacy format
+/// recognized for exact replays of previously stored receipts.
+const TAG_CREATE_CONVERSATION_V2: u8 = 21;
 const CHECKPOINT_BODY_PREFIX: &[u8] = b"gocode-loop-checkpoint-body\x01";
 
 fn begin(tag: u8) -> Sha256 {

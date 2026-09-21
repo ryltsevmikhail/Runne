@@ -134,6 +134,7 @@ fn assert_denied_without_mutation(mode: GuardMode) {
                 workspace_id,
                 command_id: create.command_id,
                 idempotency_key: create.idempotency_key.clone(),
+                scope: runne_api::ConversationContextScope::Workspace,
             },
         )
         .unwrap();

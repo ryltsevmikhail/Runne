@@ -61,6 +61,7 @@ fn seed_snapshot_backed_conversation(config: &ConfigurationSnapshot) -> Snapshot
                 workspace_id,
                 command_id: context.command_id,
                 idempotency_key: context.idempotency_key.clone(),
+                scope: runne_api::ConversationContextScope::Workspace,
             },
         )
         .unwrap();

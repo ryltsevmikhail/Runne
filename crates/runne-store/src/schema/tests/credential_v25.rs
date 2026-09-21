@@ -123,7 +123,7 @@ fn v24_backfill_loads_but_cannot_reauthorize_begin() {
 #[test]
 fn v24_non_terminal_sentinel_row_is_rejected_by_v28_open() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("v24-sentinel.sqlite");
+    let path = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("v24-sentinel.sqlite") };
     let connection = Connection::open(&path).unwrap();
     initialize_released_v23(&connection);
     apply_migrations_internal(&connection, 24).unwrap();

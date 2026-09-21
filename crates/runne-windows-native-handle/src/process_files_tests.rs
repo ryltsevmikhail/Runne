@@ -14,7 +14,7 @@ fn opens_handle_relative_process_material_and_measures_identity() {
     let handle = DirectoryHandle::open(root.path()).expect("root handle");
 
     let files = handle
-        .open_process_files(Path::new("bin/tool.exe"), Path::new("workspace"))
+        .open_process_files(Path::new("bin\\tool.exe"), Path::new("workspace"))
         .expect("process material");
 
     assert!(files.executable_path().is_absolute());

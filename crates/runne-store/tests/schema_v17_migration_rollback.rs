@@ -69,6 +69,7 @@ fn v16_fixture(
                 workspace_id,
                 command_id: create.command_id,
                 idempotency_key: create.idempotency_key.clone(),
+                scope: runne_api::ConversationContextScope::Workspace,
             },
         )
         .unwrap();
@@ -117,6 +118,10 @@ fn v16_fixture(
          DROP TABLE IF EXISTS provider_credential_process_attachments;
          DROP TABLE IF EXISTS provider_credential_operations;
          DROP TABLE IF EXISTS provider_subscription_budgets;
+         DROP TABLE IF EXISTS conversation_context_scope;
+         DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_insert;
+         DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_update;
+         DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_delete;
          DELETE FROM schema_version WHERE version >= 19;",
     )
     .unwrap();

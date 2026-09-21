@@ -64,6 +64,7 @@ async fn prohibited_material_is_absent_from_current_durable_and_outbound_boundar
         CreateCanonicalConversationCommand {
             conversation_id,
             workspace_id: WORKSPACE_ID.parse::<WorkspaceId>().unwrap(),
+            scope: runne_api::ConversationContextScope::Workspace,
         },
     )
     .await

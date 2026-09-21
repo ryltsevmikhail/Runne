@@ -58,18 +58,21 @@ async fn real_process_resume_reapplies_unacknowledged_duplicate_once() {
         .create_runtime_project(runtime_project_id, "Replay fixture".to_owned())
         .await
         .expect("create canonical project");
+    // NM-06 context-scope contract: register the workspace BEFORE the
+    // conversation exists and grant the project before the first delivery.
+    prepare_project_conversation_anchor(
+        &first_core,
+        &desktop_database,
+        project,
+        runtime_project_id,
+        &daemon_database,
+        "Replay fixture",
+    )
+    .await;
     let opened = first_core
         .open_project_conversation(project)
         .await
         .expect("create conversation");
-    first_core
-        .create_runtime_workspace(
-            runtime_project_id,
-            conversation_workspace_id(&desktop_database, project),
-            "Replay fixture".to_owned(),
-        )
-        .await
-        .expect("create canonical workspace");
     assert_eq!(opened.stream_version, 1);
     assert!(opened.messages.is_empty());
 

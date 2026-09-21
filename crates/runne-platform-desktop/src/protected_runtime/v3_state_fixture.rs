@@ -32,7 +32,7 @@ fn v3_fixture_with_peer_digest(
         "principal",
         profile.clone(),
         ExecutableIdentityV1::new([4; 32], [5; 32], 1).expect("executable"),
-        PathBuf::from("/tmp/runtime"),
+        std::env::temp_dir().join("runtime"),
         ActivationDispositionV1::FirstActivation,
     )
     .expect("V1 request");

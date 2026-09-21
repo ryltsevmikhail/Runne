@@ -138,6 +138,7 @@ impl Harness {
             conversation_store: self.store.clone(),
             conversation_service: Arc::clone(&self.conversation_service),
             prohibited_content: Arc::clone(&self.prohibited),
+            trust: Some(crate::application::trust_delivery::DeliveryTrustGate::disabled()),
             profile: openai_profile(),
             adapter_factory: fixture_adapter_factory(),
             provider_id: Cow::Borrowed("openai"),

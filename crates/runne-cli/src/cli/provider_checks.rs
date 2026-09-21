@@ -58,10 +58,18 @@ pub fn active_provider_check(probe: &ActiveProviderProbe) -> DiagnosticCheck {
     }
 }
 
-/// Builds the doctor check for one provider credential (metadata only).
+/// Builds the doctor check for one provider credential (metadata only) from
+/// an already-taken probe.
+///
+/// Callers must probe the store exactly once and derive both this check and
+/// its stable id (`credential_check_id`) from that single observation, so the
+/// message and the id cannot disagree.
 #[must_use]
-pub fn credential_check(id: ProviderCredentialId, provider: &str, active: bool) -> DiagnosticCheck {
-    let probe = probe_credential(id);
+pub fn credential_check_from_probe(
+    probe: CredentialProbe,
+    provider: &str,
+    active: bool,
+) -> DiagnosticCheck {
     let (status, message) = match probe {
         CredentialProbe::Configured => {
             (CheckStatus::Ok, format!("{provider} credential configured"))
@@ -142,7 +150,7 @@ mod provider_checks_tests {
         let config_path = directory.path().join("config.toml");
         std::fs::write(
             &config_path,
-            "schema_version = 2\n[provider_activation]\nmode = \"deepseek_responses_text_v1\"\nprofile_id = \"gocode-deepseek-responses-text/1\"\nprofile_digest = \"25670ffe78dbc7ef4db8911356d9eb4e274167ff9eed0a7cc9b5e66e4085d853\"\n",
+            "schema_version = 2\n[provider_activation]\nmode = \"deepseek_responses_text_v1\"\nprofile_id = \"gocode-deepseek-responses-text/1\"\nprofile_digest = \"0112c4b6ce64739810bb79802ebb5ae6fd8ac563d1d1397ac51f07a190538195\"\n",
         )
         .unwrap();
         let probe = read_active_provider(&config_path);
@@ -150,11 +158,11 @@ mod provider_checks_tests {
             panic!("expected live probe, got {probe:?}");
         };
         assert_eq!(live.provider, "deepseek");
-        assert_eq!(live.model_id, "deepseek-chat");
+        assert_eq!(live.model_id, "deepseek-flash");
         assert_eq!(live.profile_id, "gocode-deepseek-responses-text/1");
         std::fs::write(
             &config_path,
-            "schema_version = 2\n[provider_activation]\nmode = \"deepseek_responses_text_v1\"\nprofile_id = \"runne-deepseek-responses-text/1\"\nprofile_digest = \"25670ffe78dbc7ef4db8911356d9eb4e274167ff9eed0a7cc9b5e66e4085d853\"\n",
+            "schema_version = 2\n[provider_activation]\nmode = \"deepseek_responses_text_v1\"\nprofile_id = \"runne-deepseek-responses-text/1\"\nprofile_digest = \"0112c4b6ce64739810bb79802ebb5ae6fd8ac563d1d1397ac51f07a190538195\"\n",
         )
         .unwrap();
         assert!(matches!(
@@ -169,13 +177,13 @@ mod provider_checks_tests {
             mode: "deepseek_responses_text_v1",
             provider: "deepseek",
             profile_id: "gocode-deepseek-responses-text/1".to_owned(),
-            model_id: "deepseek-chat".to_owned(),
-            model_revision: "2026-08-16".to_owned(),
+            model_id: "deepseek-flash".to_owned(),
+            model_revision: "2026-09-21".to_owned(),
             config_path: PathBuf::from("unused"),
         });
         let lines = format_status_lines(&probe);
         assert!(lines.contains("provider: deepseek"));
-        assert!(lines.contains("model: deepseek-chat"));
+        assert!(lines.contains("model: deepseek-flash"));
         assert!(lines.contains("gocode-deepseek-responses-text/1"));
         assert!(lines.contains("credential: "));
         assert!(!lines.contains("sk-"));

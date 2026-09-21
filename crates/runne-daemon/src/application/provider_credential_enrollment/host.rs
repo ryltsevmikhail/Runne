@@ -132,6 +132,8 @@ pub(crate) trait ProviderCredentialVerificationHost: Send + Sync {
 }
 
 /// Protected host composition with one recovery clock and no credential material.
+/// Compiled on every host; only the unix broker transport constructs it today.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(crate) struct DaemonProviderCredentialEnrollmentHost<'a, S: ?Sized, R: ?Sized, V> {
     begin: ProviderCredentialEnrollmentBegin<'a, S, R>,
     resume: ProviderCredentialEnrollmentResume<'a, S, R>,
@@ -140,6 +142,7 @@ pub(crate) struct DaemonProviderCredentialEnrollmentHost<'a, S: ?Sized, R: ?Size
     now_high_water: Arc<dyn Fn() -> i64 + Send + Sync>,
 }
 
+#[cfg_attr(not(unix), allow(dead_code))]
 impl<'a, S: ?Sized, R: ?Sized, V> DaemonProviderCredentialEnrollmentHost<'a, S, R, V> {
     /// Separates credential material handling into the supplied verification boundary.
     #[allow(clippy::too_many_arguments)]

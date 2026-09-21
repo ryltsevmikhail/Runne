@@ -18,6 +18,7 @@ use runne_domain::verification::PlanEvaluationRef;
 use crate::commands::CommandOutcome;
 use crate::fingerprint::CommandFingerprint;
 
+include!("ports/event_store_task_run.rs");
 include!("ports/event_store.rs");
 include!("ports/unit_of_work.rs");
 include!("ports/runtime.rs");

@@ -1,8 +1,7 @@
-use std::sync::Arc;
-
 use runne_api::{
     ApiPrincipalId, CanonicalMessageText, CommandReconciliationContext,
-    CommandReconciliationWitness, CreateConversationInput, ProjectWorkspaceDisplayNameInput,
+    CommandReconciliationWitness, ConversationContextScope, CreateConversationInput,
+    ProjectWorkspaceDisplayNameInput,
 };
 use runne_application::command_reconciliation::{
     CommandReconciliationEvidence, CommandReconciliationRepository,
@@ -19,11 +18,15 @@ use runne_application::ports::{
 use runne_application::prohibited_content::ProhibitedContentPort;
 use runne_domain::conversation::GenerationFailureReason;
 use runne_domain::event::Actor;
+fn guard() -> Arc<dyn ProhibitedContentPort> {
+    Arc::new(SecretBroker::new().prohibited_content_guard())
+}
 use runne_domain::id::{CommandId, ConversationId, IdempotencyKey, ProjectId, WorkspaceId};
 use runne_domain::message::MessageText;
 use runne_domain::project_workspace::{Project, ProjectWorkspaceDisplayName, Workspace};
 use runne_security::SecretBroker;
 use runne_store::ProjectWorkspaceStore;
+use std::sync::Arc;
 
 #[path = "command_reconciliation/conversation.rs"]
 mod conversation_cases;
@@ -46,10 +49,10 @@ fn project() -> ProjectId {
     "018f47a2-4f8c-7b52-8c35-7a3a14c2d902".parse().unwrap()
 }
 fn workspace() -> WorkspaceId {
-    "018f47a2-4f8c-7b52-8c35-7a3a14c2d903".parse().unwrap()
+    WORKSPACE_ID.parse().unwrap()
 }
 fn conversation() -> ConversationId {
-    "018f47a2-4f8c-7b52-8c35-7a3a14c2d904".parse().unwrap()
+    CONVERSATION_ID.parse().unwrap()
 }
 fn application_context(command: CommandId, key: &str) -> ApplicationCommandContext {
     ApplicationCommandContext {
@@ -58,9 +61,6 @@ fn application_context(command: CommandId, key: &str) -> ApplicationCommandConte
         principal_id: runne_application::ports::PrincipalId("owner".into()),
         actor: Actor::new("test").unwrap(),
     }
-}
-fn guard() -> Arc<dyn ProhibitedContentPort> {
-    Arc::new(SecretBroker::new().prohibited_content_guard())
 }
 
 struct Fixture {
@@ -74,7 +74,7 @@ impl Fixture {
         let (store, _) = validated_reopen::initialize_store(
             file.path(),
             RuntimeAuthorityId("authority".into()),
-            guard(),
+            Arc::new(SecretBroker::new().prohibited_content_guard()),
         )
         .unwrap();
         Self {
@@ -101,7 +101,7 @@ impl Fixture {
                 command(2),
                 &IdempotencyKey::new("workspace").unwrap(),
                 Workspace::create(
-                    workspace(),
+                    WORKSPACE_ID.parse().unwrap(),
                     project(),
                     ProjectWorkspaceDisplayName::new("Workspace".into()).unwrap(),
                 ),
@@ -119,32 +119,28 @@ impl Fixture {
         .create_from_application(
             &command_context,
             CreateConversationInput {
-                conversation_id: conversation(),
-                workspace_id: workspace(),
+                conversation_id: CONVERSATION_ID.parse().unwrap(),
+                workspace_id: WORKSPACE_ID.parse().unwrap(),
                 command_id: command_context.command_id,
                 idempotency_key: command_context.idempotency_key.clone(),
+                scope: ConversationContextScope::Workspace,
             },
         )
         .unwrap();
     }
 }
+const WORKSPACE_ID: &str = "018f47a2-4f8c-7b52-8c35-7a3a14c2d903";
+const CONVERSATION_ID: &str = "018f47a2-4f8c-7b52-8c35-7a3a14c2d904";
+
 fn command(tail: u8) -> CommandId {
-    format!("018f47a2-4f8c-7b52-8c35-7a3a14c3{tail:04x}")
-        .parse()
-        .unwrap()
+    let text = format!("018f47a2-4f8c-7b52-8c35-7a3a14c3{tail:04x}");
+    text.parse().unwrap()
 }
 
 #[test]
 fn project_receipt_and_exact_absence_are_observed_without_writes() {
-    let guard = Arc::new(SecretBroker::new().prohibited_content_guard());
-    let file = validated_reopen::ValidatedTestDatabase::new("command-reconciliation");
-    let (store, _) = validated_reopen::initialize_store(
-        file.path(),
-        RuntimeAuthorityId("authority".into()),
-        guard,
-    )
-    .unwrap();
-    let repository = ProjectWorkspaceStore::from_store(store);
+    let fixture = Fixture::new("command-reconciliation-project");
+    let repository = &fixture.repository;
     let command: CommandId = "018f47a2-4f8c-7b52-8c35-7a3a14c2d901".parse().unwrap();
     let witness = CommandReconciliationWitness::create_project(
         project(),
@@ -209,7 +205,10 @@ fn conversation_and_text_outcomes_follow_durable_receipts() {
     let fixture = Fixture::new("command-reconciliation-conversation-text");
     let create_command = command(4);
     fixture.conversation(create_command, "key");
-    let create = CommandReconciliationWitness::create_conversation(conversation(), workspace());
+    let create = CommandReconciliationWitness::create_conversation(
+        CONVERSATION_ID.parse().unwrap(),
+        WORKSPACE_ID.parse().unwrap(),
+    );
     assert!(matches!(
         fixture
             .repository
@@ -224,20 +223,20 @@ fn conversation_and_text_outcomes_follow_durable_receipts() {
         fixture.store.clone(),
         fixture.store.clone(),
         RuntimeAuthorityId("authority".into()),
-        guard(),
+        Arc::new(SecretBroker::new().prohibited_content_guard()),
     );
     let started = service
         .begin(
             &generate_context,
             BeginConversationTextInput {
-                conversation_id: conversation(),
+                conversation_id: CONVERSATION_ID.parse().unwrap(),
                 expected_version: 1,
                 text: text.clone(),
             },
         )
         .unwrap();
     let witness = CommandReconciliationWitness::generate_conversation_text(
-        conversation(),
+        CONVERSATION_ID.parse().unwrap(),
         1,
         CanonicalMessageText::new("hello").unwrap(),
     );
@@ -252,7 +251,7 @@ fn conversation_and_text_outcomes_follow_durable_receipts() {
             &generate_context,
             FinishConversationTextInput {
                 original: BeginConversationTextInput {
-                    conversation_id: conversation(),
+                    conversation_id: CONVERSATION_ID.parse().unwrap(),
                     expected_version: 1,
                     text,
                 },

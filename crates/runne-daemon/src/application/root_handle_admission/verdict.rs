@@ -1,5 +1,5 @@
 /// Daemon-pinned policy generation; signed claims must match this exact value.
-pub(crate) const PINNED_POLICY_VERSION: u64 = 1;
+pub(crate) const PINNED_POLICY_VERSION: u64 = 2;
 fn same_context(
     left: &RootAdmissionVerificationContext,
     right: &RootAdmissionVerificationContext,

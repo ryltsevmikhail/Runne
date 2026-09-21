@@ -4,10 +4,8 @@ use super::readiness::{
 use super::*;
 #[cfg(test)]
 use crate::application::workspace_internal::ProtectedProviderDependencyCapsule;
-use runne_observability::operational::RecoveryObservationRegistry;
 #[cfg(test)]
 use runne_secure_store::ProviderCredentialId;
-use std::borrow::Cow;
 mod credential_reader;
 mod credential_reconciliation;
 mod dependencies;
@@ -37,11 +35,12 @@ pub struct DaemonCanonicalProviderService {
     pub(super) conversation_service: Arc<dyn ConversationTextCommandService>,
     pub(super) adapter: Arc<dyn CanonicalProviderEffect>,
     pub(super) profile: Arc<SharedTextProviderProfile>,
-    pub(super) provider_id: Cow<'static, str>,
-    pub(super) model_id: Cow<'static, str>,
-    pub(super) model_revision: Cow<'static, str>,
+    pub(super) provider_id: std::borrow::Cow<'static, str>,
+    pub(super) model_id: std::borrow::Cow<'static, str>,
+    pub(super) model_revision: std::borrow::Cow<'static, str>,
     pub(super) keyring: Arc<dyn ProviderJournalKeyring>,
     pub(super) prohibited_content: Arc<dyn ProhibitedContentPort>,
+    pub(super) trust: Option<crate::application::trust_delivery::DeliveryTrustGate>,
     pub(super) scanner_store: Arc<SqliteProviderRecoveryStore>,
     pub(super) tail_store: Arc<dyn WithheldTailStore>,
     pub(super) runtime_authority_id: [u8; 16],
@@ -49,12 +48,11 @@ pub struct DaemonCanonicalProviderService {
     pub(super) runtime_generation: u64,
     pub(super) fencing_token: u64,
     pub(super) launch_capability: ProviderRuntimeLaunchCapability,
-    pub(super) recovery_registry: Arc<RecoveryObservationRegistry>,
+    pub(super) recovery_registry: Arc<runne_observability::operational::RecoveryObservationRegistry>,
 }
 impl DaemonCanonicalProviderService {
-    /// Performs every metadata-only pre-readiness gate and composes production adapters.
     pub(crate) async fn compose(
-        composition: DaemonCanonicalProviderComposition,
+        c: DaemonCanonicalProviderComposition,
     ) -> Result<Arc<Self>, DaemonError> {
         let DaemonCanonicalProviderComposition {
             db_path,
@@ -68,6 +66,7 @@ impl DaemonCanonicalProviderService {
             conversation_store,
             conversation_service,
             prohibited_content,
+            trust,
             profile,
             adapter_factory,
             provider_id,
@@ -77,7 +76,7 @@ impl DaemonCanonicalProviderService {
             credential_id,
             quota_store,
             dependencies,
-        } = composition;
+        } = c;
         let selected_dependencies = dependencies::select(dependencies);
         let effect_source = selected_dependencies.effect;
         #[cfg(all(feature = "test-support", not(test)))]
@@ -119,7 +118,8 @@ impl DaemonCanonicalProviderService {
             profile.as_ref(),
             &scope,
         )?;
-        let recovery_registry = Arc::new(RecoveryObservationRegistry::new().0);
+        let registry =
+            Arc::new(runne_observability::operational::RecoveryObservationRegistry::new().0);
         let keyring =
             retained_keyring.unwrap_or_else(|| native_journal_keyring(runtime_authority_id));
         let tail_store: Arc<dyn WithheldTailStore> = if fixture_transport {
@@ -181,7 +181,7 @@ impl DaemonCanonicalProviderService {
         let enrollment_store_authority = credentials
             .enrollment_authorities
             .as_ref()
-            .map(|authorities| authorities.store.clone());
+            .map(|a| a.store.clone());
         let credential_enrollment_control =
             enrollment_control::compose(&mut credentials, runtime_authority_id, 1)?;
         let matcher = ProhibitedContentCredentialMatcher::new(prohibited_content.as_ref());
@@ -268,6 +268,7 @@ impl DaemonCanonicalProviderService {
             model_revision,
             keyring,
             prohibited_content,
+            trust,
             scanner_store,
             tail_store,
             runtime_authority_id,
@@ -275,7 +276,7 @@ impl DaemonCanonicalProviderService {
             runtime_generation,
             fencing_token,
             launch_capability,
-            recovery_registry,
+            recovery_registry: registry,
         });
         #[cfg(any(
             all(test, unix),

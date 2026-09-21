@@ -25,7 +25,11 @@ impl Clock {
 #[test]
 fn activation_samples_expiry_only_after_waiting_for_the_write_lock() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("activation-lock-expiry.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("activation-lock-expiry.sqlite")
+    };
     let clock = Arc::new(Clock {
         now: AtomicI64::new(100),
         reads: AtomicUsize::new(0),
@@ -71,7 +75,11 @@ fn activation_samples_expiry_only_after_waiting_for_the_write_lock() {
 #[test]
 fn completed_provision_replays_the_exact_operation_and_version() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("completed-provision-replay.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("completed-provision-replay.sqlite")
+    };
     let store = SqliteProviderCredentialLifecycleStore::open_at(&path, 100).unwrap();
     let provider = ProviderId::new("openai").unwrap();
     let operation_id = [0xD1; 16];
@@ -98,7 +106,11 @@ fn completed_provision_replays_the_exact_operation_and_version() {
 #[test]
 fn provision_replay_rejects_changed_source_before_native_create() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("provision-source-conflict.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("provision-source-conflict.sqlite")
+    };
     let store = SqliteProviderCredentialLifecycleStore::open_at(&path, 100).unwrap();
     let provider = ProviderId::new("openai").unwrap();
     let first = store.provision_source([0xE1; 16]).unwrap();
@@ -137,7 +149,11 @@ fn subscription_budget_ignores_stale_absolute_refills_after_spend() {
     use runne_provider_quota::{RemainingState, SubscriptionBudgetAuthority};
 
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("subscription-budget-ordering.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("subscription-budget-ordering.sqlite")
+    };
     let store = SqliteProviderCredentialLifecycleStore::open_at(&path, 100).unwrap();
     let provider = "subscription-fixture";
     assert_eq!(
@@ -176,7 +192,11 @@ fn subscription_budget_persists_spend_across_reopen_and_refill_semantics() {
     use runne_provider_quota::{RemainingState, SubscriptionBudgetAuthority};
 
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("subscription-budget-restart.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("subscription-budget-restart.sqlite")
+    };
     {
         let store = SqliteProviderCredentialLifecycleStore::open_at(&path, 100).unwrap();
         assert_eq!(

@@ -39,7 +39,7 @@ impl DeepSeekTransportPolicy {
     pub fn for_profile(
         profile: &DeepSeekResponsesTextProfile,
     ) -> Result<Self, DeepSeekTransportError> {
-        if profile.origin() != "https://api.deepseek.com" || profile.path() != "/v1/responses" {
+        if profile.origin() != "https://api.deepseek.com" || profile.path() != "/responses" {
             return Err(DeepSeekTransportError::EndpointMismatch);
         }
         Ok(Self {

@@ -16,6 +16,7 @@ mod replay;
 mod sse;
 
 pub use canonical::CommandReconciliationOutcome;
+pub use canonical::ConversationContextScope;
 pub use canonical::{
     APPROVALS_CAPABILITY_V1, ApprovalDecisionAcknowledgementDto, ApprovalDecisionDto,
     ApprovalDecisionRequest, ApprovalStateDto, ApprovalSummaryDto, AuthenticatedRuntimeClient,

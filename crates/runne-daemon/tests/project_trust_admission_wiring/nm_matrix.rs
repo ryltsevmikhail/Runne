@@ -235,3 +235,43 @@ fn nm10_secret_canaries_never_reach_any_gateway_sink() {
     // non-secret file; listings and diffs never carry it.
     assert!(!names.iter().any(|name| name.starts_with('.')), "{names:?}");
 }
+
+/// NM-03 revision 2: Unicode case-mapped collision forms of deny names are
+/// denied at the gateway admission on a trusted project — the file is never
+/// read even though it does not byte-equal the frozen name (NT UPCASE maps
+/// U+0131 to ASCII I, so a case-insensitive platform would open `id_rsa`).
+#[test]
+fn nm03_unicode_case_mapped_deny_forms_stay_denied() {
+    let (directory, path, store) = store();
+    seed_projects(&store);
+    seed_workspace_files(&directory);
+    let (trust_store, authority) = trust_composition(&path);
+    let fixture = fixture_with_trust(&store, authority, sessions());
+    bind_active_root(&fixture, &directory, workspace(), real_now());
+    grant_trusted(&trust_store, project_trust_id(PROJECT));
+
+    std::fs::write(
+        directory.path().join("ıd_rsa"),
+        "RUNNE_T1_FAKE_CANARY_zq71\n",
+    )
+    .expect("homoglyph key fixture");
+
+    let files = &fixture;
+    let error = files
+        .read_file(PRINCIPAL, &read(workspace(), "ıd_rsa"))
+        .expect_err("case-mapped deny form must stay denied");
+    assert!(
+        !format!("{error:?}").contains("RUNNE_T1_FAKE_CANARY_zq71"),
+        "no canary text in the denial"
+    );
+
+    // The exact ASCII name stays denied as before, and the policy revision is
+    // what the admission carries.
+    let error = files
+        .read_file(PRINCIPAL, &read(workspace(), "id_rsa"))
+        .expect_err("exact deny name stays denied");
+    assert!(matches!(
+        error,
+        runne_api::WorkspaceFileHostError::Forbidden
+    ));
+}

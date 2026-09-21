@@ -6,7 +6,11 @@ use super::support::*;
 #[test]
 fn reconcile_validates_every_retired_row_before_selecting_transitions() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("all-retired-before-selection.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("all-retired-before-selection.sqlite")
+    };
     let lifecycle = store(&path);
     for (number, owner, fence) in [(1, OWNER_A, 101), (2, OWNER_B, 102), (3, OWNER_A, 103)] {
         let reference = version(number);
@@ -83,7 +87,11 @@ fn corrupt_retired_eligibility(path: &std::path::Path) {
 #[test]
 fn reconcile_late_corruption_precedes_every_clock_or_lifecycle_mutation() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("late-corruption-tripwire.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("late-corruption-tripwire.sqlite")
+    };
     let lifecycle = store(&path);
     for (number, owner, fence) in [(1, OWNER_A, 111), (2, OWNER_B, 112)] {
         let reference = version(number);
@@ -106,7 +114,11 @@ fn reconcile_late_corruption_precedes_every_clock_or_lifecycle_mutation() {
 #[test]
 fn reconcile_reports_late_corruption_before_stale_provider_clock() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("late-corruption-stale-clock.sqlite");
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("late-corruption-stale-clock.sqlite")
+    };
     let lifecycle =
         runne_store::provider::SqliteProviderCredentialLifecycleStore::open_at(&path, 200).unwrap();
     for (number, owner, fence) in [(1, OWNER_A, 121), (2, OWNER_B, 122)] {
