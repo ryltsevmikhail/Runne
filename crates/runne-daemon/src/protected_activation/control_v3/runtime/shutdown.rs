@@ -1,3 +1,4 @@
+#[cfg(all(unix, target_os = "macos", target_arch = "aarch64"))]
 impl V3EnrollmentRuntime {
     /// Releases runtime-local enrollment resources and transfers the session
     /// whose drop revokes HTTP admission before the shutdown acknowledgement.
@@ -7,14 +8,11 @@ impl V3EnrollmentRuntime {
     ) -> Option<
         crate::application::provider_credential_enrollment::DaemonProtectedCredentialEnrollmentSession,
     >{
-        #[cfg(target_os = "macos")]
-        {
-            self.terminate_retained_writer();
-            self.claim_measurements.take();
-            self.credential_service.take();
-            self.credential_service_configuration.take();
-            self.deferred_control.take();
-        }
+        self.terminate_retained_writer();
+        self.claim_measurements.take();
+        self.credential_service.take();
+        self.credential_service_configuration.take();
+        self.deferred_control.take();
         self.broker.take();
         self.live.take();
         self.session.take()

@@ -216,19 +216,34 @@ fn enrollment_transition_composition(
         facts.certificate_der,
         facts.capabilities,
         profile_directory.to_path_buf(),
+        runtime_root.to_path_buf(),
         ticket_clock,
         enrollment_control,
     );
     Ok(Some((composition, facts.installation)))
 }
 
-#[cfg(all(
-    feature = "desktop-protected",
-    target_os = "macos",
-    target_arch = "aarch64"
-))]
+#[cfg(all(feature = "desktop-protected", unix))]
+#[cfg_attr(
+    all(
+        not(test),
+        target_os = "macos",
+        target_arch = "aarch64"
+    ),
+    allow(unused_variables, unreachable_code)
+)]
 fn enrollment_profile_directory(runtime_root: &Path) -> Option<std::path::PathBuf> {
-    runtime_root.parent().map(Path::to_path_buf)
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        runtime_root.parent().map(Path::to_path_buf)
+    }
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    {
+        let _ = runtime_root;
+        // Off macOS the profile directory is not derived from the runtime root
+        // yet; the Linux updater-journal layout lands with D1.2 packaging.
+        None
+    }
 }
 
 #[cfg(all(

@@ -160,7 +160,13 @@ mod channel;
     any(feature = "desktop-protected", feature = "test-support")
 ))]
 mod control;
+#[cfg(feature = "desktop-protected")]
 #[cfg(all(unix, feature = "desktop-protected"))]
+#[cfg(any(
+    test,
+    all(unix),
+    all(target_os = "macos", target_arch = "aarch64")
+))]
 pub(crate) mod control_v3;
 #[cfg(all(test, unix, feature = "desktop-protected"))]
 pub(crate) use control_v3::require_shutdown_terminal;

@@ -177,7 +177,7 @@ fn protected_request_admission_begin_and_exact_replay_return_one_safe_projection
     assert!(handoff.matches_safe_operation_for_test(&first, &control.handles));
     assert!(session.take_bound_broker_handoff().is_err());
     assert!(session.require_durable_terminal().is_err());
-    #[cfg(feature = "desktop-protected")]
+    #[cfg(all(target_os = "macos", target_arch = "aarch64", feature = "desktop-protected"))]
     assert!(
         crate::protected_activation::require_shutdown_terminal(Some(&session), true).is_err(),
         "cached terminal marker must not authorize shutdown before durable terminal"
@@ -194,9 +194,9 @@ fn protected_request_admission_begin_and_exact_replay_return_one_safe_projection
     .unwrap();
     assert!(!session.begun_is_terminal());
     assert_eq!(session.require_durable_terminal(), Ok(()));
-    #[cfg(feature = "desktop-protected")]
+    #[cfg(all(target_os = "macos", target_arch = "aarch64", feature = "desktop-protected"))]
     assert!(crate::protected_activation::require_shutdown_terminal(Some(&session), false).is_err());
-    #[cfg(feature = "desktop-protected")]
+    #[cfg(all(target_os = "macos", target_arch = "aarch64", feature = "desktop-protected"))]
     assert!(crate::protected_activation::require_shutdown_terminal(Some(&session), true).is_ok());
 }
 

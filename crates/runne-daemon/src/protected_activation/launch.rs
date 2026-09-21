@@ -10,18 +10,6 @@ use super::*;
 use crate::bootstrap::bootstrap_protected_with_profile;
 include!("launch/start.rs");
 /// Validated protected launch retained only by the daemon native host.
-#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
-pub struct VerifiedProtectedApplicationStart {
-    config: ConfigurationSnapshot,
-    provider_activation: ProviderActivation,
-    launch_authority_id: [u8; 16],
-    bootstrap: BootstrapOutcome,
-    enrollment_capability: Option<VerifiedProtectedEnrollmentCapability>,
-    #[cfg(unix)]
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-    installation: Option<VerifiedNativeEnrollmentInstallation>,
-}
-/// Validated protected launch retained only by the daemon native host.
 pub(crate) struct ProtectedDaemonLaunch {
     request: DaemonLaunchRequest,
     keys: ProtectedActivationKeys,

@@ -14,7 +14,7 @@ mod tests {
             launch_authority_id: bootstrap.local_session_authority_id,
             bootstrap,
             enrollment_capability: None,
-            #[cfg(target_os = "macos")]
+            #[cfg(unix)]
             installation: None,
         };
 

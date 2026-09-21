@@ -123,6 +123,15 @@ where
         composition.installation_identity_digest,
     );
     let mut prepared = admit_transition(&input, request, channel)?;
+    // The retired V2 HTTP admission facts must not outlive the exchange; the
+    // credential enrollment control is the only HTTP facts owner. On targets
+    // without credential enrollment control (Linux today) there is nothing to
+    // clear and the enrolled session publishes fresh facts at V3 start.
+    #[cfg(all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    ))]
     if let Some(control) = composition.enrollment_control.as_ref() {
         control.clear_http_facts(*owned.session_id());
     }

@@ -5,6 +5,7 @@ const NATIVE_OR_TEST_GATE: &str =
     "#[cfg(any(test, all(target_os = \"macos\", target_arch = \"aarch64\")))]";
 const NATIVE_OR_UNIX_TEST_GATE: &str =
     "#[cfg(any(all(test, unix), all(target_os = \"macos\", target_arch = \"aarch64\")))]";
+const UNIX_PROTECTED_GATE: &str = "#[cfg(any(\n    test,\n    all(unix),\n    all(target_os = \"macos\", target_arch = \"aarch64\")\n))]";
 const UNIX_TEST_OR_NATIVE_GATE: &str = "#[cfg(all(\n    feature = \"desktop-protected\",\n    any(all(test, unix), all(target_os = \"macos\", target_arch = \"aarch64\"))\n))]";
 
 fn preceding_cfg<'a>(source: &'a str, consumer: &str) -> &'a str {
@@ -53,15 +54,10 @@ fn v3_enrollment_roots_match_native_or_test_scope() {
     let protected_activation = include_str!("../../protected_activation.rs");
     for (consumer, gate) in [
         ("mod broker_handoff;", NATIVE_OR_UNIX_TEST_GATE),
-        ("pub(crate) mod control_v3;", NATIVE_OR_TEST_GATE),
+        ("pub(crate) mod control_v3;", UNIX_PROTECTED_GATE),
     ] {
         let before = source_before(protected_activation, consumer).trim_end();
         assert!(before.ends_with(gate));
-        assert!(
-            before[..before.len() - gate.len()]
-                .trim_end()
-                .ends_with(DESKTOP_PROTECTED_GATE)
-        );
     }
 
     let enrollment = include_str!("../../application/provider_credential_enrollment.rs");

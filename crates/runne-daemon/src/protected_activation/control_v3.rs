@@ -47,7 +47,7 @@ pub(crate) fn run_control_loop_v3(
     #[cfg(unix)] rendezvous: super::enrollment_control_transition::DaemonEnrollmentRendezvous,
 ) -> Result<(), LaunchAuthorityError> {
     channel.enter_control_loop()?;
-    run_control_loop_v3_entered(
+    let outcome = run_control_loop_v3_entered(
         channel,
         keys,
         owned_launch,
@@ -62,7 +62,8 @@ pub(crate) fn run_control_loop_v3(
             None,
         ),
         None,
-    )
+    );
+    outcome
 }
 /// Continues entered V3; failures retain kill authority and reject V1/V2 frames.
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
