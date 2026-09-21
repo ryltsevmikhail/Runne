@@ -301,9 +301,7 @@ pub(crate) fn run_enrollment_control_exchange(
         composition,
         sessions,
         session_clock,
-        |_, claims, stream| {
-            runne_platform_desktop::verify_linux_enrollment_peer(stream, claims)
-        },
+        |_, claims, stream| runne_platform_desktop::verify_linux_enrollment_peer(stream, claims),
         |input, request, channel| {
             transition_with(
                 input,

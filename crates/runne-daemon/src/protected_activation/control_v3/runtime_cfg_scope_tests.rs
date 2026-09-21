@@ -5,7 +5,8 @@ const NATIVE_OR_TEST_GATE: &str =
     "#[cfg(any(test, all(target_os = \"macos\", target_arch = \"aarch64\")))]";
 const NATIVE_OR_UNIX_TEST_GATE: &str =
     "#[cfg(any(all(test, unix), all(target_os = \"macos\", target_arch = \"aarch64\")))]";
-const UNIX_PROTECTED_GATE: &str = "#[cfg(any(\n    test,\n    all(unix),\n    all(target_os = \"macos\", target_arch = \"aarch64\")\n))]";
+const UNIX_PROTECTED_GATE: &str =
+    "#[cfg(any(test, all(unix), all(target_os = \"macos\", target_arch = \"aarch64\")))]";
 const UNIX_TEST_OR_NATIVE_GATE: &str = "#[cfg(all(\n    feature = \"desktop-protected\",\n    any(all(test, unix), all(target_os = \"macos\", target_arch = \"aarch64\"))\n))]";
 
 fn preceding_cfg<'a>(source: &'a str, consumer: &str) -> &'a str {

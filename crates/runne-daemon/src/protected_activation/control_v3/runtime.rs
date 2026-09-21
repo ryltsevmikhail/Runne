@@ -271,15 +271,11 @@ impl V3EnrollmentRuntime {
 }
 
 #[cfg_attr(
-    not(any(
-        all(test, unix),
-        all(target_os = "macos", target_arch = "aarch64")
-    )),
+    not(any(all(test, unix), all(target_os = "macos", target_arch = "aarch64"))),
     allow(dead_code)
 )]
 pub(crate) fn require_shutdown_terminal(
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-    session: Option<&()>,
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))] session: Option<&()>,
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     session: Option<&crate::application::provider_credential_enrollment::DaemonProtectedCredentialEnrollmentSession>,
     terminal: bool,

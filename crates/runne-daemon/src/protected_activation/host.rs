@@ -191,14 +191,10 @@ fn enrollment_transition_composition(
         return Ok(None);
     };
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    let enrollment_control = Some(
-        facts
-            .credential_enrollment_control
-            .clone()
-            .ok_or_else(|| {
-                DaemonError::Bootstrap("credential enrollment control unavailable".into())
-            })?,
-    );
+    let enrollment_control =
+        Some(facts.credential_enrollment_control.clone().ok_or_else(|| {
+            DaemonError::Bootstrap("credential enrollment control unavailable".into())
+        })?);
     // Off macOS there is no credential enrollment control yet; the V3 loop
     // enters without the credential-service phase (fail-closed broker only).
     #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
@@ -225,11 +221,7 @@ fn enrollment_transition_composition(
 
 #[cfg(all(feature = "desktop-protected", unix))]
 #[cfg_attr(
-    all(
-        not(test),
-        target_os = "macos",
-        target_arch = "aarch64"
-    ),
+    all(not(test), target_os = "macos", target_arch = "aarch64"),
     allow(unused_variables, unreachable_code)
 )]
 fn enrollment_profile_directory(runtime_root: &Path) -> Option<std::path::PathBuf> {

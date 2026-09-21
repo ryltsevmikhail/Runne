@@ -27,8 +27,7 @@ pub(crate) fn run_control_loop_v2(
     local_session_service: Arc<Mutex<LocalSessionService>>,
     session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
     #[cfg(feature = "desktop-protected")] root_admission: Option<Arc<ProtectedRootControl>>,
-    #[cfg(all(unix, feature = "desktop-protected"))]
-    enrollment_transition: Option<(
+    #[cfg(all(unix, feature = "desktop-protected"))] enrollment_transition: Option<(
         super::enrollment_control_transition::EnrollmentControlComposition,
         super::installation_anchor::VerifiedNativeEnrollmentInstallation,
     )>,
@@ -102,8 +101,7 @@ pub(crate) fn run_control_loop_v2(
             // transition on another authority path.
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             {
-                let (v3_keys, v3_owned_launch, rendezvous, installed_facts) =
-                    outcome.into_parts();
+                let (v3_keys, v3_owned_launch, rendezvous, installed_facts) = outcome.into_parts();
                 drop(status_guard);
                 return super::control_v3::run_control_loop_v3_entered(
                     channel,
