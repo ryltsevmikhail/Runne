@@ -30,6 +30,32 @@ fn v3_peer_requires_one_exact_selected_provider() {
     }
 }
 
+#[test]
+fn v3_enrolled_session_carries_the_raised_epoch_for_the_protected_predicate() {
+    // The OwnershipMismatch root cause, pinned at the client layer: the V3
+    // enrolled profile expects the post-transition epoch, so the connected
+    // session exposed to `protected_profile_matches` must carry exactly the
+    // raised epoch. A session still on the pre-transition epoch must fail the
+    // predicate closed instead of being surfaced to AppCore.
+    let (launch, ready, keys) = v3_fixture(false, 6);
+    let profile = ProtectedBundledRuntimeProfile::from_ready_v3(&ready, &launch, 1_000, &keys)
+        .expect("exact V3 readiness");
+    assert_eq!(
+        profile.peer.expected_authorization_epoch, 1,
+        "every daemon launch starts at epoch 0 and the enrollment transition raises it by exactly one"
+    );
+    let mut session = v3_remote(&profile, ready.provider_binding(), true);
+    assert_eq!(
+        session.authorization_epoch,
+        profile.peer.expected_authorization_epoch
+    );
+    session.authorization_epoch = 0;
+    assert!(
+        verify_remote_profile(&profile.peer, session, *ready.session_id()).is_err(),
+        "a pre-transition session (epoch 0) must never verify against the enrolled V3 profile"
+    );
+}
+
 fn v3_remote(
     profile: &ProtectedBundledRuntimeProfile,
     binding: &ProviderActivationBindingV1,
@@ -66,7 +92,7 @@ fn v3_remote_with_status(
         daemon_instance_id: peer.daemon_instance_id.to_string(),
         launch_generation: peer.launch_generation,
         session_id: hex::encode(peer.expected_session_id.expect("session")),
-        authorization_epoch: 0,
+        authorization_epoch: peer.expected_authorization_epoch,
         sensitivity_ceiling: "sensitive".to_owned(),
         certificate_sha256: hex::encode(peer.certificate_sha256),
         provider_statuses: vec![status],
