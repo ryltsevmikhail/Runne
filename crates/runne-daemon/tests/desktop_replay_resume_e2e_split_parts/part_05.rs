@@ -199,7 +199,9 @@ fn grant_daemon_project_trust(daemon_database: &Path) {
     use runne_application::project_trust::{
         ProjectTrustPersistence, ProjectTrustProjectId, ProjectTrustStatus,
     };
-    let connection = Connection::open(daemon_database).expect("open daemon database");
+    // Keep the live child's WAL: closing a plain inspection connection can
+    // unlink it and split subsequent parent/child observations of replay state.
+    let connection = open_daemon_database(daemon_database);
     let authority = runne_store::schema::read_authority_id(&connection)
         .expect("read authority id")
         .expect("authority id present");

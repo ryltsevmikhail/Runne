@@ -23,6 +23,9 @@ if [ "$MODE" != "pinned" ] && [ "$MODE" != "msrv" ]; then
     exit 1
 fi
 
+# Keep the exact checkout identity in ci.log, including failed runs.
+printf 'source_revision=%s\n' "$(git rev-parse --verify HEAD)"
+
 if [ "$MODE" = "pinned" ]; then
     EXPECTED="1.97.1"
 else
