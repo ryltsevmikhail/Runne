@@ -29,6 +29,8 @@ target/
 *.log
 tmp/
 .tmp/
+.omo/
+.zcodeignore
 __pycache__/
 *.pyc
 
