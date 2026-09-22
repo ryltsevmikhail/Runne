@@ -24,10 +24,10 @@ fn blocked_socket_read_is_limited_to_the_remaining_budget() {
 #[test]
 fn finishing_exchange_restores_transport_timeouts() {
     let (_peer, stream) = UnixStream::pair().unwrap();
-    let read_timeout = Some(Duration::from_millis(321));
-    let write_timeout = Some(Duration::from_millis(654));
-    stream.set_read_timeout(read_timeout).unwrap();
-    stream.set_write_timeout(write_timeout).unwrap();
+    let read_timeout = Duration::from_millis(321);
+    let write_timeout = Duration::from_millis(654);
+    stream.set_read_timeout(Some(read_timeout)).unwrap();
+    stream.set_write_timeout(Some(write_timeout)).unwrap();
     let stream = QualifiedSocketControl::new(stream)
         .unwrap()
         .finish()
@@ -38,8 +38,8 @@ fn finishing_exchange_restores_transport_timeouts() {
     let restored_read = stream.read_timeout().unwrap().unwrap();
     let restored_write = stream.write_timeout().unwrap().unwrap();
     for (restored, expected) in [
-        (restored_read, read_timeout.unwrap()),
-        (restored_write, write_timeout.unwrap()),
+        (restored_read, read_timeout),
+        (restored_write, write_timeout),
     ] {
         let drift = restored.abs_diff(expected);
         assert!(
