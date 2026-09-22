@@ -68,8 +68,14 @@ pub(super) fn now() -> u64 {
         .unwrap()
 }
 
+/// Fixture databases live at `<tempdir>/runne-daemon/broker.sqlite` (nested
+/// for the identity guard); plain readers must open the same nested path.
+pub(super) fn broker_db(database: &tempfile::TempDir) -> std::path::PathBuf {
+    database.path().join("runne-daemon").join("broker.sqlite")
+}
+
 pub(super) fn rows(database: &tempfile::TempDir, table: &str) -> i64 {
-    rusqlite::Connection::open(database.path().join("broker.sqlite"))
+    rusqlite::Connection::open(broker_db(database))
         .unwrap()
         .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
             row.get(0)
@@ -78,7 +84,7 @@ pub(super) fn rows(database: &tempfile::TempDir, table: &str) -> i64 {
 }
 
 fn head(database: &tempfile::TempDir) -> (i64, i64, Option<i64>, Option<Vec<u8>>) {
-    rusqlite::Connection::open(database.path().join("broker.sqlite")).unwrap().query_row(
+    rusqlite::Connection::open(broker_db(database)).unwrap().query_row(
         "SELECT lifecycle_revision, credential_fence, active_credential_version, active_ref_digest FROM provider_credential_authority_heads WHERE provider_id='openai'",
         [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     ).unwrap()

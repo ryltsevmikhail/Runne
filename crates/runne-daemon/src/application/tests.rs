@@ -6,6 +6,7 @@ use runne_domain::id::EventLogLineageId;
 mod nm06_delivery_gate;
 mod nm06_delivery_gate_fixture;
 mod nm06_delivery_gate_gap;
+mod nm06_delivery_gate_serve_reopen;
 mod replay_authorization_resume_v2;
 
 fn replay_binding() -> RuntimeSessionBinding {
