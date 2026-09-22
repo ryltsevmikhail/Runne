@@ -229,12 +229,107 @@ fn enrollment_profile_directory(runtime_root: &Path) -> Option<std::path::PathBu
     {
         runtime_root.parent().map(Path::to_path_buf)
     }
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+    {
+        profile_directory::enrollment_profile_directory(runtime_root)
+    }
+    #[cfg(not(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "linux", feature = "desktop-protected")
+    )))]
     {
         let _ = runtime_root;
-        // Off macOS the profile directory is not derived from the runtime root
-        // yet; the Linux updater-journal layout lands with D1.2 packaging.
+        // Off macOS/Linux the profile directory is not derived from the runtime
+        // root yet; the updater-journal layout lands with D1.2 packaging.
         None
+    }
+}
+
+#[cfg(all(test, feature = "desktop-protected", target_os = "linux"))]
+mod linux_profile_directory_tests {
+    use super::enrollment_profile_directory;
+
+    fn layout(temporary: &std::path::Path) -> (std::path::PathBuf, std::path::PathBuf) {
+        use std::os::unix::fs::PermissionsExt as _;
+        let profile_directory = temporary.join("com.runne.desktop");
+        let runtime_root = profile_directory.join("bundled-runtime");
+        std::fs::create_dir_all(&runtime_root).expect("layout created");
+        std::fs::set_permissions(&profile_directory, std::fs::Permissions::from_mode(0o700))
+            .expect("profile mode set");
+        (profile_directory, runtime_root)
+    }
+
+    #[test]
+    fn linux_derives_profile_directory_from_runtime_root_parent() {
+        let temporary = tempfile::tempdir().expect("tempdir");
+        let (profile_directory, runtime_root) = layout(temporary.path());
+        assert_eq!(
+            enrollment_profile_directory(&runtime_root),
+            Some(profile_directory)
+        );
+    }
+
+    #[test]
+    fn linux_rejects_runtime_root_without_bundled_runtime_leaf() {
+        let temporary = tempfile::tempdir().expect("tempdir");
+        let runtime_root = temporary.path().join("com.runne.desktop").join("other");
+        std::fs::create_dir_all(&runtime_root).expect("layout created");
+        assert_eq!(enrollment_profile_directory(&runtime_root), None);
+    }
+
+    #[test]
+    fn linux_rejects_missing_profile_directory() {
+        let runtime_root = std::path::Path::new("/nonexistent-runne-enroll51")
+            .join("com.runne.desktop")
+            .join("bundled-runtime");
+        assert_eq!(enrollment_profile_directory(&runtime_root), None);
+    }
+
+    #[test]
+    fn linux_symlinked_profile_directory_is_rejected() {
+        // A symlinked profile directory must fail closed even though the
+        // resolved target is a valid directory: `.is_dir()` follows symlinks,
+        // so the derivation uses symlink_metadata instead.
+        let temporary = tempfile::tempdir().expect("tempdir");
+        let real = temporary.path().join("real-profile");
+        std::fs::create_dir_all(real.join("bundled-runtime")).expect("real layout created");
+        std::fs::set_permissions(
+            &real,
+            std::fs::Permissions::from_mode(0o700),
+        )
+        .expect("mode set");
+        let link = temporary.path().join("com.runne.desktop");
+        std::os::unix::fs::symlink(&real, &link).expect("symlink created");
+        assert_eq!(
+            enrollment_profile_directory(&link.join("bundled-runtime")),
+            None
+        );
+    }
+
+    #[test]
+    fn linux_group_or_world_accessible_profile_directory_is_rejected() {
+        let temporary = tempfile::tempdir().expect("tempdir");
+        let (profile_directory, runtime_root) = layout(temporary.path());
+        std::fs::set_permissions(
+            &profile_directory,
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .expect("loose mode set");
+        assert_eq!(enrollment_profile_directory(&runtime_root), None);
+    }
+
+    #[test]
+    fn linux_derivation_is_structural_and_ignores_journal_presence() {
+        // Journal content validation is downstream (macOS admission today);
+        // on Linux the composition stays a pure structural mapping and the
+        // peer proof is the kernel credential plus the signed V2 claims.
+        let temporary = tempfile::tempdir().expect("tempdir");
+        let (profile_directory, runtime_root) = layout(temporary.path());
+        assert!(!profile_directory.join("updates").exists());
+        assert_eq!(
+            enrollment_profile_directory(&runtime_root),
+            Some(profile_directory)
+        );
     }
 }
 
@@ -262,3 +357,6 @@ fn launch_time() -> Result<u64, LaunchAuthorityError> {
         .and_then(|value| u64::try_from(value.as_millis()).ok())
         .ok_or(LaunchAuthorityError::StaleLaunchAuthority)
 }
+
+#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+mod profile_directory;
