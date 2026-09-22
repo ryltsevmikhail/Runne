@@ -109,6 +109,16 @@ impl DevelopmentBundledRuntimeLauncher {
         command.env_clear().stdin(child_stdin);
         #[cfg(feature = "test-support")]
         preserve_local_process_environment(&mut command)?;
+        #[cfg(feature = "test-support")]
+        if let Some(gate) = std::env::var_os("RUNNE_TEST_COMMIT_GATE_FILE") {
+            // Test-support-only fault-injection hook: forwards the durable
+            // commit-gate marker/release paths into the owned child so the
+            // store can hold the post-commit/pre-ACK boundary for fault tests.
+            command.env("RUNNE_TEST_COMMIT_GATE_FILE", gate);
+        }
+        if let Some(release) = std::env::var_os("RUNNE_TEST_COMMIT_GATE_RELEASE") {
+            command.env("RUNNE_TEST_COMMIT_GATE_RELEASE", release);
+        }
         if controls.capture_output {
             command.stdout(Stdio::piped()).stderr(Stdio::piped());
         } else {

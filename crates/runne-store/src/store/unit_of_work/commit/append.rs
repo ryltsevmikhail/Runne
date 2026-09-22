@@ -224,6 +224,8 @@ impl StoreTransaction {
                 runne_application::ports::StorageFailureKind::IntegrityViolation,
             )
         })?;
+        #[cfg(feature = "test-support")]
+        commit_gate::note_durable_commit();
 
         Ok(CommitResult::Committed {
             new_version: new_version as u64,

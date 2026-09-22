@@ -1,23 +1,25 @@
 //! X2 kill-based fault round (phase-3 residue item 5): SIGKILL the real
-//! daemon process while a client submit is in flight, relaunch, and prove
-//! commit-before-ACK reconciliation on the durable store — no simulation.
+//! daemon process at a deterministic durable-boundary point while a client
+//! submit is in flight, relaunch, and prove commit-before-ACK reconciliation
+//! on the durable store — no simulation, no random delay.
 //!
-//! Scenario:
+//! Scenario (deterministic handshake, see `commit_gate` in `runne-store`):
 //! 1. Launch the real `runned` binary through the protected bundled-runtime
-//!    harness (first activation completed) and connect one authenticated
-//!    client.
+//!    harness (first activation completed), arm the commit gate, and connect
+//!    one authenticated client.
 //! 2. Seed a project/workspace through the daemon's HTTP surface.
-//! 3. Fire an atomic TaskRun submit with a fixed command identity and kill
-//!    the daemon with SIGKILL at a random point while the request is in
-//!    flight (before, during, or after the durable commit; the reply may or
-//!    may not reach the client).
-//! 4. Relaunch the daemon, reconnect, and replay the identical submit.
-//! 5. Assert exactly-once convergence: the store holds exactly one
-//!    `Created + Queued` batch for one taskrun ID, the retry returns one
-//!    `submitted` acknowledgement at stream version 2, and the previous
-//!    client's observed acknowledgement (if any) matches the replayed one.
+//! 3. Fire an atomic TaskRun submit with a fixed command identity and wait
+//!    for the commit-gate marker — proof that the daemon already executed
+//!    the durable SQLite `tx.commit()` for the `Created + Queued` batch.
+//! 4. Assert the acknowledgement has NOT been delivered to the client while
+//!    the marker exists, then SIGKILL the exact owned daemon child PID.
+//! 5. Reap the child, relaunch the daemon on the same durable store,
+//!    reconnect, and replay the identical submit (same request identity).
+//! 6. Assert exactly-once convergence: the store holds exactly one
+//!    `Created + Queued` TaskRun, the retry replays one `submitted`
+//!    acknowledgement at stream version 2 (stored receipt, no new events),
+//!    and the killed attempt never received its ACK before the kill.
 
-use rand::{RngCore as _, rngs::OsRng};
 use runne_platform_desktop::{
     BundledRuntimeProcessStatus, DevelopmentBundledRuntimeLauncher,
     ProtectedBundledRuntimeLaunchSpec,
@@ -26,7 +28,7 @@ use runne_runtime_client::{CanonicalId, CommandIdentity, SubmitTaskRunRequest};
 
 use std::sync::LazyLock;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[path = "support/owner_private.rs"]
 mod owner_private;
