@@ -258,4 +258,14 @@ impl ProtectedBundledRuntimeProcess {
                 .map_err(|_| ProtectedBundledRuntimeError::ShutdownIncomplete)
         }
     }
+
+    /// Returns the OS process ID of the exact owned child, test-support only.
+    /// Used by fault-injection tests that must SIGKILL the daemon from outside
+    /// the owned graceful-shutdown channel (commit-before-ACK evidence).
+    #[cfg(all(feature = "test-support", unix))]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn test_owned_child_id(&self) -> u32 {
+        self.child.id()
+    }
 }
