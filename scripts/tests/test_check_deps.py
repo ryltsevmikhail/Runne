@@ -63,12 +63,16 @@ class CheckDepsTests(unittest.TestCase):
 
     def test_native_enrollment_authority_dependencies_are_narrow_and_isolated(self) -> None:
         name = "runne-native-enrollment-authority"
+        # rustix (pinned =1.1.4) and sha2 back the Linux reader identity
+        # slice; the isolation set below is unchanged.
         self.assertEqual(
             checker.POLICIES[name],
             {
                 "runne-api",
                 "runne-macos-process-identity",
                 "runne-provider",
+                "rustix",
+                "sha2",
             },
         )
         self.assertFalse(
