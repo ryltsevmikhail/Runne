@@ -20,6 +20,10 @@ POLICIES = {
     },
     "runne-native-enrollment-authority": {
         "runne-api", "runne-macos-process-identity", "runne-provider",
+        # The Linux reader identity slice needs the reviewed pinned rustix for
+        # SO_PEERCRED/process facts and sha2 for start-identity and image
+        # digests (same crates already reviewed for runne-macos-process-identity).
+        "rustix", "sha2",
     },
     "runne-project-owner-authority": {
         "argon2", "base64", "chacha20poly1305", "ed25519-dalek", "serde",
