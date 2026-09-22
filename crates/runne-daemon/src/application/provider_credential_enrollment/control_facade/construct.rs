@@ -27,7 +27,7 @@ impl DaemonProviderCredentialEnrollmentControl {
             enrollment_store_authority,
             handles,
             rendezvous,
-            #[cfg(any(all(test, unix), all(feature = "desktop-protected", target_os = "linux"), all(feature = "desktop-protected", target_os = "macos", target_arch = "aarch64")))]
+            #[cfg(any(all(test, unix), target_os = "linux", all(feature = "desktop-protected", target_os = "macos", target_arch = "aarch64")))]
             verification: OnceLock::new(),
             #[cfg(any(all(test, unix), all(feature = "desktop-protected", target_os = "linux"), all(target_os = "macos", feature = "desktop-protected")))]
             local_readback: OnceLock::new(),
@@ -35,7 +35,7 @@ impl DaemonProviderCredentialEnrollmentControl {
             http_authority_issuer,
             #[cfg(any(all(feature = "desktop-protected", target_os = "linux"), all(feature = "desktop-protected", target_os = "macos", target_arch = "aarch64")))]
             http_authority_verifier,
-            #[cfg(any(all(test, unix), all(feature = "desktop-protected", target_os = "linux"), all(feature = "desktop-protected", target_os = "macos", target_arch = "aarch64")))]
+            #[cfg(any(all(test, unix), target_os = "linux", all(feature = "desktop-protected", target_os = "macos", target_arch = "aarch64")))]
             http_facts: super::http_admission_resolver::live_credential_http_facts(),
             #[cfg(any(
                 target_os = "linux",
@@ -126,7 +126,8 @@ impl DaemonProviderCredentialEnrollmentControl {
     }
 
     #[cfg(any(
-        any(test, unix),
+        all(test, unix),
+        all(feature = "desktop-protected", target_os = "linux"),
         all(
             feature = "desktop-protected",
             target_os = "macos",
@@ -174,7 +175,7 @@ impl DaemonProviderCredentialEnrollmentControl {
     }
 
     #[cfg(any(
-        any(test, unix),
+        all(test, unix),
         all(feature = "desktop-protected", target_os = "linux"),
         all(
             feature = "desktop-protected",

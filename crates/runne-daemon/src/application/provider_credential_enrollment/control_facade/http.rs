@@ -34,7 +34,8 @@ use runne_api::{
 ))]
 use super::DaemonProviderCredentialEnrollmentControl;
 #[cfg(any(
-    any(test, unix),
+    all(test, unix),
+    all(feature = "desktop-protected", target_os = "linux"),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -113,6 +114,15 @@ impl DaemonProviderCredentialEnrollmentControl {
         )
     }
 
+    #[cfg(any(
+        all(test, unix),
+        all(feature = "desktop-protected", target_os = "linux"),
+        all(
+            feature = "desktop-protected",
+            target_os = "macos",
+            target_arch = "aarch64"
+        )
+    ))]
     pub(crate) fn publish_http_facts(
         &self,
         facts: ProtectedEnrollmentSessionFacts,

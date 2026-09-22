@@ -48,7 +48,8 @@ use runne_http::{
 
 use super::control_exchange::RegisteredCredentialHttpAdmissionExchange;
 #[cfg(any(
-    any(test, unix),
+    all(test, unix),
+    target_os = "linux",
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -58,7 +59,8 @@ use super::control_exchange::RegisteredCredentialHttpAdmissionExchange;
 use super::control_facade::ProtectedEnrollmentSessionFacts;
 
 #[cfg(any(
-    any(test, unix),
+    all(test, unix),
+    target_os = "linux",
     all(
         feature = "desktop-protected",
         target_os = "macos",

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 #[cfg(any(
     test,
-    all(feature = "desktop-protected", target_os = "linux"),
+    target_os = "linux",
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -81,6 +81,16 @@ use super::{ProviderCredentialAdmission, begin::ProviderCredentialEnrollmentBegi
     )
 ))]
 mod protected_session;
+#[cfg(any(
+    all(test, unix),
+    target_os = "linux",
+    all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    )
+))]
+mod session_facts;
 #[cfg(all(
     feature = "desktop-protected",
     target_os = "macos",
@@ -96,19 +106,19 @@ pub(crate) use protected_session::PostcommitAdmissionPermit;
         target_arch = "aarch64"
     )
 ))]
-pub(crate) use protected_session::ProtectedEnrollmentSessionFacts;
+pub(crate) use protected_session::{
+    DaemonProtectedCredentialEnrollmentSession, InitialCredentialExchange,
+};
 #[cfg(any(
     all(test, unix),
-    all(feature = "desktop-protected", target_os = "linux"),
+    target_os = "linux",
     all(
         feature = "desktop-protected",
         target_os = "macos",
         target_arch = "aarch64"
     )
 ))]
-pub(crate) use protected_session::{
-    DaemonProtectedCredentialEnrollmentSession, InitialCredentialExchange,
-};
+pub(crate) use session_facts::ProtectedEnrollmentSessionFacts;
 
 /// Daemon-owned online-enrollment authorities paired to the canonical store.
 #[cfg_attr(
@@ -135,7 +145,7 @@ pub(crate) struct DaemonProviderCredentialEnrollmentControl {
     rendezvous: PendingBrokerRendezvousRegistry,
     #[cfg(any(
         all(test, unix),
-        all(feature = "desktop-protected", target_os = "linux"),
+        target_os = "linux",
         all(
             feature = "desktop-protected",
             target_os = "macos",
@@ -198,7 +208,7 @@ pub(crate) struct DaemonProviderCredentialEnrollmentControl {
     http_authority_verifier: ProviderCredentialRequestAuthorityVerifier,
     #[cfg(any(
         all(test, unix),
-        all(feature = "desktop-protected", target_os = "linux"),
+        target_os = "linux",
         all(
             feature = "desktop-protected",
             target_os = "macos",

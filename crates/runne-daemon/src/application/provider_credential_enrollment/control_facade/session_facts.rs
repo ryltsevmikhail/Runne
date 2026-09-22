@@ -28,16 +28,16 @@ type HttpAuthorityParts = (
 /// Exact non-secret V3 and native-release facts admitted before any begin.
 #[derive(Clone, Eq, PartialEq)]
 pub(crate) struct ProtectedEnrollmentSessionFacts {
-    pub(super) launch_authority: [u8; 16],
-    pub(super) session: [u8; 16],
-    pub(super) daemon: [u8; 16],
-    pub(super) launch_generation: u64,
-    pub(super) installation: [u8; 32],
-    pub(super) release: [u8; 32],
-    pub(super) tauri_peer: [u8; 32],
-    pub(super) supervisor_generation: u64,
-    pub(super) runtime_authority: [u8; 16],
-    pub(super) database_generation: u64,
+    pub(crate) launch_authority: [u8; 16],
+    pub(crate) session: [u8; 16],
+    pub(crate) daemon: [u8; 16],
+    pub(crate) launch_generation: u64,
+    pub(crate) installation: [u8; 32],
+    pub(crate) release: [u8; 32],
+    pub(crate) tauri_peer: [u8; 32],
+    pub(crate) supervisor_generation: u64,
+    pub(crate) runtime_authority: [u8; 16],
+    pub(crate) database_generation: u64,
 }
 
 impl ProtectedEnrollmentSessionFacts {
@@ -149,7 +149,7 @@ impl ProtectedEnrollmentSessionFacts {
     }
 }
 
-pub(super) fn session_binding(facts: &ProtectedEnrollmentSessionFacts) -> [u8; 32] {
+pub(crate) fn session_binding(facts: &ProtectedEnrollmentSessionFacts) -> [u8; 32] {
     digest(
         SESSION_DOMAIN,
         &[
@@ -161,7 +161,7 @@ pub(super) fn session_binding(facts: &ProtectedEnrollmentSessionFacts) -> [u8; 3
     )
 }
 
-pub(super) fn daemon_binding(facts: &ProtectedEnrollmentSessionFacts) -> [u8; 32] {
+pub(crate) fn daemon_binding(facts: &ProtectedEnrollmentSessionFacts) -> [u8; 32] {
     digest(
         DAEMON_DOMAIN,
         &[

@@ -29,7 +29,6 @@ mod claim_measurements;
 mod claim_runtime;
 mod claim_selection;
 mod discovery;
-mod facts;
 mod initial_request;
 mod intent_exchange;
 #[cfg(all(test, target_os = "linux"))]
@@ -55,8 +54,8 @@ use claim_runtime::{QualifiedWriterService, claim_fenced_writer_on};
 ))]
 pub(crate) use qualification::PostcommitAdmissionPermit;
 mod recovery;
-pub(crate) use facts::ProtectedEnrollmentSessionFacts;
-use facts::{daemon_binding, session_binding};
+pub(crate) use super::ProtectedEnrollmentSessionFacts;
+use super::session_facts::{daemon_binding, session_binding};
 
 struct VerifiedAdmission {
     request: VerifiedProtectedCredentialEnrollmentRequest,
