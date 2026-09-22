@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 #[cfg(any(
-    all(test, unix),
+    any(test, unix),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 #[cfg(any(
-    all(test, unix),
+    any(test, unix),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -34,7 +34,7 @@ use runne_api::{
     ProviderCredentialOperationHandleV2, ProviderCredentialProviderV2, VerifyProviderCredential,
 };
 #[cfg(any(
-    all(test, unix),
+    any(test, unix),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -48,7 +48,7 @@ use runne_http::{
 
 use super::control_exchange::RegisteredCredentialHttpAdmissionExchange;
 #[cfg(any(
-    all(test, unix),
+    any(test, unix),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -58,7 +58,7 @@ use super::control_exchange::RegisteredCredentialHttpAdmissionExchange;
 use super::control_facade::ProtectedEnrollmentSessionFacts;
 
 #[cfg(any(
-    all(test, unix),
+    any(test, unix),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -68,7 +68,7 @@ use super::control_facade::ProtectedEnrollmentSessionFacts;
 pub(super) type LiveCredentialHttpFacts = Arc<Mutex<Option<ProtectedEnrollmentSessionFacts>>>;
 
 #[cfg(any(
-    all(test, unix),
+    any(test, unix),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -81,7 +81,7 @@ pub(super) fn live_credential_http_facts() -> LiveCredentialHttpFacts {
 
 /// Status and resume admission derived only from verified, current live facts.
 #[cfg(any(
-    all(test, unix),
+    any(test, unix),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -94,7 +94,7 @@ pub(super) struct LiveCredentialHttpAdmissionResolver {
 }
 
 #[cfg(any(
-    all(test, unix),
+    any(test, unix),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -142,7 +142,7 @@ impl LiveCredentialHttpAdmissionResolver {
 }
 
 #[cfg(any(
-    all(test, unix),
+    any(test, unix),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -226,7 +226,7 @@ impl ProviderCredentialEnrollmentHttpAdmissionResolver for DaemonCredentialHttpA
 }
 
 #[cfg(any(
-    all(test, unix),
+    any(test, unix),
     all(
         feature = "desktop-protected",
         target_os = "macos",

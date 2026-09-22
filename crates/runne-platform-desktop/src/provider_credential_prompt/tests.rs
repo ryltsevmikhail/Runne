@@ -3,7 +3,7 @@ use runne_platform_ports::provider_credential_prompt::{
 };
 
 #[cfg(target_os = "linux")]
-use super::LinuxPinentryPrompt;
+use super::LinuxGuiHostCredentialPrompt;
 use super::pinentry_protocol::decode_pinentry_response;
 use runne_platform_ports::provider_credential_prompt::CredentialPromptAction;
 use runne_platform_ports::provider_credential_prompt::CredentialPromptProvider;
@@ -98,14 +98,16 @@ fn pinentry_ok_only_confirms_only_non_secret_actions() {
 #[test]
 fn pinentry_adapter_requires_an_absolute_path_and_bounded_timeout() {
     assert!(
-        LinuxPinentryPrompt::new(
+        LinuxGuiHostCredentialPrompt::new(
             std::path::PathBuf::from("pinentry"),
-            std::time::Duration::from_secs(1)
+            std::time::Duration::from_secs(1),
+            std::time::Duration::from_secs(2),
         )
         .is_err()
     );
-    let prompt = LinuxPinentryPrompt::new(
+    let prompt = LinuxGuiHostCredentialPrompt::new(
         std::path::PathBuf::from("/bin/pinentry"),
+        std::time::Duration::from_secs(30),
         std::time::Duration::from_secs(30),
     )
     .unwrap();

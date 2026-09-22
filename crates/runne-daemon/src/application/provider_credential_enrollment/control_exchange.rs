@@ -107,13 +107,19 @@ impl DaemonAuthenticatedCredentialHttpAdmissionExchange {
         admission: VerifiedProtectedCredentialEnrollmentAdmission,
         context: ProviderCredentialCommandContext,
         now_unix_millis: u64,
+        command_provider: runne_api::ProviderCredentialProviderV2,
     ) -> Result<RegisteredCredentialHttpAdmissionExchange, ProviderCredentialEnrollmentHostError>
     {
         if !self.expected.matches(&request, &admission, now_unix_millis) {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
-        self.registry
-            .register(request, admission, context, now_unix_millis)?;
+        self.registry.register(
+            request,
+            admission,
+            context,
+            now_unix_millis,
+            command_provider,
+        )?;
         Ok(RegisteredCredentialHttpAdmissionExchange {
             registry: self.registry,
         })

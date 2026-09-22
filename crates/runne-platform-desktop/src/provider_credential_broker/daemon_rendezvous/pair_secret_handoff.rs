@@ -39,3 +39,31 @@ impl PreparedDaemonWriterEndpointHandoff {
         )
     }
 }
+
+#[cfg(target_os = "linux")]
+impl PreparedDaemonWriterEndpointHandoff {
+    pub(in crate::provider_credential_broker) fn into_linux_pair_spawn_parts(
+        self,
+        authenticator: &runne_api::CredentialBrokerTransferAuthenticator,
+    ) -> Result<
+        (
+            UnixStream,
+            super::super::macos_secret_sealer::AuthenticatedPairSecretSealer,
+        ),
+        runne_platform_ports::provider_credential_broker::BrokerHandoffError,
+    > {
+        let challenge = self.challenge;
+        let (transport, channel, key, sealer) = self.into_pair_spawn_parts();
+        // The rendezvous has a half-closed write side. Only the SCM_RIGHTS
+        // endpoint is a duplex broker socket. Linux receives it atomically
+        // CLOEXEC, verifies the exact response, and only then permits spawn.
+        let received = super::receive_prepared::finish_receive(
+            transport,
+            challenge,
+            authenticator,
+            channel,
+            key,
+        )?;
+        Ok((received.into_control(), sealer))
+    }
+}

@@ -2,10 +2,10 @@
 mod pinentry_protocol;
 
 #[cfg(target_os = "linux")]
-mod unix;
+mod linux_gui;
 
 #[cfg(target_os = "linux")]
-pub use unix::LinuxPinentryPrompt;
+pub use linux_gui::LinuxGuiHostCredentialPrompt;
 
 #[cfg(test)]
 mod tests;

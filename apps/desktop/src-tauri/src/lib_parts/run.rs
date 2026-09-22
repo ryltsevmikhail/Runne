@@ -70,6 +70,8 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 )
             }) {
             Ok(controller) => {
+                #[cfg(target_os = "linux")]
+                crate::provider_credential_enrollment::linux_activation::install_managed_context(&controller);
                 monitor = Some(Arc::clone(&controller));
                 RuntimeLifecycleManager::bundled_with_native_root(controller)
             }

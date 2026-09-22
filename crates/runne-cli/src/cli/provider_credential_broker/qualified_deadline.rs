@@ -58,7 +58,7 @@ impl<C: Write> Write for QualifiedBrokerControl<C> {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 pub(super) struct QualifiedSocketControl {
     inner: std::os::unix::net::UnixStream,
     deadline: Instant,
@@ -66,7 +66,7 @@ pub(super) struct QualifiedSocketControl {
     write_timeout: Option<Duration>,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 impl QualifiedSocketControl {
     pub(super) fn new(inner: std::os::unix::net::UnixStream) -> io::Result<Self> {
         Self::with_budget(inner, BUDGET)
@@ -107,7 +107,7 @@ impl QualifiedSocketControl {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 impl Read for QualifiedSocketControl {
     fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
         self.prepare_read()?;
@@ -117,7 +117,7 @@ impl Read for QualifiedSocketControl {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 impl Write for QualifiedSocketControl {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         self.prepare_write()?;
@@ -141,6 +141,6 @@ fn remaining(deadline: Instant) -> io::Result<Duration> {
 }
 
 #[cfg(test)]
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 #[path = "qualified_deadline_tests.rs"]
 mod tests;

@@ -1,8 +1,9 @@
 use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
+use std::os::fd::AsFd as _;
 
 use super::RetainedWriterProcess;
 
-mod process_start_identity;
+pub(super) mod process_start_identity;
 use process_start_identity::observed_start_identity;
 
 /// Observes the current process start identity through the platform-owned
@@ -12,7 +13,7 @@ use process_start_identity::observed_start_identity;
 ///
 /// Returns a closed broker error when the native process identity cannot be
 /// observed or authenticated.
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 pub fn observe_current_process_start() -> Result<[u8; 32], BrokerHandoffError> {
     observed_start_identity(std::process::id())
 }
@@ -26,6 +27,8 @@ mod process_start_identity_tests;
 pub struct UnixRetainedWriterProcess {
     pid: libc::pid_t,
     start_identity: [u8; 32],
+    #[cfg(target_os = "linux")]
+    pidfd: Option<std::os::fd::OwnedFd>,
 }
 
 impl UnixRetainedWriterProcess {
@@ -42,6 +45,41 @@ impl UnixRetainedWriterProcess {
             pid: pid.as_raw(),
             start_identity,
         })
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(super) fn from_spawned(
+        pid: libc::pid_t,
+        pidfd: std::os::fd::OwnedFd,
+    ) -> Result<Self, BrokerHandoffError> {
+        let start_identity = observed_start_identity(pid.cast_unsigned())?;
+        Ok(Self {
+            pid,
+            start_identity,
+            pidfd: Some(pidfd),
+        })
+    }
+
+    #[cfg(all(test, target_os = "linux"))]
+    pub(super) const fn test_pid(&self) -> libc::pid_t {
+        self.pid
+    }
+
+    /// Test-only identity corruption proving kill never targets a mismatched
+    /// start identity.
+    #[cfg(all(test, target_os = "linux"))]
+    pub(super) fn test_break_start_identity(&mut self) {
+        self.start_identity = [0xff; 32];
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(super) const fn retained_pid(&self) -> libc::pid_t {
+        self.pid
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(super) const fn retained_start_identity(&self) -> [u8; 32] {
+        self.start_identity
     }
 
     #[cfg(target_os = "macos")]
@@ -99,7 +137,14 @@ impl RetainedWriterProcess for UnixRetainedWriterProcess {
             )
             .map_err(|_| BrokerHandoffError::Unavailable)
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
+        {
+            let _ = self.writer_start_identity()?;
+            let pidfd = self.pidfd.as_ref().ok_or(BrokerHandoffError::Unavailable)?;
+            rustix::process::pidfd_send_signal(pidfd, rustix::process::Signal::KILL)
+                .map_err(|_| BrokerHandoffError::Unavailable)
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
             Err(BrokerHandoffError::Unavailable)
         }
@@ -110,7 +155,17 @@ impl RetainedWriterProcess for UnixRetainedWriterProcess {
         {
             wait_for_pid(nix::unistd::Pid::from_raw(self.pid))
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
+        {
+            let pidfd = self.pidfd.as_ref().ok_or(BrokerHandoffError::Unavailable)?;
+            rustix::process::waitid(
+                rustix::process::WaitId::PidFd(pidfd.as_fd()),
+                rustix::process::WaitIdOptions::EXITED,
+            )
+            .map_err(|_| BrokerHandoffError::Unavailable)?;
+            Ok(())
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
             Err(BrokerHandoffError::Unavailable)
         }

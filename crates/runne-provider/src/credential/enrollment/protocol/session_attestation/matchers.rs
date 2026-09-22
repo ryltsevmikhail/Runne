@@ -40,6 +40,17 @@ impl SignedCredentialWriterSessionAttestationV1 {
             && self.claims.process.daemon_image.as_bytes() == *daemon_image
     }
 
+    /// Compares signed writer facts to independently measured Linux self facts.
+    #[must_use]
+    pub fn matches_writer_live_facts(
+        &self,
+        writer_start: &[u8; 32],
+        writer_image: &[u8; 32],
+    ) -> bool {
+        self.claims.process.writer_start.as_bytes() == *writer_start
+            && self.claims.process.writer_image.as_bytes() == *writer_image
+    }
+
     /// Projects the signed release binding as an opaque equality expectation.
     #[doc(hidden)]
     #[must_use]

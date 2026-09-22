@@ -17,8 +17,11 @@ pub(crate) struct V3EnrollmentRuntime {
     pub(crate) live: Option<live_session::LiveEnrollmentSession>,
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     pub(super) broker: Option<crate::protected_activation::broker_handoff::BrokerHandoffDispatch>,
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    pub(super) session: Option<
+    #[cfg(any(
+        target_os = "linux",
+        all(target_os = "macos", target_arch = "aarch64")
+    ))]
+    pub(crate) session: Option<
         crate::application::provider_credential_enrollment::DaemonProtectedCredentialEnrollmentSession,
     >,
     pub(crate) terminal: bool,
@@ -40,13 +43,13 @@ pub(crate) struct V3EnrollmentRuntime {
 }
 
 impl V3EnrollmentRuntime {
-    /// Off macOS there is no credential enrollment session in the V3 loop.
+    /// Reports whether V3 retains an enrollment session for this Unix target.
     pub(crate) const fn has_session(&self) -> bool {
-        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        #[cfg(any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64")))]
         {
             self.session.is_some()
         }
-        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+        #[cfg(not(any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64"))))]
         {
             false
         }
@@ -57,7 +60,20 @@ impl V3EnrollmentRuntime {
         super::require_shutdown_terminal(self.session.as_ref(), self.terminal)
     }
 
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    #[cfg(target_os = "linux")]
+    pub(crate) fn require_shutdown(&self) -> Result<(), runne_api::LaunchAuthorityError> {
+        if self.session.is_some() && !self.terminal {
+            return Err(runne_api::LaunchAuthorityError::OwnershipMismatch);
+        }
+        if let Some(session) = self.session.as_ref() {
+            session
+                .require_durable_terminal()
+                .map_err(super::map_enrollment_error)?;
+        }
+        Ok(())
+    }
+
+    #[cfg(not(any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64"))))]
     pub(crate) fn require_shutdown(&self) -> Result<(), runne_api::LaunchAuthorityError> {
         let _ = self.terminal;
         Ok(())

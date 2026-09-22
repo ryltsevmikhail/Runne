@@ -25,7 +25,7 @@ use runne_api::{
 };
 
 #[cfg(any(
-    all(test, unix),
+    any(test, unix),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -34,7 +34,7 @@ use runne_api::{
 ))]
 use super::DaemonProviderCredentialEnrollmentControl;
 #[cfg(any(
-    all(test, unix),
+    any(test, unix),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -55,7 +55,7 @@ pub(super) fn generate_handle_key() -> Result<[u8; 32], ProviderCredentialEnroll
 }
 
 #[cfg(any(
-    all(test, unix),
+    any(test, unix),
     all(
         feature = "desktop-protected",
         target_os = "macos",

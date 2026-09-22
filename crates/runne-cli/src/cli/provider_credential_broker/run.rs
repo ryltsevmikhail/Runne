@@ -8,13 +8,15 @@ use super::{
     effect::{execute_non_pair_effect, execute_pair_effect},
 };
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use runne_provider::CredentialSecretInputPresence;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use runne_secure_store::NativeProviderCredentialWriters;
 
-#[cfg(target_os = "macos")]
-use super::{channel::InheritedSecretInputSlot, claim::claim_writer_authorization};
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+use super::channel::InheritedSecretInputSlot;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+use super::claim::claim_writer_authorization;
 
 /// Dispatches one already-claimed writer by the presence policy that the
 /// retained ticket accepted before claim.
@@ -28,17 +30,32 @@ pub fn execute_claimed_writer<R: Read>(
     }
 }
 
-/// Reauthenticates one pinned macOS writer, claims its retained ticket, and
-/// only then adopts Pair fd 3 or executes a control-only non-Pair effect.
+/// Runs one Linux authenticated session through the shared claim/effect path.
+#[cfg(target_os = "linux")]
+pub fn run_linux_authenticated_writer(
+    session: runne_native_enrollment_authority::AuthenticatedProviderCredentialWriterSession,
+    secret: InheritedSecretInputSlot,
+) -> Result<(), CliError> {
+    run_session(session, secret)
+}
+
 #[cfg(target_os = "macos")]
 pub fn run_authenticated_writer(
     pinned: runne_native_enrollment_authority::PendingPinnedProviderCredentialWriterSessionV1,
     secret: InheritedSecretInputSlot,
 ) -> Result<(), CliError> {
-    let presence = secret.presence();
     let session = pinned
         .authenticate_current_writer()
         .map_err(|_| CliError::CredentialOperation)?;
+    run_session(session, secret)
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn run_session(
+    session: runne_native_enrollment_authority::AuthenticatedProviderCredentialWriterSession,
+    secret: InheritedSecretInputSlot,
+) -> Result<(), CliError> {
+    let presence = secret.presence();
     let writers = NativeProviderCredentialWriters::from_authenticated_session(session)
         .map_err(|_| CliError::CredentialOperation)?;
     let claimed = claim_writer_authorization(writers, presence)?;

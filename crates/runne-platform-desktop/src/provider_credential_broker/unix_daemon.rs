@@ -116,7 +116,32 @@ pub fn spawn_macos_verified_pair_writer_from_prepared_daemon_handoff(
     Ok((admitted, relay))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+#[path = "linux_spawn.rs"]
+pub(super) mod linux_spawn;
+
+#[cfg(all(test, target_os = "linux"))]
+pub(super) fn test_spawn_linux_writer(
+    spec: &VerifiedWriterLaunchSpec,
+    control_end: UnixStream,
+    handshake_end: UnixStream,
+    address: &linux_spawn::SessionBusAddress,
+) -> Result<UnixRetainedWriterProcess, BrokerHandoffError> {
+    linux_spawn::spawn_with_pidfd_acquisition_for_tests(spec, control_end, handshake_end, address)
+}
+
+#[cfg(target_os = "linux")]
+fn spawn_prepared_writer(
+    _spec: &VerifiedWriterLaunchSpec,
+    _transport: UnixStream,
+) -> Result<UnixRetainedWriterProcess, BrokerHandoffError> {
+    // B8 stage 4: the prepared-handoff path carried no private startup
+    // socket, so it can no longer mint a usable writer; the production
+    // Linux entry is spawn_linux_writer_with_sockets (control + handshake).
+    Err(BrokerHandoffError::Unavailable)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn spawn_prepared_writer(
     _spec: &VerifiedWriterLaunchSpec,
     _transport: UnixStream,

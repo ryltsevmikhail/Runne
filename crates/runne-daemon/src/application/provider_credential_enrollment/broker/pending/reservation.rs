@@ -8,6 +8,7 @@ use binding::validate_authority;
 
 #[cfg(any(
     all(test, unix),
+    all(feature = "desktop-protected", target_os = "linux"),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -21,6 +22,7 @@ pub(super) struct ReservedTransitionRendezvous {
     authority_witness: ProviderCredentialBrokerHandoffWitness,
     #[cfg(any(
         all(test, unix),
+        all(feature = "desktop-protected", target_os = "linux"),
         all(
             feature = "desktop-protected",
             target_os = "macos",
@@ -31,6 +33,7 @@ pub(super) struct ReservedTransitionRendezvous {
     binding: ReservedAuthorityBinding,
     #[cfg(any(
         all(test, unix),
+        all(feature = "desktop-protected", target_os = "linux"),
         all(
             feature = "desktop-protected",
             target_os = "macos",
@@ -183,6 +186,7 @@ impl PendingBrokerRendezvousLease<'_> {
                 binding,
                 #[cfg(any(
                     all(test, unix),
+                    all(feature = "desktop-protected", target_os = "linux"),
                     all(
                         feature = "desktop-protected",
                         target_os = "macos",
@@ -192,6 +196,7 @@ impl PendingBrokerRendezvousLease<'_> {
                 authority_witness: reserved.authority_witness,
                 #[cfg(any(
                     all(test, unix),
+                    all(feature = "desktop-protected", target_os = "linux"),
                     all(
                         feature = "desktop-protected",
                         target_os = "macos",
@@ -201,6 +206,7 @@ impl PendingBrokerRendezvousLease<'_> {
                 broker_transfer: reserved.broker_transfer,
                 #[cfg(any(
                     all(test, unix),
+                    all(feature = "desktop-protected", target_os = "linux"),
                     all(
                         feature = "desktop-protected",
                         target_os = "macos",

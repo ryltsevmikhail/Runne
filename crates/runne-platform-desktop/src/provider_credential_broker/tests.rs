@@ -4,6 +4,14 @@ use runne_platform_ports::provider_credential_broker::ProviderCredentialBrokerPo
 
 use super::*;
 
+#[cfg(all(test, target_os = "linux"))]
+#[path = "tests_linux_spawn.rs"]
+mod tests_linux_spawn;
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "tests_linux_writer_admission.rs"]
+mod tests_linux_writer_admission;
+
 #[derive(Default)]
 struct FakeProcess {
     kills: u8,

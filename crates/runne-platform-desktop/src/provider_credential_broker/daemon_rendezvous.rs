@@ -15,9 +15,10 @@ use sha2::{Digest as _, Sha256};
 
 use super::unix_descriptor::{receive_descriptor, send_descriptor};
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 mod pair_secret_handoff;
-#[cfg(target_os = "macos")]
+mod receive_prepared;
+#[cfg(unix)]
 pub(super) use pair_secret_handoff::AuthenticatedPairSecretHandoff;
 
 const CHALLENGE_BYTES: usize = 96;
@@ -49,8 +50,8 @@ impl VerifiedDaemonWriterEndpointHandoffFacts {
 
 /// Writer endpoint authenticated as originating from the protected daemon.
 ///
-/// It has no public stream accessor. It remains a Linux-only protocol-test
-/// primitive; it is not a writer launch input.
+/// It has no public stream accessor. Linux launch consumes the verified
+/// endpoint internally; callers cannot extract a raw stream for substitution.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub struct UnixReceivedDaemonWriterEndpoint {
     control: UnixStream,
@@ -60,10 +61,10 @@ pub struct UnixReceivedDaemonWriterEndpoint {
 
 /// A prepared one-shot handoff transport for one fixed writer.
 ///
-/// Tauri only sends an authenticated outbound challenge and closes its write
-/// half. It does not observe or authenticate the daemon's later response. The
-/// opaque transport can be consumed once by the fixed writer launcher before
-/// that writer creates any threads.
+/// The preparer sends an authenticated challenge and closes its write half.
+/// macOS passes this transport to the fixed writer. Linux verifies the later
+/// response and receives the actual control endpoint with atomic CLOEXEC
+/// before spawning the writer. Either path consumes this handoff once.
 pub struct PreparedDaemonWriterEndpointHandoff {
     transport: UnixStream,
     challenge: [u8; CHALLENGE_BYTES],
@@ -177,31 +178,20 @@ pub fn receive_daemon_owned_writer_endpoint(
         expected_binding,
         expected_publication_public_key,
     )?;
-    let (mut transport, challenge) = prepared.into_receive_parts();
-    let (frame, descriptor) = receive_descriptor::<FRAME_BYTES>(&mut transport)?;
-    let response_proof: [u8; 32] = frame[RESPONSE_BYTES..]
-        .try_into()
-        .map_err(|_| BrokerHandoffError::Rejected)?;
-    if frame[..CHALLENGE_BYTES] != challenge
-        || frame[CHALLENGE_BYTES..RESPONSE_BYTES] != expected_publication_public_key
-        || !authenticator.verifies_transfer(
-            &transcript(RESPONSE_TAG, &frame[..RESPONSE_BYTES]),
-            &response_proof,
-        )
-    {
-        return Err(BrokerHandoffError::Rejected);
-    }
-    Ok(UnixReceivedDaemonWriterEndpoint {
-        control: UnixStream::from(descriptor),
-        channel_binding: expected_binding,
-        publication_public_key: expected_publication_public_key,
-    })
+    let (transport, challenge) = prepared.into_receive_parts();
+    receive_prepared::finish_receive(
+        transport,
+        challenge,
+        authenticator,
+        expected_binding,
+        expected_publication_public_key,
+    )
 }
 
 /// Authenticates the one-shot challenge without receiving the daemon endpoint.
 ///
-/// The resulting opaque transport is only suitable for direct inheritance by
-/// the fixed writer. Calling the full receiver instead remains unavailable on
+/// The result is consumed by the fixed writer launcher. Linux first receives
+/// and verifies the transferred endpoint. The full receiver stays unavailable on
 /// macOS because receiving a descriptor in the multithreaded desktop would
 /// require a racy post-receive close-on-exec operation.
 ///

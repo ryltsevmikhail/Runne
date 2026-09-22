@@ -161,7 +161,7 @@ mod broker_issue;
 mod broker_publication;
 pub(crate) mod broker_recovery_issue;
 #[path = "tests/broker_support.rs"]
-mod broker_support;
+pub(super) mod broker_support;
 // Drives begin through the unix broker rendezvous host flow.
 #[cfg(unix)]
 mod host;

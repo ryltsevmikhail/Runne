@@ -20,6 +20,7 @@ include!("protected_activation/root_bind_transport.rs");
 include!("protected_activation/root_admission_authenticator.rs");
 include!("protected_activation/root_handle_transfer_authenticator.rs");
 include!("protected_activation/enrollment_launch_prelude.rs");
+include!("protected_activation/enrollment_prelude_codec.rs");
 include!("protected_activation/enrollment_transition_v2_prepare.rs");
 include!("protected_activation/enrollment_transition_v2_view.rs");
 include!("protected_activation/enrollment_transition_v2_prelude.rs");
@@ -36,6 +37,10 @@ mod enrollment_launch_prelude_tests;
 #[path = "protected_activation/enrollment_transition_v2_tests.rs"]
 mod enrollment_transition_v2_tests;
 include!("protected_activation/enrollment_launch_binding.rs");
+include!("protected_activation/enrollment_target_codec.rs");
+#[cfg(test)]
+#[path = "protected_activation/enrollment_target_tests.rs"]
+mod enrollment_target_tests;
 include!("protected_activation/enrollment_launch_v3_core.rs");
 include!("protected_activation/enrollment_launch_v3_ready.rs");
 include!("protected_activation/enrollment_launch_v3_renew.rs");

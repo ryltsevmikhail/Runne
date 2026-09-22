@@ -1,3 +1,5 @@
+#[path = "admission_registry_linux.rs"]
+mod linux;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -6,9 +8,10 @@ use runne_api::{
     ProviderCredentialBaseRequestAuthority, ProviderCredentialBeginIntentBinding,
     ProviderCredentialBrokerTransferAuthority, ProviderCredentialCommandContext,
     ProviderCredentialEnrollmentHostError, ProviderCredentialIntentConsumptionProof,
-    ProviderCredentialRequestAuthorityIssuer, ProviderCredentialVerifyIntentBinding,
-    VerifiedProtectedCredentialEnrollmentAdmission, VerifiedProtectedCredentialEnrollmentRequest,
-    VerifyProviderCredential, protected_credential_native_intent_digest,
+    ProviderCredentialProviderV2, ProviderCredentialRequestAuthorityIssuer,
+    ProviderCredentialVerifyIntentBinding, VerifiedProtectedCredentialEnrollmentAdmission,
+    VerifiedProtectedCredentialEnrollmentRequest, VerifyProviderCredential,
+    protected_credential_native_intent_digest,
 };
 
 const MAX_PENDING_ADMISSIONS: usize = 64;
@@ -21,6 +24,8 @@ const MAX_PENDING_ADMISSIONS: usize = 64;
 pub(crate) struct PendingCredentialAdmissions {
     issuer: ProviderCredentialRequestAuthorityIssuer,
     broker_keys: Option<ProtectedActivationKeys>,
+    #[cfg(target_os = "linux")]
+    linux_preadmission: Option<super::linux_preadmission::DaemonLinuxPreadmission>,
     state: Mutex<PendingCredentialHttpAdmissionState>,
 }
 
@@ -47,6 +52,8 @@ impl PendingCredentialAdmissions {
         Self {
             issuer,
             broker_keys: None,
+            #[cfg(target_os = "linux")]
+            linux_preadmission: None,
             state: Mutex::new(PendingCredentialHttpAdmissionState {
                 entries: HashMap::new(),
                 consumed: HashMap::new(),
@@ -71,7 +78,12 @@ impl PendingCredentialAdmissions {
         admission: VerifiedProtectedCredentialEnrollmentAdmission,
         context: ProviderCredentialCommandContext,
         now_unix_millis: u64,
+        command_provider: ProviderCredentialProviderV2,
     ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        #[cfg(target_os = "linux")]
+        self.enforce_linux_preadmission(command_provider)?;
+        #[cfg(not(target_os = "linux"))]
+        let _ = command_provider;
         if now_unix_millis == 0 || admission.expires_at_unix_millis() <= now_unix_millis {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }

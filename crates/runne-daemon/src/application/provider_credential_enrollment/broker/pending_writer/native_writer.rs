@@ -26,47 +26,30 @@ impl VerifiedMacOsWriterWithDaemonKillCapability {
         ),
         ProviderCredentialEnrollmentHostError,
     > {
-        let issue = runne_provider::CredentialIssueTicketBindingV1::from_issue_ticket(frame)
-            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
-        let runne_provider::CredentialBrokerFrame::IssueTicket { binding, .. } = frame else {
-            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        let inputs = super::attestation_claims::SessionClaimInputs {
+            owner: self.binding.owner,
+            begin_proof: self.binding.begin_proof,
+            protected_session: self.binding.protected_session,
+            tauri_peer: self.binding.tauri_peer,
+            daemon_authority: self.binding.daemon_authority,
+            database_generation: self.binding.database_generation,
+            supervisor_generation: self.binding.supervisor_generation,
+            release_tuple: self.binding.release_tuple,
+            endpoint_handoff_digest: self.handoff.digest(),
+            writer_process_start: *self.kill.verified_measurement_facts().process_start(),
+            writer_image: *self.kill.verified_measurement_facts().image(),
+            writer_kill_public_key: *self
+                .kill
+                .verified_measurement_facts()
+                .writer_kill_public_key(),
         };
-        let digest = |value| {
-            runne_provider::CredentialBindingDigest::from_measured(value)
-                .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
-        };
-        let writer = self.verified_measurement_facts();
-        let claims = runne_provider::CredentialWriterSessionAttestationClaimsV1::new(
-            runne_provider::CredentialWriterSessionTicketClaimsV1::new(
-                receipt.operation().operation_id(),
-                receipt.ticket_attempt(),
-                issue,
-                *binding,
-                self.binding.owner,
-                self.binding.begin_proof,
-                receipt.issued_at_high_water(),
-                receipt.expires_at_high_water(),
-            )
-            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?,
-            runne_provider::CredentialWriterSessionRuntimeClaimsV1::new(
-                digest(self.binding.protected_session)?,
-                digest(self.binding.tauri_peer)?,
-                digest(self.binding.daemon_authority)?,
-                self.binding.database_generation,
-                self.binding.supervisor_generation,
-                self.binding.release_tuple,
-            )
-            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?,
-            runne_provider::CredentialWriterSessionProcessClaimsV1::new(
-                digest(self.handoff.digest())?,
-                digest(writer.process_start())?,
-                digest(writer.image())?,
-                digest(writer.writer_kill_public_key())?,
-                digest(daemon_start)?,
-                digest(daemon_image)?,
-            )
-            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?,
-        );
+        let claims = super::attestation_claims::build_session_claims(
+            receipt,
+            frame,
+            daemon_start,
+            daemon_image,
+            &inputs,
+        )?;
         self.authority.sign_writer_session(claims)
     }
 

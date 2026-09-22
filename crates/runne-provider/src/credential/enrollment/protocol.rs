@@ -54,6 +54,11 @@ pub use session_attestation::{
     CredentialWriterSessionTicketClaimsV1, PendingCredentialIssueTicketV1,
     SignedCredentialWriterSessionAttestationV1, SignedCredentialWriterSessionAttestationV2,
 };
+#[cfg(target_os = "linux")]
+pub use session_attestation::{
+    LinuxWriterStartup, encode_linux_writer_startup_payload, linux_writer_self_measurements,
+    respond_linux_writer_startup,
+};
 
 /// Deliberately narrow daemon-only publication adapter.
 #[doc(hidden)]

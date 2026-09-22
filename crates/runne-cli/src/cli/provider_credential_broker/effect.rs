@@ -79,8 +79,9 @@ fn pause_after_legacy_source_delete(
 ) -> Result<(), CliError> {
     if result.is_ok()
         && legacy_source_cleanup
-        && runne_api::test_support::local_native_enrollment_case()
-            .is_some_and(runne_api::test_support::LocalNativeEnrollmentCase::crashes_after_legacy_source_delete)
+        && runne_api::test_support::local_native_enrollment_case().is_some_and(
+            runne_api::test_support::LocalNativeEnrollmentCase::crashes_after_legacy_source_delete,
+        )
     {
         wait_for_legacy_delete_release()?;
         // This is the exact retained writer process. It runs after the

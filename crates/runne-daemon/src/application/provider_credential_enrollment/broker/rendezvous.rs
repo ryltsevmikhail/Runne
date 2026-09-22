@@ -45,8 +45,15 @@ impl DaemonBrokerAuthority {
         &self.endpoint
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub(in crate::application::provider_credential_enrollment::broker) fn endpoint_mut(
+        &mut self,
+    ) -> &mut UnixStream {
+        &mut self.endpoint
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(in crate::application::provider_credential_enrollment::broker) fn endpoint_mut_linux(
         &mut self,
     ) -> &mut UnixStream {
         &mut self.endpoint

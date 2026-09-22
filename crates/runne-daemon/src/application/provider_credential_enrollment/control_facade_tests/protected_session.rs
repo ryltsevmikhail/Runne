@@ -104,6 +104,8 @@ fn protected_request_admission_begin_and_exact_replay_return_one_safe_projection
     let mut session = control
         .start_test_protected_session(&keys, facts, rendezvous)
         .unwrap();
+    #[cfg(target_os = "linux")]
+    session.activate_linux_catalog_fixture();
     let command = command();
     let context = context(&command);
     let intent = ProviderCredentialBeginIntentBinding::new(&command, &context);

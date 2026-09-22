@@ -3,6 +3,7 @@ use crate::application::provider_credential_enrollment::PostcommitAdmissionPermi
 use crate::application::provider_credential_enrollment::broker::{
     FencedWriterExchange, QualifiedIssuedTicket,
 };
+use crate::protected_activation::control_v3::qualification_admission::WriterAdmissionBundle;
 use runne_api::{
     ProtectedCredentialEnrollmentOwnedLaunchV3, ProviderCredentialEnrollmentHostError as Error,
 };
@@ -19,14 +20,9 @@ pub(crate) struct QualificationAdmissionMembers {
 /// Consuming postcommit authority for the sole Writer admission encoding.
 pub(crate) struct PostcommitQualificationAdmission {
     _admission: runne_native_qualification::PendingQualificationAdmission,
+    permit: PostcommitAdmissionPermit,
     members: QualificationAdmissionMembers,
     qualified: QualifiedIssuedTicket,
-}
-
-pub(crate) struct WriterAdmissionBundle {
-    bytes: Vec<u8>,
-    context_sha256: [u8; 32],
-    ticket_sha256: [u8; 32],
 }
 
 impl VerifiedQualificationAdmission {
@@ -107,9 +103,9 @@ impl PostcommitQualificationAdmission {
         qualified: QualifiedIssuedTicket,
         permit: PostcommitAdmissionPermit,
     ) -> Self {
-        let _ = permit;
         Self {
             _admission: admission,
+            permit,
             members,
             qualified,
         }
@@ -131,18 +127,13 @@ impl PostcommitQualificationAdmission {
         bytes.extend_from_slice(&self.members.fault);
         Ok(FencedWriterExchange::from_postcommit(
             self.qualified,
-            WriterAdmissionBundle {
-                context_sha256: Sha256::digest(&self.members.context).into(),
-                ticket_sha256: Sha256::digest(&self.members.fault).into(),
+            WriterAdmissionBundle::from_signed_members(
+                self.permit,
                 bytes,
-            },
+                Sha256::digest(&self.members.context).into(),
+                Sha256::digest(&self.members.fault).into(),
+            ),
         ))
-    }
-}
-
-impl WriterAdmissionBundle {
-    pub(crate) fn into_qualified_signing_material(self) -> ([u8; 32], [u8; 32], Vec<u8>) {
-        (self.context_sha256, self.ticket_sha256, self.bytes)
     }
 }
 

@@ -203,3 +203,28 @@ fn meta_name(meta: &Meta) -> Option<String> {
 fn normalized_ident(value: &syn::Ident) -> String {
     value.to_string().trim_start_matches("r#").to_owned()
 }
+
+pub(super) fn has_exact_linux_cfg(attributes: &[Attribute]) -> bool {
+    let relevant: Vec<_> = attributes
+        .iter()
+        .filter(|attribute| {
+            matches!(
+                meta_name(&attribute.meta).as_deref(),
+                Some("cfg" | "cfg_attr" | "path")
+            )
+        })
+        .collect();
+    relevant.len() == 1 && is_exact_linux_cfg(relevant[0])
+}
+
+fn is_exact_linux_cfg(attribute: &Attribute) -> bool {
+    let syn::Meta::List(list) = &attribute.meta else {
+        return false;
+    };
+    let tokens = list.tokens.to_string();
+    let cleaned: String = tokens
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '=')
+        .collect();
+    cleaned == "target_os=linux"
+}

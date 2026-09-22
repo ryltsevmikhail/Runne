@@ -34,10 +34,13 @@ fn client_transcript(
     let prelude = signed_prelude.prelude().clone();
     let commitment = CredentialBrokerTransferAuthenticator::from_protected_activation(keys)
         .enrollment_launch_commitment(&prelude);
-    let binding = ProtectedCredentialEnrollmentLaunchBindingV1::macos_apple_silicon(
-        [6; 32], [7; 32], [8; 32], [9; 32], 1, commitment,
-    )
-    .unwrap();
+    let constructor = match (prelude.platform(), prelude.architecture()) {
+        (1, 1) => ProtectedCredentialEnrollmentLaunchBindingV1::macos_apple_silicon,
+        (2, 2) => ProtectedCredentialEnrollmentLaunchBindingV1::linux_arm64,
+        (2, 3) => ProtectedCredentialEnrollmentLaunchBindingV1::linux_x86_64,
+        _ => panic!("unsupported target"),
+    };
+    let binding = constructor([6; 32], [7; 32], [8; 32], [9; 32], 1, commitment).unwrap();
     let request = ProtectedLaunchRequestV1::new(
         id(1),
         id(2),

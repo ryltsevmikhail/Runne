@@ -21,12 +21,12 @@ const AAD_DOMAIN: &[u8] = b"GOCODE_CREDENTIAL_SECRET_AAD_V1\0";
 const KEY_LABEL: &[u8] = b"GOCODE_CREDENTIAL_SECRET_KEY_V1\0";
 const NONCE_LABEL: &[u8] = b"GOCODE_CREDENTIAL_SECRET_NONCE_V1\0";
 
-pub(super) struct AuthenticatedPairSecretSealer {
+pub struct AuthenticatedPairSecretSealer {
     handoff: AuthenticatedPairSecretHandoff,
 }
 
 impl AuthenticatedPairSecretSealer {
-    pub(super) const fn from_handoff(handoff: AuthenticatedPairSecretHandoff) -> Self {
+    pub const fn from_handoff(handoff: AuthenticatedPairSecretHandoff) -> Self {
         Self { handoff }
     }
 

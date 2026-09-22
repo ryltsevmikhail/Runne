@@ -1,8 +1,3 @@
-#[cfg(all(
-    target_os = "macos",
-    target_arch = "aarch64",
-    feature = "desktop-protected"
-))]
 use super::qualified_exchange::QualifiedIssuedTicket;
 use super::{CredentialBrokerChannel, ProviderCredentialBroker};
 use crate::application::provider_credential_enrollment::effect_authority::map_store;
@@ -37,21 +32,11 @@ pub(crate) struct ClaimIssueContext {
     desktop_supervisor_generation: u64,
 }
 
-#[cfg(all(
-    target_os = "macos",
-    target_arch = "aarch64",
-    feature = "desktop-protected"
-))]
 pub(super) struct QualifiedIssueFrame {
     issued: IssuedCredentialTicketAttempt,
     frame: CredentialBrokerFrame,
 }
 
-#[cfg(all(
-    target_os = "macos",
-    target_arch = "aarch64",
-    feature = "desktop-protected"
-))]
 impl QualifiedIssueFrame {
     pub(super) fn into_qualified_frame_members(
         self,
@@ -215,11 +200,6 @@ impl ProviderCredentialBroker {
         Ok(receipt)
     }
 
-    #[cfg(all(
-        target_os = "macos",
-        target_arch = "aarch64",
-        feature = "desktop-protected"
-    ))]
     pub(super) fn issue_frame_for_qualified(
         &self,
         qualified: QualifiedIssuedTicket,

@@ -1,6 +1,23 @@
-#[cfg(any(test, target_os = "macos"))]
+#[cfg(any(test, any(target_os = "macos", target_os = "linux")))]
 use runne_provider::CredentialWriterAuthorityPair;
-use runne_provider::{CredentialWriterClaimIssuer, CredentialWriterEffectAuthority};
+use runne_provider::{
+    CredentialBindingDigest, CredentialWriterClaimIssuer, CredentialWriterEffectAuthority,
+};
+
+#[cfg(target_os = "linux")]
+type LinuxSessionParts = Box<(
+    std::os::unix::net::UnixStream,
+    runne_provider::BrokerChannelBinding,
+    runne_provider::PendingCredentialIssueTicketV1,
+    std::path::PathBuf,
+    std::path::PathBuf,
+)>;
+#[cfg(target_os = "linux")]
+type LinuxClaimNative = (
+    std::os::unix::net::UnixStream,
+    runne_provider::BrokerChannelBinding,
+    runne_provider::PendingCredentialIssueTicketV1,
+);
 
 #[allow(
     clippy::redundant_pub_crate,
@@ -18,6 +35,8 @@ pub(crate) enum VerifiedEnrollmentSession {
             runne_api::VerifiedSignedInstalledReleaseV2,
         )>,
     ),
+    #[cfg(target_os = "linux")]
+    Linux(LinuxSessionParts),
     #[cfg(test)]
     Verified,
 }
@@ -91,10 +110,10 @@ pub struct AuthenticatedProviderCredentialWriterSession {
 /// ```
 pub struct AuthenticatedWriterClaimContext {
     #[cfg_attr(
-        not(any(test, target_os = "macos")),
+        not(any(test, target_os = "macos", target_os = "linux")),
         expect(
             dead_code,
-            reason = "opaque claim surface is retained; only macOS can admit a native session"
+            reason = "opaque claim surface is retained until a platform verifier is wired"
         )
     )]
     issuer: CredentialWriterClaimIssuer,
@@ -105,6 +124,8 @@ pub struct AuthenticatedWriterClaimContext {
         runne_provider::PendingCredentialIssueTicketV1,
         runne_api::VerifiedSignedInstalledReleaseV2,
     )>,
+    #[cfg(target_os = "linux")]
+    native: Option<LinuxClaimNative>,
 }
 
 /// Effect-side admission created from the same authenticated writer session.
@@ -137,22 +158,22 @@ pub struct AuthenticatedWriterClaimContext {
 /// ```
 pub struct AuthenticatedWriterEffectAdmission {
     #[cfg_attr(
-        not(any(test, target_os = "macos")),
+        not(any(test, target_os = "macos", target_os = "linux")),
         expect(
             dead_code,
-            reason = "opaque effect surface is retained; only macOS can admit a native session"
+            reason = "opaque effect surface is retained until a platform verifier is wired"
         )
     )]
     effects: CredentialWriterEffectAuthority,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     native_paths: Option<(std::path::PathBuf, std::path::PathBuf)>,
 }
 
 impl AuthenticatedProviderCredentialWriterSession {
-    #[cfg(any(test, target_os = "macos"))]
+    #[cfg(any(test, any(target_os = "macos", target_os = "linux")))]
     #[allow(
         clippy::redundant_pub_crate,
-        reason = "the sibling verifier is the sole production caller"
+        reason = "the sibling verifiers are the sole production callers"
     )]
     pub(crate) const fn mint(verified: VerifiedEnrollmentSession) -> Self {
         Self { verified }
@@ -166,10 +187,10 @@ impl AuthenticatedProviderCredentialWriterSession {
     /// Consumes the admitted session and creates one matched claim/effect pair.
     #[must_use]
     #[cfg_attr(
-        not(any(test, target_os = "macos")),
+        not(any(test, target_os = "macos", target_os = "linux")),
         expect(
             clippy::missing_const_for_fn,
-            reason = "the shared opaque API performs non-const authority creation on macOS"
+            reason = "the shared opaque API performs non-const authority creation on native platforms"
         )
     )]
     pub fn split(
@@ -178,13 +199,13 @@ impl AuthenticatedProviderCredentialWriterSession {
         AuthenticatedWriterClaimContext,
         AuthenticatedWriterEffectAdmission,
     ) {
-        #[cfg(not(any(test, target_os = "macos")))]
+        #[cfg(not(any(test, target_os = "macos", target_os = "linux")))]
         {
             match self.verified {}
         }
-        #[cfg(any(test, target_os = "macos"))]
+        #[cfg(any(test, target_os = "macos", target_os = "linux"))]
         {
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
             let (native, native_paths) = match self.verified {
                 #[cfg(target_os = "macos")]
                 VerifiedEnrollmentSession::MacOs(parts) => {
@@ -194,88 +215,44 @@ impl AuthenticatedProviderCredentialWriterSession {
                         Some((writer, reader)),
                     )
                 }
+                #[cfg(target_os = "linux")]
+                VerifiedEnrollmentSession::Linux(parts) => {
+                    let (control, channel, ticket, writer, reader) = *parts;
+                    (Some((control, channel, ticket)), Some((writer, reader)))
+                }
                 #[cfg(test)]
                 VerifiedEnrollmentSession::Verified => (None, None),
             };
-            #[cfg(not(target_os = "macos"))]
-            match self.verified {
-                #[cfg(test)]
-                VerifiedEnrollmentSession::Verified => {}
-            }
             let pair = CredentialWriterAuthorityPair::new();
             let (issuer, effects) = pair.split();
             (
-                AuthenticatedWriterClaimContext {
+                AuthenticatedWriterClaimContext::from_split(
                     issuer,
-                    #[cfg(target_os = "macos")]
+                    #[cfg(any(target_os = "macos", target_os = "linux"))]
                     native,
-                },
-                AuthenticatedWriterEffectAdmission {
+                ),
+                AuthenticatedWriterEffectAdmission::from_split(
                     effects,
-                    #[cfg(target_os = "macos")]
+                    #[cfg(any(target_os = "macos", target_os = "linux"))]
                     native_paths,
-                },
+                ),
             )
         }
     }
 }
 
-#[cfg(target_os = "macos")]
-impl AuthenticatedWriterClaimContext {
-    /// Consumes the claim side into the already-authenticated native channel.
-    ///
-    /// # Errors
-    ///
-    /// Rejects synthetic or incomplete contexts before any broker frame write.
-    #[doc(hidden)]
-    #[allow(
-        clippy::type_complexity,
-        reason = "the secure-store admission keeps the resources move-only"
-    )]
-    pub fn into_macos_claim_parts(
-        self,
-    ) -> Result<
-        (
-            CredentialWriterClaimIssuer,
-            std::os::unix::net::UnixStream,
-            runne_provider::BrokerChannelBinding,
-            runne_provider::PendingCredentialIssueTicketV1,
-            runne_api::VerifiedSignedInstalledReleaseV2,
-        ),
-        runne_macos_process_identity::MacOsPackagedWriterObservationError,
-    > {
-        let (control, channel, ticket, release) = self
-            .native
-            .ok_or(runne_macos_process_identity::MacOsPackagedWriterObservationError::Rejected)?;
-        Ok((self.issuer, control, channel, ticket, release))
-    }
-}
+#[cfg(target_os = "linux")]
+mod linux_parts;
 
-#[cfg(target_os = "macos")]
-impl AuthenticatedWriterEffectAdmission {
-    /// Consumes the effect side with the two verified packaged executable paths.
-    ///
-    /// # Errors
-    ///
-    /// Rejects synthetic or incomplete contexts before native-store construction.
-    #[doc(hidden)]
-    pub fn into_macos_effect_parts(
-        self,
-    ) -> Result<
-        (
-            CredentialWriterEffectAuthority,
-            std::path::PathBuf,
-            std::path::PathBuf,
-        ),
-        runne_macos_process_identity::MacOsPackagedWriterObservationError,
-    > {
-        let (writer, reader) = self
-            .native_paths
-            .ok_or(runne_macos_process_identity::MacOsPackagedWriterObservationError::Rejected)?;
-        Ok((self.effects, writer, reader))
-    }
-}
+#[cfg(target_os = "linux")]
+mod linux_entry;
 
+#[cfg(target_os = "linux")]
+mod linux_verifier;
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_verifier_tests;
+#[cfg(any(test, target_os = "macos", target_os = "linux"))]
+mod parts;
 #[cfg(test)]
-#[path = "session_tests.rs"]
 mod tests;

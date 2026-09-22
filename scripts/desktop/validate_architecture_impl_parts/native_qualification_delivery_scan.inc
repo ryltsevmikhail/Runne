@@ -7,6 +7,7 @@ NATIVE_QUALIFICATION_NON_DELIVERY_OWNERS = {
     Path("apps/desktop/src-tauri/src/lib_parts/run.rs"),
 }
 NATIVE_QUALIFICATION_TEST_ONLY_PATHS = frozenset({
+    Path("crates/runne-daemon/src/application/provider_credential_enrollment/broker/qualified_exchange/source_boundary_tests.rs"),
     Path("apps/desktop/src-tauri/src/qualification_ticket_tests.rs"),
     Path("crates/runne-platform-desktop/src/protected_runtime/qualification_relay_tests.rs"),
     Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/tests.rs"),

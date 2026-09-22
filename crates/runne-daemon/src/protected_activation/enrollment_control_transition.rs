@@ -177,6 +177,11 @@ pub(crate) struct EnrollmentTransitionOutcome {
 }
 
 impl EnrollmentTransitionOutcome {
+    #[cfg(target_os = "linux")]
+    pub(super) fn owned_launch(&self) -> &ProtectedCredentialEnrollmentOwnedLaunchV3 {
+        &self.owned_launch
+    }
+
     pub(super) fn new(
         keys: ProtectedActivationKeys,
         owned_launch: ProtectedCredentialEnrollmentOwnedLaunchV3,

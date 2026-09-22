@@ -52,9 +52,35 @@ use super::{
     rendezvous::DaemonBrokerAuthority,
 };
 
+#[cfg(all(unix, feature = "desktop-protected"))]
+#[path = "pending_writer/attestation_claims.rs"]
+pub(super) mod attestation_claims;
+
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[path = "pending_writer/native_writer.rs"]
 mod native_writer;
+
+#[cfg(target_os = "linux")]
+#[path = "pending_writer/linux_writer.rs"]
+mod linux_writer;
+
+#[cfg(all(target_os = "linux", any(test, feature = "desktop-protected")))]
+#[path = "pending_writer/linux_handshake.rs"]
+mod linux_handshake;
+
+#[cfg(all(target_os = "linux", any(test, feature = "desktop-protected")))]
+pub(crate) use linux_handshake::{
+    VerifiedLinuxWriterHandshake, receive_linux_writer_evidence, receive_linux_writer_handshake,
+};
+#[cfg(target_os = "linux")]
+pub(crate) use linux_writer::VerifiedLinuxWriterWithDaemonAuthority;
+
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+#[path = "pending_writer/linux_orchestration.rs"]
+mod linux_orchestration;
+
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+pub(crate) use linux_orchestration::{LinuxWriterSpawn, launch_linux_writer_with_handshake};
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[path = "pending_writer/qualified.rs"]
 mod qualified;

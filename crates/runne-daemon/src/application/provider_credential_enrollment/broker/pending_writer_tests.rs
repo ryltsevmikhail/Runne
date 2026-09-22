@@ -135,6 +135,15 @@ fn send_evidence(
     )
 }
 
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+#[path = "pending_writer/linux_broker_cycle_tests.rs"]
+mod linux_broker_cycle_tests;
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+#[path = "pending_writer/linux_handshake_tests.rs"]
+mod linux_handshake_tests;
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+#[path = "pending_writer/linux_orchestration_tests.rs"]
+mod linux_orchestration_tests;
 #[cfg(target_os = "macos")]
 #[path = "pending_writer_macos_tests.rs"]
 mod macos_tests;

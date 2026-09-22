@@ -32,6 +32,8 @@ mod discovery;
 mod facts;
 mod initial_request;
 mod intent_exchange;
+#[cfg(all(test, target_os = "linux"))]
+mod linux_fixture;
 pub(crate) use initial_request::InitialCredentialExchange;
 #[cfg(all(
     target_os = "macos",
@@ -112,6 +114,11 @@ impl DaemonProtectedCredentialEnrollmentSession {
         );
         let recovery = recovery::RecoveryExchange::new(keys, &facts, broker_evidence, &issuer)?;
         let http_session = facts.session;
+        let admissions = PendingCredentialAdmissions::new_with_broker_transfer(issuer, keys);
+        #[cfg(target_os = "linux")]
+        let admissions = admissions.with_linux_preadmission(
+            control.linux_preadmission_for(facts.session, facts.runtime_authority)?,
+        );
         Ok(Self {
             control,
             authenticator: ProtectedCredentialEnrollmentAuthenticator::from_protected_activation(
@@ -122,7 +129,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
             facts,
             http_session,
             broker_evidence,
-            admissions: PendingCredentialAdmissions::new_with_broker_transfer(issuer, keys),
+            admissions,
             verifier,
             rendezvous: Some(rendezvous),
             pending: None,

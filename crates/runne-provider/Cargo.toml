@@ -12,6 +12,7 @@ runne-api = { path = "../runne-api" }
 runne-native-qualification = { path = "../runne-native-qualification" }
 runne-domain = { path = "../runne-domain" }
 rand = "0.8"
+ed25519-dalek.workspace = true
 ring.workspace = true
 serde.workspace = true
 serde_json.workspace = true

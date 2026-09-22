@@ -98,8 +98,13 @@ impl DaemonProtectedCredentialEnrollmentSession {
             .take()
             .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
         let context = command_context(&command)?;
-        self.admissions
-            .register(pending.request, pending.admission, context, now_unix_millis)?;
+        self.admissions.register(
+            pending.request,
+            pending.admission,
+            context,
+            now_unix_millis,
+            command.provider(),
+        )?;
         let (authority, proof, context, broker_transfer) = self
             .admissions
             .resolve_begin_with_broker_transfer(&command, self.facts.session, now_unix_millis)?;
@@ -178,8 +183,13 @@ impl DaemonProtectedCredentialEnrollmentSession {
             .take()
             .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
         let context = verification_command_context(&command)?;
-        self.admissions
-            .register(pending.request, pending.admission, context, now_unix_millis)?;
+        self.admissions.register(
+            pending.request,
+            pending.admission,
+            context,
+            now_unix_millis,
+            command.provider(),
+        )?;
         let (authority, proof, context) =
             self.admissions
                 .resolve_verify(&command, self.facts.session, now_unix_millis)?;

@@ -3,10 +3,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const APPROVED_TEST_SOURCES: [&str; 10] = [
-    "session_tests.rs",
+const APPROVED_TEST_SOURCES: [&str; 12] = [
+    "session/linux_verifier_tests.rs",
+    "session/tests.rs",
     "surface_policy_tests.rs",
     "surface_policy_tests/attribute_audit.rs",
+    "surface_policy_tests/construction_audit.rs",
     "surface_policy_tests/method_audit.rs",
     "surface_policy_tests/mint_call_audit.rs",
     "surface_policy_tests/platform_method_audit.rs",

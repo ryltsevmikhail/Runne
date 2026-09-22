@@ -17,8 +17,7 @@ use super::{
     pending_writer::VerifiedMacOsWriterWithDaemonKillCapability,
 };
 
-mod qualified;
-use self::qualified::{BUDGET as QUALIFIED_EXCHANGE_BUDGET, QualifiedControl};
+use super::qualified_control::{BUDGET as QUALIFIED_EXCHANGE_BUDGET, QualifiedControl};
 
 enum QualifiedSignerState {
     Prelude {

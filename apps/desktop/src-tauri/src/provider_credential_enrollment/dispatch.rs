@@ -44,6 +44,10 @@ pub async fn dispatch_credential_intent(
     intents: &CredentialIntentRegistry,
     request: CredentialIntentIpc,
 ) -> Result<CredentialIntentProjection, DispatchError> {
+    #[cfg(target_os = "linux")]
+    if let Err(code) = super::linux_activation::enforce_pre_prompt_gate(&request) {
+        return Err(code);
+    }
     Box::pin(dispatch_inner(
         app, window, lifecycle, updater, intents, request,
     ))

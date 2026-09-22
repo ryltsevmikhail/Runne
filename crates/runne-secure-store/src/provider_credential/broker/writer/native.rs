@@ -1,6 +1,14 @@
 use std::sync::Arc;
 
-#[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
+#[path = "native_helpers.rs"]
+mod native_helpers;
+
+use native_helpers::{BrokerAuthorizedCreate, map_lifecycle, provider, version};
+
+#[cfg(all(
+    any(target_os = "macos", target_os = "linux"),
+    feature = "provider-credential-broker-writer"
+))]
 use runne_provider::CredentialWriterEffectAuthority;
 #[cfg(any(test, feature = "test-support"))]
 use runne_provider::{CredentialAuthorityPair, CredentialWriterAuthorityPair};
@@ -11,7 +19,10 @@ use runne_provider::{
 
 #[cfg(any(test, feature = "test-support"))]
 use super::BrokeredProviderCredentialWriterAdapter;
-#[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
+#[cfg(all(
+    any(target_os = "macos", target_os = "linux"),
+    feature = "provider-credential-broker-writer"
+))]
 use super::legacy_source::BrokeredProviderCredentialLegacySource;
 use super::{
     BrokeredCreateInput, BrokeredDeleteInput, BrokeredLegacySourceDeleteInput,
@@ -74,7 +85,10 @@ fn test_factory_is_not_production_api(access: ProviderCredentialAccessPolicy) {
 pub struct NativeProviderCredentialWriters {
     pub(super) issuer: CredentialWriterClaimIssuer,
     pub(super) effect_route: NativeProviderCredentialEffectRoute,
-    #[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
+    #[cfg(all(
+        any(target_os = "macos", target_os = "linux"),
+        feature = "provider-credential-broker-writer"
+    ))]
     pub(super) authenticated: Option<super::native_authenticated::AuthenticatedNativeWriterParts>,
 }
 
@@ -89,6 +103,7 @@ pub enum NativeProviderCredentialEffectRoute {
     #[doc(hidden)]
     CredentialService {
         effects: CredentialWriterEffectAuthority,
+        #[cfg(target_os = "macos")]
         configuration: runne_macos_xpc::CredentialServiceEndpointConfiguration,
         legacy: Arc<dyn BrokeredProviderCredentialLegacySource>,
     },
@@ -109,7 +124,10 @@ impl NativeProviderCredentialWriters {
             effect_route: NativeProviderCredentialEffectRoute::Legacy(Arc::new(
                 BrokeredProviderCredentialWriterAdapter::new(effects, writer, access),
             )),
-            #[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
+            #[cfg(all(
+                any(target_os = "macos", target_os = "linux"),
+                feature = "provider-credential-broker-writer"
+            ))]
             authenticated: None,
         }
     }
@@ -124,11 +142,17 @@ impl NativeProviderCredentialWriters {
         CredentialWriterClaimIssuer,
         Arc<dyn BrokeredProviderCredentialWriter>,
     ) {
-        #[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
+        #[cfg(all(
+            any(target_os = "macos", target_os = "linux"),
+            feature = "provider-credential-broker-writer"
+        ))]
         let NativeProviderCredentialEffectRoute::Legacy(writer) = self.effect_route else {
             panic!("authenticated service routes cannot enter the test-only legacy split")
         };
-        #[cfg(not(all(target_os = "macos", feature = "provider-credential-broker-writer")))]
+        #[cfg(not(all(
+            any(target_os = "macos", target_os = "linux"),
+            feature = "provider-credential-broker-writer"
+        )))]
         let NativeProviderCredentialEffectRoute::Legacy(writer) = self.effect_route;
         (self.issuer, writer)
     }
@@ -259,36 +283,5 @@ where
         _access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
         Err(SecureStoreError::UnsupportedSecureStoreBackend)
-    }
-}
-
-struct BrokerAuthorizedCreate;
-
-impl CredentialNativeCreateValidator for BrokerAuthorizedCreate {
-    fn validate(&self) -> Result<(), CredentialLifecycleError> {
-        Ok(())
-    }
-}
-
-fn version(
-    target: &runne_provider::CredentialBrokerTarget,
-) -> Result<&CredentialVersionRef, SecureStoreError> {
-    target
-        .version_ref()
-        .ok_or(SecureStoreError::CredentialAccessDenied)
-}
-
-fn provider(provider: &ProviderId) -> Result<ProviderCredentialId, SecureStoreError> {
-    ProviderCredentialId::from_account(provider.as_str())
-        .ok_or(SecureStoreError::UnsupportedSecureStoreBackend)
-}
-
-const fn map_lifecycle(error: CredentialLifecycleError) -> SecureStoreError {
-    match error {
-        CredentialLifecycleError::StaleLease | CredentialLifecycleError::Conflict => {
-            SecureStoreError::CredentialAccessDenied
-        }
-        CredentialLifecycleError::CorruptState => SecureStoreError::CorruptProviderCredential,
-        _ => SecureStoreError::ProviderCredentialOperationFailed,
     }
 }

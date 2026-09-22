@@ -4,7 +4,7 @@
 )]
 //! Authenticated daemon-bound writer evidence without descriptor transfer.
 
-use std::io::{Read, Write};
+use std::io::Write;
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 
@@ -19,6 +19,16 @@ use super::WriterProcessEvidence;
 
 mod facts;
 pub use facts::VerifiedWriterMeasurementFacts;
+#[path = "daemon_evidence_transfer_io.rs"]
+mod daemon_evidence_transfer_io;
+#[cfg(test)]
+pub(super) use daemon_evidence_transfer_io::transfer_timeout_for_local_test_opt_in;
+use daemon_evidence_transfer_io::{configure, read_one_shot, transcript};
+#[cfg(target_os = "linux")]
+pub use runne_provider::{
+    LinuxWriterStartup, encode_linux_writer_startup_payload, linux_writer_self_measurements,
+    respond_linux_writer_startup,
+};
 
 const CHALLENGE_BYTES: usize = 128;
 const RECORD_BYTES: usize = CHALLENGE_BYTES + 128;
@@ -242,51 +252,40 @@ pub fn receive_daemon_owned_writer_measurements(
     Ok((measurements, authority))
 }
 
-fn read_one_shot<const BYTES: usize>(
-    transport: &mut UnixStream,
-) -> Result<[u8; BYTES], BrokerHandoffError> {
-    let mut received = Vec::with_capacity(BYTES + 1);
+/// Daemon side: writes the sealed payload, then runs the exact existing
+/// evidence challenge, cross-bound to the live retained-process facts.
+///
+/// # Errors
+///
+/// Fails closed on any transport, proof, binding, or live-fact mismatch.
+#[cfg(target_os = "linux")]
+pub fn receive_linux_writer_startup(
+    mut transport: UnixStream,
+    transfer_authority: runne_api::ProviderCredentialBrokerTransferAuthority,
+    launch_secret: &[u8; 32],
+    expected_release_tuple: [u8; 32],
+    expected_channel: [u8; 32],
+    expected_publication_public_key: [u8; 32],
+    live_start_identity: [u8; 32],
+    live_image_digest: [u8; 32],
+) -> Result<[u8; 32], runne_api::ProviderCredentialEnrollmentHostError> {
+    let payload = encode_linux_writer_startup_payload(launch_secret, expected_release_tuple);
     transport
-        .take((BYTES + 1) as u64)
-        .read_to_end(&mut received)
-        .map_err(|_| BrokerHandoffError::Rejected)?;
-    received
-        .try_into()
-        .map_err(|_| BrokerHandoffError::Rejected)
-}
-
-fn configure(stream: &UnixStream) -> Result<(), BrokerHandoffError> {
-    let timeout = transfer_timeout();
-    stream
-        .set_read_timeout(Some(timeout))
-        .and_then(|()| stream.set_write_timeout(Some(timeout)))
-        .map_err(|_| BrokerHandoffError::Unavailable)
-}
-
-#[cfg(feature = "test-support")]
-fn transfer_timeout() -> std::time::Duration {
-    let opted_in = std::env::var_os("RUNNE_LOCAL_NATIVE_ENROLLMENT_TEST").as_deref()
-        == Some(std::ffi::OsStr::new("1"));
-    transfer_timeout_for_local_test_opt_in(opted_in)
-}
-
-#[cfg(any(test, feature = "test-support"))]
-pub(super) const fn transfer_timeout_for_local_test_opt_in(opted_in: bool) -> std::time::Duration {
-    if opted_in {
-        std::time::Duration::from_mins(2)
-    } else {
-        TRANSFER_TIMEOUT
-    }
-}
-
-#[cfg(not(feature = "test-support"))]
-const fn transfer_timeout() -> std::time::Duration {
-    TRANSFER_TIMEOUT
-}
-
-fn transcript(tag: &[u8], record: &[u8]) -> Vec<u8> {
-    let mut transcript = Vec::with_capacity(tag.len() + record.len());
-    transcript.extend_from_slice(tag);
-    transcript.extend_from_slice(record);
-    transcript
+        .set_write_timeout(Some(std::time::Duration::from_secs(5)))
+        .and_then(|()| transport.set_read_timeout(Some(std::time::Duration::from_secs(5))))
+        .map_err(|_| runne_api::ProviderCredentialEnrollmentHostError::Unavailable)?;
+    transport
+        .write_all(&*payload)
+        .map_err(|_| runne_api::ProviderCredentialEnrollmentHostError::AccessDenied)?;
+    let (measurements, _rotated) = receive_daemon_owned_writer_measurements(
+        transport,
+        transfer_authority,
+        expected_release_tuple,
+        expected_channel,
+        expected_publication_public_key,
+    )
+    .map_err(|_| runne_api::ProviderCredentialEnrollmentHostError::AccessDenied)?;
+    measurements
+        .verified_linux_kill_public_key(live_start_identity, live_image_digest)
+        .ok_or(runne_api::ProviderCredentialEnrollmentHostError::AccessDenied)
 }

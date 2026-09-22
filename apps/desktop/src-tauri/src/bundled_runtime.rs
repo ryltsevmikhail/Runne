@@ -201,6 +201,21 @@ impl BundledRuntimeController {
     }
 }
 
+#[cfg(target_os = "linux")]
+impl BundledRuntimeController {
+    pub(crate) fn linux_activation_context(
+        &self,
+    ) -> Option<(
+        std::path::PathBuf,
+        runne_api::provider_credential_enrollment::linux_activation_policy::LinuxInstallationFacts,
+    )> {
+        if self.operation_fence.is_stopping() {
+            return None;
+        }
+        self.supervisor.lock().ok()?.linux_activation_context().ok()
+    }
+}
+
 include!("bundled_runtime_parts/connect.rs");
 include!("bundled_runtime_parts/monitor.rs");
 #[path = "bundled_runtime_parts/restart_cleanup.rs"]

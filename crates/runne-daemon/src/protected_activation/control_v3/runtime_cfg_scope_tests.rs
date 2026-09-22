@@ -7,7 +7,8 @@ const NATIVE_OR_UNIX_TEST_GATE: &str =
     "#[cfg(any(all(test, unix), all(target_os = \"macos\", target_arch = \"aarch64\")))]";
 const UNIX_PROTECTED_GATE: &str =
     "#[cfg(any(test, all(unix), all(target_os = \"macos\", target_arch = \"aarch64\")))]";
-const UNIX_TEST_OR_NATIVE_GATE: &str = "#[cfg(all(\n    feature = \"desktop-protected\",\n    any(all(test, unix), all(target_os = \"macos\", target_arch = \"aarch64\"))\n))]";
+const ENROLLMENT_SESSION_SCOPE_GATE: &str = "#[cfg(all(\n    feature = \"desktop-protected\",\n    any(\n        all(test, unix),\n        target_os = \"linux\",\n        all(target_os = \"macos\", target_arch = \"aarch64\")\n    )\n))]";
+const ENROLLMENT_EXCHANGE_SCOPE_GATE: &str = "#[cfg(all(\n    feature = \"desktop-protected\",\n    any(target_os = \"linux\", all(target_os = \"macos\", target_arch = \"aarch64\"))\n))]";
 
 fn preceding_cfg<'a>(source: &'a str, consumer: &str) -> &'a str {
     let consumer_offset = source.find(consumer).expect("native consumer");
@@ -68,6 +69,14 @@ fn v3_enrollment_roots_match_native_or_test_scope() {
             "pub(crate) use control_facade::DaemonProtectedCredentialEnrollmentSession;"
         )
         .trim_end()
-        .ends_with(UNIX_TEST_OR_NATIVE_GATE)
+        .ends_with(ENROLLMENT_SESSION_SCOPE_GATE)
+    );
+    assert!(
+        source_before(
+            enrollment,
+            "pub(crate) use control_facade::InitialCredentialExchange;"
+        )
+        .trim_end()
+        .ends_with(ENROLLMENT_EXCHANGE_SCOPE_GATE)
     );
 }

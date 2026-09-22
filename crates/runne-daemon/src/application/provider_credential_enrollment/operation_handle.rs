@@ -46,6 +46,7 @@ impl ProviderCredentialOperationHandleIssuer {
 
     #[cfg(any(
         test,
+        all(feature = "desktop-protected", target_os = "linux"),
         all(
             feature = "desktop-protected",
             target_os = "macos",

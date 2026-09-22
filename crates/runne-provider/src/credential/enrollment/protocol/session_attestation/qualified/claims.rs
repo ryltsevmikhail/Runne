@@ -79,6 +79,26 @@ impl SignedCredentialWriterSessionAttestationV2 {
             && self.claims.process.daemon_image.as_bytes() == *daemon_image
     }
 
+    /// Compares only the signed WRITER process facts to live self-measure;
+    /// daemon-identity facts are accepted from the signature itself.
+    #[must_use]
+    pub fn matches_writer_live_facts(
+        &self,
+        writer_start: &[u8; 32],
+        writer_image: &[u8; 32],
+    ) -> bool {
+        self.claims.process.writer_start.as_bytes() == *writer_start
+            && self.claims.process.writer_image.as_bytes() == *writer_image
+    }
+
+    /// Returns the SIGNATURE-bound release tuple as a fact (not an
+    /// expectation); callers with an independently retained tuple compare it
+    /// at their own trust boundary.
+    #[must_use]
+    pub fn attested_release_tuple(&self) -> crate::credential::enrollment::CredentialBindingDigest {
+        self.claims.runtime.release_tuple
+    }
+
     /// Projects the signed release tuple as an opaque equality matcher.
     #[must_use]
     pub fn release_binding_expectation(&self) -> runne_domain::DigestEqualityMatcherV1 {

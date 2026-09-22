@@ -44,6 +44,7 @@ NATIVE_QUALIFICATION_ADMISSION_SOURCE = Path(
     "apps/desktop/src-tauri/src/qualification_ticket.rs"
 )
 NATIVE_QUALIFICATION_ADMISSION_ALLOWED = {
+    Path("crates/runne-daemon/src/application/provider_credential_enrollment/broker/qualified_exchange/source_boundary_tests.rs"),
     Path("crates/runne-provider/src/credential/enrollment/authority/qualification.rs"),
     Path("crates/runne-daemon/src/protected_activation/control_v3/initial_exchange/qualification_fence.rs"),
     Path("crates/runne-daemon/src/application/provider_credential_enrollment/control_facade/protected_session/qualification/atomic_tests.rs"),
@@ -104,7 +105,6 @@ NATIVE_QUALIFICATION_DELIVERY_FORBIDDEN = re.compile(
     r"(?:qualification|admission|ticket)\w*(?:bytes|serialize)|"
     r"clone_\w*(?:qualification|admission|ticket)|(?:qualification|admission|ticket)\w*_clone)\s*\("
 )
-
 
 def find_native_qualification_dependency_violations(packages: list[dict]) -> list[str]:
     """Require one exact registry edge for every qualification dependency."""
@@ -251,7 +251,7 @@ def find_native_qualification_admission_surface_violations(root: Path) -> list[s
                 )
             if (
                 relative not in NATIVE_QUALIFICATION_ADMISSION_ALLOWED
-                and NATIVE_QUALIFICATION_ADMISSION_TOKEN.search(text)
+                and native_qualification_admission_token_forbidden(relative, text)
             ):
                 violations.append(
                     f"{relative.as_posix()} exposes native qualification admission outside host"

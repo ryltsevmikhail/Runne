@@ -1,4 +1,8 @@
-//! Fixed macOS inherited sealed-secret slot.
+//! Fixed Unix inherited sealed-secret slot.
+
+#[cfg(target_os = "linux")]
+#[path = "channel_linux.rs"]
+mod linux;
 
 use std::fs::{File, OpenOptions};
 use std::io::Read;
@@ -29,6 +33,16 @@ impl InheritedSecretInputSlot {
         Self::inspect_at(SECRET_INPUT_DESCRIPTOR)
     }
 
+    /// Validates the only extra slot retained by the Linux startup sweep.
+    /// This is descriptor-shape validation, not credential authority.
+    #[cfg(target_os = "linux")]
+    pub(super) fn validated_descriptor_for_sweep(&self) -> Result<Option<RawFd>, CliError> {
+        if let Some(descriptor) = self.descriptor {
+            linux::validate_original_slot(descriptor)?;
+        }
+        Ok(self.descriptor)
+    }
+
     pub const fn presence(&self) -> CredentialSecretInputPresence {
         if self.descriptor.is_some() {
             CredentialSecretInputPresence::Present
@@ -43,17 +57,21 @@ impl InheritedSecretInputSlot {
         self.adopt_with_timeout(secret_input_timeout())
     }
 
-    fn adopt_with_timeout(
-        mut self,
-        timeout: Duration,
-    ) -> Result<InheritedSecretInput, CliError> {
+    fn adopt_with_timeout(mut self, timeout: Duration) -> Result<InheritedSecretInput, CliError> {
+        #[cfg(target_os = "linux")]
+        linux::validate_original_slot(self.descriptor.ok_or(CliError::CredentialOperation)?)?;
         let descriptor = self
             .descriptor
             .take()
             .ok_or(CliError::CredentialOperation)?;
-        let opened = OpenOptions::new()
-            .read(true)
-            .open(descriptor_path(descriptor));
+        let mut options = OpenOptions::new();
+        options.read(true);
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC);
+        }
+        let opened = options.open(descriptor_path(descriptor));
         let closed = nix::unistd::close(OwnedRawDescriptor(descriptor));
         let file = opened.map_err(|_| CliError::CredentialOperation)?;
         closed.map_err(|_| CliError::CredentialOperation)?;

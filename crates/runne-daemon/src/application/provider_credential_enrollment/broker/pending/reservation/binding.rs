@@ -68,6 +68,7 @@ impl PendingBrokerRendezvousBinding {
     // macOS protected qualification suites); windows begin refuses earlier.
     #[cfg(any(
         all(test, unix),
+        all(feature = "desktop-protected", target_os = "linux"),
         all(
             feature = "desktop-protected",
             target_os = "macos",

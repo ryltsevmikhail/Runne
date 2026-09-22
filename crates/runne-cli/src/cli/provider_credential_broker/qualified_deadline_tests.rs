@@ -8,7 +8,9 @@ use super::QualifiedSocketControl;
 #[test]
 fn blocked_socket_read_is_limited_to_the_remaining_budget() {
     let (_peer, stream) = UnixStream::pair().unwrap();
-    stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .unwrap();
     let mut control =
         QualifiedSocketControl::with_budget(stream, Duration::from_millis(25)).unwrap();
     let started = Instant::now();
@@ -26,7 +28,10 @@ fn finishing_exchange_restores_transport_timeouts() {
     let write_timeout = Some(Duration::from_millis(654));
     stream.set_read_timeout(read_timeout).unwrap();
     stream.set_write_timeout(write_timeout).unwrap();
-    let stream = QualifiedSocketControl::new(stream).unwrap().finish().unwrap();
+    let stream = QualifiedSocketControl::new(stream)
+        .unwrap()
+        .finish()
+        .unwrap();
     assert_eq!(stream.read_timeout().unwrap(), read_timeout);
     assert_eq!(stream.write_timeout().unwrap(), write_timeout);
 }
@@ -55,7 +60,9 @@ fn blocked_socket_write_is_limited_to_the_remaining_budget() {
         }
     }
     stream.set_nonblocking(false).unwrap();
-    stream.set_write_timeout(Some(Duration::from_secs(1))).unwrap();
+    stream
+        .set_write_timeout(Some(Duration::from_secs(1)))
+        .unwrap();
     let mut control =
         QualifiedSocketControl::with_budget(stream, Duration::from_millis(25)).unwrap();
     let started = Instant::now();

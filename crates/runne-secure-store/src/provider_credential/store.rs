@@ -87,3 +87,19 @@ pub(crate) trait AuthorizedLegacySourceStore: Send + Sync {
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialSource, SecureStoreError>;
 }
+
+/// Linux native legacy-source admission: the authenticated in-process
+/// legacy port admits reads/deletes through the same crate-private trait the
+/// macOS implementation uses; the default methods carry the semantics.
+#[cfg(all(target_os = "linux", feature = "provider-credential-broker-writer"))]
+impl AuthorizedLegacySourceStore for crate::keyring::NativeKeyringStore {
+    fn load_authorized_legacy_source(
+        &self,
+        read: runne_provider::AuthorizedCredentialLegacyRead,
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialSource, SecureStoreError> {
+        let provider = ProviderCredentialId::from_account(read.command().provider().as_str())
+                .ok_or(SecureStoreError::ProviderCredentialOperationFailed)?;
+            ProviderCredentialStore::load_provider_credential_source(self, provider, access)
+    }
+}

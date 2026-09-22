@@ -3,6 +3,7 @@
 CREDENTIAL_PUBLICATION_SIGNER = re.compile(r"\bCredentialSecretPublicationSigner\b")
 CREDENTIAL_PUBLICATION_PROVIDER_SOURCES = {
     Path("crates/runne-provider/src/lib.rs"),
+    Path("crates/runne-provider/src/contract_doctests.rs"),
     Path("crates/runne-provider/src/credential/enrollment.rs"),
     Path("crates/runne-provider/src/credential/enrollment/protocol.rs"),
     Path("crates/runne-provider/src/credential/enrollment/protocol/secret.rs"),

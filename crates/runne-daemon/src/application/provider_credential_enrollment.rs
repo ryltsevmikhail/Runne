@@ -9,6 +9,8 @@ mod coordinator;
 mod effect_authority;
 mod host;
 mod http_admission_resolver;
+#[cfg(target_os = "linux")]
+pub(crate) mod linux_preadmission;
 mod operation_handle;
 mod operation_projection;
 mod projection;
@@ -20,14 +22,17 @@ mod verified_frames;
 
 #[cfg(all(
     feature = "desktop-protected",
-    any(all(test, unix), all(target_os = "macos", target_arch = "aarch64"))
+    any(
+        all(test, unix),
+        target_os = "linux",
+        all(target_os = "macos", target_arch = "aarch64")
+    )
 ))]
 pub(crate) use control_facade::DaemonProtectedCredentialEnrollmentSession;
 pub(crate) use control_facade::DaemonProviderCredentialEnrollmentControl;
 #[cfg(all(
     feature = "desktop-protected",
-    target_os = "macos",
-    target_arch = "aarch64"
+    any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64"))
 ))]
 pub(crate) use control_facade::InitialCredentialExchange;
 #[cfg(all(

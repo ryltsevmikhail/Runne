@@ -183,7 +183,9 @@ fn load_or_provision_local_session_authority(
     Ok(authority)
 }
 
-fn load_local_session_authority(path: &Path) -> Result<[u8; 16], DaemonError> {
+pub(crate) fn load_local_session_authority(
+    path: &Path,
+) -> Result<[u8; 16], DaemonError> {
     let mut options = fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]

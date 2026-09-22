@@ -13,9 +13,9 @@ mod launch;
 mod macos_daemon_kill;
 #[cfg(target_os = "macos")]
 mod macos_kill_exchange;
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 mod macos_secret_pipe;
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 mod macos_secret_sealer;
 #[cfg(target_os = "macos")]
 mod macos_writer_admission;
@@ -39,6 +39,11 @@ use runne_platform_ports::provider_credential_broker::{
 #[cfg(all(unix, feature = "test-support"))]
 #[doc(hidden)]
 pub use daemon_evidence::send_test_daemon_owned_writer_evidence;
+#[cfg(target_os = "linux")]
+pub use daemon_evidence::{
+    LinuxWriterStartup, encode_linux_writer_startup_payload, linux_writer_self_measurements,
+    receive_linux_writer_startup, respond_linux_writer_startup,
+};
 #[cfg(unix)]
 pub use daemon_evidence::{
     ReceivedWriterProcessMeasurements, VerifiedWriterMeasurementFacts,
@@ -66,6 +71,8 @@ pub use macos_daemon_kill::{
 };
 #[cfg(target_os = "macos")]
 pub use macos_secret_pipe::MacOsAuthenticatedPairSecretRelay;
+#[cfg(target_os = "linux")]
+pub use macos_secret_pipe::MacOsAuthenticatedPairSecretRelay as LinuxAuthenticatedPairSecretRelay;
 #[cfg(target_os = "macos")]
 pub use macos_writer_admission::VerifiedMacOsWriterProcess;
 #[cfg(target_os = "macos")]
@@ -74,8 +81,12 @@ pub use macos_writer_transfer::{
 };
 #[cfg(unix)]
 pub use unix::UnixRetainedWriterProcess;
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 pub use unix::observe_current_process_start;
+#[cfg(target_os = "linux")]
+pub use unix_daemon::linux_spawn::{
+    spawn_linux_pair_writer_from_prepared_handoff, spawn_linux_writer_with_sockets,
+};
 #[cfg(all(unix, not(target_os = "macos")))]
 pub use unix_daemon::spawn_unix_writer_from_prepared_daemon_handoff;
 #[cfg(target_os = "macos")]
@@ -102,104 +113,6 @@ pub struct WriterProcessEvidence {
     release_tuple: Option<[u8; 32]>,
     publication_public_key: Option<[u8; 32]>,
     writer_kill_public_key: Option<[u8; 32]>,
-}
-
-impl WriterProcessEvidence {
-    #[cfg(target_os = "macos")]
-    fn from_verified_macos_writer(
-        start: [u8; 32],
-        image: [u8; 32],
-        release_tuple: [u8; 32],
-        channel: [u8; 32],
-        publication_public_key: [u8; 32],
-        writer_kill_public_key: [u8; 32],
-    ) -> Result<Self, BrokerHandoffError> {
-        Self::new_daemon_bound(
-            start,
-            image,
-            release_tuple,
-            channel,
-            publication_public_key,
-            writer_kill_public_key,
-        )
-    }
-
-    #[cfg(unix)]
-    fn new_daemon_bound(
-        start: [u8; 32],
-        image: [u8; 32],
-        release_tuple: [u8; 32],
-        channel: [u8; 32],
-        publication_public_key: [u8; 32],
-        writer_kill_public_key: [u8; 32],
-    ) -> Result<Self, BrokerHandoffError> {
-        let evidence = Self {
-            start,
-            image,
-            channel,
-            release_tuple: Some(release_tuple),
-            publication_public_key: Some(publication_public_key),
-            writer_kill_public_key: Some(writer_kill_public_key),
-        };
-        evidence
-            .is_daemon_bound()
-            .then_some(evidence)
-            .ok_or(BrokerHandoffError::Rejected)
-    }
-
-    #[cfg(test)]
-    const fn test_only(
-        start_identity: [u8; 32],
-        image_identity: [u8; 32],
-        channel_identity: [u8; 32],
-    ) -> Self {
-        Self {
-            start: start_identity,
-            image: image_identity,
-            channel: channel_identity,
-            release_tuple: None,
-            publication_public_key: None,
-            writer_kill_public_key: None,
-        }
-    }
-
-    #[cfg(test)]
-    const fn test_only_daemon(
-        start_identity: [u8; 32],
-        image_identity: [u8; 32],
-        release_tuple_digest: [u8; 32],
-        channel_identity: [u8; 32],
-        publication_public_key: [u8; 32],
-        writer_kill_public_key: [u8; 32],
-    ) -> Self {
-        Self {
-            start: start_identity,
-            image: image_identity,
-            channel: channel_identity,
-            release_tuple: Some(release_tuple_digest),
-            publication_public_key: Some(publication_public_key),
-            writer_kill_public_key: Some(writer_kill_public_key),
-        }
-    }
-    fn is_complete(&self) -> bool {
-        self.start != [0; 32] && self.image != [0; 32] && self.channel != [0; 32]
-    }
-    fn is_daemon_bound(&self) -> bool {
-        self.is_complete()
-            && self.release_tuple.is_some_and(|digest| digest != [0; 32])
-            && self
-                .publication_public_key
-                .is_some_and(|public_key| public_key != [0; 32])
-            && self
-                .writer_kill_public_key
-                .is_some_and(|public_key| public_key != [0; 32])
-    }
-
-    /// Returns the fresh one-shot binding accepted by the native handoff.
-    #[must_use]
-    pub const fn channel_binding(&self) -> [u8; 32] {
-        self.channel
-    }
 }
 
 /// Exact desktop-held process operations. Implementations may only target the
@@ -292,6 +205,17 @@ impl<P: RetainedWriterProcess> ProviderCredentialBrokerPort for PlatformCredenti
         self.ownership.reap()
     }
 }
+
+#[cfg(target_os = "linux")]
+#[path = "provider_credential_broker/linux_writer_admission.rs"]
+pub mod linux_writer_admission;
+
+/// Platform-neutral re-export of the authenticated pair-secret sealer
+/// (ring x25519+HKDF+ChaCha20-Poly1305, unchanged GOCODE_CREDENTIAL_SECRET_*
+/// domains) so the Linux daemon broker channel reuses the exact macOS-sealed
+/// relay construction instead of a parallel one.
+#[cfg(unix)]
+pub use macos_secret_sealer::AuthenticatedPairSecretSealer as UnixAuthenticatedPairSecretSealer;
 
 #[cfg(test)]
 #[path = "provider_credential_broker/tests_index.rs"]

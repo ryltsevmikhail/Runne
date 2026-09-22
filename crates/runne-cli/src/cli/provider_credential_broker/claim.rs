@@ -1,25 +1,25 @@
 //! Writer-side claim gate for an already authenticated daemon control endpoint.
-use std::io::{Read, Write};
-#[cfg(test)]
-use std::sync::Arc;
+use super::CliError;
 use runne_provider::{
     BrokerChannelBinding, ClaimedWriterAuthorization, CredentialBindingDigest,
     CredentialBrokerCommand, CredentialBrokerFrame, CredentialBrokerFrameCodec,
-    CredentialSecretInputPresence, CredentialWriterClaimIssuer, CredentialWriterCommandKindV1,
-    CredentialWriterBrokerHandoffFrame, CredentialWriterCommandScopeV1,
-    PendingCredentialIssueTicketV1, PendingCredentialSecretOpening,
+    CredentialSecretInputPresence, CredentialWriterBrokerHandoffFrame, CredentialWriterClaimIssuer,
+    CredentialWriterCommandKindV1, CredentialWriterCommandScopeV1, PendingCredentialIssueTicketV1,
+    PendingCredentialSecretOpening,
 };
-use runne_secure_store::NativeProviderCredentialEffectRoute;
-#[cfg(target_os = "macos")]
-use runne_secure_store::NativeProviderCredentialWriters;
 #[cfg(test)]
 use runne_secure_store::BrokeredProviderCredentialWriter;
-use super::CliError;
-#[path = "qualified_deadline.rs"]
-#[cfg(any(test, target_os = "macos"))]
-mod qualified_deadline;
+use runne_secure_store::NativeProviderCredentialEffectRoute;
+#[cfg(any(test, unix))]
+use runne_secure_store::NativeProviderCredentialWriters;
+use std::io::{Read, Write};
+#[cfg(test)]
+use std::sync::Arc;
 #[path = "claim/flow.rs"]
 mod flow;
+#[path = "qualified_deadline.rs"]
+#[cfg(any(test, unix))]
+mod qualified_deadline;
 
 pub trait BrokerControl: Read + Write {
     fn read_frame(&mut self) -> Result<CredentialBrokerFrame, CliError>;
@@ -160,9 +160,7 @@ impl ClaimedWriterControl {
             | CredentialWriterCommandKindV1::RetiredVersionCleanup => {
                 NonPairWriterEffectKind::Delete
             }
-            CredentialWriterCommandKindV1::MigrateLegacy => {
-                NonPairWriterEffectKind::ImportLegacy
-            }
+            CredentialWriterCommandKindV1::MigrateLegacy => NonPairWriterEffectKind::ImportLegacy,
             CredentialWriterCommandKindV1::LegacySourceCleanup => {
                 NonPairWriterEffectKind::DeleteLegacySource
             }
@@ -189,7 +187,7 @@ impl AuthorizedWriterControl {
 }
 
 /// Claims one exact issued ticket and returns only a matching post-ack authority.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub fn claim_writer_authorization(
     writers: NativeProviderCredentialWriters,
     secret_input: CredentialSecretInputPresence,
@@ -243,12 +241,5 @@ pub fn claim_writer_authorization_with_service_parts<C: Read + Write + 'static>(
         configuration,
         legacy,
     };
-    flow::claim_generic(
-        control,
-        channel,
-        ticket,
-        issuer,
-        effect_route,
-        secret_input,
-    )
+    flow::claim_generic(control, channel, ticket, issuer, effect_route, secret_input)
 }

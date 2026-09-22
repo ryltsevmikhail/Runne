@@ -1,13 +1,12 @@
+#[cfg(any(test, unix))]
+use super::qualified_deadline;
 use super::{
     BrokerChannelBinding, BrokerControl, ClaimedWriterAuthorization, ClaimedWriterControl,
     CliError, CredentialBindingDigest, CredentialBrokerCommand, CredentialSecretInputPresence,
-    CredentialWriterBrokerHandoffFrame, CredentialWriterClaimIssuer,
-    CredentialWriterCommandKindV1, CredentialWriterCommandScopeV1,
-    NativeProviderCredentialEffectRoute, PendingCredentialIssueTicketV1,
-    PendingCredentialSecretOpening, Read, Write,
+    CredentialWriterBrokerHandoffFrame, CredentialWriterClaimIssuer, CredentialWriterCommandKindV1,
+    CredentialWriterCommandScopeV1, NativeProviderCredentialEffectRoute,
+    PendingCredentialIssueTicketV1, PendingCredentialSecretOpening, Read, Write,
 };
-#[cfg(any(test, target_os = "macos"))]
-use super::qualified_deadline;
 
 type ClaimParts = (
     ClaimedWriterAuthorization,
@@ -17,7 +16,7 @@ type ClaimParts = (
     Option<PendingCredentialSecretOpening>,
 );
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 pub(super) fn claim_socket(
     control: std::os::unix::net::UnixStream,
     channel: BrokerChannelBinding,
@@ -64,7 +63,7 @@ pub fn claim_generic<C: Read + Write + 'static>(
     )
 }
 
-#[cfg(any(test, target_os = "macos"))]
+#[cfg(any(test, unix))]
 fn claim_unbounded<C: Read + Write + 'static>(
     mut control: C,
     channel: BrokerChannelBinding,
@@ -106,7 +105,8 @@ fn finish_claim(
     let requires_service_handoff = matches!(
         &effect_route,
         NativeProviderCredentialEffectRoute::CredentialService { .. }
-    ) && command_kind != CredentialWriterCommandKindV1::LegacySourceCleanup;
+    ) && command_kind
+        != CredentialWriterCommandKindV1::LegacySourceCleanup;
     #[cfg(not(target_os = "macos"))]
     let requires_service_handoff = false;
     let service_handoff = if requires_service_handoff {

@@ -8,7 +8,7 @@ use zeroize::Zeroizing;
 
 use super::{ClaimedBrokerEffect, CredentialBrokerChannel, ProviderCredentialBroker};
 use crate::application::provider_credential_enrollment::effect_authority::map_store;
-use crate::protected_activation::control_v3::initial_exchange::qualification_fence::WriterAdmissionBundle;
+use crate::protected_activation::control_v3::qualification_admission::WriterAdmissionBundle;
 
 #[cfg(test)]
 mod source_boundary_tests;

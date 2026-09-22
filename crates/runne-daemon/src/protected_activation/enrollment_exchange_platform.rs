@@ -87,7 +87,8 @@ pub(crate) fn run_enrollment_control_exchange(
     use super::enrollment_transition_v2_v3::transition_with;
 
     let _ = installation;
-    run_enrollment_control_exchange_with(
+    let measured = std::cell::RefCell::new(None);
+    let outcome = run_enrollment_control_exchange_with(
         channel,
         prepare,
         keys,
@@ -95,7 +96,20 @@ pub(crate) fn run_enrollment_control_exchange(
         composition,
         sessions,
         session_clock,
-        |_, claims, stream| runne_platform_desktop::verify_linux_enrollment_peer(stream, claims),
+        |_, claims, stream| {
+            *measured.borrow_mut() =
+                runne_platform_desktop::measure_verified_linux_enrollment_installation(
+                    stream,
+                    claims,
+                    &composition.runtime_root,
+                    *owned.compatibility_owned_launch().stable().authority_id(),
+                    *composition
+                        .original_request
+                        .executable()
+                        .executable_sha256(),
+                );
+            measured.borrow().is_some()
+        },
         |input, request, channel| {
             transition_with(
                 input,
@@ -106,5 +120,17 @@ pub(crate) fn run_enrollment_control_exchange(
                 channel,
             )
         },
-    )
+    )?;
+    if let Some(control) = composition.enrollment_control.as_ref() {
+        control
+            .install_linux_preadmission(
+                outcome.owned_launch(),
+                &composition.runtime_root,
+                measured
+                    .into_inner()
+                    .ok_or(LaunchAuthorityError::OwnershipMismatch)?,
+            )
+            .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
+    }
+    Ok(outcome)
 }

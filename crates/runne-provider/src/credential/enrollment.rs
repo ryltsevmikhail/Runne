@@ -85,6 +85,11 @@ pub use protocol::{
     PendingCredentialSecretOpening, SealedCredentialEnvelope,
     SignedCredentialWriterSessionAttestationV1, SignedCredentialWriterSessionAttestationV2,
 };
+#[cfg(target_os = "linux")]
+pub use protocol::{
+    LinuxWriterStartup, encode_linux_writer_startup_payload, linux_writer_self_measurements,
+    respond_linux_writer_startup,
+};
 #[cfg(feature = "test-support")]
 #[doc(hidden)]
 pub use protocol::{SealedPairFixture, sealed_pair_for_test};

@@ -8,6 +8,10 @@ use runne_api::{
 };
 use runne_domain::id::{CommandId, IdempotencyKey};
 
+fn provider() -> runne_api::ProviderCredentialProviderV2 {
+    runne_api::ProviderCredentialProviderV2::OpenAi
+}
+
 use super::admission_registry::PendingCredentialAdmissions;
 use super::control_exchange::{
     DaemonAuthenticatedCredentialHttpAdmissionExchange, DaemonCredentialHttpAdmissionExpectation,
@@ -18,7 +22,7 @@ use super::control_exchange::{
 fn registers_one_verified_exchange_and_consumes_it_once() {
     let (exchange, request, admission) = fixture(expectation());
     let exchange = exchange
-        .register(request, admission, context(), 110_000)
+        .register(request, admission, context(), 110_000, provider())
         .unwrap();
 
     assert!(take_exact(&exchange).is_ok());
@@ -60,72 +64,10 @@ fn rejects_substituted_action_provider_revision_native_intent_and_sequence_befor
         let (exchange, request, admission) = fixture(expected);
         assert!(
             exchange
-                .register(request, admission, context(), 110_000)
+                .register(request, admission, context(), 110_000, provider())
                 .is_err()
         );
     }
-}
-
-#[test]
-fn rejects_expired_wrong_or_missing_session_and_wrong_peer_before_issue() {
-    let bindings = begin_bindings();
-    for expected in [
-        expectation_with(
-            bindings.0,
-            native_intent("intent-a"),
-            1,
-            2,
-            uuid(9),
-            [11; 32],
-            [7; 32],
-        ),
-        expectation_with(
-            bindings.0,
-            native_intent("intent-a"),
-            1,
-            2,
-            uuid(2),
-            [13; 32],
-            [7; 32],
-        ),
-        expectation_with(
-            bindings.0,
-            native_intent("intent-a"),
-            1,
-            2,
-            uuid(2),
-            [11; 32],
-            [13; 32],
-        ),
-    ] {
-        let (exchange, request, admission) = fixture(expected);
-        assert!(
-            exchange
-                .register(request, admission, context(), 110_000)
-                .is_err()
-        );
-    }
-
-    let (exchange, request, admission) = fixture(expectation());
-    assert!(
-        exchange
-            .register(request, admission, context(), 120_000)
-            .is_err()
-    );
-    assert!(
-        DaemonCredentialHttpAdmissionExpectation::new(
-            [0; 16],
-            [10; 32],
-            [8; 32],
-            [9; 32],
-            native_intent("intent-a"),
-            1,
-            2,
-            [7; 32],
-            120_000,
-        )
-        .is_err()
-    );
 }
 
 fn take_exact(
@@ -296,5 +238,7 @@ fn uuid(value: u8) -> [u8; 16] {
     [0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, value]
 }
 
+#[path = "control_exchange_tests/expiry.rs"]
+mod expiry;
 #[path = "control_exchange_tests/http_resolver.rs"]
 mod http_resolver;

@@ -2,7 +2,10 @@
 
 use syn::{FnArg, GenericArgument, ItemImpl, PathArguments, ReturnType, Type};
 
-use super::platform_method_audit::{is_exact_macos_claim_parts, is_exact_macos_effect_parts};
+use super::platform_method_audit::{
+    is_exact_linux_claim_parts, is_exact_linux_effect_parts, is_exact_macos_claim_parts,
+    is_exact_macos_effect_parts,
+};
 use super::{CLAIM, EFFECT, HANDOFF, PINNED, SESSION, attribute_audit, type_opaque_name};
 
 pub(super) fn exact_public_method(
@@ -21,6 +24,12 @@ pub(super) fn exact_public_method(
         Some("into_macos_claim_parts")
     } else if is_exact_macos_effect_parts(item, method) {
         Some("into_macos_effect_parts")
+    } else if is_exact_linux_claim_parts(item, method) {
+        Some("into_linux_claim_parts")
+    } else if is_exact_linux_effect_parts(item, method) {
+        Some("into_linux_effect_parts")
+    } else if is_exact_linux_authenticator(item, method) {
+        Some("receive_linux_authenticated_writer")
     } else {
         None
     }
@@ -228,4 +237,61 @@ fn returns_exact_authenticated_result(output: &ReturnType) -> bool {
             .segments
             .iter()
             .all(|segment| matches!(segment.arguments, PathArguments::None))
+}
+
+fn is_exact_linux_authenticator(item: &ItemImpl, method: &syn::ImplItemFn) -> bool {
+    type_opaque_name(&item.self_ty) == Some(SESSION)
+        && item.trait_.is_none()
+        && method.defaultness.is_none()
+        && method.sig.ident == "receive_linux_authenticated_writer"
+        && method.sig.constness.is_none()
+        && method.sig.asyncness.is_none()
+        && method.sig.unsafety.is_none()
+        && method.sig.abi.is_none()
+        && method.sig.variadic.is_none()
+        && method.sig.generics.params.is_empty()
+        && method.sig.generics.where_clause.is_none()
+        && !attribute_audit::has_cfg_or_path_substitution(&method.attrs)
+        && !method
+            .sig
+            .inputs
+            .iter()
+            .any(|arg| matches!(arg, FnArg::Receiver(_)))
+        && returns_session_result(&method.sig.output)
+}
+
+fn returns_session_result(output: &ReturnType) -> bool {
+    let ReturnType::Type(_, value) = output else {
+        return false;
+    };
+    let Type::Path(result) = value.as_ref() else {
+        return false;
+    };
+    if result.qself.is_some() || result.path.segments.len() != 1 {
+        return false;
+    }
+    let segment = &result.path.segments[0];
+    if segment.ident != "Result" {
+        return false;
+    }
+    let PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+        return false;
+    };
+    arguments.args.len() == 2
+        && matches!(
+            arguments.args.first(),
+            Some(GenericArgument::Type(Type::Path(value)))
+                if value.qself.is_none()
+                    && value.path.segments.len() == 1
+                    && value.path.segments[0].ident == "Self"
+        )
+        && matches!(&arguments.args[1], GenericArgument::Type(Type::Reference(reference))
+            if reference.mutability.is_none() && type_is_str(&reference.elem))
+}
+
+fn type_is_str(value: &Type) -> bool {
+    let Type::Path(path) = value else {
+        return false;
+    };
+    path.qself.is_none() && path.path.segments.len() == 1 && path.path.segments[0].ident == "str"
 }

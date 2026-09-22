@@ -27,6 +27,11 @@ pub use qualified::{
     CredentialWriterQualifiedPreludeSigner, CredentialWriterQualifiedPreludeV1,
     CredentialWriterSessionAttestationV2Codec, SignedCredentialWriterSessionAttestationV2,
 };
+#[cfg(target_os = "linux")]
+pub use qualified::{
+    LinuxWriterStartup, encode_linux_writer_startup_payload, linux_writer_self_measurements,
+    respond_linux_writer_startup,
+};
 pub use signer::CredentialWriterSessionAttestationSigner;
 
 /// Inert signed session record; decoding it grants no writer authority.

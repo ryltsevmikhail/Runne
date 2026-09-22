@@ -23,7 +23,7 @@ fn daemon_resolver_releases_one_exact_registered_control_exchange() {
     .unwrap();
     let (exchange, request, admission) = fixture_with_bindings(expected, bindings);
     let registered = exchange
-        .register(request, admission, context(), 110_000)
+        .register(request, admission, context(), 110_000, command.provider())
         .unwrap();
     let resolver = DaemonCredentialHttpAdmissionResolver::new(registered, Arc::new(|| 110_000));
 

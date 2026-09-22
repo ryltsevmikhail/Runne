@@ -1,6 +1,7 @@
 //! Protected metadata-only provider credential enrollment contracts.
 
 mod host;
+pub mod linux_activation_policy;
 mod signed_installed_release;
 mod types;
 

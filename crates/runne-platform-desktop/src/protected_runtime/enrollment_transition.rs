@@ -8,7 +8,7 @@
 #[cfg(unix)]
 use runne_api::{
     CredentialBrokerTransferAuthenticator, DaemonEnrollmentLaunchPreludeV1,
-    ProtectedCredentialEnrollmentLaunchBindingV1, ProtectedCredentialEnrollmentLaunchRequestV3,
+    ProtectedCredentialEnrollmentLaunchRequestV3,
     ProtectedCredentialEnrollmentPreludeV2, ProtectedCredentialEnrollmentPrepareV2,
     ProtectedCredentialEnrollmentReadyV3,
 };
@@ -239,26 +239,7 @@ impl ProtectedBundledRuntimeProcess {
         let v3_keys = v1_request.derive_keys();
         let commitment = CredentialBrokerTransferAuthenticator::from_protected_activation(&v3_keys)
             .enrollment_launch_commitment(prelude);
-        let binding = if prelude.platform() == 2 {
-            ProtectedCredentialEnrollmentLaunchBindingV1::linux_arm64(
-                *prelude.installation_identity_digest(),
-                claims.release_tuple_digest,
-                claims.qualification_binding_digest,
-                claims.desktop_peer_binding_digest,
-                claims.desktop_supervisor_generation,
-                commitment,
-            )
-        } else {
-            ProtectedCredentialEnrollmentLaunchBindingV1::macos_apple_silicon(
-                *prelude.installation_identity_digest(),
-                claims.release_tuple_digest,
-                claims.qualification_binding_digest,
-                claims.desktop_peer_binding_digest,
-                claims.desktop_supervisor_generation,
-                commitment,
-            )
-        }
-        .map_err(launch_error)?;
+        let binding = enrollment_target::binding(claims, prelude, commitment)?;
         ProtectedCredentialEnrollmentLaunchRequestV3::new(
             v1_request,
             owned.provider_binding().clone(),

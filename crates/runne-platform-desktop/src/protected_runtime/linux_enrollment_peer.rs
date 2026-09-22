@@ -12,7 +12,11 @@ use std::os::unix::net::UnixStream;
 
 const PEER_BINDING_DOMAIN: &[u8] = b"runne/linux-desktop-peer-binding/v1\0";
 
+mod installation;
+pub use installation::measure_verified_linux_enrollment_installation;
+
 #[cfg(target_os = "linux")]
+#[derive(PartialEq, Eq)]
 struct LinuxPeerIdentity {
     pid: u32,
     uid: u32,

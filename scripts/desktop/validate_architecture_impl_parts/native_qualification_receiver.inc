@@ -123,3 +123,13 @@ def provider_qualification_surface_violation(relative: Path, source: str) -> str
     if PROVIDER_QUALIFICATION_RAW_FACTORY.search(source):
         return "exposes caller-supplied receiver facts"
     return None
+
+
+def native_qualification_admission_token_forbidden(relative: Path, source: str) -> bool:
+    """The broker may consume only the opaque postcommit carrier, never a verifier."""
+    if relative == Path("crates/runne-daemon/src/application/provider_credential_enrollment/broker/qualified_exchange.rs"):
+        source = source.replace(
+            "use crate::protected_activation::control_v3::qualification_admission::WriterAdmissionBundle;",
+            "",
+        )
+    return bool(NATIVE_QUALIFICATION_ADMISSION_TOKEN.search(source))

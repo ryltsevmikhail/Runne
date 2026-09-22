@@ -181,6 +181,8 @@ where
         || prelude.installation_identity_digest() != &context.installation
         || prelude.desktop_peer_binding_digest() != context.prepare.desktop_peer_binding_digest()
         || prelude.supervisor_generation() != context.prepare.desktop_supervisor_generation()
+        || binding.platform() as u64 != prelude.platform()
+        || binding.architecture() as u64 != prelude.architecture()
         || binding.installation_identity_digest() != &context.installation
         || binding.release_tuple_digest() != context.prepare.release_tuple_digest()
         || binding.qualification_binding_digest() != context.prepare.qualification_binding_digest()

@@ -4,7 +4,9 @@ use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
 use sha2::{Digest, Sha256};
 
 #[cfg(target_os = "linux")]
-pub(super) fn observed_start_identity(pid: u32) -> Result<[u8; 32], BrokerHandoffError> {
+pub(in crate::provider_credential_broker) fn observed_start_identity(
+    pid: u32,
+) -> Result<[u8; 32], BrokerHandoffError> {
     let process_stat = std::fs::read_to_string(format!("/proc/{pid}/stat"))
         .map_err(|_| BrokerHandoffError::Rejected)?;
     let tail = process_stat
@@ -23,7 +25,9 @@ pub(super) fn observed_start_identity(pid: u32) -> Result<[u8; 32], BrokerHandof
 }
 
 #[cfg(target_os = "macos")]
-pub(super) fn observed_start_identity(pid: u32) -> Result<[u8; 32], BrokerHandoffError> {
+pub(in crate::provider_credential_broker) fn observed_start_identity(
+    pid: u32,
+) -> Result<[u8; 32], BrokerHandoffError> {
     let pid = std::num::NonZeroU32::new(pid).ok_or(BrokerHandoffError::Rejected)?;
     runne_macos_process_identity::MacOsProcessStartIdentity::observe(pid)
         .map(|identity| identity.digest())
@@ -31,6 +35,8 @@ pub(super) fn observed_start_identity(pid: u32) -> Result<[u8; 32], BrokerHandof
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-pub(super) fn observed_start_identity(_pid: u32) -> Result<[u8; 32], BrokerHandoffError> {
+pub(in crate::provider_credential_broker) fn observed_start_identity(
+    _pid: u32,
+) -> Result<[u8; 32], BrokerHandoffError> {
     Err(BrokerHandoffError::Unavailable)
 }

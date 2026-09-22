@@ -9,13 +9,17 @@ use runne_api::{
 };
 use runne_domain::id::{CommandId, IdempotencyKey};
 
+fn provider() -> runne_api::ProviderCredentialProviderV2 {
+    runne_api::ProviderCredentialProviderV2::OpenAi
+}
+
 use super::*;
 
 #[test]
 fn pending_admission_requires_the_exact_native_intent_session_and_claims_once() {
     let (registry, request, admission) = verified_admission();
     registry
-        .register(request, admission, context(), 100_000)
+        .register(request, admission, context(), 100_000, provider())
         .unwrap();
     assert!(
         registry
@@ -35,7 +39,7 @@ fn pending_admission_requires_the_exact_native_intent_session_and_claims_once() 
     let (request, admission) = verified_frames();
     assert!(
         registry
-            .register(request, admission, context(), 110_000)
+            .register(request, admission, context(), 110_000, provider())
             .is_err()
     );
 }
@@ -44,7 +48,7 @@ fn pending_admission_requires_the_exact_native_intent_session_and_claims_once() 
 fn matching_intent_with_substituted_claim_consumes_the_admission() {
     let (registry, request, admission) = verified_admission();
     registry
-        .register(request, admission, context(), 100_000)
+        .register(request, admission, context(), 100_000, provider())
         .unwrap();
     assert!(
         registry
@@ -59,7 +63,7 @@ fn matching_intent_with_substituted_claim_consumes_the_admission() {
     let (request, admission) = verified_frames();
     assert!(
         registry
-            .register(request, admission, context(), 110_000)
+            .register(request, admission, context(), 110_000, provider())
             .is_err()
     );
 }
@@ -76,7 +80,7 @@ fn concurrent_duplicate_registration_issues_only_one_pending_authority() {
         let (request, admission) = verified_frames();
         threads.push(std::thread::spawn(move || {
             barrier.wait();
-            registry.register(request, admission, context(), 100_000)
+            registry.register(request, admission, context(), 100_000, provider())
         }));
     }
     barrier.wait();
@@ -98,7 +102,7 @@ fn http_verify_resolver_releases_only_the_exact_command_once() {
     let bindings = verify_bindings();
     let (registry, request, admission) = verified_admission_for(bindings);
     registry
-        .register(request, admission, context(), 100_000)
+        .register(request, admission, context(), 100_000, provider())
         .unwrap();
     assert!(
         registry
@@ -268,3 +272,7 @@ fn verify_bindings() -> ([u8; 32], [u8; 32]) {
 fn uuid(value: u8) -> [u8; 16] {
     [0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, value]
 }
+
+#[cfg(target_os = "linux")]
+#[path = "admission_registry_linux_tests.rs"]
+mod linux_preadmission;

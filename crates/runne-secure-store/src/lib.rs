@@ -277,6 +277,10 @@ mod keyring;
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 pub use keyring::NativeKeyringStore;
+#[cfg(all(target_os = "linux", feature = "test-support"))]
+pub use keyring::linux_provider_source::{
+    CountingFakeSource, DirectoryFakeSource, install_test_source,
+};
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 pub use keyring::NativeKeyringStore as NativeProviderCredentialStore;

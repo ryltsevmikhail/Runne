@@ -2,9 +2,10 @@ use super::*;
 mod clocks;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod discovery;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(unix)]
 pub(crate) mod initial_exchange;
 mod live_session;
+pub(crate) mod qualification_admission;
 mod renewal;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod round;
@@ -82,7 +83,7 @@ pub(crate) fn run_control_loop_v3_entered(
 ) -> Result<(), LaunchAuthorityError> {
     #[cfg(unix)]
     let mut runtime = match enrollment.control.take() {
-        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        #[cfg(unix)]
         Some(control) => {
             let live = live_session::LiveEnrollmentSession::capture(
                 &local_session_service,
@@ -97,14 +98,15 @@ pub(crate) fn run_control_loop_v3_entered(
                     control: Arc::clone(&control),
                     previous: owned_launch.clone(),
                 });
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             let installed_facts = enrollment
                 .installed_facts
                 .take()
                 .ok_or(LaunchAuthorityError::OwnershipMismatch)?;
-            #[cfg(target_os = "macos")]
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             let credential_service_configuration =
                 installed_facts.runtime_credential_service_configuration();
-            #[cfg(target_os = "macos")]
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             let credential_service_session =
                 super::credential_service_registration::receive_required_registration(
                     &mut channel,
@@ -113,12 +115,12 @@ pub(crate) fn run_control_loop_v3_entered(
                     &installed_facts,
                     runtime::unix_now_millis()?,
                 )?;
-            #[cfg(target_os = "macos")]
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             let credential_service = credential_service_session
                 .map(|session| control.install_credential_service_session(session))
                 .transpose()
                 .map_err(runtime::map_enrollment_error)?;
-            #[cfg(target_os = "macos")]
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             let (initial_request, qualification) = initial_exchange::read_admitted_initial_request(
                 &mut channel,
                 &keys,
@@ -129,10 +131,15 @@ pub(crate) fn run_control_loop_v3_entered(
             #[cfg(not(target_os = "macos"))]
             let initial_request = channel.read_control_frame()?;
             let owned_rendezvous = enrollment.rendezvous.into_owned()?;
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             let mut enrollment = control
                 .start_protected_session(&keys, &owned_launch, owned_rendezvous, installed_facts)
                 .map_err(runtime::map_enrollment_error)?;
-            #[cfg(target_os = "macos")]
+            #[cfg(target_os = "linux")]
+            let mut enrollment = control
+                .start_protected_session(&keys, &owned_launch, owned_rendezvous)
+                .map_err(runtime::map_enrollment_error)?;
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             if let Some(qualification) = qualification {
                 enrollment = enrollment
                     .retain_qualification(qualification)
@@ -146,13 +153,19 @@ pub(crate) fn run_control_loop_v3_entered(
                 initial_request,
             )?;
             let terminal = enrollment.begun_is_terminal();
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             let broker = runtime::bind_broker(&keys, &owned_launch, &mut enrollment)?;
+            #[cfg(target_os = "linux")]
+            if !terminal {
+                return Err(LaunchAuthorityError::UnsupportedPlatformBackend);
+            }
             V3EnrollmentRuntime {
                 #[cfg(target_os = "macos")]
                 deferred_control: None,
                 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
                 round,
                 live: Some(live),
+                #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
                 broker,
                 session: Some(enrollment),
                 terminal,
@@ -166,8 +179,6 @@ pub(crate) fn run_control_loop_v3_entered(
                 credential_service_configuration,
             }
         }
-        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-        Some(_) => return Err(LaunchAuthorityError::UnsupportedPlatformBackend),
         None => V3EnrollmentRuntime {
             #[cfg(target_os = "macos")]
             deferred_control: None,
@@ -183,7 +194,7 @@ pub(crate) fn run_control_loop_v3_entered(
                 &owned_launch,
                 enrollment.rendezvous,
             )?),
-            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            #[cfg(any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64")))]
             session: None,
             terminal: true,
             #[cfg(target_os = "macos")]

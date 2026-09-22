@@ -83,7 +83,16 @@ where
     let expires = now
         .checked_add(ENROLLMENT_PRELUDE_TTL_MILLIS)
         .ok_or(LaunchAuthorityError::StaleLaunchAuthority)?;
-    let prelude = DaemonEnrollmentLaunchPreludeV1::macos_arm64(
+    let prelude_constructor = if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        DaemonEnrollmentLaunchPreludeV1::linux_x86_64
+    } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+        DaemonEnrollmentLaunchPreludeV1::linux_arm64
+    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        DaemonEnrollmentLaunchPreludeV1::macos_arm64
+    } else {
+        return Err(LaunchAuthorityError::UnsupportedPlatformBackend);
+    };
+    let prelude = prelude_constructor(
         *owned.launch_authority_id(),
         *owned.desktop_host_instance_id(),
         super::random_control_secret(),

@@ -62,6 +62,8 @@ fn protected_verify_requires_native_request_admission_and_reaches_the_installed_
     let mut session = control
         .start_test_protected_session(&keys, facts.clone(), rendezvous)
         .unwrap();
+    #[cfg(target_os = "linux")]
+    session.activate_linux_catalog_fixture();
     let command = command("00000000-0000-7000-8000-000000000011", "verify-intent");
     let context = context(&command);
     let intent = ProviderCredentialVerifyIntentBinding::new(&command, &context);

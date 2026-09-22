@@ -11,6 +11,24 @@ pub struct VerifiedWriterMeasurementFacts {
 }
 
 impl ReceivedWriterProcessMeasurements {
+    /// Linux cross-bind: the transfer-authenticated evidence is accepted only
+    /// when its start/image equal the daemon's live remeasure of the exact
+    /// pidfd-retained process, returning the authenticated kill publication
+    /// key; any drift, replay, or zero key yields `None`.
+    #[must_use]
+    pub fn verified_linux_kill_public_key(
+        &self,
+        live_start: [u8; 32],
+        live_image: [u8; 32],
+    ) -> Option<[u8; 32]> {
+        let kill = self.writer_kill_public_key;
+        (self.start == live_start
+            && self.start != [0; 32]
+            && self.image == live_image
+            && kill != [0; 32])
+            .then_some(kill)
+    }
+
     /// Retains authenticated facts while the one-use witness enters kernel capture.
     #[must_use]
     pub(in crate::provider_credential_broker) const fn verified_facts(

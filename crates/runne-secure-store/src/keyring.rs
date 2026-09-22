@@ -1,5 +1,12 @@
 mod anchor;
 mod journal;
+#[cfg(target_os = "linux")]
+pub(crate) mod linux_provider_source;
+#[cfg(all(test, target_os = "linux"))]
+#[path = "keyring/linux_provider_source_tests.rs"]
+mod linux_provider_source_tests;
+#[cfg(target_os = "linux")]
+mod linux_secret_service;
 mod provider;
 mod tail;
 
@@ -66,6 +73,10 @@ impl NativeKeyringStore {
         service: &str,
         account: &str,
     ) -> Result<Option<Zeroizing<Vec<u8>>>, SecureStoreError> {
+        #[cfg(target_os = "linux")]
+        if linux_provider_source::is_provider_entry(service) {
+            return linux_provider_source::read_provider_entry(service, account);
+        }
         match Self::entry(service, account)?.get_secret() {
             Ok(value) => Ok(Some(Zeroizing::new(value))),
             Err(KeyringError::NoEntry) => Ok(None),
@@ -78,12 +89,20 @@ impl NativeKeyringStore {
         account: &str,
         secret: &[u8],
     ) -> Result<(), SecureStoreError> {
+        #[cfg(target_os = "linux")]
+        if linux_provider_source::is_provider_entry(service) {
+            return linux_provider_source::write_provider_entry(service, account, secret);
+        }
         Self::entry(service, account)?
             .set_secret(secret)
             .map_err(|_| SecureStoreError::OperationFailed("native secure-store write".into()))
     }
 
     pub(super) fn delete_secret(service: &str, account: &str) -> Result<(), SecureStoreError> {
+        #[cfg(target_os = "linux")]
+        if linux_provider_source::is_provider_entry(service) {
+            return linux_provider_source::delete_provider_entry(service, account);
+        }
         match Self::entry(service, account)?.delete_credential() {
             Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
             Err(_) => Err(SecureStoreError::OperationFailed(

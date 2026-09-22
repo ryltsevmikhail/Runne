@@ -16,7 +16,10 @@ mod legacy_source;
 #[cfg(test)]
 mod legacy_source_tests;
 mod native;
-#[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
+#[cfg(all(
+    any(target_os = "macos", target_os = "linux"),
+    feature = "provider-credential-broker-writer"
+))]
 mod native_authenticated;
 mod oauth;
 pub use legacy_source::BrokeredProviderCredentialLegacySource;

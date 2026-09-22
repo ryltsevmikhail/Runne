@@ -1,6 +1,13 @@
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 
+/// Linux route has no XPC credential service: the in-process legacy native
+/// writer is the only effect route, so the service configuration type is an
+/// unreachable placeholder here.
+#[cfg(target_os = "linux")]
+type CredentialServiceEndpointConfiguration = std::convert::Infallible;
+
+#[cfg(target_os = "macos")]
 use runne_macos_xpc::{
     CredentialServiceEndpointConfiguration, CredentialServiceEndpointRole,
     CredentialServicePeerRequirement, CredentialServiceXpcError,
@@ -39,15 +46,33 @@ impl NativeProviderCredentialWriters {
         session: AuthenticatedProviderCredentialWriterSession,
     ) -> Result<Self, SecureStoreError> {
         let (claim, effect) = session.split();
-        let (issuer, control, channel, ticket, release) = claim
-            .into_macos_claim_parts()
-            .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
+        #[cfg(target_os = "macos")]
+        let (issuer, control, channel, ticket, content_pin_token) = {
+            let (issuer, control, channel, ticket, release) = claim
+                .into_macos_claim_parts()
+                .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
+            let _ = &effect;
+            (issuer, control, channel, ticket, release)
+        };
+        #[cfg(target_os = "linux")]
+        let (issuer, control, channel, ticket) = {
+            // Linux: the ALREADY-BOUND ticket from the closed authority
+            // session (binding happened inside the authenticated receiver);
+            // no raw record or arrays ever reach the store.
+            let (issuer, control, channel, ticket) = claim
+                .into_linux_claim_parts()
+                .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
+            (issuer, control, channel, ticket)
+        };
+        #[cfg(target_os = "macos")]
         let ticket = ticket
             .bind_verified_qualification_release(&release)
             .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
+        #[cfg(target_os = "macos")]
         let (effects, writer_path, reader_path) = effect
             .into_macos_effect_parts()
             .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
+        #[cfg(target_os = "macos")]
         let credential_service = release
             .native_enrollment_tuple_v3()
             .map(|tuple| {
@@ -58,6 +83,15 @@ impl NativeProviderCredentialWriters {
             })
             .transpose()
             .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
+        #[cfg(target_os = "linux")]
+        let (effects, writer_path, reader_path) = effect
+            .into_linux_effect_parts()
+            .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
+        #[cfg(target_os = "linux")]
+        // Linux route: no XPC credential service — the in-process legacy
+        // native writer is the only effect route; the release pin already
+        // rides the attestation claims, so no release binding is applied.
+        let credential_service: Option<CredentialServiceEndpointConfiguration> = None;
         #[cfg(feature = "local-native-enrollment-test")]
         let credential_service = match credential_service {
             Some(configuration) => Some(configuration),
@@ -150,18 +184,24 @@ fn build_effect_route(
     >,
 ) -> Result<NativeProviderCredentialEffectRoute, SecureStoreError> {
     match credential_service {
+        #[cfg(target_os = "macos")]
         Some(configuration) => Ok(NativeProviderCredentialEffectRoute::CredentialService {
             effects,
             configuration,
             legacy: legacy_source()?,
         }),
+        #[cfg(target_os = "macos")]
         None if cfg!(feature = "local-native-enrollment-test") => {
             legacy(effects).map(NativeProviderCredentialEffectRoute::Legacy)
         }
+        #[cfg(target_os = "macos")]
         None => Err(SecureStoreError::UnsupportedSecureStoreBackend),
+        #[cfg(target_os = "linux")]
+        None => legacy(effects).map(NativeProviderCredentialEffectRoute::Legacy),
     }
 }
 
+#[cfg(target_os = "macos")]
 fn writer_endpoint_configuration(
     service: &runne_api::MacOsCodeIdentityExpectationV1,
     writer: &runne_api::MacOsCodeIdentityExpectationV1,
@@ -174,6 +214,7 @@ fn writer_endpoint_configuration(
     )
 }
 
+#[cfg(target_os = "macos")]
 fn requirement(
     identity: &runne_api::MacOsCodeIdentityExpectationV1,
 ) -> Result<CredentialServicePeerRequirement, CredentialServiceXpcError> {
@@ -186,6 +227,7 @@ fn requirement(
 }
 
 #[cfg(feature = "local-native-enrollment-test")]
+#[cfg(target_os = "macos")]
 fn local_writer_endpoint_configuration(
     writer: &std::path::Path,
 ) -> Result<Option<CredentialServiceEndpointConfiguration>, CredentialServiceXpcError> {
@@ -214,6 +256,7 @@ fn local_writer_endpoint_configuration(
 }
 
 #[cfg(feature = "local-native-enrollment-test")]
+#[cfg(target_os = "macos")]
 fn local_requirement(
     path: &std::path::Path,
     expected_identifier: &str,

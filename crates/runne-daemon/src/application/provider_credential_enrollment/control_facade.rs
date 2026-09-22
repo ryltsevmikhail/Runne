@@ -1,5 +1,13 @@
 use std::sync::Arc;
-#[cfg(any(test, all(target_os = "macos", feature = "desktop-protected")))]
+#[cfg(any(
+    test,
+    all(feature = "desktop-protected", target_os = "linux"),
+    all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    )
+))]
 use std::sync::OnceLock;
 
 use super::{
@@ -9,6 +17,7 @@ use super::{
 use runne_api::ProviderCredentialEnrollmentHostError;
 #[cfg(any(
     all(test, unix),
+    all(feature = "desktop-protected", target_os = "linux"),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -21,6 +30,7 @@ use runne_api::{
 };
 #[cfg(any(
     all(test, unix),
+    all(feature = "desktop-protected", target_os = "linux"),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -30,6 +40,7 @@ use runne_api::{
 use runne_api::{ProviderCredentialBaseRequestAuthority, ProviderCredentialOperationSnapshotV2};
 #[cfg(any(
     all(test, unix),
+    all(feature = "desktop-protected", target_os = "linux"),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -46,9 +57,12 @@ use runne_secure_store::ProviderCredentialReadback;
 use runne_store::provider::SqliteProviderCredentialLifecycleStore;
 
 mod http;
+#[cfg(target_os = "linux")]
+mod linux_activation;
 
 #[cfg(any(
     all(test, unix),
+    all(feature = "desktop-protected", target_os = "linux"),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -59,6 +73,7 @@ use super::{ProviderCredentialAdmission, begin::ProviderCredentialEnrollmentBegi
 
 #[cfg(any(
     all(test, unix),
+    all(feature = "desktop-protected", target_os = "linux"),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -74,6 +89,7 @@ mod protected_session;
 pub(crate) use protected_session::PostcommitAdmissionPermit;
 #[cfg(any(
     all(test, unix),
+    all(feature = "desktop-protected", target_os = "linux"),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -83,6 +99,7 @@ pub(crate) use protected_session::PostcommitAdmissionPermit;
 pub(crate) use protected_session::ProtectedEnrollmentSessionFacts;
 #[cfg(any(
     all(test, unix),
+    all(feature = "desktop-protected", target_os = "linux"),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -97,6 +114,7 @@ pub(crate) use protected_session::{
 #[cfg_attr(
     not(any(
         all(test, unix),
+        all(feature = "desktop-protected", target_os = "linux"),
         all(
             feature = "desktop-protected",
             target_os = "macos",
@@ -117,6 +135,7 @@ pub(crate) struct DaemonProviderCredentialEnrollmentControl {
     rendezvous: PendingBrokerRendezvousRegistry,
     #[cfg(any(
         all(test, unix),
+        all(feature = "desktop-protected", target_os = "linux"),
         all(
             feature = "desktop-protected",
             target_os = "macos",
@@ -126,6 +145,7 @@ pub(crate) struct DaemonProviderCredentialEnrollmentControl {
     verification: OnceLock<Arc<dyn super::ProviderCredentialVerificationHost>>,
     #[cfg(any(
         all(test, unix),
+        all(feature = "desktop-protected", target_os = "linux"),
         all(target_os = "macos", feature = "desktop-protected")
     ))]
     #[cfg_attr(
@@ -138,6 +158,7 @@ pub(crate) struct DaemonProviderCredentialEnrollmentControl {
     local_readback: OnceLock<Arc<dyn runne_secure_store::ProviderCredentialVerificationReadback>>,
     #[cfg(any(
         all(test, unix),
+        all(feature = "desktop-protected", target_os = "linux"),
         all(
             feature = "desktop-protected",
             target_os = "macos",
@@ -145,14 +166,18 @@ pub(crate) struct DaemonProviderCredentialEnrollmentControl {
         )
     ))]
     http_authority_issuer: runne_api::ProviderCredentialRequestAuthorityIssuer,
-    #[cfg(all(
-        feature = "desktop-protected",
-        target_os = "macos",
-        target_arch = "aarch64"
+    #[cfg(any(
+        all(feature = "desktop-protected", target_os = "linux"),
+        all(
+            feature = "desktop-protected",
+            target_os = "macos",
+            target_arch = "aarch64"
+        )
     ))]
     http_authority_verifier: ProviderCredentialRequestAuthorityVerifier,
     #[cfg(any(
         all(test, unix),
+        all(feature = "desktop-protected", target_os = "linux"),
         all(
             feature = "desktop-protected",
             target_os = "macos",
@@ -160,16 +185,24 @@ pub(crate) struct DaemonProviderCredentialEnrollmentControl {
         )
     ))]
     http_facts: super::http_admission_resolver::LiveCredentialHttpFacts,
-    #[cfg(all(
-        feature = "desktop-protected",
-        target_os = "macos",
-        target_arch = "aarch64"
+    #[cfg(any(
+        target_os = "linux",
+        all(
+            feature = "desktop-protected",
+            target_os = "macos",
+            target_arch = "aarch64"
+        )
     ))]
     runtime_authority: [u8; 16],
-    #[cfg(all(
-        feature = "desktop-protected",
-        target_os = "macos",
-        target_arch = "aarch64"
+    #[cfg(target_os = "linux")]
+    linux_preadmission: std::sync::Mutex<Option<linux_activation::SessionGate>>,
+    #[cfg(any(
+        all(feature = "desktop-protected", target_os = "linux"),
+        all(
+            feature = "desktop-protected",
+            target_os = "macos",
+            target_arch = "aarch64"
+        )
     ))]
     database_generation: u64,
     #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
@@ -177,8 +210,14 @@ pub(crate) struct DaemonProviderCredentialEnrollmentControl {
 }
 
 include!("control_facade/construct.rs");
+#[cfg(all(test, unix))]
+include!("control_facade/test_construct.rs");
 
-#[cfg(any(test, all(target_os = "macos", feature = "desktop-protected")))]
+#[cfg(any(
+    test,
+    all(feature = "desktop-protected", target_os = "linux"),
+    all(target_os = "macos", feature = "desktop-protected")
+))]
 fn install_local_readback_once(
     slot: &OnceLock<Arc<dyn runne_secure_store::ProviderCredentialVerificationReadback>>,
     readback: Arc<dyn runne_secure_store::ProviderCredentialVerificationReadback>,
@@ -195,58 +234,7 @@ fn install_local_readback_once(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::http::generate_handle_key;
-    use super::install_local_readback_once;
-    use runne_provider::{CredentialVerificationLease, CredentialVerificationResult};
-    use runne_secure_store::{ProviderCredentialVerificationReadback, SecureStoreError};
-    use std::sync::{Arc, OnceLock};
-
-    struct Reader;
-
-    impl ProviderCredentialVerificationReadback for Reader {
-        fn verify_local(
-            &self,
-            _: &CredentialVerificationLease,
-        ) -> Result<CredentialVerificationResult, SecureStoreError> {
-            Ok(CredentialVerificationResult::Verified)
-        }
-    }
-
-    #[test]
-    fn local_readback_mount_is_idempotent_only_for_same_arc() {
-        let slot = OnceLock::new();
-        let first: Arc<dyn ProviderCredentialVerificationReadback> = Arc::new(Reader);
-        let different: Arc<dyn ProviderCredentialVerificationReadback> = Arc::new(Reader);
-
-        assert!(install_local_readback_once(&slot, Arc::clone(&first)).is_ok());
-        assert!(install_local_readback_once(&slot, Arc::clone(&first)).is_ok());
-        assert!(install_local_readback_once(&slot, different).is_err());
-    }
-
-    #[test]
-    fn control_handle_keys_are_nonzero_and_process_local() {
-        let first = generate_handle_key().unwrap();
-        let second = generate_handle_key().unwrap();
-        assert_ne!(first, [0; 32]);
-        assert_ne!(first, second);
-    }
-
-    #[test]
-    fn control_constructor_has_one_unconditional_portable_implementation() {
-        let source = include_str!("control_facade/construct.rs");
-        let production = source;
-        let signature = "pub(crate) fn new(";
-        assert_eq!(production.matches(signature).count(), 1);
-        assert!(production.contains(concat!(
-            "impl DaemonProviderCredentialEnrollmentControl {\n",
-            "    pub(crate) fn new("
-        )));
-        let constructor = production.split_once(signature).unwrap().1;
-        let constructor = constructor.split_once("pub(crate) fn install_").unwrap().0;
-        assert!(!constructor.contains("ProviderCredentialEnrollmentHostError::Unsupported"));
-    }
-}
+mod tests;
 
 #[cfg(any(
     all(test, unix),

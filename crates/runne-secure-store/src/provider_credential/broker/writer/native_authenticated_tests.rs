@@ -1,3 +1,5 @@
+#![cfg(target_os = "macos")]
+
 use std::sync::Arc;
 
 use runne_api::MacOsCodeIdentityExpectationV1;

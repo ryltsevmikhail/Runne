@@ -6,5 +6,6 @@ for name in (
     'part_01.inc', 'part_02.inc', 'part_03.inc', 'part_04.inc',
     'part_05.inc', 'part_06.inc', 'part_07.inc', 'part_08.inc', 'part_09.inc',
     'part_10.inc', 'part_11.inc',
+    'part_12.inc',
 ):
     exec((parts / name).read_text(encoding="utf-8"))

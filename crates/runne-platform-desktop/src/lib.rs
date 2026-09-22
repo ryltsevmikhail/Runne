@@ -20,7 +20,8 @@ mod root_handle_broker;
 mod updater;
 #[cfg(target_os = "linux")]
 pub use protected_runtime::linux_enrollment_peer::{
-    linux_enrollment_peer_binding, verify_linux_enrollment_peer,
+    linux_enrollment_peer_binding, measure_verified_linux_enrollment_installation,
+    verify_linux_enrollment_peer,
 };
 #[cfg(all(
     target_os = "macos",
@@ -68,7 +69,7 @@ pub use protected_runtime::{
     test_only_ready_v3_enrollment_supervisor,
 };
 #[cfg(target_os = "linux")]
-pub use provider_credential_prompt::LinuxPinentryPrompt;
+pub use provider_credential_prompt::LinuxGuiHostCredentialPrompt;
 #[cfg(all(any(unix, windows), feature = "protected-channel-integration"))]
 pub use root_handle_broker::ProtectedRootHandleEndpoint;
 #[cfg(feature = "test-support")]
@@ -190,3 +191,5 @@ mod tests {
     }
 }
 pub mod local_model_source;
+#[cfg(unix)]
+pub use provider_credential_broker::UnixRetainedWriterProcess;

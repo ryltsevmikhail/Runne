@@ -7,6 +7,7 @@ rust-version.workspace = true
 autobins = false
 
 [features]
+writer-entry-fixture = []
 default = []
 local-native-enrollment-test = [
     "nix/signal",
@@ -41,15 +42,27 @@ zeroize.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 nix = { version = "=0.31.3", default-features = false, features = ["fs", "poll"] }
-runne-native-enrollment-authority = { path = "../runne-native-enrollment-authority" }
 runne-macos-keychain-acl = { path = "../runne-macos-keychain-acl" }
 runne-macos-xpc = { path = "../runne-macos-xpc" }
 runne-platform-ports = { path = "../runne-platform-ports" }
 
-[target.'cfg(target_os = "macos")'.dev-dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+runne-native-enrollment-authority = { path = "../runne-native-enrollment-authority" }
+
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dev-dependencies]
 rustix = { version = "=1.1.4", features = ["net", "pipe"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+runne-platform-desktop = { path = "../runne-platform-desktop" }
+nix = { version = "=0.31.3", default-features = false, features = ["fs", "poll", "process"] }
+
+[[bin]]
+name = "writer-entry-fixture"
+path = "src/bin/writer_entry_fixture.rs"
+required-features = ["writer-entry-fixture"]
+
 [dev-dependencies]
+runne-platform-ports = { path = "../runne-platform-ports" }
 ed25519-dalek.workspace = true
 proc-macro2 = "1"
 runne-daemon = { path = "../runne-daemon", features = ["test-support", "desktop-protected"] }
@@ -77,3 +90,8 @@ path = "tests/cli_foundation.rs"
 
 [lints]
 workspace = true
+
+[[test]]
+name = "writer_entry_fixture_regression"
+path = "tests/writer_entry_fixture_regression.rs"
+required-features = ["writer-entry-fixture"]

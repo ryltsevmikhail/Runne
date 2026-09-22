@@ -71,6 +71,32 @@ fn independently_admitted_sessions_do_not_share_an_effect_seal() {
     );
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_claim_parts_reject_synthetic_sessions_without_verified_parts() {
+    let (claim, _) = AuthenticatedProviderCredentialWriterSession::mint_for_test().split();
+    assert!(
+        matches!(
+            claim.into_linux_claim_parts(),
+            Err("linux session verified parts absent")
+        ),
+        "only a verifier-produced session may yield Linux claim parts"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_effect_parts_reject_synthetic_sessions_without_verified_parts() {
+    let (_, effect) = AuthenticatedProviderCredentialWriterSession::mint_for_test().split();
+    assert!(
+        matches!(
+            effect.into_linux_effect_parts(),
+            Err("linux session verified parts absent")
+        ),
+        "only a verifier-produced session may yield Linux effect parts"
+    );
+}
+
 fn broker_channel(bytes: [u8; 32]) -> BrokerChannelBinding {
     let (_, measurements) = CredentialEnrollmentAuthorityPair::new().split();
     measurements.broker_channel_binding(bytes).unwrap()

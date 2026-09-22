@@ -5,6 +5,7 @@ MACOS_PROCESS_IDENTITY_PACKAGE = "runne-macos-process-identity"
 MACOS_PROCESS_IDENTITY_TARGET = 'cfg(target_os = "macos")'
 NATIVE_ENROLLMENT_AUTHORITY_PACKAGE = "runne-native-enrollment-authority"
 CLI_PACKAGE = "runne-cli"
+NATIVE_WRITER_TARGET = 'cfg(any(target_os = "macos", target_os = "linux"))'
 RUSTIX_PACKAGE = "rustix"
 CRATES_IO_REGISTRY_SOURCE = "registry+https://github.com/rust-lang/crates.io-index"
 MACOS_PROCESS_IDENTITY_CONSUMERS = {
@@ -60,6 +61,10 @@ def find_native_writer_bootstrap_dependency_violations(
         if dependency.get("kind") is None
     ]
     expected_authority = {
+        "rustix": (None, 'cfg(target_os = "linux")', "=1.1.4",
+                   ("net", "process"), "registry", None),
+        "sha2": (None, 'cfg(target_os = "linux")', "=0.10.8",
+                 (), "registry", None),
         "runne-api": (
             None,
             MACOS_PROCESS_IDENTITY_TARGET,
@@ -105,7 +110,7 @@ def find_native_writer_bootstrap_dependency_violations(
     expected_cli = {
         NATIVE_ENROLLMENT_AUTHORITY_PACKAGE: (
             None,
-            MACOS_PROCESS_IDENTITY_TARGET,
+            NATIVE_WRITER_TARGET,
             "*",
             (),
             "local",
@@ -113,7 +118,7 @@ def find_native_writer_bootstrap_dependency_violations(
         ),
         RUSTIX_PACKAGE: (
             "dev",
-            MACOS_PROCESS_IDENTITY_TARGET,
+            NATIVE_WRITER_TARGET,
             "=1.1.4",
             ("net", "pipe"),
             "registry",

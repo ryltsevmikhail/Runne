@@ -21,7 +21,7 @@ fn private_session_mint_has_one_reviewed_production_call_site() {
     }
     assert_eq!(
         calls,
-        ["untrusted_writer_endpoint_handoff.rs"],
+        ["linux_verifier.rs", "untrusted_writer_endpoint_handoff.rs"],
         "production mint calls drifted"
     );
 }
@@ -180,7 +180,7 @@ fn token_stream_contains_ident(tokens: proc_macro2::TokenStream, expected: &str)
     })
 }
 
-fn is_test_only(attributes: &[Attribute]) -> bool {
+pub(super) fn is_test_only(attributes: &[Attribute]) -> bool {
     attributes.iter().any(|attribute| {
         let Meta::List(list) = &attribute.meta else {
             return false;

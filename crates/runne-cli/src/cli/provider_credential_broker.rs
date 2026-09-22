@@ -1,21 +1,33 @@
-#[cfg(any(test, target_os = "macos"))]
+#[cfg(any(test, unix))]
 #[path = "provider_credential_broker/claim.rs"]
 mod claim;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[path = "provider_credential_broker/channel.rs"]
 mod channel;
-#[cfg(any(test, target_os = "macos"))]
+#[cfg(any(test, unix))]
 #[path = "provider_credential_broker/effect.rs"]
 mod effect;
-#[cfg(any(test, target_os = "macos"))]
+#[cfg(any(test, unix))]
 #[path = "provider_credential_broker/pair.rs"]
 mod pair;
-#[cfg(any(test, target_os = "macos"))]
+#[cfg(any(test, unix))]
 #[path = "provider_credential_broker/run.rs"]
 mod run;
-#[cfg(any(test, target_os = "macos"))]
+#[cfg(any(test, unix))]
 #[path = "provider_credential_broker/secret.rs"]
 mod secret;
+
+#[cfg(target_os = "linux")]
+#[path = "provider_credential_broker/writer_fd_sweep.rs"]
+mod writer_fd_sweep;
+
+#[cfg(target_os = "linux")]
+#[path = "provider_credential_broker/writer_handshake.rs"]
+mod writer_handshake;
+
+
+
+
 
 #[cfg(feature = "local-native-enrollment-test")]
 #[path = "provider_credential_broker/writer_stage_live.rs"]
@@ -85,6 +97,18 @@ fn run_provider_credential_broker(mut arguments: VecDeque<OsString>) -> Result<(
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Err(CliError::UnsupportedCredentialBackend)
+        // Validate the pipe shape without reading any secret, then close all
+        // other inherited descriptors before authenticating or claiming.
+        #[cfg(target_os = "linux")]
+        {
+            let secret = channel::InheritedSecretInputSlot::inspect()?;
+            let retained = secret.validated_descriptor_for_sweep()?;
+            writer_fd_sweep::close_inherited_descriptors_except(
+                writer_fd_sweep::enumerate_proc_fds,
+                retained,
+            )
+            .map_err(|_| CliError::CredentialOperation)?;
+            writer_handshake::respond_startup_from_stdout(secret)
+        }
     }
 }

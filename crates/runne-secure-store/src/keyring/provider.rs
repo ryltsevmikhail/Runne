@@ -175,14 +175,14 @@ impl NativeKeyringStore {
     }
 }
 
-fn provider_key(provider: ProviderCredentialId) -> (String, String) {
+pub(super) fn provider_key(provider: ProviderCredentialId) -> (String, String) {
     (
         crate::PROVIDER_CREDENTIAL_SERVICE.to_owned(),
         provider.account().to_owned(),
     )
 }
 
-fn version_key(reference: &CredentialVersionRef) -> (String, String) {
+pub(super) fn version_key(reference: &CredentialVersionRef) -> (String, String) {
     let mut ref_hex = String::with_capacity(64);
     for byte in reference.ref_digest() {
         use core::fmt::Write as _;

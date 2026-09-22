@@ -108,11 +108,12 @@ fn qualified_signing_requires_the_single_fenced_transmission() {
         1
     );
     assert_eq!(occurrences(&sources, "QualifiedIssueTransmission::new("), 1);
-    assert_eq!(occurrences(&sources, "into_signing_parts"), 3);
+    assert_eq!(occurrences(&sources, "into_signing_parts"), 4);
     assert_eq!(
         sites_with(&root, &sources, ".into_signing_parts()"),
         [
             PathBuf::from("application/provider_credential_enrollment/broker/unix.rs"),
+            PathBuf::from("application/provider_credential_enrollment/broker/unix_linux.rs"),
             PathBuf::from(
                 "application/provider_credential_enrollment/control_facade/protected_session/qualification/connected_test_support.rs"
             ),
@@ -122,8 +123,9 @@ fn qualified_signing_requires_the_single_fenced_transmission() {
         (
             "into_qualified_signing_material",
             vec![
-                "protected_activation/control_v3/initial_exchange/qualification_fence.rs",
+                "protected_activation/control_v3/qualification_admission.rs",
                 "application/provider_credential_enrollment/broker/unix.rs",
+                "application/provider_credential_enrollment/broker/unix_linux.rs",
                 "application/provider_credential_enrollment/control_facade/protected_session/qualification/connected_test_support.rs",
             ],
         ),
@@ -146,7 +148,7 @@ fn qualified_signing_requires_the_single_fenced_transmission() {
         expected.sort();
         assert_eq!(sites_with(&root, &sources, needle), expected);
         let expected_occurrences = if needle == "into_qualified_signing_material" {
-            3
+            4
         } else {
             2
         };
@@ -156,4 +158,33 @@ fn qualified_signing_requires_the_single_fenced_transmission() {
             "unexpected {needle} use"
         );
     }
+}
+
+#[test]
+fn writer_bundle_can_only_be_minted_inside_control_v3_after_commit() {
+    let bundle = source("src/protected_activation/control_v3/qualification_admission.rs");
+    assert!(bundle.contains("pub(super) const fn from_signed_members("));
+    assert!(bundle.contains(
+        "_permit: crate::application::provider_credential_enrollment::PostcommitAdmissionPermit"
+    ));
+    for forbidden in [
+        "pub(crate) bytes:",
+        "pub(crate) context_sha256:",
+        "pub(crate) ticket_sha256:",
+    ] {
+        assert!(!bundle.contains(forbidden));
+    }
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut sources = Vec::new();
+    rust_sources(&root.join("src"), &mut sources);
+    assert_eq!(
+        sites_with(
+            &root,
+            &sources,
+            "WriterAdmissionBundle::from_signed_members("
+        ),
+        vec![PathBuf::from(
+            "src/protected_activation/control_v3/initial_exchange/qualification_fence.rs"
+        )]
+    );
 }

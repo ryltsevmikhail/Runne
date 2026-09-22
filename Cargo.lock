@@ -3884,6 +3884,7 @@ dependencies = [
  "runne-macos-keychain-acl",
  "runne-macos-xpc",
  "runne-native-enrollment-authority",
+ "runne-platform-desktop",
  "runne-platform-ports",
  "runne-project-owner-authority",
  "runne-provider",
@@ -4365,7 +4366,9 @@ dependencies = [
  "runne-api",
  "runne-macos-process-identity",
  "runne-provider",
+ "rustix",
  "serde",
+ "sha2",
  "syn 2.0.119",
 ]
 
@@ -4860,9 +4863,16 @@ dependencies = [
 name = "runne-secure-store"
 version = "0.0.3"
 dependencies = [
+ "aes",
+ "block-padding",
+ "cbc",
+ "dbus",
  "ed25519-dalek",
  "hex",
+ "hkdf",
  "keyring",
+ "linux-keyutils",
+ "num",
  "rand 0.8.7",
  "ring",
  "runne-api",

@@ -82,3 +82,17 @@ const RAW: &str = r#"extern crate std as platform;"#;
                     [],
                     self.violations("use std::env; env::var(\"TICKET\");", Path(relative)),
                 )
+
+
+class QualifiedCarrierImportTest(unittest.TestCase):
+    def test_only_exact_broker_carrier_import_is_admitted(self):
+        path = Path("crates/runne-daemon/src/application/provider_credential_enrollment/broker/qualified_exchange.rs")
+        carrier = "use crate::protected_activation::control_v3::qualification_admission::WriterAdmissionBundle;"
+        self.assertFalse(architecture.native_qualification_admission_token_forbidden(path, carrier))
+        for payload in (
+            carrier + " use runne_native_qualification::QualificationAdmissionVerifier;",
+            carrier.replace("WriterAdmissionBundle", "QualificationAdmissionVerifier"),
+            carrier + " fn construct() { qualification_admission::from_bytes(); }",
+        ):
+            self.assertTrue(architecture.native_qualification_admission_token_forbidden(path, payload))
+        self.assertTrue(architecture.native_qualification_admission_token_forbidden(Path("crates/runne-cli/src/main.rs"), carrier))

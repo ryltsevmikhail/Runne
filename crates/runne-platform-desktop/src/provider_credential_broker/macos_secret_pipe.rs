@@ -1,8 +1,13 @@
 //! Pair-only one-shot sealed credential input pipe.
 
 use std::fs::File;
+#[cfg(not(target_os = "linux"))]
 use std::io::Write as _;
 use std::os::fd::OwnedFd;
+
+#[cfg(target_os = "linux")]
+#[path = "linux_secret_pipe_write.rs"]
+mod linux_write;
 
 use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
 
@@ -29,7 +34,8 @@ impl PreparedMacOsPairSecretPipe {
     /// into the child; the write half remains host-owned.
     pub(super) fn prepare() -> Result<Self, BrokerHandoffError> {
         let (created_reader, created_writer) =
-            rustix::pipe::pipe().map_err(|_| BrokerHandoffError::Unavailable)?;
+            rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC)
+                .map_err(|_| BrokerHandoffError::Unavailable)?;
         let reader = rustix::io::fcntl_dupfd_cloexec(&created_reader, 4)
             .map_err(|_| BrokerHandoffError::Unavailable)?;
         let writer = rustix::io::fcntl_dupfd_cloexec(&created_writer, 4)
@@ -48,9 +54,16 @@ impl PreparedMacOsPairSecretPipe {
 impl MacOsPairSecretWriter {
     /// Writes and closes exactly one typed sealed envelope.
     fn write_encoded(mut self, envelope: &[u8]) -> Result<(), BrokerHandoffError> {
-        self.0
-            .write_all(envelope)
-            .map_err(|_| BrokerHandoffError::Unavailable)
+        #[cfg(target_os = "linux")]
+        {
+            linux_write::write_bounded(&mut self.0, envelope, std::time::Duration::from_secs(5))
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            self.0
+                .write_all(envelope)
+                .map_err(|_| BrokerHandoffError::Unavailable)
+        }
     }
 }
 

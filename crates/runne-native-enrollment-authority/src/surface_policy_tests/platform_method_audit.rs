@@ -1,33 +1,82 @@
 #![cfg(test)]
 
-use syn::{FnArg, GenericArgument, ItemImpl, PathArguments, ReturnType, Type};
+use syn::{Attribute, FnArg, GenericArgument, ItemImpl, PathArguments, ReturnType, Type};
 
 use super::{CLAIM, EFFECT, attribute_audit, type_opaque_name};
 
 pub(super) fn is_exact_macos_claim_parts(item: &ItemImpl, method: &syn::ImplItemFn) -> bool {
-    exact_consuming_method(item, method, CLAIM, "into_macos_claim_parts")
-        && returns_exact_result(
-            &method.sig.output,
-            &[
-                &["CredentialWriterClaimIssuer"],
-                &["std", "os", "unix", "net", "UnixStream"],
-                &["runne_provider", "BrokerChannelBinding"],
-                &["runne_provider", "PendingCredentialIssueTicketV1"],
-                &["runne_api", "VerifiedSignedInstalledReleaseV2"],
-            ],
-        )
+    exact_consuming_method(
+        item,
+        method,
+        CLAIM,
+        "into_macos_claim_parts",
+        attribute_audit::has_exact_macos_cfg,
+    ) && returns_exact_result(
+        &method.sig.output,
+        &[
+            &["CredentialWriterClaimIssuer"],
+            &["std", "os", "unix", "net", "UnixStream"],
+            &["runne_provider", "BrokerChannelBinding"],
+            &["runne_provider", "PendingCredentialIssueTicketV1"],
+            &["runne_api", "VerifiedSignedInstalledReleaseV2"],
+        ],
+        is_macos_observation_error,
+    )
 }
 
 pub(super) fn is_exact_macos_effect_parts(item: &ItemImpl, method: &syn::ImplItemFn) -> bool {
-    exact_consuming_method(item, method, EFFECT, "into_macos_effect_parts")
-        && returns_exact_result(
-            &method.sig.output,
-            &[
-                &["CredentialWriterEffectAuthority"],
-                &["std", "path", "PathBuf"],
-                &["std", "path", "PathBuf"],
-            ],
-        )
+    exact_consuming_method(
+        item,
+        method,
+        EFFECT,
+        "into_macos_effect_parts",
+        attribute_audit::has_exact_macos_cfg,
+    ) && returns_exact_result(
+        &method.sig.output,
+        &[
+            &["CredentialWriterEffectAuthority"],
+            &["std", "path", "PathBuf"],
+            &["std", "path", "PathBuf"],
+        ],
+        is_macos_observation_error,
+    )
+}
+
+pub(super) fn is_exact_linux_claim_parts(item: &ItemImpl, method: &syn::ImplItemFn) -> bool {
+    exact_consuming_method(
+        item,
+        method,
+        CLAIM,
+        "into_linux_claim_parts",
+        attribute_audit::has_exact_linux_cfg,
+    ) && returns_exact_result(
+        &method.sig.output,
+        &[
+            &["CredentialWriterClaimIssuer"],
+            &["std", "os", "unix", "net", "UnixStream"],
+            &["runne_provider", "BrokerChannelBinding"],
+            &["runne_provider", "PendingCredentialIssueTicketV1"],
+        ],
+        is_static_str_error,
+    )
+}
+
+pub(super) fn is_exact_linux_effect_parts(item: &ItemImpl, method: &syn::ImplItemFn) -> bool {
+    exact_consuming_method(
+        item,
+        method,
+        EFFECT,
+        "into_linux_effect_parts",
+        attribute_audit::has_exact_linux_cfg,
+    ) && returns_exact_result(
+        &method.sig.output,
+        &[
+            &["CredentialWriterEffectAuthority"],
+            &["std", "path", "PathBuf"],
+            &["std", "path", "PathBuf"],
+        ],
+        is_static_str_error,
+    )
 }
 
 fn exact_consuming_method(
@@ -35,10 +84,11 @@ fn exact_consuming_method(
     method: &syn::ImplItemFn,
     owner: &str,
     name: &str,
+    exact_platform_cfg: fn(&[Attribute]) -> bool,
 ) -> bool {
     type_opaque_name(&item.self_ty) == Some(owner)
         && item.trait_.is_none()
-        && attribute_audit::has_exact_macos_cfg(&item.attrs)
+        && exact_platform_cfg(&item.attrs)
         && method.defaultness.is_none()
         && method.sig.ident == name
         && method.sig.constness.is_none()
@@ -56,7 +106,11 @@ fn exact_consuming_method(
                 && receiver.colon_token.is_none())
 }
 
-fn returns_exact_result(output: &ReturnType, expected: &[&[&str]]) -> bool {
+fn returns_exact_result(
+    output: &ReturnType,
+    expected: &[&[&str]],
+    is_exact_error: fn(&Type) -> bool,
+) -> bool {
     let ReturnType::Type(_, value) = output else {
         return false;
     };
@@ -90,13 +144,29 @@ fn returns_exact_result(output: &ReturnType, expected: &[&[&str]]) -> bool {
             .iter()
             .zip(expected)
             .all(|(actual, expected)| type_path_is(actual, expected))
-        && type_path_is(
-            error,
-            &[
-                "runne_macos_process_identity",
-                "MacOsPackagedWriterObservationError",
-            ],
-        )
+        && is_exact_error(error)
+}
+
+fn is_macos_observation_error(error: &Type) -> bool {
+    type_path_is(
+        error,
+        &[
+            "runne_macos_process_identity",
+            "MacOsPackagedWriterObservationError",
+        ],
+    )
+}
+
+fn is_static_str_error(error: &Type) -> bool {
+    let Type::Reference(reference) = error else {
+        return false;
+    };
+    reference.mutability.is_none()
+        && reference
+            .lifetime
+            .as_ref()
+            .is_some_and(|lifetime| lifetime.ident == "static")
+        && type_path_is(&reference.elem, &["str"])
 }
 
 fn type_path_is(value: &Type, expected: &[&str]) -> bool {

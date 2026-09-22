@@ -7,10 +7,10 @@ use std::{
 use runne_api::ProviderCredentialBrokerHandoffWitness;
 #[cfg(any(
     all(test, unix),
+    all(feature = "desktop-protected", target_os = "linux"),
     all(
         feature = "desktop-protected",
-        target_os = "macos",
-        target_arch = "aarch64"
+        any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64"))
     )
 ))]
 use runne_api::ProviderCredentialBrokerTransferAuthority;
@@ -22,6 +22,7 @@ use runne_api::{
 use runne_provider::CredentialOperationSnapshot;
 #[cfg(any(
     all(test, unix),
+    all(feature = "desktop-protected", target_os = "linux"),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -38,6 +39,7 @@ use super::super::ProviderCredentialEffectAuthority;
 use super::super::operation_handle::ProviderCredentialOperationHandleIssuer;
 #[cfg(any(
     all(test, unix),
+    all(feature = "desktop-protected", target_os = "linux"),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -52,6 +54,7 @@ use reservation::ReservedTransitionRendezvous;
 
 #[cfg(any(
     all(test, unix),
+    all(feature = "desktop-protected", target_os = "linux"),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -61,11 +64,16 @@ use reservation::ReservedTransitionRendezvous;
 mod endpoint;
 #[cfg(all(
     feature = "desktop-protected",
-    any(all(test, unix), all(target_os = "macos", target_arch = "aarch64"))
+    any(
+        all(test, unix),
+        all(feature = "desktop-protected", target_os = "linux"),
+        all(target_os = "macos", target_arch = "aarch64")
+    )
 ))]
 pub(crate) use endpoint::AwaitingVerifiedWriter;
 #[cfg(any(
     all(test, unix),
+    all(feature = "desktop-protected", target_os = "linux"),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -76,11 +84,16 @@ pub(crate) use endpoint::PendingBrokerEndpointHandoff;
 
 #[cfg(all(
     feature = "desktop-protected",
-    any(all(test, unix), all(target_os = "macos", target_arch = "aarch64"))
+    any(
+        all(test, unix),
+        all(feature = "desktop-protected", target_os = "linux"),
+        all(target_os = "macos", target_arch = "aarch64")
+    )
 ))]
 use super::rendezvous::DaemonBrokerAuthority;
 #[cfg(any(
     all(test, unix),
+    all(feature = "desktop-protected", target_os = "linux"),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -115,6 +128,7 @@ struct PendingEntry {
     binding: PendingBrokerRendezvousBinding,
     #[cfg(any(
         all(test, unix),
+        all(feature = "desktop-protected", target_os = "linux"),
         all(
             feature = "desktop-protected",
             target_os = "macos",
@@ -124,6 +138,7 @@ struct PendingEntry {
     authority_witness: ProviderCredentialBrokerHandoffWitness,
     #[cfg(any(
         all(test, unix),
+        all(feature = "desktop-protected", target_os = "linux"),
         all(
             feature = "desktop-protected",
             target_os = "macos",
@@ -133,6 +148,7 @@ struct PendingEntry {
     broker_transfer: Option<ProviderCredentialBrokerTransferAuthority>,
     #[cfg(any(
         all(test, unix),
+        all(feature = "desktop-protected", target_os = "linux"),
         all(
             feature = "desktop-protected",
             target_os = "macos",
