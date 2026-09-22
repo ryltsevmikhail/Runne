@@ -29,6 +29,7 @@
 //! mapping and no signature or permission check is weakened or duplicated.
 
 use std::ffi::OsStr;
+use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 
 /// Leaf directory name of the bundled runtime inside the profile directory.

@@ -248,9 +248,9 @@ fn enrollment_profile_directory(runtime_root: &Path) -> Option<std::path::PathBu
 #[cfg(all(test, feature = "desktop-protected", target_os = "linux"))]
 mod linux_profile_directory_tests {
     use super::enrollment_profile_directory;
+    use std::os::unix::fs::PermissionsExt as _;
 
     fn layout(temporary: &std::path::Path) -> (std::path::PathBuf, std::path::PathBuf) {
-        use std::os::unix::fs::PermissionsExt as _;
         let profile_directory = temporary.join("com.runne.desktop");
         let runtime_root = profile_directory.join("bundled-runtime");
         std::fs::create_dir_all(&runtime_root).expect("layout created");
@@ -293,11 +293,7 @@ mod linux_profile_directory_tests {
         let temporary = tempfile::tempdir().expect("tempdir");
         let real = temporary.path().join("real-profile");
         std::fs::create_dir_all(real.join("bundled-runtime")).expect("real layout created");
-        std::fs::set_permissions(
-            &real,
-            std::fs::Permissions::from_mode(0o700),
-        )
-        .expect("mode set");
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o700)).expect("mode set");
         let link = temporary.path().join("com.runne.desktop");
         std::os::unix::fs::symlink(&real, &link).expect("symlink created");
         assert_eq!(
@@ -310,11 +306,8 @@ mod linux_profile_directory_tests {
     fn linux_group_or_world_accessible_profile_directory_is_rejected() {
         let temporary = tempfile::tempdir().expect("tempdir");
         let (profile_directory, runtime_root) = layout(temporary.path());
-        std::fs::set_permissions(
-            &profile_directory,
-            std::fs::Permissions::from_mode(0o755),
-        )
-        .expect("loose mode set");
+        std::fs::set_permissions(&profile_directory, std::fs::Permissions::from_mode(0o755))
+            .expect("loose mode set");
         assert_eq!(enrollment_profile_directory(&runtime_root), None);
     }
 
