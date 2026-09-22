@@ -35,7 +35,7 @@ fn linux_pair_wrong_effect_release_leaves_version_absent() {
     pair_cycle(false);
 }
 
-fn pair_cycle(release_valid: bool) {
+fn build_cycle_example() -> std::path::PathBuf {
     let built = std::process::Command::new(env!("CARGO"))
         .args([
             "build",
@@ -48,10 +48,14 @@ fn pair_cycle(release_valid: bool) {
         .output()
         .unwrap();
     assert!(built.status.success(), "cycle example build failed");
-    let binary = std::path::Path::new(env!("CARGO_BIN_EXE_runne"))
+    std::path::Path::new(env!("CARGO_BIN_EXE_runne"))
         .parent()
         .unwrap()
-        .join("examples/writer_cycle_fixture");
+        .join("examples/writer_cycle_fixture")
+}
+
+fn pair_cycle(release_valid: bool) {
+    let binary = build_cycle_example();
     let image: [u8; 32] = sha2::Sha256::digest(std::fs::read(&binary).unwrap()).into();
     let spec = VerifiedWriterLaunchSpec::new(
         VerifiedWriterArtifact::new(binary, image, RELEASE_TUPLE).unwrap(),
@@ -134,22 +138,29 @@ fn pair_cycle(release_valid: bool) {
         },
     )
     .unwrap();
-    relay_publication(relay, &offer, publication_signer);
+    relay_publication(relay, &offer, move |offer_copy| {
+        publication_signer.sign(offer_copy, digest(CHANNEL))
+    });
     finish_release_phase(&mut control, &command, release_valid);
 }
 
 fn relay_publication(
     relay: platform::LinuxAuthenticatedPairSecretRelay,
     offer: &runne_provider::CredentialSecretClaimOffer,
-    publication_signer: runne_provider::daemon_credential_publication::CredentialSecretPublicationSigner,
+    // Closure-bound signing keeps the daemon-only publication signer type out
+    // of this test's surface (the credential publication architecture rule).
+    sign_publication: impl FnOnce(
+        runne_provider::CredentialSecretClaimOffer,
+    ) -> Result<
+        runne_provider::CredentialSecretPublication,
+        runne_provider::CredentialEnrollmentError,
+    >,
 ) {
     let offer_copy = runne_provider::CredentialSecretOfferCodec::decode(
         &runne_provider::CredentialSecretOfferCodec::encode(offer),
     )
     .unwrap();
-    let publication = publication_signer
-        .sign(offer_copy, digest(CHANNEL))
-        .unwrap();
+    let publication = sign_publication(offer_copy).unwrap();
     let relay_frame = runne_provider::CredentialSecretRelayFrameCodec::encode(offer, &publication);
     relay
         .seal_and_write(
