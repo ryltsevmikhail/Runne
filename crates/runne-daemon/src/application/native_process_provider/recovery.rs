@@ -138,11 +138,23 @@ fn map_re_adopt_root_error(
     }
 }
 
+/// Trust denial on the process channel is a Forbidden (policy denial), not a
+/// Conflict (state clash): the re-adopt pre-check (R-2) denies before any
+/// native access, and the denial direction must survive any future
+/// unfreeze-channel decision (P2-1, report 2026-09-19-t1 §2).
 fn map_re_adopt_host_error(
     error: runne_platform_desktop::RootHandleBrokerError,
 ) -> ProcessHostError {
     match error {
-        runne_platform_desktop::RootHandleBrokerError::Rejected => ProcessHostError::Conflict,
+        runne_platform_desktop::RootHandleBrokerError::Rejected => ProcessHostError::Forbidden,
         runne_platform_desktop::RootHandleBrokerError::Unavailable => ProcessHostError::Unavailable,
     }
+}
+
+/// Test-only access to the re-adopt error mapping (P2-1 pin).
+#[cfg(test)]
+pub(crate) fn map_re_adopt_host_error_for_tests(
+    error: runne_platform_desktop::RootHandleBrokerError,
+) -> ProcessHostError {
+    map_re_adopt_host_error(error)
 }
