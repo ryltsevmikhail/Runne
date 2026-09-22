@@ -58,6 +58,7 @@ fn pinned_spec() -> VerifiedWriterLaunchSpec {
 }
 
 #[test]
+#[ignore = "requires the owner Linux session environment; the real first-party child must stay alive for the live /proc admission"]
 fn admits_the_real_first_party_child_with_matching_facts() {
     use super::RetainedWriterProcess as _;
 
