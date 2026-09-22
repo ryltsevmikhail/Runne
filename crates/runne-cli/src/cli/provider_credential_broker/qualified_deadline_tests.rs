@@ -32,8 +32,21 @@ fn finishing_exchange_restores_transport_timeouts() {
         .unwrap()
         .finish()
         .unwrap();
-    assert_eq!(stream.read_timeout().unwrap(), read_timeout);
-    assert_eq!(stream.write_timeout().unwrap(), write_timeout);
+    // SO_RCVTIMEO/SO_SNDTIMEO round to the kernel scheduler tick (up to 4 ms
+    // at HZ=250), so the restored values are compared with tick-level
+    // tolerance instead of exact equality.
+    let restored_read = stream.read_timeout().unwrap().unwrap();
+    let restored_write = stream.write_timeout().unwrap().unwrap();
+    for (restored, expected) in [
+        (restored_read, read_timeout.unwrap()),
+        (restored_write, write_timeout.unwrap()),
+    ] {
+        let drift = restored.abs_diff(expected);
+        assert!(
+            drift <= Duration::from_millis(8),
+            "restored {restored:?} drifted too far from {expected:?}"
+        );
+    }
 }
 
 #[test]
