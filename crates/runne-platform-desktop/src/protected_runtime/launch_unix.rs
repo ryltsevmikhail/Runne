@@ -116,6 +116,7 @@ impl DevelopmentBundledRuntimeLauncher {
             // store can hold the post-commit/pre-ACK boundary for fault tests.
             command.env("RUNNE_TEST_COMMIT_GATE_FILE", gate);
         }
+        #[cfg(feature = "test-support")]
         if let Some(release) = std::env::var_os("RUNNE_TEST_COMMIT_GATE_RELEASE") {
             command.env("RUNNE_TEST_COMMIT_GATE_RELEASE", release);
         }
