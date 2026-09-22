@@ -1,3 +1,18 @@
+#![cfg_attr(
+    not(any(
+        test,
+        all(
+            target_os = "macos",
+            target_arch = "aarch64",
+            feature = "desktop-protected"
+        )
+    )),
+    expect(
+        dead_code,
+        reason = "the D1 Linux composition slice mounts the broker coordinator; the macOS flow and tests drive it today"
+    )
+)]
+
 use super::{
     AcceptedBrokerClaim, Arc, ClaimCredentialOperation, ClaimedBrokerEffect,
     CredentialBindingDigest, CredentialBrokerFrame, CredentialBrokerFrameCodec,

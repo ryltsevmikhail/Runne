@@ -54,10 +54,10 @@ fn capture(control: &UnixStream) -> Result<Peer, &'static str> {
         .rsplit_once(')')
         .and_then(|(_, tail)| tail.split_whitespace().nth(19))
         .ok_or("reader start denied")?;
-    let mut start = Sha256::new();
-    start.update(b"gocode.provider-credential-writer.start.v1");
-    start.update(pid.to_be_bytes());
-    start.update(ticks.as_bytes());
+    let mut start_digest = Sha256::new();
+    start_digest.update(b"gocode.provider-credential-writer.start.v1");
+    start_digest.update(pid.to_be_bytes());
+    start_digest.update(ticks.as_bytes());
     let executable = PathBuf::from(format!("/proc/{pid}/exe"));
     let path = std::fs::canonicalize(&executable).map_err(|_| "reader image unavailable")?;
     let image = hash(&executable)?;
@@ -66,7 +66,7 @@ fn capture(control: &UnixStream) -> Result<Peer, &'static str> {
     }
     Ok(Peer {
         pid,
-        start: start.finalize().into(),
+        start: start_digest.finalize().into(),
         image,
         path,
     })

@@ -17,7 +17,7 @@ fn fixture_entry_sweeps_inherited_descriptor_and_reports_exact_env() {
     let inherited_fd = file.into_raw_fd();
     assert!(inherited_fd > 2);
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_writer-entry-fixture"))
+    let child = Command::new(env!("CARGO_BIN_EXE_writer-entry-fixture"))
         .env_clear()
         .env("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/0/bus")
         .stdin(Stdio::null())

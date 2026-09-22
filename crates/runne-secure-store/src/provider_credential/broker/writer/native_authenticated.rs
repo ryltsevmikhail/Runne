@@ -92,7 +92,9 @@ impl NativeProviderCredentialWriters {
         // native writer is the only effect route; the release pin already
         // rides the attestation claims, so no release binding is applied.
         let credential_service: Option<CredentialServiceEndpointConfiguration> = None;
-        #[cfg(feature = "local-native-enrollment-test")]
+        // The local XPC endpoint fixture is macOS-only: on Linux the credential
+        // service stays absent, so the endpoint lookup must not compile in.
+        #[cfg(all(feature = "local-native-enrollment-test", target_os = "macos"))]
         let credential_service = match credential_service {
             Some(configuration) => Some(configuration),
             None => local_writer_endpoint_configuration(&writer_path)
@@ -178,7 +180,7 @@ fn build_effect_route(
     legacy: impl FnOnce(
         runne_provider::CredentialWriterEffectAuthority,
     ) -> Result<Arc<dyn BrokeredProviderCredentialWriter>, SecureStoreError>,
-    legacy_source: impl FnOnce() -> Result<
+    _legacy_source: impl FnOnce() -> Result<
         Arc<dyn BrokeredProviderCredentialLegacySource>,
         SecureStoreError,
     >,

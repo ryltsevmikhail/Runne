@@ -1,5 +1,8 @@
 //! Shared inert fixtures; these do not mint production admission.
-#![allow(dead_code, unused_imports)]
+// `redundant_pub_crate` opt-out: this module is included verbatim by test
+// and example crates whose roots are private, so `pub` buys nothing and the
+// pedantic doc lints on test-only helpers are pure noise. No weakening.
+#![allow(dead_code, unused_imports, clippy::redundant_pub_crate)]
 use runne_api::{ProviderCredentialRequestAuthorityIssuer, ProviderCredentialRequestAuthorityPair};
 use runne_provider::daemon_credential_publication::CredentialWriterSessionAttestationSigner;
 use runne_provider::{
@@ -219,13 +222,12 @@ fn issue_claims_for_reader(
         command,
     };
     let attested = CredentialIssueTicketBindingV1::from_issue_ticket(&frame).unwrap();
-    let encoded_frame = runne_provider::CredentialBrokerFrameCodec::encode(frame)
-        .unwrap()
-        .to_vec();
+    let encoded_frame = runne_provider::CredentialBrokerFrameCodec::encode(frame).unwrap();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs() as i64;
+        .as_secs()
+        .cast_signed();
     let claims = CredentialWriterSessionAttestationClaimsV1::new(
         CredentialWriterSessionTicketClaimsV1::new(
             operation_id,

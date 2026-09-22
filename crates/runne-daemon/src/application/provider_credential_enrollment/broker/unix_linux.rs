@@ -5,6 +5,11 @@
 //! sources: measured admission facts instead of the macOS signed-release
 //! metadata write, and pidfd kill/reap for termination.
 
+#![expect(
+    dead_code,
+    reason = "the D1 Linux composition slice mounts the broker channel; tests drive it today"
+)]
+
 use runne_api::ProviderCredentialEnrollmentHostError;
 use runne_provider::daemon_credential_publication::CredentialSecretPublicationSigner;
 use runne_provider::{
@@ -15,7 +20,9 @@ use runne_provider::{
 use zeroize::Zeroizing;
 
 use super::pending::PendingBrokerRendezvousBinding;
-use super::pending_writer::VerifiedLinuxWriterWithDaemonAuthority;
+use super::pending_writer::{
+    QualifiedWriterSessionMaterial, VerifiedLinuxWriterWithDaemonAuthority, WriterProcessFacts,
+};
 use super::qualified_control::{BUDGET as QUALIFIED_EXCHANGE_BUDGET, QualifiedControl};
 use super::{
     CredentialBrokerChannel, QualifiedCredentialBrokerChannel, QualifiedIssueTransmission,
@@ -69,11 +76,18 @@ impl LinuxCredentialBrokerChannel {
 
     pub(crate) fn claim_process_facts(
         &self,
-    ) -> Result<([u8; 32], [u8; 32], [u8; 32]), ProviderCredentialEnrollmentHostError> {
+    ) -> Result<WriterProcessFacts, ProviderCredentialEnrollmentHostError> {
         self.writer.claim_process_facts()
     }
 
-    pub(crate) fn binding(&self) -> &PendingBrokerRendezvousBinding {
+    /// The rendezvous binding this exact writer was admitted against.
+    #[expect(
+        dead_code,
+        reason = "reserved for the D1 composition slice's channel binding check"
+    )]
+    pub(in crate::application::provider_credential_enrollment::broker) fn binding(
+        &self,
+    ) -> &PendingBrokerRendezvousBinding {
         self.writer.binding()
     }
 
@@ -178,15 +192,16 @@ impl QualifiedCredentialBrokerChannel for LinuxCredentialBrokerChannel {
         }
         let (receipt, frame, launch_generation, admission) = issue.into_signing_parts();
         let (context_sha256, ticket_sha256, bundle) = admission.into_qualified_signing_material();
-        let (attestation, signer) = self.writer.sign_writer_session_qualified(
-            &receipt,
-            &frame,
-            self.daemon_start,
-            self.daemon_image,
+        let material = QualifiedWriterSessionMaterial {
+            daemon_start: self.daemon_start,
+            daemon_image: self.daemon_image,
             launch_generation,
             context_sha256,
             ticket_sha256,
-        )?;
+        };
+        let (attestation, signer) = self
+            .writer
+            .sign_writer_session_qualified(&receipt, &frame, &material)?;
         std::io::Write::write_all(
             self.writer.control(),
             &runne_provider::CredentialWriterSessionAttestationV2Codec::encode(&attestation),

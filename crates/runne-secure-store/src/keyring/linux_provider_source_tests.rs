@@ -7,7 +7,8 @@ static SERIAL: TestOnceLock<TestMutex<()>> = TestOnceLock::new();
 
 fn serial() -> std::sync::MutexGuard<'static, ()> {
     let lock = SERIAL.get_or_init(|| TestMutex::new(()));
-    lock.lock().unwrap_or_else(|poison| poison.into_inner())
+    lock.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 // Fake-only wiring tests for the REAL Linux provider-credential source:
 // provider/version entries route through the combo port with NO
@@ -96,7 +97,6 @@ fn delete_removes_both_halves_and_absent_entries_stay_ok() {
 
 #[test]
 fn transport_unavailability_is_typed_not_a_fallback() {
-    let _guard = serial();
     struct UnavailableSource;
     impl LinuxProviderSourceOps for UnavailableSource {
         fn read(
@@ -128,6 +128,7 @@ fn transport_unavailability_is_typed_not_a_fallback() {
             ))
         }
     }
+    let _guard = serial();
     let _source = install_test_source(Box::new(UnavailableSource));
     assert!(matches!(
         read_provider_entry(PROVIDER_SERVICE, "deepseek"),
@@ -141,7 +142,6 @@ fn transport_unavailability_is_typed_not_a_fallback() {
 
 #[test]
 fn owner_loss_denies_closed_without_retry_or_fallback() {
-    let _guard = serial();
     struct OwnerLostSource;
     impl LinuxProviderSourceOps for OwnerLostSource {
         fn read(
@@ -173,6 +173,7 @@ fn owner_loss_denies_closed_without_retry_or_fallback() {
             ))
         }
     }
+    let _guard = serial();
     let _source = install_test_source(Box::new(OwnerLostSource));
     assert!(matches!(
         read_provider_entry(PROVIDER_SERVICE, "deepseek"),
@@ -183,7 +184,7 @@ fn owner_loss_denies_closed_without_retry_or_fallback() {
 #[test]
 fn static_native_keyring_paths_dispatch_provider_entries_to_the_source() {
     let _guard = serial();
-    let _source = install(false, false);
+    let source = install(false, false);
     // The ACTUAL static call sites used by provider/version operations.
     super::NativeKeyringStore::write_secret(PROVIDER_SERVICE, "deepseek", b"routed")
         .expect("static write dispatch");
@@ -197,7 +198,7 @@ fn static_native_keyring_paths_dispatch_provider_entries_to_the_source() {
         .expect("read after delete");
     assert!(gone.is_none());
     // Locked race through the same static path: denied, no prompt, no fallback.
-    drop(_source);
+    drop(source);
     let _source = install(true, false);
     let denied = super::NativeKeyringStore::read_secret(PROVIDER_SERVICE, "deepseek");
     assert!(matches!(

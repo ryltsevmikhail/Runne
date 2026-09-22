@@ -10,6 +10,14 @@
 //! only product is a verified handshake feeding the already-closed writer
 //! authority constructor.
 
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the D1 Linux composition slice mounts the startup handshake; tests drive it today"
+    )
+)]
+
 use std::os::unix::net::UnixStream;
 
 use runne_api::{
@@ -19,7 +27,7 @@ use runne_platform_desktop::provider_credential_broker::linux_writer_admission::
     VerifiedLinuxWriterAdmission, admit_linux_writer,
 };
 use runne_platform_desktop::provider_credential_broker::{
-    UnixRetainedWriterProcess, receive_daemon_owned_writer_measurements,
+    LinuxWriterLiveFacts, UnixRetainedWriterProcess, receive_daemon_owned_writer_measurements,
     receive_linux_writer_startup,
 };
 use runne_platform_ports::provider_credential_broker::VerifiedWriterLaunchSpec;
@@ -36,16 +44,6 @@ pub(crate) struct VerifiedLinuxWriterHandshake {
 }
 
 impl VerifiedLinuxWriterHandshake {
-    #[must_use]
-    pub(crate) const fn admission(&self) -> &VerifiedLinuxWriterAdmission {
-        &self.admission
-    }
-
-    #[must_use]
-    pub(crate) const fn kill_public_key(&self) -> [u8; 32] {
-        self.kill_public_key
-    }
-
     /// The verified caller path for the kill key: feeds the closed writer
     /// authority constructor with the handshake-authenticated key.
     pub(crate) const fn into_admitted_writer(
@@ -87,8 +85,10 @@ pub(crate) fn receive_linux_writer_handshake(
         expected_release_tuple,
         rendezvous.channel_binding(),
         rendezvous.publication_public_key(),
-        admission.start_identity(),
-        admission.image_digest(),
+        LinuxWriterLiveFacts {
+            start_identity: admission.start_identity(),
+            image_digest: admission.image_digest(),
+        },
     ))?;
     Ok(VerifiedLinuxWriterHandshake {
         admission,
@@ -104,9 +104,12 @@ pub(crate) fn receive_linux_writer_handshake(
 /// Fails closed when the authenticated frame disagrees with the exact
 /// retained process or carries a zero kill key.
 type _KeepStartupImport = ();
-#[expect(
-    dead_code,
-    reason = "receive_linux_writer_evidence stays the tested evidence core"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "receive_linux_writer_evidence stays the tested evidence core"
+    )
 )]
 pub(crate) fn receive_linux_writer_evidence(
     transport: UnixStream,

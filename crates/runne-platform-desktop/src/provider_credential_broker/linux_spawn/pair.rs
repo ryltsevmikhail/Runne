@@ -9,9 +9,11 @@ use runne_platform_ports::provider_credential_broker::{
     BrokerHandoffError, VerifiedWriterLaunchSpec,
 };
 
-/// Starts a Pair writer with only its authenticated control/startup sockets
-/// and one read-only secret pipe. The relay consumes the existing handoff
-/// sealer; no caller-supplied publication key or raw secret enters spawn.
+/// Starts a Pair writer with only its authenticated control/startup sockets.
+///
+/// The writer also receives one read-only secret pipe. The relay consumes the
+/// existing handoff sealer; no caller-supplied publication key or raw secret
+/// enters spawn.
 ///
 /// # Errors
 /// Fails closed on an invalid endpoint-transfer proof or when the bus, pipe,

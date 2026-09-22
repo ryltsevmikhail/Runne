@@ -63,6 +63,13 @@ impl DaemonProviderCredentialEnrollmentControl {
             target_arch = "aarch64"
         )
     ))]
+    #[cfg_attr(
+        not(any(test, all(target_os = "macos", target_arch = "aarch64", feature = "desktop-protected"))),
+        expect(
+            dead_code,
+            reason = "the D1 Linux composition slice consumes the construction accessors; the macOS flow and tests drive them today"
+        )
+    )]
     pub(crate) fn install_verification(
         &self,
         verification: Arc<dyn super::ProviderCredentialVerificationHost>,
@@ -77,7 +84,7 @@ impl DaemonProviderCredentialEnrollmentControl {
         &self,
         readback: Arc<dyn runne_secure_store::ProviderCredentialVerificationReadback>,
     ) -> Result<(), ProviderCredentialEnrollmentHostError> {
-        install_local_readback_once(&self.local_readback, readback)
+        local_readback::install_local_readback_once(&self.local_readback, readback)
     }
 
     #[cfg(any(
@@ -88,6 +95,13 @@ impl DaemonProviderCredentialEnrollmentControl {
             target_arch = "aarch64"
         )
     ))]
+    #[cfg_attr(
+        not(any(test, all(target_os = "macos", target_arch = "aarch64", feature = "desktop-protected"))),
+        expect(
+            dead_code,
+            reason = "the D1 Linux composition slice consumes the construction accessors; the macOS flow and tests drive them today"
+        )
+    )]
     pub(crate) fn measurement_authority(&self) -> CredentialEnrollmentMeasurementAuthority {
         self.measurements.clone()
     }
@@ -100,6 +114,13 @@ impl DaemonProviderCredentialEnrollmentControl {
             target_arch = "aarch64"
         )
     ))]
+    #[cfg_attr(
+        not(any(test, all(target_os = "macos", target_arch = "aarch64", feature = "desktop-protected"))),
+        expect(
+            dead_code,
+            reason = "the D1 Linux composition slice consumes the construction accessors; the macOS flow and tests drive them today"
+        )
+    )]
     pub(crate) fn operation_handle_issuer(&self) -> ProviderCredentialOperationHandleIssuer {
         self.handles.duplicate()
     }

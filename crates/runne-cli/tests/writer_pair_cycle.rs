@@ -1,7 +1,7 @@
 //! Real Linux child, production claim/effect and sealer; fake in-memory store.
 #![cfg(target_os = "linux")]
 use runne_platform_desktop::provider_credential_broker::{
-    self as platform, RetainedWriterProcess as _, UnixRetainedWriterProcess,
+    self as platform, LinuxWriterLiveFacts, RetainedWriterProcess as _, UnixRetainedWriterProcess,
 };
 use runne_platform_ports::provider_credential_broker::{
     VerifiedWriterArtifact, VerifiedWriterLaunchSpec,
@@ -108,8 +108,10 @@ fn pair_cycle(release_valid: bool) {
         RELEASE_TUPLE,
         CHANNEL,
         key,
-        start,
-        image,
+        LinuxWriterLiveFacts {
+            start_identity: start,
+            image_digest: image,
+        },
     )
     .unwrap();
     let (claims, issue) = issue_claims(start, image, RELEASE_TUPLE);
@@ -123,7 +125,46 @@ fn pair_cycle(release_valid: bool) {
         .unwrap();
     control.write_all(&issue).unwrap();
     let command = pair_command();
-    let offer = match Codec::read_from(&mut control).unwrap() {
+    let offer = expect_exact_pair_claim(&mut control, &command, expected_ticket);
+    Codec::write_to(
+        &mut control,
+        Frame::ClaimAccepted {
+            operation_id: command.operation_id(),
+            attempt: command.ticket_attempt(),
+        },
+    )
+    .unwrap();
+    relay_publication(relay, &offer, publication_signer);
+    finish_release_phase(&mut control, &command, release_valid);
+}
+
+fn relay_publication(
+    relay: platform::LinuxAuthenticatedPairSecretRelay,
+    offer: &runne_provider::CredentialSecretClaimOffer,
+    publication_signer: runne_provider::daemon_credential_publication::CredentialSecretPublicationSigner,
+) {
+    let offer_copy = runne_provider::CredentialSecretOfferCodec::decode(
+        &runne_provider::CredentialSecretOfferCodec::encode(offer),
+    )
+    .unwrap();
+    let publication = publication_signer
+        .sign(offer_copy, digest(CHANNEL))
+        .unwrap();
+    let relay_frame = runne_provider::CredentialSecretRelayFrameCodec::encode(offer, &publication);
+    relay
+        .seal_and_write(
+            &relay_frame,
+            zeroize::Zeroizing::new(b"fixture-only-key".to_vec()),
+        )
+        .unwrap();
+}
+
+fn expect_exact_pair_claim(
+    control: &mut UnixStream,
+    command: &runne_provider::CredentialBrokerCommand,
+    expected_ticket: runne_provider::CredentialBindingDigest,
+) -> runne_provider::CredentialSecretClaimOffer {
+    match Codec::read_from(control).unwrap() {
         Frame::Claim {
             operation_id,
             attempt,
@@ -138,31 +179,16 @@ fn pair_cycle(release_valid: bool) {
             offer
         }
         _ => panic!("exact Pair claim with an ephemeral offer required"),
-    };
+    }
+}
+
+fn finish_release_phase(
+    control: &mut UnixStream,
+    command: &runne_provider::CredentialBrokerCommand,
+    release_valid: bool,
+) {
     Codec::write_to(
-        &mut control,
-        Frame::ClaimAccepted {
-            operation_id: command.operation_id(),
-            attempt: command.ticket_attempt(),
-        },
-    )
-    .unwrap();
-    let offer_copy = runne_provider::CredentialSecretOfferCodec::decode(
-        &runne_provider::CredentialSecretOfferCodec::encode(&offer),
-    )
-    .unwrap();
-    let publication = publication_signer
-        .sign(offer_copy, digest(CHANNEL))
-        .unwrap();
-    let relay_frame = runne_provider::CredentialSecretRelayFrameCodec::encode(&offer, &publication);
-    relay
-        .seal_and_write(
-            &relay_frame,
-            zeroize::Zeroizing::new(b"fixture-only-key".to_vec()),
-        )
-        .unwrap();
-    Codec::write_to(
-        &mut control,
+        control,
         Frame::NativeEffectRelease {
             operation_id: command.operation_id(),
             attempt: command.ticket_attempt(),
@@ -176,7 +202,7 @@ fn pair_cycle(release_valid: bool) {
     .unwrap();
     if release_valid {
         assert!(
-            matches!(Codec::read_from(&mut control).unwrap(), Frame::NativeEffectObserved {
+            matches!(Codec::read_from(control).unwrap(), Frame::NativeEffectObserved {
         operation_id, binding,
     } if operation_id == command.operation_id() && binding == digest(SIGN_BINDING))
         );

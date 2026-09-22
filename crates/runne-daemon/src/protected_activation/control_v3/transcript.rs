@@ -9,7 +9,7 @@ fn serve_v3_transcript(
     session_clock: &Arc<dyn Fn() -> Duration + Send + Sync>,
     ticket_clock: &TicketClock,
     #[cfg(unix)] runtime: &mut V3EnrollmentRuntime,
-    #[cfg(all(unix, feature = "desktop-protected"))] mut root_admission: Option<
+    #[cfg(all(unix, feature = "desktop-protected"))] root_admission: Option<
         Arc<crate::protected_activation::ProtectedRootControl>,
     >,
 ) -> Result<(), LaunchAuthorityError> {

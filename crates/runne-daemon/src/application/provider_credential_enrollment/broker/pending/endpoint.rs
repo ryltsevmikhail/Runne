@@ -1,3 +1,18 @@
+#![cfg_attr(
+    not(any(
+        test,
+        all(
+            target_os = "macos",
+            target_arch = "aarch64",
+            feature = "desktop-protected"
+        )
+    )),
+    expect(
+        dead_code,
+        reason = "endpoint handoff is test-driven until the D1 Linux composition slice mounts it"
+    )
+)]
+
 use super::*;
 
 /// Move-only pending rendezvous removed before its current authority is validated.

@@ -32,7 +32,7 @@ pub trait KeyutilsCache {
 /// Keyutils errors the keyring crate documents as "no such key" (the
 /// invalidation-processing window); matched so cache semantics stay
 /// compatible while every other kernel failure surfaces as a real error.
-pub fn kernel_absent(error: linux_keyutils::KeyError) -> bool {
+pub const fn kernel_absent(error: linux_keyutils::KeyError) -> bool {
     matches!(
         error,
         linux_keyutils::KeyError::KeyDoesNotExist

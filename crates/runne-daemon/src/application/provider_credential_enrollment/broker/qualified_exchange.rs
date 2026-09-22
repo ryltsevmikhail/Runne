@@ -1,3 +1,8 @@
+#![expect(
+    dead_code,
+    reason = "the D1 Linux composition slice mounts the fenced writer exchange; the macOS flow and tests drive it today"
+)]
+
 use runne_api::ProviderCredentialEnrollmentHostError;
 use runne_provider::{
     CredentialBindingDigest, CredentialBrokerFrame, CredentialMeasurementSnapshot,
@@ -135,6 +140,8 @@ impl QualifiedIssueTransmission {
 }
 
 pub(crate) trait QualifiedCredentialBrokerChannel {
+    /// Fail-closed default; every wired channel overrides with the exact
+    /// qualified-issue protocol.
     fn send_qualified_issue(
         &mut self,
         _issue: QualifiedIssueTransmission,

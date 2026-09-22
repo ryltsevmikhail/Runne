@@ -6,6 +6,20 @@ use runne_provider::{
 
 impl DaemonProtectedCredentialEnrollmentSession {
     /// Caller holds the exact live-session guard. Metadata only, no admission.
+    #[cfg_attr(
+        not(any(
+            test,
+            all(
+                target_os = "macos",
+                target_arch = "aarch64",
+                feature = "desktop-protected"
+            )
+        )),
+        expect(
+            dead_code,
+            reason = "the D1 Linux composition slice mounts cleanup discovery; the macOS flow and tests drive it today"
+        )
+    )]
     pub(crate) fn discover_cleanup(
         &self,
     ) -> Result<Vec<[u8; 16]>, ProviderCredentialEnrollmentHostError> {
@@ -16,6 +30,20 @@ impl DaemonProtectedCredentialEnrollmentSession {
 
 impl DaemonProviderCredentialEnrollmentControl {
     /// Internal metadata read; caller derives owner from verified installation.
+    #[cfg_attr(
+        not(any(
+            test,
+            all(
+                target_os = "macos",
+                target_arch = "aarch64",
+                feature = "desktop-protected"
+            )
+        )),
+        expect(
+            dead_code,
+            reason = "the D1 Linux composition slice mounts cleanup discovery; the macOS flow and tests drive it today"
+        )
+    )]
     pub(crate) fn discover_cleanup_for_owner(
         &self,
         installation: [u8; 32],

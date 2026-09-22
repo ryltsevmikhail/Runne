@@ -58,7 +58,7 @@ nix = { version = "=0.31.3", default-features = false, features = ["fs", "poll",
 
 [[bin]]
 name = "writer-entry-fixture"
-path = "src/bin/writer_entry_fixture.rs"
+path = "writer-entry-fixture/main.rs"
 required-features = ["writer-entry-fixture"]
 
 [dev-dependencies]

@@ -1,5 +1,9 @@
 //! Finish one already-issued challenge before exposing its received endpoint.
-use super::*;
+use super::{
+    BrokerHandoffError, CHALLENGE_BYTES, CredentialBrokerTransferAuthenticator, FRAME_BYTES,
+    RESPONSE_BYTES, RESPONSE_TAG, UnixReceivedDaemonWriterEndpoint, UnixStream, receive_descriptor,
+    transcript,
+};
 
 pub(super) fn finish_receive(
     mut transport: UnixStream,

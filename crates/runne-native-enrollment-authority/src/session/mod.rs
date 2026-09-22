@@ -1,8 +1,6 @@
 #[cfg(any(test, any(target_os = "macos", target_os = "linux")))]
 use runne_provider::CredentialWriterAuthorityPair;
-use runne_provider::{
-    CredentialBindingDigest, CredentialWriterClaimIssuer, CredentialWriterEffectAuthority,
-};
+use runne_provider::{CredentialWriterClaimIssuer, CredentialWriterEffectAuthority};
 
 #[cfg(target_os = "linux")]
 type LinuxSessionParts = Box<(

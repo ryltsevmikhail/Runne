@@ -11,7 +11,7 @@
 //! as defense-in-depth only. (B2) the child is retained exclusively through a
 //! pidfd opened immediately after spawn; kill uses `pidfd_send_signal`, reap
 //! uses `waitid(P_PIDFD)`, and there is no raw-PID fallback. (B3) the spawn
-//! surface is the exact [`SpawnPlan`] seam in `plan.rs` that tests pin
+//! surface is the exact `SpawnPlan` seam in `plan.rs` that tests pin
 //! directly. The production address stays the strictly validated
 //! `/run/user/<euid>/bus` derivation.
 //!
@@ -22,7 +22,7 @@
 //! control is a separate channel and is never mixed with these.
 
 use std::ffi::CString;
-use std::os::fd::{AsFd as _, AsRawFd as _, OwnedFd};
+use std::os::fd::{AsFd as _, AsRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 
 use nix::fcntl::OFlag;
@@ -38,6 +38,7 @@ mod pair;
 #[path = "linux_spawn/plan.rs"]
 mod plan;
 pub use pair::spawn_linux_pair_writer_from_prepared_handoff;
+#[cfg(test)]
 pub(in crate::provider_credential_broker) use plan::SpawnPlan;
 #[cfg(test)]
 pub(in crate::provider_credential_broker) use plan::build_plan_for_tests;
@@ -81,10 +82,11 @@ pub fn pidfd_capability_probe() -> Result<(), BrokerHandoffError> {
     Ok(())
 }
 
-/// Production Linux spawn entry: the retained writer holds the broker
-/// control socket on stdin and the private startup handshake socket on
-/// stdout. Ownership of both writer ends transfers here; the caller keeps
-/// the daemon-side peers.
+/// Production Linux spawn entry for the exact retained writer child.
+///
+/// The retained writer holds the broker control socket on stdin and the
+/// private startup handshake socket on stdout. Ownership of both writer ends
+/// transfers here; the caller keeps the daemon-side peers.
 ///
 /// # Errors
 ///
@@ -142,14 +144,13 @@ fn spawn_with_secret(
     let handshake = duplicate_above_reserved(&handshake_end)?;
     let stderr_null = duplicate_above_reserved(&open_null(OFlag::O_WRONLY)?)?;
     let mut reserved_fd = Some(open_null(OFlag::O_RDONLY)?);
-    let mut child_marker: Option<i32> = None;
     let plan = build_plan(
         spec,
         address,
         channel.as_fd().as_raw_fd(),
         handshake.as_fd().as_raw_fd(),
         stderr_null.as_fd().as_raw_fd(),
-        secret_reader.as_ref().map(|fd| fd.as_raw_fd()),
+        secret_reader.as_ref().map(AsRawFd::as_raw_fd),
     )?;
     let mut actions = apply_plan(&plan)?;
     close_inventory(&mut actions, &channel, secret_reader.is_some())?;
@@ -172,7 +173,6 @@ fn spawn_with_secret(
     drop((control_end, handshake_end, stderr_null, secret_reader));
     let spawned_pid = spawned?;
     let pid = spawned_pid.as_raw();
-    child_marker = Some(pid);
     match acquire_pidfd(pid) {
         Ok(pidfd) => UnixRetainedWriterProcess::from_spawned(pid, pidfd),
         Err(first) => {
@@ -181,7 +181,7 @@ fn spawn_with_secret(
             drop(reserved_fd.take());
             match acquire_pidfd(pid) {
                 Ok(pidfd) => {
-                    if let Some(child) = rustix::process::Pid::from_raw(pid) {
+                    if let Some(_child) = rustix::process::Pid::from_raw(pid) {
                         let _ = rustix::process::pidfd_send_signal(
                             &pidfd,
                             rustix::process::Signal::KILL,
@@ -191,11 +191,10 @@ fn spawn_with_secret(
                             rustix::process::WaitIdOptions::EXITED,
                         );
                     }
-                    drop(child_marker.take());
                     Err(BrokerHandoffError::Rejected)
                 }
                 Err(second) => {
-                    drop((first, second, pid, child_marker.take()));
+                    drop((first, second, pid));
                     Err(BrokerHandoffError::Rejected)
                 }
             }
@@ -218,9 +217,7 @@ pub(super) fn probe_path_socket(path: &std::path::Path) -> Result<(), BrokerHand
 fn effective_uid() -> u32 {
     use std::os::unix::fs::MetadataExt as _;
     // /proc/self ownership mirrors our effective uid; not a secret read.
-    std::fs::metadata("/proc/self")
-        .map(|metadata| metadata.uid())
-        .unwrap_or(u32::MAX)
+    std::fs::metadata("/proc/self").map_or(u32::MAX, |metadata| metadata.uid())
 }
 
 #[cfg(all(test, target_os = "linux"))]

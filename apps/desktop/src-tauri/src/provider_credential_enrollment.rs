@@ -6,7 +6,7 @@ mod dispatch;
 mod host_prompt;
 pub mod intent;
 #[cfg(target_os = "linux")]
-pub(crate) mod linux_activation;
+pub mod linux_activation;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod prepared;
 mod projection;

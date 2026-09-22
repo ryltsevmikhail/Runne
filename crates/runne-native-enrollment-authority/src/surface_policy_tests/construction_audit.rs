@@ -8,8 +8,6 @@
 //! the exact (file, function) reviewed pairs below together with the verifier
 //! that performs real live verification — no such site exists today.
 
-use std::fs;
-
 use syn::visit::{self, Visit};
 use syn::{Expr, ItemImpl, UseTree};
 

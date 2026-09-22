@@ -1,5 +1,5 @@
 use super::http::generate_handle_key;
-use super::install_local_readback_once;
+use super::local_readback::install_local_readback_once;
 use runne_provider::{CredentialVerificationLease, CredentialVerificationResult};
 use runne_secure_store::{ProviderCredentialVerificationReadback, SecureStoreError};
 use std::sync::{Arc, OnceLock};

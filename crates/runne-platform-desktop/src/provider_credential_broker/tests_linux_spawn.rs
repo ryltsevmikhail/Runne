@@ -93,6 +93,8 @@ fn pidfd_capability_probe_passes_on_this_kernel() {
 
 #[test]
 fn native_child_eof_exit_is_reaped_via_pidfd() {
+    use super::RetainedWriterProcess as _;
+
     let dir = fixture_dir("lifecycle");
     let address = fixture_socket(&dir);
     let (parent_half, child_half) = UnixStream::pair().expect("socketpair");
@@ -107,12 +109,13 @@ fn native_child_eof_exit_is_reaped_via_pidfd() {
     // Closing both writer-facing sockets hands the child EOF; the retained
     // pidfd lets the parent reap it without any raw-PID wait.
     drop((parent_half, handshake_parent));
-    use super::RetainedWriterProcess as _;
     process.reap_retained_child().expect("pidfd reap");
 }
 
 #[test]
 fn native_child_kill_targets_exactly_the_retained_pidfd() {
+    use super::RetainedWriterProcess as _;
+
     let dir = fixture_dir("kill");
     let address = fixture_socket(&dir);
     let (_parent_half, child_half) = UnixStream::pair().expect("socketpair");
@@ -124,7 +127,6 @@ fn native_child_kill_targets_exactly_the_retained_pidfd() {
         &address,
     )
     .expect("spawn native child");
-    use super::RetainedWriterProcess as _;
     process
         .terminate_retained_child()
         .expect("pidfd SIGKILL on the exact child");
@@ -132,20 +134,21 @@ fn native_child_kill_targets_exactly_the_retained_pidfd() {
     let second = process.terminate_retained_child();
     assert!(
         second.is_err() || second.is_ok(),
-        "post-reap kill attempt cannot target a recycled pid: {:?}",
-        second
+        "post-reap kill attempt cannot target a recycled pid: {second:?}"
     );
 }
 
 #[test]
 fn late_open_descriptor_is_closed_in_child_deterministically() {
+    use super::RetainedWriterProcess as _;
+
     let dir = fixture_dir("latefd");
     let address = fixture_socket(&dir);
     let (opened_sender, opened_receiver) = mpsc::channel::<i32>();
     let (release_sender, release_receiver) = mpsc::channel::<()>();
     let late_path = dir.join("late-open.log");
     std::fs::write(&late_path, b"late").expect("late file");
-    let thread_path = late_path.clone();
+    let thread_path = late_path;
     let worker = std::thread::spawn(move || {
         let file = std::fs::File::open(&thread_path).expect("late fd");
         opened_sender
@@ -157,7 +160,7 @@ fn late_open_descriptor_is_closed_in_child_deterministically() {
     let late_fd = opened_receiver.recv().expect("deterministic fd handoff");
     // Snapshot happens inside the spawn call AFTER this point, so the late
     // descriptor is guaranteed to be part of the close set.
-    let (_parent_half, child_half) = UnixStream::pair().expect("socketpair");
+    let (parent_half, child_half) = UnixStream::pair().expect("socketpair");
     let (_handshake_parent, handshake_child) = UnixStream::pair().expect("handshake pair");
     let mut process = unix_daemon::test_spawn_linux_writer(
         &spec(PathBuf::from("/bin/cat")),
@@ -166,8 +169,7 @@ fn late_open_descriptor_is_closed_in_child_deterministically() {
         &address,
     )
     .expect("spawn with late-open fd present");
-    drop(_parent_half);
-    use super::RetainedWriterProcess as _;
+    drop(parent_half);
     process.reap_retained_child().expect("reap");
     release_sender.send(()).expect("release worker");
     worker.join().expect("worker");
@@ -215,6 +217,8 @@ fn pidfd_acquisition_failure_cleans_up_the_real_first_party_child() {
 
 #[test]
 fn kill_never_targets_a_mismatched_start_identity() {
+    use super::RetainedWriterProcess as _;
+
     let dir = fixture_dir("identity");
     let address = fixture_socket(&dir);
     let (parent_half, child_half) = UnixStream::pair().expect("socketpair");
@@ -227,11 +231,9 @@ fn kill_never_targets_a_mismatched_start_identity() {
     )
     .expect("spawn native child");
     process.test_break_start_identity();
-    use super::RetainedWriterProcess as _;
     let denied = process
         .terminate_retained_child()
-        .err()
-        .expect("mismatched identity denies the pidfd kill");
+        .expect_err("mismatched identity denies the pidfd kill");
     assert!(matches!(denied, BrokerHandoffError::Rejected));
     // The child is alive and unharmed: EOF through the transport lets the
     // retained pidfd reap a natural exit instead of a signal.

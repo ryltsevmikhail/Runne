@@ -127,7 +127,7 @@ fn owner_change_mid_session_fails_closed_without_new_owner_access() {
     bus.add_item(&entry_attributes(), b"secret", false);
     let mut facade = bind(bus, FakeProcessFacts::new());
     facade.bus_mut().owner_name = ":1.99".to_owned();
-    let error = facade.read_entry(&identity()).err().expect("owner lost");
+    let error = facade.read_entry(&identity()).expect_err("owner lost");
     assert_eq!(error, SsFacadeError::OwnerLost);
     assert_only_allowed_and_bound(&log, ":1.42");
     assert!(
@@ -147,7 +147,7 @@ fn owner_connection_death_fails_closed() {
     let log = bus.log_handle();
     let mut facade = bind(bus, FakeProcessFacts::new());
     facade.bus_mut().peer_alive = false;
-    let error = facade.read_entry(&identity()).err().expect("owner dead");
+    let error = facade.read_entry(&identity()).expect_err("owner dead");
     assert_eq!(error, SsFacadeError::OwnerLost);
     assert_only_allowed_and_bound(&log, ":1.42");
 }
@@ -158,7 +158,7 @@ fn locked_item_fails_closed_without_prompt_or_unlock() {
     let log = bus.log_handle();
     bus.add_item(&entry_attributes(), b"secret", true);
     let mut facade = bind(bus, FakeProcessFacts::new());
-    let error = facade.read_entry(&identity()).err().expect("locked closed");
+    let error = facade.read_entry(&identity()).expect_err("locked closed");
     assert_eq!(error, SsFacadeError::Locked);
     assert_only_allowed_and_bound(&log, ":1.42");
 }
@@ -169,8 +169,8 @@ fn locked_flip_between_search_and_read_fails_closed() {
     let log = bus.log_handle();
     bus.add_item(&entry_attributes(), b"secret", false);
     let mut facade = bind(bus, FakeProcessFacts::new());
-    facade.bus_mut().lock_items_before_get = true;
-    let error = facade.read_entry(&identity()).err().expect("race closed");
+    facade.bus_mut().faults.lock_items_before_get = true;
+    let error = facade.read_entry(&identity()).expect_err("race closed");
     assert_eq!(error, SsFacadeError::Unavailable);
     assert_only_allowed_and_bound(&log, ":1.42");
 }
@@ -192,8 +192,7 @@ fn ambiguous_matches_fail_closed() {
     let mut facade = bind(bus, FakeProcessFacts::new());
     let error = facade
         .read_entry(&identity())
-        .err()
-        .expect("ambiguous closed");
+        .expect_err("ambiguous closed");
     assert_eq!(error, SsFacadeError::Ambiguous);
 }
 
@@ -235,8 +234,7 @@ fn write_over_locked_match_fails_closed() {
     let mut facade = bind(bus, FakeProcessFacts::new());
     let error = facade
         .write_entry(&identity(), b"new")
-        .err()
-        .expect("locked write closed");
+        .expect_err("locked write closed");
     assert_eq!(error, SsFacadeError::Locked);
     assert!(matches!(
         facade.read_entry(&identity()),

@@ -10,6 +10,7 @@
 
 #![cfg(target_os = "linux")]
 
+#[path = "linux_writer_handshake_support/mod.rs"]
 mod linux_writer_handshake_support;
 
 use std::io::Write as _;
@@ -21,7 +22,9 @@ use linux_writer_handshake_support::{
     spawn_writer, spawn_writer_with_control,
 };
 use runne_api::ProviderCredentialRequestAuthorityPair;
-use runne_platform_desktop::provider_credential_broker::receive_linux_writer_startup;
+use runne_platform_desktop::provider_credential_broker::{
+    LinuxWriterLiveFacts, receive_linux_writer_startup,
+};
 use runne_provider::daemon_credential_publication::CredentialWriterSessionAttestationSigner;
 
 #[test]
@@ -40,15 +43,18 @@ fn actual_writer_binary_completes_the_live_cross_bound_handshake() {
             RELEASE_TUPLE,
             CHANNEL,
             PUBLICATION,
-            live_start,
-            live_image,
+            LinuxWriterLiveFacts {
+                start_identity: live_start,
+                image_digest: live_image,
+            },
         )
     });
     let kill = receiver.join().unwrap().expect("verified handshake");
     assert_ne!(kill, [0; 32], "a real generated kill key must arrive");
     // Without the signed CONTROL attestation the verified receive closes the
-    // writer instead of draining: control EOF after the handshake.
-    drop(kill);
+    // writer instead of draining: control EOF after the handshake. The kill
+    // key is intentionally released here (Copy: explicit binding release).
+    let _ = kill;
     let status = child.wait().unwrap();
     assert!(
         !status.success(),
@@ -71,8 +77,10 @@ fn actual_writer_binary_denies_a_foreign_launch_secret() {
             RELEASE_TUPLE,
             CHANNEL,
             PUBLICATION,
-            live_start,
-            oracle_image_digest(),
+            LinuxWriterLiveFacts {
+                start_identity: live_start,
+                image_digest: oracle_image_digest(),
+            },
         )
     });
     assert!(
@@ -97,8 +105,10 @@ fn vanishing_writer_denies_the_handshake_with_a_clean_pipe_error() {
             RELEASE_TUPLE,
             CHANNEL,
             PUBLICATION,
-            [1; 32],
-            [2; 32],
+            LinuxWriterLiveFacts {
+                start_identity: [1; 32],
+                image_digest: [2; 32],
+            },
         )
         .is_err(),
         "a vanished writer must be denied"
@@ -128,8 +138,10 @@ fn real_writer_receives_and_binds_the_verified_control_session() {
             RELEASE_TUPLE,
             CHANNEL,
             signer.public_key(),
-            live_start,
-            live_image,
+            LinuxWriterLiveFacts {
+                start_identity: live_start,
+                image_digest: live_image,
+            },
         )
         .expect("startup handshake");
         let (attestation, frame) = sign_control_attestation(signer, live_start, live_image);
@@ -167,8 +179,10 @@ fn real_writer_denies_a_foreign_signed_control_attestation() {
             RELEASE_TUPLE,
             CHANNEL,
             PUBLICATION,
-            live_start,
-            live_image,
+            LinuxWriterLiveFacts {
+                start_identity: live_start,
+                image_digest: live_image,
+            },
         )
         .expect("startup handshake");
         let foreign = CredentialWriterSessionAttestationSigner::generate(SIGN_CHANNEL).unwrap();

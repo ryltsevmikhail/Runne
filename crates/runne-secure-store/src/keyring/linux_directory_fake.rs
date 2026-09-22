@@ -4,6 +4,7 @@
 use super::{ComboError, EntryIdentity, LinuxProviderSourceOps, SsFacadeError, SsVerifiedWrite};
 use sha2::{Digest as _, Sha256};
 use std::{
+    fmt::Write as _,
     fs::{self, OpenOptions},
     io::{Read as _, Write as _},
     os::unix::fs::{MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _},
@@ -17,6 +18,10 @@ pub struct DirectoryFakeSource {
 }
 
 impl DirectoryFakeSource {
+    /// # Errors
+    ///
+    /// Returns `ComboError` when the root cannot be canonicalized or fails the
+    /// private-directory ownership and permission checks.
     pub fn new(root: &Path) -> Result<Self, ComboError> {
         let canonical = fs::canonicalize(root).map_err(unavailable)?;
         let source = Self { root: canonical };
@@ -43,8 +48,10 @@ impl DirectoryFakeSource {
         let name: String = hash
             .finalize()
             .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect();
+            .fold(String::new(), |mut name, byte| {
+                write!(name, "{byte:02x}").expect("writing hex into String cannot fail");
+                name
+            });
         self.root.join(name)
     }
 }
@@ -56,7 +63,7 @@ impl LinuxProviderSourceOps for DirectoryFakeSource {
         // or hang on a substituted FIFO, even inside a test directory.
         let mut file = match OpenOptions::new()
             .read(true)
-            .custom_flags(0o400000 | 0o4000)
+            .custom_flags(0o400_000 | 0o4000)
             .open(self.entry(identity))
         {
             Ok(file) => file,

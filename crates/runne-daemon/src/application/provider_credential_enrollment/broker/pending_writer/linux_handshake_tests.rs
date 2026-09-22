@@ -3,8 +3,6 @@
 
 use std::os::unix::net::UnixStream;
 
-use runne_platform_desktop::provider_credential_broker::respond_linux_writer_startup;
-
 use super::*;
 
 const LIVE_START: [u8; 32] = [11; 32];
@@ -142,6 +140,7 @@ fn evidence_from_a_foreign_transfer_authority_is_denied() {
 
 #[test]
 fn real_writer_startup_answers_the_daemon_challenge_cross_bound() {
+    use runne_platform_desktop::provider_credential_broker::LinuxWriterLiveFacts;
     use runne_platform_desktop::provider_credential_broker::linux_writer_self_measurements;
     use runne_platform_desktop::provider_credential_broker::receive_linux_writer_startup;
     use runne_platform_desktop::provider_credential_broker::respond_linux_writer_startup;
@@ -157,8 +156,10 @@ fn real_writer_startup_answers_the_daemon_challenge_cross_bound() {
         fixture.release_tuple,
         fixture.channel,
         fixture.publication,
-        live_start,
-        live_image,
+        LinuxWriterLiveFacts {
+            start_identity: live_start,
+            image_digest: live_image,
+        },
     )
     .unwrap();
     let startup = writer.join().unwrap().unwrap();
@@ -168,6 +169,7 @@ fn real_writer_startup_answers_the_daemon_challenge_cross_bound() {
 
 #[test]
 fn writer_delivered_a_foreign_launch_secret_is_denied() {
+    use runne_platform_desktop::provider_credential_broker::LinuxWriterLiveFacts;
     use runne_platform_desktop::provider_credential_broker::receive_linux_writer_startup;
     use runne_platform_desktop::provider_credential_broker::respond_linux_writer_startup;
 
@@ -181,8 +183,10 @@ fn writer_delivered_a_foreign_launch_secret_is_denied() {
         fixture.release_tuple,
         fixture.channel,
         fixture.publication,
-        LIVE_START,
-        LIVE_IMAGE,
+        LinuxWriterLiveFacts {
+            start_identity: LIVE_START,
+            image_digest: LIVE_IMAGE,
+        },
     );
     assert!(writer.join().unwrap().is_err());
     assert!(received.is_err(), "a foreign launch secret must be denied");
@@ -190,6 +194,7 @@ fn writer_delivered_a_foreign_launch_secret_is_denied() {
 
 #[test]
 fn silent_eof_writer_is_denied() {
+    use runne_platform_desktop::provider_credential_broker::LinuxWriterLiveFacts;
     use runne_platform_desktop::provider_credential_broker::receive_linux_writer_startup;
 
     let fixture = handshake_fixture();
@@ -203,8 +208,10 @@ fn silent_eof_writer_is_denied() {
             fixture.release_tuple,
             fixture.channel,
             fixture.publication,
-            LIVE_START,
-            LIVE_IMAGE,
+            LinuxWriterLiveFacts {
+                start_identity: LIVE_START,
+                image_digest: LIVE_IMAGE,
+            },
         )
         .is_err(),
         "a writer that vanishes before answering must be denied"

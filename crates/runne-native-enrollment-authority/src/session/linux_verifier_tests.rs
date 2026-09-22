@@ -21,7 +21,9 @@ use runne_provider::{
 };
 
 use super::super::AuthenticatedProviderCredentialWriterSession;
-use super::linux_verifier::authenticate_linux_writer_session;
+use super::linux_verifier::{
+    LinuxWriterSessionExpectations, LinuxWriterSessionResources, authenticate_linux_writer_session,
+};
 
 const LIVE_START: [u8; 32] = [21; 32];
 const DAEMON_START: [u8; 32] = [23; 32];
@@ -51,7 +53,7 @@ fn fixture(expired: bool, signer: CredentialWriterSessionAttestationSigner) -> F
 }
 
 fn fixture_version(
-    expired: bool,
+    stale: bool,
     signer: CredentialWriterSessionAttestationSigner,
     qualified: bool,
 ) -> Fixture {
@@ -80,13 +82,12 @@ fn fixture_version(
         command,
     };
     let attested_binding = CredentialIssueTicketBindingV1::from_issue_ticket(&frame).unwrap();
-    let encoded = CredentialBrokerFrameCodec::encode(frame).unwrap();
-    let encoded_ticket = encoded.to_vec();
-    let now = std::time::SystemTime::now()
+    let encoded_ticket = CredentialBrokerFrameCodec::encode(frame).unwrap();
+    let elapsed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
-    let (issued, expires) = if expired {
+        .unwrap();
+    let now = elapsed.as_secs().cast_signed();
+    let (issued, expires) = if stale {
         (now - 7200, now - 3600)
     } else {
         (now - 60, now + 600)
@@ -144,13 +145,13 @@ impl Fixture {
     fn pending(&self) -> PendingCredentialIssueTicketV1 {
         let ticket =
             PendingCredentialIssueTicketV1::read_from(&mut self.encoded_ticket.as_slice()).unwrap();
-        if self.attestation_bytes.first() == Some(&2) {
-            if let Ok(record) = CredentialWriterSessionAttestationV2Codec::decode_and_verify(
+        if self.attestation_bytes.first() == Some(&2)
+            && let Ok(record) = CredentialWriterSessionAttestationV2Codec::decode_and_verify(
                 &self.attestation_bytes,
                 self.publication_key,
-            ) {
-                return ticket.with_qualified_attestation(record);
-            }
+            )
+        {
+            return ticket.with_qualified_attestation(record);
         }
         ticket
     }
@@ -166,18 +167,22 @@ fn authenticate(
 ) -> Result<AuthenticatedProviderCredentialWriterSession, &'static str> {
     let (control, _) = UnixStream::pair().unwrap();
     authenticate_linux_writer_session(
-        &fixture.attestation_bytes,
-        key,
-        &fixture.channel,
-        handoff,
-        live_start,
-        live_image,
-        tuple,
-        fixture.channel.clone(),
-        fixture.pending(),
-        control,
-        std::path::PathBuf::from("/writer"),
-        std::path::PathBuf::from("/reader"),
+        LinuxWriterSessionExpectations {
+            attestation_bytes: &fixture.attestation_bytes,
+            retained_publication_key: key,
+            retained_channel_binding: &fixture.channel,
+            retained_handoff_sha256: handoff,
+            live_start_sha256: live_start,
+            live_image_sha256: live_image,
+            release_tuple_sha256: tuple,
+            ticket: fixture.pending(),
+        },
+        LinuxWriterSessionResources {
+            channel_binding: fixture.channel.clone(),
+            control,
+            writer_path: std::path::PathBuf::from("/writer"),
+            reader_path: std::path::PathBuf::from("/reader"),
+        },
     )
 }
 
@@ -236,18 +241,22 @@ fn wrong_retained_channel_is_denied() {
     let (control, _) = UnixStream::pair().unwrap();
     assert!(
         authenticate_linux_writer_session(
-            &fixture.attestation_bytes,
-            fixture.publication_key,
-            &other,
-            RETAINED_HANDOFF,
-            LIVE_START,
-            LIVE_IMAGE,
-            RELEASE_TUPLE,
-            fixture.channel.clone(),
-            fixture.pending(),
-            control,
-            std::path::PathBuf::from("/w"),
-            std::path::PathBuf::from("/r"),
+            LinuxWriterSessionExpectations {
+                attestation_bytes: &fixture.attestation_bytes,
+                retained_publication_key: fixture.publication_key,
+                retained_channel_binding: &other,
+                retained_handoff_sha256: RETAINED_HANDOFF,
+                live_start_sha256: LIVE_START,
+                live_image_sha256: LIVE_IMAGE,
+                release_tuple_sha256: RELEASE_TUPLE,
+                ticket: fixture.pending(),
+            },
+            LinuxWriterSessionResources {
+                channel_binding: fixture.channel.clone(),
+                control,
+                writer_path: std::path::PathBuf::from("/w"),
+                reader_path: std::path::PathBuf::from("/r"),
+            },
         )
         .is_err(),
         "a mismatched retained channel binding must deny"

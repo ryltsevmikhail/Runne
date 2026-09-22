@@ -41,8 +41,8 @@ use runne_platform_ports::provider_credential_broker::{
 pub use daemon_evidence::send_test_daemon_owned_writer_evidence;
 #[cfg(target_os = "linux")]
 pub use daemon_evidence::{
-    LinuxWriterStartup, encode_linux_writer_startup_payload, linux_writer_self_measurements,
-    receive_linux_writer_startup, respond_linux_writer_startup,
+    LinuxWriterLiveFacts, LinuxWriterStartup, encode_linux_writer_startup_payload,
+    linux_writer_self_measurements, receive_linux_writer_startup, respond_linux_writer_startup,
 };
 #[cfg(unix)]
 pub use daemon_evidence::{
@@ -211,7 +211,7 @@ impl<P: RetainedWriterProcess> ProviderCredentialBrokerPort for PlatformCredenti
 pub mod linux_writer_admission;
 
 /// Platform-neutral re-export of the authenticated pair-secret sealer
-/// (ring x25519+HKDF+ChaCha20-Poly1305, unchanged GOCODE_CREDENTIAL_SECRET_*
+/// (ring x25519+HKDF+ChaCha20-Poly1305, unchanged `GOCODE_CREDENTIAL_SECRET_*`
 /// domains) so the Linux daemon broker channel reuses the exact macOS-sealed
 /// relay construction instead of a parallel one.
 #[cfg(unix)]

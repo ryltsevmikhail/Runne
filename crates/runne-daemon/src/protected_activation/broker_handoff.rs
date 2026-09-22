@@ -6,6 +6,11 @@
 //! exchange whose daemon acknowledgement is the final frame. Every mismatch
 //! terminates the loop; the daemon never retries a consumed purpose.
 
+#![expect(
+    dead_code,
+    reason = "the V3 launch loop that mounts the broker handoff dispatch lands with a later composition slice"
+)]
+
 use std::sync::Arc;
 
 mod dispatch;

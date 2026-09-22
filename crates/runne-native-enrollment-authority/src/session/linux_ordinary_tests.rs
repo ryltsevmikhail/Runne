@@ -95,18 +95,22 @@ fn qualified_record_cannot_mint_an_unqualified_ticket() {
         PendingCredentialIssueTicketV1::read_from(&mut fixture.encoded_ticket.as_slice()).unwrap();
     assert!(
         authenticate_linux_writer_session(
-            &fixture.attestation_bytes,
-            fixture.publication_key,
-            &fixture.channel,
-            RETAINED_HANDOFF,
-            LIVE_START,
-            LIVE_IMAGE,
-            RELEASE_TUPLE,
-            fixture.channel.clone(),
-            unbound,
-            control,
-            "/writer".into(),
-            "/reader".into(),
+            LinuxWriterSessionExpectations {
+                attestation_bytes: &fixture.attestation_bytes,
+                retained_publication_key: fixture.publication_key,
+                retained_channel_binding: &fixture.channel,
+                retained_handoff_sha256: RETAINED_HANDOFF,
+                live_start_sha256: LIVE_START,
+                live_image_sha256: LIVE_IMAGE,
+                release_tuple_sha256: RELEASE_TUPLE,
+                ticket: unbound,
+            },
+            LinuxWriterSessionResources {
+                channel_binding: fixture.channel.clone(),
+                control,
+                writer_path: "/writer".into(),
+                reader_path: "/reader".into(),
+            },
         )
         .is_err()
     );

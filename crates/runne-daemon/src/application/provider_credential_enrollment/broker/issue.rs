@@ -1,3 +1,8 @@
+#![expect(
+    dead_code,
+    reason = "the D1 Linux composition slice mounts ticket issuance; the macOS flow and tests drive it today"
+)]
+
 use super::qualified_exchange::QualifiedIssuedTicket;
 use super::{CredentialBrokerChannel, ProviderCredentialBroker};
 use crate::application::provider_credential_enrollment::effect_authority::map_store;

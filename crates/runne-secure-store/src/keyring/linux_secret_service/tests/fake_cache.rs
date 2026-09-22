@@ -8,13 +8,25 @@ use crate::keyring::linux_secret_service::cache::{
     CacheDeletionOutcome, CacheError, KeyutilsCache,
 };
 
-pub struct FakeKeyutilsCache {
-    entries: HashMap<String, Vec<u8>>,
+/// Faults failing the primary half-operations of the fake cache.
+#[derive(Clone, Copy, Default)]
+pub struct FakeCacheFaults {
     pub fail_set: bool,
     pub fail_get: bool,
     pub fail_delete: bool,
+}
+
+/// Rollback double-fault injection on the set/restore path.
+#[derive(Clone, Copy, Default)]
+pub struct FakeCacheRollbackFaults {
     pub fail_restore: bool,
     pub fail_delete_after_set: bool,
+}
+
+pub struct FakeKeyutilsCache {
+    entries: HashMap<String, Vec<u8>>,
+    pub faults: FakeCacheFaults,
+    pub rollback_faults: FakeCacheRollbackFaults,
     /// Fails only the Nth delete call (1-based) for targeted fault injection.
     pub fail_delete_call: Option<usize>,
     delete_calls: usize,
@@ -29,11 +41,8 @@ impl FakeKeyutilsCache {
     pub fn new() -> Self {
         Self {
             entries: HashMap::new(),
-            fail_set: false,
-            fail_get: false,
-            fail_delete: false,
-            fail_restore: false,
-            fail_delete_after_set: false,
+            faults: FakeCacheFaults::default(),
+            rollback_faults: FakeCacheRollbackFaults::default(),
             fail_delete_call: None,
             delete_calls: 0,
             fresh_insertion: false,
@@ -60,7 +69,7 @@ impl Default for FakeKeyutilsCache {
 impl KeyutilsCache for FakeKeyutilsCache {
     fn set(&mut self, description: &str, secret: &[u8]) -> Result<(), CacheError> {
         let prior_sets = self.set_counts.get(description).copied().unwrap_or(0);
-        if self.fail_set || self.fail_restore && prior_sets >= 1 {
+        if self.faults.fail_set || self.rollback_faults.fail_restore && prior_sets >= 1 {
             return Err(CacheError::Unavailable);
         }
         self.set_counts
@@ -71,7 +80,7 @@ impl KeyutilsCache for FakeKeyutilsCache {
     }
 
     fn get(&mut self, description: &str) -> Result<Option<Zeroizing<Vec<u8>>>, CacheError> {
-        if self.fail_get {
+        if self.faults.fail_get {
             return Err(CacheError::Unavailable);
         }
         Ok(self
@@ -82,8 +91,8 @@ impl KeyutilsCache for FakeKeyutilsCache {
 
     fn delete(&mut self, description: &str) -> Result<CacheDeletionOutcome, CacheError> {
         self.delete_calls += 1;
-        if self.fail_delete
-            || self.fail_delete_after_set && self.fresh_insertion
+        if self.faults.fail_delete
+            || self.rollback_faults.fail_delete_after_set && self.fresh_insertion
             || self.fail_delete_call == Some(self.delete_calls)
         {
             return Err(CacheError::Unavailable);

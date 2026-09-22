@@ -26,16 +26,28 @@ fn broker_branch_policy_rejects_platform_and_ingress_mutations() {
             ),
         ),
         (
-            "Linux-only fallback",
+            "Unix-wide linux branch",
             replace_once(
                 BROKER_SOURCE,
+                "#[cfg(target_os = \"linux\")]\n    {\n        // Validate the pipe shape",
+                "#[cfg(unix)]\n    {\n        // Validate the pipe shape",
+            ),
+        ),
+        (
+            "not-any fallthrough widened",
+            replace_once(
+                BROKER_SOURCE,
+                "#[cfg(not(any(target_os = \"macos\", target_os = \"linux\")))]",
                 "#[cfg(not(target_os = \"macos\"))]",
-                "#[cfg(target_os = \"linux\")]",
             ),
         ),
         (
             "discarded secret slot",
-            replace_once(BROKER_SOURCE, "let secret =", "let _ ="),
+            replace_once(
+                BROKER_SOURCE,
+                "let secret = channel::InheritedSecretInputSlot::inspect()\n            .inspect_err",
+                "let _ = channel::InheritedSecretInputSlot::inspect()\n            .inspect_err",
+            ),
         ),
         (
             "discarded handoff",
@@ -78,11 +90,11 @@ fn broker_branch_policy_rejects_platform_and_ingress_mutations() {
             ),
         ),
         (
-            "non-macOS stdin read",
+            "linux branch stdin read",
             replace_once(
                 BROKER_SOURCE,
-                "#[cfg(not(target_os = \"macos\"))]\n    {",
-                "#[cfg(not(target_os = \"macos\"))]\n    {\n        let _ = std::io::stdin();",
+                "descriptors before authenticating or claiming.\n        let secret",
+                "descriptors before authenticating or claiming.\n        let _ = std::io::stdin();\n        let secret",
             ),
         ),
         (

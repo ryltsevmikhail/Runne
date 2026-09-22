@@ -18,6 +18,8 @@ use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
 use super::WriterProcessEvidence;
 
 mod facts;
+#[cfg(target_os = "linux")]
+pub use facts::LinuxWriterLiveFacts;
 pub use facts::VerifiedWriterMeasurementFacts;
 #[path = "daemon_evidence_transfer_io.rs"]
 mod daemon_evidence_transfer_io;
@@ -266,8 +268,7 @@ pub fn receive_linux_writer_startup(
     expected_release_tuple: [u8; 32],
     expected_channel: [u8; 32],
     expected_publication_public_key: [u8; 32],
-    live_start_identity: [u8; 32],
-    live_image_digest: [u8; 32],
+    live: LinuxWriterLiveFacts,
 ) -> Result<[u8; 32], runne_api::ProviderCredentialEnrollmentHostError> {
     let payload = encode_linux_writer_startup_payload(launch_secret, expected_release_tuple);
     transport
@@ -286,6 +287,6 @@ pub fn receive_linux_writer_startup(
     )
     .map_err(|_| runne_api::ProviderCredentialEnrollmentHostError::AccessDenied)?;
     measurements
-        .verified_linux_kill_public_key(live_start_identity, live_image_digest)
+        .verified_linux_kill_public_key(live.start_identity, live.image_digest)
         .ok_or(runne_api::ProviderCredentialEnrollmentHostError::AccessDenied)
 }

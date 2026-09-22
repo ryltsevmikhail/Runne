@@ -53,14 +53,16 @@ mod tempdir_holder {
 
 fn pinned_spec() -> VerifiedWriterLaunchSpec {
     let binary = first_party_binary();
-    let digest: [u8; 32] = Sha256::digest(&std::fs::read(&binary).unwrap()).into();
+    let digest: [u8; 32] = Sha256::digest(std::fs::read(&binary).unwrap()).into();
     VerifiedWriterLaunchSpec::new(VerifiedWriterArtifact::new(binary, digest, [3; 32]).unwrap())
 }
 
 #[test]
 fn admits_the_real_first_party_child_with_matching_facts() {
+    use super::RetainedWriterProcess as _;
+
     let (_holder, address) = fixture_socket();
-    let (_parent_half, child_half) = UnixStream::pair().expect("socketpair");
+    let (parent_half, child_half) = UnixStream::pair().expect("socketpair");
     let (_handshake_parent, handshake_child) = UnixStream::pair().expect("handshake pair");
     let mut process =
         unix_daemon::test_spawn_linux_writer(&pinned_spec(), child_half, handshake_child, &address)
@@ -76,15 +78,16 @@ fn admits_the_real_first_party_child_with_matching_facts() {
         process.retained_start_identity()
     );
     assert_eq!(admission.pid(), process.retained_pid());
-    use super::RetainedWriterProcess as _;
-    drop(_parent_half);
+    drop(parent_half);
     process.reap_retained_child().expect("reap");
 }
 
 #[test]
 fn denies_a_wrong_pinned_image_digest() {
+    use super::RetainedWriterProcess as _;
+
     let (_holder, address) = fixture_socket();
-    let (_parent_half, child_half) = UnixStream::pair().expect("socketpair");
+    let (parent_half, child_half) = UnixStream::pair().expect("socketpair");
     let (_handshake_parent, handshake_child) = UnixStream::pair().expect("handshake pair");
     let binary = first_party_binary();
     let wrong = VerifiedWriterLaunchSpec::new(
@@ -97,15 +100,16 @@ fn denies_a_wrong_pinned_image_digest() {
         .err()
         .expect("wrong image digest denies");
     assert!(matches!(denied, BrokerHandoffError::Rejected));
-    use super::RetainedWriterProcess as _;
-    drop(_parent_half);
+    drop(parent_half);
     process.reap_retained_child().expect("reap");
 }
 
 #[test]
 fn denies_a_drifted_start_identity() {
+    use super::RetainedWriterProcess as _;
+
     let (_holder, address) = fixture_socket();
-    let (_parent_half, child_half) = UnixStream::pair().expect("socketpair");
+    let (parent_half, child_half) = UnixStream::pair().expect("socketpair");
     let (_handshake_parent, handshake_child) = UnixStream::pair().expect("handshake pair");
     let mut process =
         unix_daemon::test_spawn_linux_writer(&pinned_spec(), child_half, handshake_child, &address)
@@ -115,15 +119,16 @@ fn denies_a_drifted_start_identity() {
         .err()
         .expect("identity drift denies");
     assert!(matches!(denied, BrokerHandoffError::Rejected));
-    use super::RetainedWriterProcess as _;
-    drop(_parent_half);
+    drop(parent_half);
     process.reap_retained_child().expect("reap");
 }
 
 #[test]
 fn denies_a_missing_pinned_image() {
+    use super::RetainedWriterProcess as _;
+
     let (_holder, address) = fixture_socket();
-    let (_parent_half, child_half) = UnixStream::pair().expect("socketpair");
+    let (parent_half, child_half) = UnixStream::pair().expect("socketpair");
     let (_handshake_parent, handshake_child) = UnixStream::pair().expect("handshake pair");
     let mut process =
         unix_daemon::test_spawn_linux_writer(&pinned_spec(), child_half, handshake_child, &address)
@@ -140,7 +145,6 @@ fn denies_a_missing_pinned_image() {
         .err()
         .expect("missing image denies");
     assert!(matches!(denied, BrokerHandoffError::Rejected));
-    use super::RetainedWriterProcess as _;
-    drop(_parent_half);
+    drop(parent_half);
     process.reap_retained_child().expect("reap");
 }

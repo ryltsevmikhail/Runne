@@ -7,6 +7,7 @@ use std::os::unix::net::UnixStream;
 use std::process::{Command, Stdio};
 
 use runne_api::ProviderCredentialRequestAuthorityPair;
+use runne_platform_desktop::provider_credential_broker::LinuxWriterLiveFacts;
 use runne_platform_desktop::provider_credential_broker::receive_linux_writer_startup as daemon_receive;
 use runne_provider::daemon_credential_publication::CredentialWriterSessionAttestationSigner;
 use sha2::Digest as _;
@@ -30,7 +31,7 @@ fn oracle_start_of(pid: u32) -> [u8; 32] {
 }
 
 fn oracle_image_digest() -> [u8; 32] {
-    sha2::Sha256::digest(&std::fs::read(env!("CARGO_BIN_EXE_runne")).unwrap()).into()
+    sha2::Sha256::digest(std::fs::read(env!("CARGO_BIN_EXE_runne")).unwrap()).into()
 }
 
 #[test]
@@ -51,8 +52,10 @@ fn real_writer_denies_a_wrong_retained_release_tuple() {
             RELEASE_TUPLE,
             CHANNEL,
             signer.public_key(),
-            live_start,
-            live_image,
+            LinuxWriterLiveFacts {
+                start_identity: live_start,
+                image_digest: live_image,
+            },
         )
         .expect("startup handshake");
         let (attestation, frame) =
@@ -122,7 +125,7 @@ fn fixture_writer_entry(qualified: bool, fault: Option<ReaderFault>) {
         .spawn()
         .expect("fixture writer");
     let live_start = oracle_start_of(child.id());
-    let live_image: [u8; 32] = sha2::Sha256::digest(&std::fs::read(&binary).unwrap()).into();
+    let live_image: [u8; 32] = sha2::Sha256::digest(std::fs::read(&binary).unwrap()).into();
     let receiver = std::thread::spawn(move || {
         let signer = CredentialWriterSessionAttestationSigner::generate(SIGN_CHANNEL).unwrap();
         let kill = daemon_receive(
@@ -132,8 +135,10 @@ fn fixture_writer_entry(qualified: bool, fault: Option<ReaderFault>) {
             RELEASE_TUPLE,
             CHANNEL,
             signer.public_key(),
-            live_start,
-            live_image,
+            LinuxWriterLiveFacts {
+                start_identity: live_start,
+                image_digest: live_image,
+            },
         )
         .expect("startup handshake");
         let (attestation, frame) = sign_attestation_for_reader(

@@ -2,6 +2,12 @@
 //! authority, /proc oracles, writer spawning, and the daemon-side CONTROL
 //! attestation signer helper.
 
+// The fixture module is included verbatim by test and example crates whose
+// roots are private: nursery's redundant_pub_crate asks for `pub`, while
+// pedantic's missing_panics_doc/must_use_candidate then demand full public
+// documentation on test-only helpers. Crate visibility plus this one reasoned
+// opt-out resolves that conflict without weakening anything.
+#![allow(clippy::redundant_pub_crate)]
 use std::os::unix::net::UnixStream;
 use std::process::{Command, Stdio};
 
@@ -15,12 +21,12 @@ use runne_provider::PROVIDER_CREDENTIAL_BROKER_MODE_V1;
 use runne_provider::daemon_credential_publication::CredentialWriterSessionAttestationSigner;
 use runne_provider::{
     CredentialBindingDigest, CredentialBrokerCommand, CredentialBrokerFrame,
-    CredentialBrokerTarget, CredentialEnrollmentAuthorityPair, CredentialFence,
-    CredentialInstallationOwnerId, CredentialIssueTicketBindingV1, CredentialLifecycleRevision,
-    CredentialOperationAction, CredentialOperationId, CredentialTicketAttempt,
-    CredentialVersionRef, CredentialWriterSessionAttestationClaimsV1,
-    CredentialWriterSessionAttestationV2Codec, CredentialWriterSessionProcessClaimsV1,
-    CredentialWriterSessionRuntimeClaimsV1, CredentialWriterSessionTicketClaimsV1, ProviderId,
+    CredentialBrokerTarget, CredentialFence, CredentialInstallationOwnerId,
+    CredentialIssueTicketBindingV1, CredentialLifecycleRevision, CredentialOperationAction,
+    CredentialOperationId, CredentialTicketAttempt, CredentialVersionRef,
+    CredentialWriterSessionAttestationClaimsV1, CredentialWriterSessionAttestationV2Codec,
+    CredentialWriterSessionProcessClaimsV1, CredentialWriterSessionRuntimeClaimsV1,
+    CredentialWriterSessionTicketClaimsV1, ProviderId,
 };
 use sha2::{Digest as _, Sha256};
 
@@ -91,6 +97,21 @@ pub(crate) fn fixture_authority(
     authority
 }
 
+pub(crate) fn oracle_start_identity(pid: u32) -> [u8; 32] {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+    let tail = stat.rsplit_once(')').unwrap().1;
+    let start_time = tail.split_whitespace().nth(19).unwrap();
+    let mut digest = Sha256::new();
+    digest.update(b"gocode.provider-credential-writer.start.v1");
+    digest.update(pid.to_be_bytes());
+    digest.update(start_time.as_bytes());
+    digest.finalize().into()
+}
+
+pub(crate) fn oracle_image_digest() -> [u8; 32] {
+    Sha256::digest(std::fs::read(env!("CARGO_BIN_EXE_runne")).unwrap()).into()
+}
+
 pub(crate) fn spawn_writer(handshake: UnixStream) -> std::process::Child {
     // Production layout: STDIN carries the broker control socket (held open
     // by the caller), STDOUT carries the private startup handshake socket.
@@ -108,36 +129,12 @@ pub(crate) fn spawn_writer(handshake: UnixStream) -> std::process::Child {
     child
 }
 
-pub(crate) fn oracle_start_identity(pid: u32) -> [u8; 32] {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
-    let tail = stat.rsplit_once(')').unwrap().1;
-    let start_time = tail.split_whitespace().nth(19).unwrap();
-    let mut digest = Sha256::new();
-    digest.update(b"gocode.provider-credential-writer.start.v1");
-    digest.update(pid.to_be_bytes());
-    digest.update(start_time.as_bytes());
-    digest.finalize().into()
-}
-
-pub(crate) fn oracle_image_digest() -> [u8; 32] {
-    Sha256::digest(&std::fs::read(env!("CARGO_BIN_EXE_runne")).unwrap()).into()
-}
-
 pub(crate) const fn uuid(value: u8) -> [u8; 16] {
     [0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, value]
 }
 
 // Keep the transfer authenticator import honest: the fixture never uses the
 // writer-side authenticator directly — the writer derives its own.
-#[allow(unused_imports)]
-use CredentialBrokerTransferAuthenticator as _UnusedAuthenticator;
-
-// --- B10: full CONTROL receive through the REAL writer binary ---
-
-pub(crate) const SIGN_CHANNEL: [u8; 32] = [31; 32];
-pub(crate) const SIGN_BINDING: [u8; 32] = [3; 32];
-pub(crate) const SIGN_TUPLE: [u8; 32] = RELEASE_TUPLE;
-pub(crate) const SIGN_HANDOFF: [u8; 32] = [31; 32];
 
 pub(crate) fn oracle_start_of(pid: u32) -> [u8; 32] {
     oracle_start_identity(pid)
@@ -172,13 +169,12 @@ pub(crate) fn sign_control_attestation(
         command,
     };
     let attested = CredentialIssueTicketBindingV1::from_issue_ticket(&frame).unwrap();
-    let encoded_frame = runne_provider::CredentialBrokerFrameCodec::encode(frame)
-        .unwrap()
-        .to_vec();
+    let encoded_frame = runne_provider::CredentialBrokerFrameCodec::encode(frame).unwrap();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs() as i64;
+        .as_secs()
+        .cast_signed();
     let claims = CredentialWriterSessionAttestationClaimsV1::new(
         CredentialWriterSessionTicketClaimsV1::new(
             operation_id,
@@ -231,3 +227,12 @@ pub(crate) fn spawn_writer_with_control(
         .spawn()
         .expect("writer binary")
 }
+#[allow(unused_imports)]
+use CredentialBrokerTransferAuthenticator as _UnusedAuthenticator;
+
+// --- B10: full CONTROL receive through the REAL writer binary ---
+
+pub(crate) const SIGN_CHANNEL: [u8; 32] = [31; 32];
+pub(crate) const SIGN_BINDING: [u8; 32] = [3; 32];
+pub(crate) const SIGN_TUPLE: [u8; 32] = RELEASE_TUPLE;
+pub(crate) const SIGN_HANDOFF: [u8; 32] = [31; 32];

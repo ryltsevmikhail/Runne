@@ -32,14 +32,6 @@ pub(super) fn facts() -> LinuxInstallationFacts {
     }
 }
 
-fn write_fixture(path: &std::path::Path, bytes: &[u8], mode: u32) {
-    let mut file = std::fs::File::create(path).expect("fixture create");
-    file.write_all(bytes).expect("fixture write");
-    let mut permissions = file.metadata().expect("fixture metadata").permissions();
-    permissions.set_mode(mode);
-    file.set_permissions(permissions).expect("fixture chmod");
-}
-
 #[test]
 fn missing_record_denies_by_default() {
     assert_eq!(
@@ -159,7 +151,6 @@ fn config_json_rejects_structural_deviation() {
 
 #[test]
 fn canonicalizer_binds_live_authority_and_all_images() {
-    use std::os::unix::fs::PermissionsExt as _;
     let root = tempfile::tempdir().expect("fixture root");
     let daemon_dir = root.path().join("runne-daemon");
     std::fs::create_dir(&daemon_dir).expect("daemon dir");

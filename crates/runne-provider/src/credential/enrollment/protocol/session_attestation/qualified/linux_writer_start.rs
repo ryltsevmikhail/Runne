@@ -57,7 +57,6 @@ pub struct LinuxWriterStartup {
 }
 
 /// Live self-measurements of this writer process (start identity + image).
-#[must_use]
 pub fn linux_writer_self_measurements() -> Result<([u8; 32], [u8; 32]), StartupError> {
     let pid = std::process::id();
     let stat =

@@ -1,7 +1,7 @@
 mod anchor;
 mod journal;
 #[cfg(target_os = "linux")]
-pub(crate) mod linux_provider_source;
+pub mod linux_provider_source;
 #[cfg(all(test, target_os = "linux"))]
 #[path = "keyring/linux_provider_source_tests.rs"]
 mod linux_provider_source_tests;

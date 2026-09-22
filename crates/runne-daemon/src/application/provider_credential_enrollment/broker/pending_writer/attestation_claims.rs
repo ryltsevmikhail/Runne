@@ -4,6 +4,14 @@
 //! measured fact sources differ. Linux `release_tuple` is the approved local
 //! content pin (activation-record binding), never a signer identity.
 
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "session claim building is test-driven until the D1 slice mounts the writer broker"
+    )
+)]
+
 use runne_api::ProviderCredentialEnrollmentHostError;
 use runne_provider::{
     CredentialBindingDigest, CredentialBrokerFrame, CredentialInstallationOwnerId,

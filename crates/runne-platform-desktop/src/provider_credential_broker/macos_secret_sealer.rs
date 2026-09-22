@@ -26,7 +26,13 @@ pub struct AuthenticatedPairSecretSealer {
 }
 
 impl AuthenticatedPairSecretSealer {
-    pub const fn from_handoff(handoff: AuthenticatedPairSecretHandoff) -> Self {
+    /// Wraps the authenticated handoff into the private sealer; this is the
+    /// only construction path and it stays inside the broker module because
+    /// the handoff type itself is broker-module-private.
+    #[must_use]
+    pub(in crate::provider_credential_broker) const fn from_handoff(
+        handoff: AuthenticatedPairSecretHandoff,
+    ) -> Self {
         Self { handoff }
     }
 

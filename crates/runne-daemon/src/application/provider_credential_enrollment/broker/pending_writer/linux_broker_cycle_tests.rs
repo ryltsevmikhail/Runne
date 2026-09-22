@@ -124,12 +124,17 @@ fn cycle(shared: bool) {
     });
     let mut owned = Channel(Some(
         launch_linux_writer_with_handshake(
-            authority,
-            writer,
-            binding,
-            startup_authority,
-            &[31; 32],
-            Sha256::digest(std::fs::read(std::env::current_exe().unwrap()).unwrap()).into(),
+            LinuxWriterLaunchInputs {
+                rendezvous: authority,
+                control_end_for_writer: writer,
+                binding,
+                transfer_authority: startup_authority,
+                launch_secret: [31; 32],
+                daemon_image: Sha256::digest(
+                    std::fs::read(std::env::current_exe().unwrap()).unwrap(),
+                )
+                .into(),
+            },
             &spec,
             spawn,
         )

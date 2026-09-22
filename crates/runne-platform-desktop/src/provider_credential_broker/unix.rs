@@ -68,7 +68,7 @@ impl UnixRetainedWriterProcess {
     /// Test-only identity corruption proving kill never targets a mismatched
     /// start identity.
     #[cfg(all(test, target_os = "linux"))]
-    pub(super) fn test_break_start_identity(&mut self) {
+    pub(super) const fn test_break_start_identity(&mut self) {
         self.start_identity = [0xff; 32];
     }
 

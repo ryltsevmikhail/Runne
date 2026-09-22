@@ -216,17 +216,6 @@ impl DaemonProtectedCredentialEnrollmentSession {
         Ok(())
     }
 
-    pub(crate) fn take_bound_broker_handoff(
-        &mut self,
-    ) -> Result<
-        crate::application::provider_credential_enrollment::broker::pending::PendingBrokerEndpointHandoff,
-        ProviderCredentialEnrollmentHostError,
-    >{
-        self.handoff
-            .take()
-            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)
-    }
-
     fn encode_snapshot(
         &mut self,
         snapshot: ProviderCredentialOperationSnapshotV2,

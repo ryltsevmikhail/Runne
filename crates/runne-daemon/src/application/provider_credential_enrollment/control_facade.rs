@@ -165,6 +165,20 @@ pub(crate) struct DaemonProviderCredentialEnrollmentControl {
             target_arch = "aarch64"
         )
     ))]
+    #[cfg_attr(
+        not(any(
+            test,
+            all(
+                target_os = "macos",
+                target_arch = "aarch64",
+                feature = "desktop-protected"
+            )
+        )),
+        expect(
+            dead_code,
+            reason = "the D1 Linux composition slice consumes the HTTP authority issuer; the macOS flow and tests drive it today"
+        )
+    )]
     http_authority_issuer: runne_api::ProviderCredentialRequestAuthorityIssuer,
     #[cfg(any(
         all(feature = "desktop-protected", target_os = "linux"),
@@ -174,6 +188,13 @@ pub(crate) struct DaemonProviderCredentialEnrollmentControl {
             target_arch = "aarch64"
         )
     ))]
+    #[cfg_attr(
+        not(all(target_os = "macos", feature = "desktop-protected")),
+        expect(
+            dead_code,
+            reason = "the only reader is the protected macOS admission flow; Linux D1 composition consumes it in a later slice"
+        )
+    )]
     http_authority_verifier: ProviderCredentialRequestAuthorityVerifier,
     #[cfg(any(
         all(test, unix),
@@ -213,25 +234,8 @@ include!("control_facade/construct.rs");
 #[cfg(all(test, unix))]
 include!("control_facade/test_construct.rs");
 
-#[cfg(any(
-    test,
-    all(feature = "desktop-protected", target_os = "linux"),
-    all(target_os = "macos", feature = "desktop-protected")
-))]
-fn install_local_readback_once(
-    slot: &OnceLock<Arc<dyn runne_secure_store::ProviderCredentialVerificationReadback>>,
-    readback: Arc<dyn runne_secure_store::ProviderCredentialVerificationReadback>,
-) -> Result<(), ProviderCredentialEnrollmentHostError> {
-    if let Some(existing) = slot.get() {
-        return if Arc::ptr_eq(existing, &readback) {
-            Ok(())
-        } else {
-            Err(ProviderCredentialEnrollmentHostError::InvariantViolation)
-        };
-    }
-    slot.set(readback)
-        .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)
-}
+#[path = "control_facade/local_readback.rs"]
+mod local_readback;
 
 #[cfg(test)]
 mod tests;

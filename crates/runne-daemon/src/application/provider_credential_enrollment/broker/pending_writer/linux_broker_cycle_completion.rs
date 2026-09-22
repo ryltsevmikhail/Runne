@@ -59,8 +59,8 @@ pub(super) fn assert_daemon_presence_completes(
         fixture._directory.path(),
         "broker.sqlite",
     );
-    drop(gateway);
-    drop(fixture.store);
+    let _ = gateway;
+    let _ = fixture.store;
     let reopened =
         runne_store::provider::SqliteProviderCredentialLifecycleStore::open(&path).unwrap();
     let persisted = reopened.load_operation(operation.operation_id()).unwrap();

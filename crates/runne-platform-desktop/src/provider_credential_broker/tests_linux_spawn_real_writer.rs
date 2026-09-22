@@ -26,7 +26,7 @@ fn real_writer_binary() -> PathBuf {
 fn real_writer_spec() -> VerifiedWriterLaunchSpec {
     use sha2::Digest as _;
     let binary = real_writer_binary();
-    let digest: [u8; 32] = sha2::Sha256::digest(&std::fs::read(&binary).unwrap()).into();
+    let digest: [u8; 32] = sha2::Sha256::digest(std::fs::read(&binary).unwrap()).into();
     VerifiedWriterLaunchSpec::new(VerifiedWriterArtifact::new(binary, digest, [3; 32]).unwrap())
 }
 

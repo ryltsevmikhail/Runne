@@ -7,8 +7,7 @@
     )
 ))]
 use runne_api::{
-    ProtectedCredentialEnrollmentOwnedLaunchV3, ProtectedOwnedLaunchV2,
-    ProviderCredentialEnrollmentHostError,
+    ProtectedCredentialEnrollmentOwnedLaunchV3, ProviderCredentialEnrollmentHostError,
 };
 use sha2::{Digest, Sha256};
 

@@ -20,7 +20,7 @@ pub(crate) use clocks::macos_continuous_ticket_clock;
 pub(crate) use clocks::unix_wall_ticket_clock;
 #[cfg(unix)]
 use runtime::V3EnrollmentRuntime;
-#[cfg(all(test, unix))]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub(crate) use runtime::require_shutdown_terminal;
 #[cfg(all(test, target_os = "macos"))]
 pub(super) use runtime::with_control;
@@ -48,7 +48,7 @@ pub(crate) fn run_control_loop_v3(
     #[cfg(unix)] rendezvous: super::enrollment_control_transition::DaemonEnrollmentRendezvous,
 ) -> Result<(), LaunchAuthorityError> {
     channel.enter_control_loop()?;
-    let outcome = run_control_loop_v3_entered(
+    run_control_loop_v3_entered(
         channel,
         keys,
         owned_launch,
@@ -63,12 +63,15 @@ pub(crate) fn run_control_loop_v3(
             None,
         ),
         None,
-    );
-    outcome
+    )
 }
 /// Continues entered V3; failures retain kill authority and reject V1/V2 frames.
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 #[cfg_attr(not(unix), allow(dead_code))]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the V3 loop consumes the exact per-platform launch inputs; grouping the cfg-gated tail would blur platform boundaries"
+)]
 pub(crate) fn run_control_loop_v3_entered(
     mut channel: ProtectedActivationChannel,
     keys: ProtectedActivationKeys,

@@ -6,7 +6,7 @@ use super::fake_cache::FakeKeyutilsCache;
 use super::fake_support::{
     FakeProcessFacts, InvocationLog, assert_only_allowed_and_bound, count_calls,
 };
-use crate::keyring::linux_secret_service::cache::entry_description;
+use crate::keyring::linux_secret_service::cache::{CacheDeletionOutcome, entry_description};
 use crate::keyring::linux_secret_service::combo::{
     ComboError, DualHalfRevoke, LinuxComboPersistentStore, provider_identity, version_identity,
 };
@@ -50,8 +50,7 @@ fn ss_write_failure_rolls_back_cache_half() {
     let error = fixture
         .store
         .write_persisted(&identity(), b"material")
-        .err()
-        .expect("combo write fails");
+        .expect_err("combo write fails");
     assert!(matches!(error, ComboError::Ss(_)));
     assert!(!fixture.store.cache_mut().contains(&description()));
 }
@@ -66,8 +65,7 @@ fn ss_write_failure_restores_previous_cache_value() {
     let error = fixture
         .store
         .write_persisted(&identity(), b"next")
-        .err()
-        .expect("combo write fails");
+        .expect_err("combo write fails");
     assert!(matches!(error, ComboError::Ss(_)));
     assert!(fixture.store.cache_mut().contains(&description()));
 }
@@ -93,12 +91,11 @@ fn verified_write_invalidates_cache_and_requires_ss_readback() {
 #[test]
 fn readback_mismatch_fails_closed_and_removes_both_halves() {
     let mut fixture = fixture();
-    fixture.store.bus_mut().corrupt_readback = true;
+    fixture.store.bus_mut().faults.corrupt_readback = true;
     let error = fixture
         .store
         .write_persisted_ss_verified(&identity(), b"material")
-        .err()
-        .expect("readback mismatch fails");
+        .expect_err("readback mismatch fails");
     assert_eq!(error, ComboError::VerificationFailed);
     assert_eq!(fixture.store.bus_mut().item_count(), 0);
     assert!(!fixture.store.cache_mut().contains(&description()));
@@ -133,12 +130,11 @@ fn cache_delete_error_is_surfaced_not_swallowed() {
         .store
         .write_persisted(&identity(), b"material")
         .expect("write");
-    fixture.store.cache_mut().fail_delete = true;
+    fixture.store.cache_mut().faults.fail_delete = true;
     let error = fixture
         .store
         .revoke_dual_half(&identity())
-        .err()
-        .expect("cache error surfaced");
+        .expect_err("cache error surfaced");
     assert!(matches!(error, ComboError::Cache(_)));
 }
 
@@ -153,8 +149,7 @@ fn kernel_cache_lag_after_invalidate_is_incomplete_revoke() {
     let error = fixture
         .store
         .revoke_dual_half(&identity())
-        .err()
-        .expect("stale cache blocks completion");
+        .expect_err("stale cache blocks completion");
     assert_eq!(error, ComboError::RevokeIncomplete);
 }
 
@@ -170,8 +165,7 @@ fn warm_cache_cannot_bypass_locked_store() {
     store.cache_mut().seed(&description, b"cached-copy");
     let error = store
         .read_dispatch(&identity())
-        .err()
-        .expect("locked store fails closed");
+        .expect_err("locked store fails closed");
     assert!(matches!(error, ComboError::Ss(_)));
     assert_only_allowed_and_bound(&log, ":1.42");
     assert!(count_calls(&log, "SearchItems") >= 1);
@@ -219,7 +213,6 @@ fn invalidate_cache_half_reports_outcomes() {
         .store
         .write_persisted(&identity(), b"material")
         .expect("write");
-    use crate::keyring::linux_secret_service::cache::CacheDeletionOutcome;
     assert_eq!(
         fixture
             .store

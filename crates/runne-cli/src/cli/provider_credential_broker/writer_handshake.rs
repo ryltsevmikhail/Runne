@@ -9,7 +9,7 @@ use super::CliError;
 
 /// Authenticates the inherited endpoints, then runs one claimed effect.
 /// The secret pipe remains unread until the exact qualified claim succeeds.
-pub(super) fn respond_startup_from_stdout(
+pub fn respond_startup_from_stdout(
     secret: super::channel::InheritedSecretInputSlot,
 ) -> Result<(), CliError> {
     let session =

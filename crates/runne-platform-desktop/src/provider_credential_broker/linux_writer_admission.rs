@@ -3,7 +3,7 @@
 //! any broker authority.
 //!
 //! Admission combines three process facts, mirroring the macOS live
-//! verification minus SecCode: (1) the retained `pid` must still execute
+//! verification minus `SecCode`: (1) the retained `pid` must still execute
 //! exactly the pinned image (`/proc/<pid>/exe` canonical path equals the
 //! spec executable and the on-disk bytes hash to the signed
 //! `VerifiedWriterArtifact::image_digest`), (2) the fresh `/proc` start

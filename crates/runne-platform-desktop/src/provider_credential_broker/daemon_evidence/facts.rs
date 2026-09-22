@@ -1,5 +1,16 @@
 use super::ReceivedWriterProcessMeasurements;
 
+/// Live retained-process facts the daemon itself measured for the admitted
+/// writer; the receive seam cross-binds every accepted payload against them.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy)]
+pub struct LinuxWriterLiveFacts {
+    /// Fresh `/proc` start identity of the exact admitted writer process.
+    pub start_identity: [u8; 32],
+    /// Pinned image digest measured for the admitted writer process.
+    pub image_digest: [u8; 32],
+}
+
 /// Constructor-sealed facts authenticated by the exact native evidence exchange.
 pub struct VerifiedWriterMeasurementFacts {
     start: [u8; 32],

@@ -11,10 +11,12 @@ mod io;
 #[cfg(not(test))]
 use io::Fault;
 #[cfg(test)]
+use io::Fault;
+#[cfg(all(test, target_os = "macos"))]
+pub(crate) use io::set_fault;
+#[cfg(all(test, target_os = "macos"))]
 pub(crate) use io::test_guard;
 use io::{AnchorDir, checked_file, hook};
-#[cfg(test)]
-pub(crate) use io::{Fault, set_fault};
 
 const FILE: &str = "native-enrollment-installation-v1.state";
 const MARKER: &str = "native_enrollment_installation_v1";

@@ -95,20 +95,21 @@ fn run_provider_credential_broker(mut arguments: VecDeque<OsString>) -> Result<(
         run::run_authenticated_writer(pinned, secret)
             .inspect_err(|_| writer_stage::authenticated_run_failed())
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
     {
         // Validate the pipe shape without reading any secret, then close all
         // other inherited descriptors before authenticating or claiming.
-        #[cfg(target_os = "linux")]
-        {
-            let secret = channel::InheritedSecretInputSlot::inspect()?;
-            let retained = secret.validated_descriptor_for_sweep()?;
-            writer_fd_sweep::close_inherited_descriptors_except(
-                writer_fd_sweep::enumerate_proc_fds,
-                retained,
-            )
-            .map_err(|_| CliError::CredentialOperation)?;
-            writer_handshake::respond_startup_from_stdout(secret)
-        }
+        let secret = channel::InheritedSecretInputSlot::inspect()?;
+        let retained = secret.validated_descriptor_for_sweep()?;
+        writer_fd_sweep::close_inherited_descriptors_except(
+            writer_fd_sweep::enumerate_proc_fds,
+            retained,
+        )
+        .map_err(|_| CliError::CredentialOperation)?;
+        writer_handshake::respond_startup_from_stdout(secret)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        Err(CliError::UnsupportedCredentialBackend)
     }
 }

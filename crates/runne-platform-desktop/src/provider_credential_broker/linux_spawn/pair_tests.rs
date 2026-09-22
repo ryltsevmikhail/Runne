@@ -116,19 +116,19 @@ fn prepared_pair_launch_receives_the_duplex_control_endpoint() {
         super::spawn_pair_with_address(&spec, prepared, startup, &authenticator, &address).unwrap();
     drop(relay);
     let mut claim = [0; 5];
-    let received = daemon.read_exact(&mut claim);
-    if received.is_ok() {
+    let claim_result = daemon.read_exact(&mut claim);
+    if claim_result.is_ok() {
         daemon.write_all(b"accepted").unwrap();
     }
     daemon.shutdown(std::net::Shutdown::Write).unwrap();
     let mut echoed = Vec::new();
     let echo_result = output.read_to_end(&mut echoed);
-    if received.is_err() || echo_result.is_err() {
+    if claim_result.is_err() || echo_result.is_err() {
         let _ = child.terminate_retained_child();
     }
     child.reap_retained_child().unwrap();
     let transfer = sender.join().unwrap();
-    received.expect("writer must claim over the transferred duplex socket");
+    claim_result.expect("writer must claim over the transferred duplex socket");
     transfer.expect("authenticated endpoint transfer");
     echo_result.unwrap();
     assert_eq!(&claim, b"claim");

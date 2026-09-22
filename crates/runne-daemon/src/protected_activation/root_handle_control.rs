@@ -61,6 +61,10 @@ pub(crate) fn dispatch_root_handle_control_frame_for_ids(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[expect(
+    dead_code,
+    reason = "the launch path that consumes root-handle offers lands with a later composition slice"
+)]
 pub(crate) fn receive_root_handle_offer(
     channel: &mut ProtectedActivationChannel,
     frame: &[u8],

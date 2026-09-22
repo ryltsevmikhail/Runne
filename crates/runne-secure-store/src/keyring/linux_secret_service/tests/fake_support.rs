@@ -57,14 +57,8 @@ pub struct FakeSession {
 }
 
 use crate::keyring::linux_secret_service::owner::{ExecutableFacts, OwnerError, ProcessFacts};
-use crate::keyring::linux_secret_service::port::PeerCredentials;
 use std::collections::HashMap;
 use std::path::PathBuf;
-
-pub const OWNER_PEER: PeerCredentials = PeerCredentials {
-    pid: 933,
-    uid: 1000,
-};
 
 pub struct FakeProcessFacts {
     uid: u32,

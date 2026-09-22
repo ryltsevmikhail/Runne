@@ -1,6 +1,6 @@
 //! Exact spawn plan surface (B3 seam), split from the pidfd spawn core so
 //! each responsibility stays bounded. The plan pins: argv, the single
-//! DBUS_SESSION_BUS_ADDRESS environment entry, stdin ← broker control
+//! `DBUS_SESSION_BUS_ADDRESS` environment entry, stdin ← broker control
 //! socket, stdout ← private writer startup (handshake) socket, stderr ←
 //! null, and the defense-in-depth close snapshot.
 

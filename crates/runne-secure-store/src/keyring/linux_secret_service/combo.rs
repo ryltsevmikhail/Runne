@@ -35,7 +35,7 @@ pub enum ComboError {
 }
 
 impl ComboError {
-    pub fn description(self) -> &'static str {
+    pub const fn description(self) -> &'static str {
         match self {
             Self::Ss(error) => error.description(),
             Self::Cache(_) => "keyutils cache unavailable",
@@ -202,13 +202,13 @@ impl<B: SecretServiceBus, F: ProcessFacts, K: KeyutilsCache> LinuxComboPersisten
 
     /// Test-only access to the injected bus for fixture arming.
     #[cfg(test)]
-    pub fn bus_mut(&mut self) -> &mut B {
+    pub const fn bus_mut(&mut self) -> &mut B {
         self.facade.bus_mut()
     }
 
     /// Test-only access to the injected cache for fixture arming.
     #[cfg(test)]
-    pub fn cache_mut(&mut self) -> &mut K {
+    pub const fn cache_mut(&mut self) -> &mut K {
         &mut self.cache
     }
 }
@@ -219,6 +219,7 @@ pub enum DualHalfRevoke {
 }
 
 /// Provider-entry identity matching `provider_key` in `keyring/provider.rs`.
+#[cfg(test)]
 pub fn provider_identity(
     provider: crate::provider_credential::ProviderCredentialId,
 ) -> EntryIdentity {
@@ -227,6 +228,7 @@ pub fn provider_identity(
 }
 
 /// Version-entry identity matching `version_key` in `keyring/provider.rs`.
+#[cfg(test)]
 pub fn version_identity(reference: &runne_provider::CredentialVersionRef) -> EntryIdentity {
     let (service, account) = super::super::provider::version_key(reference);
     EntryIdentity::new(service, account)

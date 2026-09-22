@@ -7,7 +7,10 @@ mod secret;
 #[path = "branch_audit/stages.rs"]
 mod stages;
 
-use core_flow::{is_exact_non_macos_block, is_handoff_local, is_pinned_local, is_runner_tail};
+use core_flow::{
+    is_exact_linux_block, is_exact_non_macos_block, is_handoff_local, is_pinned_local,
+    is_runner_tail,
+};
 use secret::is_secret_local;
 use stages::Stage;
 
@@ -37,9 +40,10 @@ pub fn broker_branch_violations(source: &str) -> Vec<String> {
     if !matches!(function.vis, syn::Visibility::Inherited) {
         violations.push("broker entry point must remain private".to_owned());
     }
-    if function.block.stmts.len() != 4 {
-        violations
-            .push("broker must contain exactly two argv gates and two cfg branches".to_owned());
+    if function.block.stmts.len() != 5 {
+        violations.push(
+            "broker must contain exactly two argv gates and three platform branches".to_owned(),
+        );
         return violations;
     }
     if !is_expect_token(&function.block.stmts[0]) {
@@ -57,9 +61,18 @@ pub fn broker_branch_violations(source: &str) -> Vec<String> {
             );
         }
     }
-    match cfg_block(&function.block.stmts[3], CfgKind::NotMacOs) {
+    match cfg_block(&function.block.stmts[3], CfgKind::Linux) {
+        Some(block) if is_exact_linux_block(block) => {}
+        _ => violations.push(
+            "linux branch must validate the pipe, sweep, and respond with the exact secret"
+                .to_owned(),
+        ),
+    }
+    match cfg_block(&function.block.stmts[4], CfgKind::NotMacOsLinux) {
         Some(block) if is_exact_non_macos_block(block) => {}
-        _ => violations.push("non-macOS branch must only return typed unsupported".to_owned()),
+        _ => {
+            violations.push("non-macOS/Linux branch must only return typed unsupported".to_owned());
+        }
     }
     violations
 }
@@ -103,7 +116,8 @@ fn is_reference_to(expression: &Expr, name: &str, mutable: bool) -> bool {
 #[derive(Clone, Copy)]
 enum CfgKind {
     MacOs,
-    NotMacOs,
+    Linux,
+    NotMacOsLinux,
 }
 
 fn cfg_block(statement: &Stmt, expected: CfgKind) -> Option<&Block> {
@@ -125,17 +139,13 @@ fn cfg_matches(attribute: &Attribute, expected: CfgKind) -> bool {
         return false;
     };
     match expected {
-        CfgKind::MacOs => is_target_macos(&meta),
-        CfgKind::NotMacOs => match meta {
-            Meta::List(not) if not.path.is_ident("not") => {
-                syn::parse2::<Meta>(not.tokens).is_ok_and(|inner| is_target_macos(&inner))
-            }
-            _ => false,
-        },
+        CfgKind::MacOs => is_target_os(&meta, "macos"),
+        CfgKind::Linux => is_target_os(&meta, "linux"),
+        CfgKind::NotMacOsLinux => is_not_any_macos_linux(&meta),
     }
 }
 
-fn is_target_macos(meta: &Meta) -> bool {
+fn is_target_os(meta: &Meta, os: &str) -> bool {
     let Meta::NameValue(value) = meta else {
         return false;
     };
@@ -144,8 +154,27 @@ fn is_target_macos(meta: &Meta) -> bool {
     }
     matches!(
         &value.value,
-        Expr::Lit(literal) if matches!(&literal.lit, syn::Lit::Str(value) if value.value() == "macos")
+        Expr::Lit(literal) if matches!(&literal.lit, syn::Lit::Str(value) if value.value() == os)
     )
+}
+
+/// Matches exactly `not(any(target_os = "macos", target_os = "linux"))`.
+///
+/// Token-level normalization: whitespace inside the token stream is not
+/// significant, so it is stripped before the canonical comparison.
+fn is_not_any_macos_linux(meta: &Meta) -> bool {
+    let Meta::List(not) = meta else {
+        return false;
+    };
+    if !not.path.is_ident("not") {
+        return false;
+    }
+    let rendered = not
+        .tokens
+        .to_string()
+        .split_whitespace()
+        .collect::<String>();
+    rendered == "any(target_os=\"macos\",target_os=\"linux\")"
 }
 
 /// The macOS branch keeps its exact audited core flow while each step is

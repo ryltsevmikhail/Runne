@@ -131,7 +131,7 @@ where
         request_validation_now,
         composition.installation_identity_digest,
     );
-    let mut prepared = admit_transition(&input, request, channel)?;
+    let prepared = admit_transition(&input, request, channel)?;
     // The retired V2 HTTP admission facts must not outlive the exchange; the
     // credential enrollment control is the only HTTP facts owner. On targets
     // without credential enrollment control (Linux today) there is nothing to

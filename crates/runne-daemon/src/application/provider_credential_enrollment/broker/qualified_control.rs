@@ -1,3 +1,8 @@
+#![expect(
+    dead_code,
+    reason = "the D1 Linux composition slice mounts the qualified exchange; the macOS flow and tests drive it today"
+)]
+
 use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};

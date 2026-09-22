@@ -8,11 +8,8 @@
 //! same logic over injected fakes without touching a real session bus,
 //! keyring, or credential store.
 
-pub(super) use cache::{CacheError, KeyutilsCache};
 pub(super) use combo::{ComboError, SsVerifiedWrite};
 pub(super) use facade::SsFacadeError;
-pub(super) use owner::ProcessFacts;
-pub(super) use port::{SecretServiceBus, SsBusError};
 mod cache;
 mod combo;
 mod dh_session;
@@ -23,7 +20,7 @@ mod owner;
 mod port;
 
 pub(super) use cache::KernelKeyutilsCache;
-pub(super) use combo::{LinuxComboPersistentStore, provider_identity, version_identity};
+pub(super) use combo::LinuxComboPersistentStore;
 pub(super) use item_layout::EntryIdentity;
 pub(super) use libdbus::{LibdbusSecretServiceBus, derived_session_bus_address};
 pub(super) use owner::ProcProcessFacts;

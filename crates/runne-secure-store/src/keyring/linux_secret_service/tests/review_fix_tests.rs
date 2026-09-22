@@ -57,7 +57,7 @@ fn cache_get_failure_falls_back_to_authoritative_ss_half() {
     let mut combo =
         LinuxComboPersistentStore::new(bus, FakeProcessFacts::new(), FakeKeyutilsCache::new())
             .expect("bound");
-    combo.cache_mut().fail_get = true;
+    combo.cache_mut().faults.fail_get = true;
     let read = combo
         .read_dispatch(&identity())
         .expect("accelerator failure does not block the SS half")
@@ -71,59 +71,54 @@ fn ss_write_failure_with_failed_restore_is_distinct_rollback_error() {
     combo
         .cache_mut()
         .seed(&cache::entry_description(SERVICE, ACCOUNT), b"previous");
-    combo.cache_mut().fail_restore = true;
+    combo.cache_mut().rollback_faults.fail_restore = true;
     combo.bus_mut().connect_fails = true;
     let error = combo
         .write_persisted(&identity(), b"next")
-        .err()
-        .expect("double fault");
+        .expect_err("double fault");
     assert_eq!(error, ComboError::RollbackRestoreFailed);
 }
 
 #[test]
 fn ss_write_failure_with_failed_delete_is_distinct_rollback_error() {
     let mut combo = store();
-    combo.cache_mut().fail_delete_after_set = true;
+    combo.cache_mut().rollback_faults.fail_delete_after_set = true;
     combo.bus_mut().connect_fails = true;
     let error = combo
         .write_persisted(&identity(), b"next")
-        .err()
-        .expect("double fault");
+        .expect_err("double fault");
     assert_eq!(error, ComboError::RollbackDeleteFailed);
 }
 
 #[test]
 fn mismatch_cleanup_with_failing_ss_delete_is_cleanup_incomplete() {
     let mut combo = store();
-    combo.bus_mut().corrupt_readback = true;
-    combo.bus_mut().fail_delete_item = true;
+    combo.bus_mut().faults.corrupt_readback = true;
+    combo.bus_mut().faults.fail_delete_item = true;
     let error = combo
         .write_persisted_ss_verified(&identity(), b"material")
-        .err()
-        .expect("cleanup fault");
+        .expect_err("cleanup fault");
     assert_eq!(error, ComboError::CleanupIncomplete);
 }
 
 #[test]
 fn mismatch_cleanup_with_failing_cache_delete_is_cleanup_incomplete() {
     let mut combo = store();
-    combo.bus_mut().corrupt_readback = true;
+    combo.bus_mut().faults.corrupt_readback = true;
     combo.cache_mut().fail_delete_call = Some(2);
     let error = combo
         .write_persisted_ss_verified(&identity(), b"material")
-        .err()
-        .expect("cleanup fault");
+        .expect_err("cleanup fault");
     assert_eq!(error, ComboError::CleanupIncomplete);
 }
 
 #[test]
 fn mismatch_cleanup_success_proves_absence_of_both_halves() {
     let mut combo = store();
-    combo.bus_mut().corrupt_readback = true;
+    combo.bus_mut().faults.corrupt_readback = true;
     let error = combo
         .write_persisted_ss_verified(&identity(), b"material")
-        .err()
-        .expect("readback mismatch");
+        .expect_err("readback mismatch");
     assert_eq!(error, ComboError::VerificationFailed);
     assert!(
         !combo

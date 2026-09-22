@@ -10,9 +10,8 @@ use std::sync::{Mutex, OnceLock};
 use zeroize::Zeroizing;
 
 use super::linux_secret_service::{
-    CacheError, ComboError, KernelKeyutilsCache, KeyutilsCache, LibdbusSecretServiceBus,
-    LinuxComboPersistentStore, ProcProcessFacts, ProcessFacts, SecretServiceBus, SsBusError,
-    SsFacadeError, SsVerifiedWrite,
+    ComboError, KernelKeyutilsCache, LibdbusSecretServiceBus, LinuxComboPersistentStore,
+    ProcProcessFacts, SsFacadeError, SsVerifiedWrite,
 };
 use super::linux_secret_service::{EntryIdentity, derived_session_bus_address};
 use crate::SecureStoreError;
@@ -72,10 +71,10 @@ fn with_source<T>(
     // owner fallback or automatic retry.
     let mut guard = source_lock_global();
     if matches!(*guard, SourceState::Uninitialized | SourceState::Failed(_)) {
-        *guard = match production_combo() {
-            Ok(combo) => SourceState::Ready(Box::new(ProductionSource { combo })),
-            Err(_) => SourceState::Failed("provider Secret Service unavailable"),
-        };
+        *guard = production_combo().map_or_else(
+            |_| SourceState::Failed("provider Secret Service unavailable"),
+            |combo| SourceState::Ready(Box::new(ProductionSource { combo })),
+        );
     }
     match *guard {
         SourceState::Failed(reason) => Err(SecureStoreError::OperationFailed(reason.into())),
@@ -86,7 +85,9 @@ fn with_source<T>(
 
 fn source_lock_global() -> std::sync::MutexGuard<'static, SourceState> {
     let global = SOURCE.get_or_init(|| Mutex::new(SourceState::Uninitialized));
-    global.lock().unwrap_or_else(|poison| poison.into_inner())
+    global
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn production_combo() -> Result<
@@ -97,10 +98,6 @@ fn production_combo() -> Result<
     let bus = LibdbusSecretServiceBus::connect(&address).map_err(|_| SsFacadeError::Unavailable)?;
     let cache = KernelKeyutilsCache::attach().map_err(|_| SsFacadeError::Unavailable)?;
     LinuxComboPersistentStore::new(bus, ProcProcessFacts, cache)
-}
-
-fn map_cache(error: CacheError) -> ComboError {
-    ComboError::Cache(error)
 }
 
 /// True when the entry belongs to the provider-credential domain routed
@@ -145,7 +142,7 @@ pub(super) fn delete_provider_entry(service: &str, account: &str) -> Result<(), 
 fn map_combo(error: ComboError) -> SecureStoreError {
     match error {
         ComboError::Ss(SsFacadeError::Locked) => SecureStoreError::CredentialAccessDenied,
-        ComboError::Ss(SsFacadeError::OwnerLost) | ComboError::Ss(SsFacadeError::OwnerInvalid) => {
+        ComboError::Ss(SsFacadeError::OwnerLost | SsFacadeError::OwnerInvalid) => {
             SecureStoreError::CredentialAccessDenied
         }
         ComboError::Ss(_) => SecureStoreError::Unavailable,
@@ -172,10 +169,13 @@ impl Drop for ScopedTestSource {
 #[cfg(any(test, feature = "test-support"))]
 fn source_lock() -> std::sync::MutexGuard<'static, SourceState> {
     let global = SOURCE.get_or_init(|| Mutex::new(SourceState::Uninitialized));
-    global.lock().unwrap_or_else(|poison| poison.into_inner())
+    global
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 #[cfg(any(test, feature = "test-support"))]
+#[must_use]
 pub fn install_test_source(fake: Box<dyn LinuxProviderSourceOps>) -> ScopedTestSource {
     let mut guard = source_lock();
     let previous = std::mem::replace(&mut *guard, SourceState::Ready(fake));
@@ -188,8 +188,11 @@ pub use counting_fake::CountingFakeSource;
 
 #[cfg(any(test, feature = "test-support"))]
 mod counting_fake {
-    use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use super::{
+        ComboError, EntryIdentity, LinuxProviderSourceOps, SsFacadeError, SsVerifiedWrite,
+        Zeroizing,
+    };
+    use std::sync::atomic::AtomicUsize;
 
     pub struct CountingFakeSource {
         pub locked: bool,
@@ -238,10 +241,11 @@ mod counting_fake {
     }
 
     impl CountingFakeSource {
+        #[must_use]
         pub fn unlocked() -> Self {
             Self {
                 locked: false,
-                entries: Default::default(),
+                entries: std::collections::BTreeMap::default(),
                 unlock_prompts: AtomicUsize::new(0),
                 fail_delete_cache: false,
             }

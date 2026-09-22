@@ -5,25 +5,14 @@ mod native_helpers;
 
 use native_helpers::{BrokerAuthorizedCreate, map_lifecycle, provider, version};
 
-#[cfg(all(
-    any(target_os = "macos", target_os = "linux"),
-    feature = "provider-credential-broker-writer"
-))]
-use runne_provider::CredentialWriterEffectAuthority;
 #[cfg(any(test, feature = "test-support"))]
 use runne_provider::{CredentialAuthorityPair, CredentialWriterAuthorityPair};
 use runne_provider::{
-    CredentialLifecycleAuthority, CredentialLifecycleError, CredentialNativeCreateValidator,
-    CredentialVersionRef, CredentialWriterClaimIssuer, ProviderId,
+    CredentialLifecycleAuthority, CredentialVersionRef, CredentialWriterClaimIssuer,
 };
 
 #[cfg(any(test, feature = "test-support"))]
 use super::BrokeredProviderCredentialWriterAdapter;
-#[cfg(all(
-    any(target_os = "macos", target_os = "linux"),
-    feature = "provider-credential-broker-writer"
-))]
-use super::legacy_source::BrokeredProviderCredentialLegacySource;
 use super::{
     BrokeredCreateInput, BrokeredDeleteInput, BrokeredLegacySourceDeleteInput,
     BrokeredMigrateLegacyInput, BrokeredProviderCredentialWriter,
@@ -33,7 +22,7 @@ use super::{
 #[cfg(any(test, feature = "test-support"))]
 use crate::NativeProviderCredentialStore;
 use crate::{
-    NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
+    NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy,
     ProviderCredentialMaterial, ProviderCredentialStore, SecureStoreError,
 };
 
@@ -142,17 +131,13 @@ impl NativeProviderCredentialWriters {
         CredentialWriterClaimIssuer,
         Arc<dyn BrokeredProviderCredentialWriter>,
     ) {
-        #[cfg(all(
-            any(target_os = "macos", target_os = "linux"),
-            feature = "provider-credential-broker-writer"
-        ))]
+        // The CredentialService route exists only under macOS+broker-writer,
+        // so the let-else stays refutable exactly where that variant exists.
+        #[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
         let NativeProviderCredentialEffectRoute::Legacy(writer) = self.effect_route else {
             panic!("authenticated service routes cannot enter the test-only legacy split")
         };
-        #[cfg(not(all(
-            any(target_os = "macos", target_os = "linux"),
-            feature = "provider-credential-broker-writer"
-        )))]
+        #[cfg(not(all(target_os = "macos", feature = "provider-credential-broker-writer")))]
         let NativeProviderCredentialEffectRoute::Legacy(writer) = self.effect_route;
         (self.issuer, writer)
     }

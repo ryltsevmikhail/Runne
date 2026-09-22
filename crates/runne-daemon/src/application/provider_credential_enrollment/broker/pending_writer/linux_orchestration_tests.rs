@@ -26,7 +26,7 @@ fn real_writer_launch_spec() -> VerifiedWriterLaunchSpec {
         "first-party binary required: {}",
         binary.display()
     );
-    let digest: [u8; 32] = Sha256::digest(&std::fs::read(&binary).unwrap()).into();
+    let digest: [u8; 32] = Sha256::digest(std::fs::read(&binary).unwrap()).into();
     VerifiedWriterLaunchSpec::new(VerifiedWriterArtifact::new(binary, digest, [3; 32]).unwrap())
 }
 
@@ -63,12 +63,14 @@ fn orchestrator_launches_the_real_writer_into_a_verified_channel() {
             .map_err(|_| runne_api::ProviderCredentialEnrollmentHostError::Unavailable)
     });
     let launch = launch_linux_writer_with_handshake(
-        authority,
-        writer_control,
-        binding,
-        transfer,
-        &[31; 32],
-        [55; 32],
+        LinuxWriterLaunchInputs {
+            rendezvous: authority,
+            control_end_for_writer: writer_control,
+            binding,
+            transfer_authority: transfer,
+            launch_secret: [31; 32],
+            daemon_image: [55; 32],
+        },
         &spec,
         spawn,
     );
@@ -88,12 +90,14 @@ fn orchestrator_denies_a_wrong_startup_launch_secret() {
             .map_err(|_| runne_api::ProviderCredentialEnrollmentHostError::Unavailable)
     });
     let denied = launch_linux_writer_with_handshake(
-        authority,
-        writer_control,
-        binding,
-        transfer,
-        &[40; 32],
-        [55; 32],
+        LinuxWriterLaunchInputs {
+            rendezvous: authority,
+            control_end_for_writer: writer_control,
+            binding,
+            transfer_authority: transfer,
+            launch_secret: [40; 32],
+            daemon_image: [55; 32],
+        },
         &spec,
         spawn,
     );

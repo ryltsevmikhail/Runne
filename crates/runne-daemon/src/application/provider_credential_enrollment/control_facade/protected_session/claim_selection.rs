@@ -51,6 +51,20 @@ impl DaemonProtectedCredentialEnrollmentSession {
         }
     }
 
+    #[cfg_attr(
+        not(any(
+            test,
+            all(
+                target_os = "macos",
+                target_arch = "aarch64",
+                feature = "desktop-protected"
+            )
+        )),
+        expect(
+            dead_code,
+            reason = "the D1 Linux composition slice selects ticket authority; the macOS flow and tests drive it today"
+        )
+    )]
     pub(super) fn take_ticket_authority(
         &mut self,
     ) -> Result<CredentialTicketAuthority, ProviderCredentialEnrollmentHostError> {
@@ -77,6 +91,20 @@ impl DaemonProtectedCredentialEnrollmentSession {
             .map(Into::into)
             .map_err(map_store)
     }
+    #[cfg_attr(
+        not(any(
+            test,
+            all(
+                target_os = "macos",
+                target_arch = "aarch64",
+                feature = "desktop-protected"
+            )
+        )),
+        expect(
+            dead_code,
+            reason = "the D1 Linux composition slice reads recovery continuation; the macOS flow and tests drive it today"
+        )
+    )]
     pub(super) fn recovery_continuation(
         &self,
     ) -> Result<

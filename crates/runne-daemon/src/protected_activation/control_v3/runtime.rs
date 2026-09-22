@@ -134,8 +134,11 @@ impl V3EnrollmentDispatch {
 }
 
 #[cfg_attr(
-    not(any(all(test, unix), all(target_os = "macos", target_arch = "aarch64"))),
-    allow(dead_code)
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    expect(
+        dead_code,
+        reason = "the shutdown gate is consumed by the macOS protected session; Linux composition lands later"
+    )
 )]
 pub(crate) fn require_shutdown_terminal(
     #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))] session: Option<&()>,

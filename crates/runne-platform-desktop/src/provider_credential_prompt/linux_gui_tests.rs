@@ -74,7 +74,7 @@ fn submitted_secret_roundtrips_through_fake_pinentry() {
     let mut prompt =
         LinuxGuiHostCredentialPrompt::new(script, Duration::from_secs(5), Duration::from_secs(10))
             .expect("adapter");
-    match prompt.prompt_with_env(request(), gui_env()) {
+    match prompt.prompt_with_env(request(), &gui_env()) {
         Ok(SecureCredentialPromptDisposition::Submitted(material)) => {
             assert_eq!(material.into_pipe_bytes().as_bytes(), b"sk-test-secret");
         }
@@ -127,7 +127,7 @@ fn child_env_lacks_parent_and_nonallowlist_variables() {
     let mut prompt =
         LinuxGuiHostCredentialPrompt::new(script, Duration::from_secs(5), Duration::from_secs(10))
             .expect("adapter");
-    let outcome = prompt.prompt_with_env(confirm_request(), gui_env());
+    let outcome = prompt.prompt_with_env(confirm_request(), &gui_env());
     assert!(matches!(
         outcome,
         Ok(SecureCredentialPromptDisposition::Confirmed)
@@ -175,9 +175,8 @@ fn missing_gui_env_denies_before_spawn() {
             .expect("adapter");
     let environment = vec![("XDG_RUNTIME_DIR".to_owned(), "/run/user/1000".into())];
     let error = prompt
-        .prompt_with_env(request(), environment)
-        .err()
-        .expect("no GUI rejects");
+        .prompt_with_env(request(), &environment)
+        .expect_err("no GUI rejects");
     assert!(matches!(error, SecureCredentialPromptError::Unavailable));
     assert!(
         !marker.exists(),
@@ -198,9 +197,8 @@ fn parent_deadline_kills_and_reaps_hung_child() {
     .expect("adapter");
     let started = Instant::now();
     let error = prompt
-        .prompt_with_env(request(), gui_env())
-        .err()
-        .expect("deadline rejects");
+        .prompt_with_env(request(), &gui_env())
+        .expect_err("deadline rejects");
     assert!(matches!(error, SecureCredentialPromptError::Unavailable));
     assert!(
         started.elapsed() < Duration::from_secs(5),
@@ -232,7 +230,7 @@ fn cancelled_dialog_maps_to_cancelled() {
         LinuxGuiHostCredentialPrompt::new(script, Duration::from_secs(5), Duration::from_secs(10))
             .expect("adapter");
     assert!(matches!(
-        prompt.prompt_with_env(request(), gui_env()),
+        prompt.prompt_with_env(request(), &gui_env()),
         Ok(SecureCredentialPromptDisposition::Cancelled)
     ));
 }
@@ -253,9 +251,8 @@ fn oversized_output_is_rejected_and_child_killed() {
     .expect("adapter");
     let started = Instant::now();
     let error = prompt
-        .prompt_with_env(request(), gui_env())
-        .err()
-        .expect("oversize rejects");
+        .prompt_with_env(request(), &gui_env())
+        .expect_err("oversize rejects");
     assert!(matches!(
         error,
         SecureCredentialPromptError::Unavailable | SecureCredentialPromptError::Rejected

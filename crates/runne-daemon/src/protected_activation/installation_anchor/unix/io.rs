@@ -62,7 +62,7 @@ fn checked_stat(stat: &rustix::fs::Stat) -> Result<FileIdentity, DaemonError> {
         return Err(error());
     }
     Ok(FileIdentity {
-        dev: stat.st_dev as u64,
+        dev: stat.st_dev,
         ino: stat.st_ino,
     })
 }
@@ -78,13 +78,13 @@ pub(crate) enum Fault {
 }
 #[cfg(test)]
 static FAULT: std::sync::Mutex<Fault> = std::sync::Mutex::new(Fault::None);
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 static TEST_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 pub(crate) fn set_fault(fault: Fault) {
     *FAULT.lock().unwrap() = fault;
 }
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 pub(crate) fn test_guard() -> std::sync::MutexGuard<'static, ()> {
     TEST_SERIAL.lock().unwrap()
 }

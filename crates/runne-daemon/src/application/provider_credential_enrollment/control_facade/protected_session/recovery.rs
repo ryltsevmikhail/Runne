@@ -28,6 +28,20 @@ pub(super) struct RecoveryExchange {
 }
 
 impl DaemonProtectedCredentialEnrollmentSession {
+    #[cfg_attr(
+        not(any(
+            test,
+            all(
+                target_os = "macos",
+                target_arch = "aarch64",
+                feature = "desktop-protected"
+            )
+        )),
+        expect(
+            dead_code,
+            reason = "the D1 Linux composition slice encodes terminal snapshots; the macOS flow and tests drive it today"
+        )
+    )]
     pub(crate) fn encode_terminal_snapshot(
         &mut self,
         snapshot: ProviderCredentialOperationSnapshotV2,
@@ -232,3 +246,30 @@ fn denied<T>(_: T) -> ProviderCredentialEnrollmentHostError {
 
 #[cfg(test)]
 mod tests;
+
+impl DaemonProtectedCredentialEnrollmentSession {
+    #[cfg_attr(
+        not(any(
+            test,
+            all(
+                target_os = "macos",
+                target_arch = "aarch64",
+                feature = "desktop-protected"
+            )
+        )),
+        expect(
+            dead_code,
+            reason = "the D1 Linux composition slice takes the bound broker handoff; the macOS flow and tests drive it today"
+        )
+    )]
+    pub(crate) fn take_bound_broker_handoff(
+        &mut self,
+    ) -> Result<
+        crate::application::provider_credential_enrollment::broker::pending::PendingBrokerEndpointHandoff,
+        ProviderCredentialEnrollmentHostError,
+    >{
+        self.handoff
+            .take()
+            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)
+    }
+}

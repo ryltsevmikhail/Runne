@@ -70,6 +70,13 @@ mod endpoint;
         all(target_os = "macos", target_arch = "aarch64")
     )
 ))]
+#[cfg_attr(
+    not(any(test, all(target_os = "macos", target_arch = "aarch64"))),
+    expect(
+        unused_imports,
+        reason = "awaiting-writer type is test-driven until the D1 Linux composition slice mounts it"
+    )
+)]
 pub(crate) use endpoint::AwaitingVerifiedWriter;
 #[cfg(any(
     all(test, unix),

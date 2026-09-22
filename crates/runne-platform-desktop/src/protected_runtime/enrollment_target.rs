@@ -5,7 +5,7 @@ use runne_api::{
     ProtectedCredentialEnrollmentLaunchBindingV1,
 };
 
-fn accepts(platform: u64, architecture: u64) -> bool {
+const fn accepts(platform: u64, architecture: u64) -> bool {
     match (platform, architecture) {
         (1, 1) => cfg!(all(target_os = "macos", target_arch = "aarch64")),
         (2, 2) => cfg!(all(target_os = "linux", target_arch = "aarch64")),

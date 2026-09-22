@@ -52,7 +52,7 @@ fn main() {
     let session = runne_native_enrollment_authority::AuthenticatedProviderCredentialWriterSession
         ::receive_linux_authenticated_writer().unwrap();
     let effect_succeeded = run::run_linux_authenticated_writer(session, secret).is_ok();
-    let peer = rustix::net::sockopt::socket_peercred(&std::io::stdin()).unwrap();
+    let peer = rustix::net::sockopt::socket_peercred(std::io::stdin()).unwrap();
     let daemon_path = std::path::PathBuf::from(format!("/proc/{}/exe", peer.pid.as_raw_pid()));
     let access = runne_secure_store::ProviderCredentialAccessPolicy::new(
         std::path::Path::new("/proc/self/exe"),

@@ -17,15 +17,17 @@ use runne_provider::{
 };
 
 use super::AuthenticatedProviderCredentialWriterSession;
-use super::linux_verifier::authenticate_linux_writer_session;
+use super::linux_verifier::{
+    LinuxWriterSessionExpectations, LinuxWriterSessionResources, authenticate_linux_writer_session,
+};
 mod reader;
 
 impl AuthenticatedProviderCredentialWriterSession {
     /// Adopts the inherited STARTUP (stdout) and CONTROL (stdin) sockets,
     /// completes the proof-verified startup exchange, reads the daemon-signed
-    /// V1 or qualification-required V2 attestation and IssueTicket frame, derives every expected value
-    /// from the retained startup state, and mints this closed session with an
-    /// already-bound ticket.
+    /// V1 or qualification-required V2 attestation and `IssueTicket` frame,
+    /// derives every expected value from the retained startup state, and
+    /// mints this closed session with an already-bound ticket.
     ///
     /// # Errors
     ///
@@ -56,18 +58,22 @@ impl AuthenticatedProviderCredentialWriterSession {
             live_image,
         )?;
         authenticate_linux_writer_session(
-            &attestation_bytes,
-            startup.publication_public_key,
-            &channel,
-            handoff.as_bytes(),
-            live_start,
-            live_image,
-            startup.release_tuple,
-            channel.clone(),
-            bound_ticket,
-            control,
-            PathBuf::from("/proc/self/exe"),
-            reader_path,
+            LinuxWriterSessionExpectations {
+                attestation_bytes: &attestation_bytes,
+                retained_publication_key: startup.publication_public_key,
+                retained_channel_binding: &channel,
+                retained_handoff_sha256: handoff.as_bytes(),
+                live_start_sha256: live_start,
+                live_image_sha256: live_image,
+                release_tuple_sha256: startup.release_tuple,
+                ticket: bound_ticket,
+            },
+            LinuxWriterSessionResources {
+                channel_binding: channel.clone(),
+                control,
+                writer_path: PathBuf::from("/proc/self/exe"),
+                reader_path,
+            },
         )
     }
 }
@@ -122,9 +128,9 @@ fn read_control(
     Ok((bytes, ticket))
 }
 
-fn adopt_inherited_socket<T: std::io::IsTerminal>(handle: &T) -> Result<UnixStream, &'static str>
+fn adopt_inherited_socket<T>(handle: &T) -> Result<UnixStream, &'static str>
 where
-    T: std::os::fd::AsFd,
+    T: std::io::IsTerminal + std::os::fd::AsFd,
 {
     if handle.is_terminal() {
         return Err("descriptor is a terminal");
@@ -148,7 +154,7 @@ where
 #[cfg(test)]
 mod descriptor_tests {
     use super::*;
-    use std::io::{Read as _, Write as _};
+    use std::io::Write as _;
 
     #[test]
     fn adoption_preserves_the_live_socket_and_rejects_regular_files() {

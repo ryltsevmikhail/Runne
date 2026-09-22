@@ -41,7 +41,7 @@ pub enum SsFacadeError {
 }
 
 impl SsFacadeError {
-    pub fn description(self) -> &'static str {
+    pub const fn description(self) -> &'static str {
         match self {
             Self::Unavailable => "secret service unavailable",
             Self::OwnerMissing => "secret service owner missing",
@@ -98,7 +98,7 @@ impl<B: SecretServiceBus, F: ProcessFacts> BoundSecretService<B, F> {
             .bus
             .peer_credentials(&self.owner.unique_name)
             .map_err(|_| SsFacadeError::OwnerLost)?;
-        if !self.owner.still_bound(&self.facts, &peer) {
+        if !self.owner.still_bound(&self.facts, peer) {
             return Err(SsFacadeError::OwnerLost);
         }
         Ok(self.owner.unique_name.as_str())
@@ -106,7 +106,7 @@ impl<B: SecretServiceBus, F: ProcessFacts> BoundSecretService<B, F> {
 
     /// Test-only access to the injected bus for mid-session fixture arming.
     #[cfg(test)]
-    pub fn bus_mut(&mut self) -> &mut B {
+    pub const fn bus_mut(&mut self) -> &mut B {
         &mut self.bus
     }
 
@@ -252,13 +252,12 @@ pub enum EntryLockState {
     Missing,
 }
 
-fn unavailable(_: SsBusError) -> SsFacadeError {
+const fn unavailable(_: SsBusError) -> SsFacadeError {
     SsFacadeError::Unavailable
 }
 
-fn map_owner_error(error: OwnerError) -> SsFacadeError {
+const fn map_owner_error(error: OwnerError) -> SsFacadeError {
     match error {
-        OwnerError::Unreadable => SsFacadeError::OwnerInvalid,
-        OwnerError::Invalid => SsFacadeError::OwnerInvalid,
+        OwnerError::Unreadable | OwnerError::Invalid => SsFacadeError::OwnerInvalid,
     }
 }

@@ -1,3 +1,8 @@
+#![expect(
+    dead_code,
+    reason = "the D1 Linux composition slice mounts the qualified exchange; the macOS flow and tests drive it today"
+)]
+
 use super::{ProviderCredentialBroker, map_store, qualified_exchange::QualifiedIssuedTicket};
 use runne_api::ProviderCredentialEnrollmentHostError as Error;
 use runne_provider::{

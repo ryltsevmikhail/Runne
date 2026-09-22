@@ -4,7 +4,7 @@
 //! `/run/user/<uid>/bus` derivation shared with the P0 writer spawn profile) —
 //! never from ambient autolaunch or renderer state. Every proxy destination is
 //! supplied by the facade (bus daemon for owner resolution, the resolved
-//! unique name for all Secret Service calls including OpenSession).
+//! unique name for all Secret Service calls including `OpenSession`).
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -26,7 +26,7 @@ const SERVICE_INTERFACE: &str = "org.freedesktop.Secret.Service";
 const COLLECTION_INTERFACE: &str = "org.freedesktop.Secret.Collection";
 const ITEM_INTERFACE: &str = "org.freedesktop.Secret.Item";
 const NAME_HAS_NO_OWNER: &str = "org.freedesktop.DBus.Error.NameHasNoOwner";
-const CALL_TIMEOUT: Duration = Duration::from_millis(5000);
+const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 
 type SecretStruct<'a> = (Path<'a>, Vec<u8>, Vec<u8>, String);
 
@@ -71,9 +71,7 @@ pub fn validate_derived_session_bus_address(address: &str) -> Result<String, SsB
 /// Deterministic euid-derived session-bus path (the P0 derivation, no env).
 pub fn derived_session_bus_address() -> String {
     use std::os::unix::fs::MetadataExt;
-    let euid = std::fs::metadata("/proc/self")
-        .map(|metadata| metadata.uid())
-        .unwrap_or(u32::MAX);
+    let euid = std::fs::metadata("/proc/self").map_or(u32::MAX, |metadata| metadata.uid());
     format!("/run/user/{euid}/bus")
 }
 
@@ -83,9 +81,7 @@ fn probe_session_bus_socket(path: &str) -> Result<(), SsBusError> {
     if !metadata.file_type().is_socket() {
         return Err(SsBusError::Transport);
     }
-    let euid = std::fs::metadata("/proc/self")
-        .map(|metadata| metadata.uid())
-        .unwrap_or(u32::MAX);
+    let euid = std::fs::metadata("/proc/self").map_or(u32::MAX, |metadata| metadata.uid());
     if metadata.uid() != euid {
         return Err(SsBusError::Transport);
     }
@@ -207,7 +203,7 @@ impl SecretServiceBus for LibdbusSecretServiceBus {
         replace: bool,
     ) -> Result<(Option<String>, SsMutationOutcome), SsBusError> {
         let mut properties: HashMap<String, Variant<Box<dyn RefArg>>> = HashMap::new();
-        let attribute_map: HashMap<String, String> = attributes.to_vec().into_iter().collect();
+        let attribute_map: HashMap<String, String> = attributes.iter().cloned().collect();
         properties.insert(
             "org.freedesktop.Secret.Item.Label".to_owned(),
             Variant(Box::new(label.to_owned()) as Box<dyn RefArg>),

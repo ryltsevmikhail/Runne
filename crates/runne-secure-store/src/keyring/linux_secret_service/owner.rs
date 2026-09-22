@@ -76,7 +76,7 @@ impl OwnerBinding {
     pub fn still_bound(
         &self,
         facts: &dyn ProcessFacts,
-        peer: &super::port::PeerCredentials,
+        peer: super::port::PeerCredentials,
     ) -> bool {
         peer.pid == self.pid && peer.uid == self.uid && facts.executable_path(peer.pid).is_ok()
     }
@@ -93,9 +93,7 @@ impl ProcessFacts for ProcProcessFacts {
         // This is a filesystem ownership probe of our own process entry, not a
         // secret or environment read; it avoids unsafe libc geteuid.
         use std::os::unix::fs::MetadataExt;
-        std::fs::metadata("/proc/self")
-            .map(|metadata| metadata.uid())
-            .unwrap_or(u32::MAX)
+        std::fs::metadata("/proc/self").map_or(u32::MAX, |metadata| metadata.uid())
     }
 
     fn executable_path(&self, pid: u32) -> Result<PathBuf, OwnerError> {

@@ -20,6 +20,7 @@ const BROKER_MODE: &str = "__provider-credential-broker-v1";
 #[cfg(target_os = "macos")]
 const RESPONSE_BYTES: usize = 160;
 #[cfg(not(target_os = "macos"))]
+#[cfg(not(target_os = "linux"))]
 const UNSUPPORTED: &str = "provider credential backend is unsupported\n";
 #[cfg(target_os = "macos")]
 const OPERATION_FAILED: &str = "provider credential operation failed\n";
@@ -49,6 +50,15 @@ fn broker_mode_without_inherited_endpoint_is_closed() {
 fn non_macos_broker_mode_is_typed_unsupported_without_stdin() {
     let output = run_with_kept_open_stdin(&[BROKER_MODE]);
 
+    #[cfg(target_os = "linux")]
+    {
+        // The Linux CLI broker runs the real production entry: without a
+        // daemon-owned control session it still closes before consuming
+        // stdin (exit 4, empty stdout), now with the operation-failure code
+        // instead of the retired macOS-only backend-unsupported message.
+        assert_closed(&output, "provider credential operation failed\n");
+    }
+    #[cfg(not(target_os = "linux"))]
     assert_closed(&output, UNSUPPORTED);
 }
 
@@ -114,7 +124,11 @@ fn broker_source_has_one_authority_receive_and_no_local_receiver() {
     assert!(broker.contains("let pinned = handoff"));
     assert!(broker.contains("run::run_authenticated_writer(pinned, secret)"));
     assert!(broker.contains("#[cfg(target_os = \"macos\")]"));
-    assert!(broker.contains("#[cfg(not(target_os = \"macos\"))]"));
+    // The three-branch entry keeps an explicit, audited Linux branch next to
+    // the macOS one; the residual platforms stay on the typed unsupported
+    // fallthrough (asserted by the branch shape audit).
+    assert!(broker.contains("#[cfg(target_os = \"linux\")]"));
+    assert!(broker.contains("#[cfg(not(any(target_os = \"macos\", target_os = \"linux\")))]"));
 
     let end = broker
         .find("expect_end(&arguments)?")
@@ -184,7 +198,12 @@ fn broker_manifest_has_only_reviewed_macos_native_dependencies() {
     assert!(manifest.contains(
         "nix = { version = \"=0.31.3\", default-features = false, features = [\"fs\", \"poll\"] }"
     ));
-    assert!(manifest.contains("[target.'cfg(target_os = \"macos\")'.dev-dependencies]"));
+    // The Linux writer fixture path needs the same reviewed rustix dev-dep,
+    // so the section scope widened from macos-only to macos+linux; it must
+    // stay platform-scoped and never become unconditional (asserted below).
+    assert!(manifest.contains(
+        "[target.'cfg(any(target_os = \"macos\", target_os = \"linux\"))'.dev-dependencies]"
+    ));
     assert!(manifest.contains("rustix = { version = \"=1.1.4\", features = [\"net\", \"pipe\"] }"));
     assert!(!manifest.contains("[target.'cfg(unix)'.dependencies]"));
 }

@@ -19,6 +19,15 @@ use std::rc::Rc;
 
 const OWNER: &str = ":1.42";
 
+/// Operation-level fault injection (lock flip, readback corruption, delete
+/// failure) for targeted fail-closed testing.
+#[derive(Clone, Copy, Default)]
+pub struct FakeBusFaults {
+    pub lock_items_before_get: bool,
+    pub corrupt_readback: bool,
+    pub fail_delete_item: bool,
+}
+
 pub struct FakeSecretServiceBus {
     log: InvocationLog,
     pub name_owned: bool,
@@ -26,10 +35,7 @@ pub struct FakeSecretServiceBus {
     pub peer: PeerCredentials,
     pub peer_alive: bool,
     pub connect_fails: bool,
-    pub lock_items_before_get: bool,
-    /// Corrupts GetSecret payloads so SS readbacks mismatch the write.
-    pub corrupt_readback: bool,
-    pub fail_delete_item: bool,
+    pub faults: FakeBusFaults,
     server_private: [u8; 128],
     session: Option<FakeSession>,
     items: Vec<(String, FakeItem)>,
@@ -48,10 +54,10 @@ impl FakeSecretServiceBus {
             },
             peer_alive: true,
             connect_fails: false,
-            lock_items_before_get: false,
-            corrupt_readback: false,
-            fail_delete_item: false,
-            server_private: core::array::from_fn(|i: usize| ((i * 11 + 7) & 0xff) as u8),
+            faults: FakeBusFaults::default(),
+            server_private: core::array::from_fn(|i: usize| {
+                u8::try_from((i * 11 + 7) & 0xff).expect("masked to u8")
+            }),
             session: None,
             items: Vec::new(),
             next_item: 1,
@@ -91,7 +97,7 @@ impl FakeSecretServiceBus {
         path
     }
 
-    fn record(&mut self, method: &str, dest: &str) -> Result<(), SsBusError> {
+    fn record(&self, method: &str, dest: &str) -> Result<(), SsBusError> {
         self.log
             .borrow_mut()
             .push((method.to_owned(), dest.to_owned()));
@@ -112,7 +118,7 @@ impl FakeSecretServiceBus {
     fn encrypt_wire(&self, data: &[u8]) -> Result<WireSecret, SsBusError> {
         let session = self.session.as_ref().ok_or(SsBusError::Transport)?;
         let iv = random_iv();
-        let encrypted = encrypt_with_iv(data, &session.key, &iv)?;
+        let encrypted = encrypt_with_iv(data, &session.key, &iv);
         Ok(WireSecret {
             session_path: session.path.clone(),
             iv: iv.to_vec(),
@@ -146,7 +152,7 @@ impl SecretServiceBus for FakeSecretServiceBus {
         if !self.peer_alive || name != self.owner_name {
             return Err(SsBusError::Transport);
         }
-        Ok(self.peer.clone())
+        Ok(self.peer)
     }
 
     fn open_session(
@@ -204,8 +210,8 @@ impl SecretServiceBus for FakeSecretServiceBus {
         item: &str,
     ) -> Result<WireSecret, SsBusError> {
         self.record("GetSecret", dest)?;
-        if self.lock_items_before_get {
-            for (_, entry) in self.items.iter_mut() {
+        if self.faults.lock_items_before_get {
+            for (_, entry) in &mut self.items {
                 entry.locked = true;
             }
             return Err(SsBusError::Transport);
@@ -219,7 +225,7 @@ impl SecretServiceBus for FakeSecretServiceBus {
             return Err(SsBusError::Transport);
         }
         let mut data = self.items[index].1.data.clone();
-        if self.corrupt_readback && !data.is_empty() {
+        if self.faults.corrupt_readback && !data.is_empty() {
             data[0] ^= 0xff;
         }
         self.encrypt_wire(&data)
@@ -280,7 +286,7 @@ impl SecretServiceBus for FakeSecretServiceBus {
 
     fn delete_item(&mut self, dest: &str, item: &str) -> Result<SsMutationOutcome, SsBusError> {
         self.record("Delete", dest)?;
-        if self.fail_delete_item {
+        if self.faults.fail_delete_item {
             return Err(SsBusError::Transport);
         }
         self.items.retain(|(path, _)| path != item);

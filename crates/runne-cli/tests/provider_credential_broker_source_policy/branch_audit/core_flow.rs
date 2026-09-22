@@ -2,6 +2,11 @@
 //! its historical strict shape; the only permitted addition is one reviewed
 //! failed-stage `inspect_err` adapter, unwrapped through `stages`.
 
+#[path = "core_flow/linux_flow.rs"]
+mod linux_flow;
+
+pub use linux_flow::is_exact_linux_block;
+
 use syn::{Block, Expr, Pat, Stmt};
 
 use super::stages::{self, Stage, StageAdapter};

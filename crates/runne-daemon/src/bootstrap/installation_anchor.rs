@@ -154,7 +154,7 @@ fn checked_database_stat_value(stat: &rustix::fs::Stat) -> Result<FileIdentity, 
 
 fn identity(stat: &rustix::fs::Stat) -> FileIdentity {
     FileIdentity {
-        dev: stat.st_dev as u64,
+        dev: stat.st_dev,
         ino: stat.st_ino,
     }
 }

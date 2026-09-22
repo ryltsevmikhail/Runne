@@ -15,7 +15,7 @@ pub enum SsBusError {
 }
 
 /// Owner-uniqueness facts of one bus peer connection.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PeerCredentials {
     pub pid: u32,
     pub uid: u32,

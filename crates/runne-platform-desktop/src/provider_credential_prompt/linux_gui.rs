@@ -15,7 +15,7 @@ use std::os::unix::process::ExitStatusExt as _;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{io, thread};
 
 use runne_platform_ports::provider_credential_prompt::{
@@ -92,7 +92,7 @@ impl LinuxGuiHostCredentialPrompt {
     ) -> Result<SecureCredentialPromptDisposition, SecureCredentialPromptError> {
         self.prompt_with_env(
             request,
-            collect_gui_environment(|name| std::env::var_os(name)),
+            &collect_gui_environment(|name| std::env::var_os(name)),
         )
     }
 
@@ -105,7 +105,7 @@ impl LinuxGuiHostCredentialPrompt {
     pub fn prompt_with_env(
         &mut self,
         request: SecureCredentialPromptRequest,
-        environment: Vec<(String, std::ffi::OsString)>,
+        environment: &[(String, std::ffi::OsString)],
     ) -> Result<SecureCredentialPromptDisposition, SecureCredentialPromptError> {
         let has_gui = environment.iter().any(|(name, value)| {
             (name == "DISPLAY" || name == "WAYLAND_DISPLAY") && !value.is_empty()
@@ -113,11 +113,11 @@ impl LinuxGuiHostCredentialPrompt {
         if !has_gui {
             return Err(SecureCredentialPromptError::Unavailable);
         }
-        let mut child = self.spawn(&environment)?;
-        if let Some(stdin) = child.stdin.as_mut() {
-            if stdin.write_all(prompt_command(request).as_bytes()).is_err() {
-                return Err(kill_and_reap(&mut child));
-            }
+        let mut child = self.spawn(environment)?;
+        if let Some(stdin) = child.stdin.as_mut()
+            && stdin.write_all(prompt_command(request).as_bytes()).is_err()
+        {
+            return Err(kill_and_reap(&mut child));
         }
         drop(child.stdin.take());
         let mut stdout = child
@@ -137,15 +137,14 @@ impl LinuxGuiHostCredentialPrompt {
                             break Err(SecureCredentialPromptError::Rejected);
                         }
                     }
-                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
                     Err(_) => break Err(SecureCredentialPromptError::Unavailable),
                 }
             };
             let _ = sender.send((outcome, response));
         });
-        let (outcome, response) = match receiver.recv_timeout(self.wall_deadline) {
-            Ok(received) => received,
-            Err(_) => return Err(kill_and_reap(&mut child)),
+        let Ok((outcome, response)) = receiver.recv_timeout(self.wall_deadline) else {
+            return Err(kill_and_reap(&mut child));
         };
         if outcome.is_err() {
             return Err(kill_and_reap(&mut child));

@@ -6,6 +6,11 @@
 //! Linux desktop-protected broker channel consumes the SAME signed admission
 //! material without compiling the macOS control exchange.
 
+#![expect(
+    dead_code,
+    reason = "the D1 Linux composition slice consumes the qualified admission bundle; the macOS flow and tests drive it today"
+)]
+
 /// One qualified admission bundle: signed member bytes plus their digests.
 pub(crate) struct WriterAdmissionBundle {
     /// Exact signed members encoding (context then fault ticket).

@@ -7,11 +7,38 @@
 //! V2 must retain its qualification-required ticket through the session split;
 //! it cannot mint an ordinary session or fall back to V1 after a failed check.
 
+use std::os::unix::net::UnixStream;
+use std::path::PathBuf;
+
 use runne_provider::{
-    CredentialWriterSessionAttestationCodec, CredentialWriterSessionAttestationV2Codec,
+    BrokerChannelBinding, CredentialWriterSessionAttestationCodec,
+    CredentialWriterSessionAttestationV2Codec, PendingCredentialIssueTicketV1,
 };
 
 use super::AuthenticatedProviderCredentialWriterSession;
+
+/// The RETAINED startup/rendezvous facts one signed attestation is verified
+/// against, together with the attestation bytes and the pending ticket whose
+/// commitment it must match.
+pub(super) struct LinuxWriterSessionExpectations<'a> {
+    pub(super) attestation_bytes: &'a [u8],
+    pub(super) retained_publication_key: [u8; 32],
+    pub(super) retained_channel_binding: &'a BrokerChannelBinding,
+    pub(super) retained_handoff_sha256: [u8; 32],
+    pub(super) live_start_sha256: [u8; 32],
+    pub(super) live_image_sha256: [u8; 32],
+    pub(super) release_tuple_sha256: [u8; 32],
+    pub(super) ticket: PendingCredentialIssueTicketV1,
+}
+
+/// The owned transports and identities adopted into the closed session once
+/// every retained expectation verified.
+pub(super) struct LinuxWriterSessionResources {
+    pub(super) channel_binding: BrokerChannelBinding,
+    pub(super) control: UnixStream,
+    pub(super) writer_path: PathBuf,
+    pub(super) reader_path: PathBuf,
+}
 
 /// Verifies one signed Linux writer session attestation against the RETAINED
 /// startup/rendezvous facts and mints the closed authority session.
@@ -20,20 +47,26 @@ use super::AuthenticatedProviderCredentialWriterSession;
 ///
 /// Fails closed on any signature, freshness, channel, handoff, or live-fact
 /// mismatch — before any effect capability exists.
-pub(crate) fn authenticate_linux_writer_session(
-    attestation_bytes: &[u8],
-    retained_publication_key: [u8; 32],
-    retained_channel_binding: &runne_provider::BrokerChannelBinding,
-    retained_handoff_sha256: [u8; 32],
-    live_start_sha256: [u8; 32],
-    live_image_sha256: [u8; 32],
-    release_tuple_sha256: [u8; 32],
-    channel_binding: runne_provider::BrokerChannelBinding,
-    ticket: runne_provider::PendingCredentialIssueTicketV1,
-    control: std::os::unix::net::UnixStream,
-    writer_path: std::path::PathBuf,
-    reader_path: std::path::PathBuf,
+pub(super) fn authenticate_linux_writer_session(
+    expectations: LinuxWriterSessionExpectations<'_>,
+    resources: LinuxWriterSessionResources,
 ) -> Result<AuthenticatedProviderCredentialWriterSession, &'static str> {
+    let LinuxWriterSessionExpectations {
+        attestation_bytes,
+        retained_publication_key,
+        retained_channel_binding,
+        retained_handoff_sha256,
+        live_start_sha256,
+        live_image_sha256,
+        release_tuple_sha256,
+        ticket,
+    } = expectations;
+    let LinuxWriterSessionResources {
+        channel_binding,
+        control,
+        writer_path,
+        reader_path,
+    } = resources;
     // Both signed formats have identical identity checks. V2 retains its
     // qualification receiver; its wire version is never normalized to V1.
     macro_rules! verify_record {
@@ -67,10 +100,10 @@ pub(crate) fn authenticate_linux_writer_session(
     }
     match attestation_bytes.first() {
         Some(1) if !ticket.is_qualified() => {
-            verify_record!(CredentialWriterSessionAttestationCodec)
+            verify_record!(CredentialWriterSessionAttestationCodec);
         }
         Some(2) if ticket.is_qualified() => {
-            verify_record!(CredentialWriterSessionAttestationV2Codec)
+            verify_record!(CredentialWriterSessionAttestationV2Codec);
         }
         _ => return Err("attestation version denied"),
     }

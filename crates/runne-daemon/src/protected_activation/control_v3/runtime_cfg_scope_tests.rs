@@ -1,12 +1,9 @@
 const NATIVE_TEST_GATE: &str =
     "#[cfg(all(test, target_os = \"macos\", target_arch = \"aarch64\"))]";
-const DESKTOP_PROTECTED_GATE: &str = "#[cfg(feature = \"desktop-protected\")]";
-const NATIVE_OR_TEST_GATE: &str =
-    "#[cfg(any(test, all(target_os = \"macos\", target_arch = \"aarch64\")))]";
 const NATIVE_OR_UNIX_TEST_GATE: &str =
     "#[cfg(any(all(test, unix), all(target_os = \"macos\", target_arch = \"aarch64\")))]";
 const UNIX_PROTECTED_GATE: &str =
-    "#[cfg(any(test, all(unix), all(target_os = \"macos\", target_arch = \"aarch64\")))]";
+    "#[cfg(any(test, unix, all(target_os = \"macos\", target_arch = \"aarch64\")))]";
 const ENROLLMENT_SESSION_SCOPE_GATE: &str = "#[cfg(all(\n    feature = \"desktop-protected\",\n    any(\n        all(test, unix),\n        target_os = \"linux\",\n        all(target_os = \"macos\", target_arch = \"aarch64\")\n    )\n))]";
 const ENROLLMENT_EXCHANGE_SCOPE_GATE: &str = "#[cfg(all(\n    feature = \"desktop-protected\",\n    any(target_os = \"linux\", all(target_os = \"macos\", target_arch = \"aarch64\"))\n))]";
 

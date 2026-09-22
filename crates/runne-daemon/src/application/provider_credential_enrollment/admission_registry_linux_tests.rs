@@ -30,7 +30,7 @@ fn facts() -> LinuxInstallationFacts {
 
 fn gated_registry(gate: DaemonLinuxPreadmission) -> PendingCredentialAdmissions {
     let (request, admission) = verified_frames();
-    drop((request, admission));
+    let _ = (request, admission);
     let (issuer, _) = ProviderCredentialRequestAuthorityPair::new().split();
     PendingCredentialAdmissions::new(issuer).with_linux_preadmission(gate)
 }
@@ -62,8 +62,7 @@ fn wrong_provider_denies_before_admission() {
             100_000,
             ProviderCredentialProviderV2::OpenAi,
         )
-        .err()
-        .expect("non-allowlisted provider denies");
+        .expect_err("non-allowlisted provider denies");
     assert!(matches!(
         error,
         ProviderCredentialEnrollmentHostError::Unsupported
@@ -82,8 +81,7 @@ fn missing_record_keeps_path_off_by_default() {
             100_000,
             ProviderCredentialProviderV2::DeepSeek,
         )
-        .err()
-        .expect("default OFF denies");
+        .expect_err("default OFF denies");
     assert!(matches!(
         error,
         ProviderCredentialEnrollmentHostError::Unsupported
@@ -108,8 +106,7 @@ fn copied_record_on_mismatched_installation_denies() {
             100_000,
             ProviderCredentialProviderV2::DeepSeek,
         )
-        .err()
-        .expect("copied record denies");
+        .expect_err("copied record denies");
     assert!(matches!(
         error,
         ProviderCredentialEnrollmentHostError::Unsupported

@@ -1,3 +1,8 @@
+#![expect(
+    dead_code,
+    reason = "the V3 launch loop that drives the handoff purposes lands with a later composition slice"
+)]
+
 use std::os::unix::net::UnixStream;
 
 #[cfg(target_os = "macos")]

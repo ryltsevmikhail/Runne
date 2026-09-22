@@ -95,8 +95,7 @@ impl DhSession {
     pub fn encrypt(&self, data: &[u8], mime: &str) -> WireSecret {
         let mut iv = [0_u8; 16];
         OsRng.fill_bytes(&mut iv);
-        let encrypted =
-            encrypt_with_iv(data, &self.shared_key, &iv).expect("valid key and iv lengths");
+        let encrypted = encrypt_with_iv(data, &self.shared_key, &iv);
         WireSecret {
             session_path: self.session_path.clone(),
             iv: iv.to_vec(),
@@ -121,6 +120,7 @@ fn generate_private_key() -> [u8; 128] {
 }
 
 /// Public DH key for one private key (also reused by the test fake peer).
+#[cfg(test)]
 pub fn public_key(private: &[u8; 128]) -> Vec<u8> {
     let modulus = BigUint::from_bytes_be(DH_PRIME);
     let generator = BigUint::from_u64(2).expect("generator 2 is valid");
@@ -148,16 +148,17 @@ pub fn derive_shared_key(private: &[u8; 128], peer_public: &[u8]) -> Result<[u8;
     Ok(okm)
 }
 
+#[cfg(test)]
 pub fn random_iv() -> [u8; 16] {
     let mut iv = [0_u8; 16];
     OsRng.fill_bytes(&mut iv);
     iv
 }
 
-pub fn encrypt_with_iv(data: &[u8], key: &[u8; 16], iv: &[u8; 16]) -> Result<Vec<u8>, SsBusError> {
+pub fn encrypt_with_iv(data: &[u8], key: &[u8; 16], iv: &[u8; 16]) -> Vec<u8> {
     let key = GenericArray::from_slice(key);
     let iv = GenericArray::from_slice(iv);
-    Ok(Aes128CbcEnc::new(key, iv).encrypt_padded_vec_mut::<Pkcs7>(data))
+    Aes128CbcEnc::new(key, iv).encrypt_padded_vec_mut::<Pkcs7>(data)
 }
 
 pub fn decrypt_with_iv(
@@ -165,7 +166,7 @@ pub fn decrypt_with_iv(
     key: &[u8; 16],
     iv: &[u8],
 ) -> Result<Zeroizing<Vec<u8>>, SsBusError> {
-    if iv.len() != 16 || data.is_empty() || data.len() % 16 != 0 {
+    if iv.len() != 16 || data.is_empty() || !data.len().is_multiple_of(16) {
         return Err(SsBusError::Transport);
     }
     let key = GenericArray::from_slice(key);
@@ -209,7 +210,8 @@ mod tests {
 
     #[test]
     fn known_answer_dh_hkdf_derivation() {
-        let private: [u8; 128] = core::array::from_fn(|i| i as u8);
+        let private: [u8; 128] =
+            core::array::from_fn(|i| u8::try_from(i).expect("index below 128 fits u8"));
         let server_public = hex::decode(
             "7b1d7d3188d79522e49e1ef8a54a32403fa559965ff46561a8d12fc1f79273e70b2c\
              6ea601992ec15910b87dffa610904bdbc2bdd35b13c95a0d7cb40a0d62720f4a9042\
@@ -227,7 +229,8 @@ mod tests {
 
     #[test]
     fn client_public_key_reference() {
-        let private: [u8; 128] = core::array::from_fn(|i| i as u8);
+        let private: [u8; 128] =
+            core::array::from_fn(|i| u8::try_from(i).expect("index below 128 fits u8"));
         let modulus = BigUint::from_bytes_be(DH_PRIME);
         let generator = BigUint::from_u64(2).unwrap();
         let public = pow_mod(&generator, &private, &modulus);
@@ -251,7 +254,7 @@ mod tests {
             .try_into()
             .unwrap();
         let plaintext = hex::decode("6bc1bee22e409f96e93d7e117393172a").unwrap();
-        let ciphertext = encrypt_with_iv(&plaintext, &key, &iv).unwrap();
+        let ciphertext = encrypt_with_iv(&plaintext, &key, &iv);
         assert_eq!(
             hex::encode(&ciphertext[..16]),
             "7649abac8119b246cee98e9b12e9197d",
@@ -264,7 +267,9 @@ mod tests {
     #[test]
     fn negotiate_roundtrip_encrypt_decrypt() {
         // Fake OpenSession: derive the "server" public key from a fixed private.
-        let server_private: [u8; 128] = core::array::from_fn(|i: usize| ((i * 7 + 3) & 0xff) as u8);
+        let server_private: [u8; 128] = core::array::from_fn(|i: usize| {
+            u8::try_from((i * 7 + 3) & 0xff).expect("masked to u8")
+        });
         let modulus = BigUint::from_bytes_be(DH_PRIME);
         let generator = BigUint::from_u64(2).unwrap();
         let server_public = pow_mod(&generator, &server_private, &modulus).to_bytes_be();

@@ -1,7 +1,7 @@
 //! Desktop preprompt Linux activation gate (default OFF).
 //!
 //! The desktop independently denies every enrollment intent outside the
-//! explicit activation scope (legacy V1 DeepSeek or V2 closed catalog), or whose
+//! explicit activation scope (legacy V1 `DeepSeek` or V2 closed catalog), or whose
 //! approval record does not bind to this exact installation and host —
 //! BEFORE any prompt, lease, or store mutation. The gate shares the record
 //! format and facts canonicalizer with the daemon preadmission gate
@@ -27,7 +27,7 @@ static MANAGED_CONTEXT: OnceLock<ManagedLinuxContext> = OnceLock::new();
 
 /// Retains no independent authority or path guesses. Every check asks the
 /// managed supervisor for facts of its currently retained protected process.
-pub(crate) fn install_managed_context(controller: &Arc<BundledRuntimeController>) {
+pub fn install_managed_context(controller: &Arc<BundledRuntimeController>) {
     let _ = MANAGED_CONTEXT.set(Arc::downgrade(controller));
 }
 
