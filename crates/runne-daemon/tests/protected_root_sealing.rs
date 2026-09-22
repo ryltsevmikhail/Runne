@@ -9,7 +9,7 @@ const HARNESS: &str = include_str!("../src/application/root_admission_test_suppo
 const LAUNCH: &str = include_str!("../src/protected_activation/launch.rs");
 const WORKSPACE: &str = include_str!("../src/application/workspace_internal.rs");
 const TEST_SUPPORT: &str = include_str!("../src/protected_activation/test_support.rs");
-const HOST: &str = include_str!("../src/protected_activation/host.rs");
+const HOST: &str = include_str!("../src/protected_activation/host/mod.rs");
 const DEPENDENCIES: &str =
     include_str!("../src/application/workspace_internal/provider_dependencies.rs");
 

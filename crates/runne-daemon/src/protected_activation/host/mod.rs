@@ -236,6 +236,8 @@ fn enrollment_composition_uses_runtime_root_parent_for_updater_journals() {
 }
 
 #[cfg(feature = "desktop-protected")]
+mod profile_directory;
+#[cfg(feature = "desktop-protected")]
 fn launch_time() -> Result<u64, LaunchAuthorityError> {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
