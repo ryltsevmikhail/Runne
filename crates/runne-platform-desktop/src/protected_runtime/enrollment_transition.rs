@@ -64,7 +64,7 @@ impl ProtectedBundledRuntimeProcess {
     /// Assembles the Linux local-runtime enrollment claims from the live V2
     /// launch: the release tuple digests are measured from the exact staged
     /// daemon binary, and the peer binding digest from this process.
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     pub(crate) fn begin_local_linux_enrollment_claims(
         &self,
     ) -> Result<EnrollmentTransitionClaims, ProtectedBundledRuntimeError> {

@@ -33,9 +33,17 @@ impl PreparedMacOsPairSecretPipe {
     /// Creates a close-on-exec pipe. Only the normalized read half is installed
     /// into the child; the write half remains host-owned.
     pub(super) fn prepare() -> Result<Self, BrokerHandoffError> {
+        // `pipe_with`/`PipeFlags` are absent on Apple backends, so create the
+        // plain pipe and raise close-on-exec explicitly on both halves before
+        // anything can spawn.
         let (created_reader, created_writer) =
-            rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC)
+            rustix::pipe::pipe().map_err(|_| BrokerHandoffError::Unavailable)?;
+        for created in [&created_reader, &created_writer] {
+            let flags =
+                rustix::io::fcntl_getfd(created).map_err(|_| BrokerHandoffError::Unavailable)?;
+            rustix::io::fcntl_setfd(created, flags | rustix::io::FdFlags::CLOEXEC)
                 .map_err(|_| BrokerHandoffError::Unavailable)?;
+        }
         let reader = rustix::io::fcntl_dupfd_cloexec(&created_reader, 4)
             .map_err(|_| BrokerHandoffError::Unavailable)?;
         let writer = rustix::io::fcntl_dupfd_cloexec(&created_writer, 4)
