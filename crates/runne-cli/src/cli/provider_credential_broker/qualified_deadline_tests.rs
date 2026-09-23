@@ -24,16 +24,29 @@ fn blocked_socket_read_is_limited_to_the_remaining_budget() {
 #[test]
 fn finishing_exchange_restores_transport_timeouts() {
     let (_peer, stream) = UnixStream::pair().unwrap();
-    let read_timeout = Some(Duration::from_millis(321));
-    let write_timeout = Some(Duration::from_millis(654));
-    stream.set_read_timeout(read_timeout).unwrap();
-    stream.set_write_timeout(write_timeout).unwrap();
+    let read_timeout = Duration::from_millis(321);
+    let write_timeout = Duration::from_millis(654);
+    stream.set_read_timeout(Some(read_timeout)).unwrap();
+    stream.set_write_timeout(Some(write_timeout)).unwrap();
     let stream = QualifiedSocketControl::new(stream)
         .unwrap()
         .finish()
         .unwrap();
-    assert_eq!(stream.read_timeout().unwrap(), read_timeout);
-    assert_eq!(stream.write_timeout().unwrap(), write_timeout);
+    // SO_RCVTIMEO/SO_SNDTIMEO round to the kernel scheduler tick (up to 4 ms
+    // at HZ=250), so the restored values are compared with tick-level
+    // tolerance instead of exact equality.
+    let restored_read = stream.read_timeout().unwrap().unwrap();
+    let restored_write = stream.write_timeout().unwrap().unwrap();
+    for (restored, expected) in [
+        (restored_read, read_timeout),
+        (restored_write, write_timeout),
+    ] {
+        let drift = restored.abs_diff(expected);
+        assert!(
+            drift <= Duration::from_millis(8),
+            "restored {restored:?} drifted too far from {expected:?}"
+        );
+    }
 }
 
 #[test]

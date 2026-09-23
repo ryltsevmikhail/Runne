@@ -54,6 +54,7 @@ fn orchestrator_fixture(
 }
 
 #[test]
+#[ignore = "requires the owner Linux session-bus socket; the verified launch uses the production DBus address"]
 fn orchestrator_launches_the_real_writer_into_a_verified_channel() {
     let (binding, authority, writer_control, transfer) = orchestrator_fixture([31; 32]);
     let spec = real_writer_launch_spec();
@@ -81,6 +82,7 @@ fn orchestrator_launches_the_real_writer_into_a_verified_channel() {
 }
 
 #[test]
+#[ignore = "requires the owner Linux session-bus socket; the verified launch uses the production DBus address"]
 fn orchestrator_denies_a_wrong_startup_launch_secret() {
     let (binding, authority, writer_control, transfer) = orchestrator_fixture([31; 32]);
     let spec = real_writer_launch_spec();
