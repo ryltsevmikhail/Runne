@@ -82,6 +82,25 @@ impl UnixRetainedWriterProcess {
         self.start_identity
     }
 
+    /// Confirms that the retained child has not exited without consuming its
+    /// wait status. Linux admission uses this at the handoff confirmation
+    /// point so a zombie's still-readable `/proc` identity cannot pass.
+    #[cfg(target_os = "linux")]
+    pub(super) fn ensure_running(&self) -> Result<(), BrokerHandoffError> {
+        let pidfd = self.pidfd.as_ref().ok_or(BrokerHandoffError::Unavailable)?;
+        let status = rustix::process::waitid(
+            rustix::process::WaitId::PidFd(pidfd.as_fd()),
+            rustix::process::WaitIdOptions::EXITED
+                | rustix::process::WaitIdOptions::NOHANG
+                | rustix::process::WaitIdOptions::NOWAIT,
+        )
+        .map_err(|_| BrokerHandoffError::Rejected)?;
+        if status.is_some() {
+            return Err(BrokerHandoffError::Rejected);
+        }
+        Ok(())
+    }
+
     #[cfg(target_os = "macos")]
     pub(super) const fn pid(&self) -> libc::pid_t {
         self.pid
