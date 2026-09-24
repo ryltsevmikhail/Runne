@@ -110,6 +110,7 @@ async fn operational_telemetry_is_capability_gated_and_auth_no_store() {
     let binding = binding_with_capabilities(CAPABILITIES);
     let authority = bootstrap_authority(&app, &binding).await;
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/v1/runtime/operational-telemetry")
@@ -196,6 +197,7 @@ async fn local_client_contour_mounts_only_the_canonical_task_run_surface() {
 
     // The client-facing atomic submit is mounted and reaches validation.
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -207,4 +209,22 @@ async fn local_client_contour_mounts_only_the_canonical_task_run_surface() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let response = app
+        .oneshot(Request::builder().method("POST").uri("/v2/task-runs/submit")
+            .header("authorization", &session).body(Body::empty()).unwrap())
+        .await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND, "legacy profile must not mount prompted submit v2");
+}
+
+#[tokio::test]
+async fn prompted_submit_v2_is_mounted_when_profile_advertises_capability() {
+    const CAPABILITIES: &[&str] = &["conversation.create.v1", "conversation.list.v1", "task_run.submit.v2"];
+    let host = host_with_capabilities(CAPABILITIES);
+    let app = host.router_for_test();
+    let authority = bootstrap_authority(&app, &binding_with_capabilities(CAPABILITIES)).await;
+    let session = format!("GocodeSession {}", URL_SAFE_NO_PAD.encode(authority));
+    let response = app.oneshot(Request::builder().method("POST").uri("/v2/task-runs/submit")
+        .header("authorization", session).body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST, "advertised v2 route should reach request validation");
 }

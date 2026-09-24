@@ -4,12 +4,13 @@ use crate::id::{AttemptId, TaskRunId};
 use crate::task_run::TaskRunState;
 use io::{In, MAX_BYTES, Out};
 
-const VERSION: u8 = 1;
+const VERSION: u8 = 2;
 
 pub(super) fn encode(value: &TaskRun) -> Result<Vec<u8>, TaskRunSnapshotError> {
     validation::validate(value)?;
+    let version = if value.input.is_some() { VERSION } else { 1 };
     let mut out = Out::new();
-    out.u8(VERSION);
+    out.u8(version);
     out.id(value.id.as_bytes());
     put_state(&mut out, value.state);
     put_opt_attempt(&mut out, value.active_attempt);
@@ -46,6 +47,17 @@ pub(super) fn encode(value: &TaskRun) -> Result<Vec<u8>, TaskRunSnapshotError> {
         cycles::put_history(&mut out, entry);
     }
     out.u64(value.recovery_generation);
+    if version == VERSION {
+        match (&value.conversation_id, &value.workspace_id, &value.input) {
+            (Some(conversation), Some(workspace), Some(input)) => {
+                out.u8(1);
+                out.id(conversation.as_bytes());
+                out.id(workspace.as_bytes());
+                out.string(input.prompt())?;
+            }
+            _ => return Err(TaskRunSnapshotError::InvalidState),
+        }
+    }
     out.finish()
 }
 
@@ -54,7 +66,8 @@ pub(super) fn decode(bytes: &[u8]) -> Result<TaskRun, TaskRunSnapshotError> {
         return Err(TaskRunSnapshotError::InvalidEncoding);
     }
     let mut input = In::new(bytes)?;
-    if input.u8()? != VERSION {
+    let version = input.u8()?;
+    if version != 1 && version != VERSION {
         return Err(TaskRunSnapshotError::InvalidEncoding);
     }
     let id = TaskRunId::from_bytes(input.id()?);
@@ -78,11 +91,30 @@ pub(super) fn decode(bytes: &[u8]) -> Result<TaskRun, TaskRunSnapshotError> {
         cycle_history.push(cycles::get_history(&mut input)?);
     }
     let recovery_generation = input.u64()?;
+    let (conversation_id, workspace_id, task_input) = if version == 1 {
+        (None, None, None)
+    } else {
+        match input.u8()? {
+            0 => (None, None, None),
+            1 => {
+                let conversation_id = crate::id::ConversationId::from_bytes(input.id()?);
+                let workspace_id = crate::id::WorkspaceId::from_bytes(input.id()?);
+                let prompt = input.string()?;
+                let task_input = super::super::TaskRunInput::new(prompt)
+                    .map_err(|_| TaskRunSnapshotError::InvalidState)?;
+                (Some(conversation_id), Some(workspace_id), Some(task_input))
+            }
+            _ => return Err(TaskRunSnapshotError::InvalidEncoding),
+        }
+    };
     if !input.done() {
         return Err(TaskRunSnapshotError::InvalidEncoding);
     }
     let value = TaskRun {
         id,
+        conversation_id,
+        workspace_id,
+        input: task_input,
         state,
         active_attempt,
         attempt_history,

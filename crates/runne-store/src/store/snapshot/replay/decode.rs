@@ -86,7 +86,7 @@ pub(super) fn decode_taskrun(
         command,
         key,
         actor,
-        payload,
+        payload_bytes,
         digest,
         correlation,
         aggregate,
@@ -94,12 +94,21 @@ pub(super) fn decode_taskrun(
         profile,
     ) = row;
     if schema != 1
-        || sensitivity != 0
         || correlation_type != CORRELATION_TYPE_TASK_RUN
         || profile != INTEGRITY_PROFILE_V1
         || aggregate.as_slice() != id.as_bytes()
         || correlation.as_slice() != id.as_bytes()
         || position <= 0
+    {
+        return Err(invalid());
+    }
+    let payload = TaskRunEventCodec
+        .decode(&payload_bytes)
+        .map_err(|_| invalid())?;
+    let sensitivity = stored_sensitivity(sensitivity).map_err(|_| invalid())?;
+    let submitted = matches!(&payload, TaskRunEvent::TaskRunSubmitted { .. });
+    if (submitted && sensitivity != Sensitivity::Sensitive)
+        || (!submitted && sensitivity != Sensitivity::Public)
     {
         return Err(invalid());
     }
@@ -116,14 +125,15 @@ pub(super) fn decode_taskrun(
             .map_err(|_| invalid())?,
         u32::try_from(schema).map_err(|_| invalid())?,
         Actor::new(String::from_utf8(actor).map_err(|_| invalid())?).map_err(|_| invalid())?,
-        Sensitivity::Public,
-        TaskRunEventCodec.decode(&payload).map_err(|_| invalid())?,
+        sensitivity,
+        payload,
         u64::try_from(sequence).map_err(|_| invalid())?,
         Timestamp::from_unix_micros(timestamp),
         parse_integrity_digest(digest).map_err(|_| invalid())?,
     );
-    let expected = compute_integrity_digest_with_global_position(&envelope, position, &payload)
-        .map_err(|_| invalid())?;
+    let expected =
+        compute_integrity_digest_with_global_position(&envelope, position, &payload_bytes)
+            .map_err(|_| invalid())?;
     if expected != *envelope.integrity_digest() {
         return Err(invalid());
     }
@@ -166,10 +176,7 @@ pub(super) fn verify_head<E>(
 }
 
 pub(super) fn verify_strict_position(previous: i64, current: i64) -> rusqlite::Result<()> {
-    if current <= previous {
-        return Err(invalid());
-    }
-    Ok(())
+    (current > previous).then_some(()).ok_or_else(invalid)
 }
 
 #[cfg(test)]

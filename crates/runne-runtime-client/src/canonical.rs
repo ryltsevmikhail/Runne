@@ -13,6 +13,9 @@ include!("canonical/transport_kind.rs");
 include!("canonical/client.rs");
 include!("canonical/task_run_submit.rs");
 include!("canonical/capabilities.rs");
+include!("canonical/capabilities_v2.rs");
+#[cfg(test)]
+include!("canonical/capabilities_tests.rs");
 include!("canonical/requests.rs");
 include!("canonical/errors.rs");
 include!("canonical/wire.rs");

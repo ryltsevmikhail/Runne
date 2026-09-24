@@ -64,7 +64,9 @@ impl TryFrom<&TaskRunEvent> for CanonicalReplayPayloadV1 {
 
     fn try_from(event: &TaskRunEvent) -> Result<Self, Self::Error> {
         Ok(match event {
-            TaskRunEvent::TaskRunCreated => Self::TaskRunCreated,
+            TaskRunEvent::TaskRunCreated | TaskRunEvent::TaskRunSubmitted { .. } => {
+                Self::TaskRunCreated
+            }
             TaskRunEvent::TaskRunQueued => Self::TaskRunQueued,
             TaskRunEvent::TaskRunAdmitted => Self::TaskRunAdmitted,
             TaskRunEvent::AttemptStarted { attempt_id } => Self::TaskRunAttemptStarted {

@@ -91,6 +91,9 @@ impl ReplayBaselineV2Authenticator {
             &expected_id,
         )
         .map_err(|_| ReplayBaselineV2AuthenticationError::Unauthorized)?;
+        if promotion.view().sensitivity_ceiling() > self.binding.ephemeral().sensitivity_ceiling() {
+            return Err(ReplayBaselineV2AuthenticationError::Unauthorized);
+        }
         let expected = self.witness_mac(wire)?;
         if !bool::from(expected.ct_eq(&fields.witness_mac)) {
             return Err(ReplayBaselineV2AuthenticationError::Unauthorized);

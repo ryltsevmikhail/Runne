@@ -14,6 +14,20 @@
         pos += 1;
 
         let event = match tag {
+            TAG_TASK_RUN_SUBMITTED => {
+                let conversation_id = runne_domain::id::ConversationId::from_bytes(read_uuid(bytes, &mut pos)?);
+                let workspace_id = runne_domain::id::WorkspaceId::from_bytes(read_uuid(bytes, &mut pos)?);
+                if pos + 4 > bytes.len() { return Err(StoreCodecError::Truncated); }
+                let length = u32::from_be_bytes(bytes[pos..pos + 4].try_into().map_err(|_| StoreCodecError::Truncated)?) as usize;
+                pos += 4;
+                let end = pos.checked_add(length).ok_or(StoreCodecError::Truncated)?;
+                let prompt = std::str::from_utf8(bytes.get(pos..end).ok_or(StoreCodecError::Truncated)?)
+                    .map_err(|_| StoreCodecError::Truncated)?.to_owned();
+                pos = end;
+                let input = runne_domain::task_run::TaskRunInput::new(prompt)
+                    .map_err(|_| StoreCodecError::Truncated)?;
+                TaskRunEvent::TaskRunSubmitted { conversation_id, workspace_id, input }
+            }
             TAG_TASK_RUN_CREATED => TaskRunEvent::TaskRunCreated,
             TAG_TASK_RUN_QUEUED => TaskRunEvent::TaskRunQueued,
             TAG_TASK_RUN_ADMITTED => TaskRunEvent::TaskRunAdmitted,

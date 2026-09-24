@@ -158,6 +158,8 @@ impl ReplayBaselineV2Authenticator {
             }
         };
         if !identity_matches
+            || accepted.projection.view().sensitivity_ceiling()
+                > self.binding.ephemeral().sensitivity_ceiling()
             || accepted.sequence < baseline.sequence()
             || accepted.global_position < baseline.baseline_global_position()
             || accepted.captured_high_water < baseline.captured_high_water()
@@ -230,7 +232,10 @@ impl AuthenticatedAcceptedReplayProjectionV2 {
     }
     /// Proves that this accepted projection belongs to the exact baseline.
     pub fn matches_baseline(&self, baseline: &AuthenticatedReplayBaselineV2) -> bool {
-        bool::from(self.baseline_evidence_digest.ct_eq(&baseline.local_evidence_digest()))
+        bool::from(
+            self.baseline_evidence_digest
+                .ct_eq(&baseline.local_evidence_digest()),
+        )
     }
     /// Proves the persisted local baseline evidence belongs to this result.
     pub fn matches_local_evidence_digest(&self, evidence: &[u8; 32]) -> bool {
@@ -250,7 +255,10 @@ impl AuthenticatedAcceptedReplayProjectionV2 {
 impl AuthenticatedReplayBaselineCheckpointV2 {
     /// Proves that this admitted checkpoint belongs to the exact baseline.
     pub fn matches_baseline(&self, baseline: &AuthenticatedReplayBaselineV2) -> bool {
-        bool::from(self.baseline_evidence_digest.ct_eq(&baseline.local_evidence_digest()))
+        bool::from(
+            self.baseline_evidence_digest
+                .ct_eq(&baseline.local_evidence_digest()),
+        )
     }
     /// Runs a native local-persistence operation over the admitted cursor.
     ///

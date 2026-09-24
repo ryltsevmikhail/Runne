@@ -152,7 +152,7 @@ fn main() -> ExitCode {
         Err(message) => return fail("staged-binding", &message),
     };
     let contract =
-        candidate_app.join("Contents/Resources/contracts/gocode-ui-client-2/bundle.json");
+        candidate_app.join("Contents/Resources/contracts/gocode-ui-client-3/bundle.json");
     let daemon = candidate_app.join("Contents/MacOS/runned");
     let (bundle_sha256, runtime_digest) = match (sha256_hex(&contract), sha256_hex(&daemon)) {
         (Ok(bundle), Ok(runtime)) => (bundle, runtime),

@@ -85,7 +85,7 @@ fn protected_workspace_client(origin: &str) -> AuthenticatedRuntimeClient {
     runne_runtime_client::mock_protected_authenticated_runtime_client(
         origin,
         runne_runtime_client::RuntimeSessionInfo {
-            profile_id: "gocode-ui-client/2".into(),
+            profile_id: runne_runtime_client::EXPECTED_BUNDLE_ID.into(),
             schema_hash: runne_runtime_client::GOLDEN_BUNDLE_HASH.into(),
             runtime_version: "test".into(),
             capabilities,

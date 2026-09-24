@@ -3,6 +3,10 @@
 use runne_domain::id::{
     AttemptId, CommandId, ConversationId, IdempotencyKey, TaskRunId, WorkspaceId,
 };
+pub use runne_domain::task_run::{MAX_TASK_RUN_PROMPT_BYTES, TaskRunInput};
+
+mod query_port;
+pub use query_port::TaskRunQueryHostPort;
 
 use crate::{ApiActor, ApiPrincipalId};
 
@@ -32,11 +36,20 @@ pub struct CreateTaskRunCommand {
 }
 
 /// Canonical input for the atomic client-authorized TaskRun submit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubmitTaskRunCommand {
     /// Conversation referenced by the new TaskRun.
     pub conversation_id: ConversationId,
     /// Workspace referenced by the new TaskRun.
+    pub workspace_id: WorkspaceId,
+    /// Exact, validated prompt submitted by the caller.
+    pub input: TaskRunInput,
+}
+
+/// Historical promptless atomic submit retained at the v1 wire boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LegacySubmitTaskRunCommand {
+    pub conversation_id: ConversationId,
     pub workspace_id: WorkspaceId,
 }
 
@@ -233,6 +246,15 @@ pub trait TaskRunCommandHostPort: Send + Sync {
         async { Err(TaskRunHostError::Unavailable) }
     }
 
+    /// Executes the published v1 promptless submit contract.
+    fn submit_task_run_legacy(
+        &self,
+        _context: TaskRunCommandContext,
+        _command: LegacySubmitTaskRunCommand,
+    ) -> impl std::future::Future<Output = Result<TaskRunCommandAck, TaskRunHostError>> + Send {
+        async { Err(TaskRunHostError::Unavailable) }
+    }
+
     /// Queues one created TaskRun.
     fn queue_task_run(
         &self,
@@ -269,21 +291,4 @@ pub trait TaskRunCommandHostPort: Send + Sync {
         context: TaskRunCommandContext,
         command: CompleteTaskRunCommand,
     ) -> impl std::future::Future<Output = Result<TaskRunCommandAck, TaskRunHostError>> + Send;
-}
-
-/// Runtime host boundary for canonical non-mutating TaskRun queries.
-pub trait TaskRunQueryHostPort: Send + Sync {
-    /// Reconstructs one TaskRun from its committed stream.
-    fn get_task_run(
-        &self,
-        taskrun_id: TaskRunId,
-    ) -> impl std::future::Future<Output = Result<TaskRunSnapshot, TaskRunHostError>> + Send;
-
-    /// Reconstructs every committed TaskRun for bounded lifecycle decisions.
-    fn list_task_runs(
-        &self,
-    ) -> impl std::future::Future<Output = Result<Vec<TaskRunSnapshot>, TaskRunHostError>> + Send
-    {
-        async { Err(TaskRunHostError::Unavailable) }
-    }
 }

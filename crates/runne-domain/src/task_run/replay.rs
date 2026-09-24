@@ -79,6 +79,9 @@ impl TaskRun {
         }
         let mut agg = Self {
             id: taskrun_id,
+            conversation_id: None,
+            workspace_id: None,
+            input: None,
             state: TaskRunState::Created,
             active_attempt: None,
             attempt_history: Vec::new(),

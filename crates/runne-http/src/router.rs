@@ -41,6 +41,7 @@ use crate::workspace_diffs::{WorkspaceDiffHttpState, workspace_diff_router};
 use crate::workspace_files::{WorkspaceFileHttpState, workspace_file_router};
 
 include!("router_parts/production.rs");
+include!("router_parts/legacy_routers.rs");
 include!("router_parts/local_engine.rs");
 include!("router_parts/provider_credential_admission.rs");
 include!("router_parts/project_workspace.rs");

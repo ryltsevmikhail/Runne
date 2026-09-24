@@ -52,7 +52,15 @@ impl NormalizedMutationCommand {
                 task_run_id: codec::id(&mut input)?,
                 expected_version: version(&mut input)?,
             },
-            12 => Self::SubmitTaskRun { conversation_id: codec::id(&mut input)?, workspace_id: codec::id(&mut input)? },
+            12 => Self::LegacySubmitTaskRun {
+                conversation_id: codec::id(&mut input)?,
+                workspace_id: codec::id(&mut input)?,
+            },
+            13 => Self::SubmitTaskRun {
+                conversation_id: codec::id(&mut input)?,
+                workspace_id: codec::id(&mut input)?,
+                prompt: codec::message_text(&mut input)?,
+            },
             10 => {
                 let (
                     approval_id,

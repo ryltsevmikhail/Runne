@@ -56,6 +56,7 @@ pub(super) enum ReconciliationBody {
     SubmitTaskRun {
         conversation_id: String,
         workspace_id: String,
+        prompt: Option<String>,
     },
     ApprovalDecision {
         approval_id: String,
@@ -143,10 +144,22 @@ impl ReconciliationBody {
             Self::SubmitTaskRun {
                 conversation_id,
                 workspace_id,
-            } => Some(CommandReconciliationWitness::submit_task_run(
-                conversation(&conversation_id)?,
-                workspace(&workspace_id)?,
-            )),
+                prompt,
+            } => {
+                let conversation_id = conversation(&conversation_id)?;
+                let workspace_id = workspace(&workspace_id)?;
+                match prompt {
+                    Some(prompt) => Some(CommandReconciliationWitness::submit_task_run(
+                        conversation_id,
+                        workspace_id,
+                        runne_domain::task_run::TaskRunInput::new(prompt).ok()?,
+                    )),
+                    None => Some(CommandReconciliationWitness::submit_task_run_legacy(
+                        conversation_id,
+                        workspace_id,
+                    )),
+                }
+            }
             Self::ApprovalDecision {
                 approval_id,
                 expected_version,

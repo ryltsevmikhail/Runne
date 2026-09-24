@@ -66,7 +66,7 @@ impl Fixture {
         let helper = contents.join("Library/Helpers/RunneCredentialService.app/Contents/MacOS");
         let launch = contents.join("Library/LaunchAgents");
         let profile = helper.parent().unwrap().join("embedded.provisionprofile");
-        let contract = resources.join("contracts/gocode-ui-client-2/bundle.json");
+        let contract = resources.join("contracts/gocode-ui-client-3/bundle.json");
         for directory in [
             &macos,
             &native,
@@ -202,7 +202,7 @@ fn producer_rejects_missing_or_noncanonical_bound_artifacts() {
         "Contents/Resources/native-enrollment/credential-service.entitlements.plist",
         "Contents/Resources/native-enrollment/xpc-protocol-v1.json",
         "Contents/Resources/native-enrollment/release-candidate-binding.json",
-        "Contents/Resources/contracts/gocode-ui-client-2/bundle.json",
+        "Contents/Resources/contracts/gocode-ui-client-3/bundle.json",
     ] {
         let fixture = Fixture::exact();
         std::fs::remove_file(fixture.path(relative)).unwrap();
@@ -267,7 +267,7 @@ fn target() -> UpdateTargetV2 {
         artifact_url: "https://updates.example.test/Runne.dmg".into(),
         release_candidate_sha256: String::new(),
         min_os: "13.0".into(),
-        profile_id: "gocode-ui-client/2".into(),
+        profile_id: "gocode-ui-client/3".into(),
         bundle_sha256: digest(b"contract-v2"),
         runtime_version: "0.1.0".into(),
         runtime_digest: "b".repeat(64),

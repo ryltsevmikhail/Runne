@@ -211,6 +211,19 @@ where
         });
     }
 
+    fn spawn_submit_legacy_task(
+        &mut self,
+        context: ApplicationCommandContext,
+        input: runne_application::commands::LegacySubmitTaskRunInput,
+        service: Arc<TaskRunService<E, U, I>>,
+        reply: Reply,
+    ) {
+        self.join_set.spawn(async move {
+            let outcome = service.submit_task_run_legacy(&context, input).map_err(RuntimeError::Application);
+            RuntimeTaskExit::Submit { outcome, reply }
+        });
+    }
+
     fn spawn_conversation_text_task(
         &mut self,
         call: ConversationTextCall,

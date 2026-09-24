@@ -12,7 +12,10 @@ use crate::command::{CreateTaskRun, SubmitTaskRun, TaskRunCommand, TerminalResul
 use crate::context::ContextManifestRef;
 use crate::error::{DomainError, LoopInvariantViolation};
 use crate::event::{AggregateType, DomainEventDraft, EventEnvelope, Sensitivity};
-use crate::id::{AggregateId, AttemptId, CheckpointId, CycleId, IntegrityDigest, TaskRunId};
+use crate::id::{
+    AggregateId, AttemptId, CheckpointId, ConversationId, CycleId, IntegrityDigest, TaskRunId,
+    WorkspaceId,
+};
 use crate::plan::PlanRevisionRef;
 use crate::recovery::{ReconciliationResultRef, ReconciliationStatus};
 use crate::reference::{BudgetReservationRef, CheckpointRef};
@@ -28,7 +31,10 @@ mod types;
 mod validation;
 
 pub use snapshot::{TaskRunSnapshotError, TaskRunSnapshotV1};
-pub use types::{TaskRunEvent, TaskRunEventKind, TaskRunState};
+pub use types::{
+    MAX_TASK_RUN_PROMPT_BYTES, TaskRunEvent, TaskRunEventKind, TaskRunInput, TaskRunInputError,
+    TaskRunState,
+};
 
 // ── TaskRun aggregate ──────────────────────────────────────────────────────
 
@@ -37,6 +43,9 @@ pub use types::{TaskRunEvent, TaskRunEventKind, TaskRunState};
 pub struct TaskRun {
     /// The aggregate identity.
     id: TaskRunId,
+    conversation_id: Option<ConversationId>,
+    workspace_id: Option<WorkspaceId>,
+    input: Option<TaskRunInput>,
     /// Current state.
     state: TaskRunState,
     /// The currently active attempt, if any.

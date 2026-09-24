@@ -1,5 +1,6 @@
 use crate::{ApprovalDecision, CanonicalMessageText, ProjectWorkspaceDisplayNameInput};
 use runne_domain::id::{ApprovalId, ConversationId, ProjectId, TaskRunId, WorkspaceId};
+use runne_domain::task_run::TaskRunInput;
 
 /// Borrowed typed semantic fields for an authoritative store adapter.
 #[derive(Debug, Clone, Copy)]
@@ -51,6 +52,7 @@ pub enum CommandReconciliationWitnessRef<'a> {
     SubmitTaskRun {
         conversation_id: ConversationId,
         workspace_id: WorkspaceId,
+        input: Option<&'a TaskRunInput>,
     },
     ApprovalDecision {
         approval_id: ApprovalId,

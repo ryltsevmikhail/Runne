@@ -20,8 +20,10 @@ fn context(sequence: u8, key: &str) -> ApplicationCommandContext {
     }
 }
 
-fn make_service() -> (TaskRunService<StrictMemStore, StrictMemStore, StrictMemStore>, StrictMemStore)
-{
+fn make_service() -> (
+    TaskRunService<StrictMemStore, StrictMemStore, StrictMemStore>,
+    StrictMemStore,
+) {
     let store = StrictMemStore::new();
     let service = TaskRunService::new(
         store.clone(),
@@ -36,6 +38,7 @@ fn submit_input() -> SubmitTaskRunInput {
     SubmitTaskRunInput {
         conversation_id: conversation_id(),
         workspace_id: workspace_id(),
+        input: runne_domain::task_run::TaskRunInput::new("test prompt".to_owned()).unwrap(),
     }
 }
 
@@ -59,7 +62,10 @@ fn submit_commits_created_then_queued_as_one_atomic_unit_of_work() {
     let stream = store.stream(taskrun_id);
     assert_eq!(stream.len(), 2, "submit appends exactly two events");
     assert_eq!(stream[0].sequence(), 1);
-    assert_eq!(stream[0].payload(), &TaskRunEvent::TaskRunCreated);
+    assert!(matches!(
+        stream[0].payload(),
+        TaskRunEvent::TaskRunSubmitted { input, .. } if input.prompt() == "test prompt"
+    ));
     assert_eq!(stream[1].sequence(), 2);
     assert_eq!(stream[1].payload(), &TaskRunEvent::TaskRunQueued);
     assert_eq!(
@@ -87,6 +93,20 @@ fn duplicate_submit_same_identity_and_payload_returns_the_stored_ack() {
     assert_eq!(first, duplicate);
     assert_eq!(store.commits(), 1, "duplicate must not commit again");
     assert_eq!(store.stream(TASKRUN_ID.parse().unwrap()).len(), 2);
+}
+
+#[test]
+fn legacy_submit_retains_created_queued_batch_and_promptless_replay_fingerprint() {
+    let (service, store) = make_service();
+    let input = runne_application::commands::LegacySubmitTaskRunInput { conversation_id: conversation_id(), workspace_id: workspace_id() };
+    let first = service.submit_task_run_legacy(&context(1, "submit-v1"), input).unwrap();
+    let replay = service.submit_task_run_legacy(&context(1, "submit-v1"), input).unwrap();
+    assert_eq!(first, replay);
+    let stream = store.stream(TASKRUN_ID.parse().unwrap());
+    assert_eq!(stream.len(), 2);
+    assert_eq!(stream[0].payload(), &TaskRunEvent::TaskRunCreated);
+    assert_eq!(stream[1].payload(), &TaskRunEvent::TaskRunQueued);
+    assert_eq!(store.commits(), 1);
 }
 
 #[test]
@@ -118,7 +138,8 @@ fn duplicate_submit_with_a_different_payload_conflicts() {
         .expect("first submit");
     let conflicting = SubmitTaskRunInput {
         conversation_id: conversation_id(),
-        workspace_id: "018f2e3a-7000-7000-8000-0000000000bb".parse().unwrap(),
+        workspace_id: workspace_id(),
+        input: runne_domain::task_run::TaskRunInput::new("changed prompt".to_owned()).unwrap(),
     };
     let error = service
         .submit_task_run(&context(1, "submit-1"), conflicting)

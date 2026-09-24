@@ -10,6 +10,7 @@ impl TaskRun {
     pub fn apply_payload(&mut self, payload: &TaskRunEvent) -> Result<(), DomainError> {
         match payload {
             TaskRunEvent::TaskRunCreated
+            | TaskRunEvent::TaskRunSubmitted { .. }
             | TaskRunEvent::TaskRunQueued
             | TaskRunEvent::TaskRunAdmitted
             | TaskRunEvent::AttemptStarted { .. }

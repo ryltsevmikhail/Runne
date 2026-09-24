@@ -1,17 +1,20 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use jsonschema::{Draft, JSONSchema};
 use runne_api::CanonicalReplayPayloadV1;
 use runne_domain::command::TerminalResult;
 use runne_domain::task_run::TaskRunEvent;
 use runne_runtime::bundle::{
-    BASE_RUNTIME_CAPABILITIES, PUBLISHED_BUNDLE_HASH, PUBLISHED_RUNTIME_CAPABILITIES,
-    RUNTIME_CAPABILITY_CATALOG,
+    BASE_RUNTIME_CAPABILITIES_V2 as BASE_RUNTIME_CAPABILITIES,
+    PUBLISHED_BUNDLE_HASH_V2 as PUBLISHED_BUNDLE_HASH,
+    PUBLISHED_RUNTIME_CAPABILITIES_V2 as PUBLISHED_RUNTIME_CAPABILITIES,
+    RUNTIME_CAPABILITY_CATALOG_V2 as RUNTIME_CAPABILITY_CATALOG,
 };
 use runne_runtime::contract_generation::{
-    GENERATED_ARTIFACT_PATHS, check_ui_contract, generate_ui_contract,
+    GENERATED_ARTIFACT_PATHS, GENERATED_ARTIFACT_PATHS_V3, check_ui_contract, check_ui_contract_v3,
+    generate_ui_contract, generate_ui_contract_v3,
 };
-use jsonschema::{Draft, JSONSchema};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 

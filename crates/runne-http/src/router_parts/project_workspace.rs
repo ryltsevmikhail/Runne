@@ -21,6 +21,11 @@ impl SecureLocalHttpHost {
         if !runtime_profile_state.advertises(OPERATIONAL_TELEMETRY_CAPABILITY_V1) {
             return Err(SecureLocalHttpHostError::OperationalTelemetryCapabilityMissing);
         }
+        let task_run_routes = crate::task_runs::mount_prompted_submit_for_profile(
+            task_run_router(task_run_state.clone()),
+            task_run_state,
+            &runtime_profile_state,
+        );
         let session_auth = if dynamic_session_binding {
             SessionAuthLayer::new_dynamic(local_session_service.clone(), Arc::clone(&clock))
         } else {
@@ -28,7 +33,7 @@ impl SecureLocalHttpHost {
         };
         let protected = Router::new()
             .merge(runtime_profile_session_router(runtime_profile_state))
-            .merge(task_run_router(task_run_state))
+            .merge(task_run_routes)
             .merge(conversation_router(conversation_state))
             .merge(crate::project_workspace::project_workspace_router(project_workspace_state))
             .merge(replay_router(replay_state))

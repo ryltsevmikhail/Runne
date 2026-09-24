@@ -76,7 +76,7 @@ impl NativeEnrollmentArtifactPathsV1 {
                 != macos
                     .parent()
                     .ok_or(NativeEnrollmentTupleError::Rejected)?
-                    .join("Resources/contracts/gocode-ui-client-2/bundle.json")
+                    .join("Resources/contracts/gocode-ui-client-3/bundle.json")
         {
             return Err(NativeEnrollmentTupleError::Rejected);
         }
@@ -216,7 +216,7 @@ impl NativeEnrollmentArtifactPathsV1 {
                     "Contents",
                     "Resources",
                     "contracts",
-                    "gocode-ui-client-2",
+                    "gocode-ui-client-3",
                     "bundle.json",
                 ],
             )?;
@@ -259,7 +259,7 @@ impl NativeEnrollmentArtifactPathsV1 {
                     "Contents",
                     "Resources",
                     "contracts",
-                    "gocode-ui-client-2",
+                    "gocode-ui-client-3",
                     "bundle.json",
                 ][..],
             ),

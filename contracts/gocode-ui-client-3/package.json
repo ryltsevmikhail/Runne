@@ -1,0 +1,19 @@
+{
+  "name": "@gocode/runtime-contract-v3",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "bundle.json",
+    "bundle.sha256",
+    "golden",
+    "openapi.json",
+    "schemas"
+  ],
+  "exports": {
+    "./bundle": "./bundle.json",
+    "./golden/*": "./golden/*",
+    "./openapi": "./openapi.json",
+    "./schemas/*": "./schemas/*"
+  }
+}

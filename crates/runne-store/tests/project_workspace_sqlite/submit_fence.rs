@@ -1,21 +1,38 @@
 use runne_application::commands::{
     AdmitTaskRunInput, CommandOutcome, CompleteTaskRunInput, StartAttemptInput, SubmitTaskRunInput,
 };
+use runne_application::conversation_service::ConversationService;
+use runne_application::ports::EventStore;
 use runne_application::ports::ProjectWorkspaceRepository;
 use runne_domain::command::TerminalResult;
+use runne_domain::event::Sensitivity;
 use runne_domain::id::{ConversationId, ProjectId, WorkspaceId};
 
 use super::support::*;
 
 /// Submits one TaskRun bound to the canonical project workspace.
 pub(super) fn submit_task_run(database: &Database, tail: u8, key_value: &str) -> CommandOutcome {
+    let conversation_id = ConversationId::from_bytes(command(tail + 0x10).into_bytes());
+    ConversationService::new(database.store.clone(), database.store.clone(), authority())
+        .create_from_application(
+            &task_context(tail + 0x20, &format!("{key_value}-conversation")),
+            runne_api::CreateConversationInput {
+                conversation_id,
+                workspace_id: WorkspaceId::from_bytes(WORKSPACE),
+                command_id: command(tail + 0x20),
+                idempotency_key: key(&format!("{key_value}-conversation")),
+                scope: runne_api::ConversationContextScope::Workspace,
+            },
+        )
+        .unwrap();
     database
         .task_runs()
         .submit_task_run(
             &task_context(tail, key_value),
             SubmitTaskRunInput {
-                conversation_id: ConversationId::from_bytes(command(tail + 0x10).into_bytes()),
+                conversation_id,
                 workspace_id: WorkspaceId::from_bytes(WORKSPACE),
+                input: runne_domain::task_run::TaskRunInput::new("test prompt".to_owned()).unwrap(),
             },
         )
         .unwrap()
@@ -31,6 +48,32 @@ fn submit_persists_canonical_lineage_with_origin_20() {
     let CommandOutcome::TaskRunSubmitted { taskrun_id, .. } = outcome else {
         panic!("submit must acknowledge TaskRunSubmitted");
     };
+
+    let sensitivities = {
+        let connection = database.connection();
+        let mut statement = connection
+            .prepare(
+                "SELECT sequence, sensitivity FROM events
+                 WHERE aggregate_type = 1 AND aggregate_id = ?1 ORDER BY sequence",
+            )
+            .unwrap();
+        statement
+            .query_map([taskrun_id.as_bytes()], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    };
+    assert_eq!(sensitivities, [(1, 2), (2, 0)]);
+    let loaded = database.store.load_task_run(taskrun_id).unwrap();
+    assert_eq!(*loaded.events[0].sensitivity(), Sensitivity::Sensitive);
+    assert_eq!(*loaded.events[1].sensitivity(), Sensitivity::Public);
+    let replayed = runne_domain::task_run::TaskRun::replay(&loaded.events).unwrap();
+    assert_eq!(
+        replayed.state(),
+        runne_domain::task_run::TaskRunState::Queued
+    );
 
     let lineage = database
         .connection()
@@ -95,6 +138,7 @@ fn submit_duplicate_replays_the_stored_receipt_after_reopen() {
             SubmitTaskRunInput {
                 conversation_id: ConversationId::from_bytes(command(0x95).into_bytes()),
                 workspace_id: WorkspaceId::from_bytes(WORKSPACE),
+                input: runne_domain::task_run::TaskRunInput::new("test prompt".to_owned()).unwrap(),
             },
         )
         .unwrap();
@@ -125,6 +169,8 @@ fn submit_conflicting_payload_under_the_same_identity_conflicts_after_reopen() {
             SubmitTaskRunInput {
                 conversation_id: ConversationId::from_bytes(command(0xa6).into_bytes()),
                 workspace_id: WorkspaceId::from_bytes(WORKSPACE),
+                input: runne_domain::task_run::TaskRunInput::new("changed prompt".to_owned())
+                    .unwrap(),
             },
         )
         .unwrap_err();

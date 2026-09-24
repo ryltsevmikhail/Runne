@@ -56,7 +56,7 @@ const CONTRACT: &[&str] = &[
     "Contents",
     "Resources",
     "contracts",
-    "gocode-ui-client-2",
+    "gocode-ui-client-3",
     "bundle.json",
 ];
 const CANDIDATE: &[&str] = &[

@@ -1,47 +1,7 @@
 /// `AppCore`'s closed mutation target is validated by the anchored ledger.
 pub type MutationTarget = runne_local_store::StoredMutationTarget;
 
-/// Canonical, normalized command values. DTO construction happens only after
-/// the digest has been anchored by the coordinator.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum CanonicalMutationCommand {
-    CreateProject {
-        project_id: CanonicalId,
-        display_name: String,
-    },
-    RenameProject { project_id: CanonicalId, display_name: String },
-    ArchiveProject {
-        project_id: CanonicalId,
-    },
-    DeleteProject {
-        project_id: CanonicalId,
-    },
-    CreateWorkspace {
-        project_id: CanonicalId,
-        workspace_id: CanonicalId,
-        display_name: String,
-    },
-    BindWorkspaceRoot {
-        workspace_id: CanonicalId,
-        admission_digest: [u8; 32],
-    },
-    OpenWorkspace {
-        workspace_id: CanonicalId,
-    },
-    CreateConversation {
-        conversation_id: CanonicalId,
-        workspace_id: CanonicalId,
-    },
-    GenerateText {
-        conversation_id: CanonicalId,
-        text: String,
-    },
-    CancelTaskRun {
-        task_run_id: CanonicalId,
-    },
-    SubmitTaskRun { conversation_id: CanonicalId, workspace_id: CanonicalId },
-    ApprovalRespond { approval_id: CanonicalId, decision: runne_runtime_client::ApprovalDecisionDto, action_digest: [u8; 32], policy_revision: u64, renderer_generation: u64 },
-}
+include!("mutation_types/canonical_command.rs");
 
 /// Redacted recovery detail that is safe to persist and render.
 #[derive(Clone, Debug, Eq, PartialEq)]

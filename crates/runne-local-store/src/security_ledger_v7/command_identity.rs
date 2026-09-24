@@ -82,6 +82,9 @@ impl NormalizedMutationCommand {
             }
             Self::SubmitTaskRun {
                 conversation_id, ..
+            }
+            | Self::LegacySubmitTaskRun {
+                conversation_id, ..
             } => {
                 identity.operation() == MutationOperation::TaskRunSubmit
                     && identity.expected_version() == 0

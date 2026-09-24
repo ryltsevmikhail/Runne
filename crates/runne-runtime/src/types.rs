@@ -67,6 +67,11 @@ pub(crate) enum RuntimeRequest {
         input: SubmitTaskRunInput,
         reply: Reply,
     },
+    SubmitLegacy {
+        context: ApplicationCommandContext,
+        input: runne_application::commands::LegacySubmitTaskRunInput,
+        reply: Reply,
+    },
     Queue {
         context: ApplicationCommandContext,
         input: QueueTaskRunInput,
@@ -114,7 +119,7 @@ impl RuntimeRequest {
     /// generated inside the atomic submit unit-of-work).
     pub(crate) fn taskrun_id(&self) -> Option<runne_domain::id::TaskRunId> {
         match self {
-            Self::Create { .. } | Self::Submit { .. } => None,
+            Self::Create { .. } | Self::Submit { .. } | Self::SubmitLegacy { .. } => None,
             Self::Queue { input, .. } => Some(input.taskrun_id),
             Self::Admit { input, .. } => Some(input.taskrun_id),
             Self::StartAttempt { input, .. } => Some(input.taskrun_id),

@@ -75,7 +75,7 @@ fn task_run_cancellation_is_reconciled_from_the_authoritative_receipt() {
 #[test]
 fn task_run_submit_is_reconciled_from_the_authoritative_receipt() {
     let fixture = Fixture::new("command-reconciliation-task-run-submit");
-    fixture.project_workspace();
+    fixture.conversation(command(6), "fixture-submit-conversation");
     let task_service = TaskRunService::new(
         fixture.store.clone(),
         fixture.store.clone(),
@@ -88,6 +88,7 @@ fn task_run_submit_is_reconciled_from_the_authoritative_receipt() {
             SubmitTaskRunInput {
                 conversation_id: conversation(),
                 workspace_id: workspace(),
+                input: runne_domain::task_run::TaskRunInput::new("test prompt".to_owned()).unwrap(),
             },
         )
         .unwrap();
@@ -99,7 +100,11 @@ fn task_run_submit_is_reconciled_from_the_authoritative_receipt() {
         } if submitted_id != taskrun_zero()
     ));
 
-    let witness = CommandReconciliationWitness::submit_task_run(conversation(), workspace());
+    let witness = CommandReconciliationWitness::submit_task_run(
+        conversation(),
+        workspace(),
+        runne_domain::task_run::TaskRunInput::new("test prompt".to_owned()).unwrap(),
+    );
     assert!(matches!(
         fixture
             .repository
@@ -109,7 +114,11 @@ fn task_run_submit_is_reconciled_from_the_authoritative_receipt() {
 
     let other_workspace: runne_domain::id::WorkspaceId =
         "018f47a2-4f8c-7b52-8c35-7a3a14c2d913".parse().unwrap();
-    let changed = CommandReconciliationWitness::submit_task_run(conversation(), other_workspace);
+    let changed = CommandReconciliationWitness::submit_task_run(
+        conversation(),
+        other_workspace,
+        runne_domain::task_run::TaskRunInput::new("test prompt".to_owned()).unwrap(),
+    );
     assert!(matches!(
         fixture
             .repository
@@ -117,7 +126,32 @@ fn task_run_submit_is_reconciled_from_the_authoritative_receipt() {
         Err(CommandReconciliationRepositoryError::Conflict)
     ));
 
-    let unseen = CommandReconciliationWitness::submit_task_run(conversation(), workspace());
+    let changed_prompt = CommandReconciliationWitness::submit_task_run(
+        conversation(),
+        workspace(),
+        runne_domain::task_run::TaskRunInput::new("different prompt".to_owned()).unwrap(),
+    );
+    assert!(matches!(
+        fixture
+            .repository
+            .reconcile_command(&context(command(11)), &changed_prompt),
+        Err(CommandReconciliationRepositoryError::Conflict)
+    ));
+
+    let promptless_new_receipt =
+        CommandReconciliationWitness::submit_task_run_legacy(conversation(), workspace());
+    assert!(matches!(
+        fixture
+            .repository
+            .reconcile_command(&context(command(11)), &promptless_new_receipt,),
+        Err(CommandReconciliationRepositoryError::Conflict)
+    ));
+
+    let unseen = CommandReconciliationWitness::submit_task_run(
+        conversation(),
+        workspace(),
+        runne_domain::task_run::TaskRunInput::new("test prompt".to_owned()).unwrap(),
+    );
     let unseen_context = CommandReconciliationContext::new(
         command(12),
         IdempotencyKey::new("unseen-submit-key").unwrap(),

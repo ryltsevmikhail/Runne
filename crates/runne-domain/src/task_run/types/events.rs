@@ -1,6 +1,49 @@
+use crate::id::{ConversationId, WorkspaceId};
+
+/// Maximum UTF-8 byte length of a submitted task prompt.
+pub const MAX_TASK_RUN_PROMPT_BYTES: usize = 65_536;
+
+/// Validated immutable user input attached to a submitted TaskRun.
+#[derive(Clone, PartialEq, Eq)]
+pub struct TaskRunInput(String);
+
+impl std::fmt::Debug for TaskRunInput {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("TaskRunInput")
+            .field("redacted", &true)
+            .finish()
+    }
+}
+
+/// Invalid submitted task prompt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TaskRunInputError;
+
+impl TaskRunInput {
+    /// Creates a bounded, non-blank UTF-8 prompt.
+    pub fn new(prompt: String) -> Result<Self, TaskRunInputError> {
+        if prompt.trim().is_empty() || prompt.len() > MAX_TASK_RUN_PROMPT_BYTES {
+            return Err(TaskRunInputError);
+        }
+        Ok(Self(prompt))
+    }
+
+    /// Returns the submitted prompt.
+    pub fn prompt(&self) -> &str {
+        &self.0
+    }
+}
+
 /// All events emitted by the [`TaskRun`] aggregate.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskRunEvent {
+    /// Client submission with its immutable conversation, workspace, and prompt.
+    TaskRunSubmitted {
+        conversation_id: ConversationId,
+        workspace_id: WorkspaceId,
+        input: TaskRunInput,
+    },
     /// The task run was created.
     TaskRunCreated,
     /// The task run was queued for admission.
@@ -151,6 +194,7 @@ impl TaskRunEvent {
     /// Return the discriminant kind for this event.
     pub fn kind(&self) -> TaskRunEventKind {
         match self {
+            Self::TaskRunSubmitted { .. } => TaskRunEventKind::TaskRunCreated,
             Self::TaskRunCreated => TaskRunEventKind::TaskRunCreated,
             Self::TaskRunQueued => TaskRunEventKind::TaskRunQueued,
             Self::TaskRunAdmitted => TaskRunEventKind::TaskRunAdmitted,

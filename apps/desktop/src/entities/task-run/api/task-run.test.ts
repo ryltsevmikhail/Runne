@@ -1,10 +1,23 @@
 import { describe, expect, it } from 'vitest'
 
-import { cancelTaskRun, getTaskRunTimeline } from './task-run'
+import { cancelTaskRun, getTaskRunTimeline, submitTaskRun } from './task-run'
 
 const id = '018f2e3a-7000-7000-8000-000000000210'
 
 describe('TaskRun runtime adapter', () => {
+  it('submits the canonical conversation, workspace, and prompt and accepts only the queued acknowledgement', async () => {
+    const conversationId = '018f2e3a-7000-7000-8000-000000000211'
+    const workspaceId = '018f2e3a-7000-7000-8000-000000000212'
+    const calls: unknown[] = []
+    await expect(submitTaskRun(conversationId, workspaceId, 'implement a feature', async (command, args) => {
+      calls.push([command, args])
+      return { taskRunId: id, streamVersion: 2 }
+    })).resolves.toEqual({ taskRunId: id, streamVersion: 2 })
+    expect(calls).toEqual([['submit_task_run', { conversationId, workspaceId, prompt: 'implement a feature' }]])
+    await expect(submitTaskRun(conversationId, workspaceId, 'prompt', async () => ({ taskRunId: id, streamVersion: 3 }))).rejects.toThrow('Invalid TaskRun submission response')
+    await expect(submitTaskRun(conversationId, workspaceId, 'prompt', async () => ({ taskRunId: 'bad', streamVersion: 2 }))).rejects.toThrow('Invalid TaskRun submission response')
+  })
+
   it('sends cancellation with the authoritative expected version and validates the ack', async () => {
     const calls: unknown[] = []
     await expect(cancelTaskRun(id, 4, async (command, args) => {

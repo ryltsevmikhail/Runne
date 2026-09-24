@@ -140,6 +140,20 @@ impl RuntimeHandle {
         .await
     }
 
+    /// Executes the published v1 promptless atomic submit.
+    pub async fn submit_task_run_legacy(
+        &self,
+        context: ApplicationCommandContext,
+        input: runne_application::commands::LegacySubmitTaskRunInput,
+    ) -> Result<CommandOutcome, RuntimeError> {
+        self.send_request(move |reply| RuntimeRequest::SubmitLegacy {
+            context,
+            input,
+            reply,
+        })
+        .await
+    }
+
     pub async fn queue_task_run(
         &self,
         context: ApplicationCommandContext,

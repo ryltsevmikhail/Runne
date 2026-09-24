@@ -101,7 +101,8 @@ fn simple_matches(outcome: &CanonicalMutationOutcome, command: &NormalizedMutati
         ) => result == task_run_id && expected_version.checked_add(1) == Some(*new_version),
         (
             CanonicalMutationOutcome::TaskRunSubmitted { new_version, .. },
-            NormalizedMutationCommand::SubmitTaskRun { .. },
+            NormalizedMutationCommand::SubmitTaskRun { .. }
+            | NormalizedMutationCommand::LegacySubmitTaskRun { .. },
         ) => *new_version == 2,
         (
             CanonicalMutationOutcome::ApprovalRespond {

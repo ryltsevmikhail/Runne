@@ -1,5 +1,5 @@
 impl StoreTransaction {
-#[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     fn append_commit_events(
         &self,
         tx: rusqlite::Transaction<'_>,
@@ -112,7 +112,7 @@ impl StoreTransaction {
                     seq,
                     gp,
                     now,
-                    0_i64,
+                    sensitivity_value(*event.sensitivity()),
                     event.schema_version() as i64,
                     causation_bytes,
                     event.command_id().as_bytes(),

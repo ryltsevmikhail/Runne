@@ -89,16 +89,59 @@ impl CancelTaskRunRequest {
 }
 
 /// Validated request for the runtime-owned atomic `TaskRun` submit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct SubmitTaskRunRequest {
     pub(crate) identity: CommandIdentity,
     pub(crate) conversation_id: CanonicalId,
     pub(crate) workspace_id: CanonicalId,
+    pub(crate) prompt: String,
+}
+
+impl std::fmt::Debug for SubmitTaskRunRequest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SubmitTaskRunRequest")
+            .field("identity", &self.identity)
+            .field("conversation_id", &self.conversation_id)
+            .field("workspace_id", &self.workspace_id)
+            .field("prompt", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl SubmitTaskRunRequest {
     /// Creates a typed submit request. The runtime owns the new `TaskRun`
     /// identity; the caller supplies only the referenced aggregate roots.
+    ///
+    /// # Errors
+    /// Returns `InvalidRequest` when the prompt is invalid.
+    pub fn new(
+        identity: CommandIdentity,
+        conversation_id: CanonicalId,
+        workspace_id: CanonicalId,
+        prompt: impl Into<String>,
+    ) -> Result<Self, RuntimeApiError> {
+        let prompt = prompt.into();
+        runne_api::TaskRunInput::new(prompt.clone())
+            .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest))?;
+        Ok(Self {
+            identity,
+            conversation_id,
+            workspace_id,
+            prompt,
+        })
+    }
+}
+
+/// IDs-only compatibility request for the v1 `TaskRun` submit operation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SubmitTaskRunV1Request {
+    pub(crate) identity: CommandIdentity,
+    pub(crate) conversation_id: CanonicalId,
+    pub(crate) workspace_id: CanonicalId,
+}
+
+impl SubmitTaskRunV1Request {
     #[must_use]
     pub const fn new(
         identity: CommandIdentity,

@@ -7,3 +7,4 @@ include!("ui_contract_generation/retention_baseline_contract.rs");
 include!("ui_contract_generation/operational_telemetry_review.rs");
 include!("ui_contract_generation/workspace_editor_contract.rs");
 include!("ui_contract_generation/provider_credential_enrollment_contract.rs");
+include!("ui_contract_generation/profile_v3_contract.rs");

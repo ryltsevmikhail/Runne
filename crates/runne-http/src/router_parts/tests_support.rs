@@ -187,10 +187,6 @@
         Arc::new(|| Duration::ZERO)
     }
 
-    fn profile_state() -> RuntimeProfileHttpState {
-        profile_state_with_capabilities(CAPABILITIES)
-    }
-
     fn profile_state_with_capabilities(capabilities: &'static [&'static str]) -> RuntimeProfileHttpState {
         RuntimeProfileHttpState::new("legacy", "legacy", "0.1.0-test", capabilities)
     }
@@ -223,7 +219,11 @@
     }
 
     fn host() -> SecureLocalHttpHost {
-        let binding = binding();
+        host_with_capabilities(CAPABILITIES)
+    }
+
+    fn host_with_capabilities(capabilities: &'static [&'static str]) -> SecureLocalHttpHost {
+        let binding = binding_with_capabilities(capabilities);
         let service = session_service(binding.clone());
         SecureLocalHttpHost::new(
             VerifiedLocalTls::from_verified_listener(),
@@ -235,7 +235,7 @@
             binding,
             false,
             clock(),
-            profile_state(),
+            profile_state_with_capabilities(capabilities),
             TaskRunHttpState::new(
                 UnavailableTaskRunHost,
                 ApiActor::new("runne-http-test").unwrap(),

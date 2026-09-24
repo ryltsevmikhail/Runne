@@ -197,6 +197,9 @@ fn snapshot_active(
         };
     TaskRun {
         id: taskrun_id,
+        conversation_id: None,
+        workspace_id: None,
+        input: None,
         state: TaskRunState::Running,
         active_attempt: Some(attempt_id),
         attempt_history: vec![attempt_id],
@@ -227,6 +230,9 @@ fn snapshot_running() -> TaskRun {
     let attempt_id = snapshot_id::<AttemptId>(SNAPSHOT_ATTEMPT);
     TaskRun {
         id: taskrun_id,
+        conversation_id: None,
+        workspace_id: None,
+        input: None,
         state: TaskRunState::Running,
         active_attempt: Some(attempt_id),
         attempt_history: vec![attempt_id],

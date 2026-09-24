@@ -3,14 +3,14 @@ use std::sync::{Arc, Mutex};
 use axum::body::{Body, to_bytes};
 use runne_api::{
     ApiActor, CanonicalTaskRunState, CanonicalTerminalResult, CompleteTaskRunCommand,
-    CreateTaskRunCommand, ExistingTaskRunCommand, SubmitTaskRunCommand, TaskRunCommandAck,
+    CreateTaskRunCommand, ExistingTaskRunCommand, LegacySubmitTaskRunCommand, SubmitTaskRunCommand, TaskRunCommandAck,
     TaskRunCommandAckKind, TaskRunCommandContext, TaskRunCommandHostPort, TaskRunHostError,
     TaskRunQueryHostPort, TaskRunSnapshot,
 };
 use runne_domain::id::{AttemptId, TaskRunId};
 use runne_http::admission::AdmissionState;
 use runne_http::health::{HealthState, RecoveryState};
-use runne_http::router::create_router;
+use runne_http::router::create_router_with_task_run_profile;
 use runne_http::task_runs::TaskRunHttpState;
 use http::{Request, Response, StatusCode};
 use serde_json::Value;
@@ -26,6 +26,7 @@ const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-000000000043";
 enum Call {
     Create(TaskRunCommandContext, CreateTaskRunCommand),
     Submit(TaskRunCommandContext, SubmitTaskRunCommand),
+    LegacySubmit(TaskRunCommandContext, LegacySubmitTaskRunCommand),
     Queue(TaskRunCommandContext, ExistingTaskRunCommand),
     Admit(TaskRunCommandContext, ExistingTaskRunCommand),
     Cancel(TaskRunCommandContext, ExistingTaskRunCommand),
@@ -83,6 +84,11 @@ impl TaskRunCommandHostPort for RecordingHost {
             new_version: 2,
             kind: TaskRunCommandAckKind::Submitted,
         })
+    }
+
+    async fn submit_task_run_legacy(&self, context: TaskRunCommandContext, command: LegacySubmitTaskRunCommand) -> Result<TaskRunCommandAck, TaskRunHostError> {
+        self.record(Call::LegacySubmit(context, command))?;
+        Ok(TaskRunCommandAck { taskrun_id: TASKRUN_ID.parse().unwrap(), new_version: 2, kind: TaskRunCommandAckKind::Submitted })
     }
 
     async fn queue_task_run(
@@ -172,13 +178,16 @@ impl TaskRunQueryHostPort for RecordingHost {
 }
 
 fn app(host: RecordingHost) -> axum::Router {
-    create_router(
+    create_router_with_task_run_profile(
         TOKEN,
         HealthState {
             recovery_state: RecoveryState::Ready,
         },
         AdmissionState::new(RecoveryState::Ready),
         TaskRunHttpState::new(host, ApiActor::new("runne-http-test").unwrap()),
+        runne_http::runtime_profile::RuntimeProfileHttpState::new(
+            "test", "test", "0.1.0-test", &["task_run.submit.v2"],
+        ),
     )
 }
 

@@ -3,7 +3,7 @@ use runne_domain::event::{Actor, EventEnvelope, Sensitivity};
 use runne_domain::id::{
     AggregateId, CommandId, EventId, IdempotencyKey, IntegrityDigest, TaskRunId,
 };
-use runne_domain::task_run::TaskRun;
+use runne_domain::task_run::{TaskRun, TaskRunEvent};
 use runne_domain::timestamp::Timestamp;
 use rusqlite::{OptionalExtension, Transaction, params};
 
@@ -124,7 +124,7 @@ fn decode_row(
 ) -> Result<(EventEnvelope<runne_domain::task_run::TaskRunEvent>, i64), Error> {
     let sequence = u64::try_from(row.1).map_err(|_| Error::InvariantViolation)?;
     let schema = u32::try_from(row.3).map_err(|_| Error::InvariantViolation)?;
-    if schema != 1 || row.11 != 1 || row.12 != 1 || row.14 != 0 || row.13 <= 0 {
+    if schema != 1 || row.11 != 1 || row.12 != 1 || row.13 <= 0 {
         return Err(Error::InvariantViolation);
     }
     let event_id = valid_event_id(row.0)?;
@@ -141,6 +141,11 @@ fn decode_row(
     let payload = TaskRunEventCodec
         .decode(&row.8)
         .map_err(|_| Error::InvariantViolation)?;
+    let sensitivity = match row.14 {
+        0 => Sensitivity::Public,
+        2 if matches!(&payload, TaskRunEvent::TaskRunSubmitted { .. }) => Sensitivity::Sensitive,
+        _ => return Err(Error::InvariantViolation),
+    };
     let envelope = EventEnvelope::from_parts(
         event_id,
         AggregateId::TaskRun(taskrun_id),
@@ -150,7 +155,7 @@ fn decode_row(
         key,
         schema,
         actor,
-        Sensitivity::Public,
+        sensitivity,
         payload,
         sequence,
         Timestamp::from_unix_micros(row.2),

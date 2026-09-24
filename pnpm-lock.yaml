@@ -90,6 +90,8 @@ importers:
 
   contracts/gocode-ui-client-2: {}
 
+  contracts/gocode-ui-client-3: {}
+
   packages/platform-contract: {}
 
   packages/product:

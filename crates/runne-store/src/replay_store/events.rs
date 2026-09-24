@@ -1,5 +1,6 @@
 fn taskrun_event_type(event: &TaskRunEvent) -> &'static str {
     match event {
+        TaskRunEvent::TaskRunSubmitted { .. } => "TaskRunSubmitted",
         TaskRunEvent::TaskRunCreated => "TaskRunCreated",
         TaskRunEvent::TaskRunQueued => "TaskRunQueued",
         TaskRunEvent::TaskRunAdmitted => "TaskRunAdmitted",
@@ -103,7 +104,6 @@ fn validate_replay_event_integrity(event: &ReplayEvent) -> rusqlite::Result<(Str
             if event.correlation_type != 1
                 || event.integrity_profile != 1
                 || event.correlation_id != event.aggregate_id
-                || sensitivity != Sensitivity::Public
             {
                 return Err(invalid_column(15, rusqlite::types::Type::Integer));
             }
@@ -115,6 +115,15 @@ fn validate_replay_event_integrity(event: &ReplayEvent) -> rusqlite::Result<(Str
             let payload = TaskRunEventCodec
                 .decode(&event.payload)
                 .map_err(|_| invalid_column(12, rusqlite::types::Type::Blob))?;
+            let expected_sensitivity = match &payload {
+                runne_domain::task_run::TaskRunEvent::TaskRunSubmitted { .. } => {
+                    Sensitivity::Sensitive
+                }
+                _ => Sensitivity::Public,
+            };
+            if sensitivity != expected_sensitivity {
+                return Err(invalid_column(6, rusqlite::types::Type::Integer));
+            }
             let event_type = taskrun_event_type(&payload).to_owned();
             let encoded_size = measured_taskrun_replay_event_bytes(event, &payload)
                 .map_err(|_| invalid_column(12, rusqlite::types::Type::Blob))?;

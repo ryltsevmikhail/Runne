@@ -1,6 +1,22 @@
 impl TaskRun {
     fn apply_lifecycle_payload(&mut self, payload: &TaskRunEvent) -> Result<(), DomainError> {
         match payload {
+            TaskRunEvent::TaskRunSubmitted {
+                conversation_id,
+                workspace_id,
+                input,
+            } => {
+                if self.state != TaskRunState::Created || self.input.is_some() {
+                    return Err(DomainError::InvalidTransition {
+                        from: self.state,
+                        event: payload.kind(),
+                    });
+                }
+                self.conversation_id = Some(*conversation_id);
+                self.workspace_id = Some(*workspace_id);
+                self.input = Some(input.clone());
+                self.state = TaskRunState::Created;
+            }
             TaskRunEvent::TaskRunCreated => {
                 self.state = TaskRunState::Created;
             }
@@ -39,7 +55,9 @@ impl TaskRun {
                 if self.active_attempt != Some(*attempt_id)
                     || !self.attempt_history.contains(attempt_id)
                 {
-                    return Err(Self::loop_error(LoopInvariantViolation::MissingActiveAttempt));
+                    return Err(Self::loop_error(
+                        LoopInvariantViolation::MissingActiveAttempt,
+                    ));
                 }
                 self.active_attempt = Some(*attempt_id);
                 self.state = TaskRunState::Running;
@@ -130,7 +148,7 @@ impl TaskRun {
                 self.pending_retry = None;
                 self.active_attempt = None;
                 self.state = TaskRunState::Cancelled;
-            },
+            }
             _ => unreachable!("lifecycle payload dispatched to wrong handler"),
         };
         Ok(())

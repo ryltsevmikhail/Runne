@@ -58,6 +58,14 @@ impl TryFrom<TaskRunSubmitAcknowledgementWire> for TaskRunSubmitAcknowledgement 
 struct SubmitTaskRunWire {
     conversation_id: CanonicalId,
     workspace_id: CanonicalId,
+    prompt: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SubmitTaskRunV1Wire {
+    conversation_id: CanonicalId,
+    workspace_id: CanonicalId,
 }
 
 impl AuthenticatedRuntimeClient {
@@ -76,8 +84,54 @@ impl AuthenticatedRuntimeClient {
         &self,
         request: SubmitTaskRunRequest,
     ) -> Result<TaskRunSubmitAcknowledgement, RuntimeApiError> {
-        let url = self.url("/v1/task-runs/submit");
+        if !profile3_session_matches(self.session_info())
+            || !self
+                .session_info()
+                .capabilities
+                .iter()
+                .any(|cap| cap == "task_run.submit.v2")
+        {
+            return Err(RuntimeApiError::new(RuntimeApiErrorKind::Incompatible));
+        }
+        let url = self.url("/v2/task-runs/submit");
         let body = serde_json::to_vec(&SubmitTaskRunWire {
+            conversation_id: request.conversation_id,
+            workspace_id: request.workspace_id,
+            prompt: request.prompt,
+        })
+        .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest))?;
+        let response = self
+            .command_request(self.client.post(url), &request.identity)?
+            .header(CONTENT_TYPE, "application/json")
+            .body(body)
+            .send()
+            .await
+            .map_err(map_transport)?;
+        TaskRunSubmitAcknowledgement::try_from(
+            read_success_json::<TaskRunSubmitAcknowledgementWire>(response, &[202]).await?,
+        )
+    }
+
+    /// Sends the compatibility v1 IDs-only submit operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed error when the profile lacks the v1 capability, the
+    /// transport fails, or the acknowledgement is invalid.
+    pub async fn submit_task_run_v1(
+        &self,
+        request: SubmitTaskRunV1Request,
+    ) -> Result<TaskRunSubmitAcknowledgement, RuntimeApiError> {
+        if !self
+            .session_info()
+            .capabilities
+            .iter()
+            .any(|cap| cap == "task_run.submit.v1")
+        {
+            return Err(RuntimeApiError::new(RuntimeApiErrorKind::Incompatible));
+        }
+        let url = self.url("/v1/task-runs/submit");
+        let body = serde_json::to_vec(&SubmitTaskRunV1Wire {
             conversation_id: request.conversation_id,
             workspace_id: request.workspace_id,
         })

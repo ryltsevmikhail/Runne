@@ -11,8 +11,15 @@ impl AppCore {
         &self,
         conversation_id: CanonicalId,
         workspace_id: CanonicalId,
+        prompt: String,
     ) -> Result<runne_runtime_client::TaskRunSubmitAcknowledgement, AppCoreError> {
-        let lease = self.prepare_mutation(MutationRequest::submit_task_run(conversation_id, workspace_id)?).await?;
+        let lease = self
+            .prepare_mutation(MutationRequest::submit_task_run(
+                conversation_id,
+                workspace_id,
+                prompt,
+            )?)
+            .await?;
         match self.dispatch_prepared_mutation(lease).await? {
             MutationDispatchResult::TaskRunSubmitted(value) => Ok(value),
             _ => Err(AppCoreError::InvalidMutation),

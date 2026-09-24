@@ -1,6 +1,33 @@
 use super::*;
 
 impl TaskRun {
+    /// Handles a submission with validated immutable prompt input.
+    pub fn decide_submit_with_input(
+        command: SubmitTaskRun,
+        input: TaskRunInput,
+    ) -> Result<Vec<DomainEventDraft<TaskRunEvent>>, DomainError> {
+        let aggregate_id = AggregateId::TaskRun(command.taskrun_id);
+        let submitted = DomainEventDraft::new(
+            aggregate_id.clone(),
+            aggregate_id.clone(),
+            1,
+            Sensitivity::Sensitive,
+            TaskRunEvent::TaskRunSubmitted {
+                conversation_id: command.conversation_id,
+                workspace_id: command.workspace_id,
+                input,
+            },
+        );
+        let queued = DomainEventDraft::new(
+            aggregate_id.clone(),
+            aggregate_id,
+            1,
+            Sensitivity::Public,
+            TaskRunEvent::TaskRunQueued,
+        );
+        Ok(vec![submitted, queued])
+    }
+
     // ── decide_create ────────────────────────────────────────────────────
 
     /// Handle a [`CreateTaskRun`] command — produces the initial event.

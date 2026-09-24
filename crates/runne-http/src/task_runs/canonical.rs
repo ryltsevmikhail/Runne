@@ -10,7 +10,10 @@ where
 {
     Router::new()
         .route("/v1/task-runs", get(list_task_runs::<H>))
-        .route("/v1/task-runs/submit", post(submit_task_run::<H>))
+        .route(
+            "/v1/task-runs/submit",
+            post(submit_task_run_v1::<H>),
+        )
         .route("/v1/task-runs/{taskrun_id}", get(get_task_run::<H>))
         .route(
             "/v1/task-runs/{taskrun_id}/cancel",
@@ -18,4 +21,34 @@ where
         )
         .layer(DefaultBodyLimit::max(MAX_TASK_RUN_BODY_BYTES))
         .with_state(state)
+}
+
+/// Builds the v2 prompted submit route. Callers mount this only when their
+/// runtime profile advertises `task_run.submit.v2`.
+pub(crate) fn prompted_task_run_router<H>(state: TaskRunHttpState<H>) -> Router
+where
+    H: TaskRunCommandHostPort + TaskRunQueryHostPort + 'static,
+{
+    Router::new()
+        .route(
+            "/v2/task-runs/submit",
+            post(submit_task_run_v2::<H>)
+                .layer(DefaultBodyLimit::max(MAX_TASK_RUN_SUBMIT_BODY_BYTES)),
+        )
+        .with_state(state)
+}
+
+pub(crate) fn mount_prompted_submit_for_profile<H>(
+    router: Router,
+    state: TaskRunHttpState<H>,
+    profile: &crate::runtime_profile::RuntimeProfileHttpState,
+) -> Router
+where
+    H: TaskRunCommandHostPort + TaskRunQueryHostPort + 'static,
+{
+    if profile.advertises("task_run.submit.v2") {
+        router.merge(prompted_task_run_router(state))
+    } else {
+        router
+    }
 }

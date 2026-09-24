@@ -11,9 +11,10 @@ use axum::{
 };
 use runne_api::{
     ApiActor, CanonicalTaskRunState, CanonicalTerminalResult, CompleteTaskRunCommand,
-    CreateTaskRunCommand, ExistingTaskRunCommand, MAX_CANONICAL_TERMINAL_REASON_BYTES,
-    SubmitTaskRunCommand, TaskRunCommandAck, TaskRunCommandAckKind, TaskRunCommandContext,
-    TaskRunCommandHostPort, TaskRunHostError, TaskRunQueryHostPort, TaskRunSnapshot,
+    CreateTaskRunCommand, ExistingTaskRunCommand, LegacySubmitTaskRunCommand,
+    MAX_CANONICAL_TERMINAL_REASON_BYTES, MAX_TASK_RUN_PROMPT_BYTES, SubmitTaskRunCommand,
+    TaskRunCommandAck, TaskRunCommandAckKind, TaskRunCommandContext, TaskRunCommandHostPort,
+    TaskRunHostError, TaskRunQueryHostPort, TaskRunSnapshot,
 };
 use runne_domain::id::{CommandId, ConversationId, IdempotencyKey, TaskRunId, WorkspaceId};
 use serde::{Deserialize, Serialize};
@@ -22,6 +23,7 @@ use crate::auth::AuthenticatedPrincipal;
 use crate::error::{RequestId, canonical_error_response};
 
 const MAX_TASK_RUN_BODY_BYTES: usize = 16 * 1024;
+const MAX_TASK_RUN_SUBMIT_BODY_BYTES: usize = MAX_TASK_RUN_PROMPT_BYTES * 6 + 1024;
 
 /// Shared state for canonical TaskRun HTTP handlers.
 pub struct TaskRunHttpState<H> {

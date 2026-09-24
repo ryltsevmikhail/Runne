@@ -8,8 +8,9 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::bundle::{
-    BASE_RUNTIME_CAPABILITIES, BUNDLE_ID, GENERATOR_SCHEMA_VERSION, PUBLISHED_RUNTIME_CAPABILITIES,
-    RUNTIME_CAPABILITY_CATALOG, TRANSPORT_PROFILE_ID,
+    BASE_RUNTIME_CAPABILITIES_V2 as BASE_RUNTIME_CAPABILITIES, BUNDLE_ID_V2 as BUNDLE_ID,
+    GENERATOR_SCHEMA_VERSION, PUBLISHED_RUNTIME_CAPABILITIES_V2 as PUBLISHED_RUNTIME_CAPABILITIES,
+    RUNTIME_CAPABILITY_CATALOG_V2 as RUNTIME_CAPABILITY_CATALOG, TRANSPORT_PROFILE_ID,
 };
 use runne_api::{ApiReplayBindingId, CanonicalReplayPayloadV1};
 use runne_domain::conversation::ConversationEvent;
@@ -83,6 +84,7 @@ pub enum ContractGenerationError {
 }
 
 include!("contract_generation/artifacts.rs");
+include!("contract_generation/profile_v3.rs");
 include!("contract_generation/json.rs");
 include!("contract_generation/payload_schema.rs");
 include!("contract_generation/replay_schema.rs");

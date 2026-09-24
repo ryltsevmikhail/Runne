@@ -5,6 +5,7 @@ fn reject_request(request: RuntimeRequest) {
     match request {
         RuntimeRequest::Create { reply, .. }
         | RuntimeRequest::Submit { reply, .. }
+        | RuntimeRequest::SubmitLegacy { reply, .. }
         | RuntimeRequest::Queue { reply, .. }
         | RuntimeRequest::Admit { reply, .. }
         | RuntimeRequest::StartAttempt { reply, .. }
@@ -119,6 +120,10 @@ fn dispatch_admitted<E, U, I>(
             reply,
         } => {
             registry.spawn_submit_task(context, input, service, reply);
+            drop(lease);
+        }
+        RuntimeRequest::SubmitLegacy { context, input, reply } => {
+            registry.spawn_submit_legacy_task(context, input, service, reply);
             drop(lease);
         }
         RuntimeRequest::Queue {

@@ -1,0 +1,1623 @@
+{
+  "$defs": {
+    "acknowledgeRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 8192,
+          "pattern": "^gocode-replay-cursor-v1\\.(?:[0-9a-f]{2})+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cursor"
+      ],
+      "type": "object"
+    },
+    "acknowledgeResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "acknowledged"
+      ],
+      "type": "object"
+    },
+    "canonicalReplayPayloadV1": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "conversation.created",
+              "type": "string"
+            },
+            "workspaceId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "workspaceId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "attemptId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "messageId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "role": {
+              "enum": [
+                "user",
+                "assistant"
+              ],
+              "type": "string"
+            },
+            "taskRunId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "text": {
+              "maxLength": 65536,
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": {
+              "const": "conversation.message.appended",
+              "type": "string"
+            }
+          },
+          "required": [
+            "attemptId",
+            "messageId",
+            "role",
+            "taskRunId",
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "attemptId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "reason": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "taskRunId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "type": {
+              "const": "conversation.generation.failed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "attemptId",
+            "reason",
+            "taskRunId",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "conversation.closed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "taskRun.created",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "taskRun.queued",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "taskRun.admitted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "attemptId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "type": {
+              "const": "taskRun.attempt.started",
+              "type": "string"
+            }
+          },
+          "required": [
+            "attemptId",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "taskRun.wait.started",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "taskRun.resumed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "attemptId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "type": {
+              "const": "taskRun.retry.started",
+              "type": "string"
+            }
+          },
+          "required": [
+            "attemptId",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "attemptId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "type": {
+              "const": "taskRun.retry.completed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "attemptId",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "taskRun.checkpoint.started",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "taskRun.checkpoint.committed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "taskRun.cancellation.requested",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "taskRun.cancellation.completed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "outcome": {
+              "const": "success",
+              "type": "string"
+            },
+            "reason": {
+              "type": "null"
+            },
+            "type": {
+              "const": "taskRun.completed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "outcome",
+            "reason",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "outcome": {
+              "const": "failure",
+              "type": "string"
+            },
+            "reason": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": {
+              "const": "taskRun.completed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "outcome",
+            "reason",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": {
+              "const": "taskRun.failed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "taskRun.budget.exhausted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "taskRun.policy.denied",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "taskRun.reconciliation.started",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "taskRun.reconciliation.completed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "taskRun.unrecoverable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "taskRun.cancelled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "attemptId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "cycleId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "parentCycleId": {
+              "oneOf": [
+                {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sequence": {
+              "maximum": 18446744073709551615,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "type": {
+              "const": "taskRun.loop.cycle.started",
+              "type": "string"
+            }
+          },
+          "required": [
+            "attemptId",
+            "cycleId",
+            "parentCycleId",
+            "sequence",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "cycleId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "manifestId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "revision": {
+              "maximum": 18446744073709551615,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "type": {
+              "const": "taskRun.context.committed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "cycleId",
+            "manifestId",
+            "revision",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "cycleId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "expectedProposalIndexes": {
+              "items": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "planId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "revision": {
+              "maximum": 18446744073709551615,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "type": {
+              "const": "taskRun.plan.committed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "cycleId",
+            "expectedProposalIndexes",
+            "planId",
+            "revision",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "cycleId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "outcome": {
+              "enum": [
+                "succeeded",
+                "failed_before_commit",
+                "failed_after_commit",
+                "uncertain",
+                "cancelled"
+              ],
+              "type": "string"
+            },
+            "proposalIndex": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "stepId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "type": {
+              "const": "taskRun.step.outcome.recorded",
+              "type": "string"
+            }
+          },
+          "required": [
+            "cycleId",
+            "outcome",
+            "proposalIndex",
+            "stepId",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "attemptId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "cycleId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "disposition": {
+              "enum": [
+                "continue",
+                "wait",
+                "complete",
+                "fail"
+              ],
+              "type": "string"
+            },
+            "type": {
+              "const": "taskRun.loop.cycle.completed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "attemptId",
+            "cycleId",
+            "disposition",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "attemptId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "parentCycleId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "sequence": {
+              "maximum": 18446744073709551615,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "successorCycleId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "type": {
+              "const": "taskRun.next.cycle.created",
+              "type": "string"
+            }
+          },
+          "required": [
+            "attemptId",
+            "parentCycleId",
+            "sequence",
+            "successorCycleId",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "abandonedCycleId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "delayMillis": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "dueAtUnixMicros": {
+              "type": "integer"
+            },
+            "newAttemptId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "oldAttemptId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "ordinal": {
+              "maximum": 18446744073709551615,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "type": {
+              "const": "taskRun.retry.scheduled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "abandonedCycleId",
+            "delayMillis",
+            "dueAtUnixMicros",
+            "newAttemptId",
+            "oldAttemptId",
+            "ordinal",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "activatedAtUnixMicros": {
+              "type": "integer"
+            },
+            "attemptId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "ordinal": {
+              "maximum": 18446744073709551615,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "type": {
+              "const": "taskRun.retry.attempt.activated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "activatedAtUnixMicros",
+            "attemptId",
+            "ordinal",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "abandonedCycleId": {
+              "oneOf": [
+                {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "newAttemptId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "newGeneration": {
+              "maximum": 18446744073709551615,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "type": {
+              "const": "taskRun.recovery.resume.started",
+              "type": "string"
+            }
+          },
+          "required": [
+            "abandonedCycleId",
+            "newAttemptId",
+            "newGeneration",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "checkpointId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "type": {
+              "const": "taskRun.loop.checkpoint.started",
+              "type": "string"
+            }
+          },
+          "required": [
+            "checkpointId",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "checkpointId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "type": {
+              "const": "taskRun.loop.checkpoint.recorded",
+              "type": "string"
+            }
+          },
+          "required": [
+            "checkpointId",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "checkpointId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "type": {
+              "const": "taskRun.loop.checkpoint.committed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "checkpointId",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "cycleId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "evidenceId": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "source": {
+              "enum": [
+                "external_input",
+                "approval",
+                "child_task_run",
+                "timer",
+                "reconciliation"
+              ],
+              "type": "string"
+            },
+            "type": {
+              "const": "taskRun.loop.wake.accepted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "cycleId",
+            "evidenceId",
+            "source",
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "completeCatchUpResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "catchUpProof": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sessionState": {
+          "enum": [
+            "catch_up_complete"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "catchUpProof",
+        "sessionState"
+      ],
+      "type": "object"
+    },
+    "continueLiveResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "liveDeliveryId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "sessionState": {
+          "enum": [
+            "live"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "liveDeliveryId",
+        "sessionState"
+      ],
+      "type": "object"
+    },
+    "deliveredReplayEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "aggregateId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "aggregateType": {
+          "enum": [
+            "conversation",
+            "taskRun"
+          ],
+          "type": "string"
+        },
+        "causationEventId": {
+          "oneOf": [
+            {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "correlationId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "correlationType": {
+          "enum": [
+            "conversation",
+            "taskRun"
+          ],
+          "type": "string"
+        },
+        "cursor": {
+          "maxLength": 8192,
+          "pattern": "^gocode-replay-cursor-v1\\.(?:[0-9a-f]{2})+$",
+          "type": "string"
+        },
+        "eventId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "eventType": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "integrityDigest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/canonicalReplayPayloadV1"
+        },
+        "replayBindingId": {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "sensitivity": {
+          "enum": [
+            "public",
+            "internal",
+            "sensitive"
+          ],
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "timestampUnixMicros": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "aggregateId",
+        "aggregateType",
+        "causationEventId",
+        "correlationId",
+        "correlationType",
+        "eventId",
+        "eventType",
+        "integrityDigest",
+        "payload",
+        "replayBindingId",
+        "schemaVersion",
+        "sensitivity",
+        "sequence",
+        "timestampUnixMicros",
+        "cursor"
+      ],
+      "type": "object"
+    },
+    "openSessionRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "aggregateId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "aggregateType": {
+          "enum": [
+            "conversation",
+            "taskRun"
+          ],
+          "type": "string"
+        },
+        "fromCursor": {
+          "oneOf": [
+            {
+              "maxLength": 8192,
+              "pattern": "^gocode-replay-cursor-v1\\.(?:[0-9a-f]{2})+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "aggregateId",
+        "aggregateType",
+        "fromCursor"
+      ],
+      "type": "object"
+    },
+    "openSessionResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "events": {
+          "items": {
+            "$ref": "#/$defs/deliveredReplayEvent"
+          },
+          "type": "array"
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "highWaterRef": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sessionId": {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "events",
+        "hasMore",
+        "highWaterRef",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "readPageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "maximum": 256,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "limit"
+      ],
+      "type": "object"
+    },
+    "readPageResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "events": {
+          "items": {
+            "$ref": "#/$defs/deliveredReplayEvent"
+          },
+          "type": "array"
+        },
+        "hasMore": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "events",
+        "hasMore"
+      ],
+      "type": "object"
+    },
+    "replayRetentionBaselineV1": {
+      "additionalProperties": false,
+      "properties": {
+        "aggregateId": {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        "aggregateKind": {
+          "enum": [
+            "conversation",
+            "taskRun"
+          ],
+          "type": "string"
+        },
+        "authorityId": {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        "baselineGlobalPosition": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "capturedHighWater": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "expiresAtUnixMs": {
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "issuedAtUnixMs": {
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lineageId": {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        "principalId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[^\\u{0000}-\\u{001F}\\u{007F}]+$",
+          "type": "string"
+        },
+        "projectionBytes": {
+          "maxLength": 699051,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "projectionCodec": {
+          "const": 1,
+          "type": "integer"
+        },
+        "projectionDigest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "replayScopeDigest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "retainedFloor": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "retentionGeneration": {
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "retentionWitness": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "runtimeSessionBindingDigest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "sequence": {
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "version": {
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "witnessMac": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "authorityId",
+        "principalId",
+        "lineageId",
+        "runtimeSessionBindingDigest",
+        "replayScopeDigest",
+        "aggregateKind",
+        "aggregateId",
+        "sequence",
+        "version",
+        "baselineGlobalPosition",
+        "projectionCodec",
+        "projectionBytes",
+        "projectionDigest",
+        "retainedFloor",
+        "capturedHighWater",
+        "retentionGeneration",
+        "retentionWitness",
+        "issuedAtUnixMs",
+        "expiresAtUnixMs",
+        "witnessMac"
+      ],
+      "type": "object"
+    },
+    "replayRetentionBaselineV2": {
+      "additionalProperties": false,
+      "properties": {
+        "aggregateId": {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        "aggregateKind": {
+          "enum": [
+            "conversation",
+            "taskRun"
+          ],
+          "type": "string"
+        },
+        "authorityId": {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        "baselineGlobalPosition": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "capturedHighWater": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "expiresAtUnixMs": {
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "headEventId": {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        "headIntegrityDigest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "issuedAtUnixMs": {
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lineageId": {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        "principalId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[^\\u{0000}-\\u{001F}\\u{007F}]+$",
+          "type": "string"
+        },
+        "promotionCodec": {
+          "const": 1,
+          "type": "integer"
+        },
+        "promotionProjectionBytes": {
+          "maxLength": 699051,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "promotionProjectionDigest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "replayScopeDigest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "retainedFloor": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "retentionGeneration": {
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "retentionManifestDigest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "runtimeSessionBindingDigest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "const": 2,
+          "type": "integer"
+        },
+        "sequence": {
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "version": {
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "witnessMac": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "authorityId",
+        "principalId",
+        "lineageId",
+        "runtimeSessionBindingDigest",
+        "replayScopeDigest",
+        "aggregateKind",
+        "aggregateId",
+        "sequence",
+        "version",
+        "baselineGlobalPosition",
+        "retainedFloor",
+        "capturedHighWater",
+        "retentionGeneration",
+        "issuedAtUnixMs",
+        "expiresAtUnixMs",
+        "witnessMac",
+        "headEventId",
+        "headIntegrityDigest",
+        "promotionCodec",
+        "promotionProjectionBytes",
+        "promotionProjectionDigest",
+        "retentionManifestDigest"
+      ],
+      "type": "object"
+    },
+    "resumeFromBaselineRequestV2": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline": {
+          "$ref": "#/$defs/replayRetentionBaselineV2"
+        }
+      },
+      "required": [
+        "baseline"
+      ],
+      "type": "object"
+    },
+    "resumeFromBaselineResponseV2": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptedPromotion": {
+          "additionalProperties": false,
+          "properties": {
+            "capturedHighWater": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "codec": {
+              "const": 1,
+              "type": "integer"
+            },
+            "globalPosition": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "headEventId": {
+              "pattern": "^[0-9a-f]{32}$",
+              "type": "string"
+            },
+            "headIntegrityDigest": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "projectionBytes": {
+              "maxLength": 699051,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            "projectionDigest": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "sequence": {
+              "maximum": 18446744073709551615,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "version": {
+              "maximum": 18446744073709551615,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "codec",
+            "projectionBytes",
+            "projectionDigest",
+            "sequence",
+            "version",
+            "globalPosition",
+            "headEventId",
+            "headIntegrityDigest",
+            "capturedHighWater"
+          ],
+          "type": "object"
+        },
+        "baselineCheckpoint": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/deliveredReplayEvent"
+          },
+          "type": "array"
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "highWaterRef": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "sessionId": {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "sessionId",
+        "highWaterRef",
+        "baselineCheckpoint",
+        "acceptedPromotion",
+        "events",
+        "hasMore"
+      ],
+      "type": "object"
+    },
+    "retentionGapResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline": {
+          "$ref": "#/$defs/replayRetentionBaselineV1"
+        },
+        "code": {
+          "const": "replay_retention_gap",
+          "type": "string"
+        },
+        "requestId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "requestId",
+        "baseline"
+      ],
+      "type": "object"
+    },
+    "retentionGapResponseV2": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline": {
+          "$ref": "#/$defs/replayRetentionBaselineV2"
+        },
+        "code": {
+          "const": "replay_retention_gap",
+          "type": "string"
+        },
+        "requestId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "requestId",
+        "baseline"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "gocode://schemas/replay-v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "aggregateId": {
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "type": "string"
+    },
+    "aggregateType": {
+      "enum": [
+        "conversation",
+        "taskRun"
+      ],
+      "type": "string"
+    },
+    "causationEventId": {
+      "oneOf": [
+        {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "correlationId": {
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "type": "string"
+    },
+    "correlationType": {
+      "enum": [
+        "conversation",
+        "taskRun"
+      ],
+      "type": "string"
+    },
+    "cursor": {
+      "maxLength": 8192,
+      "pattern": "^gocode-replay-cursor-v1\\.(?:[0-9a-f]{2})+$",
+      "type": "string"
+    },
+    "eventId": {
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "type": "string"
+    },
+    "eventType": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "integrityDigest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "payload": {
+      "$ref": "#/$defs/canonicalReplayPayloadV1"
+    },
+    "replayBindingId": {
+      "pattern": "^[0-9a-f]{32}$",
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1,
+      "type": "integer"
+    },
+    "sensitivity": {
+      "enum": [
+        "public",
+        "internal",
+        "sensitive"
+      ],
+      "type": "string"
+    },
+    "sequence": {
+      "maximum": 18446744073709551615,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "timestampUnixMicros": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "aggregateId",
+    "aggregateType",
+    "causationEventId",
+    "correlationId",
+    "correlationType",
+    "eventId",
+    "eventType",
+    "integrityDigest",
+    "payload",
+    "replayBindingId",
+    "schemaVersion",
+    "sensitivity",
+    "sequence",
+    "timestampUnixMicros",
+    "cursor"
+  ],
+  "title": "Canonical Replay Event V1",
+  "type": "object"
+}

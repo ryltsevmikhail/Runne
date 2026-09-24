@@ -1,0 +1,27 @@
+{
+  "project": {
+    "archived": false,
+    "displayName": "Project",
+    "projectId": "018f2e3a-7000-7000-8000-000000000201",
+    "version": 1
+  },
+  "projectPage": {
+    "items": [],
+    "nextCursor": null
+  },
+  "rootBind": {
+    "expectedVersion": 1,
+    "rootAdmission": "gocode-root-admission-v3.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  "workspace": {
+    "displayName": "Workspace",
+    "open": false,
+    "projectId": "018f2e3a-7000-7000-8000-000000000201",
+    "version": 1,
+    "workspaceId": "018f2e3a-7000-7000-8000-000000000202"
+  },
+  "workspacePage": {
+    "items": [],
+    "nextCursor": null
+  }
+}

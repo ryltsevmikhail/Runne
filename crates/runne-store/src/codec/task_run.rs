@@ -4,6 +4,8 @@ use super::primitives::*;
 use super::refs::*;
 use super::*;
 
+const TAG_TASK_RUN_SUBMITTED: u8 = 0x22;
+
 /// Codec for [`TaskRunEvent`] payload BLOB.
 pub struct TaskRunEventCodec;
 

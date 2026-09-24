@@ -7,6 +7,7 @@ fn desktop_profile_requires_the_exact_root_admission_capability_tuple() {
             "conversation.generate_text.v1",
             "conversation.list_messages.v1",
             "task_run.submit.v1",
+            "task_run.submit.v2",
             "task_run.get.v1",
             "task_run.cancel.v1",
             "replay.aggregate.open.v1",

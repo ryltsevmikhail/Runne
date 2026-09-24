@@ -3,6 +3,7 @@
     reason = "the D1 Linux composition slice mounts ticket issuance; the macOS flow and tests drive it today"
 )]
 
+#[cfg(all(unix, feature = "desktop-protected"))]
 use super::qualified_exchange::QualifiedIssuedTicket;
 use super::{CredentialBrokerChannel, ProviderCredentialBroker};
 use crate::application::provider_credential_enrollment::effect_authority::map_store;
@@ -205,6 +206,7 @@ impl ProviderCredentialBroker {
         Ok(receipt)
     }
 
+    #[cfg(all(unix, feature = "desktop-protected"))]
     pub(super) fn issue_frame_for_qualified(
         &self,
         qualified: QualifiedIssuedTicket,

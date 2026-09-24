@@ -39,6 +39,16 @@ pub enum ReplayPromotionProjectionViewV1 {
     TaskRun(Box<TaskRunPromotionViewV1>),
 }
 
+impl ReplayPromotionProjectionViewV1 {
+    /// Returns the minimum sensitivity ceiling required to read this view.
+    pub const fn sensitivity_ceiling(&self) -> runne_domain::event::Sensitivity {
+        match self {
+            Self::Conversation(_) => runne_domain::event::Sensitivity::Public,
+            Self::TaskRun(view) => view.sensitivity_ceiling(),
+        }
+    }
+}
+
 /// Read-only Conversation state suitable for local projection promotion.
 #[derive(Clone, PartialEq, Eq)]
 pub struct ConversationPromotionViewV1 {
@@ -66,6 +76,7 @@ pub struct ConversationPromotionMessageV1 {
 pub struct TaskRunPromotionViewV1 {
     id: TaskRunId,
     state: TaskRunPromotionStateV1,
+    sensitivity: runne_domain::event::Sensitivity,
     digest: [u8; 32],
 }
 
@@ -161,6 +172,10 @@ impl ConversationPromotionMessageV1 {
 }
 
 impl TaskRunPromotionViewV1 {
+    /// Returns the minimum data-sensitivity ceiling required to disclose this view.
+    pub const fn sensitivity_ceiling(&self) -> runne_domain::event::Sensitivity {
+        self.sensitivity
+    }
     pub fn aggregate_id(&self) -> [u8; 16] {
         *self.id.as_bytes()
     }

@@ -34,6 +34,23 @@
     }
 
     #[test]
+    fn decide_submit_with_input_classifies_and_bounds_prompt() {
+        let input = TaskRunInput::new("inspect the open files".into()).unwrap();
+        let drafts = TaskRun::decide_submit_with_input(make_submit(), input).unwrap();
+        assert_eq!(drafts.len(), 2);
+        assert_eq!(drafts[0].payload().kind(), TaskRunEventKind::TaskRunCreated);
+        assert_eq!(drafts[0].sensitivity(), &Sensitivity::Sensitive);
+        assert!(matches!(drafts[0].payload(), TaskRunEvent::TaskRunSubmitted { .. }));
+        assert_eq!(drafts[1].payload(), &TaskRunEvent::TaskRunQueued);
+        assert_eq!(drafts[1].sensitivity(), &Sensitivity::Public);
+        assert!(TaskRunInput::new(String::new()).is_err());
+        assert!(TaskRunInput::new(" \t\n".to_owned()).is_err());
+        assert!(TaskRunInput::new("x".repeat(MAX_TASK_RUN_PROMPT_BYTES + 1)).is_err());
+        assert!(TaskRunInput::new("x".repeat(MAX_TASK_RUN_PROMPT_BYTES)).is_ok());
+        assert!(!format!("{:?}", drafts[0].payload()).contains("inspect the open files"));
+    }
+
+    #[test]
     fn decide_create_running_emits_the_exact_valid_lifecycle_prefix() {
         let events = TaskRun::decide_create_running(
             make_create(),

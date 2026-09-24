@@ -10,7 +10,7 @@ impl AppCore {
             .ok_or(ReconciliationFailure::Local)?;
         request_matches_anchored_command(&lease.request, command).map_err(|_| ReconciliationFailure::Local)?;
         let request = reconciliation_request_from_anchored(
-            lease.request.command_identity.clone(),
+            &lease.request.command_identity,
             command,
         ).map_err(|_| ReconciliationFailure::Local)?;
         // A live-session lookup can fail after the exact POST has left the

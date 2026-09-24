@@ -154,7 +154,7 @@ mod rebind_decision_tests {
     use super::{StableProfileMatch, stable_rebind_decision};
     use runne_api::{ProtectedRuntimeProfileV1, StableRuntimeBindingV1};
 
-    const PROFILE_ID: &str = "gocode-ui-client/2";
+    const PROFILE_ID: &str = "gocode-ui-client/3";
 
     fn uuid_v7(seed: u8) -> [u8; 16] {
         let mut bytes = [0_u8; 16];
@@ -241,7 +241,7 @@ mod rebind_decision_tests {
             uuid_v7(1),
             "local-owner",
             uuid_v7(2),
-            "gocode-ui-client/3".to_owned(),
+            "gocode-ui-client/2".to_owned(),
             [3; 32],
             [9; 32],
         )

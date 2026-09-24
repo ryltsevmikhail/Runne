@@ -1,6 +1,6 @@
 //! Runtime transport and schema bundle verification.
 //!
-//! The canonical schema bundle (`gocode-ui-client/2`) is generated
+//! The canonical schema bundle (`gocode-ui-client/3`) is generated
 //! byte-for-byte by the runtime contract generator. This module verifies the
 //! exact content-only bundle digest independently from release source evidence.
 
@@ -22,13 +22,16 @@ pub use canonical::{
     ApprovalDecisionRequest, ApprovalStateDto, ApprovalSummaryDto, AuthenticatedRuntimeClient,
     CancelTaskRunRequest, CanonicalId, CommandIdentity, ConversationCreated, ConversationMessage,
     ConversationMessageRole, ConversationMessages, ConversationTextResult,
-    CreateConversationRequest, ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES, EditorLaunchReceiptDto,
-    EditorLaunchTargetDto, GenerateTextRequest, OpenEditorCommandRequest,
+    CreateConversationRequest, ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES,
+    ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES_V2, ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES_V3,
+    EditorLaunchReceiptDto, EditorLaunchTargetDto, GenerateTextRequest, OpenEditorCommandRequest,
     PROCESS_CONTROL_CAPABILITY_V1, PROTECTED_RUNTIME_CAPABILITIES,
+    PROTECTED_RUNTIME_CAPABILITIES_V2, PROTECTED_RUNTIME_CAPABILITIES_V3,
     PROVIDER_CREDENTIAL_ENROLLMENT_CAPABILITY_V2, ProcessOutputChunkDto, ProcessOutputPageDto,
     ProcessOutputStreamDto, ProcessSnapshotDto, ProcessStateDto, REQUIRED_RUNTIME_CAPABILITIES,
-    RuntimeApiError, RuntimeApiErrorKind, RuntimeSessionAuthority, RuntimeSessionInfo,
-    RuntimeTransportKind, StartProcessRequest, StopProcessRequest, SubmitTaskRunRequest,
+    REQUIRED_RUNTIME_CAPABILITIES_V2, REQUIRED_RUNTIME_CAPABILITIES_V3, RuntimeApiError,
+    RuntimeApiErrorKind, RuntimeSessionAuthority, RuntimeSessionInfo, RuntimeTransportKind,
+    StartProcessRequest, StopProcessRequest, SubmitTaskRunRequest, SubmitTaskRunV1Request,
     TaskRunCancellationAcknowledgement, TaskRunSnapshot, TaskRunState,
     TaskRunSubmitAcknowledgement, TaskRunTerminalResult, WORKSPACE_DIFFS_CAPABILITY_V1,
     WORKSPACE_EDITOR_CAPABILITY_V1, WORKSPACE_FILES_CAPABILITY_V1, WorkspaceChangeEntryDto,

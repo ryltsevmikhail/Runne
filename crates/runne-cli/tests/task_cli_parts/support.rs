@@ -171,11 +171,15 @@ pub async fn submit_run(
     workspace_id: CanonicalId,
 ) -> TaskRunSubmitAcknowledgement {
     client
-        .submit_task_run(SubmitTaskRunRequest::new(
-            command_identity(),
-            conversation_id,
-            workspace_id,
-        ))
+        .submit_task_run(
+            SubmitTaskRunRequest::new(
+                command_identity(),
+                conversation_id,
+                workspace_id,
+                "test prompt",
+            )
+            .expect("valid prompt"),
+        )
         .await
         .expect("atomic task run submit")
 }

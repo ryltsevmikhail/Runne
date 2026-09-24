@@ -70,7 +70,7 @@ fn fixture_artifacts() -> FixtureArtifacts {
     let macos = directory.path().join("Runne.app/Contents/MacOS");
     let contract = directory
         .path()
-        .join("Runne.app/Contents/Resources/contracts/gocode-ui-client-2/bundle.json");
+        .join("Runne.app/Contents/Resources/contracts/gocode-ui-client-3/bundle.json");
     std::fs::create_dir_all(contract.parent().unwrap()).unwrap();
     std::fs::create_dir_all(&macos).unwrap();
     let desktop = macos.join("runne-desktop");

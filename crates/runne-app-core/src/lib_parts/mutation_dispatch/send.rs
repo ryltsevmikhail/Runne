@@ -43,8 +43,26 @@ impl AppCore {
     }
 
     async fn send_task_run_submit(&self, client: &AuthenticatedRuntimeClient, lease: &PreparedMutationLease) -> Result<MutationDispatchResult, AppCoreError> {
-        let CanonicalMutationCommand::SubmitTaskRun { conversation_id, workspace_id } = lease.request.semantic_command else { return Err(AppCoreError::InvalidMutation); };
-        client.submit_task_run(runne_runtime_client::SubmitTaskRunRequest::new(lease.request.command_identity.clone(), conversation_id, workspace_id)).await
+        let CanonicalMutationCommand::SubmitTaskRun { conversation_id, workspace_id, prompt } = &lease.request.semantic_command else { return Err(AppCoreError::InvalidMutation); };
+        let acknowledgement = match prompt {
+            Some(prompt) => client.submit_task_run(
+                runne_runtime_client::SubmitTaskRunRequest::new(
+                    lease.request.command_identity.clone(),
+                    *conversation_id,
+                    *workspace_id,
+                    prompt.clone(),
+                )
+                .map_err(|_| AppCoreError::InvalidMutation)?,
+            ).await,
+            None => client.submit_task_run_v1(
+                runne_runtime_client::SubmitTaskRunV1Request::new(
+                    lease.request.command_identity.clone(),
+                    *conversation_id,
+                    *workspace_id,
+                ),
+            ).await,
+        };
+        acknowledgement
             .map(MutationDispatchResult::TaskRunSubmitted)
             .map_err(|_| AppCoreError::RuntimeUnavailable)
     }

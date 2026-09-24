@@ -41,6 +41,26 @@ impl fmt::Debug for TaskRunSnapshotV1 {
 }
 
 impl TaskRunSnapshotV1 {
+    /// Sensitivity ceiling required for this snapshot and any stored projection.
+    pub const fn sensitivity(&self) -> crate::event::Sensitivity {
+        if self.0.input.is_some() {
+            crate::event::Sensitivity::Sensitive
+        } else {
+            crate::event::Sensitivity::Public
+        }
+    }
+    /// Returns the immutable submitted prompt when this TaskRun was submitted with input.
+    pub fn input(&self) -> Option<&super::TaskRunInput> {
+        self.0.input.as_ref()
+    }
+    /// Returns the parent conversation ID when submitted input is present.
+    pub const fn conversation_id(&self) -> Option<crate::id::ConversationId> {
+        self.0.conversation_id
+    }
+    /// Returns the parent workspace ID when submitted input is present.
+    pub const fn workspace_id(&self) -> Option<crate::id::WorkspaceId> {
+        self.0.workspace_id
+    }
     /// Encodes exact current aggregate state without serializing event history.
     pub fn encode(&self) -> Result<Vec<u8>, TaskRunSnapshotError> {
         codec::encode(&self.0)

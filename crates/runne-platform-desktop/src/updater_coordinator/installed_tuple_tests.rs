@@ -108,7 +108,7 @@ fn retained_prepared(
     artifacts: &MeasuredNativeEnrollmentArtifactsV1,
 ) -> crate::PreparedInstalledNativeEnrollment {
     let macos = directory.join("refresh/Runne.app/Contents/MacOS");
-    let contract = directory.join("refresh/Runne.app/Contents/Resources/contracts/gocode-ui-client-2/bundle.json");
+    let contract = directory.join("refresh/Runne.app/Contents/Resources/contracts/gocode-ui-client-3/bundle.json");
     std::fs::create_dir_all(contract.parent().unwrap()).unwrap();
     std::fs::create_dir_all(&macos).unwrap();
     let paths = [macos.join("runne-desktop"), macos.join("runne"), macos.join("runned"), contract];

@@ -1,4 +1,19 @@
 impl<E: EventStore, U: UnitOfWork, I: IdGenerator, A> TaskRunService<E, U, I, A> {
+    /// Published v1 promptless atomic TaskRun submit.
+    pub fn submit_task_run_legacy(
+        &self,
+        context: &ApplicationCommandContext,
+        input: crate::commands::LegacySubmitTaskRunInput,
+    ) -> Result<CommandOutcome, ApplicationError> {
+        let fp = CommandFingerprint::for_submit_legacy(&input.conversation_id, &input.workspace_id);
+        self.pipeline.execute_submit_legacy(
+            context,
+            input.conversation_id,
+            input.workspace_id,
+            &fp,
+        )
+    }
+
     /// Client-authorized atomic TaskRun submit.
     ///
     /// Commits `TaskRunCreated + TaskRunQueued` as one unit of work with one
@@ -11,9 +26,18 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator, A> TaskRunService<E, U, I, A>
         context: &ApplicationCommandContext,
         input: SubmitTaskRunInput,
     ) -> Result<CommandOutcome, ApplicationError> {
-        let fp = CommandFingerprint::for_submit(&input.conversation_id, &input.workspace_id);
-        self.pipeline
-            .execute_submit(context, input.conversation_id, input.workspace_id, &fp)
+        let fp = CommandFingerprint::for_submit(
+            &input.conversation_id,
+            &input.workspace_id,
+            &input.input,
+        );
+        self.pipeline.execute_submit(
+            context,
+            input.conversation_id,
+            input.workspace_id,
+            input.input,
+            &fp,
+        )
     }
 
     pub fn create_task_run(

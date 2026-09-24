@@ -10,7 +10,10 @@ where
             "/v1/task-runs",
             get(list_task_runs::<H>).post(create_task_run::<H>),
         )
-        .route("/v1/task-runs/submit", post(submit_task_run::<H>))
+        .route(
+            "/v1/task-runs/submit",
+            post(submit_task_run_v1::<H>),
+        )
         .route("/v1/task-runs/{taskrun_id}", get(get_task_run::<H>))
         .route(
             "/v1/task-runs/{taskrun_id}/queue",

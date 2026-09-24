@@ -5,12 +5,16 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use runne_api::{
-    ApiActor, ApiPrincipalId, CanonicalTaskRunState, ExistingTaskRunCommand, SubmitTaskRunCommand,
-    TaskRunCommandAck, TaskRunCommandAckKind, TaskRunCommandContext, TaskRunCommandHostPort,
-    TaskRunHostError, TaskRunQueryHostPort,
+    ApiActor, ApiPrincipalId, CanonicalTaskRunState, CreateConversationInput,
+    ExistingTaskRunCommand, SubmitTaskRunCommand, TaskRunCommandAck, TaskRunCommandAckKind,
+    TaskRunCommandContext, TaskRunCommandHostPort, TaskRunHostError, TaskRunQueryHostPort,
 };
-use runne_application::ports::{EventStore, RuntimeAuthorityId};
+use runne_application::conversation_service::ConversationService;
+use runne_application::ports::{
+    ApplicationCommandContext, EventStore, PrincipalId, RuntimeAuthorityId,
+};
 use runne_application::service::TaskRunService;
+use runne_domain::event::Actor;
 use runne_domain::id::{CommandId, ConversationId, IdempotencyKey, WorkspaceId};
 use runne_domain::task_run::{TaskRun, TaskRunEvent, TaskRunState};
 use runne_runtime::config::RuntimeConfig;
@@ -46,6 +50,24 @@ impl SubmitRuntime {
             "local-owner",
             WORKSPACE_ID.parse().unwrap(),
         );
+        let conversation_context = ApplicationCommandContext {
+            command_id: "018f2e3a-7000-7000-8000-0000000000d1".parse().unwrap(),
+            idempotency_key: IdempotencyKey::new("fixture-submit-conversation").unwrap(),
+            principal_id: PrincipalId("local-owner".into()),
+            actor: Actor::new("runtime-submit-fixture").unwrap(),
+        };
+        ConversationService::new(store.clone(), store.clone(), authority.clone())
+            .create_from_application(
+                &conversation_context,
+                CreateConversationInput {
+                    conversation_id: CONVERSATION_ID.parse().unwrap(),
+                    workspace_id: WORKSPACE_ID.parse().unwrap(),
+                    command_id: conversation_context.command_id,
+                    idempotency_key: conversation_context.idempotency_key.clone(),
+                    scope: runne_api::ConversationContextScope::Workspace,
+                },
+            )
+            .unwrap();
         let service: Arc<SqliteService> = Arc::new(TaskRunService::new(
             store.clone(),
             store.clone(),
@@ -96,6 +118,7 @@ fn submit_command(workspace: &str) -> SubmitTaskRunCommand {
     SubmitTaskRunCommand {
         conversation_id: CONVERSATION_ID.parse::<ConversationId>().unwrap(),
         workspace_id: workspace.parse::<WorkspaceId>().unwrap(),
+        input: runne_domain::task_run::TaskRunInput::new("test prompt".to_owned()).unwrap(),
     }
 }
 
@@ -106,7 +129,10 @@ fn assert_submitted_batch(runtime: &SubmitRuntime, ack: &TaskRunCommandAck) {
     let stream = runtime.store.load_task_run(ack.taskrun_id).unwrap();
     assert_eq!(stream.events.len(), 2, "submit commits exactly two events");
     assert_eq!(stream.events[0].sequence(), 1);
-    assert_eq!(stream.events[0].payload(), &TaskRunEvent::TaskRunCreated);
+    assert!(matches!(
+        stream.events[0].payload(),
+        TaskRunEvent::TaskRunSubmitted { input, .. } if input.prompt() == "test prompt"
+    ));
     assert_eq!(stream.events[1].sequence(), 2);
     assert_eq!(stream.events[1].payload(), &TaskRunEvent::TaskRunQueued);
     assert_eq!(

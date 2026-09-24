@@ -3,7 +3,7 @@ use super::*;
 fn macos_layout(directory: &Path) -> [PathBuf; 4] {
     let contents = directory.join("Runne.app/Contents");
     let macos = contents.join("MacOS");
-    let contract = contents.join("Resources/contracts/gocode-ui-client-2/bundle.json");
+    let contract = contents.join("Resources/contracts/gocode-ui-client-3/bundle.json");
     std::fs::create_dir_all(contract.parent().unwrap()).unwrap();
     std::fs::create_dir_all(&macos).unwrap();
     let paths = [macos.join("runne-desktop"), macos.join("runne"), macos.join("runned"), contract];

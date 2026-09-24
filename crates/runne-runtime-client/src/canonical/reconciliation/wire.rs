@@ -17,13 +17,34 @@ pub(super) enum ReconciliationResponse {
     deny_unknown_fields
 )]
 pub(super) enum OutcomeWire {
-    CreateProject { project_id: CanonicalId, new_version: u64 },
-    ArchiveProject { project_id: CanonicalId, new_version: u64 },
-    DeleteProject { project_id: CanonicalId, new_version: u64 },
-    RenameProject { project_id: CanonicalId, new_version: u64 },
-    CreateWorkspace { workspace_id: CanonicalId, new_version: u64 },
-    BindWorkspaceRoot { workspace_id: CanonicalId, new_version: u64 },
-    OpenWorkspace { workspace_id: CanonicalId, new_version: u64 },
+    CreateProject {
+        project_id: CanonicalId,
+        new_version: u64,
+    },
+    ArchiveProject {
+        project_id: CanonicalId,
+        new_version: u64,
+    },
+    DeleteProject {
+        project_id: CanonicalId,
+        new_version: u64,
+    },
+    RenameProject {
+        project_id: CanonicalId,
+        new_version: u64,
+    },
+    CreateWorkspace {
+        workspace_id: CanonicalId,
+        new_version: u64,
+    },
+    BindWorkspaceRoot {
+        workspace_id: CanonicalId,
+        new_version: u64,
+    },
+    OpenWorkspace {
+        workspace_id: CanonicalId,
+        new_version: u64,
+    },
     CreateConversation {
         conversation_id: CanonicalId,
         workspace_id: CanonicalId,
@@ -45,8 +66,14 @@ pub(super) enum OutcomeWire {
         #[serde(default)]
         reason: StrictOptional<FailureReasonWire>,
     },
-    CancelTaskRun { task_run_id: CanonicalId, new_version: u64 },
-    SubmitTaskRun { task_run_id: CanonicalId, new_version: u64 },
+    CancelTaskRun {
+        task_run_id: CanonicalId,
+        new_version: u64,
+    },
+    SubmitTaskRun {
+        task_run_id: CanonicalId,
+        new_version: u64,
+    },
     ApprovalDecision {
         approval_id: CanonicalId,
         new_version: u64,
@@ -88,12 +115,18 @@ pub(super) struct TextTerminalWire {
 pub(super) struct StrictOptional<T>(Option<T>);
 
 impl<T> Default for StrictOptional<T> {
-    fn default() -> Self { Self(None) }
+    fn default() -> Self {
+        Self(None)
+    }
 }
 
 impl<T> StrictOptional<T> {
-    pub(super) fn into_option(self) -> Option<T> { self.0 }
-    pub(super) const fn is_present(&self) -> bool { self.0.is_some() }
+    pub(super) fn into_option(self) -> Option<T> {
+        self.0
+    }
+    pub(super) const fn is_present(&self) -> bool {
+        self.0.is_some()
+    }
 }
 
 impl<'de, T: Deserialize<'de>> Deserialize<'de> for StrictOptional<T> {

@@ -1,41 +1,13 @@
 /// Writes all runtime-owned contract artifacts under `output`.
 pub fn generate_ui_contract(output: &Path) -> Result<(), ContractGenerationError> {
     let artifacts = generated_artifacts()?;
-    for (relative_path, bytes) in artifacts {
-        let path = output.join(relative_path);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(path, bytes)?;
-    }
-    Ok(())
+    write_artifacts(output, artifacts)
 }
 
 /// Generates to an isolated temporary directory and byte-compares every
 /// authoritative artifact without writing the checked-in target.
 pub fn check_ui_contract(target: &Path) -> Result<(), ContractGenerationError> {
-    let temporary = tempfile::tempdir()?;
-    generate_ui_contract(temporary.path())?;
-    let expected_paths = GENERATED_ARTIFACT_PATHS
-        .iter()
-        .map(PathBuf::from)
-        .collect::<Vec<_>>();
-    let mut checked_in_paths = contract_files(target)?;
-    checked_in_paths.retain(|path| path != Path::new("package.json"));
-    if checked_in_paths != expected_paths {
-        return Err(ContractGenerationError::ArtifactSetMismatch);
-    }
-    for relative_path in GENERATED_ARTIFACT_PATHS {
-        let generated = fs::read(temporary.path().join(relative_path))?;
-        let checked_in = fs::read(target.join(relative_path))
-            .map_err(|_| ContractGenerationError::ByteMismatch((*relative_path).into()))?;
-        if generated != checked_in {
-            return Err(ContractGenerationError::ByteMismatch(
-                (*relative_path).into(),
-            ));
-        }
-    }
-    Ok(())
+    check_generated_artifacts(target, GENERATED_ARTIFACT_PATHS, generate_ui_contract)
 }
 
 fn contract_files(root: &Path) -> Result<Vec<PathBuf>, std::io::Error> {

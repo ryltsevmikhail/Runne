@@ -13,6 +13,8 @@ use rusqlite::{OptionalExtension, Transaction, params};
 use crate::codec::{CommandOutcomeCodec, IdempotencyScopeCodec, StoreCodec, TaskRunEventCodec};
 use runne_domain::task_run::TaskRunEvent;
 
+mod verify;
+
 pub(super) fn lookup(
     transaction: &Transaction<'_>,
     store: &crate::store::StoreTransaction,
@@ -38,6 +40,7 @@ pub(super) fn lookup(
         CommandReconciliationWitnessRef::SubmitTaskRun {
             conversation_id,
             workspace_id,
+            input,
         } => (
             IdempotencyScope {
                 runtime_authority_id: store.runtime_authority_id().clone(),
@@ -48,7 +51,12 @@ pub(super) fn lookup(
                     workspace_id,
                 },
             },
-            CommandFingerprint::for_submit(&conversation_id, &workspace_id),
+            match input {
+                Some(input) => {
+                    CommandFingerprint::for_submit(&conversation_id, &workspace_id, input)
+                }
+                None => CommandFingerprint::for_submit_legacy(&conversation_id, &workspace_id),
+            },
         ),
         _ => return Err(Error::InvariantViolation),
     };
@@ -93,56 +101,8 @@ pub(super) fn lookup(
         .decode(&outcome)
         .map_err(|_| Error::InvariantViolation)?;
     let authoritative = outcome_for(witness, outcome)?;
-    verify_committed_events(transaction, witness, &authoritative, context)?;
+    verify::verify_committed_events(transaction, witness, &authoritative, context)?;
     Ok(Evidence::Terminal(Box::new(authoritative)))
-}
-
-/// Verifies the durable stream matches the exact committed batch: one
-/// `CancellationRequested`, or the exact `Created + Queued` submit pair.
-fn verify_committed_events(
-    transaction: &Transaction<'_>,
-    witness: &CommandReconciliationWitness,
-    authoritative: &AuthoritativeCommandOutcome,
-    context: &CommandReconciliationContext,
-) -> Result<(), Error> {
-    match witness.view() {
-        CommandReconciliationWitnessRef::CancelTaskRun { task_run_id, .. } => verify_event(
-            transaction,
-            task_run_id,
-            authoritative_version(authoritative)?,
-            context,
-        ),
-        CommandReconciliationWitnessRef::SubmitTaskRun { .. } => {
-            let Some(taskrun_id) = submitted_taskrun_id(&authoritative.view()) else {
-                return Err(Error::InvariantViolation);
-            };
-            for (sequence, is_queued) in [(1_i64, false), (2_i64, true)] {
-                let payload: Vec<u8> = transaction
-                    .query_row(
-                        "SELECT payload FROM events WHERE aggregate_type = 1 AND aggregate_id = ?1
-                         AND sequence = ?2 AND command_id = ?3",
-                        params![
-                            taskrun_id.as_bytes(),
-                            sequence,
-                            context.command_id().as_bytes()
-                        ],
-                        |row| row.get(0),
-                    )
-                    .map_err(|_| Error::InvariantViolation)?;
-                let decoded = TaskRunEventCodec.decode(&payload);
-                let matches_expected = match decoded {
-                    Ok(TaskRunEvent::TaskRunCreated) => !is_queued,
-                    Ok(TaskRunEvent::TaskRunQueued) => is_queued,
-                    _ => false,
-                };
-                if !matches_expected {
-                    return Err(Error::InvariantViolation);
-                }
-            }
-            Ok(())
-        }
-        _ => Err(Error::InvariantViolation),
-    }
 }
 
 fn scoped_collision_or_not_committed(

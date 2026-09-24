@@ -1,9 +1,16 @@
 /// Golden SHA-256 of the exact canonical `bundle.json` bytes.
-pub const GOLDEN_BUNDLE_HASH: &str =
-    "f9744ae62f1245480122dfd73560e49532f2313cc9ce1360ac10987d7318b3dd";
+pub const GOLDEN_BUNDLE_HASH_V3: &str =
+    "4a97008ecd35edd2022816844fc931e893e29835c0bb9e4d8d8cdab70c9259d4";
+pub const GOLDEN_BUNDLE_HASH: &str = GOLDEN_BUNDLE_HASH_V3;
 
 /// Bundle ID expected from the runtime.
-pub const EXPECTED_BUNDLE_ID: &str = "gocode-ui-client/2";
+pub const EXPECTED_BUNDLE_ID_V3: &str = "gocode-ui-client/3";
+pub const EXPECTED_BUNDLE_ID: &str = EXPECTED_BUNDLE_ID_V3;
+
+/// Immutable identity accepted by profile 2 compatibility artifacts.
+pub const EXPECTED_BUNDLE_ID_V2: &str = "gocode-ui-client/2";
+pub const GOLDEN_BUNDLE_HASH_V2: &str =
+    "f9744ae62f1245480122dfd73560e49532f2313cc9ce1360ac10987d7318b3dd";
 
 /// Read-only provenance for the observed public `/health` response shape.
 ///

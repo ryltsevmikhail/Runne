@@ -152,6 +152,7 @@ impl StoreTransaction {
             &payload.idempotency_scope,
             taskrun_id,
             payload.command_id,
+            payload.events.first().is_some_and(|event| matches!(event.payload(), runne_domain::task_run::TaskRunEvent::TaskRunSubmitted { .. })),
         )?;
 
         // Step 2: Version check

@@ -8,6 +8,7 @@ export interface TaskRunTimelineEntry { readonly eventId: string, readonly seque
 export interface TaskRunTimeline { readonly taskRunId: string, readonly projectionRevision: number, readonly streamVersion: number, readonly state: TaskRunState, readonly activeAttemptId: string | null, readonly terminal: TaskRunTerminal | null, readonly entries: readonly TaskRunTimelineEntry[], readonly recovery: TaskRunRecovery }
 export interface TaskRunSession { readonly resync: () => Promise<TaskRunTimeline>, readonly unsubscribe: () => Promise<void> }
 export interface TaskRunCancellation { readonly taskRunId: string, readonly streamVersion: number }
+export interface TaskRunSubmission { readonly taskRunId: string, readonly streamVersion: 2 }
 
 type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>
 type Update = { readonly kind: 'update', readonly taskRunId: string, readonly projectionRevision: number, readonly streamVersion: number, readonly entry: TaskRunTimelineEntry | null, readonly recovery: TaskRunRecovery }
@@ -33,6 +34,16 @@ export async function cancelTaskRun(taskRunId: string, expectedVersion: number, 
   const response = value as { taskRunId?: unknown, streamVersion?: unknown }
   if (!record(value, ['taskRunId', 'streamVersion']) || response.taskRunId !== taskRunId || typeof response.streamVersion !== 'number' || !integer(response.streamVersion) || response.streamVersion <= expectedVersion) throw new Error('Invalid TaskRun cancellation response')
   return response as TaskRunCancellation
+}
+
+export async function submitTaskRun(conversationId: string, workspaceId: string, prompt: string, invoke: Invoke = tauriInvoke): Promise<TaskRunSubmission> {
+  validateId(conversationId)
+  validateId(workspaceId)
+  if (prompt.trim().length === 0 || new TextEncoder().encode(prompt).length > 64 * 1024) throw new Error('Invalid TaskRun prompt')
+  const value = await invoke('submit_task_run', { conversationId, workspaceId, prompt })
+  const response = value as { taskRunId?: unknown, streamVersion?: unknown }
+  if (!record(value, ['taskRunId', 'streamVersion']) || typeof response.taskRunId !== 'string' || !canonicalId.test(response.taskRunId) || response.streamVersion !== 2) throw new Error('Invalid TaskRun submission response')
+  return response as TaskRunSubmission
 }
 
 export async function subscribeTaskRunTimeline(taskRunId: string, initial: TaskRunTimeline, onTimeline: (value: TaskRunTimeline) => void, invoke: Invoke = tauriInvoke): Promise<TaskRunSession> {

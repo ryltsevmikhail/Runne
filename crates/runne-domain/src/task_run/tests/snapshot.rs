@@ -8,6 +8,25 @@ fn closed_snapshot_round_trips_running_task_run() {
 }
 
 #[test]
+fn closed_snapshot_decodes_legacy_v1_and_rejects_invalid_input_marker() {
+    let aggregate = create_aggregate();
+    let legacy = aggregate.snapshot_v1().encode().unwrap();
+    assert_eq!(legacy[0], 1);
+    assert_eq!(TaskRunSnapshotV1::decode(&legacy).unwrap(), aggregate.snapshot_v1());
+
+    let mut submitted = aggregate;
+    submitted.apply_payload(&TaskRunEvent::TaskRunSubmitted {
+        conversation_id: CONVERSATION_ID.parse().unwrap(),
+        workspace_id: WORKSPACE_ID.parse().unwrap(),
+        input: TaskRunInput::new("prompt".to_owned()).unwrap(),
+    }).unwrap();
+    let mut invalid_marker = submitted.snapshot_v1().encode().unwrap();
+    let marker_index = invalid_marker.len() - 16 - 16 - 4 - "prompt".len() - 1;
+    invalid_marker[marker_index] = 2;
+    assert_eq!(TaskRunSnapshotV1::decode(&invalid_marker), Err(TaskRunSnapshotError::InvalidEncoding));
+}
+
+#[test]
 fn closed_snapshot_rejects_truncation_unknown_version_trailing_and_oversize() {
     let bytes = running_aggregate().snapshot_v1().encode().unwrap();
     let malformed = [
@@ -71,12 +90,12 @@ fn closed_snapshot_preserves_every_terminal_result_and_lifecycle_tag() {
         };
         let aggregate = TaskRun {
             id: taskrun_id,
+            conversation_id: None,
+            workspace_id: None,
+            input: None,
             state,
             active_attempt: (requires_attempt && !state.is_terminal()).then_some(attempt_id),
-            attempt_history: requires_attempt
-            .then_some(attempt_id)
-            .into_iter()
-            .collect(),
+            attempt_history: requires_attempt.then_some(attempt_id).into_iter().collect(),
             terminal_result: terminal,
             active_cycle: None,
             last_completed_cycle: None,
@@ -100,7 +119,9 @@ fn closed_snapshot_round_trips_every_real_lifecycle_prefix() {
     let mut queued = created.clone();
     queued.apply_payload(&TaskRunEvent::TaskRunQueued).unwrap();
     let mut admitted = queued.clone();
-    admitted.apply_payload(&TaskRunEvent::TaskRunAdmitted).unwrap();
+    admitted
+        .apply_payload(&TaskRunEvent::TaskRunAdmitted)
+        .unwrap();
     let running = running_aggregate();
 
     let mut waiting = running.clone();
@@ -219,6 +240,9 @@ fn closed_snapshot_rejects_unknown_nested_terminal_tag() {
     let attempt_id: AttemptId = ATTEMPT_ID.parse().unwrap();
     let aggregate = TaskRun {
         id: taskrun_id,
+        conversation_id: None,
+        workspace_id: None,
+        input: None,
         state: TaskRunState::Succeeded,
         active_attempt: None,
         attempt_history: vec![attempt_id],

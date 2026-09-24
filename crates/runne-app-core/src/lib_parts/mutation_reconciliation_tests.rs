@@ -19,7 +19,7 @@ fn reconciliation_witness_is_constructed_from_every_anchored_command() {
     ];
     for command in commands {
         assert!(reconciliation_request_from_anchored(
-            CommandIdentity::new(CanonicalId::now_v7(), CanonicalId::now_v7().to_string()).unwrap(),
+            &CommandIdentity::new(CanonicalId::now_v7(), CanonicalId::now_v7().to_string()).unwrap(),
             &command,
         )
         .is_ok());

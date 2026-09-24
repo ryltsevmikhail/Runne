@@ -122,7 +122,7 @@ function stageReleaseCandidateBinding(targetTriple) {
     arch,
     platform: "macos",
     productId: config.identifier,
-    profileId: "gocode-ui-client/2",
+    profileId: "gocode-ui-client/3",
     releaseCandidateSha256: candidate,
     schemaVersion: 1,
     version: config.version,

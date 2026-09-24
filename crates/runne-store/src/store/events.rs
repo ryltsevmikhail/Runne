@@ -61,7 +61,7 @@ impl AppEventStore for StoreTransaction {
                 "SELECT event_id, sequence, timestamp, schema_version,
                         causation_id, command_id, idempotency_key, actor,
                         payload, integrity_digest, correlation_id,
-                        correlation_type, integrity_profile, global_position
+                        correlation_type, integrity_profile, global_position, sensitivity
                  FROM events
                  WHERE aggregate_type = ?1 AND aggregate_id = ?2
                  ORDER BY sequence ASC",
@@ -84,6 +84,7 @@ impl AppEventStore for StoreTransaction {
                 let correlation_type: i64 = row.get(11)?;
                 let integrity_profile: i64 = row.get(12)?;
                 let global_position: i64 = row.get(13)?;
+                let sensitivity: i64 = row.get(14)?;
                 Ok((
                     eid,
                     seq as u64,
@@ -99,6 +100,7 @@ impl AppEventStore for StoreTransaction {
                     correlation_type,
                     integrity_profile,
                     global_position,
+                    sensitivity,
                 ))
             })
             .map_err(map_event_store_read_error)?;
@@ -122,6 +124,7 @@ impl AppEventStore for StoreTransaction {
                 correlation_type,
                 integrity_profile,
                 global_position,
+                sensitivity_value,
             ) = row.map_err(map_event_store_read_error)?;
 
             let event_id = EventId::from_bytes(
@@ -152,6 +155,13 @@ impl AppEventStore for StoreTransaction {
             let payload = codec
                 .decode(&payload_bytes)
                 .map_err(|_| EventStoreError::CorruptData)?;
+            let sensitivity = match sensitivity_value {
+                0 => Sensitivity::Public,
+                2 if matches!(&payload, TaskRunEvent::TaskRunSubmitted { .. }) => {
+                    Sensitivity::Sensitive
+                }
+                _ => return Err(EventStoreError::CorruptData),
+            };
             let aggregate_id = AggregateId::TaskRun(taskrun_id);
             if integrity_profile != INTEGRITY_PROFILE_V1 {
                 return Err(EventStoreError::CorruptData);
@@ -177,7 +187,7 @@ impl AppEventStore for StoreTransaction {
                 idempotency_key,
                 schema_ver,
                 actor,
-                Sensitivity::Public,
+                sensitivity,
                 payload,
                 seq,
                 Timestamp::from_unix_micros(ts_micros),

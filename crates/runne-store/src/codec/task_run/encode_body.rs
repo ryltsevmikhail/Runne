@@ -3,6 +3,14 @@
         write_u16_be(&mut buf, Self::CODEC_VERSION);
 
         match value {
+            TaskRunEvent::TaskRunSubmitted { conversation_id, workspace_id, input } => {
+                buf.push(TAG_TASK_RUN_SUBMITTED);
+                write_uuid(&mut buf, conversation_id.as_bytes());
+                write_uuid(&mut buf, workspace_id.as_bytes());
+                let prompt = input.prompt().as_bytes();
+                buf.extend_from_slice(&(prompt.len() as u32).to_be_bytes());
+                buf.extend_from_slice(prompt);
+            }
             TaskRunEvent::TaskRunCreated => {
                 buf.push(TAG_TASK_RUN_CREATED);
             }

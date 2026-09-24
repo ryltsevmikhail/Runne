@@ -8,6 +8,24 @@
     }
 
     #[test]
+    fn submitted_prompt_round_trips_and_is_length_bounded() {
+        let codec = TaskRunEventCodec;
+        let event = TaskRunEvent::TaskRunSubmitted {
+            conversation_id: CONV_ID.parse().unwrap(),
+            workspace_id: WS_ID.parse().unwrap(),
+            input: runne_domain::task_run::TaskRunInput::new("summarize this repository".into())
+                .unwrap(),
+        };
+        let bytes = codec.encode(&event).unwrap();
+        assert_eq!(bytes[2], 0x22);
+        assert_eq!(codec.decode(&bytes).unwrap(), event);
+        let mut oversized = bytes.clone();
+        oversized[35..39].copy_from_slice(&65_537u32.to_be_bytes());
+        assert!(codec.decode(&oversized).is_err());
+        assert!(codec.decode(&bytes[..bytes.len() - 1]).is_err());
+    }
+
+    #[test]
     fn phase5_taskrun_event_codec_roundtrips_all_thirteen_tags() {
         let cycle_id: CycleId = CONV_ID.parse().unwrap();
         let attempt_id: AttemptId = ATT_ID.parse().unwrap();

@@ -17,6 +17,7 @@ _IDENTIFIER = re.compile(r"^[A-Z][A-Z0-9-]*$")
 _FOUNDATION = re.compile(r"^FOUND-[0-9]{2}$")
 _HISTORICAL_RUNTIME = "6311992cea0551dab406a93b855ce2c49507e07e"
 _HISTORICAL_BUNDLE_HASH = "bc9b2d46b617ae1ef7c0bfad6b5ce8655779d5299822421d999b3f2a0b181429"
+_V2_BUNDLE_HASH = "f9744ae62f1245480122dfd73560e49532f2313cc9ce1360ac10987d7318b3dd"
 _NATIVE_BLOCKERS = {"WINDOWS_SECURE_IDENTITY_UNVERIFIED", "WINDOWS_PROTECTED_LAUNCH_UNVERIFIED", "LINUX_SECURE_IDENTITY_UNVERIFIED", "LINUX_PROTECTED_LAUNCH_UNVERIFIED", "MACOS_STAGED_DAEMON_IDENTITY_UNVERIFIED", "RUNNER_TRUST_UNVERIFIED"}
 
 
@@ -139,7 +140,7 @@ def validate_status(definition: Mapping[str, object], status: object) -> tuple[s
         datetime.fromisoformat(recorded_at.replace("Z", "+00:00"))
     except ValueError: _add(errors, "STATUS_RECORDED_AT")
     contract = _closed(value["contract"], {"profile_id", "profile_sha256", "bundle_sha256"}, "STATUS_CONTRACT", errors)
-    if contract and (contract["profile_id"] != "gocode-ui-client/2" or not is_sha256(contract["profile_sha256"]) or not is_sha256(contract["bundle_sha256"])): _add(errors, "STATUS_CONTRACT")
+    if contract and (contract["profile_id"] not in {"gocode-ui-client/2", "gocode-ui-client/3"} or not is_sha256(contract["profile_sha256"]) or not is_sha256(contract["bundle_sha256"])): _add(errors, "STATUS_CONTRACT")
     toolchain = _closed(value["toolchain_identity"], {"status", "name", "version"}, "STATUS_TOOLCHAIN", errors)
     runner = _closed(value["runner_identity"], {"status", "runner_id", "image_sha256"}, "STATUS_RUNNER", errors)
     if toolchain:
@@ -188,7 +189,8 @@ def validate_documented_profile_provenance(root: Path, current_hash: str) -> tup
         "MATRIX": root / "docs/desktop/05-runtime-integration/COMPATIBILITY_MATRIX.md",
     }
     historical = ("gocode-ui-client/1", _HISTORICAL_RUNTIME, _HISTORICAL_BUNDLE_HASH)
-    current = ("gocode-ui-client/2", current_hash)
+    previous = ("gocode-ui-client/2", _V2_BUNDLE_HASH)
+    current = ("gocode-ui-client/3", current_hash)
     try:
         texts = {name: path.read_text(encoding="utf-8") for name, path in paths.items()}
     except OSError:
@@ -199,6 +201,9 @@ def validate_documented_profile_provenance(root: Path, current_hash: str) -> tup
     for name, text in (("OQ", oq_row), ("CONTRACT", contract_history), ("MATRIX", matrix_history)):
         if not all(value in text for value in historical):
             _add(errors, f"PROFILE_PROVENANCE_HISTORICAL:{name}")
+    for name in ("OQ", "CONTRACT", "MATRIX"):
+        if not all(value in texts[name] for value in previous):
+            _add(errors, f"PROFILE_PROVENANCE_V2:{name}")
     for name in ("OQ", "CONTRACT", "MATRIX"):
         if not all(value in texts[name] for value in current):
             _add(errors, f"PROFILE_PROVENANCE_CURRENT:{name}")
@@ -217,9 +222,22 @@ def validate_repository(root: Path, *, verify_source_ref: str | None = None, sta
         if isinstance(definition, Mapping): errors.extend(validate_status(definition, status))
         else: _add(errors, "DEFINITION_KEYS")
         if not isinstance(status, dict) or status.get("definition_sha256") != sha256_file(profile): _add(errors, "STATUS_DEFINITION_DIGEST_MISMATCH")
-        bundle = root / "contracts/gocode-ui-client-2/bundle.json"; sidecar = root / "contracts/gocode-ui-client-2/bundle.sha256"; digest = sha256_file(bundle)
-        if sidecar.read_text(encoding="utf-8").strip() != digest or not isinstance(status, dict) or not isinstance(status.get("contract"), dict) or status["contract"].get("profile_sha256") != digest or status["contract"].get("bundle_sha256") != digest: _add(errors, "STATUS_CONTRACT_WAVE_MISMATCH")
-        errors.extend(validate_documented_profile_provenance(root, digest))
+        active_bundle = root / "contracts/gocode-ui-client-3/bundle.json"
+        active_digest = sha256_file(active_bundle)
+        if (root / "contracts/gocode-ui-client-3/bundle.sha256").read_text(encoding="utf-8").strip() != active_digest:
+            _add(errors, "CURRENT_CONTRACT_DIGEST_MISMATCH")
+        contract = status.get("contract", {}) if isinstance(status, dict) else {}
+        profile_id = contract.get("profile_id") if isinstance(contract, dict) else None
+        wave = {"gocode-ui-client/2": "gocode-ui-client-2", "gocode-ui-client/3": "gocode-ui-client-3"}.get(profile_id)
+        if wave is None:
+            _add(errors, "STATUS_CONTRACT_WAVE_MISMATCH")
+        else:
+            bundle = root / "contracts" / wave / "bundle.json"
+            sidecar = root / "contracts" / wave / "bundle.sha256"
+            digest = sha256_file(bundle)
+            if sidecar.read_text(encoding="utf-8").strip() != digest or contract.get("profile_sha256") != digest or contract.get("bundle_sha256") != digest:
+                _add(errors, "STATUS_CONTRACT_WAVE_MISMATCH")
+        errors.extend(validate_documented_profile_provenance(root, active_digest))
         for row in status.get("evidence_refs", []) if isinstance(status, dict) else []:
             path = selected.parent / row.get("id", "") if isinstance(row, dict) else None
             if not isinstance(path, Path) or path.parent != selected.parent or not path.is_file() or row.get("sha256") != sha256_file(path): _add(errors, "EVIDENCE_DIGEST_MISMATCH")

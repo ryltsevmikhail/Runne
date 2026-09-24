@@ -1,0 +1,184 @@
+{
+  "apiProfileId": "gocode-ui-client/3",
+  "artifactDigests": [
+    {
+      "path": "golden/local-session-v2.json",
+      "sha256": "e86c3006bf42d5f6914b4c09759bdce6ea91450ae7fb8444a92cb738cc843c2c"
+    },
+    {
+      "path": "golden/operational-telemetry.json",
+      "sha256": "cd0564111f8a34cd2c872e8f94bb846fe17bb6a5c54fdbbaa5b4c84c4d82c87f"
+    },
+    {
+      "path": "golden/project-workspace.json",
+      "sha256": "ff16f1e8af8af2fa19031e29fcb926a9e96ec49ebf415b3ec65fbd46919a38c7"
+    },
+    {
+      "path": "golden/provider-credential-enrollment-v2.json",
+      "sha256": "56aa27f4c6a1fd61facda64ba5b55b5ef2922e8b0a50d24bb30c0395706915ba"
+    },
+    {
+      "path": "golden/replay-conversation.json",
+      "sha256": "cfbee2bfc609386a884231c2df9f4f37e821c9a90dfac5b43b83eff28d116e68"
+    },
+    {
+      "path": "golden/replay-resume-v2.json",
+      "sha256": "3f036d395a43c7f7ec7ceac898c125b1cc8c6183f334fb6b4ddd125327865ed6"
+    },
+    {
+      "path": "golden/replay-retention-gap-v2.json",
+      "sha256": "2a9e494902ee9f287178fb633823023c858c8834cdd2db96441ff6a5fcb39d12"
+    },
+    {
+      "path": "golden/replay-retention-gap.json",
+      "sha256": "782b1857056f78bc14e4e78fefa822feba54ff56395cad4277ed28c527442b20"
+    },
+    {
+      "path": "golden/replay-taskrun.json",
+      "sha256": "5f0b047695c3875e1a5eaa2ecfa5411f47c49524c793080c562b65c16485fdca"
+    },
+    {
+      "path": "golden/sse-delivery.json",
+      "sha256": "20a5759042d7ec9de6630e951b859620eb49e1dc8483818f14be378a0a7e8078"
+    },
+    {
+      "path": "golden/workspace-diffs.json",
+      "sha256": "9ea5002c904db6dfda067e6963e562b3cdccb1ffd6043d3d559b6f72c613a157"
+    },
+    {
+      "path": "golden/workspace-files.json",
+      "sha256": "a8db82752270e73be1dc05d2849494fb39730c104b223f238ebb216204f47052"
+    },
+    {
+      "path": "openapi.json",
+      "sha256": "89f305fb633865d4ac34eef782e5f45c8199c75b6b17d8093a73a2010c9c779b"
+    },
+    {
+      "path": "schemas/approval-v1.schema.json",
+      "sha256": "3ef34c6ef6c6d5ed3de95e5a5d673757a47e7bd726a7cb03b3f6939de3e3285d"
+    },
+    {
+      "path": "schemas/local-runtime-profile-v3.schema.json",
+      "sha256": "fa36d10da2b7beed6fda8606fa17df59aafaa484a9807c86b9672e435cd70500"
+    },
+    {
+      "path": "schemas/local-session-v2.schema.json",
+      "sha256": "542b55d189b1bbb53ada304125e9bf9ba99cc0e8789c377e1e897ae9973c9c65"
+    },
+    {
+      "path": "schemas/operational-telemetry-v1.schema.json",
+      "sha256": "570d224c258e732a6b44cbb666abcb136fab4c775aa9cada4068b9ed2ee18196"
+    },
+    {
+      "path": "schemas/project-workspace-v2.schema.json",
+      "sha256": "de573768ce1c3fcf5ee956f0e2a58381ae7f7c8c7f4477062af3e60173e4dfb6"
+    },
+    {
+      "path": "schemas/provider-credential-enrollment-v2.schema.json",
+      "sha256": "f06062177a773d8fedddf4f8223f520ef9f897b29304f64fc29e9aa58719f1ae"
+    },
+    {
+      "path": "schemas/provider-credentials-v1.schema.json",
+      "sha256": "ff0a9e3840d286943a3a0f396258d9e27b4c01c774cf94f739983480092df09b"
+    },
+    {
+      "path": "schemas/replay-v1.schema.json",
+      "sha256": "ca90aba9da9ad6a2f7a2702dba22ee545ceb4f11de0d27ef532bb01a90e5377a"
+    },
+    {
+      "path": "schemas/sse-v1.schema.json",
+      "sha256": "0211eb00a832ea7e9a7664faff442f56e9e1a0626931d0f2dd29bf51de444738"
+    },
+    {
+      "path": "schemas/task-run-v1.schema.json",
+      "sha256": "147eb68ddad2f8cd7467664a7287f4cc91d3c964996ad09985c72d172d1252bf"
+    },
+    {
+      "path": "schemas/task-run-v2.schema.json",
+      "sha256": "a98b36b0a9cf9688c372dcb400fa0fc929c41166c5dcc193fc48a49347d33a40"
+    },
+    {
+      "path": "schemas/workspace-diffs-v1.schema.json",
+      "sha256": "20d883cdc47a144653dd97be61e00fd345f5ebe3094c7d635f4885195e6b2cbb"
+    },
+    {
+      "path": "schemas/workspace-editor-v1.schema.json",
+      "sha256": "3887d9444668b0cdd5ff010188b867d0b2405b8694b994645f70dd196042cdd9"
+    },
+    {
+      "path": "schemas/workspace-files-v1.schema.json",
+      "sha256": "d55038c0a2d4a53d91929869418f60913a470a7b756f4dd80157ce99372944d1"
+    }
+  ],
+  "capabilityCatalog": [
+    "conversation.create.v1",
+    "conversation.generate_text.v1",
+    "conversation.list_messages.v1",
+    "task_run.submit.v1",
+    "task_run.submit.v2",
+    "task_run.get.v1",
+    "task_run.cancel.v1",
+    "replay.aggregate.open.v1",
+    "replay.aggregate.retention_baseline.v1",
+    "replay.aggregate.retention_baseline_resume.v2",
+    "replay.aggregate.read_page.v1",
+    "replay.aggregate.acknowledge.v1",
+    "replay.aggregate.complete_catch_up.v1",
+    "replay.aggregate.continue_live.v1",
+    "replay.aggregate.sse.v1",
+    "runtime.operational-telemetry.v1",
+    "approval.control.v1",
+    "project.list.v1",
+    "project.get.v1",
+    "project.create.v1",
+    "project.archive.v1",
+    "project.rename.v1",
+    "project.restore.v1",
+    "project.delete.v1",
+    "workspace.list.v1",
+    "workspace.get.v1",
+    "workspace.create.v1",
+    "workspace.open.v1",
+    "workspace.bind_root.v3",
+    "workspace.files.read.v1",
+    "workspace.changes.read.v1",
+    "workspace.editor.open.v1",
+    "provider.credential-enrollment.v2"
+  ],
+  "generatorSchemaVersion": 1,
+  "publishedCapabilities": [
+    "conversation.create.v1",
+    "conversation.generate_text.v1",
+    "conversation.list_messages.v1",
+    "task_run.submit.v1",
+    "task_run.submit.v2",
+    "task_run.get.v1",
+    "task_run.cancel.v1",
+    "replay.aggregate.open.v1",
+    "replay.aggregate.retention_baseline.v1",
+    "replay.aggregate.retention_baseline_resume.v2",
+    "replay.aggregate.read_page.v1",
+    "replay.aggregate.acknowledge.v1",
+    "replay.aggregate.complete_catch_up.v1",
+    "replay.aggregate.continue_live.v1",
+    "replay.aggregate.sse.v1",
+    "runtime.operational-telemetry.v1",
+    "approval.control.v1",
+    "project.list.v1",
+    "project.get.v1",
+    "project.create.v1",
+    "project.archive.v1",
+    "project.rename.v1",
+    "project.restore.v1",
+    "project.delete.v1",
+    "workspace.list.v1",
+    "workspace.get.v1",
+    "workspace.create.v1",
+    "workspace.open.v1",
+    "workspace.bind_root.v3",
+    "workspace.files.read.v1",
+    "workspace.changes.read.v1",
+    "workspace.editor.open.v1"
+  ],
+  "transportProfileId": "gocode-local-runtime/2"
+}

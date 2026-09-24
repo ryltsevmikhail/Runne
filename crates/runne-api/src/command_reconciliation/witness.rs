@@ -1,6 +1,7 @@
 use super::witness_ref::CommandReconciliationWitnessRef;
 use crate::{ApprovalDecision, CanonicalMessageText, ProjectWorkspaceDisplayNameInput};
 use runne_domain::id::{ApprovalId, ConversationId, ProjectId, TaskRunId, WorkspaceId};
+use runne_domain::task_run::TaskRunInput;
 
 use super::ReconciliationOperation;
 
@@ -22,7 +23,7 @@ enum Witness {
     CreateConversation(ConversationId, WorkspaceId),
     GenerateConversationText(ConversationId, u64, CanonicalMessageText),
     CancelTaskRun(TaskRunId, u64),
-    SubmitTaskRun(ConversationId, WorkspaceId),
+    SubmitTaskRun(ConversationId, WorkspaceId, Option<TaskRunInput>),
     ApprovalDecision(ApprovalId, u64, ApprovalDecision, [u8; 32], u64, u64),
 }
 
@@ -110,9 +111,25 @@ impl CommandReconciliationWitness {
     }
 
     #[must_use]
-    pub const fn submit_task_run(conversation: ConversationId, workspace: WorkspaceId) -> Self {
+    pub fn submit_task_run(
+        conversation: ConversationId,
+        workspace: WorkspaceId,
+        input: TaskRunInput,
+    ) -> Self {
         Self {
-            inner: Witness::SubmitTaskRun(conversation, workspace),
+            inner: Witness::SubmitTaskRun(conversation, workspace, Some(input)),
+        }
+    }
+
+    /// Builds a promptless witness for reconciling a historical submit
+    /// receipt written before submitted input became part of the command.
+    #[must_use]
+    pub const fn submit_task_run_legacy(
+        conversation: ConversationId,
+        workspace: WorkspaceId,
+    ) -> Self {
+        Self {
+            inner: Witness::SubmitTaskRun(conversation, workspace, None),
         }
     }
 
@@ -222,10 +239,11 @@ impl CommandReconciliationWitness {
                     expected_version: *expected_version,
                 }
             }
-            Witness::SubmitTaskRun(conversation_id, workspace_id) => {
+            Witness::SubmitTaskRun(conversation_id, workspace_id, input) => {
                 CommandReconciliationWitnessRef::SubmitTaskRun {
                     conversation_id: *conversation_id,
                     workspace_id: *workspace_id,
+                    input: input.as_ref(),
                 }
             }
             Witness::ApprovalDecision(

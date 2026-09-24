@@ -131,12 +131,12 @@ cat <<EOF > "$bundle/Contents/Info.plist"
 EOF
 
 # Stage the UI contract file (mirrors tauri.conf.json bundle.resources mapping
-# ../../../contracts/gocode-ui-client-2/bundle.json ->
-# Contents/Resources/contracts/gocode-ui-client-2/bundle.json).
-contract_src="contracts/gocode-ui-client-2/bundle.json"
+# ../../../contracts/gocode-ui-client-3/bundle.json ->
+# Contents/Resources/contracts/gocode-ui-client-3/bundle.json).
+contract_src="contracts/gocode-ui-client-3/bundle.json"
 [[ -f "$contract_src" ]] || { echo "error: contract file not found: $contract_src" >&2; exit 1; }
-install -d -m 0755 "$bundle/Contents/Resources/contracts/gocode-ui-client-2"
-install -m 0644 "$contract_src" "$bundle/Contents/Resources/contracts/gocode-ui-client-2/bundle.json"
+install -d -m 0755 "$bundle/Contents/Resources/contracts/gocode-ui-client-3"
+install -m 0644 "$contract_src" "$bundle/Contents/Resources/contracts/gocode-ui-client-3/bundle.json"
 
 identity="${RUNNE_MACOS_SIGNING_IDENTITY:-}"
 if [[ -z "$identity" ]]; then

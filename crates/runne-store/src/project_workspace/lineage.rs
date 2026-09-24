@@ -1,7 +1,8 @@
 use runne_application::ports::{
     AggregateScope, CommitError, IdempotencyScope, OperationTag, StorageFailureKind,
 };
-use runne_domain::id::{CommandId, TaskRunId, WorkspaceId};
+use runne_domain::conversation::{ConversationContextScope, ConversationEvent};
+use runne_domain::id::{CommandId, ConversationId, TaskRunId, WorkspaceId};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 pub(crate) fn record_direct_taskrun_lineage(
@@ -9,14 +10,26 @@ pub(crate) fn record_direct_taskrun_lineage(
     scope: &IdempotencyScope,
     taskrun_id: TaskRunId,
     command_id: CommandId,
+    has_prompt: bool,
 ) -> Result<(), CommitError> {
-    let workspace_id = match (&scope.operation, &scope.aggregate_scope) {
-        (OperationTag::CreateTaskRun, AggregateScope::NewTaskRun { workspace_id, .. })
-        | (OperationTag::SubmitTaskRun, AggregateScope::NewTaskRun { workspace_id, .. }) => {
-            *workspace_id
+    let (workspace_id, conversation_id) = match (&scope.operation, &scope.aggregate_scope) {
+        (OperationTag::CreateTaskRun, AggregateScope::NewTaskRun { workspace_id, .. }) => {
+            (*workspace_id, None)
         }
+        (
+            OperationTag::SubmitTaskRun,
+            AggregateScope::NewTaskRun {
+                conversation_id,
+                workspace_id,
+            },
+        ) => (*workspace_id, Some(*conversation_id)),
         _ => return Ok(()),
     };
+    if let Some(conversation_id) = conversation_id
+        && has_prompt
+    {
+        validate_submit_conversation(transaction, conversation_id, workspace_id)?;
+    }
     record(
         transaction,
         taskrun_id,
@@ -25,6 +38,42 @@ pub(crate) fn record_direct_taskrun_lineage(
         scope.operation as i64,
         &scope.principal_id.0,
     )
+}
+
+fn validate_submit_conversation(
+    transaction: &Transaction<'_>,
+    conversation_id: ConversationId,
+    workspace_id: WorkspaceId,
+) -> Result<(), CommitError> {
+    use crate::codec::{ConversationEventCodec, StoreCodec};
+
+    let payload = transaction
+        .query_row(
+            "SELECT payload FROM events
+             WHERE aggregate_type = 2 AND aggregate_id = ?1 AND sequence = 1",
+            [conversation_id.as_bytes()],
+            |row| row.get::<_, Vec<u8>>(0),
+        )
+        .optional()
+        .map_err(corrupt)?
+        .ok_or_else(|| corrupt(rusqlite::Error::InvalidQuery))?;
+    if !matches!(ConversationEventCodec.decode(&payload),
+        Ok(ConversationEvent::ConversationCreated { workspace_id: stored }) if stored == workspace_id
+    ) {
+        return Err(corrupt(rusqlite::Error::InvalidQuery));
+    }
+    let context_scope = transaction
+        .query_row(
+            "SELECT context_scope FROM conversation_context_scope WHERE conversation_id = ?1",
+            [conversation_id.as_bytes()],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(corrupt)?;
+    if context_scope.as_deref() != Some(ConversationContextScope::Workspace.as_str()) {
+        return Err(corrupt(rusqlite::Error::InvalidQuery));
+    }
+    Ok(())
 }
 
 pub(crate) fn record_text_taskrun_lineage(

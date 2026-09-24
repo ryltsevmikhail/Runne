@@ -16,7 +16,7 @@ use runne_domain::message::MessageText;
 use runne_domain::plan::PlanRevisionRef;
 use runne_domain::recovery::ReconciliationResultRef;
 use runne_domain::reference::{BudgetReservationRef, CheckpointRef};
-use runne_domain::task_run::TaskRunState;
+use runne_domain::task_run::{TaskRunInput, TaskRunState};
 
 /// Input for creating a new task run.
 #[derive(Debug, Clone)]
@@ -46,6 +46,15 @@ pub struct SubmitTaskRunInput {
     /// The conversation this task run belongs to.
     pub conversation_id: ConversationId,
     /// The workspace this task run belongs to.
+    pub workspace_id: WorkspaceId,
+    /// Exact, validated prompt submitted by the caller.
+    pub input: TaskRunInput,
+}
+
+/// Input for the published v1 promptless submit operation.
+#[derive(Debug, Clone, Copy)]
+pub struct LegacySubmitTaskRunInput {
+    pub conversation_id: ConversationId,
     pub workspace_id: WorkspaceId,
 }
 

@@ -240,6 +240,7 @@ pub fn run() {
             consume_approval_decision,
             resync_task_run_timeline,
             cancel_task_run,
+            submit_task_run,
             subscribe_task_run_timeline,
             ack_task_run_update,
             cancel_task_run_subscription,

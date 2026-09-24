@@ -19,6 +19,7 @@ import WorkspaceBreadcrumb from './WorkspaceBreadcrumb.vue'
 import WorkspaceDetails from './WorkspaceDetails.vue'
 import WorkspaceFrame from './WorkspaceFrame.vue'
 import WorkspaceFolderReconnect from './WorkspaceFolderReconnect.vue'
+import WorkspaceTaskRunComposer from './WorkspaceTaskRunComposer.vue'
 import {
   createWorkspaceRefreshController,
   type WorkspaceRefreshLoaders,
@@ -271,6 +272,7 @@ async function returnToProjects() {
             :workspace-id="project.workspaceId"
             :disabled="readOnly"
           />
+          <WorkspaceTaskRunComposer :workspace-id="project.workspaceId" :disabled="readOnly" />
           <details
             class="workspace-terminal-disclosure"
             :open="processId !== null"

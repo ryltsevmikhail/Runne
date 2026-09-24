@@ -1,0 +1,206 @@
+{
+  "$defs": {
+    "cancelRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "expectedVersion": {
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "expectedVersion"
+      ],
+      "type": "object"
+    },
+    "cancellationAcknowledgement": {
+      "additionalProperties": false,
+      "properties": {
+        "attemptId": {
+          "type": "null"
+        },
+        "streamVersion": {
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "taskRunId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "terminalResult": {
+          "type": "null"
+        },
+        "transition": {
+          "const": "cancellation_requested",
+          "type": "string"
+        }
+      },
+      "required": [
+        "attemptId",
+        "streamVersion",
+        "taskRunId",
+        "terminalResult",
+        "transition"
+      ],
+      "type": "object"
+    },
+    "submitAcknowledgement": {
+      "additionalProperties": false,
+      "properties": {
+        "attemptId": {
+          "type": "null"
+        },
+        "streamVersion": {
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "taskRunId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "terminalResult": {
+          "type": "null"
+        },
+        "transition": {
+          "const": "submitted",
+          "type": "string"
+        }
+      },
+      "required": [
+        "attemptId",
+        "streamVersion",
+        "taskRunId",
+        "terminalResult",
+        "transition"
+      ],
+      "type": "object"
+    },
+    "submitRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "conversationId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "Required nonblank task prompt, limited to 65,536 UTF-8 bytes.",
+          "maxLength": 65536,
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string",
+          "x-gocode-maxUtf8Bytes": 65536
+        },
+        "workspaceId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "conversationId",
+        "workspaceId",
+        "prompt"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "gocode://schemas/task-run-v2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "activeAttemptId": {
+      "oneOf": [
+        {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "state": {
+      "enum": [
+        "created",
+        "queued",
+        "admitted",
+        "running",
+        "waiting",
+        "retrying",
+        "checkpointing",
+        "cancelling",
+        "reconciling",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "budget_exhausted",
+        "policy_denied",
+        "unrecoverable"
+      ],
+      "type": "string"
+    },
+    "streamVersion": {
+      "maximum": 18446744073709551615,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "taskRunId": {
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "type": "string"
+    },
+    "terminalResult": {
+      "oneOf": [
+        {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "success",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "reason": {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": {
+                  "const": "failure",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "reason",
+                "type"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "activeAttemptId",
+    "state",
+    "streamVersion",
+    "taskRunId",
+    "terminalResult"
+  ],
+  "title": "TaskRun Snapshot V2",
+  "type": "object"
+}

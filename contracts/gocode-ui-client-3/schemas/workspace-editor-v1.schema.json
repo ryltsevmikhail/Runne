@@ -1,0 +1,82 @@
+{
+  "$defs": {
+    "error": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "requestId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    "receipt": {
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "const": "system_default",
+          "type": "string"
+        },
+        "workspaceId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspaceId",
+        "target"
+      ],
+      "type": "object"
+    },
+    "request": {
+      "additionalProperties": false,
+      "properties": {
+        "relativePath": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))[^\\u0000-\\u001f\\\\]+(?:/[^\\u0000-\\u001f\\\\]+)*$",
+          "type": "string",
+          "x-gocode-maxUtf8Bytes": 4096
+        },
+        "target": {
+          "const": "system_default",
+          "type": "string"
+        }
+      },
+      "required": [
+        "relativePath",
+        "target"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "gocode://schemas/workspace-editor-v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "error": {
+      "$ref": "#/$defs/error"
+    },
+    "receipt": {
+      "$ref": "#/$defs/receipt"
+    },
+    "request": {
+      "$ref": "#/$defs/request"
+    }
+  },
+  "required": [
+    "request",
+    "receipt",
+    "error"
+  ],
+  "title": "Workspace Editor V1",
+  "type": "object"
+}

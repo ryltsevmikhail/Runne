@@ -1,0 +1,21 @@
+{
+  "diff": {
+    "hunks": [],
+    "kind": "modified",
+    "path": "src/main.rs",
+    "truncated": false
+  },
+  "entry": {
+    "additions": 1,
+    "deletions": 1,
+    "kind": "modified",
+    "path": "src/main.rs"
+  },
+  "line": {
+    "kind": "context",
+    "text": "same"
+  },
+  "page": {
+    "items": []
+  }
+}

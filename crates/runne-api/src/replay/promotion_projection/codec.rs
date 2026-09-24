@@ -90,6 +90,7 @@ fn decode_taskrun(
         TaskRunPromotionViewV1 {
             id: snapshot.id(),
             state: super::taskrun_map::state(&snapshot),
+            sensitivity: snapshot.sensitivity(),
             digest: digest(TASKRUN_TAG, &id, input.all),
         },
     )))

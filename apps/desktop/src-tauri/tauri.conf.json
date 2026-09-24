@@ -43,7 +43,7 @@
       "binaries/runne"
     ],
     "resources": {
-      "../../../contracts/gocode-ui-client-2/bundle.json": "contracts/gocode-ui-client-2/bundle.json"
+      "../../../contracts/gocode-ui-client-3/bundle.json": "contracts/gocode-ui-client-3/bundle.json"
     },
     "macOS": {
       "entitlements": "macos/desktop.entitlements",

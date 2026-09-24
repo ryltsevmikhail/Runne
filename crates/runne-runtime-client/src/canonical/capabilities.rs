@@ -4,6 +4,7 @@ pub const REQUIRED_RUNTIME_CAPABILITIES: &[&str] = &[
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
     "task_run.submit.v1",
+    "task_run.submit.v2",
     "task_run.get.v1",
     "task_run.cancel.v1",
     "replay.aggregate.open.v1",
@@ -35,6 +36,7 @@ pub const PROTECTED_RUNTIME_CAPABILITIES: &[&str] = &[
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
     "task_run.submit.v1",
+    "task_run.submit.v2",
     "task_run.get.v1",
     "task_run.cancel.v1",
     "replay.aggregate.open.v1",
@@ -71,6 +73,7 @@ pub const ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES: &[&str] = &[
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
     "task_run.submit.v1",
+    "task_run.submit.v2",
     "task_run.get.v1",
     "task_run.cancel.v1",
     "replay.aggregate.open.v1",
@@ -101,6 +104,11 @@ pub const ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES: &[&str] = &[
     PROVIDER_CREDENTIAL_ENROLLMENT_CAPABILITY_V2,
 ];
 
+pub const REQUIRED_RUNTIME_CAPABILITIES_V3: &[&str] = REQUIRED_RUNTIME_CAPABILITIES;
+pub const PROTECTED_RUNTIME_CAPABILITIES_V3: &[&str] = PROTECTED_RUNTIME_CAPABILITIES;
+pub const ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES_V3: &[&str] =
+    ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES;
+
 pub fn is_supported_capability_profile(values: &[String]) -> bool {
     [
         REQUIRED_RUNTIME_CAPABILITIES,
@@ -116,6 +124,29 @@ pub fn is_supported_capability_profile(values: &[String]) -> bool {
     })
 }
 
+/// Accepts only a coherent profile 3 identity and one of its exact ordered
+/// capability sets. Profile 2 cannot authorize prompted submission.
+fn profile3_session_matches(session: &RuntimeSessionInfo) -> bool {
+    session.profile_id == crate::EXPECTED_BUNDLE_ID
+        && session.schema_hash == crate::GOLDEN_BUNDLE_HASH
+        && nonempty_identity(session)
+        && [
+            REQUIRED_RUNTIME_CAPABILITIES,
+            PROTECTED_RUNTIME_CAPABILITIES,
+            ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES,
+        ]
+        .iter()
+        .any(|expected| {
+            session
+                .capabilities
+                .iter()
+                .map(String::as_str)
+                .eq(expected.iter().copied())
+        })
+        && capability_digest_hex(&session.capabilities)
+            .is_some_and(|digest| digest == session.capability_digest)
+}
+
 pub fn is_enrollment_qualified_capability_profile(values: &[String]) -> bool {
     values
         .iter()
@@ -129,8 +160,7 @@ pub fn is_enrollment_qualified_capability_profile(values: &[String]) -> bool {
 pub fn protected_profile_matches(client: &AuthenticatedRuntimeClient) -> bool {
     let session = client.session_info();
     client.transport_kind() == RuntimeTransportKind::ProtectedBundled
-        && session.profile_id == crate::EXPECTED_BUNDLE_ID
-        && session.schema_hash == crate::GOLDEN_BUNDLE_HASH
+        && profile3_session_matches(session)
         && (session
             .capabilities
             .iter()
@@ -172,85 +202,4 @@ fn nonempty_identity(session: &RuntimeSessionInfo) -> bool {
     .into_iter()
     .all(|value| !value.is_empty())
         && session.launch_generation != 0
-}
-
-#[cfg(test)]
-mod capabilities_tests {
-    use super::*;
-
-    #[test]
-    fn v1_credential_control_is_not_advertised_by_any_supported_profile() {
-        for profile in [
-            REQUIRED_RUNTIME_CAPABILITIES,
-            PROTECTED_RUNTIME_CAPABILITIES,
-        ] {
-            assert!(
-                !profile.contains(&"provider.credential-control.v1"),
-                "V1 credential control must remain a compatibility artifact only"
-            );
-        }
-    }
-
-    #[test]
-    fn enrollment_profile_is_exact_and_supported() {
-        for profile in [REQUIRED_RUNTIME_CAPABILITIES, PROTECTED_RUNTIME_CAPABILITIES] {
-            assert!(!profile.iter().any(|value| value.starts_with("provider.credential-")));
-        }
-        assert_eq!(ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES.iter().filter(|value| **value == PROVIDER_CREDENTIAL_ENROLLMENT_CAPABILITY_V2).count(), 1);
-        assert!(!ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES.contains(&"provider.credential-control.v1"));
-        let qualified = ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES.iter().map(|value| (*value).to_owned()).collect::<Vec<_>>();
-        assert!(is_enrollment_qualified_capability_profile(&qualified));
-        assert!(is_supported_capability_profile(&qualified));
-        let mut mixed = qualified.clone(); mixed.swap(0, 1);
-        assert!(!is_enrollment_qualified_capability_profile(&mixed));
-        mixed = qualified; mixed.push("compile-only-qualification".to_owned());
-        assert!(!is_enrollment_qualified_capability_profile(&mixed));
-    }
-
-    #[test]
-    fn protected_profile_match_accepts_only_exact_qualified_capabilities() {
-        let qualified = ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES
-            .iter()
-            .map(|value| (*value).to_owned())
-            .collect::<Vec<_>>();
-        assert!(protected_profile_matches(&protected_test_client(qualified)));
-
-        for capabilities in [
-            vec!["arbitrary.capability.v1".to_owned()],
-            {
-                let mut values = ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES
-                    .iter()
-                    .map(|value| (*value).to_owned())
-                    .collect::<Vec<_>>();
-                values.push("arbitrary.capability.v1".to_owned());
-                values
-            },
-        ] {
-            assert!(!protected_profile_matches(&protected_test_client(capabilities)));
-        }
-    }
-
-    fn protected_test_client(capabilities: Vec<String>) -> AuthenticatedRuntimeClient {
-        let capability_digest = capability_digest_hex(&capabilities).expect("bounded test capability");
-        crate::mock_protected_authenticated_runtime_client(
-            "http://127.0.0.1:43123",
-            crate::RuntimeSessionInfo {
-                profile_id: crate::EXPECTED_BUNDLE_ID.to_owned(),
-                schema_hash: crate::GOLDEN_BUNDLE_HASH.to_owned(),
-                runtime_version: "test".to_owned(),
-                capabilities,
-                authority_id: "authority".to_owned(),
-                principal_id: "principal".to_owned(),
-                event_log_lineage_id: "lineage".to_owned(),
-                daemon_instance_id: "daemon".to_owned(),
-                launch_generation: 1,
-                session_id: "session".to_owned(),
-                authorization_epoch: 1,
-                sensitivity_ceiling: "sensitive".to_owned(),
-                certificate_sha256: "certificate".to_owned(),
-                capability_digest,
-            },
-        )
-        .expect("protected test client")
-    }
 }

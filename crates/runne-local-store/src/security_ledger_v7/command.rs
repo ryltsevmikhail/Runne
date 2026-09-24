@@ -4,7 +4,7 @@ use crate::{BoundedCanonicalId, SecurityStateError};
 mod approval;
 pub use approval::ApprovalDecisionKind;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub enum NormalizedMutationCommand {
     CreateProject {
         project_id: BoundedCanonicalId,
@@ -53,6 +53,13 @@ pub enum NormalizedMutationCommand {
     SubmitTaskRun {
         conversation_id: BoundedCanonicalId,
         workspace_id: BoundedCanonicalId,
+        prompt: String,
+    },
+    /// Historical promptless submit command decoded from tag 12.
+    /// New commands must use `SubmitTaskRun` with a required prompt.
+    LegacySubmitTaskRun {
+        conversation_id: BoundedCanonicalId,
+        workspace_id: BoundedCanonicalId,
     },
     ApprovalRespond {
         approval_id: BoundedCanonicalId,
@@ -62,6 +69,12 @@ pub enum NormalizedMutationCommand {
         policy_revision: u64,
         renderer_generation: u64,
     },
+}
+
+impl std::fmt::Debug for NormalizedMutationCommand {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("NormalizedMutationCommand(<redacted>)")
+    }
 }
 
 impl NormalizedMutationCommand {
@@ -198,6 +211,16 @@ impl NormalizedMutationCommand {
                 put_version(&mut value, *expected_version)?;
             }
             Self::SubmitTaskRun {
+                conversation_id,
+                workspace_id,
+                prompt,
+            } => {
+                value.extend([13]);
+                codec::put_id(&mut value, conversation_id)?;
+                codec::put_id(&mut value, workspace_id)?;
+                codec::put_message_text(&mut value, prompt)?;
+            }
+            Self::LegacySubmitTaskRun {
                 conversation_id,
                 workspace_id,
             } => {

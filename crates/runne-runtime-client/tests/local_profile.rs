@@ -4,8 +4,9 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 
 use runne_runtime_client::{
-    ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES, GOLDEN_BUNDLE_HASH, LocalProfileError,
-    LocalRuntimeProfile, PROTECTED_RUNTIME_CAPABILITIES, REQUIRED_RUNTIME_CAPABILITIES,
+    ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES, GOLDEN_BUNDLE_HASH_V2, LocalProfileError,
+    LocalRuntimeProfile, PROTECTED_RUNTIME_CAPABILITIES, PROTECTED_RUNTIME_CAPABILITIES_V2,
+    REQUIRED_RUNTIME_CAPABILITIES,
 };
 use sha2::{Digest, Sha256};
 
@@ -195,7 +196,7 @@ fn profile_missing_required_telemetry_capability_is_rejected() {
 #[test]
 fn committed_bundle_hash_and_required_telemetry_capability_are_synchronized() {
     let bundle = include_bytes!("../../../contracts/gocode-ui-client-2/bundle.json");
-    assert_eq!(hex::encode(Sha256::digest(bundle)), GOLDEN_BUNDLE_HASH);
+    assert_eq!(hex::encode(Sha256::digest(bundle)), GOLDEN_BUNDLE_HASH_V2);
 
     let bundle: serde_json::Value = serde_json::from_slice(bundle).expect("bundle JSON");
     let published_capabilities = bundle["publishedCapabilities"]
@@ -204,7 +205,7 @@ fn committed_bundle_hash_and_required_telemetry_capability_are_synchronized() {
         .iter()
         .map(|capability| capability.as_str().expect("capability string"))
         .collect::<Vec<_>>();
-    assert_eq!(published_capabilities, PROTECTED_RUNTIME_CAPABILITIES);
+    assert_eq!(published_capabilities, PROTECTED_RUNTIME_CAPABILITIES_V2);
     assert!(REQUIRED_RUNTIME_CAPABILITIES.contains(&"runtime.operational-telemetry.v1"));
 }
 

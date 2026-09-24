@@ -51,7 +51,7 @@ fn runtime_profile_accepts_only_the_exact_bundle_identity() {
     let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 43123);
     let endpoint = RuntimeEndpoint::loopback(address).expect("endpoint");
 
-    let profile = RuntimeProfile::validate(endpoint, "gocode-ui-client/2", GOLDEN_BUNDLE_HASH)
+    let profile = RuntimeProfile::validate(endpoint, EXPECTED_BUNDLE_ID, GOLDEN_BUNDLE_HASH)
         .expect("validated profile");
     assert_eq!(profile.endpoint().address(), address);
 
@@ -192,7 +192,7 @@ fn golden_hash_is_valid_hex() {
 
 #[test]
 fn bundle_id_is_expected() {
-    assert_eq!(EXPECTED_BUNDLE_ID, "gocode-ui-client/2");
+    assert_eq!(EXPECTED_BUNDLE_ID, "gocode-ui-client/3");
 }
 
 #[test]
@@ -204,6 +204,7 @@ fn supported_capability_profiles_are_exactly_ordered() {
             "conversation.generate_text.v1",
             "conversation.list_messages.v1",
             "task_run.submit.v1",
+            "task_run.submit.v2",
             "task_run.get.v1",
             "task_run.cancel.v1",
             "replay.aggregate.open.v1",

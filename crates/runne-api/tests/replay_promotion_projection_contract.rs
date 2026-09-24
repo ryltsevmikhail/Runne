@@ -122,6 +122,47 @@ fn promotion_projection_exposes_a_typed_taskrun_state_without_raw_snapshot_bytes
     assert_ne!(view.closed_snapshot_digest(), &[0; 32]);
 }
 
+#[test]
+fn promotion_projection_marks_sensitive_submitted_input_for_ceiling_checks() {
+    let taskrun_id = TaskRunId::from_bytes(ID);
+    let event = EventEnvelope::from_parts(
+        EventId::from_bytes(uuid(10)),
+        AggregateId::TaskRun(taskrun_id),
+        AggregateId::TaskRun(taskrun_id),
+        None,
+        CommandId::from_bytes(uuid(11)),
+        IdempotencyKey::new("submitted-prompt").unwrap(),
+        1,
+        Actor::new("test").unwrap(),
+        Sensitivity::Sensitive,
+        TaskRunEvent::TaskRunSubmitted {
+            conversation_id: ConversationId::from_bytes(uuid(2)),
+            workspace_id: WorkspaceId::from_bytes(uuid(3)),
+            input: runne_domain::task_run::TaskRunInput::new("private task".into()).unwrap(),
+        },
+        1,
+        Timestamp::from_unix_micros(1),
+        IntegrityDigest::from_bytes([2; 32]),
+    );
+    let taskrun = TaskRun::replay(&[event]).unwrap();
+    let snapshot = taskrun.snapshot_v1();
+    assert_eq!(snapshot.sensitivity(), Sensitivity::Sensitive);
+    assert_eq!(snapshot.input().unwrap().prompt(), "private task");
+    let snapshot_bytes = snapshot.encode().unwrap();
+    let restored = runne_domain::task_run::TaskRunSnapshotV1::decode(&snapshot_bytes).unwrap();
+    assert_eq!(restored, snapshot);
+    assert_eq!(restored.conversation_id().unwrap().as_bytes(), &uuid(2));
+    assert_eq!(restored.workspace_id().unwrap().as_bytes(), &uuid(3));
+    let bytes = ReplayPromotionProjectionV1::encode_task_run(&snapshot).unwrap();
+    let decoded = UnauthenticatedReplayPromotionProjectionV1::decode(&bytes).unwrap();
+    let ReplayPromotionProjectionViewV1::TaskRun(view) = decoded.view() else {
+        panic!("expected TaskRun promotion view");
+    };
+    assert_eq!(view.sensitivity_ceiling(), Sensitivity::Sensitive);
+    assert!(format!("{decoded:?}").contains("redacted"));
+    assert!(!format!("{decoded:?}").contains("private task"));
+}
+
 fn conversation() -> Conversation {
     let conversation_id = ConversationId::from_bytes(ID);
     let workspace_id = WorkspaceId::from_bytes(uuid(2));

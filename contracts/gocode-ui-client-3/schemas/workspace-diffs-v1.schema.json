@@ -1,0 +1,203 @@
+{
+  "$defs": {
+    "diff": {
+      "additionalProperties": false,
+      "properties": {
+        "hunks": {
+          "items": {
+            "$ref": "#/$defs/hunk"
+          },
+          "maxItems": 512,
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "added",
+            "modified",
+            "deleted"
+          ],
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))[^\\u0000-\\u001f\\u007f\\\\]+(?:/[^\\u0000-\\u001f\\u007f\\\\]+)*$",
+          "type": "string",
+          "x-gocode-maxUtf8Bytes": 4096
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "kind",
+        "hunks",
+        "truncated"
+      ],
+      "type": "object",
+      "x-gocode-maxTotalLines": 65536
+    },
+    "entry": {
+      "additionalProperties": false,
+      "properties": {
+        "additions": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "deletions": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "added",
+            "modified",
+            "deleted"
+          ],
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))[^\\u0000-\\u001f\\u007f\\\\]+(?:/[^\\u0000-\\u001f\\u007f\\\\]+)*$",
+          "type": "string",
+          "x-gocode-maxUtf8Bytes": 4096
+        }
+      },
+      "required": [
+        "path",
+        "kind",
+        "additions",
+        "deletions"
+      ],
+      "type": "object"
+    },
+    "error": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "requestId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    "hunk": {
+      "additionalProperties": false,
+      "properties": {
+        "lines": {
+          "items": {
+            "$ref": "#/$defs/line"
+          },
+          "maxItems": 16384,
+          "type": "array"
+        },
+        "newLines": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "newStart": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "oldLines": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "oldStart": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "oldStart",
+        "oldLines",
+        "newStart",
+        "newLines",
+        "lines"
+      ],
+      "type": "object"
+    },
+    "line": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "context",
+            "added",
+            "removed"
+          ],
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 16384,
+          "type": "string",
+          "x-gocode-maxUtf8Bytes": 16384
+        }
+      },
+      "required": [
+        "kind",
+        "text"
+      ],
+      "type": "object"
+    },
+    "page": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/entry"
+          },
+          "maxItems": 200,
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "gocode://schemas/workspace-diffs-v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "diff": {
+      "$ref": "#/$defs/diff"
+    },
+    "entry": {
+      "$ref": "#/$defs/entry"
+    },
+    "error": {
+      "$ref": "#/$defs/error"
+    },
+    "hunk": {
+      "$ref": "#/$defs/hunk"
+    },
+    "line": {
+      "$ref": "#/$defs/line"
+    },
+    "page": {
+      "$ref": "#/$defs/page"
+    }
+  },
+  "required": [
+    "entry",
+    "page",
+    "line",
+    "hunk",
+    "diff",
+    "error"
+  ],
+  "title": "Workspace Diffs V1",
+  "type": "object"
+}
