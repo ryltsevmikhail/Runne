@@ -73,6 +73,11 @@ impl MutationRequest {
                 digest.update([9]);
                 update_id(&mut digest, *task_run_id);
             }
+            CanonicalMutationCommand::SubmitTaskRun { conversation_id, workspace_id } => {
+                digest.update([12]);
+                update_id(&mut digest, *conversation_id);
+                update_id(&mut digest, *workspace_id);
+            }
             CanonicalMutationCommand::ApprovalRespond {
                 approval_id,
                 decision,

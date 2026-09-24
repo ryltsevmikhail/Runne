@@ -50,6 +50,10 @@ pub enum NormalizedMutationCommand {
         task_run_id: BoundedCanonicalId,
         expected_version: u64,
     },
+    SubmitTaskRun {
+        conversation_id: BoundedCanonicalId,
+        workspace_id: BoundedCanonicalId,
+    },
     ApprovalRespond {
         approval_id: BoundedCanonicalId,
         expected_version: u64,
@@ -192,6 +196,14 @@ impl NormalizedMutationCommand {
                 value.push(9);
                 codec::put_id(&mut value, task_run_id)?;
                 put_version(&mut value, *expected_version)?;
+            }
+            Self::SubmitTaskRun {
+                conversation_id,
+                workspace_id,
+            } => {
+                value.extend([12]);
+                codec::put_id(&mut value, conversation_id)?;
+                codec::put_id(&mut value, workspace_id)?;
             }
             Self::ApprovalRespond {
                 approval_id,

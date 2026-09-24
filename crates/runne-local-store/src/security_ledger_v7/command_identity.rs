@@ -80,6 +80,13 @@ impl NormalizedMutationCommand {
                     && *expected_version == identity.expected_version()
                     && task_run_id.as_bytes() == identity.target()
             }
+            Self::SubmitTaskRun {
+                conversation_id, ..
+            } => {
+                identity.operation() == MutationOperation::TaskRunSubmit
+                    && identity.expected_version() == 0
+                    && conversation_id.as_bytes() == identity.target()
+            }
             Self::ApprovalRespond {
                 approval_id,
                 expected_version,

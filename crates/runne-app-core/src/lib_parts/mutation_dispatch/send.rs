@@ -14,6 +14,7 @@ impl AppCore {
             CanonicalMutationCommand::CreateConversation { .. }
             | CanonicalMutationCommand::GenerateText { .. } => self.send_conversation(&client, lease).await,
             CanonicalMutationCommand::CancelTaskRun { .. } => self.send_task_run_cancel(&client, lease).await,
+            CanonicalMutationCommand::SubmitTaskRun { .. } => self.send_task_run_submit(&client, lease).await,
             CanonicalMutationCommand::ApprovalRespond { .. } => self.send_approval(&client, lease).await,
             CanonicalMutationCommand::CreateProject { .. }
             | CanonicalMutationCommand::RenameProject { .. }
@@ -38,6 +39,13 @@ impl AppCore {
         let CanonicalMutationCommand::CancelTaskRun { task_run_id } = lease.request.semantic_command else { return Err(AppCoreError::InvalidMutation); };
         client.cancel_task_run(runne_runtime_client::CancelTaskRunRequest::new(lease.request.command_identity.clone(), task_run_id, lease.request.expected_version)).await
             .map(MutationDispatchResult::TaskRunCancellationRequested)
+            .map_err(|_| AppCoreError::RuntimeUnavailable)
+    }
+
+    async fn send_task_run_submit(&self, client: &AuthenticatedRuntimeClient, lease: &PreparedMutationLease) -> Result<MutationDispatchResult, AppCoreError> {
+        let CanonicalMutationCommand::SubmitTaskRun { conversation_id, workspace_id } = lease.request.semantic_command else { return Err(AppCoreError::InvalidMutation); };
+        client.submit_task_run(runne_runtime_client::SubmitTaskRunRequest::new(lease.request.command_identity.clone(), conversation_id, workspace_id)).await
+            .map(MutationDispatchResult::TaskRunSubmitted)
             .map_err(|_| AppCoreError::RuntimeUnavailable)
     }
 

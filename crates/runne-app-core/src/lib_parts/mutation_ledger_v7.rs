@@ -49,6 +49,7 @@ impl MutationRequest {
                 task_run_id: id(*task_run_id)?,
                 expected_version: self.expected_version,
             }),
+            CanonicalMutationCommand::SubmitTaskRun { conversation_id, workspace_id } => Ok(Command::SubmitTaskRun { conversation_id: id(*conversation_id)?, workspace_id: id(*workspace_id)? }),
             CanonicalMutationCommand::ApprovalRespond { approval_id, decision, action_digest, policy_revision, renderer_generation } => Ok(Command::ApprovalRespond {
                 approval_id: id(*approval_id)?,
                 expected_version: self.expected_version,

@@ -1,4 +1,24 @@
 impl AppCore {
+    /// Submits one runtime-owned `TaskRun` through the authenticated anchored ledger.
+    /// The acknowledgement means Created+Queued was durably recorded; it does
+    /// not mean that the run was admitted or started.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when input validation, the mutation anchor, runtime
+    /// response, or authoritative acknowledgement is invalid or unavailable.
+    pub async fn submit_task_run(
+        &self,
+        conversation_id: CanonicalId,
+        workspace_id: CanonicalId,
+    ) -> Result<runne_runtime_client::TaskRunSubmitAcknowledgement, AppCoreError> {
+        let lease = self.prepare_mutation(MutationRequest::submit_task_run(conversation_id, workspace_id)?).await?;
+        match self.dispatch_prepared_mutation(lease).await? {
+            MutationDispatchResult::TaskRunSubmitted(value) => Ok(value),
+            _ => Err(AppCoreError::InvalidMutation),
+        }
+    }
+
     /// Requests durable cancellation through the anchored mutation ledger.
     ///
     /// # Errors

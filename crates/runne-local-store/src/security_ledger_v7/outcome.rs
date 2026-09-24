@@ -57,6 +57,10 @@ pub enum CanonicalMutationOutcome {
         task_run_id: BoundedCanonicalId,
         new_version: u64,
     },
+    TaskRunSubmitted {
+        task_run_id: BoundedCanonicalId,
+        new_version: u64,
+    },
     ApprovalRespond {
         approval_id: BoundedCanonicalId,
         new_version: u64,
@@ -196,6 +200,10 @@ impl CanonicalMutationOutcome {
             } => {
                 simple(&mut value, 9, task_run_id, *new_version)?;
             }
+            Self::TaskRunSubmitted {
+                task_run_id,
+                new_version,
+            } => simple(&mut value, 12, task_run_id, *new_version)?,
             Self::ApprovalRespond {
                 approval_id,
                 new_version,
@@ -228,6 +236,10 @@ impl CanonicalMutationOutcome {
             },
             8 => generation(&mut input)?,
             9 => Self::TaskRunCancellationRequested {
+                task_run_id: codec::id(&mut input)?,
+                new_version: version(&mut input)?,
+            },
+            12 => Self::TaskRunSubmitted {
                 task_run_id: codec::id(&mut input)?,
                 new_version: version(&mut input)?,
             },

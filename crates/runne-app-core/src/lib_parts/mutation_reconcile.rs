@@ -46,6 +46,7 @@ fn reconciliation_request_from_anchored(
         Command::CancelTaskRun { task_run_id, expected_version } => {
             Ok(Request::cancel_task_run(identity, id(task_run_id)?, *expected_version))
         }
+        Command::SubmitTaskRun { conversation_id, workspace_id } => Ok(Request::submit_task_run(identity, id(conversation_id)?, id(workspace_id)?)),
         Command::ApprovalRespond { approval_id, expected_version, decision, action_digest, policy_revision, renderer_generation } => {
             Request::approval_decision(
                 identity,
@@ -143,9 +144,7 @@ pub(crate) fn reconciliation_outcome_to_ledger(
             task_run_id: id(value.task_run_id())?,
             new_version: value.stream_version(),
         },
-        // The local ledger v7 outcome codec has no submit representation yet;
-        // fail closed until the ledger gains an explicit submit outcome.
-        Outcome::TaskRunSubmitted(_) => return Err(AppCoreError::MutationUnavailable),
+        Outcome::TaskRunSubmitted(value) => LedgerOutcome::TaskRunSubmitted { task_run_id: id(value.task_run_id())?, new_version: value.stream_version() },
         Outcome::ApprovalDecision(value) => LedgerOutcome::ApprovalRespond {
             approval_id: id(value.approval_id())?,
             new_version: value.new_version(),

@@ -39,6 +39,7 @@ pub enum CanonicalMutationCommand {
     CancelTaskRun {
         task_run_id: CanonicalId,
     },
+    SubmitTaskRun { conversation_id: CanonicalId, workspace_id: CanonicalId },
     ApprovalRespond { approval_id: CanonicalId, decision: runne_runtime_client::ApprovalDecisionDto, action_digest: [u8; 32], policy_revision: u64, renderer_generation: u64 },
 }
 
@@ -241,6 +242,7 @@ impl MutationRequest {
                 runne_local_store::MutationOperation::ProjectCreate
                     | runne_local_store::MutationOperation::WorkspaceCreate
                     | runne_local_store::MutationOperation::ConversationCreate
+                    | runne_local_store::MutationOperation::TaskRunSubmit
             )
         {
             return Err(AppCoreError::InvalidMutation);
@@ -294,3 +296,4 @@ include!("mutation_types/invariants.rs");
 include!("mutation_types/approval.rs");
 
 include!("mutation_types/rename.rs");
+include!("mutation_types/submit.rs");

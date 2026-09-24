@@ -81,8 +81,7 @@ impl AppCore {
             Outcome::ConversationTextRejected(_) => Err(AppCoreError::GenerationRejected),
             Outcome::ConversationTextProhibitedInputRejected(_) => Err(AppCoreError::ProhibitedInputRejected),
             Outcome::TaskRunCancellationRequested(value) => Ok(MutationDispatchResult::TaskRunCancellationRequested(*value)),
-            // No local dispatch surface for a reconciled submit yet; fail closed.
-            Outcome::TaskRunSubmitted(_) => Err(AppCoreError::MutationUnavailable),
+            Outcome::TaskRunSubmitted(value) => Ok(MutationDispatchResult::TaskRunSubmitted(*value)),
             Outcome::ApprovalDecision(value) => Ok(MutationDispatchResult::ApprovalDecision(*value)),
         }
     }

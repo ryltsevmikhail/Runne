@@ -170,6 +170,7 @@ fn recovery_request(
         Command::CreateConversation { conversation_id, workspace_id } => CanonicalMutationCommand::CreateConversation { conversation_id: id(conversation_id)?, workspace_id: id(workspace_id)? },
         Command::GenerateText { conversation_id, text, .. } => CanonicalMutationCommand::GenerateText { conversation_id: id(conversation_id)?, text: text.clone() },
         Command::CancelTaskRun { task_run_id, .. } => CanonicalMutationCommand::CancelTaskRun { task_run_id: id(task_run_id)? },
+        Command::SubmitTaskRun { conversation_id, workspace_id } => CanonicalMutationCommand::SubmitTaskRun { conversation_id: id(conversation_id)?, workspace_id: id(workspace_id)? },
         Command::ApprovalRespond { approval_id, decision, action_digest, policy_revision, renderer_generation, .. } => CanonicalMutationCommand::ApprovalRespond {
             approval_id: id(approval_id)?,
             decision: match decision {

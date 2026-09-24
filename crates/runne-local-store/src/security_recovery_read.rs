@@ -219,6 +219,7 @@ fn operation_from_name(value: &str) -> Result<MutationOperation, SecurityStateEr
         "workspace_open" => Ok(MutationOperation::WorkspaceOpen),
         "conversation_create" => Ok(MutationOperation::ConversationCreate),
         "conversation_generate_text" => Ok(MutationOperation::ConversationGenerateText),
+        "task_run_submit" => Ok(MutationOperation::TaskRunSubmit),
         _ => Err(SecurityStateError::IdentityConflict),
     }
 }

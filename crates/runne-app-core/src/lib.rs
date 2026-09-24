@@ -104,6 +104,7 @@ mod tests {
     include!("lib_parts/mutation_network_state_tests.rs");
     include!("lib_parts/mutation_network_state_bind_tests.rs");
     include!("lib_parts/mutation_cancellation_tests.rs");
+    include!("lib_parts/mutation_submit_tests.rs");
     include!("lib_parts/destructive_action_tests.rs");
     include!("lib_parts/production_open_tests.rs");
     include!("lib_parts/device_tests.rs");

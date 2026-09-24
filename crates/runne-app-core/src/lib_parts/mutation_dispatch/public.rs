@@ -76,6 +76,7 @@ impl AppCore {
             | MutationDispatchResult::ConversationCreated(_)
             | MutationDispatchResult::TextGenerated(_)
             | MutationDispatchResult::TaskRunCancellationRequested(_)
+            | MutationDispatchResult::TaskRunSubmitted(_)
             | MutationDispatchResult::ApprovalDecision(_) => Err(AppCoreError::InvalidMutation),
         }
     }
@@ -91,6 +92,7 @@ impl AppCore {
             | MutationDispatchResult::ConversationCreated(_)
             | MutationDispatchResult::TextGenerated(_)
             | MutationDispatchResult::TaskRunCancellationRequested(_)
+            | MutationDispatchResult::TaskRunSubmitted(_)
             | MutationDispatchResult::ApprovalDecision(_) => Err(AppCoreError::InvalidMutation),
         }
     }
