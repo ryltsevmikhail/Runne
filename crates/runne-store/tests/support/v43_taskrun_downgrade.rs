@@ -24,6 +24,11 @@ pub fn drop_v42_v43_taskrun_schema(connection: &Connection) -> rusqlite::Result<
          DROP TRIGGER IF EXISTS taskrun_claim_receipts_immutable;
          DROP TRIGGER IF EXISTS taskrun_claim_receipts_no_delete;
          DROP TRIGGER IF EXISTS global_command_id_from_taskrun_claim_receipts;
+         DROP TRIGGER IF EXISTS global_command_id_from_lease_renewals_v43;
+         DROP TRIGGER IF EXISTS global_command_id_from_command_receipts_v43;
+         DROP TRIGGER IF EXISTS global_command_id_from_project_workspace_receipts_v43;
+         DROP TRIGGER IF EXISTS global_command_id_from_taskrun_claim_receipts_v43;
+         DROP TRIGGER IF EXISTS taskrun_assignment_lease_renewals_immutable;
          DROP TRIGGER IF EXISTS global_command_id_from_command_receipts_v42;
          DROP TRIGGER IF EXISTS global_command_id_from_project_workspace_receipts_v42;
          DROP TABLE IF EXISTS taskrun_claim_receipts;

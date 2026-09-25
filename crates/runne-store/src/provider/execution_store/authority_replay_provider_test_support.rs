@@ -85,6 +85,11 @@ pub(super) fn upgraded_v25_for_provider(
              DROP TRIGGER schema_v12_fence_taskrun_assignment_lease_renewals_insert;
              DROP TRIGGER schema_v12_fence_taskrun_assignment_lease_renewals_update;
              DROP TRIGGER schema_v12_fence_taskrun_assignment_lease_renewals_delete;
+             DROP TRIGGER taskrun_assignment_lease_renewals_immutable;
+             DROP TRIGGER global_command_id_from_lease_renewals_v43;
+             DROP TRIGGER global_command_id_from_command_receipts_v43;
+             DROP TRIGGER global_command_id_from_project_workspace_receipts_v43;
+             DROP TRIGGER global_command_id_from_taskrun_claim_receipts_v43;
              DROP TABLE taskrun_assignment_lease_renewals;
              DROP TABLE taskrun_assignment_occupations;
              DROP TRIGGER global_command_id_from_command_receipts_v42;
