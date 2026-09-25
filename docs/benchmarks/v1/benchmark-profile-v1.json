@@ -1,0 +1,169 @@
+{
+  "schema_version": "runne.benchmark.profile/1",
+  "contract_id": "runne-benchmark-v1",
+  "profile_id": "runne-benchmark-v1-contract-fixture",
+  "frozen_at": "2026-09-06T00:00:00Z",
+  "source": {
+    "repository": "https://sourcecraft.dev/ryltsevmg/runne",
+    "revision": "eaf50baed82a4ffaa5347b6eb1e292ef3077c3b3",
+    "artifact_sha256": "c7c5c1d70c5dec4416ab6158afd0b223ef40c29b1dc1f97ed9428b94d4cadb1c"
+  },
+  "execution": {
+    "provider_id": "fixture-provider",
+    "provider_profile_sha256": "0282a7e7e88b6400a5e3c501a8f8d7db787fb4601c6bccd1a362f772933a4cb3",
+    "model_id": "fixture-model",
+    "model_revision": "fixture-model-2026-09-06",
+    "runtime_policy_sha256": "978a583da9c20268040c610d42061c4e3e21e480c2b2640aca7213a975da9fb0",
+    "tool_policy_sha256": "5f1378ca34aab2aa91998743a793e4d3f4e517f124038c1e2a76cd5f3f488bdd",
+    "environment_sha256": "ba5285161ba6eed0085fb13784ce5c92f70ebc268b94fd66aa1d68a32884204d"
+  },
+  "sample_size": 12,
+  "eligible_denominator": 12,
+  "stopping_rule": "complete_all_eligible_cases",
+  "cases": [
+    {
+      "case_id": "bugfix-01",
+      "journey_id": "pr_ready_bug_fix",
+      "journey_spec_sha256": "76e5876d86fd4ad67081540d73abba235cc3535b7254090047094b0a8cb5723f",
+      "repository_manifest_sha256": "b5949a067953fdb2619ef182e3bde1398b23af2d1960d0a9dfa3f63348f5fdc2",
+      "fixture_manifest_sha256": "9601de0361940c9f431f5728e4e127efc755dd375fb4870a6920b8e458597b72",
+      "task_spec_sha256": "abfccfdfe126cf1dd086970db44e6dce927b0796be2666763550f9500bec2238",
+      "verifier_id": "runne-machine-verifier",
+      "verifier_version": "1.0.0",
+      "verifier_sha256": "88c9eae68eb300b2971a2bec9e5a26ff4179fd661d6b7d861e4c6557b9aaee14",
+      "budgets": {"wall_seconds": 1800, "input_tokens": 200000, "output_tokens": 20000, "cost_micros": 2000000}
+    },
+    {
+      "case_id": "bugfix-02",
+      "journey_id": "pr_ready_bug_fix",
+      "journey_spec_sha256": "76e5876d86fd4ad67081540d73abba235cc3535b7254090047094b0a8cb5723f",
+      "repository_manifest_sha256": "e2e9fa10225bf73bc06ebdcd46ded0eab6b4e2c1a289ac9165ee17be826108af",
+      "fixture_manifest_sha256": "71f367835f088ef80b5b557a7793b4049451b117a12a7cc4ada9b1afd97d1094",
+      "task_spec_sha256": "9321359f57dd8833bc1934065038adfbc559ed4e75b52c14c44d4cd06a5b6cdd",
+      "verifier_id": "runne-machine-verifier",
+      "verifier_version": "1.0.0",
+      "verifier_sha256": "88c9eae68eb300b2971a2bec9e5a26ff4179fd661d6b7d861e4c6557b9aaee14",
+      "budgets": {"wall_seconds": 1800, "input_tokens": 200000, "output_tokens": 20000, "cost_micros": 2000000}
+    },
+    {
+      "case_id": "bugfix-03",
+      "journey_id": "pr_ready_bug_fix",
+      "journey_spec_sha256": "76e5876d86fd4ad67081540d73abba235cc3535b7254090047094b0a8cb5723f",
+      "repository_manifest_sha256": "8c276d4f89f1ffcdf3e8536d33681fa39529abe89fd89fe97d5f9e1d52d85a7c",
+      "fixture_manifest_sha256": "9d8dcfe43072b1ac473e3c401b6584d43a2e356c074a31269ba23eb7a6642207",
+      "task_spec_sha256": "82716d74033dd4cf928fc5785e4d9f247818b512610a27a79d3a5e219fee7d41",
+      "verifier_id": "runne-machine-verifier",
+      "verifier_version": "1.0.0",
+      "verifier_sha256": "88c9eae68eb300b2971a2bec9e5a26ff4179fd661d6b7d861e4c6557b9aaee14",
+      "budgets": {"wall_seconds": 1800, "input_tokens": 200000, "output_tokens": 20000, "cost_micros": 2000000}
+    },
+    {
+      "case_id": "bugfix-04",
+      "journey_id": "pr_ready_bug_fix",
+      "journey_spec_sha256": "76e5876d86fd4ad67081540d73abba235cc3535b7254090047094b0a8cb5723f",
+      "repository_manifest_sha256": "77607e9d5e0e93a039420e55c2c51a2f289db7651dc1c9ae2acebce49bbc0336",
+      "fixture_manifest_sha256": "1c5093f6aa8e4fa881ec28899ceb38f7d3ed8d0ac47b74d62ed826a036652554",
+      "task_spec_sha256": "543da43cad8d1c16f82a40515fd07e4784558f78ee934caa83181fbf17a35abd",
+      "verifier_id": "runne-machine-verifier",
+      "verifier_version": "1.0.0",
+      "verifier_sha256": "88c9eae68eb300b2971a2bec9e5a26ff4179fd661d6b7d861e4c6557b9aaee14",
+      "budgets": {"wall_seconds": 1800, "input_tokens": 200000, "output_tokens": 20000, "cost_micros": 2000000}
+    },
+    {
+      "case_id": "security-01",
+      "journey_id": "dependency_security_upgrade",
+      "journey_spec_sha256": "8cc1d63452b11d76787ce4b7d8c403d09f4285410fb948b5cf6e59458f2bff48",
+      "repository_manifest_sha256": "dc24225ced5cff5ca6d8d77f2481fb83f4e36159c0ff9ac3895b373a667ee16e",
+      "fixture_manifest_sha256": "ff2955feb3f964b68f885789f5c3d555ba792737c32b3de5f575fc5a53131c02",
+      "task_spec_sha256": "2ca567875234758ddf97c33e4230468702c6197da166e955ecf1ea2e79cde2ea",
+      "verifier_id": "runne-machine-verifier",
+      "verifier_version": "1.0.0",
+      "verifier_sha256": "88c9eae68eb300b2971a2bec9e5a26ff4179fd661d6b7d861e4c6557b9aaee14",
+      "budgets": {"wall_seconds": 1800, "input_tokens": 200000, "output_tokens": 20000, "cost_micros": 2000000}
+    },
+    {
+      "case_id": "security-02",
+      "journey_id": "dependency_security_upgrade",
+      "journey_spec_sha256": "8cc1d63452b11d76787ce4b7d8c403d09f4285410fb948b5cf6e59458f2bff48",
+      "repository_manifest_sha256": "0ba59adf8b5330d496a277278d3b5d05948542ed959da3b2144c55680183650f",
+      "fixture_manifest_sha256": "20ef5436dde323da0411dfe1db0e436147f37bd06b0d3bf2b86b6b5cf04356a6",
+      "task_spec_sha256": "1780b4a50ff50a8943a81f1ca6be3229acc6a7a5208fb7dde9c247627dff269c",
+      "verifier_id": "runne-machine-verifier",
+      "verifier_version": "1.0.0",
+      "verifier_sha256": "88c9eae68eb300b2971a2bec9e5a26ff4179fd661d6b7d861e4c6557b9aaee14",
+      "budgets": {"wall_seconds": 1800, "input_tokens": 200000, "output_tokens": 20000, "cost_micros": 2000000}
+    },
+    {
+      "case_id": "security-03",
+      "journey_id": "dependency_security_upgrade",
+      "journey_spec_sha256": "8cc1d63452b11d76787ce4b7d8c403d09f4285410fb948b5cf6e59458f2bff48",
+      "repository_manifest_sha256": "4b465b535ecd51c471c5839a7bbf8f6b4815faceb7ab5f8033be5963406a121f",
+      "fixture_manifest_sha256": "3cfd365a63994b3e58f180b59070c5e3124b8c3a7b80bb7ce2b78bf53f10f104",
+      "task_spec_sha256": "90c75aef799c37a7439b193bf730634f4975f3553c2b4f49989f991fed029e28",
+      "verifier_id": "runne-machine-verifier",
+      "verifier_version": "1.0.0",
+      "verifier_sha256": "88c9eae68eb300b2971a2bec9e5a26ff4179fd661d6b7d861e4c6557b9aaee14",
+      "budgets": {"wall_seconds": 1800, "input_tokens": 200000, "output_tokens": 20000, "cost_micros": 2000000}
+    },
+    {
+      "case_id": "security-04",
+      "journey_id": "dependency_security_upgrade",
+      "journey_spec_sha256": "8cc1d63452b11d76787ce4b7d8c403d09f4285410fb948b5cf6e59458f2bff48",
+      "repository_manifest_sha256": "c626f3500cd53fc95fe38a4c50abdd489844b97562f6fec9b0955aac7f45a066",
+      "fixture_manifest_sha256": "e88164f56569c432cf2b3cbae1b1c455640e7360ad03dad3d5aa01fcbac05698",
+      "task_spec_sha256": "8f298d0009ed0e80e842ea026041a272bae5cd366e426e1274ba26d411b64e04",
+      "verifier_id": "runne-machine-verifier",
+      "verifier_version": "1.0.0",
+      "verifier_sha256": "88c9eae68eb300b2971a2bec9e5a26ff4179fd661d6b7d861e4c6557b9aaee14",
+      "budgets": {"wall_seconds": 1800, "input_tokens": 200000, "output_tokens": 20000, "cost_micros": 2000000}
+    },
+    {
+      "case_id": "refactor-01",
+      "journey_id": "bounded_refactor",
+      "journey_spec_sha256": "8fbe569bc3e6e46544eced67aa291b34fd4a3d47b53015db6f0a16d19b2c0efb",
+      "repository_manifest_sha256": "9466c4aeca66ce3089fa64f21fbee119a1e56bff1704e4aa4cc1beccb3c269eb",
+      "fixture_manifest_sha256": "c85548f3035a9eb82358cd9b132fdb8d35bb735b6391756be8e9e6ce0a288aca",
+      "task_spec_sha256": "64d6b5bb7c15eef22b39516e1bc779f5921607938c817d550ae55a32ed0cc038",
+      "verifier_id": "runne-machine-verifier",
+      "verifier_version": "1.0.0",
+      "verifier_sha256": "88c9eae68eb300b2971a2bec9e5a26ff4179fd661d6b7d861e4c6557b9aaee14",
+      "budgets": {"wall_seconds": 1800, "input_tokens": 200000, "output_tokens": 20000, "cost_micros": 2000000}
+    },
+    {
+      "case_id": "refactor-02",
+      "journey_id": "bounded_refactor",
+      "journey_spec_sha256": "8fbe569bc3e6e46544eced67aa291b34fd4a3d47b53015db6f0a16d19b2c0efb",
+      "repository_manifest_sha256": "d5252ebb6f4f96045850da5f4379432409f2a6ae9e1f18935ca05a54bd60e01d",
+      "fixture_manifest_sha256": "1b41087fdb0919f1c39e55b0416a635117fd8c876ca1f7f915302e8dcaba646d",
+      "task_spec_sha256": "6422a9ebb9105eb854db3e2b0cd7a95c6afe492fc8156fd12edc913136e1ce89",
+      "verifier_id": "runne-machine-verifier",
+      "verifier_version": "1.0.0",
+      "verifier_sha256": "88c9eae68eb300b2971a2bec9e5a26ff4179fd661d6b7d861e4c6557b9aaee14",
+      "budgets": {"wall_seconds": 1800, "input_tokens": 200000, "output_tokens": 20000, "cost_micros": 2000000}
+    },
+    {
+      "case_id": "refactor-03",
+      "journey_id": "bounded_refactor",
+      "journey_spec_sha256": "8fbe569bc3e6e46544eced67aa291b34fd4a3d47b53015db6f0a16d19b2c0efb",
+      "repository_manifest_sha256": "c2f79774d9515ffd08368b07218a446346b3908216d407980fb8e1e961f49081",
+      "fixture_manifest_sha256": "2d43911a18bf2b838983a1ce7f56de0fa0f809d513b093486ff5c5b00102e27a",
+      "task_spec_sha256": "29e0eafc8c815704192d497317b73ee06f78a495ad0e2958f638f0915df106f1",
+      "verifier_id": "runne-machine-verifier",
+      "verifier_version": "1.0.0",
+      "verifier_sha256": "88c9eae68eb300b2971a2bec9e5a26ff4179fd661d6b7d861e4c6557b9aaee14",
+      "budgets": {"wall_seconds": 1800, "input_tokens": 200000, "output_tokens": 20000, "cost_micros": 2000000}
+    },
+    {
+      "case_id": "refactor-04",
+      "journey_id": "bounded_refactor",
+      "journey_spec_sha256": "8fbe569bc3e6e46544eced67aa291b34fd4a3d47b53015db6f0a16d19b2c0efb",
+      "repository_manifest_sha256": "b111f9d400bb51f27d0a248f9fcfd094b518bd0e9e0c783fed469e8ae0d67116",
+      "fixture_manifest_sha256": "09dc87954442b09a6185a349daee925ab2ccdabcbf888bebb19e524a6391d553",
+      "task_spec_sha256": "c802e51b0fb1eb538a073be98bbfabf64da4ea0ed7b141f711e5836c1e6a9746",
+      "verifier_id": "runne-machine-verifier",
+      "verifier_version": "1.0.0",
+      "verifier_sha256": "88c9eae68eb300b2971a2bec9e5a26ff4179fd661d6b7d861e4c6557b9aaee14",
+      "budgets": {"wall_seconds": 1800, "input_tokens": 200000, "output_tokens": 20000, "cost_micros": 2000000}
+    }
+  ]
+}

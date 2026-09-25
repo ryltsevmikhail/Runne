@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://runne.dev/schemas/benchmark-journey-v1.schema.json",
+  "title": "Runne Benchmark Journey V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "journey_id", "revision", "title", "objective", "scope", "verifier_contract", "required_checks", "success_conditions", "failure_conditions"],
+  "properties": {
+    "schema_version": {"const": "runne.benchmark.journey/1"},
+    "journey_id": {"enum": ["pr_ready_bug_fix", "dependency_security_upgrade", "bounded_refactor"]},
+    "revision": {"const": 1},
+    "title": {"type": "string", "minLength": 1, "maxLength": 80},
+    "objective": {"type": "string", "minLength": 1, "maxLength": 500},
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_files_changed", "max_changed_lines", "network_allowed", "new_dependencies_allowed"],
+      "properties": {
+        "max_files_changed": {"type": "integer", "minimum": 1, "maximum": 30},
+        "max_changed_lines": {"type": "integer", "minimum": 1, "maximum": 2000},
+        "network_allowed": {"const": false},
+        "new_dependencies_allowed": {"type": "boolean"}
+      }
+    },
+    "verifier_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "requires_clean_exit", "requires_targeted_tests", "requires_diff_check"],
+      "properties": {
+        "kind": {"const": "machine"},
+        "requires_clean_exit": {"const": true},
+        "requires_targeted_tests": {"const": true},
+        "requires_diff_check": {"const": true}
+      }
+    },
+    "required_checks": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["reproduction_before", "targeted_regression_after", "vulnerable_state_before", "remediation_version_pinned", "advisory_check_after", "locked_build_pass", "characterization_before", "characterization_after", "observable_behavior_equivalent", "required_tests_pass", "diff_within_scope"]
+      }
+    },
+    "success_conditions": {
+      "const": ["all_required_checks_pass", "process_exit_zero", "diff_within_declared_scope", "no_unresolved_effect"]
+    },
+    "failure_conditions": {
+      "const": ["required_check_failed", "process_exit_nonzero", "scope_exceeded", "effect_or_recovery_failed"]
+    }
+  }
+}
