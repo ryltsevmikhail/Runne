@@ -127,6 +127,7 @@ mod position_helpers;
 pub mod process;
 mod provider_terminal;
 pub(crate) mod snapshot;
+mod taskrun_claim;
 mod text;
 mod text_receipt_helpers;
 mod text_validation_helpers;

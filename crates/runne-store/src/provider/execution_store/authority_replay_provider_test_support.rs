@@ -79,6 +79,11 @@ pub(super) fn upgraded_v25_for_provider(
              DROP TRIGGER schema_v12_fence_execution_nodes_update;
              DROP TRIGGER schema_v12_fence_execution_nodes_delete;
              DROP TABLE execution_nodes;
+             DROP TRIGGER global_command_id_from_command_receipts_v42;
+             DROP TRIGGER global_command_id_from_project_workspace_receipts_v42;
+             DROP TABLE taskrun_claim_receipts;
+             DROP TABLE taskrun_assignments;
+             DROP TABLE taskrun_fence_counters;
              DELETE FROM schema_version WHERE version >= 26;",
     )
         .unwrap();

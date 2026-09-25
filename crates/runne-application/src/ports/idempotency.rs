@@ -43,6 +43,8 @@ pub enum OperationTag {
     CancelTaskRun = 19,
     /// Client-authorized atomic TaskRun submit (created + queued in one commit).
     SubmitTaskRun = 20,
+    /// Runtime-owned atomic node assignment and attempt start.
+    TaskRunClaim = 21,
 }
 
 /// The aggregate scope within which idempotency is enforced.

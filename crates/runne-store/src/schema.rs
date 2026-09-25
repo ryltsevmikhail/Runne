@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 41;
+pub const CURRENT_SCHEMA_VERSION: i64 = 42;
 
 /// Fail-closed reason returned before a file-backed database is made writable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,6 +126,7 @@ include!("schema/migrations/v38_subscription_budgets.rs");
 include!("schema/migrations/v39_taskrun_lineage_origin.rs");
 include!("schema/migrations/v40_conversation_context_scope.rs");
 include!("schema/migrations/v41_execution_node.rs");
+include!("schema/migrations/v42_taskrun_claim.rs");
 mod project_workspace_backfill;
 mod project_workspace_schema;
 #[cfg(test)]
@@ -198,6 +199,7 @@ mod tests {
     include!("schema/tests/windows_post_v40_scope_admission.rs");
     include!("schema/tests/migrations.rs");
     include!("schema/tests/released.rs");
+    include!("schema/tests/v42_taskrun_claim.rs");
     include!("schema/tests/recovery_compatibility.rs");
     include!("schema/tests/credential_v24.rs");
     include!("schema/tests/credential_v24_invariants.rs");

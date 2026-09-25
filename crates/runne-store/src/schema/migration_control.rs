@@ -1,4 +1,5 @@
 include!("migration_control/apply.rs");
+include!("migration_control/execution.rs");
 
 fn is_released_strict_v9(conn: &Connection, version: i64) -> SqliteResult<bool> {
     if version != 9 {

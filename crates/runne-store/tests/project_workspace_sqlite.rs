@@ -2,6 +2,9 @@
 mod validated_reopen;
 
 mod project_workspace_sqlite {
+    mod claim;
+    mod claim_event_integrity;
+    mod claim_failures;
     mod command_id;
     mod durability;
     mod fence;

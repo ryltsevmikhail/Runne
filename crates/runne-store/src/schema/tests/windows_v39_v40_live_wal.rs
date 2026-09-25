@@ -228,7 +228,7 @@ fn windows_v39_to_v40_migration_preserves_live_wal_conversations_without_scope_b
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(version, 41);
+    assert_eq!(version, 42);
     let conversations: i64 = reader
         .query_row(
             "SELECT COUNT(*) FROM aggregate_streams WHERE aggregate_type = 2",

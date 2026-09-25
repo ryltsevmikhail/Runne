@@ -6,3 +6,5 @@
 
 include!("submit_task_run_split_parts/store.rs");
 include!("submit_task_run_split_parts/tests.rs");
+include!("submit_task_run_split_parts/claim.rs");
+include!("submit_task_run_split_parts/claim_retries.rs");

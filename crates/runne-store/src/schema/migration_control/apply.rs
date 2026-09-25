@@ -126,6 +126,7 @@ fn classify_schema_version(conn: &Connection) -> SqliteResult<i64> {
         39 => v39_matches(conn, version)?,
         40 => v40_matches(conn, version)?,
         41 => v41_matches(conn, version)?,
+        42 => v42_matches(conn, version)?,
         _ => false,
     };
     compatible
@@ -271,9 +272,7 @@ fn apply_v12_and_later(
     if source_version < 40 && target_version >= 40 {
         apply_v40_migration(conn)?;
     }
-    if source_version < 41 && target_version >= 41 {
-        apply_v41_migration(conn)?;
-    }
+    apply_execution_migrations(conn, source_version, target_version)?;
     Ok(())
 }
 

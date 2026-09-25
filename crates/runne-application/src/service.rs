@@ -26,6 +26,7 @@ use crate::ports::{
 include!("service_types.rs");
 include!("service_constructors.rs");
 include!("service_basic.rs");
+include!("service_taskrun_claim.rs");
 include!("service_loop_start.rs");
 include!("service_loop_control.rs");
 include!("service_loop_retry.rs");
