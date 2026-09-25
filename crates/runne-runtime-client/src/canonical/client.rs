@@ -248,6 +248,10 @@ impl AuthenticatedRuntimeClient {
         request: CancelTaskRunRequest,
     ) -> Result<TaskRunCancellationAcknowledgement, RuntimeApiError> {
         let expected_task_run_id = request.task_run_id;
+        let expected_stream_version = request
+            .expected_version
+            .checked_add(1)
+            .ok_or_else(|| RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest))?;
         let url = self.url(&format!("/v1/task-runs/{}/cancel", request.task_run_id));
         let body = serde_json::to_vec(&ExistingTaskRunWire {
             expected_version: request.expected_version,
@@ -263,7 +267,9 @@ impl AuthenticatedRuntimeClient {
         let acknowledgement = TaskRunCancellationAcknowledgement::try_from(
             read_success_json::<TaskRunCancellationAcknowledgementWire>(response, &[202]).await?,
         )?;
-        if acknowledgement.task_run_id() != expected_task_run_id {
+        if acknowledgement.task_run_id() != expected_task_run_id
+            || acknowledgement.stream_version() != expected_stream_version
+        {
             return Err(RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse));
         }
         Ok(acknowledgement)

@@ -61,6 +61,74 @@ async fn task_run_cancel_uses_authenticated_command_and_validates_ack() {
 }
 
 #[tokio::test]
+async fn task_run_cancel_rejects_wrong_nonzero_ack_version() {
+    let body = format!(
+        "{{\"taskRunId\":\"{TASK_RUN_ID}\",\"streamVersion\":6,\"transition\":\"cancellation_requested\",\"attemptId\":null,\"terminalResult\":null}}"
+    );
+    let error = cancel_task_run_result(4, &body)
+        .await
+        .expect_err("non-successor cancel version must be rejected");
+    assert_eq!(error.kind(), RuntimeApiErrorKind::InvalidResponse);
+}
+
+#[tokio::test]
+async fn task_run_cancel_rejects_version_overflow() {
+    let client =
+        mock_authenticated_runtime_client("http://127.0.0.1:1", session()).expect("client");
+    let error = client
+        .cancel_task_run(CancelTaskRunRequest::new(
+            CommandIdentity::new(CanonicalId::parse(COMMAND_ID).unwrap(), "overflow").unwrap(),
+            CanonicalId::parse(TASK_RUN_ID).unwrap(),
+            u64::MAX,
+        ))
+        .await
+        .expect_err("successor version overflow must be rejected");
+    assert_eq!(error.kind(), RuntimeApiErrorKind::InvalidRequest);
+}
+
+async fn cancel_task_run_result(
+    expected_version: u64,
+    body: &str,
+) -> Result<
+    runne_runtime_client::TaskRunCancellationAcknowledgement,
+    runne_runtime_client::RuntimeApiError,
+> {
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .await
+        .expect("listener");
+    let origin = format!("http://{}", listener.local_addr().expect("address"));
+    let response = response(202, "Accepted", body);
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("accept");
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 1024];
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            let read = stream.read(&mut buffer).await.expect("read");
+            assert_ne!(read, 0, "request headers");
+            request.extend_from_slice(&buffer[..read]);
+        }
+        stream
+            .write_all(response.as_bytes())
+            .await
+            .expect("response");
+    });
+    let client = mock_authenticated_runtime_client(&origin, session()).expect("client");
+    let result = client
+        .cancel_task_run(CancelTaskRunRequest::new(
+            CommandIdentity::new(
+                CanonicalId::parse(COMMAND_ID).unwrap(),
+                "cancel-wrong-version",
+            )
+            .unwrap(),
+            CanonicalId::parse(TASK_RUN_ID).unwrap(),
+            expected_version,
+        ))
+        .await;
+    server.await.expect("server");
+    result
+}
+
+#[tokio::test]
 async fn task_run_query_uses_authenticated_exact_get_and_decodes_running_snapshot() {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
         .await

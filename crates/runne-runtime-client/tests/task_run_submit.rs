@@ -145,6 +145,65 @@ async fn task_run_submit_rejects_non_submit_transitions() {
     }
 }
 
+#[tokio::test]
+async fn task_run_submit_rejects_wrong_nonzero_ack_versions() {
+    for version in [1, 3, u64::MAX] {
+        let body = format!(
+            "{{\"taskRunId\":\"{TASK_RUN_ID}\",\"streamVersion\":{version},\"transition\":\"submitted\",\"attemptId\":null,\"terminalResult\":null}}"
+        );
+        let (_, result) = submit_exchange(202, "Accepted", &body, "wrong-version").await;
+        assert_eq!(
+            result
+                .expect_err("wrong submit version must be rejected")
+                .kind(),
+            RuntimeApiErrorKind::InvalidResponse
+        );
+    }
+}
+
+#[tokio::test]
+async fn task_run_submit_v1_rejects_wrong_nonzero_ack_version() {
+    let body = format!(
+        "{{\"taskRunId\":\"{TASK_RUN_ID}\",\"streamVersion\":3,\"transition\":\"submitted\",\"attemptId\":null,\"terminalResult\":null}}"
+    );
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .await
+        .expect("listener");
+    let origin = format!("http://{}", listener.local_addr().expect("address"));
+    let response = response(202, "Accepted", &body);
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("accept");
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 1024];
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            let read = stream.read(&mut buffer).await.expect("read");
+            assert_ne!(read, 0, "request headers");
+            request.extend_from_slice(&buffer[..read]);
+        }
+        stream
+            .write_all(response.as_bytes())
+            .await
+            .expect("response");
+    });
+    let client = mock_authenticated_runtime_client(&origin, session()).expect("client");
+    let identity =
+        CommandIdentity::new(CanonicalId::parse(COMMAND_ID).unwrap(), "v1-wrong-version").unwrap();
+    let result = client
+        .submit_task_run_v1(SubmitTaskRunV1Request::new(
+            identity,
+            CanonicalId::parse(CONVERSATION_ID).unwrap(),
+            CanonicalId::parse(WORKSPACE_ID).unwrap(),
+        ))
+        .await;
+    server.await.expect("server");
+    assert_eq!(
+        result
+            .expect_err("wrong v1 submit version must be rejected")
+            .kind(),
+        RuntimeApiErrorKind::InvalidResponse
+    );
+}
+
 async fn submit_exchange(
     status: u16,
     reason: &str,

@@ -42,7 +42,7 @@ impl TryFrom<TaskRunSubmitAcknowledgementWire> for TaskRunSubmitAcknowledgement 
     type Error = RuntimeApiError;
 
     fn try_from(wire: TaskRunSubmitAcknowledgementWire) -> Result<Self, Self::Error> {
-        if wire.stream_version == 0
+        if wire.stream_version != 2
             || wire.transition != "submitted"
             || wire.attempt_id.is_some()
             || wire.terminal_result.is_some()
