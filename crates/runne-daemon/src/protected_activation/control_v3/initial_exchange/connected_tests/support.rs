@@ -198,7 +198,9 @@ pub(super) fn relay_db(root: &std::path::Path) -> std::path::PathBuf {
 }
 
 pub(super) fn assert_zero_operations(database: impl AsRef<std::path::Path>) {
-    let connection = rusqlite::Connection::open(database).unwrap();
+    let connection =
+        rusqlite::Connection::open_with_flags(database, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
     let count: i64 = connection
         .query_row(
             "SELECT COUNT(*) FROM provider_credential_operations",
