@@ -9,6 +9,7 @@ mod project_workspace_sqlite {
     mod claim_failures;
     mod command_id;
     mod durability;
+    mod execution_input;
     mod fence;
     mod history;
     mod integrity;

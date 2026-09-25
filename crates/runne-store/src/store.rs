@@ -129,6 +129,7 @@ mod provider_terminal;
 pub(crate) mod snapshot;
 mod taskrun_assignment;
 pub(crate) mod taskrun_claim;
+mod taskrun_execution_input;
 mod taskrun_release;
 mod text;
 mod text_receipt_helpers;
