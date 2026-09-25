@@ -80,7 +80,7 @@ pub(super) fn v42_structure_matches(
         [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     )?;
     let marker_matches = if include_v43_extensions {
-        matches!(marker, (43, 1, 42, 927) | (43, 1, 43, 946) | (44, 1, 43, 971) | (44, 1, 44, 990) | (45, 1, 44, 1016) | (45, 1, 45, 1035))
+        matches!(marker, (43, 1, 42, 927) | (43, 1, 43, 946) | (44, 1, 43, 971) | (44, 1, 44, 990) | (45, 1, 44, 1016) | (45, 1, 45, 1035) | (46, 1, 45, 1062) | (46, 1, 46, 1081))
     } else {
         matches!(marker, (42, 1, 41, 884) | (42, 1, 42, 903))
     };
@@ -125,6 +125,13 @@ pub(super) fn v42_structure_matches(
             ("global_command_id_from_project_workspace_receipts_v45", "CREATE TRIGGER global_command_id_from_project_workspace_receipts_v45 BEFORE INSERT ON project_workspace_command_receipts WHEN EXISTS(SELECT 1 FROM taskrun_no_effect_release_receipts WHERE command_id=NEW.command_id) BEGIN SELECT RAISE(ABORT,'global command id collision'); END"),
             ("global_command_id_from_taskrun_claim_receipts_v45", "CREATE TRIGGER global_command_id_from_taskrun_claim_receipts_v45 BEFORE INSERT ON taskrun_claim_receipts WHEN EXISTS(SELECT 1 FROM taskrun_no_effect_release_receipts WHERE command_id=NEW.command_id) BEGIN SELECT RAISE(ABORT,'global command id collision'); END"),
             ("global_command_id_from_lease_renewals_v45", "CREATE TRIGGER global_command_id_from_lease_renewals_v45 BEFORE INSERT ON taskrun_assignment_lease_renewals WHEN EXISTS(SELECT 1 FROM taskrun_no_effect_release_receipts WHERE command_id=NEW.renewal_id) BEGIN SELECT RAISE(ABORT,'global command id collision'); END"),
+        ]);
+    }
+    if marker.0 >= 46 {
+        tables.push("taskrun_provider_bindings");
+        triggers.extend([
+            ("taskrun_provider_bindings_immutable", "CREATE TRIGGER taskrun_provider_bindings_immutable BEFORE UPDATE ON taskrun_provider_bindings BEGIN SELECT RAISE(ABORT,'TaskRun provider binding is append only'); END"),
+            ("taskrun_provider_bindings_no_delete", "CREATE TRIGGER taskrun_provider_bindings_no_delete BEFORE DELETE ON taskrun_provider_bindings BEGIN SELECT RAISE(ABORT,'TaskRun provider binding is append only'); END"),
         ]);
     }
     let extensions = CredentialSchemaExtensions { tables: &tables, indexes: &indexes, triggers: &triggers, replacements: &[] };

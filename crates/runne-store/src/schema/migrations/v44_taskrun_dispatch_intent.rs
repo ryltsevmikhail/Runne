@@ -23,10 +23,10 @@ pub(super) fn apply_v44_migration(connection: &Connection) -> SqliteResult<()> {
 }
 
 pub(super) fn v44_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if !matches!(version, 44 | 45) { return Ok(false); }
+    if !matches!(version, 44..=46) { return Ok(false); }
     if !v43_matches(connection, version)? { return Ok(false); }
     let marker: (i64,i64,i64,i64) = connection.query_row("SELECT COALESCE(MAX(version),0),COALESCE(MIN(version),0),COUNT(*),COALESCE(SUM(version),0) FROM schema_version", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
-    if !matches!(marker,(44,1,43,971) | (44,1,44,990) | (45,1,44,1016) | (45,1,45,1035)) { return Ok(false); }
+    if !matches!(marker,(44,1,43,971) | (44,1,44,990) | (45,1,44,1016) | (45,1,45,1035) | (46,1,45,1062) | (46,1,46,1081)) { return Ok(false); }
     let expected = MIGRATION_V44.split(';').map(str::trim).find(|s| s.starts_with("CREATE TABLE taskrun_dispatch_intents ")).unwrap();
     let actual: Option<String> = connection.query_row("SELECT sql FROM sqlite_master WHERE type='table' AND name='taskrun_dispatch_intents'", [], |r| r.get(0)).optional()?;
     if actual.is_none_or(|sql| normalize_ddl(&sql)!=normalize_ddl(expected)) { return Ok(false); }

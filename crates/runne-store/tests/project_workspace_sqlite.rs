@@ -1,3 +1,5 @@
+#[path = "support/online_proof.rs"]
+mod online_proof;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 
@@ -16,6 +18,7 @@ mod project_workspace_sqlite {
     mod no_effect_release;
     mod origin_mutations;
     mod origin_race;
+    mod provider_binding;
     mod race;
     mod rename;
     mod submit_conversation_binding;

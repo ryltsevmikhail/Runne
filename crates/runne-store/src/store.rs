@@ -130,6 +130,7 @@ pub(crate) mod snapshot;
 mod taskrun_assignment;
 pub(crate) mod taskrun_claim;
 mod taskrun_execution_input;
+mod taskrun_provider_binding;
 mod taskrun_queue_scan;
 mod taskrun_release;
 mod text;

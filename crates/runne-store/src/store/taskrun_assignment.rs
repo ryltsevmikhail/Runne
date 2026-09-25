@@ -143,7 +143,10 @@ fn renewal_id_in_use(
     ).map_err(|_| Error::CorruptData)
 }
 
-fn verify_current_claim(tx: &rusqlite::Transaction<'_>, identity: &Identity) -> Result<(), Error> {
+pub(super) fn verify_current_claim(
+    tx: &rusqlite::Transaction<'_>,
+    identity: &Identity,
+) -> Result<(), Error> {
     match super::taskrun_claim::verify_active_assignment(tx, identity) {
         Ok(()) => Ok(()),
         Err(runne_application::ports::TaskRunClaimError::NotQueued) => Err(Error::StaleAssignment),
@@ -151,7 +154,7 @@ fn verify_current_claim(tx: &rusqlite::Transaction<'_>, identity: &Identity) -> 
     }
 }
 
-fn exact_occupation(
+pub(super) fn exact_occupation(
     tx: &rusqlite::Transaction<'_>,
     id: &Identity,
     node: [u8; 16],
@@ -170,7 +173,7 @@ fn exact_occupation(
     Ok(row)
 }
 
-fn ensure_live_local_node(
+pub(super) fn ensure_live_local_node(
     tx: &rusqlite::Transaction<'_>,
     id: &Identity,
     node: [u8; 16],
