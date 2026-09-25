@@ -1,4 +1,6 @@
 use super::*;
+#[path = "execution_node.rs"]
+mod execution_node;
 
 impl StoreTransaction {
     /// Open a file-backed database at `db_path`, apply migrations, and run startup gates.

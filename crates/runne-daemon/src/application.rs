@@ -62,6 +62,8 @@ type SqliteTaskRunService = TaskRunService<StoreTransaction, StoreTransaction, S
 type SqliteConversationService = ConversationService<StoreTransaction, StoreTransaction>;
 
 mod executable_identity;
+#[cfg(target_os = "linux")]
+mod execution_node_lifecycle;
 mod http_startup;
 mod http_startup_support;
 #[cfg(feature = "desktop-protected")]

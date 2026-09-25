@@ -30,6 +30,22 @@ impl DaemonApplication {
             credential_enrollment_control,
         } = self;
 
+        #[cfg(target_os = "linux")]
+        let execution_node = super::execution_node_lifecycle::LinuxExecutionNode::new(
+            bootstrap.authority_id,
+            bootstrap.launch_generation,
+        );
+        #[cfg(target_os = "linux")]
+        let http_result = match execution_node.register(&store) {
+            Err(error) => Err(error),
+            Ok(()) => {
+                http_host
+                    .start()
+                    .run_until(execution_node.run_until_shutdown(store.clone(), shutdown))
+                    .await
+            }
+        };
+        #[cfg(not(target_os = "linux"))]
         let http_result = http_host.start().run_until(shutdown).await;
         let drain_result =
             graceful_shutdown(&task_supervisor, duration_millis(shutdown_timeout)).await;
