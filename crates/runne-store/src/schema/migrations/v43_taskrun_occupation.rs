@@ -68,14 +68,14 @@ pub(super) fn apply_v43_migration(connection: &Connection) -> SqliteResult<()> {
 }
 
 pub(super) fn v43_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if !matches!(version, 43 | 44) {
+    if !(43..=45).contains(&version) {
         return Ok(false);
     }
     if !v42_structure_matches(connection, true)? {
         return Ok(false);
     }
     let marker: (i64,i64,i64,i64) = connection.query_row("SELECT COALESCE(MAX(version),0),COALESCE(MIN(version),0),COUNT(*),COALESCE(SUM(version),0) FROM schema_version", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
-    if !matches!(marker, (43, 1, 42, 927) | (43, 1, 43, 946) | (44, 1, 43, 971) | (44, 1, 44, 990)) {
+    if !matches!(marker, (43, 1, 42, 927) | (43, 1, 43, 946) | (44, 1, 43, 971) | (44, 1, 44, 990) | (45, 1, 44, 1016) | (45, 1, 45, 1035)) {
         return Ok(false);
     }
     for table in [
@@ -122,10 +122,12 @@ pub(super) fn v43_matches(connection: &Connection, version: i64) -> SqliteResult
     if !index.as_ref().is_some_and(|sql| normalize_sql(sql)==normalize_sql("CREATE INDEX taskrun_assignment_occupations_capacity ON taskrun_assignment_occupations(node_id,state)")) {
         return Ok(false);
     }
-    let inconsistent_occupations: i64 = connection.query_row(
-        "SELECT COUNT(*) FROM taskrun_assignments a LEFT JOIN taskrun_assignment_occupations o USING(taskrun_id,fence) WHERE o.taskrun_id IS NULL OR o.attempt_id!=a.attempt_id OR o.node_id!=a.node_id OR o.node_epoch!=a.node_epoch OR o.state!='active' OR o.release_event_id IS NOT NULL",
-        [], |r| r.get(0),
-    )?;
+    let occupation_sql = if version == 45 {
+        "SELECT COUNT(*) FROM taskrun_assignments a LEFT JOIN taskrun_assignment_occupations o USING(taskrun_id,fence) LEFT JOIN taskrun_no_effect_release_receipts r USING(taskrun_id,fence) WHERE o.taskrun_id IS NULL OR o.attempt_id!=a.attempt_id OR o.node_id!=a.node_id OR o.node_epoch!=a.node_epoch OR (o.state='active' AND o.release_event_id IS NOT NULL) OR (o.state='released' AND (o.release_event_id IS NULL OR r.command_id IS NULL OR o.dispatch_intent!='absent')) OR o.state NOT IN ('active','released')"
+    } else {
+        "SELECT COUNT(*) FROM taskrun_assignments a LEFT JOIN taskrun_assignment_occupations o USING(taskrun_id,fence) WHERE o.taskrun_id IS NULL OR o.attempt_id!=a.attempt_id OR o.node_id!=a.node_id OR o.node_epoch!=a.node_epoch OR o.state!='active' OR o.release_event_id IS NOT NULL"
+    };
+    let inconsistent_occupations: i64 = connection.query_row(occupation_sql, [], |r| r.get(0))?;
     let orphan_occupations: i64 = connection.query_row(
         "SELECT COUNT(*) FROM taskrun_assignment_occupations o LEFT JOIN taskrun_assignments a USING(taskrun_id,fence) WHERE a.taskrun_id IS NULL",
         [], |r| r.get(0),

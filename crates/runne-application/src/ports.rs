@@ -20,6 +20,7 @@ use crate::fingerprint::CommandFingerprint;
 
 include!("ports/event_store_task_run.rs");
 include!("ports/taskrun_claim.rs");
+include!("ports/taskrun_release.rs");
 include!("ports/taskrun_assignment.rs");
 include!("ports/event_store.rs");
 include!("ports/unit_of_work.rs");

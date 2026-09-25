@@ -91,6 +91,14 @@ pub(super) fn upgraded_v25_for_provider(
              DROP TRIGGER taskrun_dispatch_intents_no_delete;
              DROP TRIGGER taskrun_occupation_intent_guard;
              DROP TABLE taskrun_dispatch_intents;
+             DROP TRIGGER global_command_id_from_release_v45;
+             DROP TRIGGER global_command_id_from_command_receipts_v45;
+             DROP TRIGGER global_command_id_from_project_workspace_receipts_v45;
+             DROP TRIGGER global_command_id_from_taskrun_claim_receipts_v45;
+             DROP TRIGGER global_command_id_from_lease_renewals_v45;
+             DROP TRIGGER taskrun_no_effect_release_immutable;
+             DROP TRIGGER taskrun_no_effect_release_no_delete;
+             DROP TABLE taskrun_no_effect_release_receipts;
              DROP TRIGGER global_command_id_from_lease_renewals_v43;
              DROP TRIGGER global_command_id_from_command_receipts_v43;
              DROP TRIGGER global_command_id_from_project_workspace_receipts_v43;

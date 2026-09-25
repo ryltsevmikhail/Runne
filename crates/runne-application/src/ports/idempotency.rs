@@ -45,6 +45,8 @@ pub enum OperationTag {
     SubmitTaskRun = 20,
     /// Runtime-owned atomic node assignment and attempt start.
     TaskRunClaim = 21,
+    /// Recovery release of a proven never-dispatched attempt.
+    TaskRunNoEffectRelease = 22,
 }
 
 /// The aggregate scope within which idempotency is enforced.

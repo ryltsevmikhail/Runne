@@ -4,8 +4,8 @@ fn v40_conversation_context_scope_reopens_and_rejects_drift() {
     let path = directory.path().join("context-scope-v40.sqlite");
     let connection = Connection::open(&path).unwrap();
     apply_migrations(&connection).unwrap();
-    assert_eq!(schema_marker(&connection), 44);
-    assert!(v43_matches(&connection, 43).unwrap());
+    assert_eq!(schema_marker(&connection), 45);
+    assert!(v45_matches(&connection, 45).unwrap());
     // The CHECK contract only admits the two closed scope values.
     connection
         .execute(
@@ -30,6 +30,6 @@ fn v40_conversation_context_scope_reopens_and_rejects_drift() {
     drifted
         .execute_batch("DROP TABLE conversation_context_scope;")
         .unwrap();
-    assert!(!v43_matches(&drifted, 43).unwrap());
+    assert!(!v45_matches(&drifted, 45).unwrap());
     assert!(classify_schema_version(&drifted).is_err());
 }

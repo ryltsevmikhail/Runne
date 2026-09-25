@@ -19,9 +19,9 @@ fn v39_lineage_rebuild_preserves_rows_and_admits_the_submit_origin() {
 
     apply_migrations(&connection).unwrap();
 
-    assert_eq!(schema_marker(&connection), 44);
+    assert_eq!(schema_marker(&connection), 45);
     assert!(
-        v43_matches(&connection, 43).unwrap(),
+        v45_matches(&connection, 45).unwrap(),
         "upgraded structure: marker={:?} inherited={:?} receipts={:?} triggers={:?} lineage={:?}",
         connection
             .query_row(
@@ -113,7 +113,7 @@ fn lineage_ddl_drift_is_rejected_per_schema_version() {
     // must equally stay rejected.
     let rolled_back = Connection::open_in_memory().unwrap();
     apply_migrations(&rolled_back).unwrap();
-    assert!(v43_matches(&rolled_back, 43).unwrap());
+    assert!(v45_matches(&rolled_back, 45).unwrap());
     let v18_lineage = project_workspace_schema::MIGRATION_V18
         .split(';')
         .map(str::trim)
@@ -138,7 +138,7 @@ fn lineage_ddl_drift_is_rejected_per_schema_version() {
         )
         .unwrap();
     assert!(
-        !v43_matches(&rolled_back, 43).unwrap(),
+        !v45_matches(&rolled_back, 45).unwrap(),
         "v18 lineage DDL under a v40 marker is DDL drift"
     );
     assert!(classify_schema_version(&rolled_back).is_err());
@@ -156,7 +156,7 @@ fn v39_reopens_full_and_no_v19_lineages() {
             apply_migrations_internal(&connection, 19).unwrap();
         }
         apply_migrations(&connection).unwrap();
-        assert!(v43_matches(&connection, 43).unwrap(), "lineage {no_v19_lineage}");
+        assert!(v45_matches(&connection, 45).unwrap(), "lineage {no_v19_lineage}");
         assert_eq!(
             connection
                 .query_row(
@@ -165,7 +165,7 @@ fn v39_reopens_full_and_no_v19_lineages() {
                     |row| row.get::<_, i64>(0),
                 )
                 .unwrap(),
-            if no_v19_lineage { 971 } else { 990 }
+            if no_v19_lineage { 1016 } else { 1035 }
         );
         drop(connection);
         drop(open_managed_connection(&path, ConnectionMode::Writer).unwrap());

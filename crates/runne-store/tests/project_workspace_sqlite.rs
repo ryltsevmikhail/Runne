@@ -12,6 +12,7 @@ mod project_workspace_sqlite {
     mod fence;
     mod history;
     mod integrity;
+    mod no_effect_release;
     mod origin_mutations;
     mod origin_race;
     mod race;

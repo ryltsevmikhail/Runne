@@ -8,6 +8,11 @@ use runne_domain::task_run::{TaskRun, TaskRunState};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use std::str::FromStr;
 
+pub(crate) struct ReleaseEventMetadata<'a> {
+    pub command_id: CommandId,
+    pub idempotency_key: &'a [u8],
+}
+
 mod events;
 mod receipts;
 mod stream_integrity;
@@ -66,6 +71,20 @@ pub(super) fn verify_active_assignment(
     let command = CommandId::from_bytes(command.try_into().map_err(|_| ClaimError::CorruptData)?);
     receipts::verify_assignment(connection, &receipt, command)?;
     stream_integrity::verify_current_claim_stream(connection, &receipt, command, &key)
+}
+
+pub(crate) fn verify_released_stream(
+    connection: &Connection,
+    receipt: &TaskRunClaimReceipt,
+    command: CommandId,
+    key: &[u8],
+    event: EventId,
+    version: u64,
+    release: ReleaseEventMetadata<'_>,
+) -> Result<(), ClaimError> {
+    stream_integrity::verify_released_stream(
+        connection, receipt, command, key, event, version, release,
+    )
 }
 
 const MAX_CLAIM_LEASE_MS: u64 = 300_000;

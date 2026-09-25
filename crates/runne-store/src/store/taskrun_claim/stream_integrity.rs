@@ -44,6 +44,42 @@ pub(super) fn verify_current_claim_stream(
     Ok(())
 }
 
+pub(super) fn verify_released_stream(
+    connection: &Connection,
+    receipt: &TaskRunClaimReceipt,
+    command_id: CommandId,
+    idempotency_key: &[u8],
+    release_event_id: EventId,
+    release_version: u64,
+    release: ReleaseEventMetadata<'_>,
+) -> Result<(), ClaimError> {
+    let task = verify_claim_stream_inner(connection, receipt, command_id, idempotency_key)?;
+    let head: Vec<u8> = connection.query_row(
+        "SELECT last_event_id FROM aggregate_streams WHERE aggregate_type=1 AND aggregate_id=?1",
+        [receipt.taskrun_id.as_bytes()], |row| row.get(0),
+    ).map_err(|_| ClaimError::CorruptData)?;
+    let (payload, command, key, cause): (Vec<u8>, Vec<u8>, Vec<u8>, Option<Vec<u8>>) = connection.query_row(
+        "SELECT payload,command_id,idempotency_key,causation_id FROM events WHERE event_id=?1 AND aggregate_type=1 AND aggregate_id=?2 AND sequence=?3",
+        rusqlite::params![release_event_id.as_bytes(),receipt.taskrun_id.as_bytes(),release_version as i64], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)),
+    ).map_err(|_| ClaimError::CorruptData)?;
+    let event = TaskRunEventCodec
+        .decode(&payload)
+        .map_err(|_| ClaimError::CorruptData)?;
+    if task.state() != TaskRunState::Failed
+        || head.as_slice() != release_event_id.as_bytes()
+        || command.as_slice() != release.command_id.as_bytes()
+        || key != release.idempotency_key
+        || cause.as_deref() != Some(receipt.started_event_id.as_bytes())
+        || event
+            != (TaskRunEvent::TaskRunFailed {
+                reason: "dispatch_not_started".into(),
+            })
+    {
+        return Err(ClaimError::CorruptData);
+    }
+    Ok(())
+}
+
 fn verify_claim_stream_inner(
     connection: &Connection,
     receipt: &TaskRunClaimReceipt,

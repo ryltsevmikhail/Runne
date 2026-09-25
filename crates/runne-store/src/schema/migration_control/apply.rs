@@ -128,11 +128,10 @@ fn classify_schema_version(conn: &Connection) -> SqliteResult<i64> {
         41 => v41_matches(conn, version)?,
         42 => v42_matches(conn, version)?,
         43 => v43_matches(conn, version)?, 44 => v44_matches(conn, version)?,
+        45 => v45_matches(conn, version)?,
         _ => false,
     };
-    compatible
-        .then_some(version)
-        .ok_or(rusqlite::Error::InvalidQuery)
+    compatible.then_some(version).ok_or(rusqlite::Error::InvalidQuery)
 }
 
 fn apply_legacy_migrations(conn: &Connection, version: i64) -> SqliteResult<()> {
