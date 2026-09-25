@@ -26,6 +26,23 @@ pub struct AuthenticatedPairSecretSealer {
 }
 
 impl AuthenticatedPairSecretSealer {
+    #[cfg(target_os = "linux")]
+    pub(super) const fn into_public_context(self) -> ([u8; 32], [u8; 32]) {
+        let (publication_key, channel_binding) = self.handoff.into_relay_facts();
+        (channel_binding, publication_key)
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(super) const fn from_verified_public_context(
+        channel_binding: [u8; 32],
+        publication_public_key: [u8; 32],
+    ) -> Self {
+        Self::from_handoff(AuthenticatedPairSecretHandoff::from_relay_facts(
+            channel_binding,
+            publication_public_key,
+        ))
+    }
+
     /// Wraps the authenticated handoff into the private sealer; this is the
     /// only construction path and it stays inside the broker module because
     /// the handoff type itself is broker-module-private.

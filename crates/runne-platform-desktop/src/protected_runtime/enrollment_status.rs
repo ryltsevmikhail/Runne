@@ -6,14 +6,14 @@ use super::{
     ProtectedBundledRuntimeSupervisor, ProtectedCredentialEnrollmentPrepareV2,
     ProtectedProcessActivation, Zeroizing, launch_error, random_nonce, read_frame, write_frame,
 };
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 use super::{
     Duration, ProtectedOwnedLaunchV2, UnixStream, v2_launch_fixture, v2_launch_fixture_with_secret,
     v2_process,
 };
 use runne_api::{ProtectedCredentialStatusAckV2, ProtectedCredentialStatusRequestV2};
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 mod tests;
 
 impl ProtectedBundledRuntimeSupervisor {
@@ -47,7 +47,7 @@ impl ProtectedBundledRuntimeSupervisor {
 }
 
 impl ProtectedBundledRuntimeProcess {
-    fn prepare_credential_status(
+    pub(super) fn prepare_credential_status(
         &mut self,
         claims: &EnrollmentTransitionClaims,
         installed_generation: u64,

@@ -65,6 +65,8 @@ fn unrelated_terminal_does_not_authorize_next_round() {
         snapshot: snapshot(1, State::Prepared),
         relay: Some([7; 388]),
         relay_taken: true,
+        #[cfg(target_os = "linux")]
+        relay_fd_taken: false,
         terminal: false,
     };
     let daemon = std::thread::spawn(move || {

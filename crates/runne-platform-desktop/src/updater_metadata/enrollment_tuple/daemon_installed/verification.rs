@@ -1,4 +1,3 @@
-
 pub(super) struct DaemonEnrollmentPolicy<'a> {
     pub(super) profile_id: &'a str,
     pub(super) runtime_version: &'a str,
@@ -141,9 +140,9 @@ fn verified_admission_at(
     }
     let binding = UpdateTargetV2Binding {
         product_id: "com.runne.desktop",
-        platform: "macos",
-        arch: "arm64",
-        min_os: "macos-13",
+        platform: target_platform()?,
+        arch: target_arch()?,
+        min_os: target_min_os()?,
         profile_id: policy.profile_id,
         bundle_sha256,
         runtime_version: policy.runtime_version,
@@ -169,7 +168,10 @@ fn verified_admission_at(
     Some(admission)
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64")
+))]
 pub(super) fn compiled_policy() -> Option<DaemonEnrollmentPolicy<'static>> {
     let compiled = || {
         Some(DaemonEnrollmentPolicy {
@@ -180,6 +182,45 @@ pub(super) fn compiled_policy() -> Option<DaemonEnrollmentPolicy<'static>> {
         })
     };
     compiled().or_else(local_test_policy)
+}
+
+const fn target_platform() -> Option<&'static str> {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        return Some("macos");
+    }
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    {
+        return Some("linux");
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
+const fn target_arch() -> Option<&'static str> {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        return Some("arm64");
+    }
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    {
+        return Some("x86_64");
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
+const fn target_min_os() -> Option<&'static str> {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        return Some("macos-13");
+    }
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    {
+        return Some("ubuntu-22.04");
+    }
+    #[allow(unreachable_code)]
+    None
 }
 
 #[cfg(all(feature = "test-support", target_os = "macos", target_arch = "aarch64"))]
@@ -195,6 +236,24 @@ fn local_test_policy() -> Option<DaemonEnrollmentPolicy<'static>> {
     not(feature = "test-support"),
     target_os = "macos",
     target_arch = "aarch64"
+))]
+const fn local_test_policy() -> Option<DaemonEnrollmentPolicy<'static>> {
+    None
+}
+
+#[cfg(all(feature = "test-support", target_os = "linux", target_arch = "x86_64"))]
+fn local_test_policy() -> Option<DaemonEnrollmentPolicy<'static>> {
+    runne_api::test_support::local_native_enrollment_enabled().then_some(DaemonEnrollmentPolicy {
+        profile_id: "slice-e-local",
+        runtime_version: "0.1.0",
+        channel: "local",
+    })
+}
+
+#[cfg(all(
+    not(feature = "test-support"),
+    target_os = "linux",
+    target_arch = "x86_64"
 ))]
 const fn local_test_policy() -> Option<DaemonEnrollmentPolicy<'static>> {
     None

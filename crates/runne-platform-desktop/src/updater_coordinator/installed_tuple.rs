@@ -10,6 +10,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{UpdateCoordinator, UpdateCoordinatorError};
 
+#[cfg(target_os = "linux")]
+mod linux;
+
 pub(super) fn ensure_staged_metadata(
     journal: &InstalledUpdateMetadataJournal,
     record: &UpdateInstallRecord,

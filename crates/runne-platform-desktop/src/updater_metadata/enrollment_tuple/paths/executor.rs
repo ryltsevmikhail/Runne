@@ -1,14 +1,14 @@
 use super::{
-    open_rooted_file, NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleError,
-    OpenedNativeEnrollmentFile,
+    NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleError, OpenedNativeEnrollmentFile,
+    open_rooted_file,
 };
 
 const GUI_EXECUTOR_NAME: &str = "runne-qualification-gui-executor";
 const GUI_EXECUTOR_PATH: &[&str] = &["Contents", "MacOS", GUI_EXECUTOR_NAME];
 
 impl NativeEnrollmentArtifactPathsV1 {
-    pub(in crate::updater_metadata) fn resolve_current_gui_executor(
-    ) -> Result<(Self, OpenedNativeEnrollmentFile), NativeEnrollmentTupleError> {
+    pub(in crate::updater_metadata) fn resolve_current_gui_executor()
+    -> Result<(Self, OpenedNativeEnrollmentFile), NativeEnrollmentTupleError> {
         let executable =
             std::env::current_exe().map_err(|_| NativeEnrollmentTupleError::Rejected)?;
         let paths = Self::from_macos_package_executable(&executable, GUI_EXECUTOR_NAME, false)?;

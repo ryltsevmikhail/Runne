@@ -105,7 +105,7 @@ trait NativeRootAdmissionLifecycle: OwnedRuntimeLifecycle {
         &self,
         permit: tokio::sync::OwnedMutexGuard<()>,
     ) -> RootAdmissionReapFuture;
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64")))]
     #[allow(dead_code)] // The protected prompt composition owns this fail-closed default.
     fn acquire_credential_enrollment_lease(&self) -> bundled_runtime::CredentialEnrollmentFuture {
         Box::pin(async { Err(AppCoreError::RuntimeUnavailable) })

@@ -147,6 +147,35 @@
         assert!(!fence.begin_shutdown());
     }
 
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn linux_prompt_lease_waits_for_existing_operation_and_blocks_shutdown() {
+        let fence = Arc::new(RuntimeOperationFence::new());
+        let prompt_lease = fence.enter().await.expect("prompt lease");
+        let writer_check_ran = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let check = Arc::clone(&writer_check_ran);
+        let candidate_fence = Arc::clone(&fence);
+        let candidate = tokio::spawn(async move {
+            super::acquire_fenced_linux_enrollment_permit(&candidate_fence, || {
+                check.store(true, std::sync::atomic::Ordering::SeqCst);
+                true
+            })
+            .await
+        });
+
+        tokio::task::yield_now().await;
+        assert!(!writer_check_ran.load(std::sync::atomic::Ordering::SeqCst));
+        drop(prompt_lease);
+        let retained = candidate
+            .await
+            .expect("lease task")
+            .expect("fence acquired after prior operation");
+        assert!(writer_check_ran.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(fence.begin_shutdown());
+        assert!(fence.enter().await.is_none());
+        drop(retained);
+    }
+
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     #[tokio::test]
     async fn enrollment_reaper_admission_is_checked_after_the_operation_fence() {

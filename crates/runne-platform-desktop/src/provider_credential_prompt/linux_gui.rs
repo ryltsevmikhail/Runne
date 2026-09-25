@@ -11,11 +11,10 @@
 //! boundary; the renderer never observes it.
 
 use std::io::{Read, Write};
-use std::os::unix::process::ExitStatusExt as _;
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{io, thread};
 
 use runne_platform_ports::provider_credential_prompt::{
@@ -113,6 +112,7 @@ impl LinuxGuiHostCredentialPrompt {
         if !has_gui {
             return Err(SecureCredentialPromptError::Unavailable);
         }
+        let deadline = Instant::now() + self.wall_deadline;
         let mut child = self.spawn(environment)?;
         if let Some(stdin) = child.stdin.as_mut()
             && stdin.write_all(prompt_command(request).as_bytes()).is_err()
@@ -143,15 +143,14 @@ impl LinuxGuiHostCredentialPrompt {
             };
             let _ = sender.send((outcome, response));
         });
-        let Ok((outcome, response)) = receiver.recv_timeout(self.wall_deadline) else {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let Ok((outcome, response)) = receiver.recv_timeout(remaining) else {
             return Err(kill_and_reap(&mut child));
         };
         if outcome.is_err() {
             return Err(kill_and_reap(&mut child));
         }
-        let status = child
-            .wait()
-            .map_err(|_| SecureCredentialPromptError::Unavailable)?;
+        let status = wait_for_exit_until(&mut child, deadline)?;
         let disposition =
             decode_pinentry_response(request.provider(), request.action(), &response)?;
         if status.success() || matches!(disposition, SecureCredentialPromptDisposition::Cancelled) {
@@ -178,6 +177,24 @@ impl LinuxGuiHostCredentialPrompt {
     }
 }
 
+fn wait_for_exit_until(
+    child: &mut Child,
+    deadline: Instant,
+) -> Result<ExitStatus, SecureCredentialPromptError> {
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) => {}
+            Err(_) => return Err(kill_and_reap(child)),
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(kill_and_reap(child));
+        }
+        thread::sleep(remaining.min(Duration::from_millis(10)));
+    }
+}
+
 /// Copies exactly the GUI allowlist variables from one named source.
 ///
 /// This is the production environment seam: the child can never receive a
@@ -194,9 +211,7 @@ pub fn collect_gui_environment(
 
 fn kill_and_reap(child: &mut Child) -> SecureCredentialPromptError {
     let _ = child.kill();
-    if let Ok(status) = child.wait() {
-        debug_assert!(status.signal().is_some() || status.success());
-    }
+    let _ = child.wait();
     SecureCredentialPromptError::Unavailable
 }
 
@@ -234,6 +249,9 @@ fn prompt_command(request: SecureCredentialPromptRequest) -> String {
     )
 }
 
+#[cfg(test)]
+#[path = "linux_gui_error_tests.rs"]
+mod error_tests;
 #[cfg(test)]
 #[path = "linux_gui_tests.rs"]
 mod tests;

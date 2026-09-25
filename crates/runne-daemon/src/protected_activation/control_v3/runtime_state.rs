@@ -24,6 +24,9 @@ pub(crate) struct V3EnrollmentRuntime {
     pub(crate) session: Option<
         crate::application::provider_credential_enrollment::DaemonProtectedCredentialEnrollmentSession,
     >,
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+    pub(in crate::protected_activation::control_v3) linux_writer:
+        Option<super::LinuxEnrollmentWriter>,
     pub(crate) terminal: bool,
     #[cfg(target_os = "macos")]
     pub(super) claim_measurements: Option<(
@@ -87,6 +90,16 @@ impl V3EnrollmentRuntime {
         if let Some(broker) = self.broker.as_mut() {
             broker.terminate_retained_writer();
         }
+    }
+
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+    pub(in crate::protected_activation::control_v3) fn terminate_retained_writer(
+        &mut self,
+    ) -> Result<(), runne_api::ProviderCredentialEnrollmentHostError> {
+        if let Some(writer) = self.linux_writer.as_mut() {
+            writer.terminate()?;
+        }
+        Ok(())
     }
 
     #[cfg(target_os = "macos")]

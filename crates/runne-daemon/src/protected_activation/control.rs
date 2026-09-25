@@ -121,6 +121,8 @@ pub(crate) fn run_control_loop_v2(
             }
             #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
             {
+                let mut outcome = outcome;
+                let linux_writer_capability = outcome.take_linux_writer_capability();
                 let (v3_keys, v3_owned_launch, rendezvous) = outcome.into_parts_unix();
                 rotate_root_admission(&root_admission, &v3_keys)?;
                 return super::control_v3::run_control_loop_v3_entered(
@@ -133,6 +135,9 @@ pub(crate) fn run_control_loop_v2(
                     super::control_v3::V3EnrollmentDispatch::new(
                         composition.enrollment_control.clone(),
                         rendezvous,
+                    )
+                    .with_linux_writer_capability(
+                        linux_writer_capability.ok_or(LaunchAuthorityError::OwnershipMismatch)?,
                     ),
                     root_admission,
                 );

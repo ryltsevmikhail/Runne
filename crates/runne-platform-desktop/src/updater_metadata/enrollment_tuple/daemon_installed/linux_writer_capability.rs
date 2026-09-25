@@ -1,0 +1,256 @@
+//! Linux installed-release writer capability minted from signed committed state.
+
+use std::{
+    os::unix::{
+        fs::{MetadataExt as _, PermissionsExt as _},
+        net::UnixStream,
+    },
+    path::{Path, PathBuf},
+};
+
+use runne_platform_ports::provider_credential_broker::VerifiedWriterLaunchSpec;
+
+use super::super::{
+    NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleAdmission,
+    enrollment_paths::LinuxAuthenticatedDesktopPeer,
+};
+use super::{compiled_policy, refresh_retained_admission_at, verified_admission};
+
+/// Opaque daemon-owned Linux writer admission, bound to a live desktop peer.
+/// The value grants a launch spec only while its signed installed tuple remains current.
+pub struct VerifiedInstalledLinuxWriterCapability {
+    peer: LinuxAuthenticatedDesktopPeer,
+    paths: NativeEnrollmentArtifactPathsV1,
+    admission: NativeEnrollmentTupleAdmission,
+    profile_directory: PathBuf,
+    runtime_root: PathBuf,
+}
+
+impl VerifiedInstalledLinuxWriterCapability {
+    /// Loads committed signed metadata and resolves package files from the authenticated peer.
+    /// `resource_directory_hint` locates the contract file; it does not provide trust evidence.
+    #[must_use]
+    pub fn load_current_for_authenticated_desktop_peer(
+        profile_directory: &Path,
+        canonical_runtime_root: &Path,
+        resource_directory_hint: &Path,
+        stream: &UnixStream,
+    ) -> Option<Self> {
+        if !valid_profile_runtime_pair(profile_directory, canonical_runtime_root) {
+            return None;
+        }
+        let (paths, peer) = NativeEnrollmentArtifactPathsV1::resolve_linux_from_authenticated_peer(
+            stream,
+            resource_directory_hint,
+        )
+        .ok()?;
+        let policy = compiled_policy()?;
+        let trust = crate::CompiledUpdateTrustRootV2::load()?.into_trust_root();
+        let admission = verified_admission(profile_directory, &paths, &trust, &policy)?;
+        let identity = paths.confirm_current_daemon().is_ok();
+        if !identity || paths.confirm_authenticated_peer(&peer, stream).is_err() {
+            return None;
+        }
+        let fresh = refresh_retained_admission_at(
+            profile_directory,
+            &paths,
+            &trust,
+            &policy,
+            &admission,
+            now()?,
+        )?;
+        if fresh != admission
+            || paths.confirm_current_daemon().is_err()
+            || paths.confirm_authenticated_peer(&peer, stream).is_err()
+            || !valid_profile_runtime_pair(profile_directory, canonical_runtime_root)
+        {
+            return None;
+        }
+        Some(Self {
+            peer,
+            paths,
+            admission: fresh,
+            profile_directory: profile_directory.to_path_buf(),
+            runtime_root: canonical_runtime_root.to_path_buf(),
+        })
+    }
+
+    /// Revalidates peer identity, committed journals, installed files and daemon image.
+    #[must_use]
+    pub fn revalidate_for_authenticated_desktop_peer(&self, stream: &UnixStream) -> bool {
+        let Some(policy) = compiled_policy() else {
+            return false;
+        };
+        let Some(trust) = crate::CompiledUpdateTrustRootV2::load()
+            .map(runne_api::CompiledUpdateTrustRootV2::into_trust_root)
+        else {
+            return false;
+        };
+        let Some(now) = now() else {
+            return false;
+        };
+        let Some(fresh) = refresh_retained_admission_at(
+            &self.profile_directory,
+            &self.paths,
+            &trust,
+            &policy,
+            &self.admission,
+            now,
+        ) else {
+            return false;
+        };
+        fresh == self.admission
+            && valid_profile_runtime_pair(&self.profile_directory, &self.runtime_root)
+            && self.paths.confirm_current_daemon().is_ok()
+            && self
+                .paths
+                .confirm_authenticated_peer(&self.peer, stream)
+                .is_ok()
+    }
+
+    /// Revalidates immediately before producing the writer launch spec.
+    #[must_use]
+    pub fn writer_launch_spec(&self, stream: &UnixStream) -> Option<VerifiedWriterLaunchSpec> {
+        self.revalidate_for_authenticated_desktop_peer(stream)
+            .then_some(())?;
+        let artifact = self
+            .paths
+            .verified_linux_writer_artifact(&self.admission)
+            .ok()?;
+        self.paths
+            .confirm_authenticated_peer(&self.peer, stream)
+            .ok()?;
+        if !self.revalidate_for_authenticated_desktop_peer(stream) {
+            return None;
+        }
+        Some(VerifiedWriterLaunchSpec::new(artifact))
+    }
+
+    /// Returns fresh signed tuple measurements for the active V3 peer exchange.
+    #[must_use]
+    pub fn measurement_facts(
+        &self,
+        stream: &UnixStream,
+    ) -> Option<VerifiedInstalledLinuxEnrollmentMeasurementFacts> {
+        if !self.revalidate_for_authenticated_desktop_peer(stream) {
+            return None;
+        }
+        let [desktop, writer, daemon, contract] = self.paths.measure().ok()?.role_digests()?;
+        let facts = VerifiedInstalledLinuxEnrollmentMeasurementFacts::from_admission(
+            [desktop, writer, daemon, contract],
+            &self.admission,
+        )?;
+        self.paths
+            .confirm_authenticated_peer(&self.peer, stream)
+            .ok()?;
+        if !self.revalidate_for_authenticated_desktop_peer(stream) {
+            return None;
+        }
+        Some(facts)
+    }
+}
+
+/// Opaque measured Linux release evidence for one authenticated V3 peer exchange.
+pub struct VerifiedInstalledLinuxEnrollmentMeasurementFacts {
+    desktop: [u8; 32],
+    writer: [u8; 32],
+    daemon: [u8; 32],
+    contract: [u8; 32],
+    candidate_source: [u8; 32],
+    target_manifest: [u8; 32],
+    release_tuple: [u8; 32],
+    qualification: [u8; 32],
+    installed_generation: u64,
+}
+
+impl VerifiedInstalledLinuxEnrollmentMeasurementFacts {
+    pub(super) fn from_admission(
+        [desktop, writer, daemon, contract]: [[u8; 32]; 4],
+        admission: &NativeEnrollmentTupleAdmission,
+    ) -> Option<Self> {
+        Some(Self {
+            desktop,
+            writer,
+            daemon,
+            contract,
+            candidate_source: admission.candidate_source_sha256?,
+            target_manifest: admission.target_manifest_sha256?,
+            release_tuple: admission.release_tuple_sha256,
+            qualification: admission
+                .qualification
+                .retained_qualification_binding_digest()?,
+            installed_generation: admission.installed_generation,
+        })
+    }
+
+    #[must_use]
+    pub const fn desktop(&self) -> [u8; 32] {
+        self.desktop
+    }
+    #[must_use]
+    pub const fn writer(&self) -> [u8; 32] {
+        self.writer
+    }
+    #[must_use]
+    pub const fn daemon(&self) -> [u8; 32] {
+        self.daemon
+    }
+    #[must_use]
+    pub const fn contract(&self) -> [u8; 32] {
+        self.contract
+    }
+    #[must_use]
+    pub const fn candidate_source(&self) -> [u8; 32] {
+        self.candidate_source
+    }
+    #[must_use]
+    pub const fn target_manifest(&self) -> [u8; 32] {
+        self.target_manifest
+    }
+    #[must_use]
+    pub const fn release_tuple(&self) -> [u8; 32] {
+        self.release_tuple
+    }
+    #[must_use]
+    pub const fn qualification(&self) -> [u8; 32] {
+        self.qualification
+    }
+    #[must_use]
+    pub const fn installed_generation(&self) -> u64 {
+        self.installed_generation
+    }
+}
+
+fn valid_owner_private_directory(path: &Path) -> bool {
+    let Ok(canonical) = path.canonicalize() else {
+        return false;
+    };
+    let Ok(metadata) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    canonical == path
+        && metadata.is_dir()
+        && !metadata.file_type().is_symlink()
+        && metadata.uid() == rustix::process::geteuid().as_raw()
+        && metadata.permissions().mode().trailing_zeros() >= 6
+}
+
+fn valid_profile_runtime_pair(profile_directory: &Path, runtime_root: &Path) -> bool {
+    runtime_root
+        .file_name()
+        .is_some_and(|name| name == "bundled-runtime")
+        && runtime_root.parent() == Some(profile_directory)
+        && valid_owner_private_directory(profile_directory)
+        && valid_owner_private_directory(runtime_root)
+}
+
+fn now() -> Option<u64> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_secs())
+}
+
+#[cfg(test)]
+#[path = "linux_writer_capability_tests.rs"]
+mod tests;

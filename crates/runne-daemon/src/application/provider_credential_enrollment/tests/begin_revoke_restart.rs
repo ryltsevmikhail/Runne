@@ -5,8 +5,9 @@ use runne_api::{
     ProviderCredentialRequestAuthorityPair,
 };
 use runne_provider::{
-    CredentialAuthorityPair, CredentialEnrollmentAuthorityPair, CredentialOperationSnapshot,
-    CredentialVersionRef, ProviderCredentialEnrollmentStore, ProviderId,
+    CredentialAuthorityPair, CredentialEnrollmentAuthorityPair, CredentialOperationAction,
+    CredentialOperationSnapshot, CredentialOperationState, CredentialVersionRef,
+    ProviderCredentialEnrollmentStore, ProviderId,
 };
 
 use super::super::{
@@ -106,6 +107,61 @@ fn prepared_revoke_replay_after_daemon_restart_restores_only_the_rendezvous() {
     let fenced = store.lifecycle_snapshot(&provider).unwrap();
     assert_eq!(fenced.lifecycle_revision().get(), 3);
     assert_eq!(fenced.fence().get(), 3);
+    let durable = store.load_operation(operation_id).unwrap();
+    assert_eq!(durable.action(), CredentialOperationAction::Revoke);
+    assert_eq!(durable.state(), CredentialOperationState::Prepared);
+    assert!(fenced.active_version().is_none());
+
+    // The durable fence is visible before a writer rendezvous/claim can run.
+    // A request carrying the old lifecycle revision is rejected at admission.
+    let stale_authority = issuer
+        .issue_base([1; 32], [2; 32], [20; 32], 1, [4; 32], 1, [5; 32])
+        .unwrap();
+    let stale_command = BeginProviderCredentialEnrollment::new(
+        ProviderCredentialEnrollmentActionV2::Pair,
+        ProviderCredentialProviderV2::OpenAi,
+        2,
+        "018f8d23-7f90-7c00-8000-000000000002",
+        "pair-after-revoke-fence",
+        "pair-after-revoke-fence-intent",
+    )
+    .unwrap();
+    let stale_binding = ProviderCredentialBeginIntentBinding::new(&stale_command, &context);
+    let stale_proof = issuer
+        .issue_intent_proof(
+            [21; 32],
+            [20; 32],
+            *stale_binding.action_provider_revision_digest(),
+            *stale_binding.command_identity_digest(),
+            4_000_000_000,
+        )
+        .unwrap();
+    let stale_handles = ProviderCredentialOperationHandleIssuer::new([22; 32]);
+    let stale_registry = PendingBrokerRendezvousRegistry::new(stale_handles.duplicate());
+    stale_registry.reserve_new_for_test(&stale_authority, &stale_proof);
+    let stale_begin = ProviderCredentialEnrollmentBegin::new(
+        ProviderCredentialAdmission::new(verifier.clone(), measurements.clone()),
+        stale_handles,
+        &store,
+        &reader,
+        stale_registry,
+    );
+    assert!(
+        stale_begin
+            .admit(
+                &stale_authority,
+                &stale_proof,
+                &context,
+                &stale_command,
+                100
+            )
+            .is_err()
+    );
+    assert_eq!(store.lifecycle_snapshot(&provider).unwrap(), fenced);
+    assert_eq!(
+        store.load_operation(operation_id).unwrap().state(),
+        CredentialOperationState::Prepared
+    );
     drop(first_begin);
     drop(store);
 

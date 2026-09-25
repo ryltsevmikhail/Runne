@@ -1,7 +1,4 @@
-//! GUI host-prompt lifecycle tests (T7): env allowlist, pre-spawn denial,
-//! bounded output, parent kill+reap deadline. Fake shell-script pinentry
-//! fixtures only — the real pinentry binary and any real prompt are never
-//! invoked, and tests use explicit env snapshots, never the runner's env.
+//! GUI prompt lifecycle tests use fake scripts and explicit environment snapshots.
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
@@ -136,10 +133,7 @@ fn child_env_lacks_parent_and_nonallowlist_variables() {
         outcome,
         Ok(SecureCredentialPromptDisposition::Confirmed)
     ));
-    // Shell children inject PWD/SHLVL/_ themselves, so this protocol fixture
-    // is not an exact-env oracle; the exact set is proven at the copy seam
-    // (gui_environment_copy_is_exactly_the_allowlist). This test pins that the
-    // parent never contributes PATH, HOME, or any secret variable.
+    // Shell children inject PWD/SHLVL/_; the copy-seam test pins the exact allowlist.
     let observed = fs::read_to_string(&marker).expect("child env captured");
     for required in [
         "DBUS_SESSION_BUS_ADDRESS",
@@ -207,6 +201,46 @@ fn parent_deadline_kills_and_reaps_hung_child() {
     assert!(
         started.elapsed() < Duration::from_secs(5),
         "parent must kill+reap instead of waiting for the child"
+    );
+}
+
+#[test]
+fn parent_deadline_also_bounds_child_exit_after_stdout_eof() {
+    let dir = fixture_dir("stdout-eof-hang");
+    let script = dir.join("pinentry-fake");
+    let pid_file = dir.join("child-pid");
+    write_script(
+        &script,
+        &format!(
+            "#!/bin/sh\nprintf '%s' \"$$\" > {}\nexec 1>&-\nexec /bin/sleep 12\n",
+            pid_file.display()
+        ),
+    );
+    let deadline = Duration::from_millis(1_200);
+    let mut prompt = LinuxGuiHostCredentialPrompt::new(script, Duration::from_secs(5), deadline)
+        .expect("adapter");
+    let started = Instant::now();
+    let error = prompt
+        .prompt_with_env(request(), &gui_env())
+        .expect_err("live child after stdout EOF hits deadline");
+    let elapsed = started.elapsed();
+
+    assert!(matches!(error, SecureCredentialPromptError::Unavailable));
+    assert!(
+        elapsed >= Duration::from_millis(700),
+        "deadline fired too early: {elapsed:?}"
+    );
+    assert!(
+        elapsed < Duration::from_secs(8),
+        "deadline did not bound child exit: {elapsed:?}"
+    );
+    let child_pid: u32 = fs::read_to_string(pid_file)
+        .expect("child pid recorded")
+        .parse()
+        .expect("valid child pid");
+    assert!(
+        !PathBuf::from(format!("/proc/{child_pid}")).exists(),
+        "timed-out child must be killed and reaped"
     );
 }
 

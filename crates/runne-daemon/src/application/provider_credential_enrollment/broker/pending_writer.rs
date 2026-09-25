@@ -69,6 +69,10 @@ pub(crate) use linux_writer::{
 mod linux_orchestration;
 
 #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+#[path = "pending_writer/linux_admitted_launch.rs"]
+mod linux_admitted_launch;
+
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
 #[cfg_attr(
     not(test),
     expect(
@@ -77,7 +81,13 @@ mod linux_orchestration;
     )
 )]
 pub(crate) use linux_orchestration::{
-    LinuxWriterLaunchInputs, LinuxWriterSpawn, launch_linux_writer_with_handshake,
+    LinuxWriterLaunchInputs, LinuxWriterSpawn, launch_linux_control_writer_with_handshake,
+    launch_linux_pair_writer_with_handshake, launch_linux_writer_with_handshake,
+};
+
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+pub(crate) use linux_admitted_launch::{
+    launch_verified_linux_control_writer, launch_verified_linux_pair_writer,
 };
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[path = "pending_writer/qualified.rs"]

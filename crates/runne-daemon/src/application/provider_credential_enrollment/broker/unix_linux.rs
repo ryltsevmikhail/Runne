@@ -91,8 +91,10 @@ impl LinuxCredentialBrokerChannel {
         self.writer.binding()
     }
 
-    pub(crate) fn terminate_exact_writer(self) {
-        let _ = self.writer.terminate_exact_writer();
+    pub(crate) fn terminate_exact_writer(
+        self,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        self.writer.terminate_exact_writer()
     }
 
     fn receive_once(

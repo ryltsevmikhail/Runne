@@ -85,7 +85,8 @@ pub use unix::UnixRetainedWriterProcess;
 pub use unix::observe_current_process_start;
 #[cfg(target_os = "linux")]
 pub use unix_daemon::linux_spawn::{
-    spawn_linux_pair_writer_from_prepared_handoff, spawn_linux_writer_with_sockets,
+    spawn_linux_pair_writer_from_prepared_handoff, spawn_linux_writer_from_prepared_handoff,
+    spawn_linux_writer_with_sockets,
 };
 #[cfg(all(unix, not(target_os = "macos")))]
 pub use unix_daemon::spawn_unix_writer_from_prepared_daemon_handoff;

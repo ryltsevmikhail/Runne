@@ -44,6 +44,12 @@ mod qualified_wiring_tests;
 pub(crate) mod rendezvous;
 #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
 pub(super) mod unix_linux;
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+pub(crate) use pending_writer::{
+    launch_verified_linux_control_writer, launch_verified_linux_pair_writer,
+};
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+pub(crate) use unix_linux::LinuxCredentialBrokerChannel;
 
 #[cfg(all(unix, feature = "desktop-protected"))]
 pub(super) mod unix;

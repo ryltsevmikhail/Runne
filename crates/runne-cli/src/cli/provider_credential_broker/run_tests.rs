@@ -1,11 +1,11 @@
 use std::io::{Cursor, Read};
 use std::sync::{Arc, Mutex};
 
-use runne_provider::{CredentialBrokerFrame, CredentialBrokerFrameCodec, CredentialOperationAction};
-
-use super::effect_test_support::{
-    EffectCall, assert_frames, claimed, pair_claimed,
+use runne_provider::{
+    CredentialBrokerFrame, CredentialBrokerFrameCodec, CredentialOperationAction,
 };
+
+use super::effect_test_support::{EffectCall, assert_frames, claimed, pair_claimed_successfully};
 use super::run::execute_claimed_writer;
 
 #[test]
@@ -29,14 +29,17 @@ fn packaged_runner_accepts_only_pinned_session_and_detected_secret_slot() {
 
 #[test]
 fn secret_is_read_only_after_claim() {
-    let fixture = pair_claimed();
+    let fixture = pair_claimed_successfully();
     let reader = ClaimCheckingReader {
         input: Cursor::new(encoded_pair_envelope()),
         written: fixture.written.clone(),
     };
 
-    assert!(execute_claimed_writer(fixture.claimed, Some(reader)).is_err());
-    assert_eq!(*fixture.calls.lock().expect("calls"), vec![EffectCall::Create]);
+    assert!(execute_claimed_writer(fixture.claimed, Some(reader)).is_ok());
+    assert_eq!(
+        *fixture.calls.lock().expect("calls"),
+        vec![EffectCall::Create]
+    );
     assert_frames(&fixture.written, true);
 }
 
@@ -71,10 +74,7 @@ impl Read for ClaimCheckingReader {
 fn encoded_pair_envelope() -> Vec<u8> {
     let command = super::effect_test_support::command(CredentialOperationAction::Pair);
     let mut bytes = vec![0; 141];
-    bytes[..2].copy_from_slice(&[
-        runne_provider::CredentialSecretEnvelopeCodec::VERSION,
-        2,
-    ]);
+    bytes[..2].copy_from_slice(&[runne_provider::CredentialSecretEnvelopeCodec::VERSION, 2]);
     bytes[2..18].copy_from_slice(&command.operation_id().as_bytes());
     bytes[18..26].copy_from_slice(&command.ticket_attempt().get().to_be_bytes());
     bytes[26..58].fill(13);

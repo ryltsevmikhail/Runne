@@ -4,17 +4,15 @@ use crate::updater_installed_metadata::InstalledUpdateMetadataJournal;
 
 use super::*;
 
-#[path = "tests/measurement_capture.rs"]
-mod measurement_capture;
-#[path = "tests/fixture_signing.rs"]
-mod fixture_signing;
 #[path = "tests/fixture.rs"]
 mod fixture;
+#[path = "tests/fixture_signing.rs"]
+mod fixture_signing;
+#[path = "tests/measurement_capture.rs"]
+mod measurement_capture;
 
-use fixture::{
-    FixtureIdentity, RejectingIdentity, commit_record, fixture, input, verify,
-};
 pub(in crate::updater_metadata) use fixture::signed_fixture_admission;
+use fixture::{FixtureIdentity, RejectingIdentity, commit_record, fixture, input, verify};
 
 #[test]
 fn fixture_composition_admits_only_a_current_signed_qualified_release() {
@@ -93,6 +91,7 @@ fn qualified_admission_retains_distinct_measurement_sources() {
         .qualification
         .retained_qualification_binding_digest()
         .unwrap();
+    assert!(admission.raw_v3_tuple_sha256.is_none());
     let sources = [
         candidate,
         manifest,

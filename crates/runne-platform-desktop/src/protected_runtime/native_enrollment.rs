@@ -27,6 +27,17 @@ impl ProtectedBundledRuntimeSupervisor {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn linux_process_start_ticks(pid: u32) -> Result<u64, ProtectedBundledRuntimeError> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat"))
+        .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+    stat.rsplit_once(')')
+        .and_then(|(_, fields)| fields.split_whitespace().nth(19))
+        .and_then(|value| value.parse().ok())
+        .filter(|value| *value != 0)
+        .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)
+}
+
 impl ProtectedBundledRuntimeSupervisor {
     /// Transitions the exact owned daemon to V3 and queues its rotated profile.
     ///
@@ -198,7 +209,39 @@ impl ProtectedBundledRuntimeProcess {
             }
             Ok(confirmed)
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
+        {
+            use sha2::{Digest as _, Sha256};
+            let pid = self.child.id();
+            let credentials = rustix::net::sockopt::socket_peercred(&self.channel)
+                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+            if u32::try_from(credentials.pid.as_raw_pid()).ok() != Some(pid)
+                || credentials.uid != rustix::process::geteuid()
+            {
+                return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
+            }
+            let before = linux_process_start_ticks(pid)?;
+            prepared.confirm_linux_daemon_image(pid, before)?;
+            let (authority, desktop, session, daemon, generation) = match &self.activation {
+                ProtectedProcessActivation::V2 { owned, .. } => (
+                    *owned.launch_authority_id(), *owned.desktop_host_instance_id(),
+                    *owned.session_id(), *owned.daemon_instance_id(), owned.launch_generation(),
+                ),
+                ProtectedProcessActivation::V3 { owned, .. } => (
+                    *owned.launch_authority_id(), *owned.desktop_host_instance_id(),
+                    *owned.session_id(), *owned.daemon_instance_id(), owned.launch_generation(),
+                ),
+                _ => return Err(ProtectedBundledRuntimeError::InvalidState),
+            };
+            let after = linux_process_start_ticks(pid)?;
+            if before != after { return Err(ProtectedBundledRuntimeError::OwnershipMismatch); }
+            let mut hash = Sha256::new();
+            hash.update(b"runne/linux-live-daemon-process/v1\0");
+            hash.update(pid.to_be_bytes());
+            hash.update(after.to_be_bytes());
+            prepared.confirm_linux(authority, desktop, session, daemon, generation, hash.finalize().into())
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
             let _ = prepared;
             Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)

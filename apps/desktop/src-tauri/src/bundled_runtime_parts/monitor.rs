@@ -13,17 +13,24 @@ impl BundledRuntimeController {
                     use tauri::Manager;
                     let lifecycle = app.state::<crate::RuntimeLifecycleManager>();
                     let updates = app.state::<crate::UpdateStatusStore>();
-                    if crate::provider_credential_enrollment::reconcile_startup(&lifecycle, &updates)
-                        .await.is_err()
+                    if crate::provider_credential_enrollment::reconcile_startup(
+                        &lifecycle, &updates,
+                    )
+                    .await
+                    .is_err()
                     {
-                        let _ = self.core.mark_bundled_runtime_degraded(
-                            RuntimeFailureCode::ProtectedActivationUnavailable,
-                        ).await;
+                        let _ = self
+                            .core
+                            .mark_bundled_runtime_degraded(
+                                RuntimeFailureCode::ProtectedActivationUnavailable,
+                            )
+                            .await;
                     }
                 }
                 #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
                 let _ = &app;
-            }).await;
+            })
+            .await;
         }
     }
 
@@ -40,7 +47,9 @@ impl BundledRuntimeController {
         };
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         if let Err(error) = self.drive_credential_service_rejoin().await {
-            let _ = self.reject_current_client(map_protected_failure(error)).await;
+            let _ = self
+                .reject_current_client(map_protected_failure(error))
+                .await;
             return;
         }
         let monitor_result = self
@@ -81,7 +90,7 @@ impl BundledRuntimeController {
                 let Ok(lease) = self.core.begin_bundled_runtime_restart().await else {
                     return;
                 };
-                let availability = self.connect_pending_profile(lease).await;
+                let availability = self.connect_pending_profile(lease, true).await;
                 restart_cleanup::complete_monitor_restart(availability, operation, cleanup).await;
             }
             (_, BundledRuntimeLifecycleState::Exhausted) => {
@@ -102,26 +111,25 @@ impl BundledRuntimeController {
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         let renewal = ProtectedBundledRuntimeSupervisor::queue_renewal_profile_with_rejoin(
             Arc::clone(&self.supervisor),
-        ).await;
+        )
+        .await;
         #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-        let renewal = self.run_supervisor(ProtectedBundledRuntimeSupervisor::queue_renewal_profile).await;
+        let renewal = self
+            .run_supervisor(ProtectedBundledRuntimeSupervisor::queue_renewal_profile)
+            .await;
         if let Err(error) = renewal {
             let _ = self
                 .reject_current_client(map_protected_failure(error))
                 .await;
             return;
         }
-        let _ = self.connect_pending_profile(lease).await;
+        let _ = self.connect_pending_profile(lease, false).await;
     }
 
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    async fn drive_credential_service_rejoin(
-        &self,
-    ) -> Result<(), ProtectedBundledRuntimeError> {
+    async fn drive_credential_service_rejoin(&self) -> Result<(), ProtectedBundledRuntimeError> {
         let prepared = self
-            .run_supervisor(|supervisor| {
-                supervisor.prepare_pending_credential_service_rejoin()
-            })
+            .run_supervisor(|supervisor| supervisor.prepare_pending_credential_service_rejoin())
             .await?;
         let Some(prepared) = prepared else {
             return Ok(());
@@ -180,5 +188,96 @@ impl BundledRuntimeController {
         .await
         .map_err(|_| ProtectedBundledRuntimeError::InvalidState)?
     }
+}
 
+#[cfg(target_os = "linux")]
+impl BundledRuntimeController {
+    #[rustfmt::skip]
+    async fn prepare_linux_startup(&self, transition_required: bool) -> Result<Option<crate::updater_status::enrollment::NativeInstalledEnrollmentLease>, AppCoreError> {
+        use tauri::Manager as _;
+        let app = self.startup_app.lock().map_err(|_| AppCoreError::RuntimeUnavailable)?.clone().ok_or(AppCoreError::RuntimeUnavailable)?;
+        let executable = std::env::current_exe().map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        let resources = app.path().resource_dir().map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        let Some(mut installed) = app.state::<crate::updater_status::UpdateStatusStore>().prepare_startup_linux_native_enrollment(&executable, &resources).await.map_err(|_| AppCoreError::RuntimeUnavailable)? else { return Ok(None); };
+        if transition_required {
+            installed
+                .refresh_linux()
+                .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+            let prepared = installed
+                .take_prepared()
+                .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+            let supervisor = Arc::clone(&self.supervisor);
+            let hint = resources.to_str().ok_or(AppCoreError::RuntimeUnavailable)?.to_owned();
+            installed = tauri::async_runtime::spawn_blocking(move || {
+                let mut supervisor = supervisor.lock().map_err(|_| AppCoreError::RuntimeUnavailable)?;
+                let confirmed = supervisor.confirm_installed_native_enrollment(prepared).map_err(|_| AppCoreError::RuntimeUnavailable)?;
+                installed.revalidate_confirmed(&confirmed).map_err(|_| AppCoreError::RuntimeUnavailable)?;
+                supervisor.begin_confirmed_linux_credential_enrollment_transition(&confirmed, &hint).map_err(|_| AppCoreError::RuntimeUnavailable)?;
+                Ok::<_, AppCoreError>(installed)
+            })
+            .await
+            .map_err(|_| AppCoreError::RuntimeUnavailable)??;
+        }
+        Ok(Some(installed))
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl NativeCredentialEnrollmentLease {
+    #[rustfmt::skip]
+    pub(crate) async fn confirm(
+        &self,
+        prepared: PreparedInstalledNativeEnrollment,
+    ) -> Result<ConfirmedInstalledNativeEnrollment, AppCoreError> {
+        let supervisor = Arc::clone(&self.supervisor);
+        tauri::async_runtime::spawn_blocking(move || supervisor.lock().map_err(|_| AppCoreError::RuntimeUnavailable)?.confirm_installed_native_enrollment(prepared).map_err(|_| AppCoreError::RuntimeUnavailable)).await.map_err(|_| AppCoreError::RuntimeUnavailable)?
+    }
+
+    #[rustfmt::skip]
+    pub(crate) async fn prepare_credential_status(
+        &self,
+        confirmed: ConfirmedInstalledNativeEnrollment,
+    ) -> Result<(), AppCoreError> {
+        let supervisor = Arc::clone(&self.supervisor);
+        tauri::async_runtime::spawn_blocking(move || supervisor.lock().map_err(|_| AppCoreError::RuntimeUnavailable)?.prepare_credential_status(&confirmed).map_err(|_| AppCoreError::RuntimeUnavailable)).await.map_err(|_| AppCoreError::RuntimeUnavailable)?
+    }
+
+    pub(crate) fn supervisor_handle(&self) -> Arc<Mutex<ProtectedBundledRuntimeSupervisor>> {
+        Arc::clone(&self.supervisor)
+    }
+
+    pub(crate) fn writer_reaper_registry(&self) -> Arc<ProtectedWriterReaperRegistry> {
+        Arc::clone(&self.writer_reapers)
+    }
+
+    pub(crate) fn cleanup_handle(&self) -> NativeCredentialEnrollmentCleanup {
+        NativeCredentialEnrollmentCleanup {
+            core: Arc::clone(&self.core),
+            supervisor: Arc::clone(&self.supervisor),
+            writer_reapers: Arc::clone(&self.writer_reapers),
+        }
+    }
+
+    pub(crate) fn rotated_intent_session_binding(&self) -> Result<[u8; 32], AppCoreError> {
+        self.supervisor
+            .lock()
+            .map_err(|_| AppCoreError::RuntimeUnavailable)?
+            .current_credential_enrollment_intent_binding()
+            .map_err(|_| AppCoreError::RuntimeUnavailable)
+    }
+
+    pub(crate) fn matches_active_signed_linux_v3(
+        &self,
+        confirmed: &ConfirmedInstalledNativeEnrollment,
+    ) -> Result<(), AppCoreError> {
+        let marker = self
+            .active_signed_linux_v3
+            .lock()
+            .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        marker
+            .as_ref()
+            .is_some_and(|marker| marker.matches(confirmed))
+            .then_some(())
+            .ok_or(AppCoreError::RuntimeUnavailable)
+    }
 }

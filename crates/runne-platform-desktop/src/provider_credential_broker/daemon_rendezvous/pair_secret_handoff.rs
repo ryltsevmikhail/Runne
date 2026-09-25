@@ -9,6 +9,16 @@ pub(in crate::provider_credential_broker) struct AuthenticatedPairSecretHandoff 
 }
 
 impl AuthenticatedPairSecretHandoff {
+    pub(in crate::provider_credential_broker) const fn from_relay_facts(
+        channel_binding: [u8; 32],
+        publication_public_key: [u8; 32],
+    ) -> Self {
+        Self {
+            channel_binding,
+            publication_public_key,
+        }
+    }
+
     pub(in crate::provider_credential_broker) const fn into_relay_facts(
         self,
     ) -> ([u8; 32], [u8; 32]) {
@@ -17,6 +27,22 @@ impl AuthenticatedPairSecretHandoff {
 }
 
 impl PreparedDaemonWriterEndpointHandoff {
+    #[cfg(target_os = "linux")]
+    pub(in crate::provider_credential_broker) fn into_linux_control_only_parts(
+        self,
+        authenticator: &runne_api::CredentialBrokerTransferAuthenticator,
+    ) -> Result<UnixStream, runne_platform_ports::provider_credential_broker::BrokerHandoffError>
+    {
+        let received = super::receive_prepared::finish_receive(
+            self.transport,
+            self.challenge,
+            authenticator,
+            self.channel_binding,
+            self.publication_public_key,
+        )?;
+        Ok(received.into_control())
+    }
+
     pub(in crate::provider_credential_broker) fn into_pair_spawn_parts(
         self,
     ) -> (

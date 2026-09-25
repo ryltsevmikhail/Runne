@@ -63,11 +63,13 @@ impl NativeEnrollmentQualificationRowV1 {
         qualified_at_unix_seconds: u64,
         expires_at_unix_seconds: u64,
     ) -> Result<Self, NativeEnrollmentTupleError> {
+        let (platform, architecture, package_kind) =
+            qualification_artifact_shape(target).ok_or(NativeEnrollmentTupleError::Rejected)?;
         let mut row = Self {
             schema_version: 1,
-            platform: "macos".into(),
-            architecture: "arm64".into(),
-            package_kind: "dmg".into(),
+            platform: platform.into(),
+            architecture: architecture.into(),
+            package_kind: package_kind.into(),
             receipt_sha256,
             qualified_at_unix_seconds,
             expires_at_unix_seconds,
@@ -120,17 +122,14 @@ impl NativeEnrollmentQualificationRowV1 {
         tuple_digest: Option<[u8; 32]>,
         tuple_matches_target: bool,
     ) -> bool {
+        let Some((platform, architecture, package_kind)) = qualification_artifact_shape(target)
+        else {
+            return false;
+        };
         self.schema_version == 1
-            && self.platform == "macos"
-            && self.architecture == "arm64"
-            && self.package_kind == "dmg"
-            && target.platform == "macos"
-            && matches!(target.arch.as_str(), "arm64" | "aarch64")
-            && target
-                .artifact_url
-                .split(['?', '#'])
-                .next()
-                .is_some_and(|url| url.ends_with(".dmg"))
+            && self.platform == platform
+            && self.architecture == architecture
+            && self.package_kind == package_kind
             && digest_valid(&self.receipt_sha256)
             && self.qualified_at_unix_seconds != 0
             && self.qualified_at_unix_seconds < self.expires_at_unix_seconds
@@ -174,6 +173,30 @@ impl NativeEnrollmentQualificationRowV1 {
     }
     pub(super) const fn expires_at(&self) -> u64 {
         self.expires_at_unix_seconds
+    }
+}
+
+fn qualification_artifact_shape(
+    target: &UpdateTargetV2,
+) -> Option<(&'static str, &'static str, &'static str)> {
+    match target.platform.as_str() {
+        "macos" if matches!(target.arch.as_str(), "arm64" | "aarch64") => {
+            let artifact_url = target.artifact_url.split(['?', '#']).next()?;
+            artifact_url
+                .ends_with(".dmg")
+                .then_some(("macos", "arm64", "dmg"))
+        }
+        "linux" if target.arch == "x86_64" => {
+            let artifact_url = target.artifact_url.split(['?', '#']).next()?;
+            if artifact_url.ends_with(".AppImage") {
+                Some(("linux", "x86_64", "appimage"))
+            } else if artifact_url.ends_with(".deb") {
+                Some(("linux", "x86_64", "deb"))
+            } else {
+                None
+            }
+        }
+        _ => None,
     }
 }
 

@@ -78,7 +78,7 @@ fn orchestrator_launches_the_real_writer_into_a_verified_channel() {
     // The launch itself is the proof: only the handshake-authenticated kill
     // key plus live pidfd admission can produce this channel.
     let channel_state = launch.expect("real writer completes the verified startup");
-    channel_state.terminate_exact_writer();
+    channel_state.terminate_exact_writer().unwrap();
 }
 
 #[test]

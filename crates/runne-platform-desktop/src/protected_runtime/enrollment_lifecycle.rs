@@ -1,13 +1,19 @@
 // Desktop-owned protected Request/Begin/relay lifecycle on the entered V3 channel.
 
+use enrollment_lifecycle_facts::{command_context, require_admission};
 use runne_api::{
     ProtectedCredentialEnrollmentAuthenticator, ProtectedCredentialEnrollmentControlFrame,
     ProtectedCredentialEnrollmentLifecycleCodec, ProtectedCredentialEnrollmentRequestBinding,
-    ProviderCredentialBeginIntentBinding,
-    ProviderCredentialOperationStateV2,
+    ProviderCredentialBeginIntentBinding, ProviderCredentialOperationStateV2,
     protected_credential_broker_evidence_binding, protected_credential_native_intent_digest,
 };
-use enrollment_lifecycle_facts::{command_context, require_admission};
+
+#[cfg(target_os = "linux")]
+#[path = "enrollment_lifecycle/linux_relay_fd.rs"]
+mod linux_relay_fd;
+#[path = "enrollment_lifecycle/relay_ack.rs"]
+mod relay_ack;
+use relay_ack::relay_ack_allowed;
 
 const CONTROL_TTL_MILLIS: u64 = 20_000;
 
@@ -185,9 +191,8 @@ impl ProtectedBundledRuntimeProcess {
             expires,
         )
         .map_err(|_| ProtectedBundledRuntimeError::InvalidState)?;
-        let authenticator = ProtectedCredentialEnrollmentAuthenticator::from_protected_activation(
-            &self.keys,
-        );
+        let authenticator =
+            ProtectedCredentialEnrollmentAuthenticator::from_protected_activation(&self.keys);
         let signed = authenticator
             .issue_request(binding, 1)
             .map_err(|_| ProtectedBundledRuntimeError::InvalidState)?;
@@ -201,9 +206,8 @@ impl ProtectedBundledRuntimeProcess {
             .decode_authenticated_admission(&admission, &verified, 1, now)
             .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
         require_admission(&admission, &owned, native_confirmation, facts)?;
-        let codec = ProtectedCredentialEnrollmentLifecycleCodec::from_protected_activation(
-            &self.keys,
-        );
+        let codec =
+            ProtectedCredentialEnrollmentLifecycleCodec::from_protected_activation(&self.keys);
         let begin = codec
             .encode_desktop_begin(&command, 1)
             .map_err(|_| ProtectedBundledRuntimeError::InvalidState)?;
@@ -212,7 +216,9 @@ impl ProtectedBundledRuntimeProcess {
             .decode_daemon_snapshot(&read_frame(&mut self.channel)?, 0)
             .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
         let terminal = snapshot.state().terminal();
-        if terminal { self.record_enrollment_terminal()?; }
+        if terminal {
+            self.record_enrollment_terminal()?;
+        }
         if !terminal
             && (snapshot.state() != ProviderCredentialOperationStateV2::Prepared
                 || snapshot.broker_rendezvous_id().is_none())
@@ -224,6 +230,8 @@ impl ProtectedBundledRuntimeProcess {
             snapshot,
             relay: None,
             relay_taken: false,
+            #[cfg(target_os = "linux")]
+            relay_fd_taken: false,
             terminal,
         })
     }
@@ -271,19 +279,20 @@ impl ProtectedBundledRuntimeProcess {
 
     fn v3_enrollment_facts(
         &self,
-    ) -> Result<(runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3, EnrollmentBrokerFacts), ProtectedBundledRuntimeError> {
+    ) -> Result<
+        (
+            runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
+            EnrollmentBrokerFacts,
+        ),
+        ProtectedBundledRuntimeError,
+    > {
         let ProtectedProcessActivation::V3 { owned, .. } = &self.activation else {
             return Err(ProtectedBundledRuntimeError::InvalidState);
         };
-        Ok((owned.clone(), self.enrollment_broker_facts.ok_or(ProtectedBundledRuntimeError::InvalidState)?))
+        Ok((
+            owned.clone(),
+            self.enrollment_broker_facts
+                .ok_or(ProtectedBundledRuntimeError::InvalidState)?,
+        ))
     }
-}
-
-fn relay_ack_allowed(
-    relay_taken: bool,
-    terminal: bool,
-    retained: Option<&[u8; runne_api::PROTECTED_CREDENTIAL_SECRET_RELAY_BYTES]>,
-    provided: &[u8; runne_api::PROTECTED_CREDENTIAL_SECRET_RELAY_BYTES],
-) -> bool {
-    relay_taken && !terminal && retained == Some(provided)
 }

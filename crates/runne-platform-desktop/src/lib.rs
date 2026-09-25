@@ -51,15 +51,21 @@ pub use protected_runtime::FirstActivationFaultPoint;
 #[cfg(target_os = "macos")]
 pub use protected_runtime::{
     CredentialWriterHandoff, CredentialWriterHandoffError, CredentialWriterHandoffMode,
-    NativeProtectedCredentialEnrollmentBegin, NativeProtectedCredentialVerificationBegin,
-    PreparedCredentialServiceRejoin, PreparedCredentialServiceSessionRegistration,
-    PreparedProtectedCredentialEnrollment, PreparedProtectedCredentialRecovery,
+    NativeProtectedCredentialVerificationBegin, PreparedCredentialServiceRejoin,
+    PreparedCredentialServiceSessionRegistration, PreparedProtectedCredentialRecovery,
     PreparedProtectedCredentialVerification, RegisteredCredentialServiceSession,
 };
 pub use protected_runtime::{
     DevelopmentBundledRuntimeLauncher, ProtectedBundledRuntimeError,
     ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeProcess,
     ProtectedBundledRuntimeSupervisor, discover_bundled_runtime,
+};
+#[cfg(any(
+    target_os = "macos",
+    all(target_os = "linux", feature = "protected-channel-integration")
+))]
+pub use protected_runtime::{
+    NativeProtectedCredentialEnrollmentBegin, PreparedProtectedCredentialEnrollment,
 };
 #[cfg(all(feature = "test-support", target_os = "macos", target_arch = "aarch64"))]
 #[doc(hidden)]
@@ -148,6 +154,10 @@ pub use updater_metadata::{
     VerifiedInstalledEnrollmentMeasurementFacts, VerifiedInstalledQualificationBootstrapCandidate,
     VerifiedInstalledQualificationBootstrapDesktop, VerifiedInstalledQualificationGuiExecutor,
     VerifiedQualificationRunTransport, VerifiedRuntimeQualificationAcknowledgement,
+};
+#[cfg(target_os = "linux")]
+pub use updater_metadata::{
+    VerifiedInstalledLinuxEnrollmentMeasurementFacts, VerifiedInstalledLinuxWriterCapability,
 };
 pub use updater_trust::{UpdateTrustError, UpdateTrustJournal, UpdateTrustState};
 

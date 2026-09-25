@@ -44,6 +44,8 @@ async fn pair_relay_rejoins_before_one_use_secret_transfer() {
             snapshot: snapshot(State::Prepared),
             relay: None,
             relay_taken: false,
+            #[cfg(target_os = "linux")]
+            relay_fd_taken: false,
             terminal: false,
         };
         let daemon = std::thread::spawn(move || {

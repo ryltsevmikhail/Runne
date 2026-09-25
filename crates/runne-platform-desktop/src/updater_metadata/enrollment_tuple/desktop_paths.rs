@@ -1,5 +1,7 @@
 #[cfg(target_os = "macos")]
-use security_framework::os::macos::code_signing::{Flags, GuestAttributes, SecCode, SecRequirement};
+use security_framework::os::macos::code_signing::{
+    Flags, GuestAttributes, SecCode, SecRequirement,
+};
 #[cfg(target_os = "macos")]
 use std::{num::NonZeroU32, str::FromStr as _};
 
@@ -14,7 +16,8 @@ impl NativeEnrollmentArtifactPathsV1 {
         identity: &macos_identity::MacOsCodeIdentityV1,
     ) -> Result<(), NativeEnrollmentTupleError> {
         self.confirm_current()?;
-        let code = SecCode::for_self(Flags::NONE).map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+        let code =
+            SecCode::for_self(Flags::NONE).map_err(|_| NativeEnrollmentTupleError::Rejected)?;
         check_code(&code, identity)?;
         self.matches_desktop_digest(expected_digest)?;
         self.confirm_current()
@@ -49,9 +52,15 @@ impl NativeEnrollmentArtifactPathsV1 {
 }
 
 #[cfg(target_os = "macos")]
-fn check_code(code: &SecCode, identity: &macos_identity::MacOsCodeIdentityV1) -> Result<(), NativeEnrollmentTupleError> {
+fn check_code(
+    code: &SecCode,
+    identity: &macos_identity::MacOsCodeIdentityV1,
+) -> Result<(), NativeEnrollmentTupleError> {
     let requirement = SecRequirement::from_str(&identity.requirement())
         .map_err(|_| NativeEnrollmentTupleError::Rejected)?;
-    code.check_validity(Flags::STRICT_VALIDATE | Flags::NO_NETWORK_ACCESS, &requirement)
-        .map_err(|_| NativeEnrollmentTupleError::Rejected)
+    code.check_validity(
+        Flags::STRICT_VALIDATE | Flags::NO_NETWORK_ACCESS,
+        &requirement,
+    )
+    .map_err(|_| NativeEnrollmentTupleError::Rejected)
 }

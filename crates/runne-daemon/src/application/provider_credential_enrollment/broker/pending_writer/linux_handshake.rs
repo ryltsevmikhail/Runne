@@ -11,7 +11,7 @@
 //! authority constructor.
 
 #![cfg_attr(
-    not(test),
+    not(any(test, all(target_os = "linux", feature = "desktop-protected"))),
     expect(
         dead_code,
         reason = "the D1 Linux composition slice mounts the startup handshake; tests drive it today"

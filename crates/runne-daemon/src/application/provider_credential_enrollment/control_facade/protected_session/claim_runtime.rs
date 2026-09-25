@@ -5,14 +5,12 @@ use runne_provider::ProviderCredentialEnrollmentStore;
 
 use super::DaemonProtectedCredentialEnrollmentSession;
 use crate::application::provider_credential_enrollment::{
-    CredentialEnrollmentRecoveryGateway,
-    broker::{self, CredentialBrokerChannel},
-    effect_authority::map_store,
-    operation_projection,
+    CredentialEnrollmentRecoveryGateway, broker, effect_authority::map_store, operation_projection,
 };
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod qualified;
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub(super) use qualified::{QualifiedWriterService, claim_fenced_writer_on};
 
 pub(crate) struct PendingProtectedBrokerClaim {
@@ -34,6 +32,7 @@ impl PendingProtectedBrokerClaim {
 }
 
 impl DaemonProtectedCredentialEnrollmentSession {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     pub(crate) fn take_installed_facts(
         &mut self,
     ) -> Result<
@@ -49,16 +48,20 @@ impl DaemonProtectedCredentialEnrollmentSession {
         &mut self,
         measurements: runne_provider::CredentialMeasurementSnapshot,
         continuation: runne_provider::CredentialBindingDigest,
-        channel: &mut broker::MacOsCredentialBrokerChannel,
+        channel: &mut impl broker::CredentialBrokerChannel,
     ) -> Result<PendingProtectedBrokerClaim, ProviderCredentialEnrollmentHostError> {
-        self.claim_writer_inner(measurements, continuation, channel, None)
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        return self.claim_writer_inner(measurements, continuation, channel, None);
+        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+        self.claim_writer_inner(measurements, continuation, channel)
     }
 
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     pub(crate) fn claim_writer_with_service(
         &mut self,
         measurements: runne_provider::CredentialMeasurementSnapshot,
         continuation: runne_provider::CredentialBindingDigest,
-        channel: &mut broker::MacOsCredentialBrokerChannel,
+        channel: &mut impl broker::CredentialBrokerChannel,
         service: &crate::protected_activation::CredentialServiceRuntimeGateway,
     ) -> Result<PendingProtectedBrokerClaim, ProviderCredentialEnrollmentHostError> {
         self.claim_writer_inner(measurements, continuation, channel, Some(service))
@@ -68,8 +71,10 @@ impl DaemonProtectedCredentialEnrollmentSession {
         &mut self,
         measurements: runne_provider::CredentialMeasurementSnapshot,
         continuation: runne_provider::CredentialBindingDigest,
-        channel: &mut broker::MacOsCredentialBrokerChannel,
-        service: Option<&crate::protected_activation::CredentialServiceRuntimeGateway>,
+        channel: &mut impl broker::CredentialBrokerChannel,
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))] service: Option<
+            &crate::protected_activation::CredentialServiceRuntimeGateway,
+        >,
     ) -> Result<PendingProtectedBrokerClaim, ProviderCredentialEnrollmentHostError> {
         let coordinator =
             broker::ProviderCredentialBroker::new(Arc::new(self.control.measurements.clone()));
@@ -80,6 +85,11 @@ impl DaemonProtectedCredentialEnrollmentSession {
             self.facts.database_generation,
             self.facts.supervisor_generation,
         )?;
+        #[cfg(all(
+            target_os = "macos",
+            target_arch = "aarch64",
+            feature = "desktop-protected"
+        ))]
         if let Some(fenced) = self.qualification_fenced.take() {
             return qualified::claim_fenced_writer(
                 self,
@@ -101,6 +111,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
             self.control.store.as_ref(),
             channel,
         )?;
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         let service_command = service
             .as_ref()
             .filter(|_| requires_service_arm(receipt.operation().action()))
@@ -124,6 +135,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
         self.control
             .rendezvous
             .release_detached_after_claim(claimed.operation_id());
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         if let (Some(service), Some(service_command)) = (service, service_command) {
             let handoff = service.arm_mutation(service_command)?;
             channel.send_service_handoff(handoff)?;
@@ -152,7 +164,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
     pub(crate) fn release_control_only(
         &self,
         pending: PendingProtectedBrokerClaim,
-        channel: &mut broker::MacOsCredentialBrokerChannel,
+        channel: &mut impl broker::CredentialBrokerChannel,
     ) -> Result<ReleasedProtectedBrokerClaim, ProviderCredentialEnrollmentHostError> {
         if pending.relay.is_some() {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
@@ -179,7 +191,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
         frame: &[u8],
         relay: &[u8],
         pending: PendingProtectedBrokerClaim,
-        channel: &mut broker::MacOsCredentialBrokerChannel,
+        channel: &mut impl broker::CredentialBrokerChannel,
     ) -> Result<ReleasedProtectedBrokerClaim, ProviderCredentialEnrollmentHostError> {
         self.lifecycle
             .decode_desktop_relay_ack(frame, self.desktop_sequence, relay)
@@ -199,14 +211,16 @@ impl DaemonProtectedCredentialEnrollmentSession {
     pub(crate) fn prepare_writer_readback(
         &mut self,
         released: ReleasedProtectedBrokerClaim,
-        channel: &mut broker::MacOsCredentialBrokerChannel,
+        channel: &mut impl broker::CredentialBrokerChannel,
         now_high_water: i64,
     ) -> Result<
-        impl FnOnce() -> Result<
-            ProviderCredentialOperationSnapshotV2,
-            ProviderCredentialEnrollmentHostError,
-        > + Send
-        + use<>,
+        Box<
+            dyn FnOnce() -> Result<
+                    ProviderCredentialOperationSnapshotV2,
+                    ProviderCredentialEnrollmentHostError,
+                > + Send
+                + 'static,
+        >,
         ProviderCredentialEnrollmentHostError,
     > {
         let coordinator =
@@ -224,7 +238,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
         }
         let control = Arc::clone(&self.control);
         let operation_id = self.operation_id()?;
-        Ok(move || {
+        Ok(Box::new(move || {
             CredentialEnrollmentRecoveryGateway::new(
                 control.store.as_ref(),
                 control.readback.as_ref(),
@@ -245,10 +259,11 @@ impl DaemonProtectedCredentialEnrollmentSession {
                 &control.rendezvous,
                 now_high_water,
             )
-        })
+        }))
     }
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 const fn requires_service_arm(action: runne_provider::CredentialOperationAction) -> bool {
     !matches!(
         action,
@@ -268,24 +283,6 @@ fn claim_ticket_ttl_seconds() -> i64 {
     production_claim_ticket_ttl_seconds()
 }
 
-#[cfg(test)]
-mod tests {
-    use runne_provider::CredentialOperationAction;
-
-    #[test]
-    fn only_legacy_source_cleanup_skips_the_credential_service_arm() {
-        for action in [
-            CredentialOperationAction::Pair,
-            CredentialOperationAction::Revoke,
-            CredentialOperationAction::MigrateLegacy,
-            CredentialOperationAction::RetiredVersionCleanup,
-            CredentialOperationAction::WriterIdentityMigrationEffect,
-            CredentialOperationAction::WriterIdentityMigrationVerify,
-        ] {
-            assert!(super::requires_service_arm(action));
-        }
-        assert!(!super::requires_service_arm(
-            CredentialOperationAction::LegacySourceCleanup
-        ));
-    }
-}
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
+#[path = "claim_runtime/tests.rs"]
+mod tests;

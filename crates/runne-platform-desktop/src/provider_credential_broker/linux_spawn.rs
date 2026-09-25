@@ -33,10 +33,15 @@ use runne_platform_ports::provider_credential_broker::{
 
 use super::UnixRetainedWriterProcess;
 
+#[cfg(target_os = "linux")]
+#[path = "linux_spawn/control_only.rs"]
+mod control_only;
 #[path = "linux_spawn/pair.rs"]
 mod pair;
 #[path = "linux_spawn/plan.rs"]
 mod plan;
+#[cfg(target_os = "linux")]
+pub use control_only::spawn_linux_writer_from_prepared_handoff;
 pub use pair::spawn_linux_pair_writer_from_prepared_handoff;
 #[cfg(test)]
 pub(in crate::provider_credential_broker) use plan::SpawnPlan;

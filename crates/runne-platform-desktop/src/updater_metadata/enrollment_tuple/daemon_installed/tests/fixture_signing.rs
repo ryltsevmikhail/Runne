@@ -112,11 +112,59 @@ pub(super) fn fixture_target(
     (target, qualification)
 }
 
+pub(super) fn fixture_linux_target(
+    expires_at: u64,
+    now: u64,
+    hashes: &[String; 4],
+) -> UpdateTargetV2 {
+    let mut target = UpdateTargetV2 {
+        product_id: "com.runne.desktop".into(),
+        version: "1.2.0".into(),
+        platform: "linux".into(),
+        arch: "x86_64".into(),
+        artifact_sha256: digest(b"installer"),
+        artifact_size: 1,
+        artifact_url: "https://updates.example.test/runne.AppImage".into(),
+        release_candidate_sha256: digest(b"candidate"),
+        min_os: "ubuntu-22.04".into(),
+        profile_id: "profile".into(),
+        bundle_sha256: hashes[3].clone(),
+        runtime_version: "0.1.0".into(),
+        runtime_digest: hashes[2].clone(),
+        channel: "stable".into(),
+        published_at_unix_seconds: now.saturating_sub(5),
+        expires_at_unix_seconds: expires_at,
+        rollback_floor: "1.0.0".into(),
+        native_enrollment_tuple: None,
+        native_enrollment_tuple_v3: None,
+        qualification_bootstrap_client_v1: None,
+    };
+    let tuple = NativeEnrollmentTupleV2::new(
+        target.release_candidate_sha256.clone(),
+        hashes[0].clone(),
+        hashes[1].clone(),
+        hashes[2].clone(),
+        hashes[3].clone(),
+        &target,
+    )
+    .unwrap();
+    let qualification = NativeEnrollmentQualificationRowV1::new(
+        &target,
+        &tuple,
+        digest(b"linux-fixture-qualification"),
+        now.saturating_sub(1),
+        expires_at,
+    )
+    .unwrap();
+    target.native_enrollment_tuple = Some(tuple.with_qualification(&target, qualification).unwrap());
+    target
+}
+
 pub(super) fn fixture_verified_update(
     target: UpdateTargetV2,
     expires_at: u64,
     now: u64,
-    hashes: &[String; 4],
+    _hashes: &[String; 4],
     signing: &FixtureSigningMaterial,
 ) -> (VerifiedUpdateV2, [u8; 32]) {
     let root = UpdateRootRoleV2::from_trust(&signing.trust, 7);
@@ -146,16 +194,17 @@ pub(super) fn fixture_verified_update(
         snapshot_signature: signed(&signing.snapshot, &snapshot_role),
         timestamp_signature: signed(&signing.timestamp, &timestamp_role),
     };
+    let target = &targets.target;
     let binding = UpdateTargetV2Binding {
-        product_id: "com.runne.desktop",
-        platform: "macos",
-        arch: "arm64",
-        min_os: "macos-13",
-        profile_id: "profile",
-        bundle_sha256: &hashes[3],
-        runtime_version: "0.1.0",
-        runtime_digest: &hashes[2],
-        channel: "stable",
+        product_id: &target.product_id,
+        platform: &target.platform,
+        arch: &target.arch,
+        min_os: &target.min_os,
+        profile_id: &target.profile_id,
+        bundle_sha256: &target.bundle_sha256,
+        runtime_version: &target.runtime_version,
+        runtime_digest: &target.runtime_digest,
+        channel: &target.channel,
     };
     let verified =
         verify_update_v2(&metadata, &signing.trust, &binding, now, "1.2.0", "1.0.0").unwrap();

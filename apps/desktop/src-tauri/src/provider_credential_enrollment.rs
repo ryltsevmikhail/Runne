@@ -2,7 +2,7 @@
 
 mod command;
 mod dispatch;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64")))]
 mod host_prompt;
 pub mod intent;
 #[cfg(target_os = "linux")]
@@ -23,7 +23,11 @@ mod service_registration;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use prepared::reconcile_startup;
 
-#[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(any(
+    test,
+    target_os = "linux",
+    all(target_os = "macos", target_arch = "aarch64")
+))]
 pub use command::CredentialIntentAction;
 pub use command::CredentialIntentIpc;
 pub use intent::CredentialIntentRegistry;

@@ -142,7 +142,7 @@ impl ClaimedWriterControl {
     /// Authorizes a non-Pair effect without opening or reading a secret source.
     pub fn authorize_without_secret(self) -> Result<AuthorizedWriterControl, CliError> {
         let Self {
-            control,
+            mut control,
             effect_route,
             authorization,
             command,
@@ -153,6 +153,19 @@ impl ClaimedWriterControl {
             service_handoff,
         } = self;
         if pending_pair_secret_opening.is_some() {
+            return Err(CliError::CredentialOperation);
+        }
+        let release = control.read_frame()?;
+        if !matches!(
+            release,
+            CredentialBrokerFrame::NativeEffectRelease {
+                operation_id,
+                attempt,
+                binding: released_binding,
+            } if operation_id == command.operation_id()
+                && attempt == command.ticket_attempt()
+                && released_binding == binding
+        ) {
             return Err(CliError::CredentialOperation);
         }
         let effect_kind = match command_kind {

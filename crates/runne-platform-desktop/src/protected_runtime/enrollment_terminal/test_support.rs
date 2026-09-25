@@ -41,6 +41,8 @@ pub async fn test_only_pair_terminal(
         snapshot,
         relay: Some([7; 388]),
         relay_taken: true,
+        #[cfg(target_os = "linux")]
+        relay_fd_taken: false,
         terminal: false,
     };
     let result = finish(Arc::clone(&supervisor), enrollment, &[7; 388], registration).await;

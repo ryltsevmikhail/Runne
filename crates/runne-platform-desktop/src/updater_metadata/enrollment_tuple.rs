@@ -1,12 +1,12 @@
 #[path = "enrollment_tuple/measurement.rs"]
 mod enrollment_measurement;
 pub use enrollment_measurement::MeasuredNativeEnrollmentArtifactsV1;
-#[path = "enrollment_tuple/paths.rs"]
-mod enrollment_paths;
 #[path = "enrollment_tuple/daemon_paths.rs"]
 mod enrollment_daemon_paths;
 #[path = "enrollment_tuple/desktop_paths.rs"]
 mod enrollment_desktop_paths;
+#[path = "enrollment_tuple/paths.rs"]
+mod enrollment_paths;
 #[expect(
     clippy::redundant_pub_crate,
     reason = "fixed package-layout resolution is the remaining production integration step"
@@ -19,19 +19,23 @@ pub use enrollment_live_daemon::NativeEnrollmentConfirmationV1;
 pub use enrollment_live_daemon::{
     ConfirmedInstalledNativeEnrollment, PreparedInstalledNativeEnrollment,
 };
+#[path = "enrollment_tuple/daemon_installed.rs"]
+mod enrollment_daemon_installed;
+#[path = "enrollment_tuple/desktop_peer_claim.rs"]
+mod enrollment_desktop_peer_claim;
 #[cfg(target_os = "macos")]
 #[path = "enrollment_tuple/live_daemon/credential_service.rs"]
 mod enrollment_live_daemon_credential_service;
-#[path = "enrollment_tuple/desktop_peer_claim.rs"]
-mod enrollment_desktop_peer_claim;
-#[path = "enrollment_tuple/daemon_installed.rs"]
-mod enrollment_daemon_installed;
 pub use enrollment_daemon_installed::VerifiedDaemonNativeEnrollmentPrepare;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use enrollment_daemon_installed::{
-    QualificationAdmissionError, VerifiedInstalledEnrollmentMeasurementFacts,
-    VerifiedInstalledEnrollmentCapability, VerifiedInstalledQualificationBootstrapCandidate,
-    VerifiedRuntimeQualificationAcknowledgement, VerifiedQualificationRunTransport,
+    QualificationAdmissionError, VerifiedInstalledEnrollmentCapability,
+    VerifiedInstalledEnrollmentMeasurementFacts, VerifiedInstalledQualificationBootstrapCandidate,
+    VerifiedQualificationRunTransport, VerifiedRuntimeQualificationAcknowledgement,
+};
+#[cfg(target_os = "linux")]
+pub use enrollment_daemon_installed::{
+    VerifiedInstalledLinuxEnrollmentMeasurementFacts, VerifiedInstalledLinuxWriterCapability,
 };
 #[path = "enrollment_tuple/daemon_peer.rs"]
 mod enrollment_daemon_peer;

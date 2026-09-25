@@ -123,7 +123,7 @@ impl ProtectedBundledRuntimeProcess {
             _ => return Err(ProtectedBundledRuntimeError::InvalidState),
         };
         let mut request_started = false;
-        let result = self.run_enrollment_transition_exchange(claims, &compatibility, &owned, &mut request_started);
+        let result = self.run_enrollment_transition_exchange(claims, &compatibility, &owned, None, &mut request_started);
         if result.is_err() && request_started {
             self.fence_ambiguous_transition();
         }
@@ -136,6 +136,7 @@ impl ProtectedBundledRuntimeProcess {
         claims: &EnrollmentTransitionClaims,
         compatibility: &ProtectedLaunchRequestV1,
         owned: &ProtectedOwnedLaunchV2,
+        resource_directory_hint: Option<&str>,
         request_started: &mut bool,
     ) -> Result<ProtectedBundledRuntimeProfile, ProtectedBundledRuntimeError> {
         let nonce = random_nonce().ok_or_else(|| {
@@ -151,6 +152,12 @@ impl ProtectedBundledRuntimeProcess {
             claims.desktop_supervisor_generation,
         )
         .map_err(launch_error)?;
+        #[cfg(target_os = "linux")]
+        if let Some(hint) = resource_directory_hint {
+            prepare = prepare.with_resource_directory_hint(hint).map_err(launch_error)?;
+        }
+        #[cfg(not(target_os = "linux"))]
+        let _ = resource_directory_hint;
         prepare.sign(&self.keys);
         write_frame(
             &mut self.channel,
@@ -261,12 +268,4 @@ impl ProtectedBundledRuntimeProcess {
     }
 }
 
-/// Unix wall-clock milliseconds: the enrollment TTLs are short (20 s) and the
-/// daemon compares the same wall-clock domain.
-#[cfg(unix)]
-fn unix_wall_millis() -> Result<u64, LaunchAuthorityError> {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
-        .map_err(|_| LaunchAuthorityError::StaleLaunchAuthority)
-}
+include!("enrollment_transition/linux_confirmed.rs");

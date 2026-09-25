@@ -75,7 +75,7 @@ impl CredentialIntentIpc {
             }
     }
 
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64")))]
     pub(crate) fn prompt_request(
         self,
     ) -> Result<runne_platform_desktop::SecureCredentialPromptRequest, ()> {

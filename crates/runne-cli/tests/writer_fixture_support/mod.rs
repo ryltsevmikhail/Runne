@@ -155,7 +155,7 @@ pub(super) fn sign_attestation_for_reader(
         sha2::Sha256::digest(std::fs::read("/proc/self/exe").unwrap()).into()
     };
     let (claims, encoded_frame) =
-        issue_claims_for_reader(writer_start, writer_image, tuple, start, image);
+        issue_claims_for_reader(writer_start, writer_image, tuple, start, image, 1);
     if !qualified {
         let (attestation, _) = signer.sign(claims).unwrap();
         return (
@@ -173,6 +173,10 @@ pub(super) fn sign_attestation_for_reader(
 }
 
 pub(super) fn pair_command() -> CredentialBrokerCommand {
+    pair_command_at_version(1)
+}
+
+pub(super) fn pair_command_at_version(version: u64) -> CredentialBrokerCommand {
     let provider = ProviderId::new("openai").unwrap();
     let operation_id = CredentialOperationId::from_bytes([31; 16]).unwrap();
     let attempt = CredentialTicketAttempt::new(1).unwrap();
@@ -181,7 +185,7 @@ pub(super) fn pair_command() -> CredentialBrokerCommand {
         attempt,
         provider.clone(),
         CredentialOperationAction::Pair,
-        CredentialBrokerTarget::Version(CredentialVersionRef::new(provider, 1).unwrap()),
+        CredentialBrokerTarget::Version(CredentialVersionRef::new(provider, version).unwrap()),
         CredentialLifecycleRevision::new(1).unwrap(),
         CredentialFence::new(1).unwrap(),
         None,
@@ -194,12 +198,22 @@ pub(super) fn issue_claims(
     writer_image: [u8; 32],
     tuple: [u8; 32],
 ) -> (CredentialWriterSessionAttestationClaimsV1, Vec<u8>) {
+    issue_claims_at_version(writer_start, writer_image, tuple, 1)
+}
+
+pub(super) fn issue_claims_at_version(
+    writer_start: [u8; 32],
+    writer_image: [u8; 32],
+    tuple: [u8; 32],
+    version: u64,
+) -> (CredentialWriterSessionAttestationClaimsV1, Vec<u8>) {
     issue_claims_for_reader(
         writer_start,
         writer_image,
         tuple,
         oracle_start_identity(std::process::id()),
         sha2::Sha256::digest(std::fs::read("/proc/self/exe").unwrap()).into(),
+        version,
     )
 }
 
@@ -209,8 +223,9 @@ fn issue_claims_for_reader(
     tuple: [u8; 32],
     daemon_start: [u8; 32],
     daemon_image: [u8; 32],
+    version: u64,
 ) -> (CredentialWriterSessionAttestationClaimsV1, Vec<u8>) {
-    let command = pair_command();
+    let command = pair_command_at_version(version);
     let operation_id = command.operation_id();
     let attempt = command.ticket_attempt();
     let frame = CredentialBrokerFrame::IssueTicket {

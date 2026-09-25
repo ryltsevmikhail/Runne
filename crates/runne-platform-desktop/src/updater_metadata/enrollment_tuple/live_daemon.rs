@@ -1,7 +1,14 @@
-#![cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
+#![cfg_attr(
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    allow(dead_code)
+)]
 use std::fmt;
+#[path = "live_daemon/retained_live_daemon.rs"]
+mod retained_live_daemon;
 #[path = "live_daemon/v3_confirmation.rs"]
 mod v3_confirmation;
+#[cfg(target_os = "macos")]
+pub(super) use retained_live_daemon::verify_macos_daemon;
 
 #[cfg(target_os = "macos")]
 use std::{
@@ -13,15 +20,17 @@ use std::{
 };
 
 #[cfg(target_os = "macos")]
-use security_framework::os::macos::code_signing::{Flags, GuestAttributes, SecCode, SecRequirement};
+use security_framework::os::macos::code_signing::{
+    Flags, GuestAttributes, SecCode, SecRequirement,
+};
 #[cfg(target_os = "macos")]
 use sha2::{Digest as _, Sha256};
 
 use crate::ProtectedBundledRuntimeError;
 
-use super::{NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleAdmission};
 #[cfg(target_os = "macos")]
 use super::macos_identity;
+use super::{NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleAdmission};
 
 /// Opaque fixed-layout admission retained while the native confirmation is open.
 ///
@@ -106,8 +115,10 @@ impl PreparedInstalledNativeEnrollment {
         let desktop = admission
             .macos_desktop_code_identity
             .as_ref()
-            .filter(|desktop| admission.macos_writer_code_identity.as_ref() != Some(*desktop)
-                && admission.macos_daemon_code_identity.as_ref() != Some(*desktop))
+            .filter(|desktop| {
+                admission.macos_writer_code_identity.as_ref() != Some(*desktop)
+                    && admission.macos_daemon_code_identity.as_ref() != Some(*desktop)
+            })
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
         let daemon = admission
             .macos_daemon_code_identity
@@ -166,6 +177,61 @@ impl PreparedInstalledNativeEnrollment {
         })
     }
 
+    #[cfg(target_os = "linux")]
+    pub(crate) fn confirm_linux(
+        self,
+        launch_authority: [u8; 16],
+        desktop_host: [u8; 16],
+        session: [u8; 16],
+        daemon: [u8; 16],
+        generation: u64,
+        process_start: [u8; 32],
+    ) -> Result<ConfirmedInstalledNativeEnrollment, ProtectedBundledRuntimeError> {
+        if launch_authority == [0; 16]
+            || desktop_host == [0; 16]
+            || session == [0; 16]
+            || daemon == [0; 16]
+            || generation == 0
+            || process_start == [0; 32]
+        {
+            return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
+        }
+        let admission = self.admission.ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let paths = self.paths.ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        Ok(ConfirmedInstalledNativeEnrollment {
+            evidence: ProtectedDaemonTupleEvidence {
+                release_tuple: admission.release_tuple_sha256,
+                launch_authority,
+                desktop_host,
+                session,
+                daemon,
+                generation,
+                process_start,
+            },
+            admission,
+            paths: Some(paths),
+        })
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn confirm_linux_daemon_image(
+        &self,
+        pid: u32,
+        start_ticks: u64,
+    ) -> Result<(), ProtectedBundledRuntimeError> {
+        let admission = self.admission.as_ref()
+            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let paths = self.paths.as_ref()
+            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        paths.confirm_daemon_process(pid, start_ticks)
+            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let measured = paths.daemon_file.measure()
+            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        (hex::decode(measured).ok().as_deref() == Some(&admission.daemon_sha256))
+            .then_some(())
+            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)
+    }
+
     pub(crate) fn matches_protected_daemon_digest(&self, digest: [u8; 32]) -> bool {
         self.admission
             .as_ref()
@@ -174,12 +240,18 @@ impl PreparedInstalledNativeEnrollment {
 }
 
 impl ConfirmedInstalledNativeEnrollment {
+    pub(crate) const fn installed_generation(&self) -> u64 {
+        self.admission.installed_generation
+    }
+
     pub(crate) fn matches_admission(&self, admission: &NativeEnrollmentTupleAdmission) -> bool {
         self.admission == *admission
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub(crate) const fn test_only_from_admission(admission: NativeEnrollmentTupleAdmission) -> Self {
+    pub(crate) const fn test_only_from_admission(
+        admission: NativeEnrollmentTupleAdmission,
+    ) -> Self {
         Self {
             evidence: ProtectedDaemonTupleEvidence {
                 release_tuple: admission.release_tuple_sha256,
@@ -193,93 +265,6 @@ impl ConfirmedInstalledNativeEnrollment {
             admission,
             paths: None,
         }
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn verify_macos_daemon(
-    pid: NonZeroU32,
-    expected_digest: [u8; 32],
-    identity: &macos_identity::MacOsCodeIdentityV1,
-) -> Result<(), ProtectedBundledRuntimeError> {
-    let mut attributes = GuestAttributes::new();
-    attributes.set_pid(pid.get().cast_signed());
-    let code = SecCode::copy_guest_with_attribues(None, &attributes, Flags::NONE)
-        .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-    let requirement = SecRequirement::from_str(&identity.requirement())
-        .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-    code.check_validity(Flags::STRICT_VALIDATE | Flags::NO_NETWORK_ACCESS, &requirement)
-        .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-    let live_path = code
-        .path(Flags::NONE)
-        .ok()
-        .and_then(|path| path.to_path())
-        .and_then(|path| std::fs::canonicalize(path).ok())
-        .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
-    let live = RetainedLiveDaemon::open(&live_path, expected_digest)?;
-    if !runne_macos_process_identity::MacOsProcessExecutableIdentity::observe(pid, &live_path)
-        .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?
-        .matches_file(&live.metadata)
-        || !live.matches_current()? {
-        return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
-    }
-    Ok(())
-}
-
-#[cfg(target_os = "macos")]
-struct RetainedLiveDaemon {
-    file: File,
-    metadata: std::fs::Metadata,
-    path: std::path::PathBuf,
-    digest: [u8; 32],
-}
-
-#[cfg(target_os = "macos")]
-impl RetainedLiveDaemon {
-    fn open(path: &Path, expected_digest: [u8; 32]) -> Result<Self, ProtectedBundledRuntimeError> {
-        let before = std::fs::symlink_metadata(path)
-            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        if !before.file_type().is_file() || before.file_type().is_symlink() || before.nlink() != 1 {
-            return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
-        }
-        let file = File::open(path).map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        let metadata = file.metadata().map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        let after = std::fs::symlink_metadata(path)
-            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        if metadata.dev() != before.dev() || metadata.ino() != before.ino()
-            || metadata.nlink() != 1 || after.dev() != metadata.dev() || after.ino() != metadata.ino()
-        {
-            return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
-        }
-        let digest = hash_open_file(&file)?;
-        (digest == expected_digest).then_some(Self {
-            file,
-            metadata,
-            path: path.to_owned(),
-            digest,
-        }).ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)
-    }
-
-    fn matches_current(&self) -> Result<bool, ProtectedBundledRuntimeError> {
-        let current = std::fs::symlink_metadata(&self.path)
-            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        Ok(current.file_type().is_file() && !current.file_type().is_symlink()
-            && current.dev() == self.metadata.dev() && current.ino() == self.metadata.ino()
-            && current.nlink() == 1 && hash_open_file(&self.file)? == self.digest)
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn hash_open_file(file: &File) -> Result<[u8; 32], ProtectedBundledRuntimeError> {
-    let mut hasher = Sha256::new();
-    let mut offset = 0_u64;
-    let mut chunk = [0_u8; 16 * 1024];
-    loop {
-        let read = file.read_at(&mut chunk, offset).map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        if read == 0 { return Ok(hasher.finalize().into()); }
-        hasher.update(&chunk[..read]);
-        offset = offset.checked_add(u64::try_from(read).map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?)
-            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
     }
 }
 

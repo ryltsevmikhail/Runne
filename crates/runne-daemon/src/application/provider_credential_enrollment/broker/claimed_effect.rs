@@ -5,7 +5,8 @@
             target_os = "macos",
             target_arch = "aarch64",
             feature = "desktop-protected"
-        )
+        ),
+        all(target_os = "linux", feature = "desktop-protected")
     )),
     expect(
         dead_code,
@@ -33,9 +34,13 @@ pub(in crate::application::provider_credential_enrollment) struct ClaimedBrokerE
 impl ClaimedBrokerEffect {
     #[cfg(all(
         feature = "desktop-protected",
-        any(test, all(target_os = "macos", target_arch = "aarch64"))
+        any(
+            test,
+            all(target_os = "macos", target_arch = "aarch64"),
+            target_os = "linux"
+        )
     ))]
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(any(all(target_os = "macos", target_arch = "aarch64"), target_os = "linux"))]
     pub(crate) const fn operation_id(&self) -> CredentialOperationId {
         self.operation_id
     }

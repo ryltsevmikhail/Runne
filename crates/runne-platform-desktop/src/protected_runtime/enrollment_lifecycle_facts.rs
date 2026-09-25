@@ -1,6 +1,8 @@
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use runne_api::VerifyProviderCredential;
 use runne_api::{
     ApiActor, ApiPrincipalId, BeginProviderCredentialEnrollment, ProviderCredentialCommandContext,
-    VerifyProviderCredential, protected_credential_broker_evidence_binding,
+    protected_credential_broker_evidence_binding,
 };
 
 use super::{EnrollmentBrokerFacts, ProtectedBundledRuntimeError};
@@ -19,6 +21,7 @@ pub(super) fn command_context(
     .ok_or(ProtectedBundledRuntimeError::InvalidState)
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(super) fn verification_command_context(
     command: &VerifyProviderCredential,
 ) -> Result<ProviderCredentialCommandContext, ProtectedBundledRuntimeError> {

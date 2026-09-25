@@ -6,6 +6,9 @@ use std::io::Write as _;
 use std::os::fd::OwnedFd;
 
 #[cfg(target_os = "linux")]
+#[path = "linux_secret_relay_offer.rs"]
+mod linux_relay_offer;
+#[cfg(target_os = "linux")]
 #[path = "linux_secret_pipe_write.rs"]
 mod linux_write;
 
@@ -111,6 +114,44 @@ impl MacOsAuthenticatedPairSecretRelay {
     ) -> Result<(), BrokerHandoffError> {
         let envelope = self.sealer.seal_native_oauth(frame, credential)?;
         self.writer.write_encoded(&envelope)
+    }
+
+    /// Transfers the one-shot writer FD and sealer context after the caller
+    /// has validated `lifecycle_frame` in the protected V3 session.
+    ///
+    /// # Errors
+    /// Returns an error if the authenticated offer cannot be sent or validated.
+    #[cfg(target_os = "linux")]
+    pub fn offer_linux_over_protected_stream(
+        self,
+        stream: &std::os::unix::net::UnixStream,
+        authenticator: &runne_api::LinuxPairSecretRelayOfferAuthenticator,
+        lifecycle_frame: &[u8],
+    ) -> Result<(), BrokerHandoffError> {
+        linux_relay_offer::send(self, stream, authenticator, lifecycle_frame)
+    }
+
+    /// Receives the one-shot daemon-owned writer FD after validating the
+    /// lifecycle frame in the protected V3 session.
+    ///
+    /// # Errors
+    /// Returns an error if the offer, writer descriptor, or authenticated
+    /// context is invalid.
+    #[cfg(target_os = "linux")]
+    pub fn receive_linux_over_protected_stream(
+        stream: &std::os::unix::net::UnixStream,
+        authenticator: &runne_api::LinuxPairSecretRelayOfferAuthenticator,
+        lifecycle_frame: &[u8],
+        expected_channel_binding: &[u8; 32],
+        expected_publication_key: &[u8; 32],
+    ) -> Result<Self, BrokerHandoffError> {
+        linux_relay_offer::receive(
+            stream,
+            authenticator,
+            lifecycle_frame,
+            expected_channel_binding,
+            expected_publication_key,
+        )
     }
 }
 

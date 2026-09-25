@@ -2,11 +2,8 @@
     not(all(target_os = "macos", target_arch = "aarch64")),
     allow(dead_code, unused_imports)
 )]
-//! Trusted native dispatch chain for one focused credential intent.
-//!
-//! The renderer only ever sees the closed [`CredentialIntentProjection`]. The
-//! secret material, the retained installed admission, the runtime lease, and
-//! the daemon dispatch stay on this side of the boundary and fail closed.
+//! Trusted native dispatch chain for one focused credential intent; secret
+//! material and retained admission stay outside the renderer boundary.
 
 use crate::RuntimeLifecycleManager;
 use crate::provider_credential_enrollment::{CredentialIntentProjection, CredentialIntentRegistry};
@@ -16,6 +13,9 @@ use runne_platform_desktop::SecureCredentialPromptDisposition;
 use tauri::{AppHandle, Manager as _, WebviewWindow};
 
 use super::CredentialIntentIpc;
+#[cfg(target_os = "linux")]
+#[path = "dispatch/linux.rs"]
+pub(super) mod linux;
 #[path = "dispatch/post_fence.rs"]
 pub(super) mod post_fence;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -31,11 +31,7 @@ const NATIVE_PROMPT_TIMEOUT: std::time::Duration = std::time::Duration::from_sec
 
 type DispatchError = &'static str;
 
-/// Runs the full trusted chain: leases, native prompt, exact daemon
-/// confirmation, V3 transition with writer handoff, then the native-only
-/// exchange retention. Every failure is a closed, renderer-actionable code.
-///
-/// The operation and updater fences are deliberately held for the whole flow.
+/// Runs the trusted chain while retaining operation and updater fences.
 pub async fn dispatch_credential_intent(
     app: &AppHandle,
     window: WebviewWindow,
@@ -258,7 +254,19 @@ async fn dispatch_enrollment_inner(
     Ok(CredentialIntentProjection::Completed)
 }
 
-#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(target_os = "linux")]
+async fn dispatch_inner(
+    app: &AppHandle,
+    window: WebviewWindow,
+    lifecycle: &RuntimeLifecycleManager,
+    updater: &UpdateStatusStore,
+    intents: &CredentialIntentRegistry,
+    request: CredentialIntentIpc,
+) -> Result<CredentialIntentProjection, DispatchFailure> {
+    linux::dispatch_inner(app, window, lifecycle, updater, intents, request).await
+}
+
+#[cfg(not(any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64"))))]
 #[allow(clippy::unused_async)]
 async fn dispatch_inner(
     _app: &AppHandle,

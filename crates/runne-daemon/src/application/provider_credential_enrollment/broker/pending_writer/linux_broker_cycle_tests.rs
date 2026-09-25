@@ -21,7 +21,7 @@ struct Channel(Option<LinuxCredentialBrokerChannel>);
 impl Drop for Channel {
     fn drop(&mut self) {
         if let Some(channel) = self.0.take() {
-            channel.terminate_exact_writer();
+            let _ = channel.terminate_exact_writer();
         }
     }
 }
@@ -233,6 +233,10 @@ fn cycle(shared: bool) {
 #[path = "linux_broker_cycle_support.rs"]
 mod support;
 use support::*;
+
+#[cfg(target_os = "linux")]
+#[path = "linux_broker_cycle_revocation.rs"]
+mod revocation;
 
 #[path = "linux_broker_cycle_completion.rs"]
 mod completion;

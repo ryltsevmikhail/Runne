@@ -21,11 +21,50 @@ use super::linux_provider_source::{
     CountingFakeSource, LinuxProviderSourceOps, ScopedTestSource, delete_provider_entry,
     install_test_source, is_provider_entry, read_provider_entry, write_provider_entry,
 };
+use super::linux_secret_service::{
+    KernelKeyutilsCache, LibdbusSecretServiceBus, LinuxComboPersistentStore, ProcProcessFacts,
+    derived_session_bus_address,
+};
 use crate::SecureStoreError;
 
 const PROVIDER_SERVICE: &str = crate::PROVIDER_CREDENTIAL_SERVICE;
 const VERSION_SERVICE: &str = "dev.runne.provider-credential.v1.version.1.ab";
 const OTHER_SERVICE: &str = "dev.runne.security-anchor.v1";
+
+#[test]
+#[ignore = "requires a live, unlocked Linux Secret Service and keyutils session"]
+fn production_secret_service_initialization_and_native_version_probe() {
+    assert_eq!(
+        std::env::var_os("RUNNE_NATIVE_SECRET_SERVICE_DIAGNOSTIC").as_deref(),
+        Some("1".as_ref())
+    );
+    let bus_address = format!("unix:path={}", derived_session_bus_address());
+    let bus = LibdbusSecretServiceBus::connect(&bus_address)
+        .unwrap_or_else(|error| panic!("typed bus-connect failure: {error:?}"));
+    let cache = KernelKeyutilsCache::attach()
+        .unwrap_or_else(|error| panic!("typed keyutils-attach failure: {error:?}"));
+    let mut combo = LinuxComboPersistentStore::new(bus, ProcProcessFacts, cache)
+        .unwrap_or_else(|error| panic!("typed Secret-Service owner-bind failure: {error:?}"));
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let identity = super::linux_secret_service::EntryIdentity::new(
+        format!("{PROVIDER_SERVICE}.diagnostic.{nonce:x}"),
+        "openai",
+    );
+    let secret = Zeroizing::new(format!("disposable-{nonce:x}").into_bytes());
+    let write = combo.write_persisted_ss_verified(&identity, &secret);
+    if let Err(error) = write {
+        let _ = combo.revoke_dual_half(&identity);
+        panic!("typed native-write failure: {error:?}");
+    }
+    let read = combo.read_dispatch(&identity);
+    let cleanup = combo.revoke_dual_half(&identity);
+    let read_matches = matches!(&read, Ok(Some(bytes)) if **bytes == *secret);
+    assert!(read_matches, "native exact readback failed: {read:?}");
+    assert!(cleanup.is_ok(), "dual-half cleanup failed: {cleanup:?}");
+}
 
 fn install(locked: bool, fail_delete: bool) -> ScopedTestSource {
     let mut fake = CountingFakeSource::unlocked();

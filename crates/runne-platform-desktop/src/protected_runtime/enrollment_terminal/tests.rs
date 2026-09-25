@@ -57,6 +57,8 @@ async fn terminal_rejoin(pair: bool) {
             snapshot: snapshot(State::Prepared, pair),
             relay: pair.then_some([7; 388]),
             relay_taken: pair,
+            #[cfg(target_os = "linux")]
+            relay_fd_taken: false,
             terminal: false,
         };
         let daemon = std::thread::spawn(move || {

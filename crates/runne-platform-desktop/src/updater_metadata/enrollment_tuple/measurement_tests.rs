@@ -62,7 +62,11 @@ fn identity_mismatch_is_detected() {
     let opened = OpenedNativeEnrollmentFile::new(open_regular_file(&first).unwrap()).unwrap();
     let reopened = OpenedNativeEnrollmentFile::new(open_regular_file(&first).unwrap()).unwrap();
     assert!(opened.matches_opened(&reopened).unwrap());
-    assert!(!opened.matches_file(&open_regular_file(&second).unwrap()).unwrap());
+    assert!(
+        !opened
+            .matches_file(&open_regular_file(&second).unwrap())
+            .unwrap()
+    );
 }
 
 #[cfg(windows)]
@@ -74,7 +78,11 @@ fn replacement_at_same_path_is_detected() {
     let opened = OpenedNativeEnrollmentFile::new(open_regular_file(&path).unwrap()).unwrap();
     std::fs::remove_file(&path).unwrap();
     std::fs::write(&path, b"replacement").unwrap();
-    assert!(!opened.matches_file(&open_regular_file(&path).unwrap()).unwrap());
+    assert!(
+        !opened
+            .matches_file(&open_regular_file(&path).unwrap())
+            .unwrap()
+    );
 }
 
 #[cfg(windows)]

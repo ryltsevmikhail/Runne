@@ -29,7 +29,7 @@ fn pair_effect_invokes_sealed_writer_and_observes_its_result() {
 
         assert_eq!(execute_pair_effect(fixture.authority).is_ok(), succeeds);
         assert_eq!(*fixture.calls.lock().expect("calls"), vec![EffectCall::Create]);
-        assert_frames(&fixture.written, true);
+        assert_frames(&fixture.written, succeeds);
     }
 }
 
@@ -74,7 +74,7 @@ fn non_pair_effects_dispatch_exact_writer_input_and_observe_native_result() {
 
         assert_eq!(execute_non_pair_effect(authority).is_ok(), succeeds);
         assert_eq!(*fixture.calls.lock().expect("calls"), vec![expected]);
-        assert_frames(&fixture.written, true);
+        assert_frames(&fixture.written, succeeds);
     }
 }
 

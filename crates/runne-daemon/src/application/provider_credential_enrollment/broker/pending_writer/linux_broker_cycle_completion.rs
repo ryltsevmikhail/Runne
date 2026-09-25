@@ -60,7 +60,7 @@ pub(super) fn assert_daemon_presence_completes(
         "broker.sqlite",
     );
     let _ = gateway;
-    let _ = fixture.store;
+    drop(fixture.store);
     let reopened =
         runne_store::provider::SqliteProviderCredentialLifecycleStore::open(&path).unwrap();
     let persisted = reopened.load_operation(operation.operation_id()).unwrap();

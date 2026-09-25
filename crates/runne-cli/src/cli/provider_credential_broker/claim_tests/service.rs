@@ -1,13 +1,11 @@
 use runne_provider::{
-    ClaimedWriterAuthorization,
-    CredentialBindingDigest, CredentialMutationGrant, CredentialRuntimeMutationPlan,
-    CredentialServiceCorrelation, CredentialServiceDeadline, CredentialServiceEpoch,
-    CredentialServiceProtocolCodec, CredentialServiceRequestSequence,
+    ClaimedWriterAuthorization, CredentialBindingDigest, CredentialMutationGrant,
+    CredentialRuntimeMutationPlan, CredentialServiceCorrelation, CredentialServiceDeadline,
+    CredentialServiceEpoch, CredentialServiceProtocolCodec, CredentialServiceRequestSequence,
     CredentialWriterAuthorityPair,
 };
 use runne_secure_store::{
-    BrokeredLegacySourceDeleteInput,
-    BrokeredProviderCredentialLegacySource, SecureStoreError,
+    BrokeredLegacySourceDeleteInput, BrokeredProviderCredentialLegacySource, SecureStoreError,
 };
 use std::sync::{
     Arc,
@@ -111,10 +109,8 @@ fn v3_legacy_cleanup_executes_only_the_narrow_legacy_delete() {
     )
     .unwrap();
 
-    super::super::effect::execute_non_pair_effect(
-        claimed.authorize_without_secret().unwrap(),
-    )
-    .unwrap();
+    super::super::effect::execute_non_pair_effect(claimed.authorize_without_secret().unwrap())
+        .unwrap();
 
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }

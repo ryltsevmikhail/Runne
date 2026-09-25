@@ -24,13 +24,7 @@ pub(crate) struct PendingBrokerEndpointHandoff {
     // unfulfilled and break `-D warnings`.
     #[cfg_attr(test, allow(dead_code))]
     pub(super) authority_witness: ProviderCredentialBrokerHandoffWitness,
-    #[cfg_attr(
-        all(test, not(all(target_os = "macos", target_arch = "aarch64"))),
-        expect(
-            dead_code,
-            reason = "portable recovery tests retain transfer authority for native handoff"
-        )
-    )]
+    #[cfg_attr(test, allow(dead_code))]
     pub(super) broker_transfer: Option<ProviderCredentialBrokerTransferAuthority>,
     pub(super) rendezvous: DaemonOwnedUnixBrokerRendezvous,
 }
@@ -114,6 +108,33 @@ impl PendingBrokerEndpointHandoff {
             self.rendezvous.channel_binding(),
             self.rendezvous.publication_public_key(),
         )
+    }
+
+    /// Splits the daemon-owned rendezvous for a daemon-launched Linux writer.
+    /// The transfer authority is checked against the consumed Begin witness
+    /// before any endpoint or signing authority is moved.
+    #[cfg(target_os = "linux")]
+    pub(in crate::application::provider_credential_enrollment::broker) fn into_linux_writer_parts(
+        self,
+    ) -> Result<
+        (
+            PendingBrokerRendezvousBinding,
+            super::super::rendezvous::DaemonBrokerAuthority,
+            std::os::unix::net::UnixStream,
+            ProviderCredentialBrokerTransferAuthority,
+        ),
+        ProviderCredentialEnrollmentHostError,
+    > {
+        let transfer = self
+            .broker_transfer
+            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        if !transfer.matches_handoff(&self.authority_witness, &self.binding.protected_session) {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        let mut rendezvous = self.rendezvous;
+        let authority = rendezvous.take_daemon_authority()?;
+        let writer_endpoint = rendezvous.take_writer_endpoint()?;
+        Ok((self.binding, authority, writer_endpoint, transfer))
     }
 
     #[cfg(test)]

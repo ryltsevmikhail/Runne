@@ -6,10 +6,9 @@ use runne_provider::{
     CredentialBrokerFrame, CredentialBrokerFrameCodec, CredentialBrokerTarget,
     CredentialEnrollmentAuthorityPair, CredentialFence, CredentialLifecycleRevision,
     CredentialOperationAction, CredentialOperationId, CredentialSecretInputPresence,
-    CredentialTicketAttempt, PendingCredentialIssueTicketV1,
-    CredentialVersionRef, CredentialWriterAuthorityPair, NativeCredentialDeletionProof, ProviderId,
-    RawCredentialTicket, PendingCredentialSecretOpening, SealedCredentialEnvelope,
-    WriterIdentityMigrationPhase,
+    CredentialTicketAttempt, CredentialVersionRef, CredentialWriterAuthorityPair,
+    NativeCredentialDeletionProof, PendingCredentialIssueTicketV1, PendingCredentialSecretOpening,
+    ProviderId, RawCredentialTicket, SealedCredentialEnvelope, WriterIdentityMigrationPhase,
 };
 use runne_secure_store::{
     BrokeredCreateInput, BrokeredDeleteInput, BrokeredLegacySourceDeleteInput,
@@ -19,17 +18,17 @@ use runne_secure_store::{
 };
 
 use super::claim::{ClaimedWriterControl, claim_writer_authorization_with_legacy_parts};
-
 #[path = "effect_test_support/pair.rs"]
 mod pair;
+#[path = "effect_test_support/release.rs"]
+mod release;
 pub use pair::{
     pair_authorized, pair_authorized_with_diagnostic_failure, pair_claimed,
-    pair_claimed_with_release,
+    pair_claimed_successfully, pair_claimed_with_release,
 };
 #[path = "effect_test_support/canary.rs"]
 mod canary;
 pub use canary::panicking_pair_claimed_with_ticket;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EffectCall {
     Create,
@@ -109,7 +108,8 @@ pub fn assert_frames(written: &Arc<Mutex<Vec<u8>>>, native_observed: bool) {
     } else {
         assert!(next.is_none());
     }
-    assert_eq!(cursor.position(), u64::try_from(cursor.get_ref().len()).expect("length"));
+    let length: u64 = cursor.get_ref().len().try_into().unwrap();
+    assert_eq!(cursor.position(), length);
 }
 
 fn endpoint(
@@ -146,13 +146,13 @@ fn endpoint(
         },
     )
     .expect("ack");
+    release::append_non_pair(&mut input, command);
     let (_, measurements) = CredentialEnrollmentAuthorityPair::new().split();
-    let channel = measurements.broker_channel_binding([11; 32]).expect("channel");
+    let channel = measurements.broker_channel_binding([11; 32]).unwrap();
     let written = Arc::new(Mutex::new(Vec::new()));
     let control = TestControl::new(input, written.clone(), fail_after_claim);
     (control, channel, ticket, written)
 }
-
 use super::legacy_cleanup_test_support as legacy;
 pub fn command(action: CredentialOperationAction) -> CredentialBrokerCommand {
     let provider = ProviderId::new("openai").expect("provider");

@@ -4,20 +4,20 @@ use std::sync::{Arc, Mutex};
 use runne_provider::{
     CredentialBindingDigest, CredentialBrokerCommand, CredentialBrokerFrame,
     CredentialBrokerFrameCodec, CredentialBrokerTarget, CredentialEnrollmentAuthorityPair,
-    CredentialFence, CredentialLifecycleRevision, CredentialOperationAction,
-    CredentialOperationId, CredentialSecretInputPresence, CredentialTicketAttempt,
-    CredentialVersionRef, PendingCredentialIssueTicketV1, ProviderId, RawCredentialTicket,
+    CredentialFence, CredentialLifecycleRevision, CredentialOperationAction, CredentialOperationId,
+    CredentialSecretInputPresence, CredentialTicketAttempt, CredentialVersionRef,
+    PendingCredentialIssueTicketV1, ProviderId, RawCredentialTicket,
 };
 use runne_secure_store::{NativeProviderCredentialWriters, ProviderCredentialAccessPolicy};
 
-use super::claim::{
-    claim_writer_authorization_with_legacy_parts,
-};
 #[cfg(target_os = "macos")]
 use super::claim::claim_writer_authorization;
+use super::claim::claim_writer_authorization_with_legacy_parts;
 
 #[path = "claim_tests/presence.rs"]
 mod presence;
+#[path = "claim_tests/release.rs"]
+mod release;
 #[path = "claim_tests/secret_path.rs"]
 mod secret_path;
 #[cfg(target_os = "macos")]
@@ -30,8 +30,7 @@ fn production_claim_accepts_only_the_native_authenticated_bundle() {
     let claim: fn(
         NativeProviderCredentialWriters,
         CredentialSecretInputPresence,
-    ) -> Result<super::claim::ClaimedWriterControl, super::CliError> =
-        claim_writer_authorization;
+    ) -> Result<super::claim::ClaimedWriterControl, super::CliError> = claim_writer_authorization;
     let _ = claim;
 }
 
@@ -108,28 +107,6 @@ fn pair_claim_sends_one_ticket_and_returns_post_ack_authorization() {
         "control closes with authority"
     );
     assert_one_claim(&written, true);
-}
-
-#[test]
-fn non_pair_claim_never_creates_a_secret_offer_or_pending_opening() {
-    let command = command(7, CredentialOperationAction::Revoke);
-    let (endpoint, written) = endpoint(
-        issue(command.clone(), binding(), [11; 32]),
-        Some(accepted(&command)),
-    );
-
-    let claimed = claim_for_test(endpoint, CredentialSecretInputPresence::Absent)
-        .expect("exact acknowledgement");
-    let authorized = claimed.authorize_without_secret().expect("non-pair effect");
-    assert_eq!(authorized.command_for_test(), &command);
-    assert_eq!(Arc::strong_count(&written), 2, "control remains retained");
-    drop(authorized);
-    assert_eq!(
-        Arc::strong_count(&written),
-        1,
-        "control closes with authority"
-    );
-    assert_one_claim(&written, false);
 }
 
 fn endpoint(

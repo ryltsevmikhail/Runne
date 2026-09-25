@@ -81,6 +81,44 @@ impl NativeRootAdmissionLifecycle for BundledRuntimeController {
         })
     }
 
+    #[cfg(target_os = "linux")]
+    fn acquire_credential_enrollment_lease(
+        &self,
+    ) -> crate::bundled_runtime::CredentialEnrollmentFuture {
+        let core = Arc::clone(&self.core);
+        let supervisor = Arc::clone(&self.supervisor);
+        let writer_reapers = Arc::clone(&self.writer_reapers);
+        let active_signed_linux_v3 = Arc::clone(&self.active_signed_linux_v3);
+        let fence = Arc::clone(&self.operation_fence);
+        let supervisor_for_check = Arc::clone(&supervisor);
+        Box::pin(async move {
+            let operation_permit = acquire_fenced_linux_enrollment_permit(&fence, || {
+                writer_reapers.accepts_writer()
+            })
+            .await?;
+            let usable = tauri::async_runtime::spawn_blocking(move || {
+                supervisor_for_check.lock().is_ok_and(|value| {
+                    !matches!(
+                        value.state(),
+                        runne_platform_desktop::BundledRuntimeLifecycleState::Stopped
+                            | runne_platform_desktop::BundledRuntimeLifecycleState::FailedStart
+                    )
+                })
+            })
+            .await
+            .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+            usable
+                .then_some(crate::bundled_runtime::NativeCredentialEnrollmentLease {
+                    core,
+                    supervisor,
+                    writer_reapers,
+                    active_signed_linux_v3,
+                    operation_permit,
+                })
+                .ok_or(AppCoreError::RuntimeUnavailable)
+        })
+    }
+
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     fn acquire_credential_enrollment_lease(&self) -> crate::bundled_runtime::CredentialEnrollmentFuture {
         let core = Arc::clone(&self.core);
@@ -100,6 +138,20 @@ impl NativeRootAdmissionLifecycle for BundledRuntimeController {
             })
         })
     }
+}
+
+#[cfg(target_os = "linux")]
+async fn acquire_fenced_linux_enrollment_permit(
+    fence: &RuntimeOperationFence,
+    accepts_writer: impl FnOnce() -> bool,
+) -> Result<tokio::sync::OwnedMutexGuard<()>, AppCoreError> {
+    let permit = fence
+        .enter()
+        .await
+        .ok_or(AppCoreError::RuntimeUnavailable)?;
+    accepts_writer()
+        .then_some(permit)
+        .ok_or(AppCoreError::RuntimeUnavailable)
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

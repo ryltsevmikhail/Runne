@@ -1,6 +1,8 @@
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use runne_api::VerifyProviderCredential;
 use runne_api::{
     BeginProviderCredentialEnrollment, ProtectedCredentialEnrollmentLifecycleCodec,
-    ProviderCredentialOperationSnapshotV2, VerifyProviderCredential,
+    ProviderCredentialOperationSnapshotV2,
 };
 
 use super::ProtectedBundledRuntimeError;
@@ -30,11 +32,13 @@ impl NativeProtectedCredentialEnrollmentBegin {
 }
 
 /// Native-only metadata for one explicit remote quota verification.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub struct NativeProtectedCredentialVerificationBegin {
     pub(super) command: VerifyProviderCredential,
     pub(super) native_confirmation: [u8; 32],
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 impl NativeProtectedCredentialVerificationBegin {
     /// # Errors
     ///
@@ -59,15 +63,19 @@ pub struct PreparedProtectedCredentialEnrollment {
     pub(super) snapshot: ProviderCredentialOperationSnapshotV2,
     pub(super) relay: Option<[u8; runne_api::PROTECTED_CREDENTIAL_SECRET_RELAY_BYTES]>,
     pub(super) relay_taken: bool,
+    #[cfg(target_os = "linux")]
+    pub(super) relay_fd_taken: bool,
     pub(super) terminal: bool,
 }
 
 /// Move-only control authority retained until remote verification terminal evidence.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub struct PreparedProtectedCredentialVerification {
     pub(super) snapshot: ProviderCredentialOperationSnapshotV2,
     pub(super) terminal: bool,
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 impl PreparedProtectedCredentialVerification {
     #[must_use]
     pub const fn snapshot(&self) -> &ProviderCredentialOperationSnapshotV2 {

@@ -15,9 +15,7 @@ use runne_secure_store::{
     SecureStoreError, WriterIdentityMigrationObservation,
 };
 
-use super::super::claim::{
-    ClaimedWriterControl, claim_writer_authorization_with_legacy_parts,
-};
+use super::super::claim::{ClaimedWriterControl, claim_writer_authorization_with_legacy_parts};
 use super::{TestControl, command};
 
 pub struct PanickingPairClaimFixture {
@@ -72,7 +70,9 @@ pub fn panicking_pair_claimed_with_ticket(
         .expect("release");
     }
     let (_, measurements) = CredentialEnrollmentAuthorityPair::new().split();
-    let channel = measurements.broker_channel_binding([11; 32]).expect("channel");
+    let channel = measurements
+        .broker_channel_binding([11; 32])
+        .expect("channel");
     let written = Arc::new(Mutex::new(Vec::new()));
     let writer: Arc<dyn BrokeredProviderCredentialWriter> = Arc::new(PanickingWriter);
     let (issuer, _) = CredentialWriterAuthorityPair::new().split();

@@ -2,12 +2,16 @@
     not(all(target_os = "macos", target_arch = "aarch64")),
     allow(dead_code, unused_imports)
 )]
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 
 #[cfg(test)]
 mod tests;
 
+#[cfg(target_os = "linux")]
+pub use linux::LinuxHostCredentialPrompt;
 #[cfg(target_os = "macos")]
 pub use macos::MacOsHostCredentialPrompt;
 

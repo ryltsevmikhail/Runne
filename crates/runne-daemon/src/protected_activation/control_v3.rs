@@ -88,6 +88,8 @@ pub(crate) fn run_control_loop_v3_entered(
     let mut runtime = match enrollment.control.take() {
         #[cfg(unix)]
         Some(control) => {
+            #[cfg(target_os = "linux")]
+            let linux_writer_capability = enrollment.linux_writer_capability.take();
             let live = live_session::LiveEnrollmentSession::capture(
                 &local_session_service,
                 &owned_launch,
@@ -158,10 +160,24 @@ pub(crate) fn run_control_loop_v3_entered(
             let terminal = enrollment.begun_is_terminal();
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             let broker = runtime::bind_broker(&keys, &owned_launch, &mut enrollment)?;
-            #[cfg(target_os = "linux")]
-            if !terminal {
-                return Err(LaunchAuthorityError::UnsupportedPlatformBackend);
-            }
+            #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+            let linux_writer = if terminal {
+                None
+            } else {
+                let capability =
+                    linux_writer_capability.ok_or(LaunchAuthorityError::OwnershipMismatch)?;
+                Some(runtime::launch_after_begin(
+                    &mut enrollment,
+                    capability,
+                    channel.unix_stream(),
+                    &keys,
+                )?)
+            };
+            #[cfg(all(target_os = "linux", not(feature = "desktop-protected")))]
+            let linux_writer = {
+                let _ = linux_writer_capability;
+                None
+            };
             V3EnrollmentRuntime {
                 #[cfg(target_os = "macos")]
                 deferred_control: None,
@@ -172,6 +188,8 @@ pub(crate) fn run_control_loop_v3_entered(
                 broker,
                 session: Some(enrollment),
                 terminal,
+                #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+                linux_writer,
                 #[cfg(target_os = "macos")]
                 claim_measurements: None,
                 #[cfg(target_os = "macos")]
@@ -200,6 +218,8 @@ pub(crate) fn run_control_loop_v3_entered(
             #[cfg(any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64")))]
             session: None,
             terminal: true,
+            #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+            linux_writer: None,
             #[cfg(target_os = "macos")]
             claim_measurements: None,
             #[cfg(target_os = "macos")]
@@ -210,6 +230,29 @@ pub(crate) fn run_control_loop_v3_entered(
             credential_service_configuration: None,
         },
     };
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+    if let Some(writer) = runtime.linux_writer.as_mut() {
+        let result = writer.drive_claimed_writer(
+            &mut channel,
+            &local_session_service,
+            &keys,
+            runtime
+                .session
+                .as_mut()
+                .ok_or(LaunchAuthorityError::OwnershipMismatch)?,
+            runtime
+                .live
+                .as_ref()
+                .ok_or(LaunchAuthorityError::OwnershipMismatch)?,
+        );
+        if let Err(error) = result {
+            runtime
+                .terminate_retained_writer()
+                .map_err(runtime::map_enrollment_error)?;
+            return Err(error);
+        }
+        runtime.terminal = true;
+    }
     let transcript = serve_v3_transcript(
         &mut channel,
         &keys,
@@ -222,10 +265,12 @@ pub(crate) fn run_control_loop_v3_entered(
         #[cfg(all(unix, feature = "desktop-protected"))]
         root_admission,
     );
-    #[cfg(all(unix, target_os = "macos"))]
+    #[cfg(all(unix, any(target_os = "macos", target_os = "linux")))]
     if transcript.is_err() {
         // Fail-closed recovery: the exact writer never outlives a failed loop.
-        runtime.terminate_retained_writer();
+        runtime
+            .terminate_retained_writer()
+            .map_err(runtime::map_enrollment_error)?;
     }
     transcript
 }

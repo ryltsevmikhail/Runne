@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "enrollment_transition_v2_tests/resource_locator.rs"]
+mod resource_locator;
+
 fn fixture() -> (
     ProtectedCredentialEnrollmentPrepareV2,
     ProtectedCredentialEnrollmentPreludeV2,

@@ -6,16 +6,21 @@
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
-use super::{MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentTupleError};
 #[cfg(unix)]
 use super::enrollment_measurement::{self, OpenedNativeEnrollmentFile};
+use super::{MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentTupleError};
 #[path = "paths/admission.rs"]
 mod admission;
-#[path = "paths/live_identity.rs"]
-mod live_identity;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[path = "paths/executor.rs"]
 mod executor;
+#[cfg(target_os = "linux")]
+#[path = "paths/linux.rs"]
+mod linux;
+#[cfg(target_os = "linux")]
+pub(super) use linux::LinuxAuthenticatedDesktopPeer;
+#[path = "paths/live_identity.rs"]
+mod live_identity;
 #[cfg(unix)]
 include!("paths/fs.rs");
 
@@ -31,12 +36,14 @@ pub(crate) struct NativeEnrollmentArtifactPathsV1 {
     pub(in crate::updater_metadata) application: PathBuf,
     #[cfg(unix)]
     root: File,
+    #[cfg(target_os = "linux")]
+    relative_files: Option<[PathBuf; 4]>,
     #[cfg(unix)]
     pub(super) desktop_file: OpenedNativeEnrollmentFile,
     #[cfg(unix)]
     writer_file: OpenedNativeEnrollmentFile,
     #[cfg(unix)]
-    daemon_file: OpenedNativeEnrollmentFile,
+    pub(super) daemon_file: OpenedNativeEnrollmentFile,
     #[cfg(unix)]
     contract_file: OpenedNativeEnrollmentFile,
     live_desktop: bool,
@@ -226,6 +233,8 @@ impl NativeEnrollmentArtifactPathsV1 {
                 writer,
                 application,
                 root,
+                #[cfg(target_os = "linux")]
+                relative_files: None,
                 desktop_file: OpenedNativeEnrollmentFile::new(desktop_file)?,
                 writer_file: OpenedNativeEnrollmentFile::new(writer_file)?,
                 daemon_file: OpenedNativeEnrollmentFile::new(daemon_file)?,
@@ -245,6 +254,10 @@ impl NativeEnrollmentArtifactPathsV1 {
         let root = open_absolute_directory(&self.application)?;
         if !same_directory(&self.root, &root) {
             return Err(NativeEnrollmentTupleError::Rejected);
+        }
+        #[cfg(target_os = "linux")]
+        if let Some(relative) = &self.relative_files {
+            return self.revalidate_linux_entries(relative);
         }
         let entries = [
             (
@@ -272,8 +285,6 @@ impl NativeEnrollmentArtifactPathsV1 {
                 .ok_or(NativeEnrollmentTupleError::Rejected)
         })
     }
-
-
 }
 
 #[cfg(test)]

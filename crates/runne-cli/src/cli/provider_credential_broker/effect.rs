@@ -65,11 +65,12 @@ pub fn execute_pair_effect(authority: AuthorizedPairWriterControl) -> Result<(),
             envelope,
         ),
     };
+    result?;
     control.write_frame(CredentialBrokerFrame::NativeEffectObserved {
         operation_id: command.operation_id(),
         binding,
     })?;
-    result
+    Ok(())
 }
 
 #[cfg(all(feature = "local-native-enrollment-test", target_os = "macos"))]
@@ -216,9 +217,10 @@ pub fn execute_non_pair_effect(authority: AuthorizedWriterControl) -> Result<(),
     };
     #[cfg(all(feature = "local-native-enrollment-test", target_os = "macos"))]
     pause_after_legacy_source_delete(&result, legacy_source_cleanup)?;
+    result?;
     control.write_frame(CredentialBrokerFrame::NativeEffectObserved {
         operation_id: command.operation_id(),
         binding,
     })?;
-    result
+    Ok(())
 }

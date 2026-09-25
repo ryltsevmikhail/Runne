@@ -34,7 +34,7 @@ use runne_platform_desktop::{
     PROTECTED_BUNDLED_SESSION_RENEW_AFTER, ProtectedBundledRuntimeError,
     ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeSupervisor, discover_bundled_runtime,
 };
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64")))]
 use runne_platform_desktop::{
     ConfirmedInstalledNativeEnrollment, PreparedInstalledNativeEnrollment,
 };
@@ -139,6 +139,45 @@ pub struct BundledRuntimeController {
     renewal_schedule: Mutex<ProtectedSessionRenewalSchedule>,
     shutdown_outcome: Mutex<Option<BundledShutdownOutcome>>,
     writer_reapers: Arc<ProtectedWriterReaperRegistry>,
+    startup_app: Mutex<Option<tauri::AppHandle>>,
+    #[cfg(target_os = "linux")]
+    active_signed_linux_v3: Arc<Mutex<Option<ActiveSignedLinuxV3Marker>>>,
+}
+
+/// Host-only proof that the active V3 session followed a confirmed installed tuple.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ActiveSignedLinuxV3Marker {
+    release_tuple: [u8; 32],
+    qualification: [u8; 32],
+    generation: u64,
+    daemon_identity: [u8; 32],
+}
+
+#[cfg(target_os = "linux")]
+impl ActiveSignedLinuxV3Marker {
+    fn from_confirmed(value: &ConfirmedInstalledNativeEnrollment) -> Option<Self> {
+        let facts = value.enrollment_transition_facts()?;
+        Some(Self {
+            release_tuple: facts.release_tuple_digest,
+            qualification: facts.qualification_binding_digest,
+            generation: facts.supervisor_generation,
+            daemon_identity: value.daemon_identity_binding(),
+        })
+    }
+
+    fn matches(&self, value: &ConfirmedInstalledNativeEnrollment) -> bool {
+        Self::from_confirmed(value) == Some(*self)
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl BundledRuntimeController {
+    #[rustfmt::skip]
+    fn clear_linux_enrollment_marker(&self) -> Result<(), AppCoreError> {
+        *self.active_signed_linux_v3.lock().map_err(|_| AppCoreError::RuntimeUnavailable)? = None;
+        Ok(())
+    }
 }
 
 /// Exclusive native-operation lease retained while a credential prompt is open.
@@ -155,6 +194,15 @@ pub struct NativeCredentialEnrollmentLease {
     operation_permit: tokio::sync::OwnedMutexGuard<()>,
 }
 
+#[cfg(target_os = "linux")]
+pub struct NativeCredentialEnrollmentLease {
+    core: Arc<AppCore>,
+    supervisor: Arc<Mutex<ProtectedBundledRuntimeSupervisor>>,
+    writer_reapers: Arc<ProtectedWriterReaperRegistry>,
+    active_signed_linux_v3: Arc<Mutex<Option<ActiveSignedLinuxV3Marker>>>,
+    operation_permit: tokio::sync::OwnedMutexGuard<()>,
+}
+
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[derive(Clone)]
 pub struct NativeCredentialEnrollmentCleanup {
@@ -163,7 +211,31 @@ pub struct NativeCredentialEnrollmentCleanup {
     writer_reapers: Arc<ProtectedWriterReaperRegistry>,
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(target_os = "linux")]
+impl NativeCredentialEnrollmentCleanup {
+    pub(crate) async fn abort(&self) {
+        let supervisor = Arc::clone(&self.supervisor);
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            let _ = supervisor.lock().map(|mut value| value.stop());
+        })
+        .await;
+        let _ = self
+            .core
+            .mark_bundled_runtime_degraded(RuntimeFailureCode::ProtectedActivationUnavailable)
+            .await;
+        let _ = self.writer_reapers.shutdown();
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone)]
+pub struct NativeCredentialEnrollmentCleanup {
+    core: Arc<AppCore>,
+    supervisor: Arc<Mutex<ProtectedBundledRuntimeSupervisor>>,
+    writer_reapers: Arc<ProtectedWriterReaperRegistry>,
+}
+
+#[cfg(any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64")))]
 pub type CredentialEnrollmentFuture = Pin<
     Box<
         dyn Future<Output = Result<NativeCredentialEnrollmentLease, AppCoreError>> + Send + 'static,
@@ -176,7 +248,7 @@ mod enrollment;
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub use enrollment::test_only_live_enrollment_runtime;
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64")))]
 impl crate::RuntimeLifecycleManager {
     pub(crate) async fn acquire_credential_enrollment_lease(
         &self,

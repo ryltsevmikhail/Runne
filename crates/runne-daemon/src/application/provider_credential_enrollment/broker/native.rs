@@ -5,7 +5,8 @@
             target_os = "macos",
             target_arch = "aarch64",
             feature = "desktop-protected"
-        )
+        ),
+        all(target_os = "linux", feature = "desktop-protected")
     )),
     expect(
         dead_code,

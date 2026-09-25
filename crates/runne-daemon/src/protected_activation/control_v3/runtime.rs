@@ -3,8 +3,12 @@ use std::sync::Arc;
 mod completion;
 #[cfg(all(test, target_os = "macos"))]
 pub(in crate::protected_activation) use completion::with_control;
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+mod linux_writer;
 #[cfg(target_os = "macos")]
 mod writer_driver;
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+pub(super) use linux_writer::{LinuxEnrollmentWriter, launch_after_begin};
 #[cfg(unix)]
 include!("runtime/shutdown.rs");
 include!("runtime/dispatch.rs");

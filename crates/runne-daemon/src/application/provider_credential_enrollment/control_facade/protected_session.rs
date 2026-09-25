@@ -22,8 +22,7 @@ use runne_api::{
 ))]
 mod claim_measurements;
 #[cfg(all(
-    target_os = "macos",
-    target_arch = "aarch64",
+    any(all(target_os = "macos", target_arch = "aarch64"), target_os = "linux"),
     feature = "desktop-protected"
 ))]
 mod claim_runtime;
@@ -31,6 +30,8 @@ mod claim_selection;
 mod discovery;
 mod initial_request;
 mod intent_exchange;
+#[cfg(target_os = "linux")]
+mod linux_claim_measurements;
 #[cfg(all(test, target_os = "linux"))]
 mod linux_fixture;
 pub(crate) use initial_request::InitialCredentialExchange;
@@ -172,6 +173,19 @@ impl DaemonProtectedCredentialEnrollmentSession {
                 .verified
                 .as_ref()
                 .is_some_and(|(_, snapshot)| snapshot.state().terminal())
+    }
+
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+    pub(crate) fn begun_action(
+        &self,
+    ) -> Result<
+        runne_api::ProviderCredentialEnrollmentActionV2,
+        ProviderCredentialEnrollmentHostError,
+    > {
+        self.begun
+            .as_ref()
+            .map(|(request, _)| request.action())
+            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)
     }
 
     #[cfg(all(

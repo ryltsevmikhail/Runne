@@ -44,6 +44,8 @@ mod candidate_binding_tests;
 #[cfg(test)]
 mod qualification_bootstrap_client_tests;
 #[cfg(test)]
+mod qualification_linux_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tuple_v3_qualification_tests;

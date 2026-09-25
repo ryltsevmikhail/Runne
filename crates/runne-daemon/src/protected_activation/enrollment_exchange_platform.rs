@@ -88,6 +88,7 @@ pub(crate) fn run_enrollment_control_exchange(
 
     let _ = installation;
     let measured = std::cell::RefCell::new(None);
+    let writer_capability = std::cell::RefCell::new(None);
     let outcome = run_enrollment_control_exchange_with(
         channel,
         prepare,
@@ -96,7 +97,22 @@ pub(crate) fn run_enrollment_control_exchange(
         composition,
         sessions,
         session_clock,
-        |_, claims, stream| {
+        |profile_directory, claims, stream| {
+            let Some(resource_directory_hint) = claims.resource_directory_hint() else {
+                return false;
+            };
+            let Some(capability) =
+                runne_platform_desktop::VerifiedInstalledLinuxWriterCapability::
+                    load_current_for_authenticated_desktop_peer(
+                        profile_directory,
+                        &composition.runtime_root,
+                        std::path::Path::new(resource_directory_hint),
+                        stream,
+                    )
+            else {
+                return false;
+            };
+            *writer_capability.borrow_mut() = Some(capability);
             *measured.borrow_mut() =
                 runne_platform_desktop::measure_verified_linux_enrollment_installation(
                     stream,
@@ -132,5 +148,9 @@ pub(crate) fn run_enrollment_control_exchange(
             )
             .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
     }
-    Ok(outcome)
+    Ok(outcome.with_linux_writer_capability(
+        writer_capability
+            .into_inner()
+            .ok_or(LaunchAuthorityError::OwnershipMismatch)?,
+    ))
 }

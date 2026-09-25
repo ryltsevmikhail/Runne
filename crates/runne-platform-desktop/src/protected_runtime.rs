@@ -20,24 +20,38 @@ include!("protected_runtime/launch_unix.rs");
 include!("protected_runtime/helpers.rs");
 include!("protected_runtime/native_enrollment.rs");
 #[cfg(all(
-    target_os = "macos",
-    target_arch = "aarch64",
+    any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "linux", feature = "protected-channel-integration")
+    ),
     feature = "protected-channel-integration"
 ))]
 mod enrollment_status;
 #[cfg(target_os = "macos")]
 include!("protected_runtime/native_confirmation.rs");
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", feature = "protected-channel-integration")
+))]
 mod enrollment_lifecycle_facts;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", feature = "protected-channel-integration")
+))]
 mod enrollment_lifecycle_types;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use enrollment_lifecycle_types::{
     NativeProtectedCredentialEnrollmentBegin, NativeProtectedCredentialVerificationBegin,
     PreparedProtectedCredentialEnrollment, PreparedProtectedCredentialVerification,
 };
+#[cfg(all(target_os = "linux", feature = "protected-channel-integration"))]
+pub use enrollment_lifecycle_types::{
+    NativeProtectedCredentialEnrollmentBegin, PreparedProtectedCredentialEnrollment,
+};
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 include!("protected_runtime/enrollment_lifecycle.rs");
+#[cfg(all(target_os = "linux", feature = "protected-channel-integration"))]
+include!("protected_runtime/linux_enrollment_lifecycle.rs");
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 include!("protected_runtime/enrollment_verification.rs");
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

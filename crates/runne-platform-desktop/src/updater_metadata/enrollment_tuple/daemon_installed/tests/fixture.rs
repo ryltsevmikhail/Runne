@@ -2,15 +2,17 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::updater_installed_metadata::InstalledUpdateMetadataJournal;
-use crate::{StagedUpdate, UpdateInstallState, UpdateJournal, UpdateTrustJournal, UpdateTrustRootV2};
-
-use super::fixture_signing::{
-    digest, fixture_signing_material, fixture_target, fixture_verified_update,
+use crate::{
+    StagedUpdate, UpdateInstallState, UpdateJournal, UpdateTrustJournal, UpdateTrustRootV2,
 };
+
 use super::super::{
     DaemonEnrollmentPolicy, DaemonIdentityVerifier, DaemonVerificationInput,
     NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleAdmission,
-    VerifiedDaemonNativeEnrollmentPrepare, verify_with, verified_admission,
+    VerifiedDaemonNativeEnrollmentPrepare, verified_admission, verify_with,
+};
+use super::fixture_signing::{
+    digest, fixture_signing_material, fixture_target, fixture_verified_update,
 };
 
 pub(super) struct Fixture {

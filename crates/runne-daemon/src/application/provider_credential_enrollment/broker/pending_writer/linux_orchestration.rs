@@ -21,9 +21,12 @@
 use std::os::unix::net::UnixStream;
 
 use runne_api::{
-    ProviderCredentialBrokerTransferAuthority, ProviderCredentialEnrollmentHostError as Error,
+    CredentialBrokerTransferAuthenticator, ProviderCredentialBrokerTransferAuthority,
+    ProviderCredentialEnrollmentHostError as Error,
 };
-use runne_platform_desktop::provider_credential_broker::UnixRetainedWriterProcess;
+use runne_platform_desktop::provider_credential_broker::{
+    LinuxAuthenticatedPairSecretRelay, UnixRetainedWriterProcess,
+};
 use runne_platform_ports::provider_credential_broker::VerifiedWriterLaunchSpec;
 
 use super::super::pending::PendingBrokerRendezvousBinding;
@@ -36,6 +39,27 @@ use super::receive_linux_writer_handshake;
 /// spawn of the real binary.
 pub(crate) type LinuxWriterSpawn =
     Box<dyn FnOnce(UnixStream, UnixStream) -> Result<UnixRetainedWriterProcess, Error>>;
+
+pub(crate) type LinuxControlWriterSpawn = Box<
+    dyn FnOnce(
+        UnixStream,
+        UnixStream,
+        &ProviderCredentialBrokerTransferAuthority,
+        &CredentialBrokerTransferAuthenticator,
+    ) -> Result<UnixRetainedWriterProcess, Error>,
+>;
+
+/// Pair spawn also borrows the one Begin-bound transfer proof for the exact
+/// daemon-created endpoint and returns ownership of the sealed relay.
+pub(crate) type LinuxPairWriterSpawn = Box<
+    dyn FnOnce(
+        UnixStream,
+        UnixStream,
+        &ProviderCredentialBrokerTransferAuthority,
+        &CredentialBrokerTransferAuthenticator,
+    )
+        -> Result<(UnixRetainedWriterProcess, LinuxAuthenticatedPairSecretRelay), Error>,
+>;
 
 /// Caller-owned inputs for one retained Linux writer launch and handshake.
 pub(crate) struct LinuxWriterLaunchInputs {
@@ -88,13 +112,160 @@ pub(crate) fn launch_linux_writer_with_handshake(
         &rendezvous,
         &process,
         spec,
-    )?;
-    let daemon_start =
-        LinuxCredentialBrokerChannel::observe_daemon_start().map_err(|_| Error::AccessDenied)?;
+    );
+    let handshake = match handshake {
+        Ok(handshake) => handshake,
+        Err(error) => {
+            use runne_platform_desktop::provider_credential_broker::RetainedWriterProcess as _;
+            let mut process = process;
+            let _ = process.terminate_retained_child();
+            let _ = process.reap_retained_child();
+            return Err(error);
+        }
+    };
+    let daemon_start = match LinuxCredentialBrokerChannel::observe_daemon_start() {
+        Ok(start) => start,
+        Err(_) => {
+            use runne_platform_desktop::provider_credential_broker::RetainedWriterProcess as _;
+            let mut process = process;
+            let _ = process.terminate_retained_child();
+            let _ = process.reap_retained_child();
+            return Err(Error::AccessDenied);
+        }
+    };
     let writer = handshake.into_admitted_writer(binding, rendezvous, process);
     Ok(LinuxCredentialBrokerChannel::from_admitted(
         writer,
         daemon_start,
         daemon_image,
     ))
+}
+
+/// Production Pair path: retain the exact writer and one-shot secret relay
+/// under daemon ownership, then accept its startup evidence against that child.
+pub(crate) fn launch_linux_pair_writer_with_handshake(
+    inputs: LinuxWriterLaunchInputs,
+    spec: &VerifiedWriterLaunchSpec,
+    authenticator: &CredentialBrokerTransferAuthenticator,
+    spawn: LinuxPairWriterSpawn,
+) -> Result<
+    (
+        LinuxCredentialBrokerChannel,
+        LinuxAuthenticatedPairSecretRelay,
+    ),
+    Error,
+> {
+    let LinuxWriterLaunchInputs {
+        rendezvous,
+        control_end_for_writer,
+        binding,
+        transfer_authority,
+        launch_secret,
+        daemon_image,
+    } = inputs;
+    let (handshake_daemon_end, handshake_writer_end) =
+        UnixStream::pair().map_err(|_| Error::Unavailable)?;
+    let (process, relay) = spawn(
+        control_end_for_writer,
+        handshake_writer_end,
+        &transfer_authority,
+        authenticator,
+    )?;
+    let handshake = receive_linux_writer_handshake(
+        handshake_daemon_end,
+        transfer_authority,
+        &launch_secret,
+        binding.release_tuple.as_bytes(),
+        &rendezvous,
+        &process,
+        spec,
+    );
+    let handshake = match handshake {
+        Ok(handshake) => handshake,
+        Err(error) => {
+            use runne_platform_desktop::provider_credential_broker::RetainedWriterProcess as _;
+            let mut process = process;
+            let _ = process.terminate_retained_child();
+            let _ = process.reap_retained_child();
+            return Err(error);
+        }
+    };
+    let daemon_start = match LinuxCredentialBrokerChannel::observe_daemon_start() {
+        Ok(start) => start,
+        Err(_) => {
+            use runne_platform_desktop::provider_credential_broker::RetainedWriterProcess as _;
+            let mut process = process;
+            let _ = process.terminate_retained_child();
+            let _ = process.reap_retained_child();
+            return Err(Error::AccessDenied);
+        }
+    };
+    let writer = handshake.into_admitted_writer(binding, rendezvous, process);
+    Ok((
+        LinuxCredentialBrokerChannel::from_admitted(writer, daemon_start, daemon_image),
+        relay,
+    ))
+}
+
+pub(crate) fn launch_linux_control_writer_with_handshake(
+    inputs: LinuxWriterLaunchInputs,
+    spec: &VerifiedWriterLaunchSpec,
+    authenticator: &CredentialBrokerTransferAuthenticator,
+    spawn: LinuxControlWriterSpawn,
+) -> Result<LinuxCredentialBrokerChannel, Error> {
+    let LinuxWriterLaunchInputs {
+        rendezvous,
+        control_end_for_writer,
+        binding,
+        transfer_authority,
+        launch_secret,
+        daemon_image,
+    } = inputs;
+    let (handshake_daemon_end, handshake_writer_end) =
+        UnixStream::pair().map_err(|_| Error::Unavailable)?;
+    let process = spawn(
+        control_end_for_writer,
+        handshake_writer_end,
+        &transfer_authority,
+        authenticator,
+    )?;
+    let handshake = receive_linux_writer_handshake(
+        handshake_daemon_end,
+        transfer_authority,
+        &launch_secret,
+        binding.release_tuple.as_bytes(),
+        &rendezvous,
+        &process,
+        spec,
+    );
+    let handshake = match handshake {
+        Ok(handshake) => handshake,
+        Err(error) => {
+            terminate_and_reap(process)?;
+            return Err(error);
+        }
+    };
+    let daemon_start = match LinuxCredentialBrokerChannel::observe_daemon_start() {
+        Ok(start) => start,
+        Err(_) => {
+            terminate_and_reap(process)?;
+            return Err(Error::AccessDenied);
+        }
+    };
+    let writer = handshake.into_admitted_writer(binding, rendezvous, process);
+    Ok(LinuxCredentialBrokerChannel::from_admitted(
+        writer,
+        daemon_start,
+        daemon_image,
+    ))
+}
+
+fn terminate_and_reap(mut process: UnixRetainedWriterProcess) -> Result<(), Error> {
+    use runne_platform_desktop::provider_credential_broker::RetainedWriterProcess as _;
+    process
+        .terminate_retained_child()
+        .map_err(|_| Error::Unavailable)?;
+    process
+        .reap_retained_child()
+        .map_err(|_| Error::Unavailable)
 }

@@ -9,6 +9,7 @@ pub struct VerifiedProtectedCredentialEnrollmentPrepareV2<'a> {
     desktop_supervisor_generation: u64,
     launch_authority_id: [u8; 16],
     desktop_host_instance_id: [u8; 16],
+    resource_directory_hint: Option<&'a str>,
     _prepare: std::marker::PhantomData<&'a ProtectedCredentialEnrollmentPrepareV2>,
 }
 
@@ -25,8 +26,8 @@ impl ProtectedCredentialEnrollmentPrepareV2 {
     }
 }
 
-impl VerifiedProtectedCredentialEnrollmentPrepareV2<'_> {
-    const fn from_prepare(prepare: &ProtectedCredentialEnrollmentPrepareV2) -> Self {
+impl<'a> VerifiedProtectedCredentialEnrollmentPrepareV2<'a> {
+    fn from_prepare(prepare: &'a ProtectedCredentialEnrollmentPrepareV2) -> Self {
         Self::from_claims(
             prepare.release_tuple_digest,
             prepare.qualification_binding_digest,
@@ -34,6 +35,7 @@ impl VerifiedProtectedCredentialEnrollmentPrepareV2<'_> {
             prepare.desktop_supervisor_generation,
             *prepare.owned_launch.launch_authority_id(),
             *prepare.owned_launch.desktop_host_instance_id(),
+            prepare.resource_directory_hint.as_deref(),
         )
     }
 
@@ -52,6 +54,7 @@ impl VerifiedProtectedCredentialEnrollmentPrepareV2<'_> {
             desktop_supervisor_generation,
             launch_authority_id,
             desktop_host_instance_id,
+            None,
         )
     }
 
@@ -62,6 +65,7 @@ impl VerifiedProtectedCredentialEnrollmentPrepareV2<'_> {
         desktop_supervisor_generation: u64,
         launch_authority_id: [u8; 16],
         desktop_host_instance_id: [u8; 16],
+        resource_directory_hint: Option<&'a str>,
     ) -> Self {
         Self {
             release_tuple_digest,
@@ -70,6 +74,7 @@ impl VerifiedProtectedCredentialEnrollmentPrepareV2<'_> {
             desktop_supervisor_generation,
             launch_authority_id,
             desktop_host_instance_id,
+            resource_directory_hint,
             _prepare: std::marker::PhantomData,
         }
     }
@@ -103,6 +108,11 @@ impl VerifiedProtectedCredentialEnrollmentPrepareV2<'_> {
     pub const fn desktop_host_instance_id(&self) -> &[u8; 16] {
         &self.desktop_host_instance_id
     }
+
+    #[must_use]
+    pub const fn resource_directory_hint(&self) -> Option<&str> {
+        self.resource_directory_hint
+    }
 }
 
 /// ```compile_fail
@@ -111,7 +121,8 @@ impl VerifiedProtectedCredentialEnrollmentPrepareV2<'_> {
 /// let _ = VerifiedProtectedCredentialEnrollmentPrepareV2 {
 ///     release_tuple_digest: todo!(), qualification_binding_digest: todo!(),
 ///     desktop_peer_binding_digest: todo!(), desktop_supervisor_generation: todo!(),
-///     launch_authority_id: todo!(), desktop_host_instance_id: todo!(), _prepare: todo!(),
+///     launch_authority_id: todo!(), desktop_host_instance_id: todo!(),
+///     resource_directory_hint: todo!(), _prepare: todo!(),
 /// };
 /// ```
 const _: () = ();

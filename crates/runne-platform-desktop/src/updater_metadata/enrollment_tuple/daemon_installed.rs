@@ -2,12 +2,20 @@
     not(all(target_os = "macos", target_arch = "aarch64")),
     allow(dead_code)
 )]
-#[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(any(
+    test,
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64")
+))]
 use std::path::Path;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use std::path::PathBuf;
 
-#[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(any(
+    test,
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64")
+))]
 use super::{NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleAdmission};
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -25,7 +33,11 @@ mod capability;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[path = "daemon_installed/staged_identity.rs"]
 mod staged_identity;
-#[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(any(
+    test,
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64")
+))]
 include!("daemon_installed/verification.rs");
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use bootstrap_candidate::{
@@ -34,6 +46,13 @@ pub use bootstrap_candidate::{
 };
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use capability::VerifiedInstalledEnrollmentCapability;
+#[cfg(target_os = "linux")]
+#[path = "daemon_installed/linux_writer_capability.rs"]
+mod linux_writer_capability;
+#[cfg(target_os = "linux")]
+pub use linux_writer_capability::{
+    VerifiedInstalledLinuxEnrollmentMeasurementFacts, VerifiedInstalledLinuxWriterCapability,
+};
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use staged_identity::CurrentStagedDaemonIdentity;
 

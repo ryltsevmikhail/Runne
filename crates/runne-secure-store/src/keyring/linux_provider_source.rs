@@ -94,7 +94,7 @@ fn production_combo() -> Result<
     LinuxComboPersistentStore<LibdbusSecretServiceBus, ProcProcessFacts, KernelKeyutilsCache>,
     SsFacadeError,
 > {
-    let address = derived_session_bus_address();
+    let address = format!("unix:path={}", derived_session_bus_address());
     let bus = LibdbusSecretServiceBus::connect(&address).map_err(|_| SsFacadeError::Unavailable)?;
     let cache = KernelKeyutilsCache::attach().map_err(|_| SsFacadeError::Unavailable)?;
     LinuxComboPersistentStore::new(bus, ProcProcessFacts, cache)

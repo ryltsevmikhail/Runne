@@ -174,6 +174,8 @@ pub(crate) struct EnrollmentTransitionOutcome {
     rendezvous: DaemonEnrollmentRendezvous,
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     installed_facts: Option<runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts>,
+    #[cfg(target_os = "linux")]
+    linux_writer_capability: Option<runne_platform_desktop::VerifiedInstalledLinuxWriterCapability>,
 }
 
 impl EnrollmentTransitionOutcome {
@@ -196,7 +198,25 @@ impl EnrollmentTransitionOutcome {
             rendezvous,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             installed_facts,
+            #[cfg(target_os = "linux")]
+            linux_writer_capability: None,
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn with_linux_writer_capability(
+        mut self,
+        capability: runne_platform_desktop::VerifiedInstalledLinuxWriterCapability,
+    ) -> Self {
+        self.linux_writer_capability = Some(capability);
+        self
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn take_linux_writer_capability(
+        &mut self,
+    ) -> Option<runne_platform_desktop::VerifiedInstalledLinuxWriterCapability> {
+        self.linux_writer_capability.take()
     }
 
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

@@ -1,4 +1,7 @@
-#![cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
+#![cfg_attr(
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    allow(dead_code)
+)]
 use sha2::{Digest as _, Sha256};
 
 use crate::ProtectedBundledRuntimeError;
@@ -14,9 +17,31 @@ pub struct EnrollmentTransitionFacts {
     pub supervisor_generation: u64,
 }
 
-use super::{ConfirmedInstalledNativeEnrollment, enrollment_live_daemon::ProtectedDaemonTupleEvidence};
+use super::{
+    ConfirmedInstalledNativeEnrollment, enrollment_live_daemon::ProtectedDaemonTupleEvidence,
+};
 
 impl ConfirmedInstalledNativeEnrollment {
+    /// Stable daemon identity across V2→V3 session rotation.
+    #[must_use]
+    pub fn daemon_identity_binding(&self) -> [u8; 32] {
+        let evidence = &self.evidence;
+        let mut hash = Sha256::new();
+        hash.update(b"gocode/provider-credential/daemon-identity-binding/v1\0");
+        for value in [
+            evidence.release_tuple.as_slice(),
+            evidence.launch_authority.as_slice(),
+            evidence.desktop_host.as_slice(),
+            evidence.daemon.as_slice(),
+            evidence.process_start.as_slice(),
+        ] {
+            hash.update(u32::try_from(value.len()).unwrap_or(u32::MAX).to_be_bytes());
+            hash.update(value);
+        }
+        hash.update(evidence.generation.to_be_bytes());
+        hash.finalize().into()
+    }
+
     /// Derives a non-secret binding for the intent registry without exposing
     /// the protected session, release tuple, or process identity fields.
     #[must_use]
@@ -103,12 +128,39 @@ impl ConfirmedInstalledNativeEnrollment {
 
     /// Fails closed where the native macOS peer cannot be authenticated.
     #[cfg(not(target_os = "macos"))]
+    #[cfg(not(target_os = "linux"))]
     #[allow(clippy::unused_self, clippy::missing_const_for_fn)]
     pub fn current_desktop_peer_binding_digest(
         &self,
         _supervisor_generation: std::num::NonZeroU64,
     ) -> Result<[u8; 32], ProtectedBundledRuntimeError> {
         Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn current_desktop_peer_binding_digest(
+        &self,
+        supervisor_generation: std::num::NonZeroU64,
+    ) -> Result<[u8; 32], ProtectedBundledRuntimeError> {
+        let paths = self.paths.as_ref()
+            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let before = crate::provider_credential_broker::observe_current_process_start()
+            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        paths.confirm_current().map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let after = crate::provider_credential_broker::observe_current_process_start()
+            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        if before == [0; 32] || before != after {
+            return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
+        }
+        Ok(desktop_peer_digest(
+            self.evidence.release_tuple,
+            self.admission.desktop_sha256,
+            after,
+            rustix::process::geteuid().as_raw(),
+            self.evidence.launch_authority,
+            self.evidence.desktop_host,
+            supervisor_generation.get(),
+        ))
     }
 }
 

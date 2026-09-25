@@ -2,6 +2,7 @@ const ENROLLMENT_TRANSITION_PREPARE_DOMAIN_V2: &[u8] =
     b"gocode/credential-enrollment-transition/prepare/v2";
 const ENROLLMENT_TRANSITION_REQUEST_BINDING_DOMAIN_V2: &[u8] =
     b"gocode/credential-enrollment-transition/request-binding/v2";
+const ENROLLMENT_TRANSITION_SCHEMA_V3: u32 = 3;
 
 /// Authenticated Desktop claims for an exact current V2 enrollment transition.
 ///
@@ -18,6 +19,8 @@ pub struct ProtectedCredentialEnrollmentPrepareV2 {
     qualification_binding_digest: [u8; 32],
     desktop_peer_binding_digest: [u8; 32],
     desktop_supervisor_generation: u64,
+    schema_version: u32,
+    resource_directory_hint: Option<String>,
     proof: [u8; 32],
 }
 
@@ -49,15 +52,40 @@ impl ProtectedCredentialEnrollmentPrepareV2 {
             qualification_binding_digest,
             desktop_peer_binding_digest,
             desktop_supervisor_generation,
+            schema_version: PROTOCOL_SCHEMA_VERSION_V2,
+            resource_directory_hint: None,
             proof: [0; 32],
         })
+    }
+
+    /// Adds the authenticated Linux bundle resource locator. It is a locator
+    /// only; the daemon must verify it against the authenticated peer and
+    /// signed installed tuple before deriving any writer artifact.
+    pub fn with_resource_directory_hint(
+        mut self,
+        hint: &str,
+    ) -> Result<Self, LaunchAuthorityError> {
+        if hint.len() > MAX_TEXT_BYTES
+            || !valid_text(hint, MAX_TEXT_BYTES)
+            || !std::path::Path::new(hint).is_absolute()
+        {
+            return Err(LaunchAuthorityError::InvalidContract);
+        }
+        self.schema_version = ENROLLMENT_TRANSITION_SCHEMA_V3;
+        self.resource_directory_hint = Some(hint.to_owned());
+        Ok(self)
+    }
+
+    #[must_use]
+    pub fn resource_directory_hint(&self) -> Option<&str> {
+        self.resource_directory_hint.as_deref()
     }
 
     pub fn sign(&mut self, keys: &ProtectedActivationKeys) {
         self.proof = authenticated_mac_version(
             keys.renewal_key_ref(),
             ENROLLMENT_TRANSITION_PREPARE_DOMAIN_V2,
-            PROTOCOL_SCHEMA_VERSION_V2,
+            self.schema_version,
             &self.unsigned(),
         );
     }
@@ -79,7 +107,7 @@ impl ProtectedCredentialEnrollmentPrepareV2 {
         let proof = authenticated_mac_version(
             keys.renewal_key_ref(),
             ENROLLMENT_TRANSITION_PREPARE_DOMAIN_V2,
-            PROTOCOL_SCHEMA_VERSION_V2,
+            self.schema_version,
             &self.unsigned(),
         );
         if !bool::from(proof.ct_eq(&self.proof)) {
@@ -149,11 +177,12 @@ impl ProtectedCredentialEnrollmentPrepareV2 {
     }
 
     fn fields(&self, encoder: &mut CborEncoder, include_proof: bool) {
-        encoder.write_map_header(if include_proof { 10 } else { 9 });
+        let extended = self.resource_directory_hint.is_some();
+        encoder.write_map_header(9 + u64::from(include_proof) + u64::from(extended));
         write_key(encoder, 0);
         encoder.write_unsigned(u64::from(Self::MESSAGE_TYPE_ID));
         write_key(encoder, 1);
-        encoder.write_unsigned(u64::from(PROTOCOL_SCHEMA_VERSION_V2));
+        encoder.write_unsigned(u64::from(self.schema_version));
         write_key(encoder, 2);
         encode_owned_launch_v2(encoder, &self.owned_launch);
         write_key(encoder, 3);
@@ -169,8 +198,12 @@ impl ProtectedCredentialEnrollmentPrepareV2 {
         }
         write_key(encoder, 8);
         encoder.write_unsigned(self.desktop_supervisor_generation);
-        if include_proof {
+        if let Some(hint) = &self.resource_directory_hint {
             write_key(encoder, 9);
+            encoder.write_text_string(hint);
+        }
+        if include_proof {
+            write_key(encoder, if extended { 10 } else { 9 });
             encoder.write_byte_string(&self.proof);
         }
     }
@@ -191,12 +224,20 @@ impl DeterministicCodec for ProtectedCredentialEnrollmentPrepareV2 {
     }
 
     fn decode(type_id: u32, decoder: &mut CborDecoder<'_>) -> Result<Self, DecodeError> {
-        if type_id != Self::MESSAGE_TYPE_ID || decoder.read_map_header(10)? != 10 {
+        if type_id != Self::MESSAGE_TYPE_ID {
             return Err(DecodeError::UnknownMessageType { type_id });
         }
+        let map_len = decoder.read_map_header(11)?;
         expect_key(decoder, 0)?;
         expect_message_type(decoder, Self::MESSAGE_TYPE_ID)?;
-        expect_schema_version(decoder, PROTOCOL_SCHEMA_VERSION_V2)?;
+        expect_key(decoder, 1)?;
+        let schema_version = u32::try_from(decoder.read_unsigned(u64::from(u32::MAX))?)
+            .map_err(|_| DecodeError::UnknownField { key: 1 })?;
+        let extended = match (schema_version, map_len) {
+            (PROTOCOL_SCHEMA_VERSION_V2, 10) => false,
+            (ENROLLMENT_TRANSITION_SCHEMA_V3, 11) => true,
+            _ => return Err(DecodeError::UnknownField { key: 1 }),
+        };
         expect_key(decoder, 2)?;
         let owned_launch = decode_owned_launch_v2(decoder)?;
         expect_key(decoder, 3)?;
@@ -211,7 +252,17 @@ impl DeterministicCodec for ProtectedCredentialEnrollmentPrepareV2 {
         let peer = decode_fixed::<32>(decoder)?;
         expect_key(decoder, 8)?;
         let generation = decoder.read_unsigned(u64::MAX)?;
-        expect_key(decoder, 9)?;
+        let resource_directory_hint = if extended {
+            expect_key(decoder, 9)?;
+            let hint = decoder.read_text_string(MAX_TEXT_BYTES)?.to_owned();
+            if !valid_text(&hint, MAX_TEXT_BYTES) || !std::path::Path::new(&hint).is_absolute() {
+                return Err(DecodeError::UnknownField { key: 9 });
+            }
+            Some(hint)
+        } else {
+            None
+        };
+        expect_key(decoder, if extended { 10 } else { 9 })?;
         let proof = decode_fixed::<32>(decoder)?;
         let mut value = Self::new(
             owned_launch,
@@ -223,6 +274,8 @@ impl DeterministicCodec for ProtectedCredentialEnrollmentPrepareV2 {
             generation,
         )
         .map_err(|_| DecodeError::UnknownField { key: 3 })?;
+        value.schema_version = schema_version;
+        value.resource_directory_hint = resource_directory_hint;
         value.proof = proof;
         Ok(value)
     }
@@ -233,7 +286,7 @@ fn enrollment_transition_prepare_digest(
 ) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(ENROLLMENT_TRANSITION_REQUEST_BINDING_DOMAIN_V2);
-    hasher.update(PROTOCOL_SCHEMA_VERSION_V2.to_be_bytes());
+    hasher.update(request.schema_version.to_be_bytes());
     hasher.update(request.transcript());
     hasher.finalize().into()
 }
