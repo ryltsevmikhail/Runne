@@ -21,6 +21,7 @@ mod project_workspace_sqlite {
     mod submit_conversation_binding;
     mod submit_fence;
     mod support;
+    mod taskrun_queue_scan;
     mod text_fence;
     mod workspace_snapshot;
 }

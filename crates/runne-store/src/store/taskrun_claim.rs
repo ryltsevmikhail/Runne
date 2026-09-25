@@ -16,6 +16,7 @@ pub(crate) struct ReleaseEventMetadata<'a> {
 mod events;
 mod receipts;
 mod stream_integrity;
+pub(super) mod stream_validate;
 mod write;
 
 type ClaimAuthorityRow = (

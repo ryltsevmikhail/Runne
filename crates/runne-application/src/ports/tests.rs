@@ -23,6 +23,15 @@
     }
 
     #[test]
+    fn taskrun_queue_scan_request_enforces_bounded_examined_limit() {
+        assert!(TaskRunQueueScanRequest::new(None, 0).is_none());
+        assert!(TaskRunQueueScanRequest::new(None, MAX_TASK_RUN_QUEUE_SCAN + 1).is_none());
+        let request = TaskRunQueueScanRequest::new(None, MAX_TASK_RUN_QUEUE_SCAN).unwrap();
+        assert_eq!(request.limit(), MAX_TASK_RUN_QUEUE_SCAN);
+        assert_eq!(request.after(), None);
+    }
+
+    #[test]
     fn test_receipt_lookup_clone_eq() {
         let miss1 = ReceiptLookup::Miss;
         let miss2 = ReceiptLookup::Miss;
