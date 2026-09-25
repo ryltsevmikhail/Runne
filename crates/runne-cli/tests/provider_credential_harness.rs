@@ -1,12 +1,14 @@
 #[path = "provider_credential_support/cases.rs"]
 mod provider_credential_cases;
+#[path = "provider_credential_support/stdin_race.rs"]
+mod provider_credential_stdin_race;
 use provider_credential_cases::CHILD_CASES;
 
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::io::Write as _;
 use std::io::{IsTerminal as _, Read};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 
 use runne_secure_store::{
     NativeProviderCredentialStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
@@ -167,7 +169,9 @@ fn main() {
 
 fn subprocess_scenarios() {
     for case in CHILD_CASES {
-        let output = spawn_child(case.scenario, case.command, case.input, case.terminal);
+        let mut child = spawn_child(case.scenario, case.command, case.input, case.terminal);
+        provider_credential_stdin_race::write_child_stdin(&mut child, case.input, case.stdin);
+        let output = child.wait_with_output().expect("wait harness child");
         assert_eq!(
             output.status.code(),
             Some(case.expected_code),
@@ -194,6 +198,8 @@ fn subprocess_scenarios() {
             case.scenario
         );
     }
+    provider_credential_stdin_race::early_stdin_close_reproducer();
+    provider_credential_stdin_race::unconsumed_stdin_write_stays_fatal();
 }
 
 fn expected_stderr(scenario: &str, code: i32) -> &'static str {
@@ -207,13 +213,8 @@ fn expected_stderr(scenario: &str, code: i32) -> &'static str {
     }
 }
 
-fn spawn_child(
-    scenario: &str,
-    command: &[&str],
-    input: &[u8],
-    _terminal: bool,
-) -> std::process::Output {
-    let mut child = Command::new(std::env::current_exe().expect("harness executable"))
+fn spawn_child(scenario: &str, command: &[&str], _input: &[u8], _terminal: bool) -> Child {
+    Command::new(std::env::current_exe().expect("harness executable"))
         .arg("--child")
         .arg(scenario)
         .args(command)
@@ -222,14 +223,7 @@ fn spawn_child(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("start harness child");
-    child
-        .stdin
-        .take()
-        .expect("stdin")
-        .write_all(input)
-        .expect("write stdin");
-    child.wait_with_output().expect("wait harness child")
+        .expect("start harness child")
 }
 
 fn run_child(mut arguments: Vec<OsString>) -> ! {
