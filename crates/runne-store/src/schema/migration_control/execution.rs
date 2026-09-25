@@ -9,5 +9,8 @@ fn apply_execution_migrations(
     if source_version < 42 && target_version >= 42 {
         apply_v42_migration(conn)?;
     }
+    if source_version < 43 && target_version >= 43 {
+        apply_v43_migration(conn)?;
+    }
     Ok(())
 }

@@ -28,6 +28,28 @@ pub(super) fn verify_claim_stream(
     command_id: CommandId,
     idempotency_key: &[u8],
 ) -> Result<(), ClaimError> {
+    verify_claim_stream_inner(connection, receipt, command_id, idempotency_key).map(|_| ())
+}
+
+pub(super) fn verify_current_claim_stream(
+    connection: &Connection,
+    receipt: &TaskRunClaimReceipt,
+    command_id: CommandId,
+    idempotency_key: &[u8],
+) -> Result<(), ClaimError> {
+    let task = verify_claim_stream_inner(connection, receipt, command_id, idempotency_key)?;
+    if task.state() != TaskRunState::Running || task.active_attempt() != Some(&receipt.attempt_id) {
+        return Err(ClaimError::NotQueued);
+    }
+    Ok(())
+}
+
+fn verify_claim_stream_inner(
+    connection: &Connection,
+    receipt: &TaskRunClaimReceipt,
+    command_id: CommandId,
+    idempotency_key: &[u8],
+) -> Result<TaskRun, ClaimError> {
     let id = receipt.taskrun_id;
     let version = i64::try_from(receipt.new_version).map_err(|_| ClaimError::CorruptData)?;
     if version < 2 {
@@ -187,7 +209,7 @@ pub(super) fn verify_claim_stream(
     {
         return Err(ClaimError::CorruptData);
     }
-    Ok(())
+    Ok(task)
 }
 
 fn array16(value: Vec<u8>) -> Result<[u8; 16], ClaimError> {

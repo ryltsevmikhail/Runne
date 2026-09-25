@@ -60,6 +60,7 @@ fn drop_v12_fences(conn: &Connection) {
 }
 
 fn drop_v13_provider_execution(conn: &Connection) {
+    v43_taskrun_downgrade::drop_v42_v43_taskrun_schema(conn).unwrap();
     conn.execute_batch(
         "DROP TRIGGER IF EXISTS schema_v12_fence_execution_nodes_insert;
          DROP TRIGGER IF EXISTS schema_v12_fence_execution_nodes_update;

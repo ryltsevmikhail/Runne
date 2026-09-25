@@ -68,32 +68,62 @@ pub(super) fn v42_matches(connection: &Connection, version: i64) -> SqliteResult
     if version != 42 {
         return Ok(false);
     }
+    v42_structure_matches(connection, false)
+}
+
+pub(super) fn v42_structure_matches(
+    connection: &Connection,
+    include_v43_extensions: bool,
+) -> SqliteResult<bool> {
     let marker: (i64, i64, i64, i64) = connection.query_row(
         "SELECT COALESCE(MAX(version),0),COALESCE(MIN(version),0),COUNT(*),COALESCE(SUM(version),0) FROM schema_version",
         [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     )?;
-    if !matches!(marker, (42, 1, 41, 884) | (42, 1, 42, 903)) {
+    let marker_matches = if include_v43_extensions {
+        matches!(marker, (43, 1, 42, 927) | (43, 1, 43, 946))
+    } else {
+        matches!(marker, (42, 1, 41, 884) | (42, 1, 42, 903))
+    };
+    if !marker_matches {
         return Ok(false);
     }
-    let tables = [
+    let mut tables = vec![
         V33_TABLE, V35_TABLE, TABLE, "conversation_context_scope", "execution_nodes",
         "taskrun_fence_counters", "taskrun_assignments", "taskrun_claim_receipts",
     ];
-    let indexes = [V33_INDEX, "taskrun_assignments_live_node"];
-    let extensions = CredentialSchemaExtensions { tables: &tables, indexes: &indexes, triggers: &[], replacements: &[] };
-    Ok(catalog_marker_matches(connection)?
-        && inherited_credential_guards_match(connection)?
-        && v37_structure_matches(connection)?
-        && v29_catalog_matches_with_extensions(connection, v32_operation_index_names(), &extensions)?
-        && project_workspace_schema::v36_receipt_table_matches(connection)?
-        && project_workspace_schema::validation::global_command_triggers_match(connection)?
-        && v39_lineage_table_matches(connection)?
-        && v40_scope_table_matches(connection)?
-        && execution_node_table_matches(connection)?
-        && claim_tables_match(connection)?
-        && claim_immutability_triggers_match(connection)?
-        && claim_global_command_triggers_match(connection)?
-        && claim_fence_triggers_match(connection)?)
+    let mut indexes = vec![V33_INDEX, "taskrun_assignments_live_node"];
+    let mut triggers = Vec::new();
+    if include_v43_extensions {
+        tables.extend(["taskrun_assignment_occupations", "taskrun_assignment_lease_renewals"]);
+        indexes.push("taskrun_assignment_occupations_capacity");
+        triggers.extend([
+            (
+                "taskrun_assignment_lease_renewals_immutable",
+                "CREATE TRIGGER taskrun_assignment_lease_renewals_immutable BEFORE UPDATE ON taskrun_assignment_lease_renewals BEGIN SELECT RAISE(ABORT, 'TaskRun lease renewal receipt is append only'); END",
+            ),
+            (
+                "taskrun_assignment_lease_renewals_no_delete",
+                "CREATE TRIGGER taskrun_assignment_lease_renewals_no_delete BEFORE DELETE ON taskrun_assignment_lease_renewals BEGIN SELECT RAISE(ABORT, 'TaskRun lease renewal receipt is append only'); END",
+            ),
+        ]);
+    }
+    let extensions = CredentialSchemaExtensions { tables: &tables, indexes: &indexes, triggers: &triggers, replacements: &[] };
+    let checks = [
+        ("catalog-marker", catalog_marker_matches(connection)?),
+        ("credential-guards", inherited_credential_guards_match(connection)?),
+        ("v37", v37_structure_matches(connection)?),
+        ("v29-catalog", v29_catalog_matches_with_extensions(connection, v32_operation_index_names(), &extensions)?),
+        ("v36-receipt", project_workspace_schema::v36_receipt_table_matches(connection)?),
+        ("global-workspace", project_workspace_schema::validation::global_command_triggers_match(connection)?),
+        ("v39-lineage", v39_lineage_table_matches(connection)?),
+        ("v40-scope", v40_scope_table_matches(connection)?),
+        ("v41-node", execution_node_table_matches(connection)?),
+        ("v42-claim", claim_tables_match(connection)?),
+        ("v42-immutability", claim_immutability_triggers_match(connection)?),
+        ("v42-global", claim_global_command_triggers_match(connection)?),
+        ("v42-fence", claim_fence_triggers_match(connection)?),
+    ];
+    Ok(checks.iter().all(|(_, matches)| *matches))
 }
 
 fn claim_global_command_triggers_match(connection: &Connection) -> SqliteResult<bool> {

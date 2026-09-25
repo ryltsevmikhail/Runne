@@ -19,6 +19,8 @@ mod v36_receipt_downgrade;
 mod v37_accounting_downgrade;
 #[path = "support/v39_lineage_downgrade.rs"]
 mod v39_lineage_downgrade;
+#[path = "support/v43_taskrun_downgrade.rs"]
+mod v43_taskrun_downgrade;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 
@@ -129,6 +131,7 @@ fn v16_fixture(
          DELETE FROM schema_version WHERE version >= 19;",
     )
     .unwrap();
+    v43_taskrun_downgrade::drop_v42_v43_taskrun_schema(&connection).unwrap();
     v37_accounting_downgrade::restore_v36_accounting(&connection).unwrap();
     v36_receipt_downgrade::restore_v18_receipt(&connection).unwrap();
     v39_lineage_downgrade::restore_v18_lineage(&connection).unwrap();

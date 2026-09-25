@@ -118,7 +118,7 @@ type AssignmentRow = (
     Vec<u8>,
 );
 
-fn verify_assignment(
+pub(super) fn verify_assignment(
     connection: &Connection,
     receipt: &TaskRunClaimReceipt,
     command_id: CommandId,
@@ -196,7 +196,7 @@ fn read_receipt<P: rusqlite::Params>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn receipt(
+pub(super) fn receipt(
     taskrun: Vec<u8>,
     attempt: Vec<u8>,
     node: Vec<u8>,
@@ -276,6 +276,9 @@ pub(super) fn persist(
     let version = i64::try_from(receipt.new_version).map_err(|_| ClaimError::CorruptData)?;
     tx.execute("INSERT INTO taskrun_assignments(taskrun_id,attempt_id,node_id,node_epoch,fence,capability_descriptor,lease_expires_at_ms,command_id,admitted_event_id,started_event_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
         rusqlite::params![request.taskrun_id.as_bytes(),request.attempt_id.as_bytes(),node,epoch,fence,request.capability_descriptor,expiry,request.command_id.as_bytes(),request.admitted_event.event_id().as_bytes(),request.started_event.event_id().as_bytes()])
+        .map_err(|_| ClaimError::CorruptData)?;
+    tx.execute("INSERT INTO taskrun_assignment_occupations(taskrun_id,fence,attempt_id,node_id,node_epoch,lease_expires_at_ms,state,dispatch_intent) VALUES(?1,?2,?3,?4,?5,?6,'active','absent')",
+        rusqlite::params![request.taskrun_id.as_bytes(),fence,request.attempt_id.as_bytes(),node,epoch,expiry])
         .map_err(|_| ClaimError::CorruptData)?;
     tx.execute("INSERT INTO taskrun_claim_receipts(command_id,idempotency_scope_bytes,idempotency_key,fingerprint,taskrun_id,attempt_id,node_id,node_epoch,fence,lease_expires_at_ms,new_version,admitted_event_id,started_event_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
         rusqlite::params![request.command_id.as_bytes(),scope,request.idempotency_key.as_str().as_bytes(),request.command_fingerprint.as_bytes(),request.taskrun_id.as_bytes(),request.attempt_id.as_bytes(),node,epoch,fence,expiry,version,receipt.admitted_event_id.as_bytes(),receipt.started_event_id.as_bytes()])

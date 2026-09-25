@@ -23,7 +23,6 @@ use runne_runtime::provider_execution::{
 use runne_security::SecretBroker;
 use runne_store::schema::apply_migrations;
 use runne_store::store::StoreTransaction;
-use rusqlite::Connection;
 use std::sync::Arc;
 #[path = "support/v36_receipt_downgrade.rs"]
 mod v36_receipt_downgrade;
@@ -31,6 +30,7 @@ mod v36_receipt_downgrade;
 mod v37_accounting_downgrade;
 #[path = "support/v39_lineage_downgrade.rs"]
 mod v39_lineage_downgrade;
+include!("support/v43_taskrun_downgrade.rs");
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 fn available_guard() -> Arc<dyn ProhibitedContentPort> {
@@ -210,6 +210,7 @@ fn production_terminal_application_reconstructs_started_command_and_finishes_onc
          DELETE FROM schema_version WHERE version >= 19;",
     )
         .unwrap();
+    drop_v42_v43_taskrun_schema(&connection).unwrap();
     v37_accounting_downgrade::restore_v36_accounting(&connection).unwrap();
     v36_receipt_downgrade::restore_v18_receipt(&connection).unwrap();
     v39_lineage_downgrade::restore_v18_lineage(&connection).unwrap();

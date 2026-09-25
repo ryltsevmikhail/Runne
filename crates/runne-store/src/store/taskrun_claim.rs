@@ -1,16 +1,72 @@
 use super::*;
 use runne_application::ports::{
-    ExecutionNodeId, TaskRunClaimError as ClaimError, TaskRunClaimLookup, TaskRunClaimLookupResult,
-    TaskRunClaimPort, TaskRunClaimReceipt, TaskRunClaimRequest, TaskRunClaimResult, TaskRunFence,
+    ExecutionNodeId, TaskRunAssignmentIdentity, TaskRunClaimError as ClaimError,
+    TaskRunClaimLookup, TaskRunClaimLookupResult, TaskRunClaimPort, TaskRunClaimReceipt,
+    TaskRunClaimRequest, TaskRunClaimResult, TaskRunFence,
 };
 use runne_domain::task_run::{TaskRun, TaskRunState};
-use rusqlite::TransactionBehavior;
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use std::str::FromStr;
 
 mod events;
 mod receipts;
 mod stream_integrity;
 mod write;
+
+type ClaimAuthorityRow = (
+    Vec<u8>,
+    Vec<u8>,
+    Vec<u8>,
+    Vec<u8>,
+    Vec<u8>,
+    i64,
+    i64,
+    i64,
+    i64,
+    Vec<u8>,
+    Vec<u8>,
+);
+
+pub(super) fn verify_active_assignment(
+    connection: &Connection,
+    identity: &TaskRunAssignmentIdentity,
+) -> Result<(), ClaimError> {
+    let row: Option<ClaimAuthorityRow> = connection.query_row(
+        "SELECT command_id,idempotency_key,taskrun_id,attempt_id,node_id,node_epoch,fence,lease_expires_at_ms,new_version,admitted_event_id,started_event_id FROM taskrun_claim_receipts WHERE taskrun_id=?1 AND fence=?2",
+        rusqlite::params![identity.taskrun_id.as_bytes(), identity.fence.0],
+        |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?,row.get(8)?,row.get(9)?,row.get(10)?)),
+    ).optional().map_err(|_| ClaimError::CorruptData)?;
+    let Some((
+        command,
+        key,
+        taskrun,
+        attempt,
+        node,
+        epoch,
+        fence,
+        expiry,
+        version,
+        admitted,
+        started,
+    )) = row
+    else {
+        return Err(ClaimError::CorruptData);
+    };
+    let receipt = receipts::receipt(
+        taskrun, attempt, node, epoch, fence, expiry, version, admitted, started,
+    )?;
+    if receipt.taskrun_id != identity.taskrun_id
+        || receipt.attempt_id != identity.attempt_id
+        || receipt.node_id.0 != identity.node_id.0
+        || receipt.node_epoch != identity.node_epoch
+        || receipt.fence != identity.fence
+    {
+        return Err(ClaimError::CorruptData);
+    }
+    let command = CommandId::from_bytes(command.try_into().map_err(|_| ClaimError::CorruptData)?);
+    receipts::verify_assignment(connection, &receipt, command)?;
+    stream_integrity::verify_current_claim_stream(connection, &receipt, command, &key)
+}
 
 const MAX_CLAIM_LEASE_MS: u64 = 300_000;
 const LINUX_CAPABILITY_DESCRIPTOR: &str = "linux-executor-v1";
@@ -84,7 +140,7 @@ impl TaskRunClaimPort for StoreTransaction {
         write::ensure_live_node(&tx, node_id, &request, now_ms)?;
         let active: i64 = tx
             .query_row(
-                "SELECT COUNT(*) FROM taskrun_assignments WHERE node_id=?1",
+                "SELECT COUNT(*) FROM taskrun_assignment_occupations WHERE node_id=?1 AND state='active'",
                 rusqlite::params![node_id.as_slice()],
                 |row| row.get(0),
             )
