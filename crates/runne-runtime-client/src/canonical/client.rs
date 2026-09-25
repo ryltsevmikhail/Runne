@@ -69,6 +69,16 @@ impl AuthenticatedRuntimeClient {
         self.authority.test_material()
     }
 
+    /// Returns the validated HTTPS origin this client is bound to,
+    /// test-support only. Used by process-fault tests that drive the real
+    /// daemon through raw HTTP while its own typed surface stays closed.
+    #[cfg(feature = "test-support")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn test_origin(&self) -> String {
+        self.origin.clone()
+    }
+
     pub(crate) fn from_local_session(
         client: reqwest::Client,
         origin: String,
