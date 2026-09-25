@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://runne.dev/schemas/workgroup-message-v1.schema.json",
+  "title": "WorkgroupMessage v1",
+  "description": "Target wire contract for immutable addressed advisory workgroup messages.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "message_id",
+    "group_id",
+    "discussion_id",
+    "turn_id",
+    "sender",
+    "audience",
+    "kind",
+    "body",
+    "causality",
+    "sensitivity",
+    "policy_ref",
+    "expires_at",
+    "agent_origin",
+    "canonical_fingerprint"
+  ],
+  "properties": {
+    "schema_version": { "const": "workgroup-message.v1" },
+    "message_id": { "$ref": "#/$defs/uuid" },
+    "group_id": { "$ref": "#/$defs/uuid" },
+    "discussion_id": { "oneOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }] },
+    "turn_id": { "oneOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }] },
+    "sender": { "$ref": "#/$defs/sender" },
+    "audience": { "$ref": "#/$defs/audience" },
+    "kind": { "enum": ["note", "question", "proposal", "evidence", "summary", "decision_reference"] },
+    "body": { "$ref": "#/$defs/body" },
+    "causality": { "$ref": "#/$defs/causality" },
+    "sensitivity": { "enum": ["public", "internal", "sensitive"] },
+    "policy_ref": { "$ref": "#/$defs/policyRef" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "agent_origin": { "oneOf": [{ "$ref": "#/$defs/agentOrigin" }, { "type": "null" }] },
+    "canonical_fingerprint": { "$ref": "#/$defs/fingerprint" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "sender": { "properties": { "kind": { "const": "agent" } }, "required": ["kind"] } }, "required": ["sender"] },
+      "then": {
+        "properties": {
+          "discussion_id": { "$ref": "#/$defs/uuid" },
+          "turn_id": { "$ref": "#/$defs/uuid" },
+          "agent_origin": { "$ref": "#/$defs/agentOrigin" }
+        }
+      },
+      "else": { "properties": { "turn_id": { "type": "null" }, "agent_origin": { "type": "null" } } }
+    }
+  ],
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "sender": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["principal_id", "member_id", "kind"],
+      "properties": {
+        "principal_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "member_id": { "$ref": "#/$defs/uuid" },
+        "kind": { "enum": ["human", "agent"] }
+      }
+    },
+    "audience": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["roster_revision", "recipient_member_ids"],
+      "properties": {
+        "roster_revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "recipient_member_ids": { "type": "array", "minItems": 1, "maxItems": 5, "uniqueItems": true, "items": { "$ref": "#/$defs/uuid" } }
+      }
+    },
+    "body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["encoding", "text", "sha256"],
+      "properties": {
+        "encoding": { "const": "utf-8" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 65536 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "causality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reply_to_message_id", "mentioned_member_ids"],
+      "properties": {
+        "reply_to_message_id": { "oneOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }] },
+        "mentioned_member_ids": { "type": "array", "maxItems": 4, "uniqueItems": true, "items": { "$ref": "#/$defs/uuid" } }
+      }
+    },
+    "policyRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_id", "revision"],
+      "properties": {
+        "policy_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+      }
+    },
+    "agentOrigin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_run_id", "attempt_id", "context_manifest_id", "context_manifest_digest", "execution_origin_digest"],
+      "properties": {
+        "task_run_id": { "$ref": "#/$defs/uuid" },
+        "attempt_id": { "$ref": "#/$defs/uuid" },
+        "context_manifest_id": { "$ref": "#/$defs/uuid" },
+        "context_manifest_digest": { "$ref": "#/$defs/sha256" },
+        "execution_origin_digest": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "fingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "value"],
+      "properties": {
+        "algorithm": { "const": "sha256" },
+        "value": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  },
+  "$comment": "Target schema only. Canonical fingerprint covers every top-level semantic field except canonical_fingerprint itself. Delivery metadata is not part of this shape or preimage. Runtime also enforces body.text UTF-8 bytes <=65536, digest verification, identity, room ACL, TTL, origin/read authorization, atomic receipt/outbox and idempotency semantics."
+}

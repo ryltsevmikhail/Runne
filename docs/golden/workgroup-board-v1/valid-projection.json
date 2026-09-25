@@ -1,0 +1,23 @@
+{
+  "schema_version": "workgroup-board.v1",
+  "record_type": "projection",
+  "group_id": "018f2e3a-7000-7000-8000-000000000102",
+  "discussion_id": "018f2e3a-7000-7000-8000-000000000103",
+  "board_version": 5,
+  "source_event_position": 188,
+  "projected_at": "2026-09-16T12:00:00Z",
+  "policy_ref": { "policy_id": "shared_room_v1", "revision": 2 },
+  "tasks": [{
+    "task_id": "018f2e3a-7000-7000-8000-000000000202",
+    "task_revision": 3,
+    "title": "Проверить протокол",
+    "state": "verified",
+    "dependencies": ["018f2e3a-7000-7000-8000-000000000203"],
+    "owner_member_id": "018f2e3a-7000-7000-8000-000000000105",
+    "task_run_id": "018f2e3a-7000-7000-8000-000000000208",
+    "acceptance_criteria_ref": { "reference_id": "taskrun:018f2e3a-7000-7000-8000-000000000208:criteria", "sha256": "8888888888888888888888888888888888888888888888888888888888888888" },
+    "evidence": [{ "kind": "verifier", "reference_id": "verification:workgroup-schema", "sha256": "5555555555555555555555555555555555555555555555555555555555555555" }],
+    "terminal_reason": { "code": "verified", "detail": "Independent verifier accepted the referenced evidence." }
+  }],
+  "projection_digest": "523bfde2f9df7704d2a20b34385f5fa9e7480855ce8ffdb4256327ded9bd097d"
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": "workgroup-message.v1",
+  "message_id": "018f2e3a-7000-7000-8000-000000000112",
+  "group_id": "018f2e3a-7000-7000-8000-000000000102",
+  "discussion_id": "018f2e3a-7000-7000-8000-000000000103",
+  "turn_id": "018f2e3a-7000-7000-8000-000000000104",
+  "sender": { "principal_id": "agent:critic", "member_id": "018f2e3a-7000-7000-8000-000000000107", "kind": "agent" },
+  "audience": { "roster_revision": 3, "recipient_member_ids": ["018f2e3a-7000-7000-8000-000000000106"] },
+  "kind": "proposal",
+  "body": { "encoding": "utf-8", "text": "Предлагаю следующий шаг.", "sha256": "1111111111111111111111111111111111111111111111111111111111111111" },
+  "causality": { "reply_to_message_id": null, "mentioned_member_ids": [] },
+  "sensitivity": "internal",
+  "policy_ref": { "policy_id": "shared_room_v1", "revision": 2 },
+  "expires_at": "2026-10-01T12:00:00Z",
+  "agent_origin": null,
+  "canonical_fingerprint": { "algorithm": "sha256", "value": "2222222222222222222222222222222222222222222222222222222222222222" }
+}

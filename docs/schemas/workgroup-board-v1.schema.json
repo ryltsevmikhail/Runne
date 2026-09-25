@@ -1,0 +1,250 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://runne.dev/schemas/workgroup-board-v1.schema.json",
+  "title": "WorkgroupBoard v1",
+  "description": "Target wire contract for a human board command or a derived board projection.",
+  "oneOf": [
+    { "$ref": "#/$defs/command" },
+    { "$ref": "#/$defs/projection" }
+  ],
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "humanActor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["principal_id", "member_id", "kind"],
+      "properties": {
+        "principal_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "member_id": { "$ref": "#/$defs/uuid" },
+        "kind": { "const": "human" }
+      }
+    },
+    "policyRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_id", "revision"],
+      "properties": {
+        "policy_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+      }
+    },
+    "evidenceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "reference_id", "sha256"],
+      "properties": {
+        "kind": { "enum": ["message", "task_run", "artifact", "verifier"] },
+        "reference_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "acceptanceCriteriaRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reference_id", "sha256"],
+      "properties": {
+        "reference_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "terminalReason": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "detail"],
+      "properties": {
+        "code": { "enum": ["verified", "cancelled_by_human", "dependency_failed", "budget_exhausted", "policy_denied", "deadline_elapsed", "execution_failed"] },
+        "detail": { "type": "string", "minLength": 1, "maxLength": 2048 }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "task_revision", "title", "state", "dependencies", "owner_member_id", "task_run_id", "acceptance_criteria_ref", "evidence", "terminal_reason"],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/uuid" },
+        "task_revision": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "state": { "enum": ["planned", "ready", "assigned", "in_progress", "blocked", "verified", "failed", "cancelled"] },
+        "dependencies": { "type": "array", "maxItems": 32, "uniqueItems": true, "items": { "$ref": "#/$defs/uuid" } },
+        "owner_member_id": { "oneOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }] },
+        "task_run_id": { "oneOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }] },
+        "acceptance_criteria_ref": { "oneOf": [{ "$ref": "#/$defs/acceptanceCriteriaRef" }, { "type": "null" }] },
+        "evidence": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/evidenceRef" } },
+        "terminal_reason": { "oneOf": [{ "$ref": "#/$defs/terminalReason" }, { "type": "null" }] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "state": { "enum": ["verified", "failed", "cancelled"] } }, "required": ["state"] },
+          "then": { "properties": { "terminal_reason": { "$ref": "#/$defs/terminalReason" } } },
+          "else": { "properties": { "terminal_reason": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "state": { "const": "verified" } }, "required": ["state"] },
+          "then": {
+            "properties": {
+              "task_run_id": { "$ref": "#/$defs/uuid" },
+              "acceptance_criteria_ref": { "$ref": "#/$defs/acceptanceCriteriaRef" },
+              "terminal_reason": { "properties": { "code": { "const": "verified" } }, "required": ["code"] },
+              "evidence": { "contains": { "properties": { "kind": { "const": "verifier" } }, "required": ["kind"] }, "minContains": 1 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "state": { "const": "cancelled" } }, "required": ["state"] },
+          "then": { "properties": { "terminal_reason": { "properties": { "code": { "const": "cancelled_by_human" } }, "required": ["code"] } } }
+        },
+        {
+          "if": { "properties": { "state": { "const": "failed" } }, "required": ["state"] },
+          "then": { "properties": { "terminal_reason": { "properties": { "code": { "enum": ["dependency_failed", "budget_exhausted", "policy_denied", "deadline_elapsed", "execution_failed"] } }, "required": ["code"] } } }
+        },
+        {
+          "if": { "properties": { "state": { "enum": ["assigned", "in_progress"] } }, "required": ["state"] },
+          "then": { "properties": { "owner_member_id": { "$ref": "#/$defs/uuid" } } }
+        }
+      ]
+    },
+    "createTaskPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "dependencies"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "dependencies": { "type": "array", "maxItems": 32, "uniqueItems": true, "items": { "$ref": "#/$defs/uuid" } }
+      }
+    },
+    "updateTaskPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "title"],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/uuid" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    },
+    "assignOwnerPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "owner_member_id"],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/uuid" },
+        "owner_member_id": { "oneOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }] }
+      }
+    },
+    "changeDependenciesPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "dependencies"],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/uuid" },
+        "dependencies": { "type": "array", "maxItems": 32, "uniqueItems": true, "items": { "$ref": "#/$defs/uuid" } }
+      }
+    },
+    "recordEvidencePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "evidence"],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/uuid" },
+        "evidence": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "$ref": "#/$defs/evidenceRef" } }
+      }
+    },
+    "transitionTaskPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "target_state"],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/uuid" },
+        "target_state": { "enum": ["ready", "blocked"] }
+      }
+    },
+    "requestCancelPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "reason"],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/uuid" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 2048 }
+      }
+    },
+    "linkExistingTaskRunPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "target_task_run_id"],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/uuid" },
+        "target_task_run_id": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "record_type", "command_id", "group_id", "discussion_id", "expected_board_version", "expected_task_revision", "actor", "policy_ref", "operation", "payload"],
+      "properties": {
+        "schema_version": { "const": "workgroup-board.v1" },
+        "record_type": { "const": "command" },
+        "command_id": { "$ref": "#/$defs/uuid" },
+        "group_id": { "$ref": "#/$defs/uuid" },
+        "discussion_id": { "$ref": "#/$defs/uuid" },
+        "expected_board_version": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "expected_task_revision": { "oneOf": [{ "type": "integer", "minimum": 0, "maximum": 9007199254740991 }, { "type": "null" }] },
+        "actor": { "$ref": "#/$defs/humanActor" },
+        "policy_ref": { "$ref": "#/$defs/policyRef" },
+        "operation": { "enum": ["create_task", "update_task", "assign_owner", "change_dependencies", "record_evidence", "transition_task", "request_cancel", "request_link_existing_task_run"] },
+        "payload": { "type": "object" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "operation": { "const": "create_task" } }, "required": ["operation"] },
+          "then": { "properties": { "expected_task_revision": { "type": "null" }, "payload": { "$ref": "#/$defs/createTaskPayload" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "update_task" } }, "required": ["operation"] },
+          "then": { "properties": { "expected_task_revision": { "type": "integer" }, "payload": { "$ref": "#/$defs/updateTaskPayload" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "assign_owner" } }, "required": ["operation"] },
+          "then": { "properties": { "expected_task_revision": { "type": "integer" }, "payload": { "$ref": "#/$defs/assignOwnerPayload" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "change_dependencies" } }, "required": ["operation"] },
+          "then": { "properties": { "expected_task_revision": { "type": "integer" }, "payload": { "$ref": "#/$defs/changeDependenciesPayload" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "record_evidence" } }, "required": ["operation"] },
+          "then": { "properties": { "expected_task_revision": { "type": "integer" }, "payload": { "$ref": "#/$defs/recordEvidencePayload" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "transition_task" } }, "required": ["operation"] },
+          "then": { "properties": { "expected_task_revision": { "type": "integer" }, "payload": { "$ref": "#/$defs/transitionTaskPayload" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "request_cancel" } }, "required": ["operation"] },
+          "then": { "properties": { "expected_task_revision": { "type": "integer" }, "payload": { "$ref": "#/$defs/requestCancelPayload" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "request_link_existing_task_run" } }, "required": ["operation"] },
+          "then": { "properties": { "expected_task_revision": { "type": "integer" }, "payload": { "$ref": "#/$defs/linkExistingTaskRunPayload" } } }
+        }
+      ]
+    },
+    "projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "record_type", "group_id", "discussion_id", "board_version", "source_event_position", "projected_at", "policy_ref", "tasks", "projection_digest"],
+      "properties": {
+        "schema_version": { "const": "workgroup-board.v1" },
+        "record_type": { "const": "projection" },
+        "group_id": { "$ref": "#/$defs/uuid" },
+        "discussion_id": { "$ref": "#/$defs/uuid" },
+        "board_version": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "source_event_position": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "projected_at": { "type": "string", "format": "date-time" },
+        "policy_ref": { "$ref": "#/$defs/policyRef" },
+        "tasks": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/task" } },
+        "projection_digest": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  },
+  "$comment": "Target schema only. Runtime validates authenticated human authority, CAS against durable board version, dependency graph/readiness, room membership, evidence existence, immutable trusted TaskRun/acceptance-criteria links, verifier-to-criteria matching, terminal settlement and all policy/budget/grant/workspace invariants. A valid projection has no mutation authority."
+}

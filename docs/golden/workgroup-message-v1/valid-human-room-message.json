@@ -1,0 +1,17 @@
+{
+  "schema_version": "workgroup-message.v1",
+  "message_id": "018f2e3a-7000-7000-8000-000000000111",
+  "group_id": "018f2e3a-7000-7000-8000-000000000102",
+  "discussion_id": null,
+  "turn_id": null,
+  "sender": { "principal_id": "user:founder", "member_id": "018f2e3a-7000-7000-8000-000000000106", "kind": "human" },
+  "audience": { "roster_revision": 3, "recipient_member_ids": ["018f2e3a-7000-7000-8000-000000000105"] },
+  "kind": "note",
+  "body": { "encoding": "utf-8", "text": "Зафиксируйте неизвестные риски до следующего решения.", "sha256": "56086933ee9a01729fa67155c43e58e577fb817df912f97fe92ee6648a78a804" },
+  "causality": { "reply_to_message_id": null, "mentioned_member_ids": [] },
+  "sensitivity": "internal",
+  "policy_ref": { "policy_id": "shared_room_v1", "revision": 2 },
+  "expires_at": "2026-10-01T12:00:00Z",
+  "agent_origin": null,
+  "canonical_fingerprint": { "algorithm": "sha256", "value": "a8da32c7d4eea9b7540211a79ab3c1c3c70a24bdd6d9c5ead308112b1c76bdae" }
+}
