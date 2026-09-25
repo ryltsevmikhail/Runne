@@ -7,6 +7,7 @@ pub(in crate::protected_activation) use completion::with_control;
 mod writer_driver;
 #[cfg(unix)]
 include!("runtime/shutdown.rs");
+include!("runtime/dispatch.rs");
 #[cfg_attr(
     not(all(target_os = "macos", target_arch = "aarch64")),
     allow(dead_code)
@@ -67,20 +68,6 @@ pub(crate) const fn enrollment_transcript_allows_rotation(
     terminal: bool,
 ) -> bool {
     !has_session || terminal
-}
-
-impl V3EnrollmentRuntime {
-    /// Off macOS there is no credential enrollment session in the V3 loop.
-    pub(super) const fn has_session(&self) -> bool {
-        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        {
-            self.session.is_some()
-        }
-        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-        {
-            false
-        }
-    }
 }
 
 #[cfg_attr(

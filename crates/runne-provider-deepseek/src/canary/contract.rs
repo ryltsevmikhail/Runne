@@ -26,7 +26,6 @@ const SERVICE_TIER: &str = "default";
 pub(super) const PRICING_REVISION: &str = "deepseek-flash-peak-2026-09-21/1";
 const PROMPT: &str = "Reply with exactly: OK";
 const RESULT: &str = "OK";
-const CANARY_REQUEST: &[u8] = b"{\"model\":\"deepseek-v4-flash\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Reply with exactly: OK\"}]}],\"max_output_tokens\":16,\"reasoning\":{\"effort\":\"none\"},\"tools\":[],\"tool_choice\":\"none\",\"stream\":true}\n";
 /// Closed result of candidate preparation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CandidateDisposition {
@@ -106,7 +105,7 @@ impl CanaryOverlay {
             input_count: 1,
             user: true,
             exact_prompt_match: text == PROMPT,
-            prompt_digest: digest(b"runne.canary.prompt/1", &[text.as_bytes()]),
+            prompt_digest: digest(b"gocode.canary.prompt/1", &[text.as_bytes()]),
             prompt_length: text.len() as u64,
             matches: [true; 9],
             max_output_tokens: 16,
@@ -186,6 +185,9 @@ impl CanaryCandidate {
         if !overlay.is_exact() {
             return Err(CandidateDisposition::OverlayRejected);
         }
+        let one = 1_u64.to_be_bytes();
+        let zero = 0_u64.to_be_bytes();
+        let sixteen = 16_u64.to_be_bytes();
         let prompt_length = overlay.prompt_length.to_be_bytes();
         let request_components: [&[u8]; 21] = components!(
             &RAW_PROFILE_DIGEST; METHOD.as_bytes(); ORIGIN.as_bytes(); PATH.as_bytes();
@@ -200,7 +202,7 @@ impl CanaryCandidate {
         let result_length = RESULT.len() as u64;
         let result_length_bytes = result_length.to_be_bytes();
         let candidate_digest = digest(
-            b"runne.canary.candidate/1",
+            b"gocode.canary.candidate/1",
             &components!(
                 &RAW_PROFILE_DIGEST; &request_digest; &request_length_bytes;
                 &overlay.prompt_digest; &prompt_length; &result_digest; &result_length_bytes;
@@ -217,7 +219,7 @@ impl CanaryCandidate {
         })
     }
     candidate_field!(
-        profile_id, PROFILE_ID; provider, PROVIDER; origin, ORIGIN; method, METHOD;
+        profile_id, PROFILE_ID; service_tier, SERVICE_TIER; provider, PROVIDER; origin, ORIGIN; method, METHOD;
         path, PATH; request_model, REQUEST_MODEL; model_id, MODEL_ID;
         model_revision, MODEL_REVISION; pricing_revision, PRICING_REVISION;
     );

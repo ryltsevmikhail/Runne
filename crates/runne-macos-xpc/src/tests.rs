@@ -6,13 +6,13 @@ use std::sync::{
 use zeroize::Zeroizing;
 
 use super::*;
-use crate::client::{CallEvent, PendingCall};
 use crate::peer_requirement::ConnectionPreparation;
 use crate::service_management::{
     LAUNCH_AGENT_PLIST, map_status_code, operation_error, validate_registration_version,
 };
 
 #[cfg(target_os = "macos")]
+#[path = "tests/secret_lifetime.rs"]
 mod secret_lifetime;
 
 const SERVICE_REQUIREMENT: &str = concat!(
@@ -79,39 +79,6 @@ fn signing_requirement_must_be_installed_before_resume() {
             CredentialServicePeerRequirement::new(SERVICE_REQUIREMENT).unwrap()
         ),
         Err(CredentialServiceXpcError::Rejected)
-    );
-}
-
-#[test]
-fn pending_call_is_single_terminal_across_timeout_interrupt_and_invalidation() {
-    for event in [
-        CallEvent::Timeout,
-        CallEvent::Cancelled,
-        CallEvent::Interrupted,
-        CallEvent::Invalidated,
-    ] {
-        let mut call = PendingCall::new(10, 20).unwrap();
-        assert_eq!(
-            call.apply(event, 15),
-            Err(CredentialServiceXpcError::OutcomeUnknown)
-        );
-        assert_eq!(
-            call.apply(CallEvent::Reply, 16),
-            Err(CredentialServiceXpcError::InvalidReply)
-        );
-    }
-}
-
-#[test]
-fn reply_at_or_after_deadline_is_timeout_and_late_reply_is_ignored() {
-    let mut call = PendingCall::new(10, 20).unwrap();
-    assert_eq!(
-        call.apply(CallEvent::Reply, 20),
-        Err(CredentialServiceXpcError::OutcomeUnknown)
-    );
-    assert_eq!(
-        call.apply(CallEvent::Reply, 21),
-        Err(CredentialServiceXpcError::InvalidReply)
     );
 }
 
@@ -287,21 +254,5 @@ fn non_macos_transport_is_typed_unsupported() {
     ));
 }
 
-#[test]
-fn runtime_client_uses_the_qualification_port_without_a_new_endpoint() {
-    let source = include_str!("client.rs");
-    assert!(source.contains("role_client!(CredentialServiceRuntimeXpcClient, Runtime);"));
-    assert!(
-        source.contains(
-            "impl CredentialServiceQualificationPort for CredentialServiceRuntimeXpcClient"
-        )
-    );
-    assert!(source.contains("CredentialServicePortError::Unsupported"));
-    assert!(
-        !source.contains(
-            "exchange_method!(self, request, context, CredentialServiceQualificationReply)"
-        )
-    );
-    assert!(!source.contains("CredentialServiceQualificationXpcClient"));
-    assert!(!source.contains("CredentialServiceEndpointRole::Qualification"));
-}
+#[path = "tests/runtime_client.rs"]
+mod runtime_client;

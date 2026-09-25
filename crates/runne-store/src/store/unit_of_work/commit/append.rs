@@ -225,9 +225,6 @@ impl StoreTransaction {
             )
         })?;
         #[cfg(feature = "test-support")]
-        commit_gate::note_durable_commit();
-
-        #[cfg(feature = "test-support")]
         if matches!(
             &payload.command_result,
             runne_application::commands::CommandOutcome::TaskRunSubmitted { .. }

@@ -58,6 +58,7 @@ impl ProviderTerminalPricing for RadiusProfile {
         &self,
         pricing_revision_digest: &[u8; 32],
         profile_digest: &[u8; 32],
+        _effect_started_at: i64,
         usage: ProviderUsage,
     ) -> Result<ProviderPricedUsage, ProviderTerminalPricingError> {
         if pricing_revision_digest != &self.catalog_digest()
@@ -121,7 +122,7 @@ impl TextProviderProfile for RadiusProfile {
         &self,
         usage: ProviderUsage,
     ) -> Result<u64, ProviderTerminalPricingError> {
-        self.price_terminal_usage(&self.catalog_digest(), &self.profile_digest(), usage)
+        self.price_terminal_usage(&self.catalog_digest(), &self.profile_digest(), 0, usage)
             .map(|quote| quote.charge_micros())
     }
 

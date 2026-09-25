@@ -1,6 +1,8 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use zeroize::Zeroizing;
 
-use crate::frame::{NativeReplyFrame, NativeRequestFrame};
+use crate::frame::{FrameDropWitness, NativeReplyFrame, NativeRequestFrame};
 
 #[test]
 fn native_frames_reject_empty_and_oversized_request_or_reply() {
@@ -22,4 +24,18 @@ fn native_frames_reject_empty_and_oversized_request_or_reply() {
             .into_bytes(),
         &[2]
     );
+}
+
+#[test]
+fn observed_frame_records_drop_once() {
+    let drops = Arc::new(AtomicUsize::new(0));
+    let frame = NativeRequestFrame::new_observed(
+        Zeroizing::new(vec![1]),
+        FrameDropWitness::new(Arc::clone(&drops)),
+    )
+    .unwrap();
+
+    assert_eq!(drops.load(Ordering::Acquire), 0);
+    drop(frame);
+    assert_eq!(drops.load(Ordering::Acquire), 1);
 }

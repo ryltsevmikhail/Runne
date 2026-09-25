@@ -19,7 +19,9 @@ GUARDED_PATHS = BASE_GUARDED_PATHS + (
     "apps/desktop/src-tauri/src/provider_credential_enrollment/host_prompt/macos/routes.rs",
     "apps/desktop/src-tauri/src/provider_credential_enrollment/host_prompt/macos/cleanup.rs",
     "crates/runne-secure-store/src/provider_credential/policy.rs",
+    "crates/runne-secure-store/src/provider_credential/material.rs",
     "crates/runne-daemon/src/protected_activation/credential_service_gateway.rs",
+    "crates/runne-daemon/src/protected_activation/credential_service_gateway/materializer.rs",
     "crates/runne-daemon-openai-effect/src/client.rs",
     "crates/runne-daemon-openai-effect/src/bounds.rs",
     "crates/runne-daemon-deepseek-effect/src/client.rs",
@@ -66,19 +68,19 @@ class ProviderDispatchSecretSurfaceValidatorTests(unittest.TestCase):
     def test_gateway_and_provider_materializers_must_transfer_ownership(self) -> None:
         mutations = (
             (
-                "crates/runne-daemon/src/protected_activation/credential_service_gateway.rs",
+                "crates/runne-daemon/src/protected_activation/credential_service_gateway/materializer.rs",
                 "ProviderCredentialMaterial::from_zeroizing(material.into_zeroizing())",
-                "ProviderCredentialMaterial::new(bytes.to_vec())",
+                "material.consume(|bytes| { converted = ProviderCredentialMaterial::new(bytes.to_vec()); });",
             ),
             (
                 "crates/runne-daemon-openai-effect/src/client.rs",
-                ".map(ProviderCredentialMaterial::into_zeroizing)",
-                ".map(|value| value.with_bytes(|bytes| Zeroizing::new(bytes.to_vec())))",
+                ".map(|material| material.into_zeroizing().1)",
+                ".map(|material| material.with_bytes(|bytes| Zeroizing::new(bytes.to_vec())))",
             ),
             (
                 "crates/runne-daemon-deepseek-effect/src/client.rs",
-                ".map(ProviderCredentialMaterial::into_zeroizing)",
-                ".map(|value| value.with_bytes(|bytes| Zeroizing::new(bytes.to_vec())))",
+                ".map(|material| material.into_zeroizing().1)",
+                ".map(|material| material.with_bytes(|bytes| Zeroizing::new(bytes.to_vec())))",
             ),
         )
         for path, before, after in mutations:
@@ -120,14 +122,14 @@ class ProviderDispatchSecretSurfaceValidatorTests(unittest.TestCase):
                 self.reset_fixture()
                 self.mutate(
                     path,
-                    ".map(ProviderCredentialMaterial::into_zeroizing)",
-                    ".map(ProviderCredentialMaterial::into_zeroizing)\n"
+                    ".map(|material| material.into_zeroizing().1)",
+                    ".map(|material| material.into_zeroizing().1)\n"
                     "                    .map(|bytes| { let _copy = bytes.to_vec(); bytes })",
                 )
                 self.assert_rejected("PROVIDER_DISPATCH_ZEROIZING_TRANSFER")
 
     def test_provider_material_debug_surface_is_rejected(self) -> None:
-        path = "crates/runne-secure-store/src/provider_credential/policy.rs"
+        path = "crates/runne-secure-store/src/provider_credential/material.rs"
         self.mutate(
             path,
             "impl ProviderCredentialMaterial {",

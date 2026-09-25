@@ -139,7 +139,7 @@ pub(super) fn v42_structure_matches(
         ("catalog-marker", catalog_marker_matches(connection)?),
         ("credential-guards", inherited_credential_guards_match(connection)?),
         ("v37", v37_structure_matches(connection)?),
-        ("v29-catalog", v29_catalog_matches_with_extensions(connection, v32_operation_index_names(), &extensions)?),
+        ("v29-catalog", v29_catalog_matches_with_extensions(connection, v35_operation_index_names(), &extensions)?),
         ("v36-receipt", project_workspace_schema::v36_receipt_table_matches(connection)?),
         ("global-workspace", project_workspace_schema::validation::global_command_triggers_match(connection)?),
         ("v39-lineage", v39_lineage_table_matches(connection)?),

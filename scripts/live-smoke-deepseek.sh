@@ -132,8 +132,8 @@ if ! grep -q "credential deepseek: configured" <<<"$DOCTOR_OUTPUT"; then
   echo "refusing: daemon sees deepseek credential as not configured." >&2
   exit 4
 fi
-if ! grep -q "profile: runne-deepseek-responses-text/1" <<<"$DOCTOR_OUTPUT" \
-  || ! grep -q "model: deepseek-v4-flash (revision DeepSeek-V4-Flash-0731)" <<<"$DOCTOR_OUTPUT"; then
+if ! grep -q "profile: gocode-deepseek-responses-text/1" <<<"$DOCTOR_OUTPUT" \
+  || ! grep -q "model: deepseek-flash (revision 2026-09-21)" <<<"$DOCTOR_OUTPUT"; then
   echo "refusing: daemon does not expose the exact D1.2 profile/model." >&2
   exit 3
 fi

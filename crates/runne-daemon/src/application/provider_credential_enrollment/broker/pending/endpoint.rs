@@ -49,7 +49,7 @@ pub(crate) struct AwaitingVerifiedWriter {
 }
 
 impl PendingBrokerRendezvousRegistry {
-    /// Removes before validation so failures cannot retain or replay writer authority.
+    /// Validates under lock before consuming the exact one-shot authority.
     pub(crate) fn begin_endpoint_handoff(
         &self,
         rendezvous_id: &str,
@@ -59,26 +59,48 @@ impl PendingBrokerRendezvousRegistry {
         now_high_water: i64,
     ) -> Result<PendingBrokerEndpointHandoff, ProviderCredentialEnrollmentHostError> {
         let operation_id = self.handles.resolve_broker_rendezvous_id(rendezvous_id)?;
-        let entry = self
+        let mut entries = self
             .entries
             .lock()
-            .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?
-            .remove(&operation_id)
-            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
+            .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
         if operation_id != operation.operation_id() {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
-        let current =
-            PendingBrokerRendezvousBinding::new(operation, authority, proof, now_high_water)?;
+        let current = PendingBrokerRendezvousBinding::for_handoff(
+            operation,
+            authority,
+            proof,
+            now_high_water,
+        )?;
+        let entry = entries
+            .get(&operation_id)
+            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
         if entry.binding != current || !entry.authority_witness.matches_authority(authority) {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
+        let mut detached = self
+            .detached
+            .lock()
+            .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
+        if !detached.insert(operation_id) {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        let entry = entries
+            .remove(&operation_id)
+            .ok_or(ProviderCredentialEnrollmentHostError::InvariantViolation)?;
         Ok(PendingBrokerEndpointHandoff {
             binding: entry.binding,
             authority_witness: entry.authority_witness,
             broker_transfer: entry.broker_transfer,
             rendezvous: entry.rendezvous,
         })
+    }
+
+    /// Clears the process-local handoff tombstone only after durable claim.
+    pub(crate) fn release_detached_after_claim(&self, operation_id: CredentialOperationId) {
+        if let Ok(mut detached) = self.detached.lock() {
+            detached.remove(&operation_id);
+        }
     }
 }
 

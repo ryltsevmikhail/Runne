@@ -7,7 +7,7 @@ const RETENTION_REQUEST_ID: &str = "018f2e3a-7000-7000-8000-000000000190";
 impl MockRuntime {
     fn session() -> RuntimeSessionInfo {
         RuntimeSessionInfo {
-            profile_id: "gocode-ui-client/2".to_owned(),
+            profile_id: runne_runtime_client::EXPECTED_BUNDLE_ID.to_owned(),
             schema_hash: GOLDEN_BUNDLE_HASH.to_owned(),
             runtime_version: "test".to_owned(),
             capabilities: REQUIRED_RUNTIME_CAPABILITIES

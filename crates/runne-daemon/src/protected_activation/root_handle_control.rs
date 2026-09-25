@@ -110,33 +110,6 @@ pub(crate) fn receive_root_handle_offer_for_ids(
     now_unix_millis: u64,
     authority: Option<&ProtectedRootControl>,
 ) -> Result<u64, LaunchAuthorityError> {
-    receive_root_handle_offer_for_ids(
-        channel,
-        frame,
-        keys,
-        owned.launch_authority_id(),
-        owned.session_id(),
-        owned.launch_generation(),
-        used_transfers,
-        previous_sequence,
-        now_unix_millis,
-        authority,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn receive_root_handle_offer_for_ids(
-    channel: &mut ProtectedActivationChannel,
-    frame: &[u8],
-    keys: &ProtectedActivationKeys,
-    launch_authority_id: &[u8; 16],
-    session_id: &[u8; 16],
-    launch_generation: u64,
-    used_transfers: &mut std::collections::VecDeque<([u8; 16], [u8; 32], u64)>,
-    previous_sequence: u64,
-    now_unix_millis: u64,
-    authority: Option<&ProtectedRootControl>,
-) -> Result<u64, LaunchAuthorityError> {
     let (sender_pid, effective_uid) = channel.peer_identity()?;
     let receiver_pid = std::process::id();
     let authenticator = RootHandleTransferAuthenticator::from_protected_activation(keys);

@@ -66,15 +66,7 @@ impl PendingBrokerRendezvousBinding {
 
     // The binding is minted only from the unix broker transport (and the
     // macOS protected qualification suites); windows begin refuses earlier.
-    #[cfg(any(
-        all(test, unix),
-        all(feature = "desktop-protected", target_os = "linux"),
-        all(
-            feature = "desktop-protected",
-            target_os = "macos",
-            target_arch = "aarch64"
-        )
-    ))]
+    #[cfg(all(test, unix))]
     pub(in crate::application::provider_credential_enrollment::broker) fn new(
         operation: &CredentialOperationSnapshot,
         authority: &ProviderCredentialBaseRequestAuthority,

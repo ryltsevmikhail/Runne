@@ -102,6 +102,7 @@ pub(crate) fn run_control_loop_v2(
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             {
                 let (v3_keys, v3_owned_launch, rendezvous, installed_facts) = outcome.into_parts();
+                rotate_root_admission(&root_admission, &v3_keys)?;
                 drop(status_guard);
                 return super::control_v3::run_control_loop_v3_entered(
                     channel,
@@ -121,6 +122,7 @@ pub(crate) fn run_control_loop_v2(
             #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
             {
                 let (v3_keys, v3_owned_launch, rendezvous) = outcome.into_parts_unix();
+                rotate_root_admission(&root_admission, &v3_keys)?;
                 return super::control_v3::run_control_loop_v3_entered(
                     channel,
                     v3_keys,
@@ -227,6 +229,20 @@ pub(crate) fn run_control_loop_v2(
         )?;
         return Ok(());
     }
+}
+
+#[cfg(all(unix, feature = "desktop-protected"))]
+fn rotate_root_admission(
+    authority: &Option<Arc<ProtectedRootControl>>,
+    keys: &ProtectedActivationKeys,
+) -> Result<(), LaunchAuthorityError> {
+    if let Some(authority) = authority {
+        authority
+            .fence()
+            .and_then(|()| authority.rotate_enrollment_keys(keys))
+            .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?;
+    }
+    Ok(())
 }
 
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]

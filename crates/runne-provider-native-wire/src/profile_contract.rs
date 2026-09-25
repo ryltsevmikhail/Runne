@@ -51,6 +51,7 @@ macro_rules! impl_profile_contract {
                 &self,
                 pricing_digest: &[u8; 32],
                 profile_digest: &[u8; 32],
+                _effect_started_at: i64,
                 usage: ProviderUsage,
             ) -> Result<ProviderPricedUsage, ProviderTerminalPricingError> {
                 if pricing_digest != &self.pricing_revision_digest()
@@ -121,6 +122,7 @@ impl ProviderTerminalPricing for NativeWireProfile {
         &self,
         pricing_digest: &[u8; 32],
         profile_digest: &[u8; 32],
+        _effect_started_at: i64,
         usage: ProviderUsage,
     ) -> Result<ProviderPricedUsage, ProviderTerminalPricingError> {
         if pricing_digest != &self.pricing_revision_digest()

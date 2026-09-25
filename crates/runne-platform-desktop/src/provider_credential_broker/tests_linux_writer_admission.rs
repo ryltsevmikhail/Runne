@@ -4,6 +4,7 @@
 //! retained start identity, and denies wrong images and drifted identities.
 //! Ticket one-use/TTL/replay live in the daemon registry (covered elsewhere).
 
+use std::os::unix::fs::PermissionsExt as _;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
@@ -160,7 +161,6 @@ fn denies_a_replaced_executable_path_after_spawn() {
     let mut permissions = std::fs::metadata(&image)
         .expect("image metadata")
         .permissions();
-    use std::os::unix::fs::PermissionsExt as _;
     permissions.set_mode(0o755);
     std::fs::set_permissions(&image, permissions).expect("make fixture executable");
     let digest: [u8; 32] = Sha256::digest(std::fs::read(&image).expect("read image")).into();

@@ -138,7 +138,7 @@ pub async fn open_protected_bundled_workspace_core(
     let client = mock_protected_authenticated_runtime_client(
         &format!("http://{address}"),
         RuntimeSessionInfo {
-            profile_id: "gocode-ui-client/2".into(),
+            profile_id: runne_runtime_client::EXPECTED_BUNDLE_ID.into(),
             schema_hash: GOLDEN_BUNDLE_HASH.into(),
             runtime_version: "test".into(),
             capabilities: capabilities.clone(),

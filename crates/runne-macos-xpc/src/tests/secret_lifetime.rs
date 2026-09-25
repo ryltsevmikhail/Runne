@@ -11,6 +11,7 @@ use zeroize::Zeroizing;
 use crate::CredentialServiceXpcError;
 use crate::client::native::exchange::{self, ConnectionEvent};
 
+#[path = "secret_lifetime/support.rs"]
 mod support;
 use support::{CANARY, Counts, TestConnection, assert_unknown, await_call, context, spawn_call};
 

@@ -46,6 +46,7 @@ fn external_metering_preserves_usage_without_inventing_currency() {
         .price_terminal_usage(
             &profile.pricing_revision_digest(),
             &profile.profile_digest(),
+            0,
             usage,
         )
         .unwrap();

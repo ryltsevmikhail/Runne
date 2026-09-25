@@ -48,7 +48,7 @@ pub(super) fn v38_matches(conn: &Connection, version: i64) -> SqliteResult<bool>
 fn v38_catalog_matches(conn: &Connection) -> SqliteResult<bool> {
     v29_catalog_matches_with_extensions(
         conn,
-        v32_operation_index_names(),
+        v35_operation_index_names(),
         &CredentialSchemaExtensions {
             tables: &[V33_TABLE, V35_TABLE, TABLE],
             indexes: &[V33_INDEX],

@@ -1,7 +1,6 @@
 const NATIVE_TEST_GATE: &str =
     "#[cfg(all(test, target_os = \"macos\", target_arch = \"aarch64\"))]";
-const NATIVE_OR_UNIX_TEST_GATE: &str =
-    "#[cfg(any(all(test, unix), all(target_os = \"macos\", target_arch = \"aarch64\")))]";
+const NATIVE_MACOS_GATE: &str = "#[cfg(all(target_os = \"macos\", target_arch = \"aarch64\"))]";
 const UNIX_PROTECTED_GATE: &str =
     "#[cfg(any(test, unix, all(target_os = \"macos\", target_arch = \"aarch64\")))]";
 const ENROLLMENT_SESSION_SCOPE_GATE: &str = "#[cfg(all(\n    feature = \"desktop-protected\",\n    any(\n        all(test, unix),\n        target_os = \"linux\",\n        all(target_os = \"macos\", target_arch = \"aarch64\")\n    )\n))]";
@@ -50,8 +49,6 @@ fn qualification_test_support_matches_native_platform_scope() {
     );
 }
 
-const NATIVE_MACOS_GATE: &str = "#[cfg(all(target_os = \"macos\", target_arch = \"aarch64\"))]";
-
 #[test]
 fn v3_enrollment_roots_match_native_or_test_scope() {
     // The Linux local enrollment does not mount the broker handoff or the
@@ -59,7 +56,7 @@ fn v3_enrollment_roots_match_native_or_test_scope() {
     // unix-test widening has no remaining consumers on this tree.
     let protected_activation = include_str!("../../protected_activation.rs");
     for (consumer, gate) in [
-        ("mod broker_handoff;", NATIVE_OR_UNIX_TEST_GATE),
+        ("mod broker_handoff;", NATIVE_MACOS_GATE),
         ("pub(crate) mod control_v3;", UNIX_PROTECTED_GATE),
     ] {
         let before = source_before(protected_activation, consumer).trim_end();

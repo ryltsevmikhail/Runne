@@ -6,6 +6,7 @@ const V30_TRIGGERS: [&str; 4] = [
 ];
 
 mod trigger_catalog;
+include!("provider_credential_v30_schema/operation_index_helpers.inc");
 
 fn v30_trigger_source(name: &str) -> &'static str {
     trigger_catalog::source(name)
@@ -68,7 +69,7 @@ pub(super) fn v30_predecessor_matches_with_v32(
         connection,
         insert_trigger,
         head_trigger,
-        true,
+        v32_operation_index_names(),
         &CredentialSchemaExtensions::default(),
         false,
         false,
@@ -92,11 +93,8 @@ fn v30_predecessor_matches_with_successors(
         extensions,
         allows_v36_project_receipt,
         lineage_v37,
-    )? || !v29_catalog_matches_with_extensions(
-        connection,
-        operation_indexes,
-        extensions,
-    )? {
+    )? || !v29_catalog_matches_with_extensions(connection, operation_indexes, extensions)?
+    {
         return Ok(false);
     }
     for table in [
@@ -218,11 +216,7 @@ fn v30_v26_base_matches_with(
         }
     }
     if !v22_process_registry_matches(connection)?
-        || !(if operation_indexes == v32_operation_index_names() {
-            inherited_indexes_match_with_v32_operation_indexes(connection)?
-        } else {
-            inherited_indexes_match_with_operation_indexes(connection, operation_indexes)?
-        })
+        || !inherited_indexes_match_except_operation_indexes(connection)?
     {
         return Ok(false);
     }

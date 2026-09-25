@@ -84,7 +84,11 @@ where
             .native
             .load_authorized_legacy_source(read, &self.access)?;
         let revision = *source.revision().as_bytes();
-        CredentialMaterial::from_zeroizing(source.into_material().into_zeroizing())
+        let (kind, bytes) = source.into_material().into_zeroizing();
+        if kind != crate::ProviderCredentialMaterialKind::Legacy {
+            return Err(SecureStoreError::InvalidProviderCredential);
+        }
+        CredentialMaterial::from_zeroizing(bytes)
             .and_then(|material| {
                 runne_provider::CredentialLegacySourceMaterial::new(material, revision)
             })

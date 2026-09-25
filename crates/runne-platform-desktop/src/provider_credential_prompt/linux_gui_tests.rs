@@ -76,7 +76,10 @@ fn submitted_secret_roundtrips_through_fake_pinentry() {
             .expect("adapter");
     match prompt.prompt_with_env(request(), &gui_env()) {
         Ok(SecureCredentialPromptDisposition::Submitted(material)) => {
-            assert_eq!(material.into_pipe_bytes().as_bytes(), b"sk-test-secret");
+            assert_eq!(
+                material.into_pipe_bytes().into_zeroizing().as_slice(),
+                b"sk-test-secret"
+            );
         }
         other => panic!("expected submitted secret, got {other:?}"),
     }

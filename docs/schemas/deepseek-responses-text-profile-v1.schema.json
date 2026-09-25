@@ -50,7 +50,7 @@
     },
     "pricing": {
       "type": "object", "additionalProperties": false,
-      "required": ["revision", "effective_from_unix_seconds", "currency", "unit_tokens", "peak_input_micros", "peak_cached_input_micros", "peak_output_micros", "off_peak_input_micros", "off_peak_cached_input_micros", "off_peak_output_micros", "peak_iso_weekdays", "peak_windows_utc", "long_context_threshold_tokens", "long_context_enabled"],
+      "required": ["revision", "currency", "unit_tokens", "input_micros", "cached_input_micros", "output_micros", "long_context_threshold_tokens", "long_context_enabled"],
       "properties": {
         "revision": {
           "const": "deepseek-flash-peak-2026-09-21/1"

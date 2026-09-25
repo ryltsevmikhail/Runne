@@ -9,6 +9,7 @@ impl ProviderTerminalPricing for ResponsesProfile {
         &self,
         pricing_revision_digest: &[u8; 32],
         profile_digest: &[u8; 32],
+        _effect_started_at: i64,
         usage: ProviderUsage,
     ) -> Result<ProviderPricedUsage, ProviderTerminalPricingError> {
         if pricing_revision_digest != &self.pricing_revision_digest()
@@ -86,6 +87,7 @@ impl TextProviderProfile for ResponsesProfile {
         self.price_terminal_usage(
             &self.pricing_revision_digest(),
             &self.profile_digest(),
+            0,
             usage,
         )
         .map(|priced| priced.charge_micros())
@@ -120,7 +122,7 @@ mod tests {
             .with_pricing_revision_digest([1; 32])
             .with_accounting(ResponsesAccounting::SubscriptionQuotaExternallyMetered);
         let priced = subscription
-            .price_terminal_usage(&[1; 32], &subscription.profile_digest(), usage())
+            .price_terminal_usage(&[1; 32], &subscription.profile_digest(), 0, usage())
             .unwrap();
         assert_eq!((priced.charge_micros(), priced.currency()), (0, "XXX"));
         let unpriced = ResponsesProfile::new(ResponsesProvider::Xai, "grok")
@@ -145,7 +147,7 @@ mod tests {
         let priced = profile.price_usage_micros(usage()).unwrap();
         assert_eq!(priced, 12);
         assert_eq!(
-            profile.price_terminal_usage(&[3; 32], &profile.profile_digest(), usage()),
+            profile.price_terminal_usage(&[3; 32], &profile.profile_digest(), 0, usage()),
             Err(ProviderTerminalPricingError::Unavailable)
         );
     }

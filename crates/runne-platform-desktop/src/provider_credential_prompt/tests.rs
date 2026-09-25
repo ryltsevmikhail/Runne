@@ -46,7 +46,7 @@ fn native_oauth_prompt_accepts_large_material_with_typed_kind() {
         material.kind(),
         runne_platform_ports::provider_credential_prompt::SecureCredentialMaterialKind::NativeOAuth
     );
-    assert_eq!(material.into_pipe_bytes().as_bytes().len(), 4097);
+    assert_eq!(material.into_pipe_bytes().into_zeroizing().len(), 4097);
 }
 
 #[test]

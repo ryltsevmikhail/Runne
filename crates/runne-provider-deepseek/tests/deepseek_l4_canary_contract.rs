@@ -99,7 +99,7 @@ fn separates_profile_and_candidate_digests_with_closed_evidence() {
     );
     let request_length = 218_u64.to_be_bytes();
     let candidate_digest = digest(
-        "runne.canary.candidate/1",
+        "gocode.canary.candidate/1",
         &[
             &profile,
             &request,
@@ -122,11 +122,11 @@ fn separates_profile_and_candidate_digests_with_closed_evidence() {
     assert_ne!(CANARY_DIGEST, PROFILE_DIGEST);
     assert_eq!(
         prompt,
-        digest_bytes("sha256:1ff713bca9a5e1685124ed010e5d36ef30edb5d429d6a8145620df0b6ba9ad3d")
+        digest_bytes("sha256:19afb888ed8b093a39540296bb69ca5271fc3733bf05f7fafacdce7cd66b6bc4")
     );
     assert_eq!(
         result,
-        digest_bytes("sha256:b7adb9b31484687cc9ea88e6a0f08c99e307b130e79677f6794d3f7ba575d1ad")
+        digest_bytes("sha256:ab029deedfbaf4e7c796a0a0248a7e0153767006ae9ec93af64fa4576ed3ea41")
     );
     assert_eq!(
         request,
@@ -137,11 +137,11 @@ fn separates_profile_and_candidate_digests_with_closed_evidence() {
         digest_bytes("sha256:f69bbad907ac7b5ba9e72fc37ae4ea5fe541fae3396bd04f5035dbcfe2b6e410")
     );
     assert_eq!(candidate.candidate_digest(), CANARY_DIGEST);
-    assert_eq!(evidence.candidate_digest(), &candidate_digest);
     assert_eq!(evidence.profile_digest(), &profile);
     assert_eq!(evidence.request_digest(), &request);
     assert_eq!(evidence.prompt_digest(), &prompt);
     assert_eq!(evidence.result_digest(), &result);
+    assert_eq!(evidence.candidate_digest(), &candidate_digest);
     assert_eq!(evidence.request_length(), 218);
     assert_eq!(evidence.prompt_length(), 22);
     assert_eq!(evidence.result_length(), 2);

@@ -110,13 +110,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            materializer
-                .materialize_active(read)
-                .err()
-                .expect("remote lease rejected"),
-            SecureStoreError::CredentialAccessDenied
-        );
+        let Err(error) = materializer.materialize_active(read) else {
+            panic!("remote lease unexpectedly materialized");
+        };
+        assert_eq!(error, SecureStoreError::CredentialAccessDenied);
     }
 
     #[test]

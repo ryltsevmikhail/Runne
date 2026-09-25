@@ -73,6 +73,7 @@ BEGIN SELECT RAISE(ABORT,'qualification fence is permanent'); END;
 pub(super) fn apply_v35_migration(conn: &Connection) -> SqliteResult<()> {
     let transaction = Transaction::new_unchecked(conn, TransactionBehavior::Exclusive)?;
     transaction.execute_batch(MIGRATION_V35)?;
+    transaction.execute_batch(MIGRATION_CREDENTIAL_V35)?;
     install_missing_v12_fence_triggers(&transaction)?;
     transaction.execute("INSERT INTO schema_version (version) VALUES (35)", [])?;
     transaction.commit()

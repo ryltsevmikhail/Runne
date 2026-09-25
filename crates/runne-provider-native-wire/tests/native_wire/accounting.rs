@@ -20,7 +20,7 @@ fn explicit_accounting_prices_uncached_cached_and_output_separately() {
     .unwrap();
     let usage = ProviderUsage::new(1_000_001, 2, 1, 0).unwrap();
     let quote = profile
-        .price_terminal_usage(&[2; 32], &[1; 32], usage)
+        .price_terminal_usage(&[2; 32], &[1; 32], 0, usage)
         .unwrap();
     assert_eq!(quote.charge_micros(), 3_000_031);
     assert_eq!(quote.currency(), "USD");
@@ -42,7 +42,7 @@ fn subscription_accounting_is_explicit_zero_xxx_and_not_payg_free() {
     .unwrap();
     let usage = ProviderUsage::new(1_000_000, 2_000_000, 0, 0).unwrap();
     let quote = profile
-        .price_terminal_usage(&[6; 32], &[5; 32], usage)
+        .price_terminal_usage(&[6; 32], &[5; 32], 0, usage)
         .unwrap();
     assert_eq!(quote.charge_micros(), 0);
     assert_eq!(quote.currency(), "XXX");
@@ -65,7 +65,7 @@ fn token_plan_accounting_is_distinct_from_payg() {
     .unwrap();
     let usage = ProviderUsage::new(10, 20, 0, 0).unwrap();
     let quote = profile
-        .price_terminal_usage(&[9; 32], &[8; 32], usage)
+        .price_terminal_usage(&[9; 32], &[8; 32], 0, usage)
         .unwrap();
     assert_eq!(quote.currency(), "XXX");
     assert_eq!(quote.charge_micros(), 0);

@@ -185,13 +185,10 @@ fn opaque_version_operations_never_expose_secret_bytes() {
         .delete_version(lifecycle.issue_gc(reference.clone()))
         .unwrap();
     assert_eq!(lifecycle.verify_deletion(&replay).unwrap(), &reference);
-    assert_eq!(
-        fixture
-            .load_version(&active, &executable.access)
-            .err()
-            .expect("deleted version stays absent"),
-        SecureStoreError::ProviderCredentialNotFound
-    );
+    let Err(error) = fixture.load_version(&active, &executable.access) else {
+        panic!("deleted version unexpectedly loaded");
+    };
+    assert_eq!(error, SecureStoreError::ProviderCredentialNotFound);
     drop(executable);
 }
 
@@ -211,13 +208,11 @@ fn foreign_capabilities_cannot_load_or_delete_native_version() {
         .unwrap();
     let (foreign, _) = CredentialAuthorityPair::new().split();
     let lease = CredentialLease::new(reference.clone(), [0xB2; 16], i64::MAX, 8).unwrap();
-    assert_eq!(
-        fixture
-            .load_version(&foreign.issue_dispatch(lease), &executable.access)
-            .err()
-            .expect("foreign dispatch rejected"),
-        SecureStoreError::CredentialAccessDenied
-    );
+    let Err(error) = fixture.load_version(&foreign.issue_dispatch(lease), &executable.access)
+    else {
+        panic!("foreign dispatch unexpectedly loaded a credential");
+    };
+    assert_eq!(error, SecureStoreError::CredentialAccessDenied);
     assert_eq!(
         fixture
             .create_version(

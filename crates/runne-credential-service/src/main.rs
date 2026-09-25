@@ -4,6 +4,8 @@ mod keychain;
 mod listeners;
 #[cfg(any(test, target_os = "macos"))]
 mod package_identity;
+#[cfg(test)]
+mod secret_lifetime_tests;
 #[cfg(any(test, target_os = "macos"))]
 mod service_backend;
 

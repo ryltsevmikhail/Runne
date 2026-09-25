@@ -16,8 +16,6 @@ mod tests {
             enrollment_capability: None,
             #[cfg(unix)]
             installation: None,
-            #[cfg(all(unix, not(target_os = "macos")))]
-            installation: None,
         };
 
         #[cfg(target_os = "macos")]

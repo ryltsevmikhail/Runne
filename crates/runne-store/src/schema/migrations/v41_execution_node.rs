@@ -62,7 +62,7 @@ fn execution_node_fence_triggers_match(connection: &Connection) -> SqliteResult<
 fn v41_catalog_matches(connection: &Connection) -> SqliteResult<bool> {
     Ok(v29_catalog_matches_with_extensions(
         connection,
-        v32_operation_index_names(),
+        v35_operation_index_names(),
         &CredentialSchemaExtensions {
             tables: &[V33_TABLE, V35_TABLE, TABLE, "conversation_context_scope", "execution_nodes"],
             indexes: &[V33_INDEX],

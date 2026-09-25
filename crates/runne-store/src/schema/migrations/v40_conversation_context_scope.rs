@@ -55,7 +55,7 @@ pub(super) fn v40_matches(connection: &Connection, version: i64) -> SqliteResult
 fn v40_catalog_matches(connection: &Connection) -> SqliteResult<bool> {
     v29_catalog_matches_with_extensions(
         connection,
-        v32_operation_index_names(),
+        v35_operation_index_names(),
         &CredentialSchemaExtensions {
             tables: &[V33_TABLE, V35_TABLE, TABLE, "conversation_context_scope"],
             indexes: &[V33_INDEX],

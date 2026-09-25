@@ -107,8 +107,9 @@ fn serve_v3_transcript(
         let mut acknowledgement =
             ProtectedCredentialEnrollmentShutdownAckV3::new(owned_launch.clone(), true);
         acknowledgement.sign(keys);
-        // On Linux (unix, non-macOS) the shutdown acknowledgement is written
-        // directly: there is no retained credential writer to revoke first.
+        #[cfg(unix)]
+        write_shutdown_ack_after_revocation(runtime, channel, &acknowledgement)?;
+        #[cfg(not(unix))]
         channel.write_control_frame(
             &acknowledgement
                 .encode_frame()

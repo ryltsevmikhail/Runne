@@ -103,6 +103,7 @@ pub(super) fn apply_v36_migration(connection: &Connection) -> SqliteResult<()> {
          DROP TRIGGER IF EXISTS global_command_id_from_project_workspace_receipts;",
     )?;
     transaction.execute_batch(MIGRATION_V36)?;
+    transaction.execute_batch(super::MIGRATION_CREDENTIAL_V36)?;
     transaction.execute_batch(
         "INSERT INTO project_workspace_command_receipts_v36
          SELECT * FROM project_workspace_command_receipts;
@@ -133,7 +134,11 @@ pub(super) fn v36_matches(connection: &Connection, version: i64) -> SqliteResult
     let inherited = v36_structure_matches(connection)?;
     let receipts = v36_receipt_table_matches(connection)?;
     let triggers = validation::global_command_triggers_match(connection)?;
-    Ok(matches!(marker, (36, 1, 35, 647) | (36, 1, 36, 666)) && inherited && receipts && triggers)
+    Ok(matches!(marker, (36, 1, 35, 647) | (36, 1, 36, 666))
+        && inherited
+        && receipts
+        && triggers
+        && super::credential_v36_matches(connection, version)?)
 }
 
 pub(super) fn v36_structure_matches(connection: &Connection) -> SqliteResult<bool> {

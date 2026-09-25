@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from credential_secret_dispatch_rules import validate_provider_dispatch
+from credential_secret_contract_rules import validate_published_credential_contracts
 
 
 @dataclass(frozen=True)
@@ -97,31 +97,16 @@ class Validator:
         )
         if "Json<" in http or "requestBody" in http:
             self.fail("SURFACE_PUBLIC_HTTP_V1", http_path, "V1 handler accepts a body declaration")
-        self.validate_v1_contracts()
-
-    def validate_v1_contracts(self) -> None:
-        schema_path = "contracts/gocode-ui-client-2/schemas/provider-credentials-v1.schema.json"
-        openapi_path = "contracts/gocode-ui-client-2/openapi.json"
-        try:
-            schema = json.loads(self.read(schema_path))
-            definitions = schema.get("$defs", {})
-            if "pairRequest" in definitions:
-                self.fail("SURFACE_PUBLIC_CONTRACT_V1", schema_path, "pairRequest material schema remains")
-            openapi = json.loads(self.read(openapi_path))
-            route = openapi["paths"]["/v1/providers/{provider}/credential"]
-            if "requestBody" in route.get("put", {}):
-                self.fail("SURFACE_PUBLIC_CONTRACT_V1", openapi_path, "PUT request body remains")
-        except (json.JSONDecodeError, KeyError, TypeError) as error:
-            self.fail("SURFACE_PUBLIC_CONTRACT_V1", openapi_path, f"invalid guarded contract: {error}")
+        validate_published_credential_contracts(self)
 
     def validate_secret_types(self) -> None:
         specs = (
             ("crates/runne-provider/src/credential/enrollment/service_protocol/types.rs", "CredentialMaterial", {"from_bytes", "from_zeroizing", "into_zeroizing", "consume"}),
             ("crates/runne-provider/src/credential/enrollment/service_protocol/types.rs", "CredentialMutationGrant", {"generate", "digest"}),
-            ("crates/runne-platform-ports/src/provider_credential_prompt.rs", "SecureCredentialMaterial", {"new", "from_zeroizing", "into_pipe_bytes"}),
+            ("crates/runne-platform-ports/src/provider_credential_prompt.rs", "SecureCredentialMaterial", {"new", "from_zeroizing", "from_zeroizing_native_oauth", "from_zeroizing_for_provider", "into_pipe_bytes", "kind"}),
             ("crates/runne-platform-ports/src/provider_credential_prompt.rs", "CredentialPipeBytes", {"into_zeroizing"}),
             ("crates/runne-secure-store/src/provider_credential/policy.rs", "ProviderCredentialSource", {"new", "material", "revision", "into_material"}),
-            ("crates/runne-secure-store/src/provider_credential/policy.rs", "ProviderCredentialMaterial", {"new", "from_zeroizing", "with_bytes", "into_zeroizing"}),
+            ("crates/runne-secure-store/src/provider_credential/material.rs", "ProviderCredentialMaterial", {"new", "from_zeroizing", "new_native_oauth", "with_bytes", "into_zeroizing"}),
         )
         for path, name, allowed_public in specs:
             source = self.read(path)
@@ -129,7 +114,19 @@ class Validator:
             if declaration is None:
                 self.fail("SECRET_TYPE_MISSING", path, f"missing {name}")
                 continue
-            if re.search(r"\b(?:Clone|Debug|Serialize|Deserialize)\b", declaration.group("prefix")) or re.search(rf"impl\s+(?:[^\n]*::)?(?:Clone|Debug|Serialize|Deserialize)\s+for\s+{name}\b", source):
+            derives_prohibited = re.search(r"\b(?:Clone|Debug|Serialize|Deserialize)\b", declaration.group("prefix"))
+            manual_impls = re.findall(rf"impl\s+(?:[^\n]*::)?(Clone|Debug|Serialize|Deserialize)\s+for\s+{name}\b", source)
+            safe_redacted_debug = False
+            if name == "ProviderCredentialMaterial":
+                debug = brace_body(source, "impl fmt::Debug for ProviderCredentialMaterial {")
+                safe_redacted_debug = (
+                    manual_impls.count("Debug") == 1
+                    and debug is not None
+                    and '.field("bytes", &"<redacted>")' in debug
+                    and "self.bytes" not in debug
+                )
+            prohibited_manual = [trait for trait in manual_impls if trait != "Debug" or not safe_redacted_debug]
+            if derives_prohibited or prohibited_manual:
                 self.fail("SECRET_TYPE_TRAITS", path, f"{name} gained a prohibited trait")
             body = brace_body(source, f"impl {name} {{")
             if body is None:
@@ -148,11 +145,41 @@ class Validator:
             constructors = {item for item in unexpected if item == "new" or item.startswith("from_") or item in {"unchecked", "from_raw"}}
             if constructors:
                 self.fail("SECRET_UNBOUNDED_CONSTRUCTOR", path, f"{name} exposes unapproved constructors {sorted(constructors)}")
+        prompt_path = "crates/runne-platform-ports/src/provider_credential_prompt.rs"
+        prompt = self.require(
+            prompt_path,
+            "SECRET_CONSTRUCTOR_BOUNDS",
+            "if provider.is_native_oauth()",
+            "Self::from_zeroizing_native_oauth(bytes)",
+            "Self::from_zeroizing(bytes)",
+            "bytes.len() > maximum",
+            "SecureCredentialMaterialKind::NativeOAuth => MAX_NATIVE_OAUTH_CREDENTIAL_BYTES",
+            "SecureCredentialMaterialKind::Legacy => MAX_CREDENTIAL_BYTES",
+            "matches!(*byte, 0 | b'\\n' | b'\\r')",
+        )
+        prompt_impl = brace_body(prompt, "impl SecureCredentialMaterial {")
+        if prompt_impl is not None:
+            constructors = set(re.findall(r"\bpub\s+fn\s+([A-Za-z_]\w*)", prompt_impl))
+            allowed = {"new", "from_zeroizing", "from_zeroizing_native_oauth", "from_zeroizing_for_provider", "into_pipe_bytes", "kind"}
+            unexpected = constructors - allowed
+            if unexpected:
+                self.fail("SECRET_UNBOUNDED_CONSTRUCTOR", prompt_path, f"SecureCredentialMaterial exposes unreviewed methods {sorted(unexpected)}")
+        material_path = "crates/runne-secure-store/src/provider_credential/material.rs"
+        self.require(
+            material_path,
+            "SECRET_CONSTRUCTOR_BOUNDS",
+            "Self::new_inner(bytes, ProviderCredentialMaterialKind::Legacy)",
+            "Self::new_zeroizing(Zeroizing::new(bytes), kind)",
+            "Self::new_zeroizing(bytes, ProviderCredentialMaterialKind::Legacy)",
+            "ProviderCredentialMaterialKind::NativeOAuth => MAX_NATIVE_OAUTH_CREDENTIAL_BYTES",
+            "ProviderCredentialMaterialKind::Legacy => MAX_PROVIDER_CREDENTIAL_BYTES",
+            "bytes.len() > max",
+            "matches!(byte, 0 | b'\\r' | b'\\n')",
+        )
         frame_source = self.read("crates/runne-provider/src/credential/enrollment/service_protocol/frame.rs")
         for name in ("CredentialServiceRequestFrame", "CredentialServiceReplyFrame", "CredentialWriterBrokerHandoffFrame"):
             if re.search(rf"(?:derive\([^)]*(?:Clone|Debug|Serialize|Deserialize)[^)]*\)[\s\S]{{0,80}})?pub struct {name}", frame_source) and re.search(rf"#\[derive\([^]]*(?:Clone|Debug|Serialize|Deserialize)[^]]*\)\]\s*pub struct {name}", frame_source):
                 self.fail("SECRET_TYPE_TRAITS", "crates/runne-provider/src/credential/enrollment/service_protocol/frame.rs", f"{name} gained a prohibited derive")
-
     def validate_task2(self) -> None:
         checks = (
             ("crates/runne-provider/src/credential/enrollment/service_protocol/codec.rs", "TASK2_WRITER_ZEROIZING_DECODE", "take_zeroizing_vec(bytes, &mut at)?", "Some(CredentialMaterial::from_wire(value)?)"),
@@ -210,7 +237,7 @@ class Validator:
         )
         self.require(
             "crates/runne-macos-xpc/src/client/native.rs",
-            "TASK4_PRODUCTION_EXCHANGE", "native::request_data(request)", "native::copy_reply", "exchange::exchange(Arc::clone(&self.connection)",
+            "TASK4_PRODUCTION_EXCHANGE", "self.domain.request_data(request)", "domain.copy_reply(unsafe { data.as_ref() })", "self.connection.remoteObjectProxyWithErrorHandler(&error)",
         )
 
     def run(self) -> list[Finding]:

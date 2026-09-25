@@ -142,17 +142,11 @@ fn show_sheet(
             request.provider(),
             request.action(),
         );
-        if let Some(field) = field.as_deref() {
-            clear_field(field);
-        }
-        state::remove(id);
-        let _ = cleanup.send(());
-        finish(&winner, &sender, result);
+        terminal.finish_registered(id, result);
     });
     alert.beginSheetModalForWindow_completionHandler(parent, Some(&completion));
 }
 
-#[cfg(test)]
 pub(super) fn completion_result(
     response: isize,
     field: Option<&NSSecureTextField>,
@@ -161,10 +155,8 @@ pub(super) fn completion_result(
 ) -> PromptResult {
     routes::resolve_response(response, action, || {
         let field = field.ok_or(SecureCredentialPromptError::Unavailable)?;
-        copy_secret(field, provider).map(SecureCredentialPromptDisposition::Submitted)
-    } else {
-        Ok(SecureCredentialPromptDisposition::Confirmed)
-    }
+        copy_secret(field, provider)
+    })
 }
 
 fn copy_secret(

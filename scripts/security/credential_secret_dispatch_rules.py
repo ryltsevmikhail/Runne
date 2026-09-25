@@ -11,13 +11,13 @@ def validate_provider_dispatch(
     brace_body: Callable[[str, str], str | None],
 ) -> None:
     validator.require(
-        "crates/runne-secure-store/src/provider_credential/policy.rs",
+        "crates/runne-secure-store/src/provider_credential/material.rs",
         "PROVIDER_DISPATCH_ZEROIZING_TRANSFER",
         "pub fn from_zeroizing(",
         "pub fn into_zeroizing(",
     )
     validator.require(
-        "crates/runne-daemon/src/protected_activation/credential_service_gateway.rs",
+        "crates/runne-daemon/src/protected_activation/credential_service_gateway/materializer.rs",
         "PROVIDER_DISPATCH_ZEROIZING_TRANSFER",
         "ProviderCredentialMaterial::from_zeroizing(material.into_zeroizing())",
     )
@@ -29,13 +29,13 @@ def validate_provider_dispatch(
         source = validator.require(
             path,
             "PROVIDER_DISPATCH_ZEROIZING_TRANSFER",
-            ".map(ProviderCredentialMaterial::into_zeroizing)",
+            ".map(|material| material.into_zeroizing().1)",
         )
         body = brace_body(
             source,
             f"impl {provider}CredentialMaterializer for NativeCredential {{",
         )
-        if body is None or ".to_vec()" in body:
+        if body is None or ".to_vec()" in body or ".with_bytes(" in body:
             validator.fail(
                 "PROVIDER_DISPATCH_ZEROIZING_TRANSFER",
                 path,

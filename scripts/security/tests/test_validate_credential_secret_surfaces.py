@@ -19,10 +19,12 @@ GUARDED_PATHS = (
     "apps/desktop/src-tauri/src/provider_credential_enrollment/host_prompt/macos/routes.rs",
     "apps/desktop/src-tauri/src/provider_credential_enrollment/host_prompt/macos/cleanup.rs",
     "crates/runne-app-core/src/lib_parts/providers.rs",
+    "crates/runne-api/src/provider_credential_enrollment/types.rs",
     "crates/runne-runtime-client/src/canonical/provider_credentials.rs",
     "crates/runne-http/src/provider_credentials.rs",
     "contracts/gocode-ui-client-2/schemas/provider-credentials-v1.schema.json",
     "contracts/gocode-ui-client-2/openapi.json",
+    "contracts/gocode-ui-client-2/bundle.json",
     "crates/runne-platform-ports/src/provider_credential_prompt.rs",
     "crates/runne-provider/src/credential/enrollment/service_protocol/types.rs",
     "crates/runne-provider/src/credential/enrollment/service_protocol/codec.rs",
@@ -35,7 +37,9 @@ GUARDED_PATHS = (
     "crates/runne-macos-xpc/src/client/native/call_state.rs",
     "crates/runne-macos-xpc/src/client/native/exchange.rs",
     "crates/runne-secure-store/src/provider_credential/policy.rs",
+    "crates/runne-secure-store/src/provider_credential/material.rs",
     "crates/runne-daemon/src/protected_activation/credential_service_gateway.rs",
+    "crates/runne-daemon/src/protected_activation/credential_service_gateway/materializer.rs",
     "crates/runne-daemon-openai-effect/src/client.rs",
     "crates/runne-daemon-openai-effect/src/bounds.rs",
     "crates/runne-daemon-deepseek-effect/src/client.rs",
@@ -107,8 +111,8 @@ class CredentialSecretSurfaceValidatorTests(unittest.TestCase):
     def test_renderer_native_input_and_app_core_material_api_are_rejected(self) -> None:
         self.mutate(
             "apps/desktop/src/pages/providers/ui/ProvidersPage.vue",
-            "  <section v-else aria-labelledby=\"providers-title\">",
-            "  <section v-else aria-labelledby=\"providers-title\"><input />",
+            "    aria-labelledby=\"providers-title\"\n  >",
+            "    aria-labelledby=\"providers-title\"\n  ><input />",
         )
         self.assert_rejected("SURFACE_RENDERER_PROMPT")
         self.reset_fixture()
@@ -132,6 +136,37 @@ class CredentialSecretSurfaceValidatorTests(unittest.TestCase):
         document["$defs"]["pairRequest"] = {"type": "object"}
         schema.write_text(json.dumps(document), encoding="utf-8")
         self.assert_rejected("SURFACE_PUBLIC_CONTRACT_V1")
+
+    def test_active_v2_ingress_rejects_secret_fields_and_unknown_json(self) -> None:
+        path = "crates/runne-api/src/provider_credential_enrollment/types.rs"
+        self.mutate(
+            path,
+            "    native_intent_id: String,\n}\n\nimpl TryFrom<BeginWire>",
+            "    native_intent_id: String,\n    credential: String,\n}\n\nimpl TryFrom<BeginWire>",
+        )
+        self.assert_rejected("SURFACE_ACTIVE_V2_INGRESS")
+        self.reset_fixture()
+        self.mutate(
+            path,
+            "#[serde(rename_all = \"camelCase\", try_from = \"BeginWire\")]\npub struct BeginProviderCredentialEnrollment",
+            "#[serde(rename_all = \"camelCase\", try_from = \"BeginWire\", deny_unknown_fields)]\npub struct BeginProviderCredentialEnrollment",
+        )
+        self.mutate(
+            path,
+            "#[serde(rename_all = \"camelCase\", try_from = \"VerifyWire\")]\npub struct VerifyProviderCredential",
+            "#[serde(rename_all = \"camelCase\", try_from = \"VerifyWire\", deny_unknown_fields)]\npub struct VerifyProviderCredential",
+        )
+        self.mutate(
+            path,
+            "#[serde(rename_all = \"camelCase\", deny_unknown_fields)]\nstruct BeginWire",
+            "#[serde(rename_all = \"camelCase\")]\nstruct BeginWire",
+        )
+        self.mutate(
+            path,
+            "#[serde(rename_all = \"camelCase\", deny_unknown_fields)]\nstruct VerifyWire",
+            "#[serde(rename_all = \"camelCase\")]\nstruct VerifyWire",
+        )
+        self.assert_rejected("SURFACE_ACTIVE_V2_INGRESS")
 
     def test_public_http_body_extractor_is_rejected(self) -> None:
         self.mutate(
@@ -181,6 +216,11 @@ class CredentialSecretSurfaceValidatorTests(unittest.TestCase):
             "    /// Moves the zeroizing allocation",
         )
         self.assert_rejected("SECRET_UNBOUNDED_CONSTRUCTOR")
+
+    def test_provider_secret_bound_cannot_be_widened(self) -> None:
+        path = "crates/runne-secure-store/src/provider_credential/material.rs"
+        self.mutate(path, "bytes.len() > max", "bytes.len() > usize::MAX")
+        self.assert_rejected("SECRET_CONSTRUCTOR_BOUNDS")
 
     def test_task2_zeroizing_decode_and_backend_patterns_are_guarded(self) -> None:
         mutations = (

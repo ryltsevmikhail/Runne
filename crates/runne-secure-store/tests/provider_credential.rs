@@ -1,7 +1,8 @@
 use runne_secure_store::{
     MAX_PROVIDER_CREDENTIAL_BYTES, ProviderCredentialAccessPolicy, ProviderCredentialId,
-    ProviderCredentialMaterial, ProviderCredentialSource, ProviderCredentialSourceRevision,
-    ProviderCredentialStatus, ProviderCredentialStore, SecureStoreError,
+    ProviderCredentialMaterial, ProviderCredentialMaterialKind, ProviderCredentialSource,
+    ProviderCredentialSourceRevision, ProviderCredentialStatus, ProviderCredentialStore,
+    SecureStoreError,
 };
 use zeroize::Zeroizing;
 struct ControlledExecutable {
@@ -115,12 +116,10 @@ fn credential_material_is_bounded_single_line_and_move_only() {
         b"first\rsecond".to_vec(),
         b"prefix\0suffix".to_vec(),
     ] {
-        assert_eq!(
-            ProviderCredentialMaterial::new(invalid)
-                .err()
-                .expect("invalid material rejected"),
-            SecureStoreError::InvalidProviderCredential
-        );
+        let Err(error) = ProviderCredentialMaterial::new(invalid) else {
+            panic!("invalid material unexpectedly accepted");
+        };
+        assert_eq!(error, SecureStoreError::InvalidProviderCredential);
     }
 
     let marker = b"provider-secret-marker-7f3c".to_vec();
@@ -146,15 +145,32 @@ fn credential_material_is_bounded_single_line_and_move_only() {
 }
 
 #[test]
-fn credential_material_transfers_zeroizing_allocation_without_copying() {
+fn credential_material_transfers_typed_zeroizing_allocation_without_copying() {
     let bytes = Zeroizing::new(b"provider-secret-transfer".to_vec());
     let allocation = bytes.as_ptr();
 
     let material = ProviderCredentialMaterial::from_zeroizing(bytes).expect("valid material");
-    let transferred = material.into_zeroizing();
+    let (kind, transferred): (ProviderCredentialMaterialKind, Zeroizing<Vec<u8>>) =
+        material.into_zeroizing();
 
+    assert_eq!(kind, ProviderCredentialMaterialKind::Legacy);
     assert_eq!(transferred.as_ptr(), allocation);
     assert_eq!(transferred.as_slice(), b"provider-secret-transfer");
+    drop(transferred);
+}
+
+#[test]
+fn native_oauth_kind_survives_zeroizing_transfer() {
+    let material = ProviderCredentialMaterial::new_native_oauth(b"native-oauth-envelope".to_vec())
+        .expect("valid OAuth material");
+    let allocation = material.with_bytes(<[u8]>::as_ptr);
+
+    let (kind, transferred) = material.into_zeroizing();
+
+    assert_eq!(kind, ProviderCredentialMaterialKind::NativeOAuth);
+    assert_eq!(transferred.as_ptr(), allocation);
+    assert_eq!(transferred.as_slice(), b"native-oauth-envelope");
+    drop(transferred);
 }
 
 #[test]

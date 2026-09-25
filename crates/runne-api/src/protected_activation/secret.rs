@@ -31,7 +31,7 @@ pub const DETERMINISTIC_PROVIDER_PROFILE_ID: &str = "gocode-deterministic-text/1
 /// Exact bounded OpenAI Responses text provider profile identity.
 pub const OPENAI_RESPONSES_TEXT_PROVIDER_PROFILE_ID: &str = "gocode-openai-responses-text/1";
 /// Exact bounded DeepSeek Responses text provider profile identity.
-pub const DEEPSEEK_RESPONSES_TEXT_PROVIDER_PROFILE_ID: &str = "runne-deepseek-responses-text/1";
+pub const DEEPSEEK_RESPONSES_TEXT_PROVIDER_PROFILE_ID: &str = "gocode-deepseek-responses-text/1";
 /// Digest of the released deterministic text provider contract.
 pub const DETERMINISTIC_PROVIDER_PROFILE_DIGEST: [u8; 32] = [
     0xb7, 0x9e, 0xfd, 0x52, 0xcd, 0x0d, 0xe3, 0x29, 0x17, 0x0e, 0xfa, 0xae, 0xd2, 0xa1, 0x8e, 0x6d,

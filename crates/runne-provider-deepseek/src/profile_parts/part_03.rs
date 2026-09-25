@@ -1,71 +1,43 @@
-use chrono::{Datelike, Timelike, Utc};
-
-#[derive(Clone, Copy)]
-struct PriceRates {
-    input: u64,
-    cached_input: u64,
-    output: u64,
-}
-
-impl PriceRates {
-    const fn peak(pricing: &PricingProfile) -> Self {
-        Self {
-            input: pricing.peak_input_micros,
-            cached_input: pricing.peak_cached_input_micros,
-            output: pricing.peak_output_micros,
-        }
-    }
-
-    const fn off_peak(pricing: &PricingProfile) -> Self {
-        Self {
-            input: pricing.off_peak_input_micros,
-            cached_input: pricing.off_peak_cached_input_micros,
-            output: pricing.off_peak_output_micros,
-        }
-    }
-}
+use chrono::{DateTime, NaiveDate, Utc};
 
 impl DeepSeekResponsesTextProfile {
     /// Prices exact usage at the authoritative external-effect start time.
     ///
     /// # Errors
     ///
-    /// Returns [`DeepSeekProfileError::PricingUnavailable`] before the pinned
-    /// pricing snapshot becomes effective or for an invalid Unix timestamp.
+    /// Returns [`DeepSeekProfileError::PricingUnavailable`] before midnight UTC
+    /// on the pinned pricing revision date or for an invalid Unix timestamp.
     pub fn price_usage_at_micros(
         &self,
         effect_started_at: i64,
         usage: ProviderUsage,
     ) -> Result<u64, DeepSeekProfileError> {
-        if effect_started_at < self.raw.pricing.effective_from_unix_seconds {
+        let effective_from = self
+            .pricing_effective_from_unix_seconds()
+            .ok_or(DeepSeekProfileError::PricingUnavailable)?;
+        if effect_started_at < effective_from {
             return Err(DeepSeekProfileError::PricingUnavailable);
         }
-        let time = chrono::DateTime::<Utc>::from_timestamp(effect_started_at, 0)
-            .ok_or(DeepSeekProfileError::PricingUnavailable)?;
-        let weekday = u8::try_from(time.weekday().number_from_monday())
-            .map_err(|_| DeepSeekProfileError::PricingUnavailable)?;
-        let minute = u16::try_from(time.hour() * 60 + time.minute())
-            .map_err(|_| DeepSeekProfileError::PricingUnavailable)?;
-        let is_peak = self.raw.pricing.peak_iso_weekdays.contains(&weekday)
-            && self
-                .raw
-                .pricing
-                .peak_windows_utc
-                .iter()
-                .any(|window| (window[0]..window[1]).contains(&minute));
-        let rates = if is_peak {
-            PriceRates::peak(&self.raw.pricing)
-        } else {
-            PriceRates::off_peak(&self.raw.pricing)
-        };
-        self.price_usage_with_rates(usage, rates)
+        if DateTime::<Utc>::from_timestamp(effect_started_at, 0).is_none() {
+            return Err(DeepSeekProfileError::PricingUnavailable);
+        }
+        self.price_usage_with_rates(usage)
     }
 
-    fn price_usage_with_rates(
-        &self,
-        usage: ProviderUsage,
-        rates: PriceRates,
-    ) -> Result<u64, DeepSeekProfileError> {
+    fn pricing_effective_from_unix_seconds(&self) -> Option<i64> {
+        let revision = self.raw.pricing.revision.as_str();
+        let dated_revision = revision.strip_prefix("deepseek-flash-peak-")?;
+        let (date, version) = dated_revision.split_once('/')?;
+        if version != "1" {
+            return None;
+        }
+        NaiveDate::parse_from_str(date, "%Y-%m-%d")
+            .ok()?
+            .and_hms_opt(0, 0, 0)
+            .map(|datetime| datetime.and_utc().timestamp())
+    }
+
+    fn price_usage_with_rates(&self, usage: ProviderUsage) -> Result<u64, DeepSeekProfileError> {
         if usage.input_tokens() > self.raw.pricing.long_context_threshold_tokens {
             return Err(DeepSeekProfileError::UnsupportedPricingTier);
         }
@@ -74,9 +46,13 @@ impl DeepSeekResponsesTextProfile {
             .checked_sub(usage.cached_input_tokens())
             .ok_or(DeepSeekProfileError::PricingOverflow)?;
         let unit = self.raw.pricing.unit_tokens;
-        let input = prorated_micros(uncached, rates.input, unit)?;
-        let cached = prorated_micros(usage.cached_input_tokens(), rates.cached_input, unit)?;
-        let output = prorated_micros(usage.output_tokens(), rates.output, unit)?;
+        let input = prorated_micros(uncached, self.raw.pricing.input_micros, unit)?;
+        let cached = prorated_micros(
+            usage.cached_input_tokens(),
+            self.raw.pricing.cached_input_micros,
+            unit,
+        )?;
+        let output = prorated_micros(usage.output_tokens(), self.raw.pricing.output_micros, unit)?;
         input
             .checked_add(cached)
             .and_then(|subtotal| subtotal.checked_add(output))

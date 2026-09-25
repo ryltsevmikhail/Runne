@@ -117,14 +117,14 @@ mod tests {
         wrong_profile[0] ^= 1;
         assert!(
             profile
-                .price_terminal_usage(&profile.pricing_revision_digest(), &wrong_profile, usage,)
+                .price_terminal_usage(&profile.pricing_revision_digest(), &wrong_profile, 0, usage,)
                 .is_err()
         );
         let mut wrong_pricing = profile.pricing_revision_digest();
         wrong_pricing[0] ^= 1;
         assert!(
             profile
-                .price_terminal_usage(&wrong_pricing, &profile.profile_digest(), usage)
+                .price_terminal_usage(&wrong_pricing, &profile.profile_digest(), 0, usage)
                 .is_err()
         );
     }

@@ -22,18 +22,19 @@ use runne_runtime_client::RuntimeTransportKind;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn linux_local_enrollment_connects_renews_and_installs_on_the_production_path() {
     let temporary = owner_private::tempdir();
+    let profile_directory = temporary.path().join("com.runne.desktop");
+    std::fs::create_dir(&profile_directory).expect("profile directory");
+    owner_private::secure_directory(&profile_directory);
+    let runtime_root = profile_directory.join("bundled-runtime");
     // The provider-bound composition stages the colocated credential writer
     // next to the daemon, so the controlled directory carries both binaries.
     let executable =
         owner_private::ControlledExecutable::copy_with_writer_from(env!("CARGO_BIN_EXE_runned"));
-    let spec = ProtectedBundledRuntimeLaunchSpec::new(
-        executable.path(),
-        &temporary.path().join("runtime"),
-    )
-    .expect("protected launch spec")
-    // The production Linux composition launches with provider activation so
-    // the daemon admits a V2 enrollment-capable launch (never a bare V1).
-    .with_openai_provider_activation();
+    let spec = ProtectedBundledRuntimeLaunchSpec::new(executable.path(), &runtime_root)
+        .expect("protected launch spec")
+        // The production Linux composition launches with provider activation so
+        // the daemon admits a V2 enrollment-capable launch (never a bare V1).
+        .with_openai_provider_activation();
     let mut supervisor =
         ProtectedBundledRuntimeSupervisor::new(DevelopmentBundledRuntimeLauncher::new(), spec);
 

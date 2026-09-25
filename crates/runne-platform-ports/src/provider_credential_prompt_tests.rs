@@ -9,10 +9,10 @@ fn prompt_material_rejects_empty_oversize_and_line_control() {
         b"a\rb".to_vec(),
         b"a\0b".to_vec(),
     ] {
-        assert_eq!(
-            SecureCredentialMaterial::new(material).unwrap_err(),
-            SecureCredentialPromptError::Rejected
-        );
+        match SecureCredentialMaterial::new(material) {
+            Err(error) => assert_eq!(error, SecureCredentialPromptError::Rejected),
+            Ok(_) => panic!("invalid prompt material was accepted"),
+        }
     }
     assert!(SecureCredentialMaterial::new(b"correct horse battery staple".to_vec()).is_ok());
 }

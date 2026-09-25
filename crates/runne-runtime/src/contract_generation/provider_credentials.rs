@@ -1,4 +1,10 @@
 fn provider_credentials_schema() -> Value {
+    let credential = json!({
+        "maxLength": 5462,
+        "minLength": 2,
+        "pattern": BASE64_URL_PATTERN,
+        "type": "string",
+    });
     let provider = enum_schema(&["openai", "deepseek"]);
     let status = enum_schema(&[
         "configured",
@@ -13,6 +19,7 @@ fn provider_credentials_schema() -> Value {
             json!({"providerId": provider, "status": status}),
             &["providerId", "status"],
         ),
+        "pairRequest": closed_object(json!({"credential": credential}), &["credential"]),
     });
     let mut schema = closed_object(json!({}), &[]);
     let object = schema.as_object_mut().expect("schema object");
@@ -51,6 +58,10 @@ fn provider_credentials_openapi(document: &mut Value) {
         },
         "put": {
             "parameters": [provider],
+            "requestBody": {
+                "content": {"application/json": {"schema": {"$ref": format!("{schema}pairRequest")}}},
+                "required": true,
+            },
             "responses": responses(),
             "security": [{"sessionAuth": []}],
         },

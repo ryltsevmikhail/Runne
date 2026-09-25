@@ -6,8 +6,7 @@ use runne_provider_deepseek::{
     DeepSeekCredentialError, DeepSeekCredentialMaterializer, DeepSeekTransportPolicy,
 };
 use runne_secure_store::{
-    ProviderCredentialDispatchMaterializer, ProviderCredentialDispatchRead,
-    ProviderCredentialMaterial, SecureStoreError,
+    ProviderCredentialDispatchMaterializer, ProviderCredentialDispatchRead, SecureStoreError,
 };
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -84,7 +83,7 @@ impl DeepSeekCredentialMaterializer for NativeCredential {
                 .map_err(|_| DeepSeekCredentialError::AccessDenied)?;
                 materializer
                     .materialize_active(read)
-                    .map(ProviderCredentialMaterial::into_zeroizing)
+                    .map(|material| material.into_zeroizing().1)
                     .map_err(|error| match error {
                         SecureStoreError::ProviderCredentialNotFound => {
                             DeepSeekCredentialError::Missing

@@ -110,7 +110,6 @@ fn renewal_and_shutdown_are_bound_to_the_current_owned_launch() {
     .unwrap();
     ready.sign(&keys);
     let owned = ready.owned_launch();
-
     let mut renewal = ProtectedRenewRequestV1::new(owned.clone(), 1, [0x71; 32]).unwrap();
     renewal.sign(&keys);
     renewal
@@ -136,7 +135,6 @@ fn renewal_and_shutdown_are_bound_to_the_current_owned_launch() {
         ProtectedRenewRequestV1::decode_frame(&renewal.encode_frame().unwrap()).unwrap(),
         renewal
     );
-
     let next_session = [
         0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0, 0, 0, 0, 0, 0, 6,
     ];
@@ -150,7 +148,6 @@ fn renewal_and_shutdown_are_bound_to_the_current_owned_launch() {
         ProtectedRenewTicketV1::decode_frame(&ticket.encode_frame().unwrap()).unwrap(),
         ticket
     );
-
     let mut shutdown = ProtectedShutdownV1::new(owned.clone());
     shutdown.sign(&keys);
     shutdown
@@ -174,7 +171,6 @@ fn renewal_and_shutdown_are_bound_to_the_current_owned_launch() {
 #[test]
 fn v1_is_deterministic_only_and_openai_requires_v2_binding() {
     let request = launch(LaunchSecret::from_bytes([0xa5; 32]).expect("launch secret"));
-
     request
         .validate_provider_mode(ProviderActivationModeV1::DeterministicV1)
         .expect("V1 deterministic compatibility");
@@ -229,7 +225,6 @@ fn v2_launch_round_trips_exact_provider_binding_and_rejects_mismatch() {
             .unwrap_err(),
         LaunchAuthorityError::ProviderModeMismatch
     );
-
     let mut trailing = frame;
     trailing.push(0);
     assert!(ProtectedLaunchRequestV2::decode_frame(&trailing).is_err());
@@ -277,6 +272,12 @@ fn historical_provider_bindings_retain_their_released_gocode_literals() {
             ProviderActivationBindingV1::new(mode, runne_alias, profile_digest).unwrap_err(),
             LaunchAuthorityError::ProviderProfileMismatch
         );
+        if mode == ProviderActivationModeV1::DeepSeekResponsesTextV1 {
+            assert_eq!(
+                ProviderActivationBindingV1::deepseek_responses_text_v1().profile_id(),
+                profile_id
+            );
+        }
     }
 }
 

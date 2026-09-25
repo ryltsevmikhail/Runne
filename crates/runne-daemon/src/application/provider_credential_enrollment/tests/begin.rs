@@ -180,6 +180,14 @@ fn begin_recovers_then_returns_the_exact_idempotent_prepared_projection() {
         ProviderCredentialOperationStateV2::Prepared
     );
     assert_eq!(detached_replay.broker_rendezvous_id(), None);
+    rendezvous.release_detached_after_claim(operation.operation_id());
+    let post_claim_replay = begin
+        .admit(&authority, &proof, &context, &command, 100)
+        .unwrap();
+    assert_eq!(
+        post_claim_replay.state(),
+        ProviderCredentialOperationStateV2::Expired
+    );
     let restarted = super::super::begin::ProviderCredentialEnrollmentBegin::new(
         ProviderCredentialAdmission::new(verifier, measurements),
         handles.duplicate(),

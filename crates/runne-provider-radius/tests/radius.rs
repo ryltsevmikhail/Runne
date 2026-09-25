@@ -74,7 +74,7 @@ fn radius_payg_requires_explicit_selection_and_uses_bound_rates() {
     assert_ne!(subscription.profile_digest(), payg.profile_digest());
     let usage = runne_provider::ProviderUsage::new(1_000_000, 1_000_000, 100_000, 0).unwrap();
     let quote = payg
-        .price_terminal_usage(&payg.catalog_digest(), &payg.profile_digest(), usage)
+        .price_terminal_usage(&payg.catalog_digest(), &payg.profile_digest(), 0, usage)
         .unwrap();
     assert_eq!(quote.currency(), "USD");
     assert_eq!(quote.charge_micros(), 2_910_000);
@@ -82,6 +82,7 @@ fn radius_payg_requires_explicit_selection_and_uses_bound_rates() {
         .price_terminal_usage(
             &subscription.catalog_digest(),
             &subscription.profile_digest(),
+            0,
             usage,
         )
         .unwrap();
@@ -140,6 +141,7 @@ fn radius_payg_rejects_zero_rate_snapshot() {
         .price_terminal_usage(
             &subscription.catalog_digest(),
             &subscription.profile_digest(),
+            0,
             usage,
         )
         .unwrap();

@@ -132,8 +132,11 @@ impl ProtectedRootControl {
         Arc::new(Self(authority))
     }
 
-    pub(crate) fn rotate_enrollment_keys(&self, keys: &ProtectedActivationKeys) {
-        self.0.rotate_enrollment_keys(keys);
+    pub(crate) fn rotate_enrollment_keys(
+        &self,
+        keys: &ProtectedActivationKeys,
+    ) -> Result<(), runne_application::ports::RootAdmissionVerifierError> {
+        self.0.rotate_enrollment_keys(keys)
     }
 
     pub(crate) fn admit_verified_offer(

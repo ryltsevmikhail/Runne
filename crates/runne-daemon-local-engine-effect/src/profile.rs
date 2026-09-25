@@ -115,6 +115,7 @@ impl ProviderTerminalPricing for LocalEngineTextProfile {
         &self,
         pricing_revision_digest: &[u8; 32],
         profile_digest: &[u8; 32],
+        _effect_started_at: i64,
         _usage: ProviderUsage,
     ) -> Result<ProviderPricedUsage, ProviderTerminalPricingError> {
         // Zero monetary pricing by contract; digests must be the exact
@@ -128,5 +129,33 @@ impl ProviderTerminalPricing for LocalEngineTextProfile {
             LOCAL_ENGINE_ZERO_PRICE_MICROS,
             LOCAL_ENGINE_CURRENCY.to_owned(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_engine_terminal_pricing_is_zero_for_any_effect_time() {
+        let profile = LocalEngineTextProfile::from_json(
+            br#"{"profileId":"gocode-local-engine-text/1","maxOutputTokens":1024}"#,
+        )
+        .unwrap();
+        let pricing_digest = profile.pricing_revision_digest();
+        let profile_digest = profile.profile_digest();
+
+        for effect_started_at in [0, 1_789_948_800, i64::MAX] {
+            let priced = profile
+                .price_terminal_usage(
+                    &pricing_digest,
+                    &profile_digest,
+                    effect_started_at,
+                    ProviderUsage::new(0, 0, 0, 0).unwrap(),
+                )
+                .unwrap();
+            assert_eq!(priced.charge_micros(), 0);
+            assert_eq!(priced.currency(), LOCAL_ENGINE_CURRENCY);
+        }
     }
 }

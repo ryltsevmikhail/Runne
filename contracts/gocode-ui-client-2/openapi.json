@@ -2241,6 +2241,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/provider-credentials-v1.schema.json#/$defs/pairRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "202": {
             "content": {

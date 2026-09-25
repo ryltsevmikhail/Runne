@@ -47,8 +47,27 @@ impl ProviderTerminalPricing for ZeroInputPricing {
     }
 }
 
+pub(crate) struct ReservationPricing;
+
+impl ProviderTerminalPricing for ReservationPricing {
+    fn price_terminal_usage(
+        &self,
+        pricing_revision_digest: &[u8; 32],
+        profile_digest: &[u8; 32],
+        effect_started_at: i64,
+        usage: ProviderUsage,
+    ) -> Result<ProviderPricedUsage, ProviderTerminalPricingError> {
+        assert_eq!(pricing_revision_digest, &[3; 32]);
+        assert_eq!(profile_digest, &[2; 32]);
+        assert!(effect_started_at > 0);
+        assert_eq!(usage, ProviderUsage::new(512, 1_024, 0, 0).unwrap());
+        ProviderPricedUsage::new(50_000, "USD".to_owned())
+    }
+}
+
 static FIXED_PRICING: FixedPricing = FixedPricing;
 static ZERO_INPUT_PRICING: ZeroInputPricing = ZeroInputPricing;
+static RESERVATION_PRICING: ReservationPricing = ReservationPricing;
 static ALLOWING_GUARD: AllowingGuard = AllowingGuard;
 static DENYING_GUARD: DenyingGuard = DenyingGuard;
 

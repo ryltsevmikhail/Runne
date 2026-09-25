@@ -29,6 +29,15 @@ impl ProviderCredentialMaterial {
         Self::new_inner(bytes, ProviderCredentialMaterialKind::Legacy)
     }
 
+    /// Validates and takes ownership of an already-zeroizing legacy allocation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for empty, oversized, or control-byte-containing input.
+    pub fn from_zeroizing(bytes: Zeroizing<Vec<u8>>) -> Result<Self, SecureStoreError> {
+        Self::new_zeroizing(bytes, ProviderCredentialMaterialKind::Legacy)
+    }
+
     /// Validates one complete native OAuth envelope under its larger typed bound.
     ///
     /// # Errors
@@ -42,7 +51,13 @@ impl ProviderCredentialMaterial {
         bytes: Vec<u8>,
         kind: ProviderCredentialMaterialKind,
     ) -> Result<Self, SecureStoreError> {
-        let bytes = Zeroizing::new(bytes);
+        Self::new_zeroizing(Zeroizing::new(bytes), kind)
+    }
+
+    fn new_zeroizing(
+        bytes: Zeroizing<Vec<u8>>,
+        kind: ProviderCredentialMaterialKind,
+    ) -> Result<Self, SecureStoreError> {
         let max = match kind {
             ProviderCredentialMaterialKind::Legacy => MAX_PROVIDER_CREDENTIAL_BYTES,
             ProviderCredentialMaterialKind::NativeOAuth => MAX_NATIVE_OAUTH_CREDENTIAL_BYTES,
@@ -65,6 +80,12 @@ impl ProviderCredentialMaterial {
     /// Borrows credential bytes only for the duration of `operation`.
     pub fn with_bytes<T>(&self, operation: impl FnOnce(&[u8]) -> T) -> T {
         operation(&self.bytes)
+    }
+
+    /// Moves the zeroizing allocation and its storage kind to the next owner.
+    #[must_use]
+    pub fn into_zeroizing(self) -> (ProviderCredentialMaterialKind, Zeroizing<Vec<u8>>) {
+        (self.kind, self.bytes)
     }
 
     #[cfg(feature = "provider-credential-broker-writer")]

@@ -11,7 +11,7 @@ use runne_provider::{ClosePreparedCredentialOperation, CredentialOperationState,
 use super::operation_projection;
 use super::{
     CredentialEnrollmentReadback, CredentialEnrollmentRecoveryGateway, ProviderCredentialAdmission,
-    broker::pending::PendingBrokerRendezvousRegistry,
+    broker::pending::{PendingBrokerAdmissionGate, PendingBrokerRendezvousRegistry},
     operation_handle::ProviderCredentialOperationHandleIssuer,
 };
 
@@ -26,6 +26,17 @@ pub(crate) struct ProviderCredentialEnrollmentBegin<'a, S: ?Sized, R: ?Sized> {
     rendezvous: PendingBrokerRendezvousRegistry,
     #[cfg(test)]
     before_gate_barrier: Option<std::sync::Arc<std::sync::Barrier>>,
+}
+
+#[cfg(unix)]
+struct ExactBeginReplay<'a> {
+    authority: &'a ProviderCredentialBaseRequestAuthority,
+    proof: &'a ProviderCredentialIntentConsumptionProof,
+    context: &'a ProviderCredentialCommandContext,
+    command: &'a BeginProviderCredentialEnrollment,
+    operation: runne_provider::CredentialOperationSnapshot,
+    now_high_water: i64,
+    gate: PendingBrokerAdmissionGate<'a>,
 }
 
 impl<'a, S: ?Sized, R: ?Sized> ProviderCredentialEnrollmentBegin<'a, S, R> {
@@ -106,7 +117,7 @@ where
             .find_by_command(context.command_id, &context.idempotency_key)
             .map_err(map_store)?
         {
-            return self.replay(
+            return self.replay(ExactBeginReplay {
                 authority,
                 proof,
                 context,
@@ -114,7 +125,7 @@ where
                 operation,
                 now_high_water,
                 gate,
-            );
+            });
         }
         let rendezvous = gate.preflight(authority, proof)?;
         let lifecycle = self
@@ -152,14 +163,17 @@ where
     #[cfg(unix)]
     fn replay(
         &self,
-        authority: &ProviderCredentialBaseRequestAuthority,
-        proof: &ProviderCredentialIntentConsumptionProof,
-        context: &ProviderCredentialCommandContext,
-        command: &BeginProviderCredentialEnrollment,
-        mut operation: runne_provider::CredentialOperationSnapshot,
-        now_high_water: i64,
-        gate: PendingBrokerAdmissionGate<'_>,
+        replay: ExactBeginReplay<'_>,
     ) -> Result<ProviderCredentialOperationSnapshotV2, ProviderCredentialEnrollmentHostError> {
+        let ExactBeginReplay {
+            authority,
+            proof,
+            context,
+            command,
+            mut operation,
+            now_high_water,
+            gate,
+        } = replay;
         let replay_identity = (|| {
             let owner = runne_provider::CredentialInstallationOwnerId::from_bytes(
                 *authority.installation_identity(),

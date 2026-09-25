@@ -12,6 +12,22 @@ SMOKE = ROOT / "scripts/live-smoke-deepseek.sh"
 
 class LiveSmokeDeepSeekTests(unittest.TestCase):
     def test_label_is_not_captured_as_credential_status(self) -> None:
+        result = self._run_smoke_with_profile("gocode-deepseek-responses-text/1")
+
+        self.assertEqual(result.returncode, 91, result.stdout + result.stderr)
+        self.assertNotIn("credential is not configured", result.stderr)
+        self.assertIn("--- deepseek credential status ---", result.stderr)
+
+    def test_stale_runne_profile_identity_is_refused(self) -> None:
+        result = self._run_smoke_with_profile("runne-deepseek-responses-text/1")
+
+        self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+        self.assertIn(
+            "refusing: daemon does not expose the exact D1.2 profile/model.",
+            result.stderr,
+        )
+
+    def _run_smoke_with_profile(self, profile_id: str) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as temporary_directory:
             bin_dir = pathlib.Path(temporary_directory)
             self._write_executable(
@@ -28,17 +44,18 @@ class LiveSmokeDeepSeekTests(unittest.TestCase):
                 esac
                 """,
             )
-            self._write_executable(
-                bin_dir / "runned",
-                """
+            daemon = """
                 #!/usr/bin/env bash
                 set -euo pipefail
                 [[ "${1:-}" == doctor ]] || exit 93
                 echo "active provider: deepseek_responses_text_v1"
                 echo "credential deepseek: configured"
-                echo "profile: runne-deepseek-responses-text/1"
-                echo "model: deepseek-v4-flash (revision DeepSeek-V4-Flash-0731)"
-                """,
+                echo "profile: PROFILE_ID"
+                echo "model: deepseek-flash (revision 2026-09-21)"
+                """.replace("PROFILE_ID", profile_id)
+            self._write_executable(
+                bin_dir / "runned",
+                daemon,
             )
             environment = os.environ.copy()
             environment["RUNNE_LIVE_SMOKE"] = "1"
@@ -51,9 +68,7 @@ class LiveSmokeDeepSeekTests(unittest.TestCase):
                 check=False,
             )
 
-        self.assertEqual(result.returncode, 91, result.stdout + result.stderr)
-        self.assertNotIn("credential is not configured", result.stderr)
-        self.assertIn("--- deepseek credential status ---", result.stderr)
+        return result
 
     @staticmethod
     def _write_executable(path: pathlib.Path, source: str) -> None:

@@ -21,7 +21,7 @@ impl FrameDropWitness {
 }
 
 macro_rules! native_frame {
-    ($name:ident) => {
+    ($name:ident, $observed_cfg:meta) => {
         pub(crate) struct $name {
             bytes: Option<Zeroizing<Vec<u8>>>,
             #[cfg(test)]
@@ -42,7 +42,7 @@ macro_rules! native_frame {
                 })
             }
 
-            #[cfg(test)]
+            #[cfg($observed_cfg)]
             pub(crate) fn new_observed(
                 bytes: Zeroizing<Vec<u8>>,
                 drop_witness: FrameDropWitness,
@@ -59,15 +59,24 @@ macro_rules! native_frame {
             }
 
             #[cfg(any(test, target_os = "macos"))]
-            pub(crate) fn into_bytes(self) -> Zeroizing<Vec<u8>> {
-                self.0
+            pub(crate) fn into_bytes(mut self) -> Zeroizing<Vec<u8>> {
+                self.bytes.take().expect("native frame bytes are owned")
+            }
+        }
+
+        impl Drop for $name {
+            fn drop(&mut self) {
+                #[cfg(test)]
+                if let Some(witness) = self.drop_witness.take() {
+                    witness.record();
+                }
             }
         }
     };
 }
 
-native_frame!(NativeRequestFrame);
-native_frame!(NativeReplyFrame);
+native_frame!(NativeRequestFrame, test);
+native_frame!(NativeReplyFrame, all(test, target_os = "macos"));
 
 #[cfg(target_os = "macos")]
 pub(crate) mod native {

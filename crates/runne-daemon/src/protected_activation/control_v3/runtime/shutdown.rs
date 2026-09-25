@@ -1,4 +1,4 @@
-#[cfg(all(unix, target_os = "macos", target_arch = "aarch64"))]
+#[cfg(unix)]
 impl V3EnrollmentRuntime {
     /// Releases runtime-local enrollment resources and transfers the session
     /// whose drop revokes HTTP admission before the shutdown acknowledgement.
