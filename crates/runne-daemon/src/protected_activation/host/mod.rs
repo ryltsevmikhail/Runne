@@ -171,6 +171,8 @@ fn protected_activation_error() -> DaemonError {
 }
 
 #[cfg(feature = "desktop-protected")]
+mod profile_directory;
+#[cfg(feature = "desktop-protected")]
 fn launch_time() -> Result<u64, LaunchAuthorityError> {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
