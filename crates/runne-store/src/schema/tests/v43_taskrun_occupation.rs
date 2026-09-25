@@ -124,7 +124,7 @@ fn v43_renewal_ids_collide_with_all_command_receipts_in_both_directions() {
 
 fn v43_database_with_claim() -> Connection {
     let connection = Connection::open_in_memory().unwrap();
-    apply_migrations(&connection).unwrap();
+    apply_migrations_internal(&connection, 43).unwrap();
     connection.execute(
         "INSERT INTO taskrun_assignments(taskrun_id,attempt_id,node_id,node_epoch,fence,capability_descriptor,lease_expires_at_ms,command_id,admitted_event_id,started_event_id) VALUES(?1,?2,?3,1,1,'linux-executor-v1',9999999999999,?4,?5,?6)",
         params![[11_u8;16].as_slice(),[12_u8;16].as_slice(),[13_u8;16].as_slice(),[14_u8;16].as_slice(),[15_u8;16].as_slice(),[16_u8;16].as_slice()],

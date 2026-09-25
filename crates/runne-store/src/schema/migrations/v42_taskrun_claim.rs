@@ -80,7 +80,7 @@ pub(super) fn v42_structure_matches(
         [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     )?;
     let marker_matches = if include_v43_extensions {
-        matches!(marker, (43, 1, 42, 927) | (43, 1, 43, 946))
+        matches!(marker, (43, 1, 42, 927) | (43, 1, 43, 946) | (44, 1, 43, 971) | (44, 1, 44, 990))
     } else {
         matches!(marker, (42, 1, 41, 884) | (42, 1, 42, 903))
     };
@@ -105,6 +105,14 @@ pub(super) fn v42_structure_matches(
                 "taskrun_assignment_lease_renewals_no_delete",
                 "CREATE TRIGGER taskrun_assignment_lease_renewals_no_delete BEFORE DELETE ON taskrun_assignment_lease_renewals BEGIN SELECT RAISE(ABORT, 'TaskRun lease renewal receipt is append only'); END",
             ),
+        ]);
+    }
+    if marker.0 == 44 {
+        tables.push("taskrun_dispatch_intents");
+        triggers.extend([
+            ("taskrun_dispatch_intents_immutable", "CREATE TRIGGER taskrun_dispatch_intents_immutable BEFORE UPDATE ON taskrun_dispatch_intents BEGIN SELECT RAISE(ABORT,'dispatch intent is append only'); END"),
+            ("taskrun_dispatch_intents_no_delete", "CREATE TRIGGER taskrun_dispatch_intents_no_delete BEFORE DELETE ON taskrun_dispatch_intents BEGIN SELECT RAISE(ABORT,'dispatch intent is append only'); END"),
+            ("taskrun_occupation_intent_guard", "CREATE TRIGGER taskrun_occupation_intent_guard BEFORE UPDATE OF dispatch_intent ON taskrun_assignment_occupations WHEN (NEW.dispatch_intent='present' AND NOT EXISTS(SELECT 1 FROM taskrun_dispatch_intents i WHERE i.taskrun_id=NEW.taskrun_id AND i.fence=NEW.fence AND i.attempt_id=NEW.attempt_id AND i.node_id=NEW.node_id AND i.node_epoch=NEW.node_epoch AND i.state='present')) OR (OLD.dispatch_intent IN ('present','unknown') AND NEW.dispatch_intent!=OLD.dispatch_intent) BEGIN SELECT RAISE(ABORT,'dispatch intent evidence mismatch'); END"),
         ]);
     }
     let extensions = CredentialSchemaExtensions { tables: &tables, indexes: &indexes, triggers: &triggers, replacements: &[] };

@@ -3,7 +3,7 @@ fn v37_upgrade_preserves_legacy_schema_and_allows_only_typed_zero_cost() {
     let conn = Connection::open_in_memory().unwrap();
     initialize_released_v13(&conn);
     apply_migrations(&conn).unwrap();
-    assert_eq!(schema_marker(&conn), 43);
+    assert_eq!(schema_marker(&conn), 44);
     assert!(v43_matches(&conn, 43).unwrap());
     let trigger: String = conn
         .query_row(

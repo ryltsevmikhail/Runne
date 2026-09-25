@@ -1,4 +1,4 @@
-use runne_application::commands::{CancelTaskRunInput, CommandOutcome};
+use runne_application::commands::CommandOutcome;
 use runne_application::ports::{
     ExecutionNodeId, TaskRunAssignmentIdentity, TaskRunAssignmentPort, TaskRunClaimResult,
     TaskRunDispatchIntentResult, TaskRunFence, TaskRunLeaseRenewal,
@@ -59,15 +59,25 @@ fn assignment_dispatch_prepare_and_lease_renewal_are_exact_and_idempotent() {
     );
     {
         let connection = database.connection();
-        connection.execute("UPDATE taskrun_assignment_occupations SET dispatch_intent='unknown' WHERE taskrun_id=?1 AND fence=?2", rusqlite::params![taskrun_id.as_bytes(), identity.fence.0 as i64]).unwrap();
+        connection.execute_batch("CREATE TRIGGER fail_dispatch_intent_update BEFORE UPDATE OF dispatch_intent ON taskrun_assignment_occupations BEGIN SELECT RAISE(ABORT,'injected dispatch update failure'); END").unwrap();
     }
     assert_eq!(
         database.store.prepare_taskrun_dispatch(identity.clone()),
-        Err(runne_application::ports::TaskRunAssignmentError::StaleAssignment)
+        Err(runne_application::ports::TaskRunAssignmentError::CorruptData)
     );
     {
         let connection = database.connection();
-        connection.execute("UPDATE taskrun_assignment_occupations SET dispatch_intent='absent' WHERE taskrun_id=?1 AND fence=?2", rusqlite::params![taskrun_id.as_bytes(), identity.fence.0 as i64]).unwrap();
+        let count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM taskrun_dispatch_intents WHERE taskrun_id=?1 AND fence=?2",
+                rusqlite::params![taskrun_id.as_bytes(), identity.fence.0 as i64],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+        connection
+            .execute_batch("DROP TRIGGER fail_dispatch_intent_update")
+            .unwrap();
     }
     assert_eq!(
         database
@@ -83,6 +93,20 @@ fn assignment_dispatch_prepare_and_lease_renewal_are_exact_and_idempotent() {
             .unwrap(),
         TaskRunDispatchIntentResult::Duplicate
     );
+    {
+        let connection = database.connection();
+        let evidence: i64 = connection.query_row("SELECT COUNT(*) FROM taskrun_dispatch_intents WHERE taskrun_id=?1 AND fence=?2 AND state='present'", rusqlite::params![taskrun_id.as_bytes(), identity.fence.0 as i64], |r| r.get(0)).unwrap();
+        assert_eq!(evidence, 1);
+        assert!(connection.execute("UPDATE taskrun_assignment_occupations SET dispatch_intent='absent' WHERE taskrun_id=?1 AND fence=?2", rusqlite::params![taskrun_id.as_bytes(), identity.fence.0 as i64]).is_err());
+        assert!(
+            connection
+                .execute(
+                    "DELETE FROM taskrun_dispatch_intents WHERE taskrun_id=?1 AND fence=?2",
+                    rusqlite::params![taskrun_id.as_bytes(), identity.fence.0 as i64]
+                )
+                .is_err()
+        );
+    }
     let renewal = TaskRunLeaseRenewal {
         identity: identity.clone(),
         renewal_id: runne_domain::id::CommandId::from_bytes([0x99; 16]),
@@ -152,76 +176,6 @@ fn assignment_dispatch_prepare_and_lease_renewal_are_exact_and_idempotent() {
     assert_eq!(
         database.store.renew_taskrun_assignment_lease(renewal),
         Err(runne_application::ports::TaskRunAssignmentError::LeaseExpired)
-    );
-}
-
-#[test]
-fn dispatch_and_renewal_replay_reject_a_cancelled_taskrun() {
-    let database = Database::new("taskrun-assignment-cancelled");
-    let repository = database.repository();
-    create_project(&repository);
-    create_workspace(&repository);
-    let outcome = submit_task_run(&database, 0x9b, "assignment-cancel-source");
-    let CommandOutcome::TaskRunSubmitted { taskrun_id, .. } = outcome else {
-        panic!("submit outcome expected");
-    };
-    let (node_id, node_epoch) = node_registration(&database);
-    let context = task_context(0x9c, "assignment-cancel-claim");
-    let TaskRunClaimResult::Committed(receipt) = database
-        .task_runs()
-        .claim_task_run(
-            &context,
-            ClaimTaskRunInput {
-                taskrun_id,
-                expected_version: 2,
-                node_id: ExecutionNodeId(node_id.clone()),
-                node_epoch,
-                capability_descriptor: "linux-executor-v1".into(),
-                lease_duration_ms: 30_000,
-            },
-            &database.store,
-        )
-        .unwrap()
-    else {
-        panic!("claim expected");
-    };
-    let identity = TaskRunAssignmentIdentity {
-        taskrun_id,
-        attempt_id: receipt.attempt_id,
-        node_id: ExecutionNodeId(node_id),
-        node_epoch,
-        fence: receipt.fence,
-    };
-    database
-        .store
-        .prepare_taskrun_dispatch(identity.clone())
-        .unwrap();
-    let renewal = TaskRunLeaseRenewal {
-        identity: identity.clone(),
-        renewal_id: runne_domain::id::CommandId::from_bytes([0x9d; 16]),
-        lease_duration_ms: 30_000,
-    };
-    database
-        .store
-        .renew_taskrun_assignment_lease(renewal.clone())
-        .unwrap();
-    database
-        .task_runs()
-        .cancel_task_run(
-            &task_context(0x9e, "assignment-cancel-run"),
-            CancelTaskRunInput {
-                taskrun_id,
-                expected_version: 4,
-            },
-        )
-        .unwrap();
-    assert_eq!(
-        database.store.prepare_taskrun_dispatch(identity.clone()),
-        Err(runne_application::ports::TaskRunAssignmentError::StaleAssignment)
-    );
-    assert_eq!(
-        database.store.renew_taskrun_assignment_lease(renewal),
-        Err(runne_application::ports::TaskRunAssignmentError::StaleAssignment)
     );
 }
 

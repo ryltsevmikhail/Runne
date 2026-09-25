@@ -33,11 +33,16 @@ impl TaskRunAssignmentPort for StoreTransaction {
         }
         match row.5.as_str() {
             "present" => {
+                let matches: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM taskrun_dispatch_intents WHERE taskrun_id=?1 AND fence=?2 AND attempt_id=?3 AND node_id=?4 AND node_epoch=?5 AND state='present')", params![identity.taskrun_id.as_bytes(),identity.fence.0 as i64,identity.attempt_id.as_bytes(),node,identity.node_epoch as i64], |r| r.get(0)).map_err(|_| Error::CorruptData)?;
+                if !matches {
+                    return Err(Error::CorruptData);
+                }
                 tx.commit().map_err(|_| Error::Unavailable)?;
                 Ok(TaskRunDispatchIntentResult::Duplicate)
             }
             "absent" => {
-                // `present` records intent only, not proof of effect; no-effect release needs stronger evidence.
+                tx.execute("INSERT INTO taskrun_dispatch_intents(taskrun_id,fence,attempt_id,node_id,node_epoch,state) VALUES(?1,?2,?3,?4,?5,'present')",
+                    params![identity.taskrun_id.as_bytes(), identity.fence.0 as i64, identity.attempt_id.as_bytes(), node, identity.node_epoch as i64]).map_err(|_| Error::CorruptData)?;
                 let changed = tx.execute("UPDATE taskrun_assignment_occupations SET dispatch_intent='present' WHERE taskrun_id=?1 AND fence=?2 AND attempt_id=?3 AND node_id=?4 AND node_epoch=?5 AND state='active' AND dispatch_intent='absent' AND lease_expires_at_ms>?6",
                     params![identity.taskrun_id.as_bytes(), identity.fence.0 as i64, identity.attempt_id.as_bytes(), node, identity.node_epoch as i64, now]).map_err(|_| Error::CorruptData)?;
                 if changed != 1 {

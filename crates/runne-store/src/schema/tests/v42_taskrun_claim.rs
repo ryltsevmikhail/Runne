@@ -7,7 +7,7 @@ fn taskrun_claim_migration_from_v41_survives_close_and_reopen() {
     assert!(v41_matches(&connection, 41).unwrap());
 
     apply_migrations(&connection).unwrap();
-    assert_eq!(schema_marker(&connection), 43);
+    assert_eq!(schema_marker(&connection), 44);
     assert!(v43_matches(&connection, 43).unwrap());
     drop(connection);
 

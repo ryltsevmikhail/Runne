@@ -3,6 +3,7 @@ mod validated_reopen;
 
 mod project_workspace_sqlite {
     mod assignment;
+    mod assignment_cancelled;
     mod claim;
     mod claim_event_integrity;
     mod claim_failures;
