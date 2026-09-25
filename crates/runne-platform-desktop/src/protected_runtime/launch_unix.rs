@@ -124,6 +124,10 @@ impl DevelopmentBundledRuntimeLauncher {
         if let Some(command_id) = std::env::var_os("RUNNE_TEST_COMMIT_GATE_COMMAND_ID") {
             command.env("RUNNE_TEST_COMMIT_GATE_COMMAND_ID", command_id);
         }
+        #[cfg(feature = "test-support")]
+        if let Some(arm_file) = std::env::var_os("RUNNE_TEST_COMMIT_GATE_ARM_FILE") {
+            command.env("RUNNE_TEST_COMMIT_GATE_ARM_FILE", arm_file);
+        }
         if controls.capture_output {
             command.stdout(Stdio::piped()).stderr(Stdio::piped());
         } else {

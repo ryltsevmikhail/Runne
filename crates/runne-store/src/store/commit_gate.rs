@@ -2,9 +2,10 @@
 //!
 //! Compiled exclusively under `test-support`; production builds contain no
 //! hook and read no environment. When a test process arms
-//! `RUNNE_TEST_COMMIT_GATE_COMMAND_ID`, the unit-of-work commit path writes
-//! that marker after the matching TaskRunSubmitted transaction commits, then
-//! blocks until `RUNNE_TEST_COMMIT_GATE_RELEASE` appears.
+//! `RUNNE_TEST_COMMIT_GATE_COMMAND_ID` and the test creates the path named by
+//! `RUNNE_TEST_COMMIT_GATE_ARM_FILE`, the unit-of-work commit path writes that
+//! marker after the matching TaskRunSubmitted transaction commits, then blocks
+//! until `RUNNE_TEST_COMMIT_GATE_RELEASE` appears.
 //!
 //! The block is what makes the kill point deterministic: between marker and
 //! release the daemon holds the committed transaction with the client
@@ -19,6 +20,12 @@ pub(crate) fn note_durable_commit(command_id: &str) {
         return;
     };
     if target != command_id {
+        return;
+    }
+    let Some(arm_file) = std::env::var_os("RUNNE_TEST_COMMIT_GATE_ARM_FILE") else {
+        return;
+    };
+    if !std::path::Path::new(&arm_file).exists() {
         return;
     }
     let Some(path) = std::env::var_os("RUNNE_TEST_COMMIT_GATE_FILE") else {

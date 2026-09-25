@@ -9,9 +9,11 @@
 async fn sigkill_between_durable_commit_and_ack_converges_exactly_once_on_retry() {
     let _process_guard = KILL_FAULT_LOCK.lock().await;
     let temporary = owner_private::tempdir();
+    let arm_file = temporary.path().join("commit-gate.arm");
     let gate = temporary.path().join("commit-gate.marker");
     let release = temporary.path().join("commit-gate.release");
-    // Armed before launch so the first TaskRun commit holds at the boundary.
+    // Target identity is configured before launch; the gate is armed only
+    // after setup so fixture commits cannot create its marker.
     // SAFETY: single-threaded test harness lock serializes all launches; no
     // other thread reads the environment concurrently.
     unsafe { std::env::set_var("RUNNE_TEST_COMMIT_GATE_FILE", &gate) };
@@ -22,6 +24,7 @@ async fn sigkill_between_durable_commit_and_ack_converges_exactly_once_on_retry(
             SUBMIT_COMMAND_ID.to_string(),
         )
     };
+    unsafe { std::env::set_var("RUNNE_TEST_COMMIT_GATE_ARM_FILE", &arm_file) };
     let executable = owner_private::ControlledExecutable::copy_from(env!("CARGO_BIN_EXE_runned"));
     let spec = ProtectedBundledRuntimeLaunchSpec::new(
         executable.path(),
@@ -45,6 +48,7 @@ async fn sigkill_between_durable_commit_and_ack_converges_exactly_once_on_retry(
         !gate.exists(),
         "setup must not reach the TaskRun commit gate before the target submit"
     );
+    std::fs::write(&arm_file, b"armed").expect("arm target TaskRun commit gate");
 
     // ── Submit; kill exactly between durable commit and ACK ─────────────
     let identity = CommandIdentity::new(*SUBMIT_COMMAND_ID, "kill-fault-submit").expect("identity");
@@ -99,6 +103,7 @@ async fn sigkill_between_durable_commit_and_ack_converges_exactly_once_on_retry(
     unsafe { std::env::remove_var("RUNNE_TEST_COMMIT_GATE_FILE") };
     unsafe { std::env::remove_var("RUNNE_TEST_COMMIT_GATE_RELEASE") };
     unsafe { std::env::remove_var("RUNNE_TEST_COMMIT_GATE_COMMAND_ID") };
+    unsafe { std::env::remove_var("RUNNE_TEST_COMMIT_GATE_ARM_FILE") };
 
     // ── Relaunch on the same durable store and reconcile ────────────────
     let mut second = DevelopmentBundledRuntimeLauncher::new()
