@@ -60,6 +60,13 @@ fn drop_v12_fences(conn: &Connection) {
 }
 
 fn drop_v13_provider_execution(conn: &Connection) {
+    conn.execute_batch(
+        "DROP TRIGGER IF EXISTS schema_v12_fence_execution_nodes_insert;
+         DROP TRIGGER IF EXISTS schema_v12_fence_execution_nodes_update;
+         DROP TRIGGER IF EXISTS schema_v12_fence_execution_nodes_delete;
+         DROP TABLE IF EXISTS execution_nodes;",
+    )
+    .unwrap();
     conn.execute_batch("DROP TABLE IF EXISTS provider_qualification_admission_fences; DROP TABLE IF EXISTS credential_cleanup_recovery_attempts;").unwrap();
     let triggers = conn
         .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name GLOB 'provider_*'")

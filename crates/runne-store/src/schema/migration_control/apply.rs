@@ -47,6 +47,13 @@ pub fn apply_migrations_through_v23_for_test(conn: &Connection) -> SqliteResult<
     apply_migrations_internal(conn, 23)
 }
 
+/// Builds the V40 boundary for V41 migration compatibility fixtures.
+#[doc(hidden)]
+#[cfg(debug_assertions)]
+pub fn apply_migrations_through_v40_for_test(conn: &Connection) -> SqliteResult<()> {
+    apply_migrations_internal(conn, 40)
+}
+
 fn apply_migrations_internal(conn: &Connection, target_version: i64) -> SqliteResult<()> {
     let source_version = classify_schema_version(conn)?;
     conn.execute_batch(
@@ -118,6 +125,7 @@ fn classify_schema_version(conn: &Connection) -> SqliteResult<i64> {
         38 => v38_matches(conn, version)?,
         39 => v39_matches(conn, version)?,
         40 => v40_matches(conn, version)?,
+        41 => v41_matches(conn, version)?,
         _ => false,
     };
     compatible
@@ -262,6 +270,9 @@ fn apply_v12_and_later(
     }
     if source_version < 40 && target_version >= 40 {
         apply_v40_migration(conn)?;
+    }
+    if source_version < 41 && target_version >= 41 {
+        apply_v41_migration(conn)?;
     }
     Ok(())
 }

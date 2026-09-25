@@ -122,6 +122,10 @@ fn v16_fixture(
          DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_insert;
          DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_update;
          DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_delete;
+         DROP TRIGGER IF EXISTS schema_v12_fence_execution_nodes_insert;
+         DROP TRIGGER IF EXISTS schema_v12_fence_execution_nodes_update;
+         DROP TRIGGER IF EXISTS schema_v12_fence_execution_nodes_delete;
+         DROP TABLE IF EXISTS execution_nodes;
          DELETE FROM schema_version WHERE version >= 19;",
     )
     .unwrap();

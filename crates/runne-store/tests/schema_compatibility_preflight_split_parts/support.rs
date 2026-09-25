@@ -93,6 +93,7 @@ fn released_v8_database(name: &str) -> PathBuf {
              DROP TABLE schema_lineage;
              DROP TABLE consumption_intents;
              DROP TABLE verification_evidence;
+             DROP TABLE execution_nodes;
              DELETE FROM schema_version WHERE version >= 9;",
         )
         .unwrap();

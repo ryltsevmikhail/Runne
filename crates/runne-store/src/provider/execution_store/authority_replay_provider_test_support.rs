@@ -75,6 +75,10 @@ pub(super) fn upgraded_v25_for_provider(
              DROP TRIGGER schema_v12_fence_conversation_context_scope_update;
              DROP TRIGGER schema_v12_fence_conversation_context_scope_delete;
              DROP TABLE conversation_context_scope;
+             DROP TRIGGER schema_v12_fence_execution_nodes_insert;
+             DROP TRIGGER schema_v12_fence_execution_nodes_update;
+             DROP TRIGGER schema_v12_fence_execution_nodes_delete;
+             DROP TABLE execution_nodes;
              DELETE FROM schema_version WHERE version >= 26;",
     )
         .unwrap();

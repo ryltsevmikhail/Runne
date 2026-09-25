@@ -19,9 +19,9 @@ fn v39_lineage_rebuild_preserves_rows_and_admits_the_submit_origin() {
 
     apply_migrations(&connection).unwrap();
 
-    assert_eq!(schema_marker(&connection), 40);
+    assert_eq!(schema_marker(&connection), 41);
     assert!(
-        v40_matches(&connection, 40).unwrap(),
+        v41_matches(&connection, 41).unwrap(),
         "upgraded structure: marker={:?} inherited={:?} receipts={:?} triggers={:?} lineage={:?}",
         connection
             .query_row(
@@ -113,7 +113,7 @@ fn lineage_ddl_drift_is_rejected_per_schema_version() {
     // must equally stay rejected.
     let rolled_back = Connection::open_in_memory().unwrap();
     apply_migrations(&rolled_back).unwrap();
-    assert!(v40_matches(&rolled_back, 40).unwrap());
+    assert!(v41_matches(&rolled_back, 41).unwrap());
     let v18_lineage = project_workspace_schema::MIGRATION_V18
         .split(';')
         .map(str::trim)
@@ -138,7 +138,7 @@ fn lineage_ddl_drift_is_rejected_per_schema_version() {
         )
         .unwrap();
     assert!(
-        !v40_matches(&rolled_back, 40).unwrap(),
+        !v41_matches(&rolled_back, 41).unwrap(),
         "v18 lineage DDL under a v40 marker is DDL drift"
     );
     assert!(classify_schema_version(&rolled_back).is_err());
@@ -156,7 +156,7 @@ fn v39_reopens_full_and_no_v19_lineages() {
             apply_migrations_internal(&connection, 19).unwrap();
         }
         apply_migrations(&connection).unwrap();
-        assert!(v40_matches(&connection, 40).unwrap(), "lineage {no_v19_lineage}");
+        assert!(v41_matches(&connection, 41).unwrap(), "lineage {no_v19_lineage}");
         assert_eq!(
             connection
                 .query_row(
@@ -165,7 +165,7 @@ fn v39_reopens_full_and_no_v19_lineages() {
                     |row| row.get::<_, i64>(0),
                 )
                 .unwrap(),
-            if no_v19_lineage { 801 } else { 820 }
+            if no_v19_lineage { 842 } else { 861 }
         );
         drop(connection);
         drop(open_managed_connection(&path, ConnectionMode::Writer).unwrap());

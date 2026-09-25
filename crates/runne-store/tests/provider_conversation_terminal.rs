@@ -200,9 +200,13 @@ fn production_terminal_application_reconstructs_started_command_and_finishes_onc
              DROP INDEX IF EXISTS idx_approvals_pending;
              DROP TABLE IF EXISTS approvals; DROP TABLE IF EXISTS provider_online_credential_effect_bindings; DROP TABLE IF EXISTS provider_online_dispatch_claim_providers; DROP TABLE IF EXISTS provider_online_dispatch_issuance_evidence; DROP TABLE IF EXISTS provider_credential_completion_receipts; DROP TABLE IF EXISTS provider_credential_process_attachments; DROP TABLE IF EXISTS provider_credential_operations; DROP TABLE IF EXISTS provider_credential_ticket_attempts; DROP TABLE IF EXISTS provider_credential_authority_heads; DROP TABLE IF EXISTS provider_credential_readiness_observations; DROP TABLE IF EXISTS provider_credential_verification_observations; DROP TABLE IF EXISTS provider_subscription_budgets;
              DROP TABLE IF EXISTS conversation_context_scope;
-         DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_insert;
+            DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_insert;
          DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_update;
          DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_delete;
+         DROP TRIGGER IF EXISTS schema_v12_fence_execution_nodes_insert;
+         DROP TRIGGER IF EXISTS schema_v12_fence_execution_nodes_update;
+         DROP TRIGGER IF EXISTS schema_v12_fence_execution_nodes_delete;
+         DROP TABLE IF EXISTS execution_nodes;
          DELETE FROM schema_version WHERE version >= 19;",
     )
         .unwrap();
