@@ -19,6 +19,9 @@ pub fn drop_v42_v43_taskrun_schema(connection: &Connection) -> rusqlite::Result<
          DROP TRIGGER IF EXISTS taskrun_dispatch_intents_immutable;
          DROP TRIGGER IF EXISTS taskrun_dispatch_intents_no_delete;
          DROP TRIGGER IF EXISTS taskrun_occupation_intent_guard;
+         DROP TRIGGER IF EXISTS taskrun_provider_bindings_immutable;
+         DROP TRIGGER IF EXISTS taskrun_provider_bindings_no_delete;
+         DROP TABLE IF EXISTS taskrun_provider_bindings;
          DROP TABLE IF EXISTS taskrun_dispatch_intents;
          DROP TABLE IF EXISTS taskrun_assignment_lease_renewals;
          DROP TABLE IF EXISTS taskrun_assignment_occupations;

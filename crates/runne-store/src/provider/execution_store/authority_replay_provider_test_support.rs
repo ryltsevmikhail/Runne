@@ -90,6 +90,9 @@ pub(super) fn upgraded_v25_for_provider(
              DROP TRIGGER taskrun_dispatch_intents_immutable;
              DROP TRIGGER taskrun_dispatch_intents_no_delete;
              DROP TRIGGER taskrun_occupation_intent_guard;
+             DROP TRIGGER taskrun_provider_bindings_immutable;
+             DROP TRIGGER taskrun_provider_bindings_no_delete;
+             DROP TABLE taskrun_provider_bindings;
              DROP TABLE taskrun_dispatch_intents;
              DROP TRIGGER global_command_id_from_release_v45;
              DROP TRIGGER global_command_id_from_command_receipts_v45;
@@ -129,6 +132,14 @@ pub(super) fn upgraded_v25_for_provider(
             .unwrap(),
         25
     );
+    let v46_objects: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('taskrun_provider_bindings', 'taskrun_provider_bindings_immutable', 'taskrun_provider_bindings_no_delete')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(v46_objects, 0, "V25 fixture must not retain V46 schema objects");
     drop(connection);
 
     (directory, path, request)
