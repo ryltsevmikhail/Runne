@@ -225,6 +225,14 @@ impl StoreTransaction {
             )
         })?;
 
+        #[cfg(feature = "test-support")]
+        if matches!(
+            &payload.command_result,
+            runne_application::commands::CommandOutcome::TaskRunSubmitted { .. }
+        ) {
+            super::super::commit_gate::note_durable_commit(&payload.command_id.to_string());
+        }
+
         Ok(CommitResult::Committed {
             new_version: new_version as u64,
         })
