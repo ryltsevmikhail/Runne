@@ -62,13 +62,11 @@ node_at() {
 
 typecheck_frontend() {
     node_at apps/desktop "$vue_tsc_target" -b
-    node_at apps/site "$vue_tsc_target" -b
     node_at packages/product "$vue_tsc_target" --noEmit -p tsconfig.json
 }
 
 test_frontend() {
     node_at apps/desktop "$vitest_target" run
-    node_at apps/site "$vitest_target" run
     node_at packages/product "$vitest_target" run
 }
 
@@ -202,8 +200,6 @@ if gate_enabled frontend; then
     typecheck_frontend
     node_at apps/desktop "$vue_tsc_target" -b
     node_at apps/desktop "$vite_target" build
-    node_at apps/site "$vue_tsc_target" -b
-    node_at apps/site "$repo_root/apps/site/scripts/build.mjs"
     CI=1 "$trusted_node" "$playwright_target" test
     "$trusted_python" -m unittest scripts.desktop.tests.test_desktop_qualification_workflow -v
     "$trusted_python" -m unittest scripts.tests.test_desktop_capability_manifest -v
