@@ -161,7 +161,7 @@ impl UpdateStatusStore {
         desktop_executable: &std::path::Path,
         resource_directory: &std::path::Path,
     ) -> Result<Option<NativeInstalledEnrollmentLease>, ()> {
-        let Some(updater) = self.updater.as_ref().cloned() else {
+        let Some(updater) = self.updater.clone() else {
             return Ok(None);
         };
         let updater = updater.lock_owned().await;

@@ -96,7 +96,7 @@ mod tests {
             .expect("create fixture directory");
         let directory = directory.path();
         let owner = std::os::unix::fs::MetadataExt::uid(
-            &std::fs::metadata(&directory).expect("fixture metadata"),
+            &std::fs::metadata(directory).expect("fixture metadata"),
         );
         let terminal = directory.join("pinentry");
         std::fs::write(&terminal, "terminal backend").expect("write terminal candidate");
@@ -106,13 +106,13 @@ mod tests {
             .expect("make graphical candidate executable");
 
         assert_eq!(
-            find_graphical_pinentry(&directory, owner),
+            find_graphical_pinentry(directory, owner),
             Some(graphical.clone())
         );
 
         std::fs::set_permissions(&graphical, std::fs::Permissions::from_mode(0o644))
             .expect("remove executable bit");
-        assert_eq!(find_graphical_pinentry(&directory, owner), None);
+        assert_eq!(find_graphical_pinentry(directory, owner), None);
     }
 
     #[test]
@@ -127,7 +127,7 @@ mod tests {
             .expect("create fixture directory");
         let directory = directory.path();
         let owner = std::os::unix::fs::MetadataExt::uid(
-            &std::fs::metadata(&directory).expect("fixture metadata"),
+            &std::fs::metadata(directory).expect("fixture metadata"),
         );
         let candidate = directory.join("pinentry-gnome3");
         std::fs::write(&candidate, "candidate").expect("write candidate");

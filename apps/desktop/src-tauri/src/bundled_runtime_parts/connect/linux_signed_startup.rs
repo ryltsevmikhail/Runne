@@ -12,21 +12,62 @@ pub(super) enum Route {
     RejectDowngrade,
 }
 
-pub(super) const fn route(
-    has_installed_tuple: bool,
-    signed_v3_was_active: bool,
-    pending_profile_is_v3: bool,
-    has_active_v3_marker: bool,
-) -> Route {
-    if !has_installed_tuple {
-        return if signed_v3_was_active || pending_profile_is_v3 || has_active_v3_marker {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Evidence {
+    Present,
+    Absent,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum PendingProfile {
+    V2,
+    V3,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct RouteState {
+    pub(super) installed_tuple: Evidence,
+    pub(super) signed_v3_latch: Evidence,
+    pub(super) pending_profile: PendingProfile,
+    pub(super) active_v3_marker: Evidence,
+}
+
+impl From<(bool, bool, bool, bool)> for RouteState {
+    fn from((installed, latched, profile_v3, marker): (bool, bool, bool, bool)) -> Self {
+        Self {
+            installed_tuple: evidence(installed),
+            signed_v3_latch: evidence(latched),
+            pending_profile: if profile_v3 {
+                PendingProfile::V3
+            } else {
+                PendingProfile::V2
+            },
+            active_v3_marker: evidence(marker),
+        }
+    }
+}
+
+const fn evidence(present: bool) -> Evidence {
+    if present {
+        Evidence::Present
+    } else {
+        Evidence::Absent
+    }
+}
+
+pub(super) fn route(state: RouteState) -> Route {
+    if state.installed_tuple == Evidence::Absent {
+        return if state.signed_v3_latch == Evidence::Present
+            || state.pending_profile == PendingProfile::V3
+            || state.active_v3_marker == Evidence::Present
+        {
             Route::RejectDowngrade
         } else {
             Route::Baseline
         };
     }
-    if pending_profile_is_v3 {
-        return if has_active_v3_marker {
+    if state.pending_profile == PendingProfile::V3 {
+        return if state.active_v3_marker == Evidence::Present {
             Route::VerifyV3
         } else {
             Route::RejectDowngrade
@@ -46,17 +87,17 @@ pub(super) async fn transition_and_install(
     ensure_not_stopping(controller)?;
     installed
         .refresh_linux()
-        .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|()| AppCoreError::RuntimeUnavailable)?;
     let prepared = installed
         .take_prepared()
-        .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|()| AppCoreError::RuntimeUnavailable)?;
     let confirmed = controller
         .run_supervisor(move |supervisor| supervisor.confirm_installed_native_enrollment(prepared))
         .await
         .map_err(|_| AppCoreError::RuntimeUnavailable)?;
     installed
         .revalidate_confirmed(&confirmed)
-        .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|()| AppCoreError::RuntimeUnavailable)?;
 
     let latch_path = controller.signed_linux_v3_latch_path.clone();
     let app = controller
@@ -105,7 +146,7 @@ pub(super) async fn transition_and_install(
     ensure_not_stopping(controller)?;
     installed
         .revalidate_confirmed(&confirmed)
-        .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|()| AppCoreError::RuntimeUnavailable)?;
     let marker = ActiveSignedLinuxV3Marker::from_confirmed(&confirmed)
         .ok_or(AppCoreError::RuntimeUnavailable)?;
     *controller
@@ -149,17 +190,17 @@ pub(super) async fn confirm_current_marker(
 ) -> Result<(), AppCoreError> {
     installed
         .refresh_linux()
-        .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|()| AppCoreError::RuntimeUnavailable)?;
     let prepared = installed
         .take_prepared()
-        .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|()| AppCoreError::RuntimeUnavailable)?;
     let confirmed = controller
         .run_supervisor(move |supervisor| supervisor.confirm_installed_native_enrollment(prepared))
         .await
         .map_err(|_| AppCoreError::RuntimeUnavailable)?;
     installed
         .revalidate_confirmed(&confirmed)
-        .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|()| AppCoreError::RuntimeUnavailable)?;
     let marker = ActiveSignedLinuxV3Marker::from_confirmed(&confirmed)
         .ok_or(AppCoreError::RuntimeUnavailable)?;
     if previous != Some(marker) {

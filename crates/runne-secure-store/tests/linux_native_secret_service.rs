@@ -31,10 +31,12 @@ fn native_secret_service_version_write_readback_and_cleanup() {
 
     let (lifecycle, native_authority) = CredentialAuthorityPair::new().split();
     let store = NativeKeyringStore::new_versioned(native_authority);
-    let nonce = SystemTime::now()
+    let nonce: u64 = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .expect("clock")
-        .as_nanos() as u64;
+        .as_nanos()
+        .try_into()
+        .expect("nanosecond timestamp fits version field");
     // The provider account is validated against the production allowlist;
     // nanosecond version makes this an isolated disposable item.
     let reference = CredentialVersionRef::new(

@@ -2,6 +2,15 @@
 use crate::updater_metadata::NativeEnrollmentConfirmationV1;
 use crate::{ConfirmedInstalledNativeEnrollment, PreparedInstalledNativeEnrollment};
 
+#[cfg(target_os = "linux")]
+struct LinuxEnrollmentPeerIdentity {
+    authority: [u8; 16],
+    desktop: [u8; 16],
+    session: [u8; 16],
+    daemon: [u8; 16],
+    generation: u64,
+}
+
 impl ProtectedBundledRuntimeSupervisor {
     /// Reports the protocol version of the queued authenticated runtime profile.
     ///
@@ -140,109 +149,148 @@ impl ProtectedBundledRuntimeProcess {
             return Err(ProtectedBundledRuntimeError::InvalidState);
         }
         #[cfg(target_os = "macos")]
-        {
-            let pid = std::num::NonZeroU32::new(self.child.id())
-                .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
-            let before = runne_macos_process_identity::MacOsProcessStartIdentity::observe(pid)
-                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-            let digest = match &self.activation {
-                ProtectedProcessActivation::V2 { owned, .. } => *owned
-                    .compatibility_owned_launch()
-                    .executable()
-                    .executable_sha256(),
-                ProtectedProcessActivation::V3 { owned, .. } => {
-                    *owned.executable().executable_sha256()
-                }
-                _ => return Err(ProtectedBundledRuntimeError::InvalidState),
-            };
-            if !prepared.matches_protected_daemon_digest(digest) {
-                return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
-            }
-            if let ProtectedProcessActivation::V3 { owned, .. } = &self.activation {
-                let binding = owned.enrollment_binding();
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_err(|_| ProtectedBundledRuntimeError::InvalidState)?
-                    .as_secs();
-                if !prepared.matches_qualified_daemon(
-                    digest,
-                    *binding.release_tuple_digest(),
-                    *binding.qualification_binding_digest(),
-                    now,
-                ) {
-                    return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
-                }
-            }
-            prepared.confirm_current_daemon(pid)?;
-            let after = runne_macos_process_identity::MacOsProcessStartIdentity::observe(pid)
-                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-            let confirmation = self
-                .activation
-                .native_confirmation(before.digest(), after.digest())?;
-            let confirmed = prepared.confirm(&confirmation)?;
-            if let ProtectedProcessActivation::V3 { owned, .. } = &self.activation {
-                let binding = owned.enrollment_binding();
-                let generation = std::num::NonZeroU64::new(binding.desktop_supervisor_generation())
-                    .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
-                if confirmed.current_desktop_peer_binding_digest(generation)?
-                    != *binding.desktop_peer_binding_digest()
-                {
-                    return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
-                }
-            }
-            Ok(confirmed)
-        }
+        return self.confirm_macos_installed_native_enrollment(prepared);
         #[cfg(target_os = "linux")]
-        {
-            use sha2::{Digest as _, Sha256};
-            let pid = self.child.id();
-            let credentials = rustix::net::sockopt::socket_peercred(&self.channel)
-                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-            if u32::try_from(credentials.pid.as_raw_pid()).ok() != Some(pid)
-                || credentials.uid != rustix::process::geteuid()
-            {
-                return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
-            }
-            let before = linux_process_start_ticks(pid)?;
-            prepared.confirm_linux_daemon_image(pid, before)?;
-            let (authority, desktop, session, daemon, generation) = match &self.activation {
-                ProtectedProcessActivation::V2 { owned, .. } => (
-                    *owned.launch_authority_id(),
-                    *owned.desktop_host_instance_id(),
-                    *owned.session_id(),
-                    *owned.daemon_instance_id(),
-                    owned.launch_generation(),
-                ),
-                ProtectedProcessActivation::V3 { owned, .. } => (
-                    *owned.launch_authority_id(),
-                    *owned.desktop_host_instance_id(),
-                    *owned.session_id(),
-                    *owned.daemon_instance_id(),
-                    owned.launch_generation(),
-                ),
-                _ => return Err(ProtectedBundledRuntimeError::InvalidState),
-            };
-            let after = linux_process_start_ticks(pid)?;
-            if before != after {
-                return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
-            }
-            let mut hash = Sha256::new();
-            hash.update(b"runne/linux-live-daemon-process/v1\0");
-            hash.update(pid.to_be_bytes());
-            hash.update(after.to_be_bytes());
-            prepared.confirm_linux(
-                authority,
-                desktop,
-                session,
-                daemon,
-                generation,
-                hash.finalize().into(),
-            )
-        }
+        return self.confirm_linux_installed_native_enrollment(prepared);
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
             let _ = prepared;
             Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn confirm_macos_installed_native_enrollment(
+        &self,
+        prepared: PreparedInstalledNativeEnrollment,
+    ) -> Result<ConfirmedInstalledNativeEnrollment, ProtectedBundledRuntimeError> {
+        let pid = std::num::NonZeroU32::new(self.child.id())
+            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let before = runne_macos_process_identity::MacOsProcessStartIdentity::observe(pid)
+            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let digest = match &self.activation {
+            ProtectedProcessActivation::V2 { owned, .. } => *owned
+                .compatibility_owned_launch()
+                .executable()
+                .executable_sha256(),
+            ProtectedProcessActivation::V3 { owned, .. } => {
+                *owned.executable().executable_sha256()
+            }
+            _ => return Err(ProtectedBundledRuntimeError::InvalidState),
+        };
+        if !prepared.matches_protected_daemon_digest(digest) {
+            return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
+        }
+        self.confirm_macos_v3_binding(&prepared, digest)?;
+        prepared.confirm_current_daemon(pid)?;
+        let after = runne_macos_process_identity::MacOsProcessStartIdentity::observe(pid)
+            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let confirmation = self
+            .activation
+            .native_confirmation(before.digest(), after.digest())?;
+        let confirmed = prepared.confirm(&confirmation)?;
+        self.confirm_macos_v3_peer_binding(&confirmed)?;
+        Ok(confirmed)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn confirm_macos_v3_binding(
+        &self,
+        prepared: &PreparedInstalledNativeEnrollment,
+        digest: [u8; 32],
+    ) -> Result<(), ProtectedBundledRuntimeError> {
+        if let ProtectedProcessActivation::V3 { owned, .. } = &self.activation {
+            let binding = owned.enrollment_binding();
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| ProtectedBundledRuntimeError::InvalidState)?
+                .as_secs();
+            if !prepared.matches_qualified_daemon(
+                digest,
+                *binding.release_tuple_digest(),
+                *binding.qualification_binding_digest(),
+                now,
+            ) {
+                return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn confirm_macos_v3_peer_binding(
+        &self,
+        confirmed: &ConfirmedInstalledNativeEnrollment,
+    ) -> Result<(), ProtectedBundledRuntimeError> {
+        if let ProtectedProcessActivation::V3 { owned, .. } = &self.activation {
+            let binding = owned.enrollment_binding();
+            let generation = std::num::NonZeroU64::new(binding.desktop_supervisor_generation())
+                .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+            if confirmed.current_desktop_peer_binding_digest(generation)?
+                != *binding.desktop_peer_binding_digest()
+            {
+                return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    fn confirm_linux_installed_native_enrollment(
+        &self,
+        prepared: PreparedInstalledNativeEnrollment,
+    ) -> Result<ConfirmedInstalledNativeEnrollment, ProtectedBundledRuntimeError> {
+        use sha2::{Digest as _, Sha256};
+
+        let pid = self.child.id();
+        let credentials = rustix::net::sockopt::socket_peercred(&self.channel)
+            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        if u32::try_from(credentials.pid.as_raw_pid()).ok() != Some(pid)
+            || credentials.uid != rustix::process::geteuid()
+        {
+            return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
+        }
+        let before = linux_process_start_ticks(pid)?;
+        prepared.confirm_linux_daemon_image(pid, before)?;
+        let peer = self.linux_enrollment_peer_facts()?;
+        let after = linux_process_start_ticks(pid)?;
+        if before != after {
+            return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
+        }
+        let mut hash = Sha256::new();
+        hash.update(b"runne/linux-live-daemon-process/v1\0");
+        hash.update(pid.to_be_bytes());
+        hash.update(after.to_be_bytes());
+        prepared.confirm_linux(
+            peer.authority,
+            peer.desktop,
+            peer.session,
+            peer.daemon,
+            peer.generation,
+            hash.finalize().into(),
+        )
+    }
+
+    #[cfg(target_os = "linux")]
+    const fn linux_enrollment_peer_facts(
+        &self,
+    ) -> Result<LinuxEnrollmentPeerIdentity, ProtectedBundledRuntimeError> {
+        match &self.activation {
+            ProtectedProcessActivation::V2 { owned, .. } => Ok(LinuxEnrollmentPeerIdentity {
+                authority: *owned.launch_authority_id(),
+                desktop: *owned.desktop_host_instance_id(),
+                session: *owned.session_id(),
+                daemon: *owned.daemon_instance_id(),
+                generation: owned.launch_generation(),
+            }),
+            ProtectedProcessActivation::V3 { owned, .. } => Ok(LinuxEnrollmentPeerIdentity {
+                authority: *owned.launch_authority_id(),
+                desktop: *owned.desktop_host_instance_id(),
+                session: *owned.session_id(),
+                daemon: *owned.daemon_instance_id(),
+                generation: owned.launch_generation(),
+            }),
+            _ => Err(ProtectedBundledRuntimeError::InvalidState),
         }
     }
 }

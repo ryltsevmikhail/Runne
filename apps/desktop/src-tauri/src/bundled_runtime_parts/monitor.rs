@@ -7,7 +7,7 @@ impl BundledRuntimeController {
             if self.operation_fence.is_stopping() {
                 break;
             }
-            self.monitor_once(|| async {
+            Box::pin(self.monitor_once(|| async {
                 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
                 {
                     use tauri::Manager;
@@ -29,7 +29,7 @@ impl BundledRuntimeController {
                 }
                 #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
                 let _ = &app;
-            })
+            }))
             .await;
         }
     }
@@ -77,7 +77,7 @@ impl BundledRuntimeController {
             (BundledRuntimeLifecycleState::Ready, BundledRuntimeLifecycleState::Ready)
                 if self.renewal_is_due().unwrap_or(true) =>
             {
-                self.rotate_protected_session().await;
+                Box::pin(self.rotate_protected_session()).await;
             }
             (
                 BundledRuntimeLifecycleState::Ready | BundledRuntimeLifecycleState::Handshaking,
@@ -90,7 +90,7 @@ impl BundledRuntimeController {
                 let Ok(lease) = self.core.begin_bundled_runtime_restart().await else {
                     return;
                 };
-                let availability = self.connect_pending_profile(lease, true).await;
+                let availability = Box::pin(self.connect_pending_profile(lease, true)).await;
                 restart_cleanup::complete_monitor_restart(availability, operation, cleanup).await;
             }
             (_, BundledRuntimeLifecycleState::Exhausted) => {
@@ -123,7 +123,7 @@ impl BundledRuntimeController {
                 .await;
             return;
         }
-        let _ = self.connect_pending_profile(lease, false).await;
+        let _ = Box::pin(self.connect_pending_profile(lease, false)).await;
     }
 
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -201,7 +201,7 @@ impl BundledRuntimeController {
         app.state::<crate::updater_status::UpdateStatusStore>()
             .prepare_startup_linux_native_enrollment(&executable, &resources)
             .await
-            .map_err(|_| AppCoreError::RuntimeUnavailable)
+            .map_err(|()| AppCoreError::RuntimeUnavailable)
     }
 }
 

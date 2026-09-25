@@ -151,7 +151,7 @@ pub struct BundledRuntimeController {
 /// Host-only proof that the active V3 session followed a confirmed installed tuple.
 #[cfg(target_os = "linux")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct ActiveSignedLinuxV3Marker {
+pub struct ActiveSignedLinuxV3Marker {
     release_tuple: [u8; 32],
     qualification: [u8; 32],
     generation: u64,

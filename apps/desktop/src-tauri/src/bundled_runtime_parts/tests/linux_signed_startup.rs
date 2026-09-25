@@ -1,31 +1,31 @@
 #[test]
 fn linux_signed_tuple_on_v2_renewal_transitions_and_v3_renewal_verifies() {
     assert_eq!(
-        linux_signed_startup::route(true, false, false, false),
+        linux_signed_startup::route(route_state([true, false, false, false])),
         Route::Transition,
         "new signed evidence upgrades a baseline V2 renewal"
     );
     assert_eq!(
-        linux_signed_startup::route(true, true, true, true),
+        linux_signed_startup::route(route_state([true, true, true, true])),
         Route::VerifyV3,
         "an active V3 renewal retains and verifies its marker"
     );
     assert_eq!(
-        linux_signed_startup::route(false, true, true, true),
+        linux_signed_startup::route(route_state([false, true, true, true])),
         Route::RejectDowngrade
     );
     assert_eq!(
-        linux_signed_startup::route(false, false, false, false),
+        linux_signed_startup::route(route_state([false, false, false, false])),
         Route::Baseline,
         "unsigned V2 remains allowed before enrollment"
     );
     assert_eq!(
-        linux_signed_startup::route(true, true, true, false),
+        linux_signed_startup::route(route_state([true, true, true, false])),
         Route::RejectDowngrade,
         "V3 profile without its retained marker must fail closed"
     );
     assert_eq!(
-        linux_signed_startup::route(true, false, false, true),
+        linux_signed_startup::route(route_state([true, false, false, true])),
         Route::Transition,
         "a stale marker cannot classify an actual V2 profile as V3"
     );
@@ -58,17 +58,45 @@ fn linux_restart_policy_uses_durable_latch_to_reject_missing_signed_tuple() {
 
     let was_v3_active = super::linux_v3_latch::load(&path).expect("initial latch state");
     assert_eq!(
-        linux_signed_startup::route(false, was_v3_active, false, false),
+        linux_signed_startup::route(route_state([false, was_v3_active, false, false])),
         Route::Baseline
     );
     super::linux_v3_latch::persist(&path).expect("persist V3 latch");
     let was_v3_active = super::linux_v3_latch::load(&path).expect("reloaded latch");
     assert_eq!(
-        linux_signed_startup::route(false, was_v3_active, false, false),
+        linux_signed_startup::route(route_state([false, was_v3_active, false, false])),
         Route::RejectDowngrade
     );
     assert_eq!(
-        linux_signed_startup::route(true, was_v3_active, false, false),
+        linux_signed_startup::route(route_state([true, was_v3_active, false, false])),
         Route::Transition
     );
+}
+
+fn route_state(
+    [installed, latched, profile_v3, marker]: [bool; 4],
+) -> linux_signed_startup::RouteState {
+    use linux_signed_startup::{Evidence, PendingProfile, RouteState};
+    RouteState {
+        installed_tuple: if installed {
+            Evidence::Present
+        } else {
+            Evidence::Absent
+        },
+        signed_v3_latch: if latched {
+            Evidence::Present
+        } else {
+            Evidence::Absent
+        },
+        pending_profile: if profile_v3 {
+            PendingProfile::V3
+        } else {
+            PendingProfile::V2
+        },
+        active_v3_marker: if marker {
+            Evidence::Present
+        } else {
+            Evidence::Absent
+        },
+    }
 }

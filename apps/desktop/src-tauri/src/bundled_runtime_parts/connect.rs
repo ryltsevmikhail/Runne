@@ -1,8 +1,6 @@
 impl BundledRuntimeController {
     /// Builds the production protected bundled-runtime supervisor.
-    ///
     /// # Errors
-    ///
     /// Returns one closed renderer-safe configuration code. No external
     /// runtime fallback is attempted.
     pub fn discover(
@@ -40,7 +38,6 @@ impl BundledRuntimeController {
     }
 
     /// Starts the loopback fixture through an explicit native-only test gate.
-    ///
     /// This API is absent from production builds and is not evidence that a
     /// native credential enrollment has been completed.
     ///
@@ -91,7 +88,7 @@ impl BundledRuntimeController {
         }
         let controller = Arc::clone(self);
         tauri::async_runtime::spawn(async move {
-            controller.monitor_loop(app).await;
+            Box::pin(controller.monitor_loop(app)).await;
         });
     }
 
@@ -112,10 +109,10 @@ impl BundledRuntimeController {
             return Err(AppCoreError::RuntimeUnavailable);
         };
         match self.supervisor_state()? {
-            BundledRuntimeLifecycleState::Absent => self.start_fresh(false).await,
+            BundledRuntimeLifecycleState::Absent => Box::pin(self.start_fresh(false)).await,
             BundledRuntimeLifecycleState::Stopped
             | BundledRuntimeLifecycleState::FailedStart
-            | BundledRuntimeLifecycleState::Exhausted => self.start_fresh(true).await,
+            | BundledRuntimeLifecycleState::Exhausted => Box::pin(self.start_fresh(true)).await,
             BundledRuntimeLifecycleState::Ready => {
                 let availability = self.core.bootstrap()?.runtime;
                 if matches!(
@@ -159,7 +156,7 @@ impl BundledRuntimeController {
                 .await?;
             return Err(AppCoreError::RuntimeUnavailable);
         }
-        self.connect_pending_profile(lease, true).await
+        Box::pin(self.connect_pending_profile(lease, true)).await
     }
 
     async fn connect_pending_profile(
@@ -174,14 +171,13 @@ impl BundledRuntimeController {
             .map_err(|_| AppCoreError::RuntimeUnavailable)
             .map(|marker| *marker)?;
         #[cfg(target_os = "linux")]
-        let signed_v3_was_active = match linux_v3_latch::load(&self.signed_linux_v3_latch_path) {
-            Ok(active) => active,
-            Err(_) => return self.reject_linux_startup().await,
+        let Ok(signed_v3_was_active) = linux_v3_latch::load(&self.signed_linux_v3_latch_path)
+        else {
+            return self.reject_linux_startup().await;
         };
         #[cfg(target_os = "linux")]
-        let mut installed = match self.prepare_linux_startup().await {
-            Ok(installed) => installed,
-            Err(_) => return self.reject_linux_startup().await,
+        let Ok(mut installed) = self.prepare_linux_startup().await else {
+            return self.reject_linux_startup().await;
         };
         #[cfg(target_os = "linux")]
         let pending_profile_is_v3 = self
@@ -190,10 +186,13 @@ impl BundledRuntimeController {
             .map_err(|_| AppCoreError::RuntimeUnavailable)?;
         #[cfg(target_os = "linux")]
         match linux_signed_startup::route(
-            installed.is_some(),
-            signed_v3_was_active,
-            pending_profile_is_v3,
-            previous_marker.is_some(),
+            (
+                installed.is_some(),
+                signed_v3_was_active,
+                pending_profile_is_v3,
+                previous_marker.is_some(),
+            )
+                .into(),
         ) {
             linux_signed_startup::Route::RejectDowngrade => {
                 return self.reject_linux_startup().await;
@@ -202,8 +201,10 @@ impl BundledRuntimeController {
                 let Some(installed) = installed.take() else {
                     return self.reject_linux_startup().await;
                 };
-                return match linux_signed_startup::transition_and_install(self, lease, installed)
-                    .await
+                return match Box::pin(linux_signed_startup::transition_and_install(
+                    self, lease, installed,
+                ))
+                .await
                 {
                     Ok(availability) => Ok(availability),
                     Err(_) => self.reject_linux_startup().await,
@@ -240,13 +241,12 @@ impl BundledRuntimeController {
             return Err(AppCoreError::RuntimeUnavailable);
         }
         #[cfg(target_os = "linux")]
-        if let Some(installed) = installed.as_mut() {
-            if linux_signed_startup::confirm_current_marker(self, installed, previous_marker)
+        if let Some(installed) = installed.as_mut()
+            && linux_signed_startup::confirm_current_marker(self, installed, previous_marker)
                 .await
                 .is_err()
-            {
-                return self.reject_linux_startup().await;
-            }
+        {
+            return self.reject_linux_startup().await;
         }
         self.arm_renewal_schedule()?;
         if self
@@ -259,6 +259,8 @@ impl BundledRuntimeController {
                 .reject_current_client(RuntimeFailureCode::ProtectedReadinessRejected)
                 .await;
         }
+        #[cfg(target_os = "linux")]
+        drop(installed);
         Ok(RuntimeAvailability::Live)
     }
 
@@ -288,10 +290,8 @@ impl BundledRuntimeController {
     }
 
     #[cfg(target_os = "linux")]
-    async fn reject_linux_startup(&self) -> Result<RuntimeAvailability, AppCoreError> {
-        self.reject_current_client(RuntimeFailureCode::ProtectedActivationUnavailable)
-            .await
-    }
+    #[rustfmt::skip]
+    async fn reject_linux_startup(&self) -> Result<RuntimeAvailability, AppCoreError> { self.reject_current_client(RuntimeFailureCode::ProtectedActivationUnavailable).await }
 }
 
 #[cfg(target_os = "linux")]
