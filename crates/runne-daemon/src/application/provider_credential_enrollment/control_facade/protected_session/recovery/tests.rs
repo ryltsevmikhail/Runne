@@ -70,6 +70,13 @@ fn with_session(
     test(session, desktop, control, operation, now);
 }
 
+fn unix_now_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
 #[test]
 fn session_recovery_terminal_uses_accepted_offer_binding() {
     with_session(0, |mut session, mut desktop, _, operation, now| {
@@ -193,12 +200,17 @@ fn session_recovery_claim_consumes_witness_without_snapshot_fallback() {
         let request = desktop
             .encode_desktop_request(operation.as_bytes())
             .unwrap();
-        let frame = session.offer_cleanup_recovery(&request, now).unwrap();
+        // Model scheduling across a Unix-second boundary between request
+        // admission and the durable store's issuance timestamp.
+        let frame = session
+            .offer_cleanup_recovery(&request, now.saturating_sub(2))
+            .unwrap();
         assert!(session.take_ticket_authority().is_err());
         assert!(session.recovery_continuation().is_err());
-        let offer = desktop.decode_daemon_offer(&frame, now).unwrap();
-        let ack = desktop.encode_desktop_accept(&offer, now).unwrap();
-        session.accept_cleanup_recovery(&ack, now).unwrap();
+        let exchange_now = unix_now_seconds();
+        let offer = desktop.decode_daemon_offer(&frame, exchange_now).unwrap();
+        let ack = desktop.encode_desktop_accept(&offer, exchange_now).unwrap();
+        session.accept_cleanup_recovery(&ack, exchange_now).unwrap();
         let continuation = session.recovery_continuation().unwrap().unwrap();
         let authority = session.take_ticket_authority().unwrap();
         let crate::application::provider_credential_enrollment::broker::issue::CredentialTicketAuthority::Recovery(witness) = authority else {

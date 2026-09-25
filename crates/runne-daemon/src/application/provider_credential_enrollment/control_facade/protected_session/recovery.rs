@@ -179,6 +179,15 @@ impl DaemonProtectedCredentialEnrollmentSession {
         }
         .map_err(map_store)?;
         let request = accepted.request();
+        // Store admission can cross a Unix-second boundary after `now` was
+        // sampled by the initial-request handler. Validate against a fresh
+        // local high-water and the persisted issuance time.
+        let issued_at = u64::try_from(accepted.issued_at()).map_err(denied)?;
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(denied)?
+            .as_secs();
+        let offer_now = now.max(issued_at).max(current_time);
         let offer = ProtectedCredentialRecoveryOffer::new(
             self.recovery.context.clone(),
             id,
@@ -193,7 +202,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
         let frame = self
             .recovery
             .codec
-            .encode_daemon_offer(&offer, now)
+            .encode_daemon_offer(&offer, offer_now)
             .map_err(denied)?;
         self.recovery.pending = Some((offer, accepted));
         Ok(frame)
