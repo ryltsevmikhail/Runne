@@ -61,54 +61,9 @@ impl ProtectedBundledRuntimeProcess {
     /// admitted this transcript and answers on the same socket. Any failure
     /// after the prepare write leaves the daemon's state ambiguous, so the
     /// child is fenced exactly like an ambiguous V3 renewal.
-    /// Assembles the Linux local-runtime enrollment claims from the live V2
-    /// launch: the release tuple digests are measured from the exact staged
-    /// daemon binary, and the peer binding digest from this process.
-    #[cfg(target_os = "linux")]
-    pub(crate) fn begin_local_linux_enrollment_claims(
-        &self,
-    ) -> Result<EnrollmentTransitionClaims, ProtectedBundledRuntimeError> {
-        use sha2::{Digest, Sha256};
-
-        const RELEASE_TUPLE_DOMAIN: &[u8] = b"runne/linux-release-tuple/v1\0";
-        const QUALIFICATION_DOMAIN: &[u8] = b"runne/linux-qualification-binding/v1\0";
-
-        let (compatibility, owned) = match &self.activation {
-            ProtectedProcessActivation::V2 { request, owned, .. } => {
-                (request.compatibility_request().clone(), owned.clone())
-            }
-            _ => return Err(ProtectedBundledRuntimeError::InvalidState),
-        };
-        let launch_authority = compatibility.launch_authority_id();
-        let desktop_host = compatibility.desktop_host_instance_id();
-        let daemon_executable_sha256 = compatibility.executable().executable_sha256();
-        let supervisor_generation = owned.launch_generation();
-        let mut hasher = Sha256::new();
-        hasher.update(RELEASE_TUPLE_DOMAIN);
-        hasher.update(daemon_executable_sha256);
-        hasher.update(supervisor_generation.to_le_bytes());
-        let release_tuple_digest: [u8; 32] = hasher.finalize().into();
-        let mut hasher = Sha256::new();
-        hasher.update(QUALIFICATION_DOMAIN);
-        hasher.update(release_tuple_digest);
-        let qualification_binding_digest: [u8; 32] = hasher.finalize().into();
-        let desktop_peer_binding_digest =
-            crate::protected_runtime::linux_enrollment_peer::linux_enrollment_peer_binding(
-                release_tuple_digest,
-                launch_authority,
-                desktop_host,
-                supervisor_generation,
-            )
-            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        Ok(EnrollmentTransitionClaims::new(
-            release_tuple_digest,
-            qualification_binding_digest,
-            desktop_peer_binding_digest,
-            supervisor_generation,
-        ))
-    }
-
     #[cfg(unix)]
+    #[cfg(any(target_os = "macos", test))]
+    #[allow(dead_code)]
     pub(crate) fn begin_credential_enrollment_transition(
         &mut self,
         claims: &EnrollmentTransitionClaims,

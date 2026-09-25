@@ -15,6 +15,9 @@ impl BundledRuntimeController {
         let spec = ProtectedBundledRuntimeLaunchSpec::new(&executable, runtime_root)
             .map_err(map_protected_failure)?
             .with_openai_provider_activation();
+        #[cfg(target_os = "linux")]
+        let signed_linux_v3_latch_path = linux_v3_latch::state_path(spec.runtime_root())
+            .map_err(|_| RuntimeFailureCode::ProtectedActivationUnavailable)?;
         let supervisor =
             ProtectedBundledRuntimeSupervisor::new(DevelopmentBundledRuntimeLauncher::new(), spec);
         let writer_reapers = ProtectedWriterReaperRegistry::start(WRITER_REAPER_POLL_INTERVAL)
@@ -31,6 +34,8 @@ impl BundledRuntimeController {
             startup_app: Mutex::new(None),
             #[cfg(target_os = "linux")]
             active_signed_linux_v3: Arc::new(Mutex::new(None)),
+            #[cfg(target_os = "linux")]
+            signed_linux_v3_latch_path,
         }))
     }
 
@@ -55,6 +60,9 @@ impl BundledRuntimeController {
         let spec = ProtectedBundledRuntimeLaunchSpec::new(&executable, runtime_root)
             .map_err(map_protected_failure)?
             .with_openai_provider_activation();
+        #[cfg(target_os = "linux")]
+        let signed_linux_v3_latch_path = linux_v3_latch::state_path(spec.runtime_root())
+            .map_err(|_| RuntimeFailureCode::ProtectedActivationUnavailable)?;
         let supervisor =
             ProtectedBundledRuntimeSupervisor::new(DevelopmentBundledRuntimeLauncher::new(), spec);
         let writer_reapers = ProtectedWriterReaperRegistry::start(WRITER_REAPER_POLL_INTERVAL)
@@ -71,6 +79,8 @@ impl BundledRuntimeController {
             startup_app: Mutex::new(None),
             #[cfg(target_os = "linux")]
             active_signed_linux_v3: Arc::new(Mutex::new(None)),
+            #[cfg(target_os = "linux")]
+            signed_linux_v3_latch_path,
         }))
     }
 
@@ -135,8 +145,6 @@ impl BundledRuntimeController {
 
     async fn start_fresh(&self, restarting: bool) -> Result<RuntimeAvailability, AppCoreError> {
         self.clear_renewal_schedule()?;
-        #[cfg(target_os = "linux")]
-        self.clear_linux_enrollment_marker()?;
         let lease = if restarting {
             self.core.begin_bundled_runtime_restart().await?
         } else {
@@ -157,35 +165,51 @@ impl BundledRuntimeController {
     async fn connect_pending_profile(
         &self,
         lease: BundledRuntimeActivationLease,
-        transition_required: bool,
+        _transition_required: bool,
     ) -> Result<RuntimeAvailability, AppCoreError> {
-        #[cfg(target_os = "linux")]
-        if transition_required {
-            self.clear_linux_enrollment_marker()?;
-        }
-        #[cfg(target_os = "linux")]
-        let mut installed = match self.prepare_linux_startup(transition_required).await {
-            Ok(installed) => installed,
-            Err(_) => return self.reject_linux_startup().await,
-        };
         #[cfg(target_os = "linux")]
         let previous_marker = self
             .active_signed_linux_v3
             .lock()
-            .ok()
-            .and_then(|marker| *marker);
+            .map_err(|_| AppCoreError::RuntimeUnavailable)
+            .map(|marker| *marker)?;
         #[cfg(target_os = "linux")]
-        if installed.is_none() && transition_required {
-            if let Err(error) = self
-                .run_supervisor(
-                    ProtectedBundledRuntimeSupervisor::begin_local_linux_enrollment_transition,
-                )
-                .await
-            {
-                return self
-                    .reject_current_client(map_protected_failure(error))
-                    .await;
+        let signed_v3_was_active = match linux_v3_latch::load(&self.signed_linux_v3_latch_path) {
+            Ok(active) => active,
+            Err(_) => return self.reject_linux_startup().await,
+        };
+        #[cfg(target_os = "linux")]
+        let mut installed = match self.prepare_linux_startup().await {
+            Ok(installed) => installed,
+            Err(_) => return self.reject_linux_startup().await,
+        };
+        #[cfg(target_os = "linux")]
+        let pending_profile_is_v3 = self
+            .run_supervisor(|supervisor| supervisor.pending_profile_is_v3())
+            .await
+            .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        #[cfg(target_os = "linux")]
+        match linux_signed_startup::route(
+            installed.is_some(),
+            signed_v3_was_active,
+            pending_profile_is_v3,
+            previous_marker.is_some(),
+        ) {
+            linux_signed_startup::Route::RejectDowngrade => {
+                return self.reject_linux_startup().await;
             }
+            linux_signed_startup::Route::Transition => {
+                let Some(installed) = installed.take() else {
+                    return self.reject_linux_startup().await;
+                };
+                return match linux_signed_startup::transition_and_install(self, lease, installed)
+                    .await
+                {
+                    Ok(availability) => Ok(availability),
+                    Err(_) => self.reject_linux_startup().await,
+                };
+            }
+            linux_signed_startup::Route::Baseline | linux_signed_startup::Route::VerifyV3 => {}
         }
         let profile = self
             .supervisor
@@ -215,6 +239,15 @@ impl BundledRuntimeController {
         if self.operation_fence.is_stopping() {
             return Err(AppCoreError::RuntimeUnavailable);
         }
+        #[cfg(target_os = "linux")]
+        if let Some(installed) = installed.as_mut() {
+            if linux_signed_startup::confirm_current_marker(self, installed, previous_marker)
+                .await
+                .is_err()
+            {
+                return self.reject_linux_startup().await;
+            }
+        }
         self.arm_renewal_schedule()?;
         if self
             .core
@@ -226,41 +259,13 @@ impl BundledRuntimeController {
                 .reject_current_client(RuntimeFailureCode::ProtectedReadinessRejected)
                 .await;
         }
-        #[cfg(target_os = "linux")]
-        if let Some(installed) = installed.as_mut() {
-            if self
-                .confirm_linux_marker(installed, transition_required, previous_marker)
-                .await
-                .is_err()
-            {
-                return self.reject_linux_startup().await;
-            }
-        } else if !transition_required {
-            self.clear_linux_enrollment_marker()?;
-        }
         Ok(RuntimeAvailability::Live)
-    }
-
-    #[cfg(target_os = "linux")]
-    #[rustfmt::skip]
-    async fn confirm_linux_marker(&self, installed: &mut crate::updater_status::enrollment::NativeInstalledEnrollmentLease,
-        transition_required: bool, previous: Option<crate::bundled_runtime::ActiveSignedLinuxV3Marker>) -> Result<(), AppCoreError> {
-        installed.refresh_linux().map_err(|_| AppCoreError::RuntimeUnavailable)?;
-        let prepared = installed.take_prepared().map_err(|_| AppCoreError::RuntimeUnavailable)?;
-        let current = self.run_supervisor(move |s| s.confirm_installed_native_enrollment(prepared)).await.map_err(|_| AppCoreError::RuntimeUnavailable)?;
-        installed.revalidate_confirmed(&current).map_err(|_| AppCoreError::RuntimeUnavailable)?;
-        let marker = crate::bundled_runtime::ActiveSignedLinuxV3Marker::from_confirmed(&current).ok_or(AppCoreError::RuntimeUnavailable)?;
-        if !transition_required && previous.is_some_and(|value| value != marker) { return Err(AppCoreError::RuntimeUnavailable); }
-        if transition_required || previous.is_some() { *self.active_signed_linux_v3.lock().map_err(|_| AppCoreError::RuntimeUnavailable)? = Some(marker); }
-        Ok(())
     }
 
     async fn reject_current_client(
         &self,
         failure: RuntimeFailureCode,
     ) -> Result<RuntimeAvailability, AppCoreError> {
-        #[cfg(target_os = "linux")]
-        self.clear_linux_enrollment_marker()?;
         self.clear_renewal_schedule()?;
         let supervisor_result = self
             .run_supervisor(ProtectedBundledRuntimeSupervisor::record_client_failure)
@@ -288,3 +293,7 @@ impl BundledRuntimeController {
             .await
     }
 }
+
+#[cfg(target_os = "linux")]
+#[path = "connect/linux_signed_startup.rs"]
+mod linux_signed_startup;

@@ -12,6 +12,8 @@
 #[path = "qualification_ticket.rs"]
 pub mod qualification_ticket;
 
+#[cfg(target_os = "linux")]
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -142,6 +144,8 @@ pub struct BundledRuntimeController {
     startup_app: Mutex<Option<tauri::AppHandle>>,
     #[cfg(target_os = "linux")]
     active_signed_linux_v3: Arc<Mutex<Option<ActiveSignedLinuxV3Marker>>>,
+    #[cfg(target_os = "linux")]
+    signed_linux_v3_latch_path: PathBuf,
 }
 
 /// Host-only proof that the active V3 session followed a confirmed installed tuple.
@@ -168,15 +172,6 @@ impl ActiveSignedLinuxV3Marker {
 
     fn matches(&self, value: &ConfirmedInstalledNativeEnrollment) -> bool {
         Self::from_confirmed(value) == Some(*self)
-    }
-}
-
-#[cfg(target_os = "linux")]
-impl BundledRuntimeController {
-    #[rustfmt::skip]
-    fn clear_linux_enrollment_marker(&self) -> Result<(), AppCoreError> {
-        *self.active_signed_linux_v3.lock().map_err(|_| AppCoreError::RuntimeUnavailable)? = None;
-        Ok(())
     }
 }
 
@@ -290,6 +285,9 @@ impl BundledRuntimeController {
 
 include!("bundled_runtime_parts/connect.rs");
 include!("bundled_runtime_parts/monitor.rs");
+#[cfg(target_os = "linux")]
+#[path = "bundled_runtime_parts/linux_v3_latch.rs"]
+mod linux_v3_latch;
 #[path = "bundled_runtime_parts/restart_cleanup.rs"]
 mod restart_cleanup;
 include!("bundled_runtime_parts/lifecycle.rs");

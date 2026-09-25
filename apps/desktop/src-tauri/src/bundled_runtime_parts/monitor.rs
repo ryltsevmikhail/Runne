@@ -193,32 +193,15 @@ impl BundledRuntimeController {
 #[cfg(target_os = "linux")]
 impl BundledRuntimeController {
     #[rustfmt::skip]
-    async fn prepare_linux_startup(&self, transition_required: bool) -> Result<Option<crate::updater_status::enrollment::NativeInstalledEnrollmentLease>, AppCoreError> {
+    async fn prepare_linux_startup(&self) -> Result<Option<crate::updater_status::enrollment::NativeInstalledEnrollmentLease>, AppCoreError> {
         use tauri::Manager as _;
         let app = self.startup_app.lock().map_err(|_| AppCoreError::RuntimeUnavailable)?.clone().ok_or(AppCoreError::RuntimeUnavailable)?;
         let executable = std::env::current_exe().map_err(|_| AppCoreError::RuntimeUnavailable)?;
         let resources = app.path().resource_dir().map_err(|_| AppCoreError::RuntimeUnavailable)?;
-        let Some(mut installed) = app.state::<crate::updater_status::UpdateStatusStore>().prepare_startup_linux_native_enrollment(&executable, &resources).await.map_err(|_| AppCoreError::RuntimeUnavailable)? else { return Ok(None); };
-        if transition_required {
-            installed
-                .refresh_linux()
-                .map_err(|_| AppCoreError::RuntimeUnavailable)?;
-            let prepared = installed
-                .take_prepared()
-                .map_err(|_| AppCoreError::RuntimeUnavailable)?;
-            let supervisor = Arc::clone(&self.supervisor);
-            let hint = resources.to_str().ok_or(AppCoreError::RuntimeUnavailable)?.to_owned();
-            installed = tauri::async_runtime::spawn_blocking(move || {
-                let mut supervisor = supervisor.lock().map_err(|_| AppCoreError::RuntimeUnavailable)?;
-                let confirmed = supervisor.confirm_installed_native_enrollment(prepared).map_err(|_| AppCoreError::RuntimeUnavailable)?;
-                installed.revalidate_confirmed(&confirmed).map_err(|_| AppCoreError::RuntimeUnavailable)?;
-                supervisor.begin_confirmed_linux_credential_enrollment_transition(&confirmed, &hint).map_err(|_| AppCoreError::RuntimeUnavailable)?;
-                Ok::<_, AppCoreError>(installed)
-            })
+        app.state::<crate::updater_status::UpdateStatusStore>()
+            .prepare_startup_linux_native_enrollment(&executable, &resources)
             .await
-            .map_err(|_| AppCoreError::RuntimeUnavailable)??;
-        }
-        Ok(Some(installed))
+            .map_err(|_| AppCoreError::RuntimeUnavailable)
     }
 }
 

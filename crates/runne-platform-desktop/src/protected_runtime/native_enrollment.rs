@@ -1,8 +1,23 @@
-use crate::{ConfirmedInstalledNativeEnrollment, PreparedInstalledNativeEnrollment};
 #[cfg(target_os = "macos")]
 use crate::updater_metadata::NativeEnrollmentConfirmationV1;
+use crate::{ConfirmedInstalledNativeEnrollment, PreparedInstalledNativeEnrollment};
 
 impl ProtectedBundledRuntimeSupervisor {
+    /// Reports the protocol version of the queued authenticated runtime profile.
+    ///
+    /// # Errors
+    /// Returns an error unless one pending profile is owned during handshaking.
+    #[cfg(target_os = "linux")]
+    pub fn pending_profile_is_v3(&self) -> Result<bool, ProtectedBundledRuntimeError> {
+        if self.state != BundledRuntimeLifecycleState::Handshaking {
+            return Err(ProtectedBundledRuntimeError::InvalidState);
+        }
+        self.pending_profile
+            .as_ref()
+            .map(|profile| profile.enrollment_owned_launch().is_some())
+            .ok_or(ProtectedBundledRuntimeError::InvalidState)
+    }
+
     /// Revalidates one retained installed release tuple against the exact current daemon.
     ///
     /// The prepared value is consumed: callers cannot replay confirmation after a
@@ -12,7 +27,7 @@ impl ProtectedBundledRuntimeSupervisor {
     ///
     /// Returns a closed failure unless the exact owned provider-bound daemon is
     /// ready and the retained installed release tuple still matches it.
-#[cfg_attr(not(target_os = "macos"), allow(clippy::needless_pass_by_value))]
+    #[cfg_attr(not(target_os = "macos"), allow(clippy::needless_pass_by_value))]
     pub fn confirm_installed_native_enrollment(
         &mut self,
         prepared: PreparedInstalledNativeEnrollment,
@@ -68,9 +83,8 @@ impl ProtectedBundledRuntimeSupervisor {
         let facts = confirmed
             .enrollment_transition_facts()
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        let supervisor_generation =
-            std::num::NonZeroU64::new(facts.supervisor_generation)
-                .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let supervisor_generation = std::num::NonZeroU64::new(facts.supervisor_generation)
+            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
         let claims = EnrollmentTransitionClaims::new(
             facts.release_tuple_digest,
             facts.qualification_binding_digest,
@@ -113,51 +127,6 @@ impl ProtectedBundledRuntimeSupervisor {
     }
 }
 
-impl ProtectedBundledRuntimeSupervisor {
-    /// Linux local-runtime enrollment: assembles the transition claims from
-    /// the live V2 launch and runs the V2→V3 transition in place. The owner
-    /// intent is launching the local runtime itself; the daemon independently
-    /// revalidates the kernel peer, the full signed transcript, and the
-    /// installation anchor, then raises the authorization epoch once.
-    ///
-    /// # Errors
-    ///
-    /// Returns a closed lifecycle error when the supervisor is not in a
-    /// post-ready state, the live process is gone, or the daemon rejected
-    /// the signed transition.
-    #[cfg(all(
-        target_os = "linux",
-        feature = "protected-channel-integration"
-    ))]
-    pub fn begin_local_linux_enrollment_transition(
-        &mut self,
-    ) -> Result<(), ProtectedBundledRuntimeError> {
-        // Unlike the macOS user-driven flow, the local Linux enrollment runs
-        // directly after the V2 launch inside the same connect attempt: the
-        // pending V2 profile is intentionally replaced by the enrolled V3 one.
-        // The V2 ready frame has been written and the daemon control loop is
-        // already reading frames, so `Handshaking` (post-ready, pre-connect)
-        // and `Ready` are both valid entry points for the local transition.
-        if self.state != BundledRuntimeLifecycleState::Ready
-            && self.state != BundledRuntimeLifecycleState::Handshaking
-        {
-            return Err(ProtectedBundledRuntimeError::InvalidState);
-        }
-        let process = self
-            .process
-            .as_mut()
-            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        let claims = process.begin_local_linux_enrollment_claims()?;
-        let profile = process
-            .begin_credential_enrollment_transition(&claims)
-            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        self.backoff.record_disconnected();
-        self.pending_profile = Some(profile);
-        self.state = BundledRuntimeLifecycleState::Handshaking;
-        Ok(())
-    }
-}
-
 impl ProtectedBundledRuntimeProcess {
     #[cfg_attr(not(target_os = "macos"), allow(clippy::needless_pass_by_value))]
     fn confirm_installed_native_enrollment(
@@ -177,8 +146,13 @@ impl ProtectedBundledRuntimeProcess {
             let before = runne_macos_process_identity::MacOsProcessStartIdentity::observe(pid)
                 .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
             let digest = match &self.activation {
-                ProtectedProcessActivation::V2 { owned, .. } => *owned.compatibility_owned_launch().executable().executable_sha256(),
-                ProtectedProcessActivation::V3 { owned, .. } => *owned.executable().executable_sha256(),
+                ProtectedProcessActivation::V2 { owned, .. } => *owned
+                    .compatibility_owned_launch()
+                    .executable()
+                    .executable_sha256(),
+                ProtectedProcessActivation::V3 { owned, .. } => {
+                    *owned.executable().executable_sha256()
+                }
                 _ => return Err(ProtectedBundledRuntimeError::InvalidState),
             };
             if !prepared.matches_protected_daemon_digest(digest) {
@@ -186,24 +160,33 @@ impl ProtectedBundledRuntimeProcess {
             }
             if let ProtectedProcessActivation::V3 { owned, .. } = &self.activation {
                 let binding = owned.enrollment_binding();
-                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-                    .map_err(|_| ProtectedBundledRuntimeError::InvalidState)?.as_secs();
-                if !prepared.matches_qualified_daemon(digest, *binding.release_tuple_digest(),
-                    *binding.qualification_binding_digest(), now) {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_err(|_| ProtectedBundledRuntimeError::InvalidState)?
+                    .as_secs();
+                if !prepared.matches_qualified_daemon(
+                    digest,
+                    *binding.release_tuple_digest(),
+                    *binding.qualification_binding_digest(),
+                    now,
+                ) {
                     return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
                 }
             }
             prepared.confirm_current_daemon(pid)?;
             let after = runne_macos_process_identity::MacOsProcessStartIdentity::observe(pid)
                 .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-            let confirmation = self.activation.native_confirmation(before.digest(), after.digest())?;
+            let confirmation = self
+                .activation
+                .native_confirmation(before.digest(), after.digest())?;
             let confirmed = prepared.confirm(&confirmation)?;
             if let ProtectedProcessActivation::V3 { owned, .. } = &self.activation {
                 let binding = owned.enrollment_binding();
                 let generation = std::num::NonZeroU64::new(binding.desktop_supervisor_generation())
                     .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
                 if confirmed.current_desktop_peer_binding_digest(generation)?
-                    != *binding.desktop_peer_binding_digest() {
+                    != *binding.desktop_peer_binding_digest()
+                {
                     return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
                 }
             }
@@ -224,22 +207,37 @@ impl ProtectedBundledRuntimeProcess {
             prepared.confirm_linux_daemon_image(pid, before)?;
             let (authority, desktop, session, daemon, generation) = match &self.activation {
                 ProtectedProcessActivation::V2 { owned, .. } => (
-                    *owned.launch_authority_id(), *owned.desktop_host_instance_id(),
-                    *owned.session_id(), *owned.daemon_instance_id(), owned.launch_generation(),
+                    *owned.launch_authority_id(),
+                    *owned.desktop_host_instance_id(),
+                    *owned.session_id(),
+                    *owned.daemon_instance_id(),
+                    owned.launch_generation(),
                 ),
                 ProtectedProcessActivation::V3 { owned, .. } => (
-                    *owned.launch_authority_id(), *owned.desktop_host_instance_id(),
-                    *owned.session_id(), *owned.daemon_instance_id(), owned.launch_generation(),
+                    *owned.launch_authority_id(),
+                    *owned.desktop_host_instance_id(),
+                    *owned.session_id(),
+                    *owned.daemon_instance_id(),
+                    owned.launch_generation(),
                 ),
                 _ => return Err(ProtectedBundledRuntimeError::InvalidState),
             };
             let after = linux_process_start_ticks(pid)?;
-            if before != after { return Err(ProtectedBundledRuntimeError::OwnershipMismatch); }
+            if before != after {
+                return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
+            }
             let mut hash = Sha256::new();
             hash.update(b"runne/linux-live-daemon-process/v1\0");
             hash.update(pid.to_be_bytes());
             hash.update(after.to_be_bytes());
-            prepared.confirm_linux(authority, desktop, session, daemon, generation, hash.finalize().into())
+            prepared.confirm_linux(
+                authority,
+                desktop,
+                session,
+                daemon,
+                generation,
+                hash.finalize().into(),
+            )
         }
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {

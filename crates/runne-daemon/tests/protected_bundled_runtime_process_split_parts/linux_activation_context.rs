@@ -2,7 +2,7 @@ use super::*;
 use sha2::{Digest, Sha256};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn real_linux_transition_preserves_native_target_in_v3() {
+async fn real_linux_baseline_v2_remains_usable_without_installed_enrollment() {
     let _guard = PROCESS_FAULT_AUDIT_LOCK.lock().await;
     let temporary = owner_private::tempdir();
     let executable =
@@ -16,22 +16,10 @@ async fn real_linux_transition_preserves_native_target_in_v3() {
     let mut supervisor =
         ProtectedBundledRuntimeSupervisor::new(DevelopmentBundledRuntimeLauncher::new(), spec);
     supervisor.start().unwrap();
-    supervisor
-        .begin_local_linux_enrollment_transition()
-        .expect("native V2 to V3");
     let profile = supervisor.take_runtime_profile().unwrap();
-    let binding = profile
-        .enrollment_owned_launch()
-        .unwrap()
-        .enrollment_binding();
-    assert_eq!(binding.platform(), runne_api::EnrollmentPlatformV1::Linux);
-    let architecture = if cfg!(target_arch = "x86_64") {
-        runne_api::EnrollmentArchitectureV1::X86_64
-    } else {
-        runne_api::EnrollmentArchitectureV1::Arm64
-    };
-    assert_eq!(binding.architecture(), architecture);
+    assert!(profile.enrollment_owned_launch().is_none());
     let client = profile.connect(Duration::from_secs(10)).await.unwrap();
+    assert_eq!(client.session_info().authorization_epoch, 0);
     supervisor.record_client_ready(&client).unwrap();
     let (_, facts) = supervisor.linux_activation_context().unwrap();
     assert_eq!(
