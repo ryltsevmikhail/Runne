@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 
 from scripts.desktop.native_credential_enrollment import linux, macos, windows
+from scripts.desktop.native_credential_enrollment.macos_bindings import canonical_digest
 from scripts.desktop.native_credential_enrollment_probe import validate_evidence
 from scripts.desktop.tests.test_native_credential_xpc_qualification import _row as xpc_row
 
@@ -23,6 +24,10 @@ def row(architecture: str, run: str) -> dict[str, object]:
     value = copy.deepcopy(xpc_row())
     value["architecture"] = architecture
     value["runner"]["workflow_run_id"] = run
+    for receipt in value["selectors"].values():
+        receipt["workflow_run_id"] = run
+        receipt["case_receipt"]["workflow_run_id"] = run
+        receipt["ticket_sha256"] = canonical_digest(receipt["case_receipt"])
     return value
 
 
