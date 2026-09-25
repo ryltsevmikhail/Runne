@@ -26,6 +26,7 @@ const SERVICE_TIER: &str = "default";
 pub(super) const PRICING_REVISION: &str = "deepseek-flash-peak-2026-09-21/1";
 const PROMPT: &str = "Reply with exactly: OK";
 const RESULT: &str = "OK";
+const CANARY_REQUEST: &[u8] = b"{\"model\":\"deepseek-v4-flash\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Reply with exactly: OK\"}]}],\"max_output_tokens\":16,\"reasoning\":{\"effort\":\"none\"},\"tools\":[],\"tool_choice\":\"none\",\"stream\":true}\n";
 /// Closed result of candidate preparation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CandidateDisposition {
@@ -46,14 +47,14 @@ macro_rules! identity_assertion {
 /// Identity assertions checked without retaining supplied values.
 #[derive(Clone, Copy)]
 pub struct CanaryIdentity {
-    matches: [bool; 12],
+    matches: [bool; 11],
 }
 impl CanaryIdentity {
     /// Returns the exact compiled identity assertions.
     #[must_use]
     pub const fn canonical() -> Self {
         Self {
-            matches: [true; 12],
+            matches: [true; 11],
         }
     }
     identity_assertion!(
@@ -61,8 +62,8 @@ impl CanaryIdentity {
         with_provider, 3, PROVIDER; with_origin, 4, ORIGIN;
         with_method, 5, METHOD; with_path, 6, PATH;
         with_request_model, 7, REQUEST_MODEL; with_model_id, 8, MODEL_ID;
-        with_model_revision, 9, MODEL_REVISION; with_service_tier, 10, SERVICE_TIER;
-        with_pricing_revision, 11, PRICING_REVISION;
+        with_model_revision, 9, MODEL_REVISION;
+        with_pricing_revision, 10, PRICING_REVISION;
     );
     /// Sets the compiled profile revision assertion.
     #[must_use]
@@ -89,7 +90,7 @@ pub struct CanaryOverlay {
     exact_prompt_match: bool,
     prompt_digest: [u8; 32],
     prompt_length: u64,
-    matches: [bool; 11],
+    matches: [bool; 9],
     max_output_tokens: u64,
 }
 impl CanaryOverlay {
@@ -105,9 +106,9 @@ impl CanaryOverlay {
             input_count: 1,
             user: true,
             exact_prompt_match: text == PROMPT,
-            prompt_digest: digest(b"gocode.canary.prompt/1", &[text.as_bytes()]),
+            prompt_digest: digest(b"runne.canary.prompt/1", &[text.as_bytes()]),
             prompt_length: text.len() as u64,
-            matches: [true; 11],
+            matches: [true; 9],
             max_output_tokens: 16,
         }
     }
@@ -137,11 +138,10 @@ impl CanaryOverlay {
         Self::assistant("")
     }
     policy_assertion!(
-        with_store, 0, false; with_background, 1, false; with_tools_empty, 2, true;
-        with_tool_choice_none, 3, true; with_stream, 4, true;
-        with_reasoning_none, 5, true; with_metadata, 6, true;
-        with_previous_response, 7, true; with_retry, 8, false;
-        with_redirect, 9, false; with_proxy, 10, false;
+        with_tools_empty, 0, true; with_tool_choice_none, 1, true;
+        with_stream, 2, true; with_reasoning_none, 3, true;
+        with_metadata, 4, true; with_previous_response, 5, true;
+        with_retry, 6, false; with_redirect, 7, false; with_proxy, 8, false;
     );
     /// Sets the maximum output token assertion.
     #[must_use]
@@ -186,9 +186,6 @@ impl CanaryCandidate {
         if !overlay.is_exact() {
             return Err(CandidateDisposition::OverlayRejected);
         }
-        let one = 1_u64.to_be_bytes();
-        let zero = 0_u64.to_be_bytes();
-        let sixteen = 16_u64.to_be_bytes();
         let prompt_length = overlay.prompt_length.to_be_bytes();
         let request_components: [&[u8]; 21] = components!(
             &RAW_PROFILE_DIGEST; METHOD.as_bytes(); ORIGIN.as_bytes(); PATH.as_bytes();
@@ -203,7 +200,7 @@ impl CanaryCandidate {
         let result_length = RESULT.len() as u64;
         let result_length_bytes = result_length.to_be_bytes();
         let candidate_digest = digest(
-            b"gocode.canary.candidate/1",
+            b"runne.canary.candidate/1",
             &components!(
                 &RAW_PROFILE_DIGEST; &request_digest; &request_length_bytes;
                 &overlay.prompt_digest; &prompt_length; &result_digest; &result_length_bytes;
@@ -222,8 +219,7 @@ impl CanaryCandidate {
     candidate_field!(
         profile_id, PROFILE_ID; provider, PROVIDER; origin, ORIGIN; method, METHOD;
         path, PATH; request_model, REQUEST_MODEL; model_id, MODEL_ID;
-        model_revision, MODEL_REVISION; service_tier, SERVICE_TIER;
-        pricing_revision, PRICING_REVISION;
+        model_revision, MODEL_REVISION; pricing_revision, PRICING_REVISION;
     );
     /// Returns the compiled profile revision.
     #[must_use]

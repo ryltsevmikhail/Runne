@@ -124,31 +124,14 @@ impl SecureCredentialMaterial {
     }
 }
 
-impl fmt::Debug for SecureCredentialMaterial {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("SecureCredentialMaterial(<redacted>)")
-    }
-}
-
 /// Transfer-only credential bytes. They are zeroed if the writer pipe closes.
 pub struct CredentialPipeBytes(Zeroizing<Vec<u8>>);
 
 impl CredentialPipeBytes {
-    #[must_use]
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.0
-    }
-
     /// Moves the host-owned bytes into the authenticated sealing boundary.
     #[must_use]
     pub fn into_zeroizing(self) -> Zeroizing<Vec<u8>> {
         self.0
-    }
-}
-
-impl fmt::Debug for CredentialPipeBytes {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("CredentialPipeBytes(<redacted>)")
     }
 }
 

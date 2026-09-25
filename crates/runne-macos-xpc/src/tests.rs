@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use zeroize::Zeroizing;
 
@@ -8,6 +11,9 @@ use crate::peer_requirement::ConnectionPreparation;
 use crate::service_management::{
     LAUNCH_AGENT_PLIST, map_status_code, operation_error, validate_registration_version,
 };
+
+#[cfg(target_os = "macos")]
+mod secret_lifetime;
 
 const SERVICE_REQUIREMENT: &str = concat!(
     "identifier \"com.runne.credential-service\" and anchor apple generic and ",
@@ -168,27 +174,43 @@ fn listener_surface_accepts_rust_handler_without_foundation_objects() {
     accepts_handler(Arc::new(Echo));
 }
 
-struct Panics;
+const HANDLER_CANARY: &str = "runne-d1-1c-handler-canary-c824d9";
+
+struct Panics(Arc<AtomicUsize>);
 impl CredentialServiceRequestHandler for Panics {
     fn handle(
         &self,
         _role: CredentialServiceEndpointRole,
-        _request: Zeroizing<Vec<u8>>,
+        request: Zeroizing<Vec<u8>>,
     ) -> Result<Zeroizing<Vec<u8>>, CredentialServiceXpcError> {
+        struct UnwindWitness(Arc<AtomicUsize>);
+        impl Drop for UnwindWitness {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::AcqRel);
+            }
+        }
+        let _unwind = UnwindWitness(Arc::clone(&self.0));
+        assert_eq!(request.as_slice(), HANDLER_CANARY.as_bytes());
         panic!("secret-free test panic")
     }
 }
 
 #[test]
 fn handler_panic_is_closed_before_the_objective_c_boundary() {
+    let unwind_events = Arc::new(AtomicUsize::new(0));
+    let error = crate::listener::invoke_handler(
+        &Panics(Arc::clone(&unwind_events)),
+        CredentialServiceEndpointRole::Desktop,
+        Zeroizing::new(HANDLER_CANARY.as_bytes().to_vec()),
+    )
+    .unwrap_err();
+    assert_eq!(unwind_events.load(Ordering::Acquire), 1);
+    assert_eq!(error, CredentialServiceXpcError::Unavailable);
     assert_eq!(
-        crate::listener::invoke_handler(
-            &Panics,
-            CredentialServiceEndpointRole::Desktop,
-            Zeroizing::new(vec![1]),
-        ),
-        Err(CredentialServiceXpcError::Unavailable)
+        error.to_string(),
+        "credential service native transport failed"
     );
+    assert!(!format!("{error:?}").contains(HANDLER_CANARY));
 }
 
 #[cfg(target_os = "macos")]

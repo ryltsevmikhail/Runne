@@ -8,7 +8,7 @@ use objc2::rc::Retained;
 use objc2::{AnyThread, msg_send};
 use objc2_foundation::{NSData, NSError, NSString, NSXPCConnection, NSXPCConnectionOptions};
 use runne_platform_ports::credential_service::CredentialServiceCallContext;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::watch;
 use zeroize::Zeroizing;
 
 use crate::{CredentialServiceEndpointConfiguration, CredentialServiceXpcError};
@@ -34,6 +34,53 @@ pub(crate) struct NativeClient {
     domain: NativeXpcDomain,
     peer_binding: Option<NativePeerBinding>,
     observation: Arc<PeerObservation>,
+}
+
+// SAFETY: Apple documents NSXPCConnection as thread-safe. Keeping the retained
+// connection behind this private wrapper lets callback state hold only a Weak
+// invalidator, avoiding a connection -> reply block -> connection retain cycle.
+#[allow(clippy::non_send_fields_in_send_ty)]
+unsafe impl Send for NativeConnection {}
+unsafe impl Sync for NativeConnection {}
+
+impl ConnectionInvalidator for NativeConnection {
+    fn invalidate(&self) {
+        self.object.invalidate();
+    }
+}
+
+impl ExchangeConnection for NativeConnection {
+    type PreparedRequest = Retained<NSData>;
+
+    fn subscribe(&self) -> watch::Receiver<ConnectionEvent> {
+        self.events.subscribe()
+    }
+
+    fn prepare(&self, request: &NativeRequestFrame) -> Self::PreparedRequest {
+        // Foundation makes the sole Rust -> NSData request copy here.
+        native::request_data(request)
+    }
+
+    fn dispatch(&self, data: Self::PreparedRequest, callbacks: NativeCallbacks) -> Result<(), ()> {
+        let error_callbacks = callbacks.clone();
+        let error = RcBlock::new(move |_error: NonNull<NSError>| {
+            error_callbacks.proxy_error();
+        });
+        let proxy = self.object.remoteObjectProxyWithErrorHandler(&error);
+        let reply =
+            RcBlock::with_encoding::<_, _, _, ReplyBlockEncoding>(move |data: *mut NSData| {
+                let Some(data) = NonNull::new(data) else {
+                    callbacks.native_reply(Err(CredentialServiceXpcError::InvalidReply));
+                    return;
+                };
+                callbacks.native_reply(native::copy_reply(unsafe { data.as_ref() }));
+            });
+        objc2::exception::catch(AssertUnwindSafe(|| {
+            // SAFETY: proxy implements the registered one-NSData request/reply protocol.
+            let _: () = unsafe { msg_send![&*proxy, exchange: &*data, reply: &*reply] };
+        }))
+        .map_err(|_| ())
+    }
 }
 
 // SAFETY: Apple documents NSXPCConnection as thread-safe. All callbacks carry

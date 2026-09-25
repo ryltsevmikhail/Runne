@@ -20,7 +20,10 @@ fn pinentry_response_decodes_only_one_percent_escaped_secret() {
         panic!("expected submitted material");
     };
 
-    assert_eq!(material.into_pipe_bytes().as_bytes(), b"sk-test%key");
+    assert_eq!(
+        material.into_pipe_bytes().into_zeroizing().as_slice(),
+        b"sk-test%key"
+    );
 }
 
 #[test]

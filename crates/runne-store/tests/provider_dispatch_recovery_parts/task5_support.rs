@@ -177,6 +177,7 @@ impl ProviderTerminalPricing for FixedPricing {
         &self,
         _pricing: &[u8; 32],
         _profile: &[u8; 32],
+        _effect_started_at: i64,
         _usage: runne_provider::ProviderUsage,
     ) -> Result<ProviderPricedUsage, ProviderTerminalPricingError> {
         Err(ProviderTerminalPricingError::Unavailable)

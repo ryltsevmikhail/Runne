@@ -28,7 +28,8 @@ impl super::super::super::super::CredentialEnrollmentReadback for StatefulReader
         }
         if !matches!(
             operation.action(),
-            CredentialOperationAction::RetiredVersionCleanup
+            CredentialOperationAction::Revoke
+                | CredentialOperationAction::RetiredVersionCleanup
                 | CredentialOperationAction::LegacySourceCleanup
         ) || command.operation_id() != operation.operation_id()
         {

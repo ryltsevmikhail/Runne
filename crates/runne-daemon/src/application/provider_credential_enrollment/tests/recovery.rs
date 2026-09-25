@@ -8,6 +8,65 @@ pub(super) mod fixture;
 use fixture::{FailurePoint, Fixture, StatefulReader};
 
 #[test]
+fn enrollment_recovery_revoke_completes_against_the_already_fenced_head() {
+    let fixture = Fixture::new(CredentialOperationAction::Revoke, FailurePoint::None);
+    let reader = StatefulReader::new(&fixture);
+    let gateway = CredentialEnrollmentRecoveryGateway::new(&fixture, &reader);
+
+    gateway.reconcile_online(100).unwrap();
+
+    assert_eq!(fixture.state(), CredentialOperationState::Completed);
+    assert_eq!(
+        fixture.events(),
+        ["reconcile", "mark", "readback", "bind", "complete"]
+    );
+    let receipt = fixture.receipt().unwrap();
+    assert_eq!(receipt.action(), CredentialOperationAction::Revoke);
+    assert_eq!(receipt.lifecycle_revision().get(), 2);
+    assert_eq!(receipt.fence().get(), 2);
+    assert_eq!(receipt.readiness_revision().get(), 2);
+    assert!(receipt.active_version().is_none());
+}
+
+#[test]
+fn enrollment_recovery_revoke_failures_never_publish_downstream_completion() {
+    for (failure, state, events) in [
+        (
+            FailurePoint::Mark,
+            CredentialOperationState::Claimed,
+            &["reconcile", "mark"][..],
+        ),
+        (
+            FailurePoint::Readback,
+            CredentialOperationState::NativeEffectObserved,
+            &["reconcile", "mark", "readback"][..],
+        ),
+        (
+            FailurePoint::Bind,
+            CredentialOperationState::NativeEffectObserved,
+            &["reconcile", "mark", "readback", "bind"][..],
+        ),
+        (
+            FailurePoint::Complete,
+            CredentialOperationState::ReadbackVerified,
+            &["reconcile", "mark", "readback", "bind", "complete"][..],
+        ),
+    ] {
+        let fixture = Fixture::new(CredentialOperationAction::Revoke, failure);
+        let reader = StatefulReader::new(&fixture);
+        let gateway = CredentialEnrollmentRecoveryGateway::new(&fixture, &reader);
+
+        assert_eq!(
+            gateway.reconcile_online(100),
+            Err(ProviderCredentialEnrollmentHostError::Unavailable)
+        );
+        assert_eq!(fixture.state(), state);
+        assert_eq!(fixture.events(), events);
+        assert!(fixture.receipt().is_none());
+    }
+}
+
+#[test]
 fn enrollment_recovery_legacy_cleanup_accepts_newer_head_after_rotation() {
     let fixture = Fixture::legacy_cleanup_after_rotation();
     let reader = StatefulReader::new(&fixture);
@@ -47,6 +106,19 @@ fn enrollment_recovery_retired_cleanup_completes_after_exact_absence() {
     assert_eq!(receipt.lifecycle_revision().get(), 2);
     assert_eq!(receipt.fence().get(), 2);
     assert_eq!(receipt.readiness_revision().get(), 2);
+}
+
+#[test]
+fn enrollment_recovery_supersedes_retired_cleanup_after_revoke_fence() {
+    let fixture = Fixture::retired_cleanup_after_revoke();
+    let reader = StatefulReader::new(&fixture);
+    let gateway = CredentialEnrollmentRecoveryGateway::new(&fixture, &reader);
+
+    gateway.reconcile_online(100).unwrap();
+
+    assert_eq!(fixture.state(), CredentialOperationState::Failed);
+    assert_eq!(fixture.events(), ["reconcile", "mark", "readback", "bind"]);
+    assert!(fixture.receipt().is_none());
 }
 
 #[test]

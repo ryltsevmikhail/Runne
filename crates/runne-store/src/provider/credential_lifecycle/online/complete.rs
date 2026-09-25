@@ -91,9 +91,14 @@ pub(super) fn complete(
             super::compatibility_mirror::delete(&transaction, target)?;
         }
         CredentialOperationAction::RetiredVersionCleanup => {
-            if head.hard_fenced
-                || head.lifecycle != input.expected_lifecycle_revision().get() as i64
-                || head.fence != input.expected_prior_fence().get() as i64
+            let exact_head = !head.hard_fenced
+                && head.lifecycle == input.expected_lifecycle_revision().get() as i64
+                && head.fence == input.expected_prior_fence().get() as i64;
+            if !exact_head
+                || super::retired_cleanup::revoke_in_progress(
+                    &transaction,
+                    operation.provider(),
+                )?
             {
                 return Err(CredentialLifecycleError::Conflict);
             }
@@ -131,6 +136,12 @@ pub(super) fn complete(
         && let Some(retired) = head.active.as_ref()
     {
         super::retired_cleanup::create(&transaction, &operation, retired, (store.now)())?;
+    }
+    if matches!(
+        operation.action(),
+        CredentialOperationAction::Revoke | CredentialOperationAction::RetiredVersionCleanup
+    ) {
+        super::retired_cleanup::create_next(&transaction, &operation, (store.now)())?;
     }
     transaction.commit().map_err(map_sql)?;
     Ok(result)

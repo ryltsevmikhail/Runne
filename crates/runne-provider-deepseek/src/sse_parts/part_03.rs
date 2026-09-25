@@ -136,6 +136,7 @@ fn validate_response_guards(response: &Map<String, Value>) -> Result<(), DeepSee
     if response
         .get("background")
         .is_some_and(|value| value != false)
+        || response.get("store").is_some_and(|value| value != false)
         || response
             .get("tools")
             .is_some_and(|value| value.as_array().is_none_or(|tools| !tools.is_empty()))

@@ -179,6 +179,7 @@ pub struct ProviderTerminalPricingBinding {
     reserved_input_tokens: u64,
     reserved_output_tokens: u64,
     reserved_cost_micros: u64,
+    effect_started_at: i64,
 }
 
 impl ProviderTerminalPricingBinding {
@@ -190,6 +191,7 @@ impl ProviderTerminalPricingBinding {
         reserved_input_tokens: u64,
         reserved_output_tokens: u64,
         reserved_cost_micros: u64,
+        effect_started_at: i64,
     ) -> Result<Self, ProviderExecutionError> {
         if pricing_revision_digest == [0; 32]
             || currency.len() != 3
@@ -208,6 +210,7 @@ impl ProviderTerminalPricingBinding {
             reserved_input_tokens,
             reserved_output_tokens,
             reserved_cost_micros,
+            effect_started_at,
         })
     }
 
@@ -234,6 +237,11 @@ impl ProviderTerminalPricingBinding {
     /// Returns the admitted worst-case cost reservation in micro-units.
     pub const fn reserved_cost_micros(&self) -> u64 {
         self.reserved_cost_micros
+    }
+
+    /// Returns the authoritative external-effect start time in Unix seconds.
+    pub const fn effect_started_at(&self) -> i64 {
+        self.effect_started_at
     }
 }
 

@@ -142,32 +142,7 @@ impl DeepSeekResponsesTextProfile {
     /// usage and [`DeepSeekProfileError::PricingOverflow`] when checked
     /// fixed-point arithmetic cannot represent the result.
     pub fn price_usage_micros(&self, usage: ProviderUsage) -> Result<u64, DeepSeekProfileError> {
-        if usage.input_tokens() > self.raw.pricing.long_context_threshold_tokens {
-            return Err(DeepSeekProfileError::UnsupportedPricingTier);
-        }
-        let uncached = usage
-            .input_tokens()
-            .checked_sub(usage.cached_input_tokens())
-            .ok_or(DeepSeekProfileError::PricingOverflow)?;
-        let input = prorated_micros(
-            uncached,
-            self.raw.pricing.input_micros,
-            self.raw.pricing.unit_tokens,
-        )?;
-        let cached = prorated_micros(
-            usage.cached_input_tokens(),
-            self.raw.pricing.cached_input_micros,
-            self.raw.pricing.unit_tokens,
-        )?;
-        let output = prorated_micros(
-            usage.output_tokens(),
-            self.raw.pricing.output_micros,
-            self.raw.pricing.unit_tokens,
-        )?;
-        input
-            .checked_add(cached)
-            .and_then(|subtotal| subtotal.checked_add(output))
-            .ok_or(DeepSeekProfileError::PricingOverflow)
+        self.price_usage_with_rates(usage, PriceRates::peak(&self.raw.pricing))
     }
 }
 
@@ -176,6 +151,7 @@ impl ProviderTerminalPricing for DeepSeekResponsesTextProfile {
         &self,
         pricing_revision_digest: &[u8; 32],
         profile_digest: &[u8; 32],
+        effect_started_at: i64,
         usage: ProviderUsage,
     ) -> Result<ProviderPricedUsage, ProviderTerminalPricingError> {
         if pricing_revision_digest != &self.pricing_revision_digest()
@@ -184,9 +160,11 @@ impl ProviderTerminalPricing for DeepSeekResponsesTextProfile {
             return Err(ProviderTerminalPricingError::Unavailable);
         }
         let charge_micros = self
-            .price_usage_micros(usage)
+            .price_usage_at_micros(effect_started_at, usage)
             .map_err(|error| match error {
-                DeepSeekProfileError::UnsupportedPricingTier | DeepSeekProfileError::InvalidProfile => {
+                DeepSeekProfileError::UnsupportedPricingTier
+                | DeepSeekProfileError::PricingUnavailable
+                | DeepSeekProfileError::InvalidProfile => {
                     ProviderTerminalPricingError::Unavailable
                 }
                 DeepSeekProfileError::PricingOverflow => ProviderTerminalPricingError::InvalidQuote,
@@ -207,11 +185,17 @@ fn validate_exact(profile: &RawProfile) -> Result<(), DeepSeekProfileError> {
         && profile.model.revision == DEEPSEEK_MODEL_REVISION
         && profile.model.aliases.is_empty()
         && profile.pricing.revision == PRICING_REVISION
+        && profile.pricing.effective_from_unix_seconds == PRICING_EFFECTIVE_FROM
         && profile.pricing.currency == PRICING_CURRENCY
         && profile.pricing.unit_tokens == PRICING_UNIT_TOKENS
-        && profile.pricing.input_micros == INPUT_MICROS
-        && profile.pricing.cached_input_micros == CACHED_INPUT_MICROS
-        && profile.pricing.output_micros == OUTPUT_MICROS
+        && profile.pricing.peak_input_micros == PEAK_INPUT_MICROS
+        && profile.pricing.peak_cached_input_micros == PEAK_CACHED_INPUT_MICROS
+        && profile.pricing.peak_output_micros == PEAK_OUTPUT_MICROS
+        && profile.pricing.off_peak_input_micros == OFF_PEAK_INPUT_MICROS
+        && profile.pricing.off_peak_cached_input_micros == OFF_PEAK_CACHED_INPUT_MICROS
+        && profile.pricing.off_peak_output_micros == OFF_PEAK_OUTPUT_MICROS
+        && profile.pricing.peak_iso_weekdays == [1, 2, 3, 4, 5]
+        && profile.pricing.peak_windows_utc == [[60, 240], [360, 600]]
         && profile.pricing.long_context_threshold_tokens == LONG_CONTEXT_THRESHOLD_TOKENS
         && !profile.pricing.long_context_enabled
         && profile.capabilities == ["streaming"]

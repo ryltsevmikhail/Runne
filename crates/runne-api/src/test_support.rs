@@ -50,6 +50,7 @@ pub enum LocalNativeEnrollmentCase {
     DeathReadback,
     Leakage,
     LegacyCrashDelete,
+    RevokePartialDelete,
 }
 
 impl LocalNativeEnrollmentCase {
@@ -64,6 +65,7 @@ impl LocalNativeEnrollmentCase {
             Self::DeathReadback => "death-readback",
             Self::Leakage => "leakage",
             Self::LegacyCrashDelete => "legacy-crash-delete",
+            Self::RevokePartialDelete => "revoke-partial-delete",
         }
     }
 
@@ -71,6 +73,12 @@ impl LocalNativeEnrollmentCase {
     #[must_use]
     pub const fn crashes_after_legacy_source_delete(self) -> bool {
         matches!(self, Self::LegacyCrashDelete)
+    }
+
+    /// Limits the version-delete self-termination hook to the exact revoke fixture.
+    #[must_use]
+    pub const fn crashes_after_retired_version_delete(self) -> bool {
+        matches!(self, Self::RevokePartialDelete)
     }
 }
 
@@ -90,6 +98,7 @@ fn local_native_enrollment_case_from_name(name: &str) -> Option<LocalNativeEnrol
         "death-readback" => Some(LocalNativeEnrollmentCase::DeathReadback),
         "leakage" => Some(LocalNativeEnrollmentCase::Leakage),
         "legacy-crash-delete" => Some(LocalNativeEnrollmentCase::LegacyCrashDelete),
+        "revoke-partial-delete" => Some(LocalNativeEnrollmentCase::RevokePartialDelete),
         _ => None,
     }
 }
@@ -137,6 +146,7 @@ pub fn validated_local_native_enrollment_case_name() -> Option<String> {
             | "legacy-crash-delete"
             | "legacy-replacement-denied"
             | "legacy-ambiguous-denied"
+            | "revoke-partial-delete"
     )
     .then_some(scenario)
 }
@@ -223,6 +233,16 @@ mod tests {
         assert_eq!(
             local_native_enrollment_case_from_name("legacy-crash-delete-typo"),
             None
+        );
+    }
+
+    #[test]
+    fn revoke_partial_delete_selector_routes_only_to_retired_cleanup_fault() {
+        let fault = local_native_enrollment_case_from_name("revoke-partial-delete");
+        assert_eq!(fault, Some(LocalNativeEnrollmentCase::RevokePartialDelete));
+        assert!(fault.is_some_and(|case| case.crashes_after_retired_version_delete()));
+        assert!(
+            !LocalNativeEnrollmentCase::LegacyCrashDelete.crashes_after_retired_version_delete()
         );
     }
 }

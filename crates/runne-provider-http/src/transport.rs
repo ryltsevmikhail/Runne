@@ -1,3 +1,5 @@
+use std::fmt;
+
 use thiserror::Error;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -32,7 +34,7 @@ impl Drop for HttpTransportRequest {
 }
 
 /// Sanitized bounded transport response.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct HttpTransportResponse {
     /// Exact response origin.
     pub origin: String,
@@ -40,6 +42,17 @@ pub struct HttpTransportResponse {
     pub path: String,
     /// Synthetic normalized response body.
     pub body: Vec<u8>,
+}
+
+impl fmt::Debug for HttpTransportResponse {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("HttpTransportResponse")
+            .field("origin", &self.origin)
+            .field("path", &self.path)
+            .field("body_len", &self.body.len())
+            .finish()
+    }
 }
 
 /// Bounded HTTP transport abstraction.

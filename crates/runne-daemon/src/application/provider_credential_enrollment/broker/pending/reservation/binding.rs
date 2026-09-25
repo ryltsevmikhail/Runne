@@ -81,6 +81,19 @@ impl PendingBrokerRendezvousBinding {
         proof: &ProviderCredentialIntentConsumptionProof,
         now_high_water: i64,
     ) -> Result<Self, ProviderCredentialEnrollmentHostError> {
+        let binding = Self::for_handoff(operation, authority, proof, now_high_water)?;
+        if operation.begin_proof_digest() != binding.begin_proof {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        Ok(binding)
+    }
+
+    pub(in crate::application::provider_credential_enrollment::broker) fn for_handoff(
+        operation: &CredentialOperationSnapshot,
+        authority: &ProviderCredentialBaseRequestAuthority,
+        proof: &ProviderCredentialIntentConsumptionProof,
+        now_high_water: i64,
+    ) -> Result<Self, ProviderCredentialEnrollmentHostError> {
         let begin_proof = CredentialBindingDigest::from_measured(*proof.proof_digest())
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
         let release_tuple =
@@ -90,7 +103,6 @@ impl PendingBrokerRendezvousBinding {
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
         validate_authority(authority, proof, now_high_water)?;
         if operation.state() != CredentialOperationState::Prepared
-            || operation.begin_proof_digest() != begin_proof
             || operation.installation_owner_id() != owner
             || operation.metadata().qualified_release_tuple_digest() != Some(release_tuple)
         {

@@ -1,10 +1,19 @@
 use crate::credential::enrollment::{CredentialBindingDigest, CredentialEnrollmentError};
+use zeroize::Zeroizing;
 
 use super::super::CredentialServiceEpoch;
 
 pub(super) fn take_vec(bytes: &[u8], at: &mut usize) -> Result<Vec<u8>, CredentialEnrollmentError> {
     let length = usize::from(u16::from_be_bytes(take(bytes, at)?));
     Ok(take_slice(bytes, at, length)?.to_vec())
+}
+
+pub(super) fn take_zeroizing_vec(
+    bytes: &[u8],
+    at: &mut usize,
+) -> Result<Zeroizing<Vec<u8>>, CredentialEnrollmentError> {
+    let length = usize::from(u16::from_be_bytes(take(bytes, at)?));
+    Ok(Zeroizing::new(take_slice(bytes, at, length)?.to_vec()))
 }
 
 pub(super) fn number(bytes: &[u8], at: &mut usize) -> Result<u64, CredentialEnrollmentError> {

@@ -4250,6 +4250,7 @@ name = "runne-desktop"
 version = "0.0.3"
 dependencies = [
  "block2",
+ "dispatch2",
  "hex",
  "nix 0.31.3",
  "notify-rust",
@@ -4652,6 +4653,7 @@ dependencies = [
 name = "runne-provider-deepseek"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "hex",
  "jsonschema",
  "rcgen",

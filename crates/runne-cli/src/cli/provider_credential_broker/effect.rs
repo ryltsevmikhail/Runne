@@ -75,7 +75,7 @@ pub fn execute_pair_effect(authority: AuthorizedPairWriterControl) -> Result<(),
 #[cfg(all(feature = "local-native-enrollment-test", target_os = "macos"))]
 fn pause_after_legacy_source_delete(
     result: &Result<(), CliError>,
-    legacy_source_cleanup: bool,
+    action: CredentialOperationAction,
 ) -> Result<(), CliError> {
     if result.is_ok()
         && legacy_source_cleanup
@@ -102,8 +102,8 @@ fn wait_for_legacy_delete_release() -> Result<(), CliError> {
         std::env::var_os("RUNNE_SLICE_E_FIXTURE_ROOT").ok_or(CliError::CredentialOperation)?,
     )
     .map_err(|_| CliError::CredentialOperation)?;
-    let marker = root.join("legacy-source-delete.marker");
-    let release = root.join("legacy-source-delete.release");
+    let marker = root.join(format!("{name}.marker"));
+    let release = root.join(format!("{name}.release"));
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)

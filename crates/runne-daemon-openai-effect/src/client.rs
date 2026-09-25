@@ -6,7 +6,8 @@ use runne_provider_openai::{
     OpenAiCredentialError, OpenAiCredentialMaterializer, OpenAiTransportPolicy,
 };
 use runne_secure_store::{
-    ProviderCredentialDispatchMaterializer, ProviderCredentialDispatchRead, SecureStoreError,
+    ProviderCredentialDispatchMaterializer, ProviderCredentialDispatchRead,
+    ProviderCredentialMaterial, SecureStoreError,
 };
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -83,7 +84,7 @@ impl OpenAiCredentialMaterializer for NativeCredential {
                 .map_err(|_| OpenAiCredentialError::AccessDenied)?;
                 materializer
                     .materialize_active(read)
-                    .map(|value| value.with_bytes(|bytes| Zeroizing::new(bytes.to_vec())))
+                    .map(ProviderCredentialMaterial::into_zeroizing)
                     .map_err(|error| match error {
                         SecureStoreError::ProviderCredentialNotFound => {
                             OpenAiCredentialError::Missing

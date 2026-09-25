@@ -16,10 +16,15 @@ impl ProviderTerminalPricing for SharedTextProviderProfile {
         &self,
         pricing_revision_digest: &[u8; 32],
         profile_digest: &[u8; 32],
+        effect_started_at: i64,
         usage: ProviderUsage,
     ) -> Result<ProviderPricedUsage, ProviderTerminalPricingError> {
-        self.inner
-            .price_terminal_usage(pricing_revision_digest, profile_digest, usage)
+        self.inner.price_terminal_usage(
+            pricing_revision_digest,
+            profile_digest,
+            effect_started_at,
+            usage,
+        )
     }
 }
 

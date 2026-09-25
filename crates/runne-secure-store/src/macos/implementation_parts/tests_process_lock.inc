@@ -57,7 +57,8 @@
             assert_eq!(
                 store
                     .load_provider_credential(ProviderCredentialId::OpenAi, &current_policy)
-                    .unwrap_err(),
+                    .err()
+                    .expect("deleted credential remains absent"),
                 SecureStoreError::ProviderCredentialNotFound
             );
             store

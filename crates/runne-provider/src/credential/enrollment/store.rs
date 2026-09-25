@@ -153,13 +153,13 @@ pub trait ProviderCredentialEnrollmentStore: Send + Sync {
         input: CompleteCredentialOperation,
     ) -> Result<CredentialCompletionReceipt, CredentialLifecycleError>;
 
-    /// Cancels an operation before ticket claim.
+    /// Cancels a non-revoke operation before ticket claim.
     fn cancel_before_claim(
         &self,
         input: ClosePreparedCredentialOperation,
     ) -> Result<CredentialOperationSnapshot, CredentialLifecycleError>;
 
-    /// Expires an operation before ticket claim.
+    /// Expires a non-revoke operation before ticket claim.
     fn expire_before_claim(
         &self,
         input: ClosePreparedCredentialOperation,

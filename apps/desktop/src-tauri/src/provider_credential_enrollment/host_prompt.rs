@@ -25,8 +25,4 @@ impl OneShotPromptResult {
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_ok()
     }
-
-    pub(super) fn is_claimed(&self) -> bool {
-        self.0.load(Ordering::Acquire)
-    }
 }

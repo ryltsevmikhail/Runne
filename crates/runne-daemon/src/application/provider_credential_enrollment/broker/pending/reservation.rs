@@ -92,6 +92,42 @@ impl PendingBrokerRendezvousRegistry {
 
 #[cfg(unix)]
 impl<'a> PendingBrokerAdmissionGate<'a> {
+    pub(crate) fn has_process_authority(
+        &self,
+        operation_id: CredentialOperationId,
+    ) -> Result<bool, ProviderCredentialEnrollmentHostError> {
+        if self.entries.contains_key(&operation_id) {
+            return Ok(true);
+        }
+        self.registry
+            .detached
+            .lock()
+            .map(|detached| detached.contains(&operation_id))
+            .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)
+    }
+
+    /// Drops a transition reservation unused by an exact durable replay.
+    pub(crate) fn discard_unused(
+        self,
+        authority: &ProviderCredentialBaseRequestAuthority,
+        proof: &ProviderCredentialIntentConsumptionProof,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        let mut reserved = self
+            .registry
+            .reserved
+            .lock()
+            .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
+        let Some(candidate) = reserved.as_ref() else {
+            return Ok(());
+        };
+        if !candidate.authority_witness.matches_authority(authority)
+            || candidate.binding != ReservedAuthorityBinding::new(authority, proof)
+        {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        reserved.take();
+        Ok(())
+    }
     /// Consumes only the exact reserved transition after durable replay was ruled out.
     pub(crate) fn preflight(
         self,
@@ -152,6 +188,20 @@ impl PendingBrokerRendezvousLease<'_> {
         let operation = effect.consume();
         self.commit_snapshot(&operation);
         operation
+    }
+
+    /// Restores only process-local authority for an exact irreversible replay.
+    pub(in crate::application::provider_credential_enrollment) fn commit_recovered_revoke(
+        self,
+        operation: &CredentialOperationSnapshot,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        if operation.action() != runne_provider::CredentialOperationAction::Revoke
+            || operation.state() != CredentialOperationState::Prepared
+        {
+            return Err(ProviderCredentialEnrollmentHostError::InvariantViolation);
+        }
+        self.commit_snapshot(operation);
+        Ok(())
     }
 
     pub(super) fn commit_snapshot(mut self, operation: &CredentialOperationSnapshot) {

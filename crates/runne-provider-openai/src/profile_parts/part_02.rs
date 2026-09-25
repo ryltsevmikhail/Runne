@@ -175,6 +175,7 @@ impl ProviderTerminalPricing for OpenAiResponsesTextProfile {
         &self,
         pricing_revision_digest: &[u8; 32],
         profile_digest: &[u8; 32],
+        _effect_started_at: i64,
         usage: ProviderUsage,
     ) -> Result<ProviderPricedUsage, ProviderTerminalPricingError> {
         if pricing_revision_digest != &self.pricing_revision_digest()

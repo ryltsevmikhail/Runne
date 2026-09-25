@@ -7,7 +7,7 @@ async fn remote_failure_without_usage_consumes_full_reservation_without_conversa
     let runtime = RuntimeProviderExecution::new(
         keyring.as_ref(),
         fixture.execution.as_ref(),
-        &FIXED_PRICING,
+        &RESERVATION_PRICING,
         &DENYING_GUARD,
         &ALLOWING_REDACTION,
     );

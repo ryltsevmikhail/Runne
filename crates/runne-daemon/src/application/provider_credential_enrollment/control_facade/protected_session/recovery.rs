@@ -13,6 +13,11 @@ use runne_provider::{
     CredentialInstallationOwnerId, CredentialOperationId, ProviderCredentialEnrollmentStore,
 };
 
+// The lease starts before the mandatory three-part native writer handoff and
+// credential-service rejoin. Keep it short-lived, but leave a full claim-ticket
+// window after that bounded platform work.
+const CLEANUP_RECOVERY_TTL_SECONDS: u64 = 120;
+
 pub(super) struct RecoveryExchange {
     pub(super) codec: ProtectedCredentialRecoveryCodec,
     context: ProtectedCredentialRecoveryContext,
@@ -155,7 +160,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
             head.lifecycle_revision(),
             head.fence(),
             measurements.fresh_cleanup_continuation().map_err(denied)?,
-            30,
+            CLEANUP_RECOVERY_TTL_SECONDS,
         );
         let expired_attempt = self
             .control

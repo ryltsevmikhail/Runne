@@ -13,61 +13,6 @@ use crate::{
     CredentialServiceXpcError,
 };
 
-#[cfg(test)]
-#[derive(Clone, Copy)]
-pub enum CallEvent {
-    Reply,
-    Timeout,
-    Cancelled,
-    Interrupted,
-    Invalidated,
-}
-
-#[cfg(test)]
-pub struct PendingCall {
-    started_at: u64,
-    expires_at: u64,
-    terminal: bool,
-}
-
-#[cfg(test)]
-impl PendingCall {
-    pub(crate) fn new(started_at: u64, expires_at: u64) -> Result<Self, CredentialServiceXpcError> {
-        if expires_at <= started_at {
-            return Err(CredentialServiceXpcError::Rejected);
-        }
-        Ok(Self {
-            started_at,
-            expires_at,
-            terminal: false,
-        })
-    }
-
-    pub(crate) fn apply(
-        &mut self,
-        event: CallEvent,
-        now: u64,
-    ) -> Result<(), CredentialServiceXpcError> {
-        if self.terminal {
-            return Err(CredentialServiceXpcError::InvalidReply);
-        }
-        self.terminal = true;
-        if now < self.started_at {
-            return Err(CredentialServiceXpcError::Rejected);
-        }
-        if now >= self.expires_at || matches!(event, CallEvent::Timeout) {
-            return Err(CredentialServiceXpcError::OutcomeUnknown);
-        }
-        match event {
-            CallEvent::Reply => Ok(()),
-            CallEvent::Cancelled | CallEvent::Interrupted | CallEvent::Invalidated => {
-                Err(CredentialServiceXpcError::OutcomeUnknown)
-            }
-            CallEvent::Timeout => unreachable!("timeout handled above"),
-        }
-    }
-}
-
 struct ClientCore {
     #[cfg(target_os = "macos")]
     native: native::NativeClient,

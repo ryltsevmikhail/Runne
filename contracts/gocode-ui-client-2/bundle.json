@@ -79,7 +79,7 @@
     },
     {
       "path": "schemas/provider-credentials-v1.schema.json",
-      "sha256": "ff0a9e3840d286943a3a0f396258d9e27b4c01c774cf94f739983480092df09b"
+      "sha256": "6182b358bfcc84c40f9af6081071fc1818b08f0062b5406f1ebb143b5073e016"
     },
     {
       "path": "schemas/replay-v1.schema.json",

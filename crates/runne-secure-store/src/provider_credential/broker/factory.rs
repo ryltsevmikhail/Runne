@@ -111,7 +111,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            materializer.materialize_active(read).unwrap_err(),
+            materializer
+                .materialize_active(read)
+                .err()
+                .expect("remote lease rejected"),
             SecureStoreError::CredentialAccessDenied
         );
     }

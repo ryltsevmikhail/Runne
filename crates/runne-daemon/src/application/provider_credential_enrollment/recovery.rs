@@ -120,6 +120,9 @@ where
                 match self.reader.observe_recovery(operation, command)? {
                     CredentialRecoveryReadback::Bound(readback) => {
                         let bound = self.store.bind_readback(readback).map_err(map_store)?;
+                        if bound.state() == CredentialOperationState::Failed {
+                            return Ok(());
+                        }
                         readback::persisted(&bound)?
                     }
                     CredentialRecoveryReadback::VerifiedAbsence(absence) => {

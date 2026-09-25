@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 /// Exact immutable `DeepSeek` Responses text profile identity.
-pub const DEEPSEEK_RESPONSES_PROFILE_ID: &str = "gocode-deepseek-responses-text/1";
+pub const DEEPSEEK_RESPONSES_PROFILE_ID: &str = "runne-deepseek-responses-text/1";
 /// Exact provider request model snapshot.
 pub const DEEPSEEK_REQUEST_MODEL: &str = "deepseek-flash";
 /// Legacy pinned Standard tier; the documented `/responses` contract neither
@@ -51,6 +51,9 @@ pub enum DeepSeekProfileError {
     /// Usage requires a pricing tier intentionally excluded by this profile.
     #[error("provider usage requires an unsupported pricing tier")]
     UnsupportedPricingTier,
+    /// The pinned pricing snapshot is not effective at the effect timestamp.
+    #[error("provider pricing snapshot is unavailable at effect start")]
+    PricingUnavailable,
     /// Fixed-point pricing arithmetic exceeded its bound.
     #[error("provider pricing arithmetic overflow")]
     PricingOverflow,
@@ -85,11 +88,17 @@ struct ModelProfile {
 #[serde(deny_unknown_fields)]
 struct PricingProfile {
     revision: String,
+    effective_from_unix_seconds: i64,
     currency: String,
     unit_tokens: u64,
-    input_micros: u64,
-    cached_input_micros: u64,
-    output_micros: u64,
+    peak_input_micros: u64,
+    peak_cached_input_micros: u64,
+    peak_output_micros: u64,
+    off_peak_input_micros: u64,
+    off_peak_cached_input_micros: u64,
+    off_peak_output_micros: u64,
+    peak_iso_weekdays: Vec<u8>,
+    peak_windows_utc: Vec<[u16; 2]>,
     long_context_threshold_tokens: u64,
     long_context_enabled: bool,
 }

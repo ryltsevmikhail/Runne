@@ -77,16 +77,6 @@ impl ProviderCredentialSource {
     }
 }
 
-impl fmt::Debug for ProviderCredentialSource {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("ProviderCredentialSource")
-            .field("material", &"<redacted>")
-            .field("revision", &"<opaque>")
-            .finish()
-    }
-}
-
 impl fmt::Display for ProviderCredentialStatus {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {

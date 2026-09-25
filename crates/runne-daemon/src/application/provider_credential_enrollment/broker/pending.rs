@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex},
 };
 
@@ -48,6 +48,7 @@ use super::super::operation_handle::ProviderCredentialOperationHandleIssuer;
 ))]
 pub(crate) mod recovery;
 mod reservation;
+pub(in crate::application::provider_credential_enrollment) use reservation::PendingBrokerAdmissionGate;
 pub(in crate::application::provider_credential_enrollment::broker) use reservation::PendingBrokerRendezvousBinding;
 #[cfg(unix)]
 use reservation::ReservedTransitionRendezvous;
@@ -113,6 +114,8 @@ use super::rendezvous::DaemonOwnedUnixBrokerRendezvous;
 pub(crate) struct PendingBrokerRendezvousRegistry {
     entries: Arc<Mutex<BTreeMap<CredentialOperationId, PendingEntry>>>,
     #[cfg(unix)]
+    detached: Arc<Mutex<BTreeSet<CredentialOperationId>>>,
+    #[cfg(unix)]
     reserved: Arc<Mutex<Option<ReservedTransitionRendezvous>>>,
     handles: ProviderCredentialOperationHandleIssuer,
 }
@@ -121,6 +124,8 @@ impl Clone for PendingBrokerRendezvousRegistry {
     fn clone(&self) -> Self {
         Self {
             entries: Arc::clone(&self.entries),
+            #[cfg(unix)]
+            detached: Arc::clone(&self.detached),
             #[cfg(unix)]
             reserved: Arc::clone(&self.reserved),
             handles: self.handles.duplicate(),
@@ -170,6 +175,8 @@ impl PendingBrokerRendezvousRegistry {
     pub(crate) fn new(handles: ProviderCredentialOperationHandleIssuer) -> Self {
         Self {
             entries: Arc::new(Mutex::new(BTreeMap::new())),
+            #[cfg(unix)]
+            detached: Arc::new(Mutex::new(BTreeSet::new())),
             #[cfg(unix)]
             reserved: Arc::new(Mutex::new(None)),
             handles,

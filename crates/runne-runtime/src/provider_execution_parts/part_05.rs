@@ -43,6 +43,7 @@ where
                     .price_terminal_usage(
                         pricing_binding.pricing_revision_digest(),
                         &context.profile_digest,
+                        pricing_binding.effect_started_at(),
                         usage,
                     )
                     .map_err(|_| RuntimeProviderExecutionError::PricingUnavailable)?;
@@ -56,21 +57,11 @@ where
                     priced.currency().to_owned(),
                 )
             }
-            TerminalUsageEvidence::Unavailable => {
-                let usage = ProviderUsage::new(
-                    pricing_binding.reserved_input_tokens(),
-                    pricing_binding.reserved_output_tokens(),
-                    0,
-                    0,
-                )
-                .map_err(|_| RuntimeProviderExecutionError::PricingUnavailable)?;
-                (
-                    usage,
-                    true,
-                    pricing_binding.reserved_cost_micros(),
-                    pricing_binding.currency().to_owned(),
-                )
-            }
+            TerminalUsageEvidence::Unavailable => price_unavailable_usage(
+                self.pricing,
+                &pricing_binding,
+                &context.profile_digest,
+            )?,
         };
         let terminal = self
             .store
@@ -257,7 +248,6 @@ fn terminal_application_key(attempt_id: DispatchAttemptId) -> String {
     }
     key
 }
-
 #[allow(clippy::too_many_arguments)]
 fn settlement_digest(
     context: &ProviderEventJournalContext,

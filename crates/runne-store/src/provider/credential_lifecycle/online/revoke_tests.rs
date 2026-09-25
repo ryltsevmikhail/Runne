@@ -1,9 +1,10 @@
 use runne_provider::{
-    BindCredentialReadback, ClaimCredentialOperation, CompleteCredentialOperation, CredentialFence,
-    CredentialLifecycleRevision, CredentialNativeEffectDisposition, CredentialReadbackDisposition,
+    BindCredentialReadback, ClaimCredentialOperation, ClosePreparedCredentialOperation,
+    CompleteCredentialOperation, BeginCredentialOperationOutcome, CredentialFence,
+    CredentialLifecycleError, CredentialLifecycleRevision,
+    CredentialNativeEffectDisposition, CredentialOperationState, CredentialReadbackDisposition,
     CredentialReadinessDisposition, CredentialReadinessObservation, CredentialReadinessRevision,
-    CredentialVersionRef, CredentialVersionState, ObserveNativeEffect,
-    ProviderCredentialEnrollmentStore,
+    CredentialVersionRef, CredentialVersionState, ObserveNativeEffect, ProviderCredentialEnrollmentStore,
 };
 
 use super::online_claim_test_support::seal_claim;
@@ -77,6 +78,103 @@ fn credential_online_revoke_fence_survives_reopen_before_native_deletion() {
         runne_provider::CredentialOperationState::Prepared
     );
     assert_eq!(pending.target_credential_version(), before.active_version());
+}
+
+#[test]
+fn credential_online_revoke_exact_replay_never_advances_the_committed_fence_twice() {
+    let store = store();
+    complete_pair(&store, 10, "paired-before-replay");
+    assert!(matches!(
+        ProviderCredentialEnrollmentStore::begin(
+            &store,
+            revoke(20, "revoke-replay", 2, 2),
+        )
+        .unwrap(),
+        BeginCredentialOperationOutcome::FreshWinner(_)
+    ));
+    let once = ProviderCredentialEnrollmentStore::lifecycle_snapshot(&store, &provider()).unwrap();
+    assert!(matches!(
+        ProviderCredentialEnrollmentStore::begin(
+            &store,
+            revoke(20, "revoke-replay", 2, 2),
+        )
+        .unwrap(),
+        BeginCredentialOperationOutcome::ExactReplay(_)
+    ));
+    let replayed =
+        ProviderCredentialEnrollmentStore::lifecycle_snapshot(&store, &provider()).unwrap();
+
+    assert_eq!(replayed, once);
+    assert_eq!(
+        ProviderCredentialEnrollmentStore::begin(
+            &store,
+            revoke(21, "distinct-revoke-after-fence", 2, 2),
+        ),
+        Err(CredentialLifecycleError::Conflict)
+    );
+    assert_eq!(
+        ProviderCredentialEnrollmentStore::lifecycle_snapshot(&store, &provider()).unwrap(),
+        once
+    );
+}
+
+#[test]
+fn credential_online_revoke_cannot_be_closed_after_durable_fence() {
+    let store = store();
+    complete_pair(&store, 10, "paired-before-close");
+    let before = ProviderCredentialEnrollmentStore::lifecycle_snapshot(&store, &provider()).unwrap();
+    let revoke_id = operation(20);
+    ProviderCredentialEnrollmentStore::begin(&store, revoke(20, "revoke-close", 2, 2)).unwrap();
+
+    for terminal in [CredentialOperationState::Cancelled, CredentialOperationState::Expired] {
+        let input = ClosePreparedCredentialOperation::new(revoke_id, terminal).unwrap();
+        let result = if terminal == CredentialOperationState::Cancelled {
+            ProviderCredentialEnrollmentStore::cancel_before_claim(&store, input)
+        } else {
+            ProviderCredentialEnrollmentStore::expire_before_claim(&store, input)
+        };
+        assert_eq!(result, Err(runne_provider::CredentialLifecycleError::LifecycleClosed));
+    }
+
+    let after = ProviderCredentialEnrollmentStore::lifecycle_snapshot(&store, &provider()).unwrap();
+    assert!(after.active_version().is_none());
+    assert!(after.lifecycle_revision() > before.lifecycle_revision());
+    assert!(after.fence() > before.fence());
+    assert_eq!(
+        ProviderCredentialEnrollmentStore::load_operation(&store, revoke_id)
+            .unwrap()
+            .state(),
+        CredentialOperationState::Prepared
+    );
+}
+
+#[test]
+fn credential_online_revoke_fence_rejects_raw_preclaim_closure() {
+    let store = store();
+    complete_pair(&store, 10, "paired-before-raw-close");
+    let revoke_id = operation(20);
+    ProviderCredentialEnrollmentStore::begin(&store, revoke(20, "revoke-raw-close", 2, 2))
+        .unwrap();
+
+    let error = store
+        .connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE provider_credential_operations
+             SET state='CANCELLED', terminal_disposition='CANCELLED'
+             WHERE operation_id=?1",
+            [revoke_id.as_bytes().as_slice()],
+        )
+        .unwrap_err();
+
+    assert!(error.to_string().contains("fenced revoke cannot close before reconciliation"));
+    assert_eq!(
+        ProviderCredentialEnrollmentStore::load_operation(&store, revoke_id)
+            .unwrap()
+            .state(),
+        CredentialOperationState::Prepared
+    );
 }
 
 #[test]

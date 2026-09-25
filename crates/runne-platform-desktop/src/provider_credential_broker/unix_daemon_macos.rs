@@ -42,11 +42,14 @@ pub(super) fn spawn_macos_prepared_writer(
     actions
         .add_dup2(bootstrap.as_raw_fd(), libc::STDIN_FILENO)
         .and_then(|()| actions.add_close(bootstrap.as_raw_fd()))
-        .and_then(|()| match secret_reader.as_ref() {
-            Some(secret) => actions
-                .add_dup2(secret.as_raw_fd(), 3)
-                .and_then(|()| actions.add_close(secret.as_raw_fd())),
-            None => actions.add_close(3),
+        .and_then(|()| {
+            // CLOEXEC_DEFAULT already closes unlisted descriptors. Explicitly
+            // closing an absent fd 3 makes macOS reject control-only spawn.
+            secret_reader.as_ref().map_or(Ok(()), |secret| {
+                actions
+                    .add_dup2(secret.as_raw_fd(), 3)
+                    .and_then(|()| actions.add_close(secret.as_raw_fd()))
+            })
         })
         .and_then(|()| {
             actions.add_open(

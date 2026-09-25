@@ -99,7 +99,7 @@ fn separates_profile_and_candidate_digests_with_closed_evidence() {
     );
     let request_length = 218_u64.to_be_bytes();
     let candidate_digest = digest(
-        "gocode.canary.candidate/1",
+        "runne.canary.candidate/1",
         &[
             &profile,
             &request,
@@ -122,11 +122,11 @@ fn separates_profile_and_candidate_digests_with_closed_evidence() {
     assert_ne!(CANARY_DIGEST, PROFILE_DIGEST);
     assert_eq!(
         prompt,
-        digest_bytes("sha256:19afb888ed8b093a39540296bb69ca5271fc3733bf05f7fafacdce7cd66b6bc4")
+        digest_bytes("sha256:1ff713bca9a5e1685124ed010e5d36ef30edb5d429d6a8145620df0b6ba9ad3d")
     );
     assert_eq!(
         result,
-        digest_bytes("sha256:ab029deedfbaf4e7c796a0a0248a7e0153767006ae9ec93af64fa4576ed3ea41")
+        digest_bytes("sha256:b7adb9b31484687cc9ea88e6a0f08c99e307b130e79677f6794d3f7ba575d1ad")
     );
     assert_eq!(
         request,
@@ -172,18 +172,7 @@ fn rejects_each_changed_candidate_identity_field() {
     assert_profile_rejected(CanaryIdentity::canonical().with_request_model("changed"));
     assert_profile_rejected(CanaryIdentity::canonical().with_model_id("changed"));
     assert_profile_rejected(CanaryIdentity::canonical().with_model_revision("changed"));
-    assert_profile_rejected(CanaryIdentity::canonical().with_service_tier("changed"));
     assert_profile_rejected(CanaryIdentity::canonical().with_pricing_revision("changed"));
-}
-
-#[test]
-fn rejects_store_other_than_false() {
-    assert_overlay_rejected(CanaryOverlay::approved().with_store(true));
-}
-
-#[test]
-fn rejects_background_other_than_false() {
-    assert_overlay_rejected(CanaryOverlay::approved().with_background(true));
 }
 
 #[test]
@@ -242,22 +231,22 @@ fn derives_the_fixed_budget_with_checked_tenths() {
     )
     .expect("fixed budget must reconcile");
 
-    assert_eq!(RESERVATION_MICRO_USD, 1_760);
-    assert_eq!(accounting.expected_cost_tenths(), 17_600);
+    assert_eq!(RESERVATION_MICRO_USD, 135);
+    assert_eq!(accounting.expected_cost_tenths(), 1_350);
     assert_eq!(accounting.expected_cost_micro_usd(), RESERVATION_MICRO_USD);
-    assert_eq!(accounting.reserved_tenths(), 17_600);
+    assert_eq!(accounting.reserved_tenths(), 1_350);
     assert_eq!(accounting.remaining_tenths(), 0);
     assert_eq!(accounting.settlement_count(), 1);
     assert_eq!(accounting.disposition(), AccountingDisposition::Reconciled);
     assert_eq!(
         CanaryAccounting::checked_expected_cost_tenths(256, 16, 64),
-        Ok(14_720)
+        Ok(1_080)
     );
     let partial =
         CanaryAccounting::reconcile(TerminalUsage::new(1, 1, 0), accounting.pricing_revision())
             .unwrap();
-    assert_eq!(partial.expected_cost_tenths(), 350);
-    assert_eq!(partial.remaining_tenths(), 17_250);
+    assert_eq!(partial.expected_cost_tenths(), 30);
+    assert_eq!(partial.remaining_tenths(), 1_320);
 }
 
 #[test]

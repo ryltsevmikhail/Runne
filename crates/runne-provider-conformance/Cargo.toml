@@ -1,0 +1,21 @@
+[package]
+name = "runne-provider-conformance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+runne-provider = { path = "../runne-provider" }
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+futures = "0.3"
+runne-provider-deepseek = { path = "../runne-provider-deepseek" }
+runne-provider-http = { path = "../runne-provider-http" }
+runne-provider-openai = { path = "../runne-provider-openai" }
+zeroize.workspace = true
+
+[lints]
+workspace = true

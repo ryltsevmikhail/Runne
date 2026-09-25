@@ -38,3 +38,34 @@ where
         Ok(binding)
     }
 }
+
+fn price_unavailable_usage<P: ProviderTerminalPricing>(
+    pricing: &P,
+    binding: &ProviderTerminalPricingBinding,
+    profile_digest: &[u8; 32],
+) -> Result<(ProviderUsage, bool, u64, String), RuntimeProviderExecutionError> {
+    let usage = ProviderUsage::new(
+        binding.reserved_input_tokens(),
+        binding.reserved_output_tokens(),
+        0,
+        0,
+    )
+    .map_err(|_| RuntimeProviderExecutionError::PricingUnavailable)?;
+    let priced = pricing
+        .price_terminal_usage(
+            binding.pricing_revision_digest(),
+            profile_digest,
+            binding.effect_started_at(),
+            usage,
+        )
+        .map_err(|_| RuntimeProviderExecutionError::PricingUnavailable)?;
+    if priced.currency() != binding.currency() {
+        return Err(RuntimeProviderExecutionError::PricingUnavailable);
+    }
+    Ok((
+        usage,
+        true,
+        binding.reserved_cost_micros(),
+        binding.currency().to_owned(),
+    ))
+}

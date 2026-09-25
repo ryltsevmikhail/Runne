@@ -3,8 +3,8 @@
 #
 # Refuses to run without a configured deepseek credential and without the
 # RUNNE_LIVE_SMOKE=1 opt-in (a real call may spend money). Never prints
-# credential material; with RUNNE_LIVE_SMOKE_KEY it additionally scans every
-# captured output byte-for-byte and fails if the value leaks.
+# credential material. Credential access remains inside the runtime-owned
+# materializer; this script accepts no credential value through argv/env/stdin.
 set -euo pipefail
 
 usage() {
@@ -18,8 +18,6 @@ Options:
 
 Environment:
   RUNNE_LIVE_SMOKE=1     Required: authorizes a real paid DeepSeek call.
-  RUNNE_LIVE_SMOKE_KEY   Optional: exact credential value, used ONLY for the
-                          output redaction scan; never printed.
 
 Exit codes:
   0  all checks passed
@@ -105,7 +103,7 @@ trap cleanup EXIT
 run_checked() {
   local label="$1"
   shift
-  echo "--- $label ---"
+  echo "--- $label ---" >&2
   "$@" 2>&1 | tee -a "$SMOKE_LOG"
 }
 
@@ -117,7 +115,7 @@ CREDENTIAL_STATUS="$(run_checked "deepseek credential status" \
   "$GCODE" provider credential status --provider deepseek || true)"
 if [[ "$CREDENTIAL_STATUS" != "configured" ]]; then
   echo "refusing: deepseek credential is not configured." >&2
-  echo "run: runne provider credential set --provider deepseek --stdin" >&2
+  echo "enroll it through the authenticated runtime credential flow first." >&2
   exit 4
 fi
 
@@ -133,6 +131,11 @@ fi
 if ! grep -q "credential deepseek: configured" <<<"$DOCTOR_OUTPUT"; then
   echo "refusing: daemon sees deepseek credential as not configured." >&2
   exit 4
+fi
+if ! grep -q "profile: runne-deepseek-responses-text/1" <<<"$DOCTOR_OUTPUT" \
+  || ! grep -q "model: deepseek-v4-flash (revision DeepSeek-V4-Flash-0731)" <<<"$DOCTOR_OUTPUT"; then
+  echo "refusing: daemon does not expose the exact D1.2 profile/model." >&2
+  exit 3
 fi
 
 # 3. Daemon lifecycle: reuse a healthy daemon, otherwise start one and stop it
@@ -197,19 +200,8 @@ if ! grep -q -F "$(printf '%s' "$REPLY" | head -c 20)" <<<"$REPLAY_OUTPUT"; then
   exit 1
 fi
 
-# 5. Redaction scan: the exact credential value must not appear anywhere in
-#    the captured output. The value itself is never printed.
-if [[ -n "${RUNNE_LIVE_SMOKE_KEY:-}" ]]; then
-  if grep -q -F -- "$RUNNE_LIVE_SMOKE_KEY" "$SMOKE_LOG" "$DAEMON_LOG" 2>/dev/null; then
-    echo "error: REDACTION FAILURE: credential value found in captured output" >&2
-    exit 1
-  fi
-  echo "--- redaction scan: passed (credential value absent from output) ---"
-else
-  echo "note: RUNNE_LIVE_SMOKE_KEY not set; byte-level redaction scan skipped."
-fi
-
-# 6. Shutdown of the daemon we started.
+# 5. Shutdown of the daemon we started. The script never possessed credential
+#    material, so captured output cannot be compared with a secret copy here.
 if [[ "$STARTED_DAEMON" == "1" ]]; then
   kill "$DAEMON_PID"
   wait "$DAEMON_PID" 2>/dev/null || true
@@ -219,5 +211,5 @@ fi
 echo
 echo "PASS: live DeepSeek smoke completed."
 echo "  verified: credential configured, active provider deepseek, daemon healthy,"
-echo "  live response non-empty, replay contains the response, redaction scan."
+echo "  exact profile/model, live response non-empty, replay contains the response."
 echo "  not verified here: usage/accounting (not yet exposed via CLI)."

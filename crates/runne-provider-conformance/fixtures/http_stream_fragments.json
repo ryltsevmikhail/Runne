@@ -1,0 +1,8 @@
+{
+  "events": [
+    { "kind": "started" },
+    { "kind": "text_delta", "text": "synthetic " },
+    { "kind": "text_delta", "text": "response" },
+    { "kind": "finished", "reason": "stop" }
+  ]
+}

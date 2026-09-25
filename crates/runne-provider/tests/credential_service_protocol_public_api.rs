@@ -14,6 +14,7 @@ use runne_provider::{
     CredentialWriterConsumeRequest, CredentialWriterIngressRequest,
     CredentialWriterServiceBindingHandoff,
 };
+use zeroize::Zeroizing;
 
 #[test]
 fn credential_service_protocol_is_visible_from_the_crate_root() {
@@ -92,4 +93,15 @@ fn runtime_read_authority_and_material_consumer_are_externally_usable() {
         .unwrap()
         .consume(|bytes| observed = bytes == b"secret");
     assert!(observed);
+}
+
+#[test]
+fn credential_service_material_zeroizing_transfer_is_public_and_move_only() {
+    let source = Zeroizing::new(b"runne-d1-1c-public-transfer-canary".to_vec());
+    let allocation = source.as_ptr();
+    let material = CredentialMaterial::from_zeroizing(source).unwrap();
+    let recovered: Zeroizing<Vec<u8>> = material.into_zeroizing();
+
+    assert_eq!(recovered.as_ptr(), allocation);
+    assert_eq!(recovered.as_slice(), b"runne-d1-1c-public-transfer-canary");
 }

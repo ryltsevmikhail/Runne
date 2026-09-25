@@ -4,7 +4,7 @@ fn identities_indexes_wrappers_and_remote_sequence_fail_closed() {
     let valid = String::from_utf8(successful_sse()).expect("fixture");
     let mutations = [
         valid.replacen(RESPONSE_ID, "resp_wrong", 1),
-        valid.replacen(DEEPSEEK_REQUEST_MODEL, "deepseek-chat-v4", 1),
+        valid.replacen(DEEPSEEK_REQUEST_MODEL, "deepseek-v4-pro", 1),
         valid.replacen(&format!("\"model\":\"{DEEPSEEK_REQUEST_MODEL}\","), "", 1),
         valid.replacen(
             &format!("\"model\":\"{DEEPSEEK_REQUEST_MODEL}\""),
@@ -30,6 +30,16 @@ fn identities_indexes_wrappers_and_remote_sequence_fail_closed() {
     for mutation in mutations {
         assert!(decode(mutation.as_bytes()).is_err());
     }
+}
+
+#[test]
+fn stored_provider_response_is_rejected() {
+    let stored = String::from_utf8(successful_sse()).unwrap().replacen(
+        "\"object\":\"response\"",
+        "\"object\":\"response\",\"store\":true",
+        1,
+    );
+    assert!(decode(stored.as_bytes()).is_err());
 }
 
 #[test]

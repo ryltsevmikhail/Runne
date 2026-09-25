@@ -58,6 +58,15 @@ fn credential_enrollment_transition_requires_exact_post_claim_evidence() {
     );
     assert!(
         transition(
+            Action::RetiredVersionCleanup,
+            State::NativeEffectObserved,
+            State::Failed,
+            Evidence::ExactAbsenceReadback(digest)
+        )
+        .is_ok()
+    );
+    assert!(
+        transition(
             Action::Revoke,
             State::Claimed,
             State::NativeEffectObserved,
@@ -157,6 +166,17 @@ fn credential_enrollment_transition_rejects_shortcuts_and_post_claim_closure() {
         (State::Tombstoned, State::Prepared),
     ] {
         assert!(!allows_structural_transition(transition.0, transition.1));
+    }
+}
+
+#[test]
+fn credential_enrollment_transition_keeps_admitted_revoke_recoverable() {
+    for terminal in [State::Failed, State::Expired, State::Cancelled] {
+        assert!(
+            transition(Action::Revoke, State::Prepared, terminal, Evidence::None).is_err(),
+            "admitted revoke cannot close as {terminal:?} after its fence committed",
+        );
+        assert!(transition(Action::Pair, State::Prepared, terminal, Evidence::None).is_ok());
     }
 }
 

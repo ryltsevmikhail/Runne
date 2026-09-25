@@ -6,6 +6,7 @@ rust-version.workspace = true
 
 [dependencies]
 runne-provider = { path = "../runne-provider" }
+chrono.workspace = true
 hex.workspace = true
 reqwest = { workspace = true, features = ["rustls-tls", "stream"] }
 serde.workspace = true

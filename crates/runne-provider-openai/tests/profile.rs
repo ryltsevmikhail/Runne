@@ -80,17 +80,23 @@ fn exact_profile_schema_digest_identity_and_pricing_are_stable() {
         .price_terminal_usage(
             &profile.pricing_revision_digest(),
             &profile.profile_digest(),
+            1_788_501_600,
             usage,
         )
         .unwrap();
     assert_eq!(priced.charge_micros(), 97);
     assert_eq!(priced.currency(), "USD");
     assert_eq!(
-        profile.price_terminal_usage(&[3; 32], &profile.profile_digest(), usage),
+        profile.price_terminal_usage(&[3; 32], &profile.profile_digest(), 1_788_501_600, usage),
         Err(ProviderTerminalPricingError::Unavailable)
     );
     assert_eq!(
-        profile.price_terminal_usage(&profile.pricing_revision_digest(), &[4; 32], usage),
+        profile.price_terminal_usage(
+            &profile.pricing_revision_digest(),
+            &[4; 32],
+            1_788_501_600,
+            usage,
+        ),
         Err(ProviderTerminalPricingError::Unavailable)
     );
     assert_eq!(

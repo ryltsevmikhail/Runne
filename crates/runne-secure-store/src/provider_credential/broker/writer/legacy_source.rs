@@ -84,7 +84,7 @@ where
             .native
             .load_authorized_legacy_source(read, &self.access)?;
         let revision = *source.revision().as_bytes();
-        CredentialMaterial::from_bytes(source.into_material().into_bytes())
+        CredentialMaterial::from_zeroizing(source.into_material().into_zeroizing())
             .and_then(|material| {
                 runne_provider::CredentialLegacySourceMaterial::new(material, revision)
             })

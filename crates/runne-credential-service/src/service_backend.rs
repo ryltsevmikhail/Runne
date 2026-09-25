@@ -46,6 +46,20 @@ impl ServiceBackend {
             Self::Memory(backend) => backend.read(effect),
         }
     }
+
+    #[cfg(all(test, feature = "test-support"))]
+    pub(crate) fn memory_fixture(
+        reference: runne_provider::CredentialVersionRef,
+        material: runne_provider::CredentialMaterial,
+    ) -> Self {
+        Self::Memory(MemoryBackend {
+            items: vec![MemoryItem {
+                source_revision: None,
+                reference,
+                material: material.into_zeroizing(),
+            }],
+        })
+    }
 }
 
 #[cfg(feature = "test-support")]
@@ -82,12 +96,10 @@ impl MemoryBackend {
                 let Some(material) = effect.into_material() else {
                     return CredentialBackendResult::AccessDenied;
                 };
-                let mut retained = zeroize::Zeroizing::new(Vec::new());
-                material.consume(|bytes| retained.extend_from_slice(bytes));
                 self.items.push(MemoryItem {
                     source_revision,
                     reference,
-                    material: retained,
+                    material: material.into_zeroizing(),
                 });
                 CredentialBackendResult::Observed(())
             }
@@ -137,7 +149,7 @@ impl MemoryBackend {
                 CredentialRuntimeReadObservation::PointOfUse(item.map_or(
                     CredentialBackendResult::Absent,
                     |item| {
-                        runne_provider::CredentialMaterial::from_bytes(item.material.to_vec())
+                        runne_provider::CredentialMaterial::from_zeroizing(item.material.clone())
                             .map_or(
                                 CredentialBackendResult::Unavailable,
                                 CredentialBackendResult::Observed,

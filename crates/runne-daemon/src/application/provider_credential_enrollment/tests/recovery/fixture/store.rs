@@ -3,12 +3,12 @@ use runne_provider::{
     BeginCredentialVerification, BindCredentialReadback, ClaimCredentialOperation,
     ClosePreparedCredentialOperation, CompleteCredentialOperation, CompleteCredentialVerification,
     CredentialCompletionReceipt, CredentialLifecycleError, CredentialLifecycleSnapshot,
-    CredentialNativeEffectDisposition, CredentialOperationId, CredentialOperationSnapshot,
-    CredentialOperationState, CredentialReadinessDisposition, CredentialSafeSnapshot,
-    CredentialVerificationLease, CredentialVerificationObservation, CredentialVerificationSnapshot,
-    FailCredentialOperation, HardFenceProvider, IssueCredentialTicketDigest,
-    IssuedCredentialTicketAttempt, ObserveNativeEffect, ProviderCredentialEnrollmentStore,
-    ProviderId, TombstoneCredentialOperation,
+    CredentialNativeEffectDisposition, CredentialOperationAction, CredentialOperationId,
+    CredentialOperationSnapshot, CredentialOperationState, CredentialReadinessDisposition,
+    CredentialSafeSnapshot, CredentialVerificationLease, CredentialVerificationObservation,
+    CredentialVerificationSnapshot, FailCredentialOperation, HardFenceProvider,
+    IssueCredentialTicketDigest, IssuedCredentialTicketAttempt, ObserveNativeEffect,
+    ProviderCredentialEnrollmentStore, ProviderId, TombstoneCredentialOperation,
 };
 
 use super::{FailurePoint, Fixture};
@@ -77,7 +77,19 @@ impl ProviderCredentialEnrollmentStore for Fixture {
         if self.state() != CredentialOperationState::NativeEffectObserved {
             return Err(CredentialLifecycleError::Conflict);
         }
-        self.transition(CredentialOperationState::ReadbackVerified, Some(input))
+        let operation = self.work().operation().clone();
+        let superseded = operation.action() == CredentialOperationAction::RetiredVersionCleanup
+            && self.lifecycle().lifecycle_revision().get()
+                == operation.lifecycle_revision().get() + 1
+            && self.lifecycle().active_version().is_none();
+        self.transition(
+            if superseded {
+                CredentialOperationState::Failed
+            } else {
+                CredentialOperationState::ReadbackVerified
+            },
+            Some(input),
+        )
     }
 
     fn complete(

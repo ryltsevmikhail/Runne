@@ -229,7 +229,8 @@
         assert_eq!(
             store
                 .load_provider_credential(ProviderCredentialId::OpenAi, &trusted_policy)
-                .unwrap_err(),
+                .err()
+                .expect("untrusted read rejected"),
             SecureStoreError::CredentialAccessDenied
         );
 
@@ -275,7 +276,8 @@
         assert_eq!(
             store
                 .load_provider_credential(ProviderCredentialId::OpenAi, &policy)
-                .unwrap_err(),
+                .err()
+                .expect("inaccessible item rejected"),
             SecureStoreError::CredentialAccessDenied
         );
         store

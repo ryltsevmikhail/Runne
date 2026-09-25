@@ -58,7 +58,7 @@ fn exact_profile_schema_digest_identity_and_pricing_are_stable() {
         PROFILE_DIGEST.as_bytes(),
         b"sha256:0112c4b6ce64739810bb79802ebb5ae6fd8ac563d1d1397ac51f07a190538195"
     );
-    assert_eq!(profile.profile_id(), "gocode-deepseek-responses-text/1");
+    assert_eq!(profile.profile_id(), "runne-deepseek-responses-text/1");
     assert_eq!(profile.profile_id(), DEEPSEEK_RESPONSES_PROFILE_ID);
     assert_eq!(profile.provider_id(), "deepseek");
     assert_eq!(profile.origin(), "https://api.deepseek.com");
@@ -80,7 +80,7 @@ fn exact_profile_schema_digest_identity_and_pricing_are_stable() {
     assert_eq!(profile.max_input_bytes(), 262_144);
     assert_eq!(profile.max_output_tokens(), 16_384);
     assert_eq!(profile.max_request_bytes(), 524_288);
-    assert_eq!(PROFILE_DIGEST.len(), 71);
+    assert_eq!(PROFILE_DIGEST.len(), 72);
     assert_eq!(
         hex::encode(profile.pricing_revision_digest()),
         "9c626b1c22b5583abc2d9405340dd1c42e14b4c35937884836c6191eb03e8ece"
@@ -98,22 +98,59 @@ fn exact_profile_schema_digest_identity_and_pricing_are_stable() {
         .price_terminal_usage(
             &profile.pricing_revision_digest(),
             &profile.profile_digest(),
+            1_788_501_600,
             usage,
         )
         .unwrap();
     assert_eq!(priced.charge_micros(), 7);
     assert_eq!(priced.currency(), "USD");
     assert_eq!(
-        profile.price_terminal_usage(&[3; 32], &profile.profile_digest(), usage),
+        profile.price_terminal_usage(&[3; 32], &profile.profile_digest(), 1_788_501_600, usage),
         Err(ProviderTerminalPricingError::Unavailable)
     );
     assert_eq!(
-        profile.price_terminal_usage(&profile.pricing_revision_digest(), &[4; 32], usage),
+        profile.price_terminal_usage(
+            &profile.pricing_revision_digest(),
+            &[4; 32],
+            1_788_501_600,
+            usage,
+        ),
         Err(ProviderTerminalPricingError::Unavailable)
     );
     assert_eq!(
         profile.price_usage_micros(ProviderUsage::new(1_000_001, 1, 0, 0).unwrap()),
         Err(DeepSeekProfileError::UnsupportedPricingTier)
+    );
+}
+
+#[test]
+fn scheduled_pricing_uses_exact_utc_effect_start_boundaries() {
+    let profile = DeepSeekResponsesTextProfile::from_json(PROFILE_BYTES).unwrap();
+    let uncached = ProviderUsage::new(1_000_000, 1_000_000, 0, 0).unwrap();
+    let cached = ProviderUsage::new(1_000_000, 0, 1_000_000, 0).unwrap();
+    let cases = [
+        (1_788_494_399, 1_760_000, 14_000),
+        (1_788_494_400, 880_000, 7_000),
+        (1_788_501_599, 880_000, 7_000),
+        (1_788_501_600, 1_760_000, 14_000),
+        (1_788_515_999, 1_760_000, 14_000),
+        (1_788_516_000, 880_000, 7_000),
+        (1_788_573_600, 880_000, 7_000),
+    ];
+    for (effect_started_at, expected_uncached, expected_cached) in cases {
+        assert_eq!(
+            profile.price_usage_at_micros(effect_started_at, uncached),
+            Ok(expected_uncached)
+        );
+        assert_eq!(
+            profile.price_usage_at_micros(effect_started_at, cached),
+            Ok(expected_cached)
+        );
+    }
+    assert_eq!(profile.price_usage_micros(uncached), Ok(1_760_000));
+    assert_eq!(
+        profile.price_usage_at_micros(1_786_895_999, uncached),
+        Err(DeepSeekProfileError::PricingUnavailable)
     );
 }
 

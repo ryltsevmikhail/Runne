@@ -14,8 +14,7 @@ mod transport;
 pub use credential::{DeepSeekCredentialError, DeepSeekCredentialMaterializer};
 pub use profile::{
     DEEPSEEK_MODEL_ID, DEEPSEEK_MODEL_REVISION, DEEPSEEK_REQUEST_MODEL,
-    DEEPSEEK_RESPONSES_PROFILE_ID, DEEPSEEK_SERVICE_TIER, DeepSeekProfileError,
-    DeepSeekResponsesTextProfile,
+    DEEPSEEK_RESPONSES_PROFILE_ID, DeepSeekProfileError, DeepSeekResponsesTextProfile,
 };
 pub use render::{DeepSeekRenderError, DeepSeekResponsesTextRenderer};
 pub use response_decode::decode_transport_response;
@@ -58,12 +57,15 @@ impl runne_provider::TextProviderProfile for DeepSeekResponsesTextProfile {
         &self,
         usage: runne_provider::ProviderUsage,
     ) -> Result<u64, runne_provider::ProviderTerminalPricingError> {
-        <Self as runne_provider::ProviderTerminalPricing>::price_terminal_usage(
-            self,
-            &self.pricing_revision_digest(),
-            &self.profile_digest(),
-            usage,
-        )
-        .map(|priced| priced.charge_micros())
+        Self::price_usage_micros(self, usage).map_err(|error| match error {
+            DeepSeekProfileError::PricingOverflow => {
+                runne_provider::ProviderTerminalPricingError::InvalidQuote
+            }
+            DeepSeekProfileError::InvalidProfile
+            | DeepSeekProfileError::UnsupportedPricingTier
+            | DeepSeekProfileError::PricingUnavailable => {
+                runne_provider::ProviderTerminalPricingError::Unavailable
+            }
+        })
     }
 }

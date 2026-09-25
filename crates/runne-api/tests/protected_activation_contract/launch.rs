@@ -236,7 +236,7 @@ fn v2_launch_round_trips_exact_provider_binding_and_rejects_mismatch() {
 }
 
 #[test]
-fn released_provider_bindings_accept_gocode_literals_and_reject_runne_aliases() {
+fn historical_provider_bindings_retain_their_released_gocode_literals() {
     for (mode, profile_id, profile_digest, runne_alias) in [
         (
             ProviderActivationModeV1::DeterministicV1,

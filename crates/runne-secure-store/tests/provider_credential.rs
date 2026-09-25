@@ -3,6 +3,7 @@ use runne_secure_store::{
     ProviderCredentialMaterial, ProviderCredentialSource, ProviderCredentialSourceRevision,
     ProviderCredentialStatus, ProviderCredentialStore, SecureStoreError,
 };
+use zeroize::Zeroizing;
 struct ControlledExecutable {
     access: ProviderCredentialAccessPolicy,
     _permissions: CurrentExecutablePermissions,
@@ -106,7 +107,7 @@ impl ProviderCredentialStore for StatusOnlyStore {
 }
 
 #[test]
-fn credential_material_is_bounded_single_line_and_redacted() {
+fn credential_material_is_bounded_single_line_and_move_only() {
     for invalid in [
         Vec::new(),
         vec![b'x'; MAX_PROVIDER_CREDENTIAL_BYTES + 1],
@@ -115,7 +116,9 @@ fn credential_material_is_bounded_single_line_and_redacted() {
         b"prefix\0suffix".to_vec(),
     ] {
         assert_eq!(
-            ProviderCredentialMaterial::new(invalid).unwrap_err(),
+            ProviderCredentialMaterial::new(invalid)
+                .err()
+                .expect("invalid material rejected"),
             SecureStoreError::InvalidProviderCredential
         );
     }
@@ -123,10 +126,6 @@ fn credential_material_is_bounded_single_line_and_redacted() {
     let marker = b"provider-secret-marker-7f3c".to_vec();
     let credential = ProviderCredentialMaterial::new(marker.clone()).unwrap();
     assert_eq!(credential.with_bytes(<[u8]>::to_vec), marker);
-    let debug = format!("{credential:?}");
-    assert!(debug.contains("redacted"));
-    assert!(!debug.contains("provider-secret-marker-7f3c"));
-
     let maximum = ProviderCredentialMaterial::new(vec![b'x'; MAX_PROVIDER_CREDENTIAL_BYTES])
         .expect("exact maximum is accepted");
     assert_eq!(
@@ -141,9 +140,21 @@ fn credential_material_is_bounded_single_line_and_redacted() {
         ProviderCredentialMaterial::new(marker).unwrap(),
         ProviderCredentialSourceRevision::new([0x71; 16]).unwrap(),
     );
-    let rendered = format!("{source:?} {:?}", source.revision());
+    let rendered = format!("{:?}", source.revision());
     assert!(!rendered.contains("provider-secret-marker-7f3c"));
     assert!(!rendered.contains("71717171"));
+}
+
+#[test]
+fn credential_material_transfers_zeroizing_allocation_without_copying() {
+    let bytes = Zeroizing::new(b"provider-secret-transfer".to_vec());
+    let allocation = bytes.as_ptr();
+
+    let material = ProviderCredentialMaterial::from_zeroizing(bytes).expect("valid material");
+    let transferred = material.into_zeroizing();
+
+    assert_eq!(transferred.as_ptr(), allocation);
+    assert_eq!(transferred.as_slice(), b"provider-secret-transfer");
 }
 
 #[test]
@@ -171,7 +182,8 @@ fn provider_identity_and_status_vocabulary_are_exact() {
     assert_eq!(
         store
             .load_provider_credential_source(ProviderCredentialId::OpenAi, &executable.access)
-            .unwrap_err(),
+            .err()
+            .expect("source revision unavailable"),
         SecureStoreError::ProviderCredentialSourceRevisionUnavailable
     );
     drop(executable);

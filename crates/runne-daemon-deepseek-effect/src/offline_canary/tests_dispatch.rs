@@ -156,7 +156,7 @@ fn happy_path_armed_to_dispatching_to_terminal_to_settlement() {
         .observe_terminal_after_possible_dispatch(&mut fence)
         .unwrap();
     let settled = lifecycle
-        .reconcile(Some(TerminalUsage::new(256, 16, 0)), PRICING, 17_600)
+        .reconcile(Some(TerminalUsage::new(256, 16, 0)), PRICING, 1_350)
         .unwrap();
     assert_eq!(settled.disposition(), AccountingDisposition::Reconciled);
     assert_eq!(lifecycle.disposition(), LifecycleDisposition::Terminal);

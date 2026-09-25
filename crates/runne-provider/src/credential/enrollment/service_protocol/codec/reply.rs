@@ -8,7 +8,7 @@ use super::super::{
     CredentialServiceRequestContext, CredentialServiceRequestKind,
     CredentialServiceRequestSequence,
 };
-use super::support::{take, take_epoch, take_vec};
+use super::support::{take, take_epoch, take_zeroizing_vec};
 use super::{byte, decode_role, epoch, frame, kind_role, payload, put_bytes, take_disposition};
 
 pub(super) fn encode_reply(
@@ -162,7 +162,7 @@ fn decode_body(
             },
         }),
         15 => Ok(CredentialServiceReply::Material(
-            CredentialMaterial::from_wire(take_vec(bytes, at)?)?,
+            CredentialMaterial::from_wire(take_zeroizing_vec(bytes, at)?)?,
         )),
         16 => Ok(CredentialServiceReply::Rejected(take_disposition(
             bytes, at,

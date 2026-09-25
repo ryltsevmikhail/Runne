@@ -12,14 +12,13 @@ mod provider_credential_enrollment_tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     use crate::{
-        BeginProviderCredentialEnrollment, CanonicalId, CommandIdentity,
-        PROVIDER_CREDENTIAL_ENROLLMENT_CAPABILITY_V2, PairProviderCredentialRequest,
+        BeginProviderCredentialEnrollment,
+        PROVIDER_CREDENTIAL_ENROLLMENT_CAPABILITY_V2,
         ProviderCredentialEnrollmentActionV2, ProviderCredentialOperationHandleV2,
         ProviderCredentialProviderV2, ProviderCredentialVerificationKindV2, RuntimeApiErrorKind,
         RuntimeSessionInfo, VerifyProviderCredential, mock_authenticated_runtime_client,
         mock_protected_authenticated_runtime_client,
     };
-    use runne_api::ProviderCredentialProviderV1;
 
     #[tokio::test]
     async fn enrollment_requires_exact_protected_capability_before_transport() {
@@ -36,21 +35,6 @@ mod provider_credential_enrollment_tests {
             session(crate::PROTECTED_RUNTIME_CAPABILITIES),
         )
         .unwrap();
-
-        let legacy = PairProviderCredentialRequest::new(
-            CommandIdentity::new(CanonicalId::now_v7(), "legacy-closed").unwrap(),
-            ProviderCredentialProviderV1::parse("openai").unwrap(),
-            b"not-a-transport-payload".to_vec(),
-        )
-        .unwrap();
-        assert_eq!(
-            external
-                .pair_provider_credential(legacy)
-                .await
-                .unwrap_err()
-                .kind(),
-            RuntimeApiErrorKind::Unavailable,
-        );
 
         for client in [&external, &protected] {
             assert_eq!(

@@ -19,7 +19,7 @@ mod runtime;
 mod support;
 use mutation::{mutation_binding, take_mutation_binding};
 use read::{read_binding, take_read_binding};
-use support::{take, take_digest, take_epoch, take_vec};
+use support::{take, take_digest, take_epoch, take_zeroizing_vec};
 
 const HEADER: usize = 14;
 const MAGIC: [u8; 8] = *b"RNCRED01";
@@ -165,7 +165,7 @@ fn decode_request_for(
         3 | 7 => {
             let binding = take_mutation_binding(bytes, &mut at)?;
             let grant = CredentialMutationGrant::from_wire(take(bytes, &mut at)?)?;
-            let material = match take_vec(bytes, &mut at)? {
+            let material = match take_zeroizing_vec(bytes, &mut at)? {
                 value if value.is_empty() => None,
                 value => Some(CredentialMaterial::from_wire(value)?),
             };

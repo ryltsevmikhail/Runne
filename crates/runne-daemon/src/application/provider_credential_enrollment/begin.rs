@@ -106,8 +106,15 @@ where
             .find_by_command(context.command_id, &context.idempotency_key)
             .map_err(map_store)?
         {
-            drop(gate);
-            return self.replay(authority, context, command, operation, now_high_water);
+            return self.replay(
+                authority,
+                proof,
+                context,
+                command,
+                operation,
+                now_high_water,
+                gate,
+            );
         }
         let rendezvous = gate.preflight(authority, proof)?;
         let lifecycle = self
@@ -146,35 +153,53 @@ where
     fn replay(
         &self,
         authority: &ProviderCredentialBaseRequestAuthority,
+        proof: &ProviderCredentialIntentConsumptionProof,
         context: &ProviderCredentialCommandContext,
         command: &BeginProviderCredentialEnrollment,
         mut operation: runne_provider::CredentialOperationSnapshot,
         now_high_water: i64,
+        gate: PendingBrokerAdmissionGate<'_>,
     ) -> Result<ProviderCredentialOperationSnapshotV2, ProviderCredentialEnrollmentHostError> {
-        let owner = runne_provider::CredentialInstallationOwnerId::from_bytes(
-            *authority.installation_identity(),
-        )
-        .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
-        if operation.installation_owner_id() != owner
-            || operation.metadata().command_id() != context.command_id
-            || operation.metadata().idempotency_key() != &context.idempotency_key
-            || operation.lifecycle_revision().get() != command.expected_lifecycle_revision()
-            || operation.provider() != &provider(command.provider())?
-            || action(command.action())? != operation.action()
-            || operation.metadata().qualified_release_tuple_digest()
-                != Some(
-                    runne_provider::CredentialBindingDigest::from_measured(
-                        *authority.release_tuple_digest(),
-                    )
-                    .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?,
-                )
-        {
-            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        let replay_identity = (|| {
+            let owner = runne_provider::CredentialInstallationOwnerId::from_bytes(
+                *authority.installation_identity(),
+            )
+            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
+            let release = runne_provider::CredentialBindingDigest::from_measured(
+                *authority.release_tuple_digest(),
+            )
+            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
+            Ok(operation.installation_owner_id() == owner
+                && operation.metadata().command_id() == context.command_id
+                && operation.metadata().idempotency_key() == &context.idempotency_key
+                && operation.lifecycle_revision().get() == command.expected_lifecycle_revision()
+                && operation.provider() == &provider(command.provider())?
+                && action(command.action())? == operation.action()
+                && operation.metadata().qualified_release_tuple_digest() == Some(release))
+        })();
+        match replay_identity {
+            Ok(true) => {}
+            Ok(false) => {
+                gate.discard_unused(authority, proof)?;
+                return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+            }
+            Err(error) => {
+                gate.discard_unused(authority, proof)?;
+                return Err(error);
+            }
         }
-        if operation.state() == CredentialOperationState::Prepared
-            && !self
-                .rendezvous
-                .has_live(operation.operation_id(), now_high_water)
+        let lost_prepared_rendezvous = operation.state() == CredentialOperationState::Prepared
+            && !gate.has_process_authority(operation.operation_id())?;
+        if lost_prepared_rendezvous
+            && operation.action() == runne_provider::CredentialOperationAction::Revoke
+        {
+            gate.preflight(authority, proof)?
+                .commit_recovered_revoke(&operation)?;
+        } else {
+            gate.discard_unused(authority, proof)?;
+        }
+        if lost_prepared_rendezvous
+            && operation.action() != runne_provider::CredentialOperationAction::Revoke
         {
             let closure = ClosePreparedCredentialOperation::new(
                 operation.operation_id(),
