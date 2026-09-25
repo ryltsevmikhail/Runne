@@ -46,13 +46,22 @@ class VerifySecureReplayDesktopTests(unittest.TestCase):
         self,
         *arguments: str,
         fail_command: str | None = None,
+        trusted_node: pathlib.Path | None = None,
+        trusted_pnpm: pathlib.Path | None = None,
+        trusted_log: pathlib.Path | None = None,
+        path: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
         environment.pop("RUNNE_TRUSTED_NODE", None)
         environment.pop("RUNNE_TRUSTED_PNPM", None)
-        environment["PATH"] = f"{self.bin_directory}{os.pathsep}{environment['PATH']}"
+        environment["PATH"] = path or f"{self.bin_directory}{os.pathsep}{environment['PATH']}"
         environment["FAKE_COMMAND_LOG"] = str(self.command_log)
         environment["SECURE_REPLAY_TEST_SENTINEL"] = "must-not-be-printed"
+        if trusted_node is not None and trusted_pnpm is not None:
+            environment["RUNNE_TRUSTED_NODE"] = str(trusted_node)
+            environment["RUNNE_TRUSTED_PNPM"] = str(trusted_pnpm)
+        if trusted_log is not None:
+            environment["FAKE_TRUSTED_LOG"] = str(trusted_log)
         if fail_command is not None:
             environment["FAKE_FAIL_COMMAND"] = fail_command
         return subprocess.run(
@@ -113,10 +122,72 @@ class VerifySecureReplayDesktopTests(unittest.TestCase):
             self.commands(),
             [
                 "pnpm <--filter> <@runne/desktop> <test>",
-                "pnpm <typecheck>",
+                "pnpm <--filter> <@runne/desktop> <typecheck>",
+                "pnpm <--filter> <@runne/product> <typecheck>",
                 "pnpm <exec> <playwright> <test> <tests/desktop/e2e/replay-resume.spec.ts>",
                 "python3 <scripts/desktop/validate_architecture.py>",
             ],
+        )
+        self.assert_safe_output(result)
+
+    def test_frontend_typechecks_use_receipt_tools_with_restricted_path(self) -> None:
+        trusted_directory = self.root / "trusted"
+        trusted_directory.mkdir()
+        trusted_node = trusted_directory / "node"
+        trusted_node.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "pnpm_cli=$1\n"
+            "shift\n"
+            "{ printf 'node <%s>' \"$pnpm_cli\"; for argument in \"$@\"; do printf ' <%s>' \"$argument\"; done; printf '\\n'; } >> \"$FAKE_TRUSTED_LOG\"\n"
+            "exec \"$pnpm_cli\" \"$@\"\n",
+            encoding="utf-8",
+        )
+        trusted_node.chmod(0o755)
+        trusted_pnpm = trusted_directory / "pnpm"
+        shutil.copy2(self.bin_directory / "pnpm", trusted_pnpm)
+        trusted_pnpm.chmod(0o755)
+        restricted_directory = self.root / "restricted-bin"
+        restricted_directory.mkdir()
+        for command in ("bash", "dirname", "env"):
+            executable = shutil.which(command)
+            self.assertIsNotNone(executable, command)
+            (restricted_directory / command).symlink_to(executable)
+        system_python = shutil.which("python3")
+        self.assertIsNotNone(system_python)
+        restricted_python = restricted_directory / "python3"
+        restricted_python.write_text(
+            "#!/usr/bin/env bash\n"
+            "if [ \"${1:-}\" = \"scripts/desktop/validate_architecture.py\" ]; then exit 0; fi\n"
+            f"exec {system_python} \"$@\"\n",
+            encoding="utf-8",
+        )
+        restricted_python.chmod(0o755)
+        restricted_path = str(restricted_directory)
+        self.assertIsNone(shutil.which("node", path=restricted_path))
+        self.assertIsNone(shutil.which("pnpm", path=restricted_path))
+
+        environment_log = self.root / "trusted-invocations.log"
+        result = self.run_verifier(
+            "frontend",
+            trusted_node=trusted_node,
+            trusted_pnpm=trusted_pnpm,
+            trusted_log=environment_log,
+            path=restricted_path,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = self.commands()
+        self.assertIn("pnpm <--filter> <@runne/desktop> <typecheck>", commands)
+        self.assertIn("pnpm <--filter> <@runne/product> <typecheck>", commands)
+        trusted_invocations = environment_log.read_text(encoding="utf-8").splitlines()
+        self.assertIn(
+            f"node <{trusted_pnpm}> <--filter> <@runne/desktop> <typecheck>",
+            trusted_invocations,
+        )
+        self.assertIn(
+            f"node <{trusted_pnpm}> <--filter> <@runne/product> <typecheck>",
+            trusted_invocations,
         )
         self.assert_safe_output(result)
 
@@ -132,7 +203,8 @@ class VerifySecureReplayDesktopTests(unittest.TestCase):
                 "python3 <scripts/verify_secure_replay_evidence.py> <--manifest> <docs/evidence/secure-replay-desktop-resume-v2.json> <--base> <d4dbabff8272118d99e6388dfbbf6df48b22faae> <--head> <6030bdbe77a3cd5dbcaeaa3bfd2d7bc3a5b4d3ca> <--schema> <docs/schemas/secure-replay-evidence-v2.schema.json>",
                 "cargo <test> <-p> <runne-daemon> <--test> <desktop_replay_resume_e2e> <--locked>",
                 "pnpm <--filter> <@runne/desktop> <test>",
-                "pnpm <typecheck>",
+                "pnpm <--filter> <@runne/desktop> <typecheck>",
+                "pnpm <--filter> <@runne/product> <typecheck>",
                 "pnpm <exec> <playwright> <test> <tests/desktop/e2e/replay-resume.spec.ts>",
                 "python3 <scripts/desktop/validate_architecture.py>",
                 "git <diff> <--check>",
