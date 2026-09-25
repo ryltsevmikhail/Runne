@@ -149,6 +149,11 @@ name = "root_handle_admission_authority"
 path = "tests/root_handle_admission_authority.rs"
 required-features = ["test-support", "desktop-protected"]
 
+[[test]]
+name = "linux_v3_enrollment_lifecycle"
+path = "tests/linux_v3_enrollment_lifecycle.rs"
+required-features = ["test-support", "desktop-protected"]
+
 [lib]
 name = "runne_daemon"
 path = "src/lib.rs"

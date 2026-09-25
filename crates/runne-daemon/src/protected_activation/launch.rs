@@ -3,7 +3,7 @@ use super::first_activation::{
     expected_profile, preflight_existing, preflight_resume_first_activation,
     prepare_first_activation, validate_runtime_root, verify_pending_request,
 };
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 use super::installation_anchor::{self, VerifiedNativeEnrollmentInstallation};
 use super::request::DaemonLaunchRequest;
 use super::*;

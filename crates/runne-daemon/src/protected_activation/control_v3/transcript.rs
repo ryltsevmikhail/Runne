@@ -70,6 +70,15 @@ fn serve_v3_transcript(
                     .map_err(runtime::map_enrollment_error)?;
                 session.clear_http_facts();
             }
+            // Fence the root admission authority exactly like the V2 renewal
+            // path: no rotated successor authority may outrun an in-flight
+            // root handle handoff that predates the rotation.
+            #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+            if let Some(authority) = &root_admission {
+                authority
+                    .fence()
+                    .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?;
+            }
             let next_owned_launch = renewal::rotate(
                 channel,
                 keys,
@@ -116,6 +125,24 @@ fn write_shutdown_ack_after_revocation(
     acknowledgement: &ProtectedCredentialEnrollmentShutdownAckV3,
 ) -> Result<(), LaunchAuthorityError> {
     drop(runtime.revoke_shutdown_authorization());
+    channel.write_control_frame(
+        &acknowledgement
+            .encode_frame()
+            .map_err(|_| LaunchAuthorityError::InvalidContract)?,
+    )
+}
+
+#[cfg(all(
+    unix,
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    feature = "desktop-protected"
+))]
+fn write_shutdown_ack_after_revocation(
+    runtime: &mut V3EnrollmentRuntime,
+    channel: &mut ProtectedActivationChannel,
+    acknowledgement: &ProtectedCredentialEnrollmentShutdownAckV3,
+) -> Result<(), LaunchAuthorityError> {
+    runtime.revoke_shutdown_authorization();
     channel.write_control_frame(
         &acknowledgement
             .encode_frame()

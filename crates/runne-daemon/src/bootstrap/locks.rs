@@ -45,9 +45,7 @@ fn open_verify_no_follow(db_path: &Path) -> Result<fs::File, DaemonError> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        const O_NOFOLLOW: i32 = 0x0100;
-        const O_CLOEXEC: i32 = 0x1000000;
-        opts.custom_flags(O_NOFOLLOW | O_CLOEXEC);
+        opts.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
     }
 
     opts.open(db_path)

@@ -14,18 +14,7 @@ impl ProtectedBundledRuntimeProcess {
         #[cfg(any(unix, windows))]
         {
             if matches!(self.activation, ProtectedProcessActivation::V3 { .. }) {
-                #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-                return self.renew_v3_profile_with_clock(|| {
-                    crate::MacOsContinuousClock::now_millis().map_err(|_| {
-                        ProtectedBundledRuntimeError::LaunchAuthority(
-                            LaunchAuthorityError::RenewalUnavailable,
-                        )
-                    })
-                });
-                #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-                return Err(ProtectedBundledRuntimeError::LaunchAuthority(
-                    LaunchAuthorityError::RenewalUnavailable,
-                ));
+                return self.renew_v3_for_platform();
             }
             if self.graceful_requested {
                 return Err(ProtectedBundledRuntimeError::InvalidState);
@@ -108,9 +97,42 @@ impl ProtectedBundledRuntimeProcess {
             Ok(profile)
         }
     }
+
+    /// Samples the shared ticket clock for the V3 renewal: macOS continuous
+    /// time here, unix wall-clock milliseconds elsewhere (matching the
+    /// daemon's `unix_wall_ticket_clock`).
+    fn renew_v3_for_platform(
+        &mut self,
+    ) -> Result<ProtectedBundledRuntimeProfile, ProtectedBundledRuntimeError> {
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        return self.renew_v3_profile_with_clock(|| {
+            crate::MacOsContinuousClock::now_millis().map_err(|_| {
+                ProtectedBundledRuntimeError::LaunchAuthority(
+                    LaunchAuthorityError::RenewalUnavailable,
+                )
+            })
+        });
+        #[cfg(all(
+            unix,
+            not(all(target_os = "macos", target_arch = "aarch64"))
+        ))]
+        return self.renew_v3_profile_with_clock(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .and_then(|value| u64::try_from(value.as_millis()).ok())
+                .ok_or(ProtectedBundledRuntimeError::LaunchAuthority(
+                    LaunchAuthorityError::RenewalUnavailable,
+                ))
+        });
+        #[cfg(not(unix))]
+        return Err(ProtectedBundledRuntimeError::LaunchAuthority(
+            LaunchAuthorityError::RenewalUnavailable,
+        ));
+    }
 }
 
-#[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(any(test, unix))]
 include!("renewal_v3.rs");
 
 #[cfg(all(test, unix))]

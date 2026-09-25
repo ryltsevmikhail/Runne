@@ -137,7 +137,7 @@ where
         .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?;
     // Read completion precedes the shared boot-domain time sample. A suspended
     // desktop cannot reuse a ticket whose continuous-time window has elapsed.
-    let now_macos_continuous_millis = clock()?;
+    let now_ticket_millis = clock()?;
     let last_sequence = sequence
         .checked_sub(1)
         .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
@@ -147,7 +147,7 @@ where
         owned,
         &renewal,
         &ticket,
-        now_macos_continuous_millis,
+        now_ticket_millis,
         last_sequence,
         keys,
     )?;

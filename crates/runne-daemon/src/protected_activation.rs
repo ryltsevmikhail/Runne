@@ -132,6 +132,10 @@ impl ProtectedRootControl {
         Arc::new(Self(authority))
     }
 
+    pub(crate) fn rotate_enrollment_keys(&self, keys: &ProtectedActivationKeys) {
+        self.0.rotate_enrollment_keys(keys);
+    }
+
     pub(crate) fn admit_verified_offer(
         &self,
         offer: &runne_api::RootHandleTransferOffer,
@@ -154,7 +158,7 @@ impl ProtectedRootControl {
 }
 
 #[cfg(feature = "desktop-protected")]
-#[cfg(any(all(test, unix), all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod broker_handoff;
 #[cfg(any(unix, windows))]
 mod channel;

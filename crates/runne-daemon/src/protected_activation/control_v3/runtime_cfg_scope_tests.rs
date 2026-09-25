@@ -33,12 +33,14 @@ fn qualification_test_support_matches_native_platform_scope() {
         assert_eq!(preceding_cfg(initial_exchange, consumer), NATIVE_TEST_GATE);
     }
 
-    let runtime = include_str!("runtime.rs");
+    // The V3 dispatch struct (with its test-support fields) lives in its own
+    // included file since the 300-line source split.
+    let dispatch = include_str!("runtime/dispatch.rs");
     for consumer in [
         "qualification_verifier:",
         "pub(crate) fn with_test_qualification(",
     ] {
-        assert_eq!(preceding_cfg(runtime, consumer), NATIVE_TEST_GATE);
+        assert_eq!(preceding_cfg(dispatch, consumer), NATIVE_TEST_GATE);
     }
 
     let control_v3 = include_str!("../control_v3.rs");
@@ -48,8 +50,13 @@ fn qualification_test_support_matches_native_platform_scope() {
     );
 }
 
+const NATIVE_MACOS_GATE: &str = "#[cfg(all(target_os = \"macos\", target_arch = \"aarch64\"))]";
+
 #[test]
 fn v3_enrollment_roots_match_native_or_test_scope() {
+    // The Linux local enrollment does not mount the broker handoff or the
+    // credential-enrollment session: those stay native-macOS scope, and the
+    // unix-test widening has no remaining consumers on this tree.
     let protected_activation = include_str!("../../protected_activation.rs");
     for (consumer, gate) in [
         ("mod broker_handoff;", NATIVE_OR_UNIX_TEST_GATE),

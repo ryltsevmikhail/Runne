@@ -55,7 +55,7 @@ impl RootAdmissionGateway {
 #[derive(Clone)]
 pub(crate) struct RootHandleAdmissionAuthority {
     state: Arc<Mutex<State>>,
-    authenticator: Arc<RootAdmissionAuthenticator>,
+    authenticator: Arc<std::sync::RwLock<Arc<RootAdmissionAuthenticator>>>,
     sessions: Arc<Mutex<LocalSessionService>>,
     store: ProjectWorkspaceStore,
     runtime_authority: Arc<str>,
@@ -85,7 +85,9 @@ impl RootHandleAdmissionAuthority {
                 pending: HashMap::new(),
                 active: HashMap::new(),
             })),
-            authenticator: Arc::new(RootAdmissionAuthenticator::from_protected_activation(keys)),
+            authenticator: Arc::new(std::sync::RwLock::new(Arc::new(
+                RootAdmissionAuthenticator::from_protected_activation(keys),
+            ))),
             sessions,
             store,
             runtime_authority: Arc::from(runtime_authority),
@@ -93,6 +95,16 @@ impl RootHandleAdmissionAuthority {
         })
     }
     /// Retains the verified descriptor and issues a claim only for a current owned Workspace.
+    /// Rotates the admission authenticator to the exact successor session
+    /// keys during the enrollment transition. The admission fence guarantees
+    /// no admission is in flight across the swap; admission issued before the
+    /// rotation stays verifiable only through the pre-rotation claims path.
+    pub(crate) fn rotate_enrollment_keys(&self, keys: &ProtectedActivationKeys) {
+        if let Ok(mut guard) = self.authenticator.write() {
+            *guard = Arc::new(RootAdmissionAuthenticator::from_protected_activation(keys));
+        }
+    }
+
     pub(crate) fn admit(
         &self,
         offer: &RootHandleTransferOffer,
@@ -141,6 +153,8 @@ impl RootHandleAdmissionAuthority {
         .map_err(|_| RootAdmissionVerifierError::Rejected)?;
         let admission = self
             .authenticator
+            .read()
+            .map_err(|_| RootAdmissionVerifierError::Unavailable)?
             .issue(request)
             .map_err(|_| RootAdmissionVerifierError::Rejected)?;
         let mut state = self
@@ -253,6 +267,8 @@ impl RootAdmissionVerifier for RootAdmissionGateway {
         };
         let claims = authority
             .authenticator
+            .read()
+            .map_err(|_| RootAdmissionVerifierError::Unavailable)?
             .verify(admission)
             .map_err(|_| RootAdmissionVerifierError::Rejected)?;
         // Verdicts are recomputed per command; they are never cached or memoized.

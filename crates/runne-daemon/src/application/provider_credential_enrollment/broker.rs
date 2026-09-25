@@ -54,7 +54,8 @@ pub(crate) mod writer_session_test_support;
 
 #[cfg(all(
     feature = "desktop-protected",
-    any(all(test, unix), all(target_os = "macos", target_arch = "aarch64"))
+    target_os = "macos",
+    target_arch = "aarch64"
 ))]
 pub(crate) use pending::{AwaitingVerifiedWriter, PendingBrokerEndpointHandoff};
 #[cfg(all(
@@ -66,7 +67,8 @@ pub(crate) use pending::{AwaitingVerifiedWriter, PendingBrokerEndpointHandoff};
 pub(crate) use pending_writer::VerifiedMacOsWriterWithDaemonKillCapability;
 #[cfg(all(
     feature = "desktop-protected",
-    any(all(test, unix), all(target_os = "macos", target_arch = "aarch64"))
+    target_os = "macos",
+    target_arch = "aarch64"
 ))]
 pub(crate) use pending_writer::VerifiedWriterAwaitingDaemonKillCapability;
 

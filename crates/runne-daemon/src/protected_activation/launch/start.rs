@@ -91,8 +91,15 @@ impl VerifiedProtectedApplicationStart {
     pub(crate) const fn launch_authority_id(&self) -> [u8; 16] {
         self.launch_authority_id
     }
-    #[cfg(target_os = "macos")]
-    #[cfg_attr(not(test), expect(dead_code, reason = "sealed composition"))]
+    #[cfg(unix)]
+    #[cfg_attr(
+        all(not(test), target_os = "macos", target_arch = "aarch64"),
+        expect(dead_code, reason = "sealed composition")
+    )]
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     pub(crate) const fn installation(&self) -> Option<&VerifiedNativeEnrollmentInstallation> {
         self.installation.as_ref()
     }
