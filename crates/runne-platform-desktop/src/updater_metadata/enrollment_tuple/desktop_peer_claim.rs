@@ -152,15 +152,19 @@ impl ConfirmedInstalledNativeEnrollment {
         if before == [0; 32] || before != after {
             return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
         }
-        Ok(desktop_peer_digest(
+        let binding = crate::linux_enrollment_peer_binding(
             self.evidence.release_tuple,
-            self.admission.desktop_sha256,
-            after,
-            rustix::process::geteuid().as_raw(),
             self.evidence.launch_authority,
             self.evidence.desktop_host,
             supervisor_generation.get(),
-        ))
+        )
+        .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        let final_process_start = crate::provider_credential_broker::observe_current_process_start()
+            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        if final_process_start != after {
+            return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
+        }
+        Ok(binding)
     }
 }
 
