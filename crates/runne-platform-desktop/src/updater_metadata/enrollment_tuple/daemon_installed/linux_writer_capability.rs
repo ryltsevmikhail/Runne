@@ -8,8 +8,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use runne_platform_ports::provider_credential_broker::VerifiedWriterLaunchSpec;
-
 use super::super::{
     NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleAdmission,
     enrollment_paths::LinuxAuthenticatedDesktopPeer,
@@ -18,6 +16,8 @@ use super::compiled_policy;
 #[path = "linux_writer_capability/linux_admission.rs"]
 mod linux_admission;
 use linux_admission::{refresh_linux_admission, verified_linux_admission};
+#[path = "linux_writer_capability/staged_writer.rs"]
+mod staged_writer;
 
 #[inline]
 fn linux_stage(stage: &'static str) {
@@ -143,25 +143,6 @@ impl VerifiedInstalledLinuxWriterCapability {
                 .paths
                 .confirm_authenticated_peer(&self.peer, stream)
                 .is_ok()
-    }
-
-    /// Revalidates immediately before producing the writer launch spec.
-    #[must_use]
-    pub fn writer_launch_spec(&self, stream: &UnixStream) -> Option<VerifiedWriterLaunchSpec> {
-        linux_stage("capability_artifact");
-        self.revalidate_for_authenticated_desktop_peer(stream)
-            .then_some(())?;
-        let artifact = self
-            .paths
-            .verified_linux_writer_artifact(&self.admission)
-            .ok()?;
-        self.paths
-            .confirm_authenticated_peer(&self.peer, stream)
-            .ok()?;
-        if !self.revalidate_for_authenticated_desktop_peer(stream) {
-            return None;
-        }
-        Some(VerifiedWriterLaunchSpec::new(artifact))
     }
 
     /// Returns fresh signed tuple measurements for the active V3 peer exchange.
