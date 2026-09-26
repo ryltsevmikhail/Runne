@@ -11,6 +11,7 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
 #[derive(Clone, Copy)]
 pub(super) struct LinuxExecutionNode {
     authority_id: [u8; 16],
+    local_session_authority_id: [u8; 16],
     daemon_instance_id: [u8; 16],
     launch_generation: u64,
     registered: bool,
@@ -19,11 +20,13 @@ pub(super) struct LinuxExecutionNode {
 impl LinuxExecutionNode {
     pub(super) const fn new(
         authority_id: [u8; 16],
+        local_session_authority_id: [u8; 16],
         daemon_instance_id: [u8; 16],
         launch_generation: u64,
     ) -> Self {
         Self {
             authority_id,
+            local_session_authority_id,
             daemon_instance_id,
             launch_generation,
             registered: false,
@@ -82,7 +85,7 @@ impl LinuxExecutionNode {
         })?;
         let binding = sessions.current_binding();
         let generation = binding.ephemeral().launch_generation();
-        if binding.stable().authority_id() != &self.authority_id
+        if binding.stable().authority_id() != &self.local_session_authority_id
             || binding.ephemeral().daemon_instance_id().into_bytes() != self.daemon_instance_id
             || generation < self.launch_generation
         {

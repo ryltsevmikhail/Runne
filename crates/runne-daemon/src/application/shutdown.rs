@@ -33,6 +33,7 @@ impl DaemonApplication {
         #[cfg(target_os = "linux")]
         let mut execution_node = super::execution_node_lifecycle::LinuxExecutionNode::new(
             bootstrap.authority_id,
+            bootstrap.local_session_authority_id,
             binding.ephemeral().daemon_instance_id().into_bytes(),
             bootstrap.launch_generation,
         );
