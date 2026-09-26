@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::fixture::DurableFixture;
 use runne_provider::{CredentialDispatchCapability, CredentialVersionRef};
 use runne_secure_store::{

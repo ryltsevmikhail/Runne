@@ -11,6 +11,8 @@ const ALLOWED_WRITER_FIXTURES: &[&str] = &[
     "canonical_provider/credential_versions/tests/provisioning.rs",
     "canonical_provider/credential_versions/tests/provisioning/source_revision.rs",
     "canonical_provider/credential_versions/tests/startup.rs",
+    "application/provider_credential_enrollment/broker/pending_writer/linux_broker_cycle_revocation/fixture.rs",
+    "application/provider_credential_enrollment/broker/pending_writer/linux_broker_cycle_revocation/native.rs",
     "protected_activation/loopback_fixture/credential_versions.rs",
     "source_boundary_tests.rs",
     "source_boundary_tests/source_tree.rs",

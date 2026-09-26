@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::*;
 use crate::application::provider_credential_enrollment::broker::ProviderCredentialBroker;
 use runne_domain::id::{CommandId, IdempotencyKey};

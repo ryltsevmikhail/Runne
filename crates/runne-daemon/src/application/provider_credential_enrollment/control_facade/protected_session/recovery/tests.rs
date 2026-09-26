@@ -108,6 +108,12 @@ fn session_recovery_terminal_uses_accepted_offer_binding() {
 #[test]
 fn session_recovery_retains_durable_witness_and_one_endpoint_without_begin() {
     with_session(0, |mut session, mut desktop, control, operation, now| {
+        // A fresh Linux session has no operation to prove terminal, so it is
+        // eligible for idle renewal. Once recovery starts, the prepared
+        // operation must still fail the durable-terminal check below.
+        #[cfg(target_os = "linux")]
+        assert!(session.require_durable_terminal().is_ok());
+        #[cfg(not(target_os = "linux"))]
         assert!(session.require_durable_terminal().is_err());
         let request = desktop
             .encode_desktop_request(operation.as_bytes())
