@@ -14,7 +14,10 @@ use super::super::{
     NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleAdmission,
     enrollment_paths::LinuxAuthenticatedDesktopPeer,
 };
-use super::{compiled_policy, refresh_retained_admission_at, verified_admission};
+use super::compiled_policy;
+#[path = "linux_writer_capability/linux_admission.rs"]
+mod linux_admission;
+use linux_admission::{refresh_linux_admission, verified_linux_admission};
 
 #[inline]
 fn linux_stage(stage: &'static str) {
@@ -59,7 +62,13 @@ impl VerifiedInstalledLinuxWriterCapability {
         linux_stage("capability_trust");
         let trust = crate::CompiledUpdateTrustRootV2::load()?.into_trust_root();
         linux_stage("capability_admission");
-        let admission = verified_admission(profile_directory, &paths, &trust, &policy)?;
+        let admission = verified_linux_admission(
+            profile_directory,
+            canonical_runtime_root,
+            &paths,
+            &trust,
+            &policy,
+        )?;
         linux_stage("capability_identity");
         let identity = paths
             .confirm_current_daemon(admission.daemon_sha256, canonical_runtime_root)
@@ -68,8 +77,9 @@ impl VerifiedInstalledLinuxWriterCapability {
             return None;
         }
         linux_stage("capability_refresh");
-        let fresh = refresh_retained_admission_at(
+        let fresh = refresh_linux_admission(
             profile_directory,
+            canonical_runtime_root,
             &paths,
             &trust,
             &policy,
@@ -112,8 +122,9 @@ impl VerifiedInstalledLinuxWriterCapability {
             return false;
         };
         linux_stage("capability_revalidate_admission");
-        let Some(fresh) = refresh_retained_admission_at(
+        let Some(fresh) = refresh_linux_admission(
             &self.profile_directory,
+            &self.runtime_root,
             &self.paths,
             &trust,
             &policy,
