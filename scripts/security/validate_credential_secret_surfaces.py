@@ -11,6 +11,7 @@ from pathlib import Path
 
 from credential_secret_dispatch_rules import validate_provider_dispatch
 from credential_secret_contract_rules import validate_published_credential_contracts
+from credential_secret_linux_rules import validate_linux_lifetime
 
 
 @dataclass(frozen=True)
@@ -247,6 +248,7 @@ class Validator:
         self.validate_task3()
         self.validate_task4()
         validate_provider_dispatch(self, brace_body)
+        validate_linux_lifetime(self, brace_body)
         return self.findings
 
 

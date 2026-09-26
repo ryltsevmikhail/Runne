@@ -40,10 +40,11 @@ GUARDED_PATHS = (
     "crates/runne-secure-store/src/provider_credential/material.rs",
     "crates/runne-daemon/src/protected_activation/credential_service_gateway.rs",
     "crates/runne-daemon/src/protected_activation/credential_service_gateway/materializer.rs",
-    "crates/runne-daemon-openai-effect/src/client.rs",
-    "crates/runne-daemon-openai-effect/src/bounds.rs",
+    "crates/runne-daemon-openai-effect/src/client.rs", "crates/runne-daemon-openai-effect/src/bounds.rs",
     "crates/runne-daemon-deepseek-effect/src/client.rs",
     "crates/runne-daemon-deepseek-effect/src/bounds.rs",
+    "crates/runne-platform-desktop/src/provider_credential_prompt/linux_gui.rs", "crates/runne-platform-desktop/src/provider_credential_prompt/linux_gui_response.rs", "crates/runne-secure-store/src/keyring/linux_secret_service/cache.rs",
+    "crates/runne-secure-store/src/keyring/linux_secret_service/dh_session.rs", "crates/runne-secure-store/src/provider_credential/codec_layout.rs", "scripts/security/credential_secret_linux_rules.py",
 )
 
 

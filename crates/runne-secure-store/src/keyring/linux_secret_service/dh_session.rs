@@ -25,6 +25,8 @@ use rand::{RngCore, rngs::OsRng};
 use sha2::Sha256;
 use zeroize::{Zeroize, Zeroizing};
 
+use crate::provider_credential::MAX_ENCODED_PROVIDER_CREDENTIAL_BYTES;
+
 use super::port::SsBusError;
 
 /// Secret Service algorithm identifier (identical to the dependency).
@@ -32,6 +34,9 @@ pub const ALGORITHM_DH: &str = "dh-ietf1024-sha256-aes128-cbc-pkcs7";
 
 type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
 type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
+const AES_BLOCK_BYTES: usize = 16;
+const MAX_CIPHERTEXT_BYTES: usize =
+    (MAX_ENCODED_PROVIDER_CREDENTIAL_BYTES / AES_BLOCK_BYTES + 1) * AES_BLOCK_BYTES;
 
 const DH_PRIME: &[u8; 128] = &[
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xC9, 0x0F, 0xDA, 0xA2, 0x21, 0x68, 0xC2, 0x34,
@@ -46,11 +51,11 @@ const DH_PRIME: &[u8; 128] = &[
 
 /// One negotiated encrypted Secret Service session.
 ///
-/// The shared key is zeroized on drop; the DH private scalar lives only in a
-/// `Zeroizing` local during negotiation. Limitation for reviewers: the
-/// intermediate DH shared secret is a `num::BigUint` inside `pow_mod` and
-/// cannot be zeroized (no Drop hook in the dependency algorithm either); it
-/// is derived from the private scalar only in memory and dropped immediately.
+/// The shared key is zeroized on drop. Repository-owned scalar and HKDF byte
+/// buffers use `Zeroizing`; `pow_mod` also creates dependency-owned `BigUint`
+/// copies of the private exponent and shared secret. The `num` types expose no
+/// wipe hook, so their allocations are outside this code's zeroization control.
+/// The HKDF implementation's internal state is likewise not exposed for wipe.
 pub struct DhSession {
     pub session_path: String,
     shared_key: Zeroizing<[u8; 16]>,
@@ -70,7 +75,7 @@ impl DhSession {
     pub fn negotiate(
         open_session: impl FnOnce(&str, Vec<u8>) -> Result<(Vec<u8>, String), SsBusError>,
     ) -> Result<Self, SsBusError> {
-        let private = Zeroizing::new(generate_private_key());
+        let private = generate_private_key();
         let modulus = BigUint::from_bytes_be(DH_PRIME);
         let generator = BigUint::from_u64(2).ok_or(SsBusError::Transport)?;
         let public = pow_mod(&generator, &*private, &modulus);
@@ -84,7 +89,7 @@ impl DhSession {
         if !is_valid_session_path(&session_path) {
             return Err(SsBusError::Transport);
         }
-        let shared_key = Zeroizing::new(derive_shared_key(&private, &server_public)?);
+        let shared_key = derive_shared_key_zeroizing(&private, &server_public)?;
         Ok(Self {
             session_path,
             shared_key,
@@ -113,9 +118,9 @@ impl DhSession {
     }
 }
 
-fn generate_private_key() -> [u8; 128] {
-    let mut private = [0_u8; 128];
-    OsRng.fill_bytes(&mut private);
+fn generate_private_key() -> Zeroizing<[u8; 128]> {
+    let mut private = Zeroizing::new([0_u8; 128]);
+    OsRng.fill_bytes(&mut *private);
     private
 }
 
@@ -128,7 +133,10 @@ pub fn public_key(private: &[u8; 128]) -> Vec<u8> {
 }
 
 /// Symmetric shared-key derivation (used by both session sides).
-pub fn derive_shared_key(private: &[u8; 128], peer_public: &[u8]) -> Result<[u8; 16], SsBusError> {
+fn derive_shared_key_zeroizing(
+    private: &[u8; 128],
+    peer_public: &[u8],
+) -> Result<Zeroizing<[u8; 16]>, SsBusError> {
     if peer_public.is_empty() || peer_public.len() > DH_PRIME.len() {
         return Err(SsBusError::Transport);
     }
@@ -139,13 +147,20 @@ pub fn derive_shared_key(private: &[u8; 128], peer_public: &[u8]) -> Result<[u8;
         return Err(SsBusError::Transport);
     }
     let shared = pow_mod(&peer, private, &modulus);
-    let shared_bytes = shared.to_bytes_be();
-    let mut ikm = vec![0_u8; DH_PRIME.len() - shared_bytes.len()];
-    ikm.extend_from_slice(&shared_bytes);
-    let mut okm = [0_u8; 16];
-    let (_, hk) = hkdf::Hkdf::<Sha256>::extract(None, &ikm);
-    hk.expand(&[], &mut okm).expect("16-byte okm is valid");
+    let shared_bytes = Zeroizing::new(shared.to_bytes_be());
+    let mut ikm = Zeroizing::new([0_u8; DH_PRIME.len()]);
+    let shared_offset = ikm.len() - shared_bytes.len();
+    ikm[shared_offset..].copy_from_slice(&shared_bytes);
+    let mut okm = Zeroizing::new([0_u8; 16]);
+    let (mut prk, hk) = hkdf::Hkdf::<Sha256>::extract(None, &ikm[..]);
+    hk.expand(&[], &mut *okm).expect("16-byte okm is valid");
+    prk.zeroize();
     Ok(okm)
+}
+
+#[cfg(test)]
+pub fn derive_shared_key(private: &[u8; 128], peer_public: &[u8]) -> Result<[u8; 16], SsBusError> {
+    derive_shared_key_zeroizing(private, peer_public).map(|key| *key)
 }
 
 #[cfg(test)]
@@ -158,7 +173,14 @@ pub fn random_iv() -> [u8; 16] {
 pub fn encrypt_with_iv(data: &[u8], key: &[u8; 16], iv: &[u8; 16]) -> Vec<u8> {
     let key = GenericArray::from_slice(key);
     let iv = GenericArray::from_slice(iv);
-    Aes128CbcEnc::new(key, iv).encrypt_padded_vec_mut::<Pkcs7>(data)
+    let capacity = data.len().saturating_add(AES_BLOCK_BYTES);
+    let mut output = Zeroizing::new(vec![0; capacity]);
+    let ciphertext_len = Aes128CbcEnc::new(key, iv)
+        .encrypt_padded_b2b_mut::<Pkcs7>(data, &mut output)
+        .expect("output reserves one full PKCS#7 block")
+        .len();
+    output.truncate(ciphertext_len);
+    std::mem::take(&mut *output)
 }
 
 pub fn decrypt_with_iv(
@@ -166,15 +188,42 @@ pub fn decrypt_with_iv(
     key: &[u8; 16],
     iv: &[u8],
 ) -> Result<Zeroizing<Vec<u8>>, SsBusError> {
-    if iv.len() != 16 || data.is_empty() || !data.len().is_multiple_of(16) {
+    if iv.len() != AES_BLOCK_BYTES
+        || data.is_empty()
+        || !data.len().is_multiple_of(AES_BLOCK_BYTES)
+        || data.len() > MAX_CIPHERTEXT_BYTES
+    {
+        return Err(SsBusError::Transport);
+    }
+    let mut plaintext = Zeroizing::new(data.to_vec());
+    let plaintext_len = decrypt_padded_in_place(&mut plaintext, key, iv)?;
+    plaintext.truncate(plaintext_len);
+    Ok(plaintext)
+}
+
+fn decrypt_padded_in_place(
+    buffer: &mut Zeroizing<Vec<u8>>,
+    key: &[u8; 16],
+    iv: &[u8],
+) -> Result<usize, SsBusError> {
+    if iv.len() != AES_BLOCK_BYTES
+        || buffer.is_empty()
+        || !buffer.len().is_multiple_of(AES_BLOCK_BYTES)
+    {
+        buffer.zeroize();
         return Err(SsBusError::Transport);
     }
     let key = GenericArray::from_slice(key);
     let iv = GenericArray::from_slice(iv);
-    Aes128CbcDec::new(key, iv)
-        .decrypt_padded_vec_mut::<Pkcs7>(data)
-        .map(Zeroizing::new)
-        .map_err(|_| SsBusError::Transport)
+    let plaintext_len =
+        if let Ok(plaintext) = Aes128CbcDec::new(key, iv).decrypt_padded_mut::<Pkcs7>(buffer) {
+            plaintext.len()
+        } else {
+            buffer.zeroize();
+            return Err(SsBusError::Transport);
+        };
+    buffer[plaintext_len..].zeroize();
+    Ok(plaintext_len)
 }
 
 fn is_valid_session_path(path: &str) -> bool {
@@ -205,87 +254,5 @@ impl Drop for DhSession {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn known_answer_dh_hkdf_derivation() {
-        let private: [u8; 128] =
-            core::array::from_fn(|i| u8::try_from(i).expect("index below 128 fits u8"));
-        let server_public = hex::decode(
-            "7b1d7d3188d79522e49e1ef8a54a32403fa559965ff46561a8d12fc1f79273e70b2c\
-             6ea601992ec15910b87dffa610904bdbc2bdd35b13c95a0d7cb40a0d62720f4a9042\
-             59982b507d9981f4eedb7371db1336d26e29d58e2d2da00d7928a64cadc4eb683c0\
-             4df21ac4f5f71174805326a640a789679de2fc1b3ed28d2c9ba71",
-        )
-        .unwrap();
-        let key = derive_shared_key(&private, &server_public).unwrap();
-        assert_eq!(
-            hex::encode(key),
-            "17ea7a2ea428d753538424667065cea2",
-            "reference vector computed independently from the dependency algorithm"
-        );
-    }
-
-    #[test]
-    fn client_public_key_reference() {
-        let private: [u8; 128] =
-            core::array::from_fn(|i| u8::try_from(i).expect("index below 128 fits u8"));
-        let modulus = BigUint::from_bytes_be(DH_PRIME);
-        let generator = BigUint::from_u64(2).unwrap();
-        let public = pow_mod(&generator, &private, &modulus);
-        assert_eq!(
-            hex::encode(public.to_bytes_be()),
-            "a0c1f547ad5dff7b427d7c09796298448f5ef3b2c5000a3222651ecb2f53d2002461\
-             9ed31e2d7577628962de190272633d927b9c06a554df61c68bf73c66c181ba1353d7\
-             ea6bd55f9fade8394a30477b2e4033e74ec192a33d3b5801caa50430fb874a8bb1c6\
-             f2fd121a446c364207a0d6cb18e4dc0c3729879976f261c8396c"
-        );
-    }
-
-    #[test]
-    fn aes_cbc_nist_sp800_38a_known_answer() {
-        let key: [u8; 16] = hex::decode("2b7e151628aed2a6abf7158809cf4f3c")
-            .unwrap()
-            .try_into()
-            .unwrap();
-        let iv: [u8; 16] = hex::decode("000102030405060708090a0b0c0d0e0f")
-            .unwrap()
-            .try_into()
-            .unwrap();
-        let plaintext = hex::decode("6bc1bee22e409f96e93d7e117393172a").unwrap();
-        let ciphertext = encrypt_with_iv(&plaintext, &key, &iv);
-        assert_eq!(
-            hex::encode(&ciphertext[..16]),
-            "7649abac8119b246cee98e9b12e9197d",
-            "NIST SP 800-38A F.2.1 first ciphertext block"
-        );
-        let decrypted = decrypt_with_iv(&ciphertext, &key, &iv).unwrap();
-        assert_eq!(&*decrypted, &plaintext);
-    }
-
-    #[test]
-    fn negotiate_roundtrip_encrypt_decrypt() {
-        // Fake OpenSession: derive the "server" public key from a fixed private.
-        let server_private: [u8; 128] = core::array::from_fn(|i: usize| {
-            u8::try_from((i * 7 + 3) & 0xff).expect("masked to u8")
-        });
-        let modulus = BigUint::from_bytes_be(DH_PRIME);
-        let generator = BigUint::from_u64(2).unwrap();
-        let server_public = pow_mod(&generator, &server_private, &modulus).to_bytes_be();
-        let session = DhSession::negotiate(|_algorithm, _public| {
-            Ok((
-                server_public,
-                "/org/freedesktop/secrets/session/f1".to_owned(),
-            ))
-        })
-        .unwrap();
-        let wire = session.encrypt(b"runne secret", "text/plain");
-        let clear = session.decrypt(&wire).unwrap();
-        assert_eq!(&*clear, b"runne secret");
-        // Wrong session path is rejected.
-        let mut foreign = session.encrypt(b"x", "text/plain");
-        foreign.session_path = "/other".to_owned();
-        assert!(session.decrypt(&foreign).is_err());
-    }
-}
+#[path = "tests/dh_session.rs"]
+mod tests;

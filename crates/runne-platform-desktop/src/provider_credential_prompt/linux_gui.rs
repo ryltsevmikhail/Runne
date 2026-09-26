@@ -10,20 +10,22 @@
 //! Secret material stays inside `Zeroizing` Rust types on this side of the
 //! boundary; the renderer never observes it.
 
-use std::io::{Read, Write};
+use std::io::Write;
+use std::os::fd::AsFd as _;
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc;
+use std::thread;
 use std::time::{Duration, Instant};
-use std::{io, thread};
 
+use super::pinentry_protocol::decode_pinentry_response;
 use runne_platform_ports::provider_credential_prompt::{
     CredentialPromptAction, MAX_NATIVE_OAUTH_CREDENTIAL_BYTES, SecureCredentialPromptDisposition,
     SecureCredentialPromptError, SecureCredentialPromptPort, SecureCredentialPromptRequest,
 };
-use zeroize::Zeroizing;
-
-use super::pinentry_protocol::decode_pinentry_response;
+#[path = "linux_gui_response.rs"]
+mod linux_gui_response;
+use self::linux_gui_response::{read_bounded_response, wait_readable};
 
 /// Non-secret GUI connectivity variables copied by name into the child.
 pub const GUI_ENV_ALLOWLIST: [&str; 7] = [
@@ -120,39 +122,38 @@ impl LinuxGuiHostCredentialPrompt {
             return Err(kill_and_reap(&mut child));
         }
         drop(child.stdin.take());
-        let mut stdout = child
+        let stdout = child
             .stdout
             .take()
             .ok_or(SecureCredentialPromptError::Unavailable)?;
+        let Ok(poll_fd) = stdout.as_fd().try_clone_to_owned() else {
+            return Err(kill_and_reap(&mut child));
+        };
         let (sender, receiver) = mpsc::channel();
-        thread::spawn(move || {
-            let mut response = Zeroizing::new(Vec::new());
-            let mut chunk = [0_u8; 4096];
-            let outcome = loop {
-                match stdout.read(&mut chunk) {
-                    Ok(0) => break Ok(()),
-                    Ok(read) => {
-                        response.extend_from_slice(&chunk[..read]);
-                        if response.len() > MAX_RESPONSE_BYTES {
-                            break Err(SecureCredentialPromptError::Rejected);
-                        }
-                    }
-                    Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-                    Err(_) => break Err(SecureCredentialPromptError::Unavailable),
-                }
-            };
+        let reader_thread = thread::spawn(move || {
+            let (outcome, response) =
+                read_bounded_response(stdout, MAX_RESPONSE_BYTES, deadline, |deadline| {
+                    wait_readable(poll_fd.as_fd(), deadline)
+                });
             let _ = sender.send((outcome, response));
         });
         let remaining = deadline.saturating_duration_since(Instant::now());
-        let Ok((outcome, response)) = receiver.recv_timeout(remaining) else {
-            return Err(kill_and_reap(&mut child));
+        let (outcome, response) = if let Ok(response) = receiver.recv_timeout(remaining) {
+            if reader_thread.join().is_err() {
+                return Err(kill_and_reap(&mut child));
+            }
+            response
+        } else {
+            let error = kill_and_reap(&mut child);
+            let _ = reader_thread.join();
+            return Err(error);
         };
         if outcome.is_err() {
             return Err(kill_and_reap(&mut child));
         }
         let status = wait_for_exit_until(&mut child, deadline)?;
         let disposition =
-            decode_pinentry_response(request.provider(), request.action(), &response)?;
+            decode_pinentry_response(request.provider(), request.action(), response.as_slice())?;
         if status.success() || matches!(disposition, SecureCredentialPromptDisposition::Cancelled) {
             Ok(disposition)
         } else {

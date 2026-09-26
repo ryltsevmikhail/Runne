@@ -103,8 +103,8 @@ impl KeyutilsCache for KernelKeyutilsCache {
                 .link_key(key)
                 .map_err(|_| CacheError::Unavailable)?;
         }
-        let buffer = key.read_to_vec().map_err(|_| CacheError::Unavailable)?;
-        Ok(Some(Zeroizing::new(buffer)))
+        let buffer = Zeroizing::new(key.read_to_vec().map_err(|_| CacheError::Unavailable)?);
+        Ok(Some(buffer))
     }
 
     fn delete(&mut self, description: &str) -> Result<CacheDeletionOutcome, CacheError> {
