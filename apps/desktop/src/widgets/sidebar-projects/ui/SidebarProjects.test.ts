@@ -37,6 +37,7 @@ async function mountSidebar(
     { path: '/', component: { template: '<div />' } },
     { path: '/projects/:projectId', name: 'project-details', component: { template: '<div />' } },
     { path: '/workspaces/:workspaceId', name: 'workspace', component: { template: '<div />' } },
+    { path: '/text-chat', name: 'text-chat', component: { template: '<div />' } },
   ] })
   await router.push(initialPath)
   await router.isReady()

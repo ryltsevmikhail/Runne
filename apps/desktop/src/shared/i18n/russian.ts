@@ -137,6 +137,8 @@ const russian: Record<keyof typeof english, string> = {
   'runtimeSettings.externalMessage': 'Этот режим выбран явно. Desktop подключается через внешний профиль, но не останавливает и не присваивает этот daemon.',
   'conversation.kicker': 'Диалог',
   'conversation.title': 'Coding agent',
+  'conversation.textOnlyNavigation': 'Текстовый чат',
+  'conversation.textOnlyNotice': 'Только текст. Файлы проекта и контекст рабочей области не передаются.',
   'conversation.runtime': 'Runtime: {status}',
   'conversation.connecting': 'Подключение к runtime…',
   'conversation.unavailable': 'Runtime недоступен',

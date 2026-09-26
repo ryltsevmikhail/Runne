@@ -92,6 +92,13 @@ fn ledger_conversation_command(
             conversation_id: ledger_id(*conversation_id)?,
             workspace_id: ledger_id(*workspace_id)?,
         }),
+        CanonicalMutationCommand::CreateTextOnlyConversation {
+            conversation_id,
+            workspace_id,
+        } => Ok(Stored::CreateTextOnlyConversation {
+            conversation_id: ledger_id(*conversation_id)?,
+            workspace_id: ledger_id(*workspace_id)?,
+        }),
         CanonicalMutationCommand::GenerateText {
             conversation_id,
             text,

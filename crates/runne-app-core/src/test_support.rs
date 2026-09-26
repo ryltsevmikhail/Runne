@@ -57,6 +57,7 @@ pub fn install_unbound_conversation_reference_for_test(
         workspace_id,
         create_command_id: command_id,
         idempotency_key: command_id.to_string(),
+        text_only: false,
     });
     let value = serde_json::to_string(&reference)
         .map_err(|_| AppCoreError::InvalidConversationReference)?;

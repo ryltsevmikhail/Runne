@@ -29,6 +29,12 @@ describe('desktop routes', () => {
     expect(paths.get('recovery')).toBe('/recovery')
   })
 
+  it('exposes the standalone Text chat route without workspace parameters', () => {
+    const textChat = routes.find(route => route.name === 'text-chat')
+
+    expect(textChat?.path).toBe('/text-chat')
+  })
+
   it('exposes the owner-bound appearance settings route', () => {
     const appearance = routes.find(route => route.name === 'appearance-settings')
 

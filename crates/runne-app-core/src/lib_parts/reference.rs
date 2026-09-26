@@ -13,6 +13,8 @@ struct StoredConversationReferenceV1 {
     workspace_id: CanonicalId,
     create_command_id: CanonicalId,
     idempotency_key: String,
+    #[serde(default)]
+    text_only: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -29,6 +31,8 @@ struct StoredConversationReferenceV2 {
     profile_id: String,
     schema_hash: String,
     capability_digest: String,
+    #[serde(default)]
+    text_only: bool,
 }
 
 impl StoredConversationReference {
@@ -64,6 +68,13 @@ impl StoredConversationReference {
         match self {
             Self::V1(_) => None,
             Self::V2(reference) => Some(reference),
+        }
+    }
+
+    const fn text_only(&self) -> bool {
+        match self {
+            Self::V1(reference) => reference.text_only,
+            Self::V2(reference) => reference.text_only,
         }
     }
 }

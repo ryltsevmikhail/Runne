@@ -6,6 +6,7 @@ async fn owned_resume_admission(
     context: runne_application::local_session::AuthenticatedReplayResumeContextV2,
     delivery_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
     permit: ReplayCountPermit,
+    binding: ReplayHttpBinding,
 ) -> Result<
     (
         ReplaySession,
@@ -17,7 +18,6 @@ async fn owned_resume_admission(
 > {
     let service = Arc::clone(&state.service);
     let owned_state = state.clone();
-    let binding = state.binding;
     let delivery_deadline =
         resume_delivery_deadline(wire.to_unauthenticated_fields().expires_at_unix_ms);
     let (sender, receiver) = tokio::sync::oneshot::channel();
@@ -43,6 +43,7 @@ async fn owned_resume_admission(
                         principal_id.clone(),
                         permit,
                         delivery_deadline,
+                        binding,
                     )
                     .map(|()| result)
                     .map_err(replay_http_failure_to_delivery_error)

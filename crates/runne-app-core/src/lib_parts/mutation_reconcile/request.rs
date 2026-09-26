@@ -5,7 +5,7 @@ fn reconciliation_request_from_anchored(
     identity: &CommandIdentity,
     command: &runne_local_store::NormalizedMutationCommand,
 ) -> Result<Request, AppCoreError> {
-        task_run_reconciliation_request(identity, command)
+    task_run_reconciliation_request(identity, command)
         .or_else(|| workspace_reconciliation_request(identity, command))
         .or_else(|| standard_reconciliation_request(identity, command))
         .unwrap_or(Err(AppCoreError::MutationUnavailable))
@@ -111,8 +111,13 @@ fn standard_reconciliation_request(
             expected_version,
             display_name,
         } => Some(
-            Request::rename_project(identity.clone(), id(project_id)?, *expected_version, display_name)
-                .map_err(|_| AppCoreError::MutationUnavailable),
+            Request::rename_project(
+                identity.clone(),
+                id(project_id)?,
+                *expected_version,
+                display_name,
+            )
+            .map_err(|_| AppCoreError::MutationUnavailable),
         ),
         Command::ArchiveProject {
             project_id,
@@ -132,6 +137,14 @@ fn standard_reconciliation_request(
             conversation_id,
             workspace_id,
         } => Some(Ok(Request::create_conversation(
+            identity.clone(),
+            id(conversation_id)?,
+            id(workspace_id)?,
+        ))),
+        Command::CreateTextOnlyConversation {
+            conversation_id,
+            workspace_id,
+        } => Some(Ok(Request::create_text_only_conversation(
             identity.clone(),
             id(conversation_id)?,
             id(workspace_id)?,

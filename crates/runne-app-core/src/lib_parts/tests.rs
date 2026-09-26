@@ -173,6 +173,7 @@
             workspace_id: CanonicalId::now_v7(),
             create_command_id: command_id,
             idempotency_key: command_id.to_string(),
+            text_only: false,
         });
         let identity = StableRuntimeIdentity {
             authority: "018f2e3a-7000-7000-8000-000000000120".to_owned(),
@@ -219,9 +220,11 @@
                 "runtimeAuthority",
                 "schemaHash",
                 "schemaVersion",
+                "textOnly",
                 "workspaceId",
             ]
         );
+        assert_eq!(object.get("textOnly"), Some(&serde_json::Value::Bool(false)));
         assert_eq!(object["schemaVersion"], 2);
         let encoded = serde_json::to_string(object).expect("encode reference");
         for forbidden in [

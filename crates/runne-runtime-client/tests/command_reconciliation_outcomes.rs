@@ -34,7 +34,7 @@ async fn task_run_cancellation_outcome_parses_and_correlates() {
 }
 
 #[tokio::test]
-async fn eight_non_text_outcomes_parse_and_correlate_to_the_request() {
+async fn non_text_outcomes_and_scoped_conversation_witnesses_correlate() {
     let digest = "07".repeat(32);
     let requests = vec![
         CommandReconciliationRequest::create_project(identity(), id(PROJECT), "Name").unwrap(),
@@ -53,6 +53,11 @@ async fn eight_non_text_outcomes_parse_and_correlate_to_the_request() {
             .unwrap(),
         CommandReconciliationRequest::open_workspace(identity(), id(WORKSPACE), 1).unwrap(),
         CommandReconciliationRequest::create_conversation(
+            identity(),
+            id(CONVERSATION),
+            id(WORKSPACE),
+        ),
+        CommandReconciliationRequest::create_text_only_conversation(
             identity(),
             id(CONVERSATION),
             id(WORKSPACE),
@@ -83,6 +88,9 @@ async fn eight_non_text_outcomes_parse_and_correlate_to_the_request() {
         format!(
             r#"{{"disposition":"durably_recorded","outcome":{{"operation":"create_conversation","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}","streamVersion":1,"committedAt":7}}}}"#
         ),
+        format!(
+            r#"{{"disposition":"durably_recorded","outcome":{{"operation":"create_conversation","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}","streamVersion":1,"committedAt":7}}}}"#
+        ),
     ];
     let request_bodies = vec![
         format!(r#"{{"operation":"create_project","projectId":"{PROJECT}","displayName":"Name"}}"#),
@@ -103,6 +111,9 @@ async fn eight_non_text_outcomes_parse_and_correlate_to_the_request() {
         ),
         format!(
             r#"{{"operation":"create_conversation","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}"}}"#
+        ),
+        format!(
+            r#"{{"operation":"create_text_only_conversation","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}"}}"#
         ),
     ];
     for (case, ((request, body), request_body)) in requests
@@ -130,6 +141,7 @@ async fn eight_non_text_outcomes_parse_and_correlate_to_the_request() {
                     | (5, CommandReconciliationOutcome::WorkspaceRootBound(_))
                     | (6, CommandReconciliationOutcome::WorkspaceOpened(_))
                     | (7, CommandReconciliationOutcome::ConversationCreated(_))
+                    | (8, CommandReconciliationOutcome::ConversationCreated(_))
             ),
             "case {case}"
         );

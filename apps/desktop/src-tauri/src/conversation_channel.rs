@@ -114,6 +114,14 @@ pub trait ConversationUpdateSource: Send + Sync + 'static {
         let _ = (workspace_id, on_update);
         Box::pin(async { Err(AppCoreError::ProjectUnavailable) })
     }
+
+    fn subscribe_text_only(
+        self: Arc<Self>,
+        on_update: Box<dyn FnMut(ConversationTimelineUpdate) + Send>,
+    ) -> Pin<Box<dyn Future<Output = Result<(), AppCoreError>> + Send>> {
+        let _ = on_update;
+        Box::pin(async { Err(AppCoreError::ProjectUnavailable) })
+    }
 }
 
 impl ConversationUpdateSource for AppCore {
@@ -138,11 +146,19 @@ impl ConversationUpdateSource for AppCore {
                 .await
         })
     }
+
+    fn subscribe_text_only(
+        self: Arc<Self>,
+        mut on_update: Box<dyn FnMut(ConversationTimelineUpdate) + Send>,
+    ) -> Pin<Box<dyn Future<Output = Result<(), AppCoreError>> + Send>> {
+        Box::pin(async move { self.subscribe_text_only_conversation(&mut on_update).await })
+    }
 }
 
 enum ConversationSubscriptionTarget {
     Project(i64),
     Workspace(String),
+    TextOnly,
 }
 
 struct SubscriptionControl {

@@ -2,8 +2,9 @@ use runne_api::{
     ApiPrincipalId, AuthoritativeCommandOutcome, AuthoritativeTextGenerationOutcome,
     AuthoritativeTextGenerationOutcomeRef, CanonicalConversationMessage, CanonicalMessageRole,
     CanonicalMessageText, CommandReconciliationContext, CommandReconciliationDisposition,
-    CommandReconciliationHostError, CommandReconciliationWitness, ConversationCreatedAck,
-    ProjectCommandAck, ProjectWorkspaceDisplayNameInput, ReconciliationOperation,
+    CommandReconciliationHostError, CommandReconciliationWitness, CommandReconciliationWitnessRef,
+    ConversationCreatedAck, ProjectCommandAck, ProjectWorkspaceDisplayNameInput,
+    ReconciliationOperation,
 };
 use runne_domain::id::{CommandId, ConversationId, IdempotencyKey, ProjectId, WorkspaceId};
 use runne_domain::{
@@ -13,6 +14,25 @@ use runne_domain::{
 
 fn command_id() -> CommandId {
     "018f47a2-4f8c-7b52-8c35-7a3a14c2d901".parse().unwrap()
+}
+
+#[test]
+fn text_only_witness_has_distinct_scope_tag_but_existing_create_operation() {
+    let witness = CommandReconciliationWitness::create_text_only_conversation(
+        conversation_id(),
+        workspace_id(),
+    );
+    assert_eq!(
+        witness.operation(),
+        ReconciliationOperation::CreateConversation
+    );
+    assert!(matches!(
+        witness.view(),
+        CommandReconciliationWitnessRef::CreateTextOnlyConversation {
+            conversation_id: actual_conversation,
+            workspace_id: actual_workspace,
+        } if actual_conversation == conversation_id() && actual_workspace == workspace_id()
+    ));
 }
 
 fn project_id() -> ProjectId {

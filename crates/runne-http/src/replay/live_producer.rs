@@ -3,6 +3,7 @@ struct LiveProducer {
     session_id: [u8; 16],
     principal_id: String,
     authenticated: AuthenticatedRuntimeSession,
+    binding: ReplayHttpBinding,
     sender: SseSender,
     _session_permit: ReplayCountPermit,
     _live_permit: ReplayCountPermit,
@@ -19,6 +20,7 @@ async fn produce_live_events(
         session_id,
         principal_id,
         authenticated,
+        binding,
         sender,
         _session_permit,
         _live_permit,
@@ -89,9 +91,9 @@ async fn produce_live_events(
             .poll_live(
                 &session_id,
                 &principal_id,
-                state.binding.session_generation,
-                &state.binding.authority_id,
-                state.binding.authorization_epoch,
+                binding.session_generation,
+                &binding.authority_id,
+                binding.authorization_epoch,
                 live_delivery_guard(&state, &authenticated, delivery_sequence),
             )
             .await
@@ -141,9 +143,9 @@ async fn produce_live_events(
         .close_session(
             &session_id,
             &principal_id,
-            state.binding.session_generation,
-            &state.binding.authority_id,
-            state.binding.authorization_epoch,
+            binding.session_generation,
+            &binding.authority_id,
+            binding.authorization_epoch,
         )
         .await;
 }

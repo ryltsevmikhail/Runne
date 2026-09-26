@@ -39,6 +39,15 @@ impl AppCore {
             .await
     }
 
+    /// Reconciles and streams the dedicated TextOnly Conversation.
+    pub async fn subscribe_text_only_conversation<F>(&self, on_update: F) -> Result<(), AppCoreError>
+    where
+        F: FnMut(ConversationTimelineUpdate) + Send,
+    {
+        self.subscribe_conversation(ConversationReferenceOwner::TextOnly, on_update)
+            .await
+    }
+
     async fn subscribe_conversation<F>(
         &self,
         owner: ConversationReferenceOwner,
@@ -65,7 +74,11 @@ impl AppCore {
                 ConversationReferenceOwner::Workspace(workspace_id) => {
                     self.load_workspace_conversation_reference(&workspace_id.to_string())?
                 }
+                ConversationReferenceOwner::TextOnly => self.load_text_only_conversation_reference()?,
             };
+            if reference.text_only() != owner.text_only() {
+                return Err(AppCoreError::InvalidConversationReference);
+            }
             let Some(bound) = reference.bound() else {
                 return Err(AppCoreError::InvalidConversationReference);
             };

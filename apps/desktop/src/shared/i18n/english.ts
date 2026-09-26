@@ -136,6 +136,8 @@ const english = {
   'runtimeSettings.externalMessage': 'This mode was selected explicitly. Desktop connects through the external profile but never stops or adopts that daemon.',
   'conversation.kicker': 'Conversation',
   'conversation.title': 'Coding agent',
+  'conversation.textOnlyNavigation': 'Text-only chat',
+  'conversation.textOnlyNotice': 'Text-only chat. Project files and workspace context are not shared.',
   'conversation.runtime': 'Runtime {status}',
   'conversation.connecting': 'Connecting to runtime…',
   'conversation.unavailable': 'Runtime unavailable',

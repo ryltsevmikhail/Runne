@@ -87,6 +87,10 @@ fn simple_matches(outcome: &CanonicalMutationOutcome, command: &NormalizedMutati
             NormalizedMutationCommand::CreateConversation {
                 conversation_id,
                 workspace_id,
+            }
+            | NormalizedMutationCommand::CreateTextOnlyConversation {
+                conversation_id,
+                workspace_id,
             },
         ) => result == conversation_id && result_workspace == workspace_id && *stream_version == 1,
         (

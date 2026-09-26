@@ -24,6 +24,7 @@ async fn open_session(
         if authenticated.binding.stable().principal_id() != principal.as_api_principal() {
             return Err(replay_authorization_revoked());
         }
+        let binding = state.binding_for_authenticated(&authenticated)?;
         let session_permit = state
             .quotas
             .reserve_session(principal.as_api_principal().as_str())
@@ -38,9 +39,9 @@ async fn open_session(
             .service
             .open_session_with_baseline_context(
                 principal.as_api_principal().as_str(),
-                state.binding.session_generation,
-                &state.binding.authority_id,
-                state.binding.authorization_epoch,
+                binding.session_generation,
+                &binding.authority_id,
+                binding.authorization_epoch,
                 aggregate_type,
                 &aggregate_id,
                 from_cursor,
@@ -89,6 +90,7 @@ async fn read_page(
     let result: Result<ReadPageResponse, ReplayHttpFailure> = async {
         let Json(req) = body.map_err(map_json_rejection)?;
         let session_id = extract_session_id(&session_hex)?;
+        let binding = state.binding_for_authenticated(&authenticated)?;
         let page_maximum = state.limits.max_page_size.min(MAX_REPLAY_PAGE_SIZE);
         let limit = req
             .limit
@@ -112,9 +114,9 @@ async fn read_page(
             .read_page(
                 &session_id,
                 principal.as_api_principal().as_str(),
-                state.binding.session_generation,
-                &state.binding.authority_id,
-                state.binding.authorization_epoch,
+                binding.session_generation,
+                &binding.authority_id,
+                binding.authorization_epoch,
                 limit,
                 delivery_guard,
             )
@@ -137,7 +139,7 @@ async fn read_page(
 async fn acknowledge(
     State(state): State<ReplayHttpState>,
     Extension(principal): Extension<AuthenticatedPrincipal>,
-    Extension(_authenticated): Extension<AuthenticatedRuntimeSession>,
+    Extension(authenticated): Extension<AuthenticatedRuntimeSession>,
     Extension(request_id): Extension<RequestId>,
     Path(session_hex): Path<String>,
     body: Result<Json<AcknowledgeRequest>, JsonRejection>,
@@ -145,15 +147,16 @@ async fn acknowledge(
     let result: Result<AcknowledgeResponse, ReplayHttpFailure> = async {
         let Json(req) = body.map_err(map_json_rejection)?;
         let session_id = extract_session_id(&session_hex)?;
+        let binding = state.binding_for_authenticated(&authenticated)?;
         let cursor = decode_cursor(&req.cursor)?;
         state
             .service
             .acknowledge(
                 &session_id,
                 principal.as_api_principal().as_str(),
-                state.binding.session_generation,
-                &state.binding.authority_id,
-                state.binding.authorization_epoch,
+                binding.session_generation,
+                &binding.authority_id,
+                binding.authorization_epoch,
                 &cursor,
             )
             .await
@@ -173,20 +176,21 @@ async fn acknowledge(
 async fn complete_catch_up(
     State(state): State<ReplayHttpState>,
     Extension(principal): Extension<AuthenticatedPrincipal>,
-    Extension(_authenticated): Extension<AuthenticatedRuntimeSession>,
+    Extension(authenticated): Extension<AuthenticatedRuntimeSession>,
     Extension(request_id): Extension<RequestId>,
     Path(session_hex): Path<String>,
 ) -> Response {
     let result: Result<CompleteCatchUpResponse, ReplayHttpFailure> = async {
         let session_id = extract_session_id(&session_hex)?;
+        let binding = state.binding_for_authenticated(&authenticated)?;
         let completion = state
             .service
             .complete_catch_up(
                 &session_id,
                 principal.as_api_principal().as_str(),
-                state.binding.session_generation,
-                &state.binding.authority_id,
-                state.binding.authorization_epoch,
+                binding.session_generation,
+                &binding.authority_id,
+                binding.authorization_epoch,
             )
             .await
             .map_err(|error| {
@@ -209,20 +213,21 @@ async fn complete_catch_up(
 async fn continue_live(
     State(state): State<ReplayHttpState>,
     Extension(principal): Extension<AuthenticatedPrincipal>,
-    Extension(_authenticated): Extension<AuthenticatedRuntimeSession>,
+    Extension(authenticated): Extension<AuthenticatedRuntimeSession>,
     Extension(request_id): Extension<RequestId>,
     Path(session_hex): Path<String>,
 ) -> Response {
     let result: Result<ContinueLiveResponse, ReplayHttpFailure> = async {
         let session_id = extract_session_id(&session_hex)?;
+        let binding = state.binding_for_authenticated(&authenticated)?;
         let session = state
             .service
             .continue_live(
                 &session_id,
                 principal.as_api_principal().as_str(),
-                state.binding.session_generation,
-                &state.binding.authority_id,
-                state.binding.authorization_epoch,
+                binding.session_generation,
+                &binding.authority_id,
+                binding.authorization_epoch,
             )
             .await
             .map_err(|error| {
@@ -251,20 +256,21 @@ async fn continue_live(
 async fn close_session(
     State(state): State<ReplayHttpState>,
     Extension(principal): Extension<AuthenticatedPrincipal>,
-    Extension(_authenticated): Extension<AuthenticatedRuntimeSession>,
+    Extension(authenticated): Extension<AuthenticatedRuntimeSession>,
     Extension(request_id): Extension<RequestId>,
     Path(session_hex): Path<String>,
 ) -> Response {
     let result: Result<(), ReplayHttpFailure> = async {
         let session_id = extract_session_id(&session_hex)?;
+        let binding = state.binding_for_authenticated(&authenticated)?;
         state
             .service
             .close_session(
                 &session_id,
                 principal.as_api_principal().as_str(),
-                state.binding.session_generation,
-                &state.binding.authority_id,
-                state.binding.authorization_epoch,
+                binding.session_generation,
+                &binding.authority_id,
+                binding.authorization_epoch,
             )
             .await
             .map_err(|error| {

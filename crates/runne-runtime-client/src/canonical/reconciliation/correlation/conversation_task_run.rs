@@ -30,6 +30,25 @@ pub(super) fn correlate_conversation(
                 committed_at,
             }),
         ),
+        (
+            CommandReconciliationWitness::CreateTextOnlyConversation {
+                conversation_id,
+                workspace_id,
+            },
+            OutcomeWire::CreateConversation {
+                conversation_id: id,
+                workspace_id: workspace,
+                stream_version: 1,
+                committed_at,
+            },
+        ) if *conversation_id == id && *workspace_id == workspace => Ok(
+            CommandReconciliationOutcome::ConversationCreated(ConversationCreated {
+                conversation_id: id,
+                workspace_id: workspace,
+                stream_version: 1,
+                committed_at,
+            }),
+        ),
         _ => Err(invalid_response()),
     }
 }

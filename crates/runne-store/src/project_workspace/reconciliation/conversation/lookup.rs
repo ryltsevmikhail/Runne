@@ -4,6 +4,7 @@ use runne_api::{
 use runne_application::command_reconciliation::{
     CommandReconciliationEvidence as Evidence, CommandReconciliationRepositoryError as Error,
 };
+use runne_domain::conversation::ConversationContextScope;
 use rusqlite::{OptionalExtension, Transaction, params};
 
 use super::{identity, outcome};
@@ -35,6 +36,17 @@ pub(super) fn lookup(
             transaction,
             conversation_id,
             workspace_id,
+            ConversationContextScope::Workspace,
+            &stored_fingerprint,
+        )?,
+        CommandReconciliationWitnessRef::CreateTextOnlyConversation {
+            conversation_id,
+            workspace_id,
+        } => identity::stored_create_receipt_fingerprint_matches(
+            transaction,
+            conversation_id,
+            workspace_id,
+            ConversationContextScope::TextOnly,
             &stored_fingerprint,
         )?,
         _ => stored_fingerprint == fingerprint.as_bytes(),
@@ -44,6 +56,10 @@ pub(super) fn lookup(
     }
     match witness.view() {
         CommandReconciliationWitnessRef::CreateConversation {
+            conversation_id,
+            workspace_id,
+        } => outcome::created(transaction, &outcome_bytes, conversation_id, workspace_id),
+        CommandReconciliationWitnessRef::CreateTextOnlyConversation {
             conversation_id,
             workspace_id,
         } => outcome::created(transaction, &outcome_bytes, conversation_id, workspace_id),

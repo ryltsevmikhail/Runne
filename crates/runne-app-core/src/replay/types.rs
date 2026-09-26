@@ -93,6 +93,7 @@ impl StableRuntimeIdentity {
             profile_id: self.profile_id.clone(),
             schema_hash: self.schema_hash.clone(),
             capability_digest: self.capability_digest.clone(),
+            text_only: reference.text_only(),
         }
     }
 

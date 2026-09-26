@@ -51,6 +51,8 @@ const LIVE_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const SSE_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 
 include!("replay/types.rs");
+include!("replay/state.rs");
+include!("replay/request_binding.rs");
 include!("replay/resume_lease.rs");
 include!("replay/retention_baseline_wire.rs");
 include!("replay/retention_baseline_v2_wire.rs");
@@ -71,4 +73,5 @@ include!("replay/router.rs");
 #[cfg(test)]
 mod tests {
     include!("replay/tests.rs");
+    include!("replay/request_binding_tests.rs");
 }

@@ -81,6 +81,15 @@ impl CommandReconciliationHostPort for OutcomeHost {
                 stream_version: 1,
                 committed_at: NonNegativeUnixMillis::new(7).unwrap(),
             }),
+            CommandReconciliationWitnessRef::CreateTextOnlyConversation {
+                conversation_id,
+                workspace_id,
+            } => AuthoritativeCommandOutcome::conversation_created(ConversationCreatedAck {
+                conversation_id,
+                workspace_id,
+                stream_version: 1,
+                committed_at: NonNegativeUnixMillis::new(7).unwrap(),
+            }),
             CommandReconciliationWitnessRef::GenerateConversationText { .. } => unreachable!(),
             CommandReconciliationWitnessRef::CancelTaskRun { .. } => unreachable!(),
             CommandReconciliationWitnessRef::SubmitTaskRun { .. } => {
@@ -167,6 +176,14 @@ async fn eight_non_text_operations_have_exact_closed_response_bodies() {
         (
             format!(
                 r#"{{"operation":"create_conversation","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}"}}"#
+            ),
+            format!(
+                r#"{{"disposition":"durably_recorded","outcome":{{"operation":"create_conversation","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}","streamVersion":1,"committedAt":7}}}}"#
+            ),
+        ),
+        (
+            format!(
+                r#"{{"operation":"create_text_only_conversation","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}"}}"#
             ),
             format!(
                 r#"{{"disposition":"durably_recorded","outcome":{{"operation":"create_conversation","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}","streamVersion":1,"committedAt":7}}}}"#

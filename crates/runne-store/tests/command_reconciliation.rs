@@ -30,6 +30,8 @@ use std::sync::Arc;
 
 #[path = "command_reconciliation/conversation.rs"]
 mod conversation_cases;
+#[path = "command_reconciliation/conversation_scope.rs"]
+mod conversation_scope;
 #[path = "command_reconciliation/negative.rs"]
 mod negative;
 #[path = "command_reconciliation/project_workspace.rs"]
@@ -65,13 +67,14 @@ fn application_context(command: CommandId, key: &str) -> ApplicationCommandConte
 
 struct Fixture {
     _file: validated_reopen::ValidatedTestDatabase,
+    identity: validated_reopen::MainDatabaseIdentity,
     store: runne_store::store::StoreTransaction,
     repository: ProjectWorkspaceStore,
 }
 impl Fixture {
     fn new(name: &str) -> Self {
         let file = validated_reopen::ValidatedTestDatabase::new(name);
-        let (store, _) = validated_reopen::initialize_store(
+        let (store, identity) = validated_reopen::initialize_store(
             file.path(),
             RuntimeAuthorityId("authority".into()),
             Arc::new(SecretBroker::new().prohibited_content_guard()),
@@ -79,6 +82,7 @@ impl Fixture {
         .unwrap();
         Self {
             _file: file,
+            identity,
             repository: ProjectWorkspaceStore::from_store(store.clone()),
             store,
         }
@@ -131,12 +135,10 @@ impl Fixture {
 }
 const WORKSPACE_ID: &str = "018f47a2-4f8c-7b52-8c35-7a3a14c2d903";
 const CONVERSATION_ID: &str = "018f47a2-4f8c-7b52-8c35-7a3a14c2d904";
-
 fn command(tail: u8) -> CommandId {
     let text = format!("018f47a2-4f8c-7b52-8c35-7a3a14c3{tail:04x}");
     text.parse().unwrap()
 }
-
 #[test]
 fn project_receipt_and_exact_absence_are_observed_without_writes() {
     let fixture = Fixture::new("command-reconciliation-project");
@@ -166,7 +168,6 @@ fn project_receipt_and_exact_absence_are_observed_without_writes() {
         Ok(CommandReconciliationEvidence::Terminal(_))
     ));
 }
-
 #[test]
 fn project_workspace_outcomes_and_absences_use_durable_mutation_receipts() {
     let fixture = Fixture::new("command-reconciliation-project-workspace");

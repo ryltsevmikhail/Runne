@@ -12,6 +12,7 @@ impl AppCore {
         lease.request.validate_invariants()?;
         match &lease.request.semantic_command {
             CanonicalMutationCommand::CreateConversation { .. }
+            | CanonicalMutationCommand::CreateTextOnlyConversation { .. }
             | CanonicalMutationCommand::GenerateText { .. } => self.send_conversation(&client, lease).await,
             CanonicalMutationCommand::CancelTaskRun { .. } => self.send_task_run_cancel(&client, lease).await,
             CanonicalMutationCommand::SubmitTaskRun { .. } => self.send_task_run_submit(&client, lease).await,
@@ -30,6 +31,7 @@ impl AppCore {
         let unavailable = |_| AppCoreError::RuntimeUnavailable;
         match &lease.request.semantic_command {
             CanonicalMutationCommand::CreateConversation { conversation_id, workspace_id } => client.create_conversation(CreateConversationRequest::new(lease.request.command_identity.clone(), *conversation_id, *workspace_id, runne_api::ConversationContextScope::Workspace)).await.map(MutationDispatchResult::ConversationCreated).map_err(unavailable),
+            CanonicalMutationCommand::CreateTextOnlyConversation { conversation_id, workspace_id } => client.create_conversation(CreateConversationRequest::new(lease.request.command_identity.clone(), *conversation_id, *workspace_id, runne_api::ConversationContextScope::TextOnly)).await.map(MutationDispatchResult::ConversationCreated).map_err(unavailable),
             CanonicalMutationCommand::GenerateText { conversation_id, text } => client.generate_text(GenerateTextRequest::new(lease.request.command_identity.clone(), *conversation_id, lease.request.expected_version, text).map_err(|_| AppCoreError::InvalidMutation)?).await.map(MutationDispatchResult::TextGenerated).map_err(unavailable),
             _ => Err(AppCoreError::InvalidMutation),
         }

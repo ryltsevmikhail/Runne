@@ -32,6 +32,10 @@ pub enum CanonicalMutationCommand {
         conversation_id: CanonicalId,
         workspace_id: CanonicalId,
     },
+    CreateTextOnlyConversation {
+        conversation_id: CanonicalId,
+        workspace_id: CanonicalId,
+    },
     GenerateText {
         conversation_id: CanonicalId,
         text: String,

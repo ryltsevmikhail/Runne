@@ -41,6 +41,10 @@ pub enum NormalizedMutationCommand {
         conversation_id: BoundedCanonicalId,
         workspace_id: BoundedCanonicalId,
     },
+    CreateTextOnlyConversation {
+        conversation_id: BoundedCanonicalId,
+        workspace_id: BoundedCanonicalId,
+    },
     GenerateText {
         conversation_id: BoundedCanonicalId,
         expected_version: u64,
@@ -189,6 +193,14 @@ impl NormalizedMutationCommand {
                 workspace_id,
             } => {
                 value.push(7);
+                codec::put_id(&mut value, conversation_id)?;
+                codec::put_id(&mut value, workspace_id)?;
+            }
+            Self::CreateTextOnlyConversation {
+                conversation_id,
+                workspace_id,
+            } => {
+                value.push(14);
                 codec::put_id(&mut value, conversation_id)?;
                 codec::put_id(&mut value, workspace_id)?;
             }

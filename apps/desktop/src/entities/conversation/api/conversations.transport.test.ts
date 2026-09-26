@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  openTextOnlyConversation,
   openWorkspaceConversation,
   parseConversationChannelEvent,
+  subscribeTextOnlyConversation,
   sendWorkspaceMessage,
 } from './conversations'
 import { snapshot, update, workspaceId } from './conversations.test-support'
@@ -19,6 +21,38 @@ vi.mock('@tauri-apps/api/core', () => ({
 }))
 
 describe('conversation IPC transport validation', () => {
+  it('opens the dedicated text-only owner without a workspace or conversation ID', async () => {
+    const calls: Array<[string, Record<string, unknown> | undefined]> = []
+
+    const value = await openTextOnlyConversation(async (command, args) => {
+      calls.push([command, args])
+      return snapshot
+    })
+
+    expect(value).toEqual(snapshot)
+    expect(calls).toEqual([['open_text_only_conversation', undefined]])
+  })
+
+  it('subscribes and sends through TextOnly IPC without workspace identity', async () => {
+    const calls: Array<[string, Record<string, unknown> | undefined]> = []
+    const session = await subscribeTextOnlyConversation(snapshot, () => {}, async (command, args) => {
+      calls.push([command, args])
+      if (command === 'subscribe_text_only_conversation') {
+        return '018f2e3a-7000-7000-8000-000000000201'
+      }
+      return snapshot
+    })
+
+    await session.sendMessage('hello')
+    await session.unsubscribe()
+
+    expect(calls.map(([command, args]) => [command, args && Object.keys(args)])).toEqual([
+      ['subscribe_text_only_conversation', ['onUpdate']],
+      ['send_text_only_message', ['text']],
+      ['cancel_conversation_subscription', ['subscriptionId']],
+    ])
+  })
+
   it('loads a strict sanitized timeline for one canonical workspace', async () => {
     const calls: Array<[string, Record<string, unknown> | undefined]> = []
 

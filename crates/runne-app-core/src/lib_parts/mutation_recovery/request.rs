@@ -103,6 +103,13 @@ fn recovery_conversation_command(
             conversation_id: id(conversation_id)?,
             workspace_id: id(workspace_id)?,
         },
+        Stored::CreateTextOnlyConversation {
+            conversation_id,
+            workspace_id,
+        } => CanonicalMutationCommand::CreateTextOnlyConversation {
+            conversation_id: id(conversation_id)?,
+            workspace_id: id(workspace_id)?,
+        },
         Stored::GenerateText {
             conversation_id,
             text,

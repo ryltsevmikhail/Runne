@@ -51,6 +51,7 @@ fn spawn_subscription<S>(
             ConversationSubscriptionTarget::Workspace(workspace_id) => {
                 source.subscribe_workspace(workspace_id, callback).await
             }
+            ConversationSubscriptionTarget::TextOnly => source.subscribe_text_only(callback).await,
         }
     });
     runtime.spawn(run_subscription(

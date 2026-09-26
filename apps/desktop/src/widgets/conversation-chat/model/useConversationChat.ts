@@ -1,13 +1,11 @@
 import { isTauri } from '@tauri-apps/api/core'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
-import type {
-  ConversationSession,
-  ConversationSnapshot,
-  ConversationTimelineListener,
-} from '@/entities/conversation'
+import type { ConversationSession, ConversationSnapshot, ConversationTimelineListener } from '@/entities/conversation'
 import {
+  openTextOnlyConversation,
   openWorkspaceConversation,
+  subscribeTextOnlyConversation,
   subscribeWorkspaceConversation,
 } from '@/entities/conversation'
 import type { RuntimeConnectionState } from '@/shared/api/platform/bootstrap'
@@ -22,7 +20,8 @@ export type SubscribeConversation = (
 ) => Promise<ConversationSession>
 
 export interface ConversationChatOptions {
-  workspaceId: string
+  workspaceId?: string | undefined
+  textOnly?: boolean | undefined
   disabled?: boolean | undefined
   connect?: Connect | undefined
   openConversation?: OpenConversation | undefined
@@ -179,22 +178,23 @@ export function useConversationChat(
             ? options.connect()
             : defaultConnect())
       if (runtimeState.value !== 'live') throw new Error('runtime unavailable')
-      const initial = await (options.openConversation ?? defaultOpenConversation)(options.workspaceId)
+      const initial = options.textOnly === true
+        ? await openTextOnlyConversation()
+        : await (options.openConversation ?? defaultOpenConversation)(options.workspaceId ?? '')
       if (disposed || generation !== loadGeneration) {
         return
       }
       snapshot.value = initial
-      const candidate = await (
-        options.subscribeConversation ?? defaultSubscribeConversation
-      )(
-        options.workspaceId,
-        initial,
-        (value) => {
+      const onTimeline = (value: ConversationSnapshot) => {
           if (!disposed && generation === loadGeneration) {
             snapshot.value = value
           }
-        },
-      )
+        }
+      const candidate = options.textOnly === true
+        ? await subscribeTextOnlyConversation(initial, onTimeline)
+        : await (options.subscribeConversation ?? defaultSubscribeConversation)(
+            options.workspaceId ?? '', initial, onTimeline,
+          )
       if (disposed || generation !== loadGeneration) {
         await candidate.unsubscribe()
         return

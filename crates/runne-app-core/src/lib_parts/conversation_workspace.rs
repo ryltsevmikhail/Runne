@@ -1,4 +1,44 @@
 impl AppCore {
+    /// Opens the dedicated durable TextOnly conversation, isolated from workspaces.
+    pub async fn open_text_only_conversation(&self) -> Result<ConversationSnapshot, AppCoreError> {
+        let _operation = self.runtime_operation.lock().await;
+        let context = self.live_runtime_operation_context()?;
+        self.open_conversation_owner_under_operation(ConversationReferenceOwner::TextOnly, &context)
+            .await
+    }
+
+    /// Sends text only through the dedicated TextOnly conversation.
+    pub async fn send_text_only_message(
+        &self,
+        text: &str,
+    ) -> Result<ConversationSnapshot, AppCoreError> {
+        let _operation = self.runtime_operation.lock().await;
+        let context = self.live_runtime_operation_context()?;
+        let current = self
+            .open_conversation_owner_under_operation(ConversationReferenceOwner::TextOnly, &context)
+            .await?;
+        let conversation_id = CanonicalId::parse(&current.conversation_id)
+            .map_err(|_| AppCoreError::InvalidConversationReference)?;
+        let generated = self
+            .dispatch_text_generation_under_operation(
+                &context,
+                conversation_id,
+                current.stream_version,
+                text,
+            )
+            .await?;
+        if generated.conversation_id != conversation_id {
+            return Err(AppCoreError::RuntimeUnavailable);
+        }
+        let reference = self.load_text_only_conversation_reference()?;
+        if reference.bound().is_none_or(|bound| !context.identity.matches_reference(bound)) {
+            self.set_runtime_failure(RuntimeAvailability::Fatal)?;
+            return Err(AppCoreError::RuntimeIdentityConflict);
+        }
+        self.require_current_operation_context(&context)?;
+        self.reconcile_conversation_under_operation(&context, &reference, |_| {}).await
+    }
+
     /// Creates or restores the durable Conversation bound to one canonical Workspace.
     ///
     /// # Errors
@@ -79,6 +119,14 @@ impl AppCore {
             .await
     }
 
+    /// Resynchronizes the dedicated TextOnly conversation after explicit recovery.
+    pub async fn resync_text_only_conversation(&self) -> Result<ConversationSnapshot, AppCoreError> {
+        let _operation = self.runtime_operation.lock().await;
+        let context = self.resync_runtime_operation_context()?;
+        self.resync_conversation_owner(ConversationReferenceOwner::TextOnly, &context)
+            .await
+    }
+
     async fn resync_conversation_owner(
         &self,
         owner: ConversationReferenceOwner,
@@ -91,7 +139,11 @@ impl AppCore {
             ConversationReferenceOwner::Workspace(workspace_id) => {
                 self.load_workspace_conversation_reference(&workspace_id.to_string())?
             }
+            ConversationReferenceOwner::TextOnly => self.load_text_only_conversation_reference()?,
         };
+        if reference.text_only() != owner.text_only() {
+            return Err(AppCoreError::InvalidConversationReference);
+        }
         let Some(bound) = reference.bound() else {
             return Err(AppCoreError::InvalidConversationReference);
         };

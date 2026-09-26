@@ -62,18 +62,40 @@ impl ReplayHttpState {
         principal_id: String,
         permit: ReplayCountPermit,
         delivery_deadline: tokio::time::Instant,
+        binding: ReplayHttpBinding,
     ) -> Result<(), ReplayHttpFailure> {
         let inserted = match self.provisional_resume_sessions.lock() {
-            Ok(mut sessions) => sessions
-                .insert(session_id, V2ResumeLeaseState::Pending)
-                .is_none(),
+            Ok(mut sessions) => match sessions.entry(session_id) {
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(V2ResumeLeaseState::Pending);
+                    true
+                }
+                std::collections::hash_map::Entry::Occupied(_) => false,
+            },
             Err(_) => {
-                self.spawn_forced_v2_resume_reap(session_id, principal_id);
+                self.spawn_forced_v2_resume_reap(session_id, principal_id, binding);
                 return Err(replay_backpressure());
             }
         };
         if !inserted {
-            self.spawn_forced_v2_resume_reap(session_id, principal_id);
+            return Err(replay_invariant_violation());
+        }
+        let binding_inserted = self
+            .provisional_resume_bindings
+            .lock()
+            .map(|mut bindings| match bindings.entry(session_id) {
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(binding);
+                    true
+                }
+                std::collections::hash_map::Entry::Occupied(_) => false,
+            })
+            .unwrap_or(false);
+        if !binding_inserted {
+            if let Ok(mut sessions) = self.provisional_resume_sessions.lock() {
+                sessions.remove(&session_id);
+            }
+            self.spawn_forced_v2_resume_reap(session_id, principal_id, binding);
             return Err(replay_invariant_violation());
         }
         if let Err(error) = self.retain_session_permit(session_id, permit) {
@@ -104,7 +126,18 @@ impl ReplayHttpState {
             && sessions.get(session_id) == Some(&V2ResumeLeaseState::Delivered)
         {
             sessions.remove(session_id);
+            if let Ok(mut bindings) = self.provisional_resume_bindings.lock() {
+                bindings.remove(session_id);
+            }
         }
+    }
+
+    fn provisional_resume_binding(&self, session_id: &[u8; 16]) -> Option<ReplayHttpBinding> {
+        self.provisional_resume_bindings
+            .lock()
+            .ok()?
+            .get(session_id)
+            .copied()
     }
 
     fn begin_v2_resume_reaping(&self, session_id: [u8; 16], principal_id: String) {
@@ -115,11 +148,15 @@ impl ReplayHttpState {
                 V2ResumeLeaseState::Pending,
             ),
             Err(_) => {
-                self.spawn_forced_v2_resume_reap(session_id, principal_id);
+                if let Some(binding) = self.provisional_resume_binding(&session_id) {
+                    self.spawn_forced_v2_resume_reap(session_id, principal_id, binding);
+                }
                 return;
             }
         };
-        self.spawn_v2_resume_reaper(should_spawn, session_id, principal_id);
+        if let Some(binding) = self.provisional_resume_binding(&session_id) {
+            self.spawn_v2_resume_reaper(should_spawn, session_id, principal_id, binding);
+        }
     }
 
     fn fail_v2_resume_delivery(&self, session_id: [u8; 16], principal_id: String) {
@@ -130,11 +167,15 @@ impl ReplayHttpState {
                 V2ResumeLeaseState::Delivered,
             ),
             Err(_) => {
-                self.spawn_forced_v2_resume_reap(session_id, principal_id);
+                if let Some(binding) = self.provisional_resume_binding(&session_id) {
+                    self.spawn_forced_v2_resume_reap(session_id, principal_id, binding);
+                }
                 return;
             }
         };
-        self.spawn_v2_resume_reaper(should_spawn, session_id, principal_id);
+        if let Some(binding) = self.provisional_resume_binding(&session_id) {
+            self.spawn_v2_resume_reaper(should_spawn, session_id, principal_id, binding);
+        }
     }
 
     fn spawn_v2_resume_reaper(
@@ -142,19 +183,29 @@ impl ReplayHttpState {
         should_spawn: bool,
         session_id: [u8; 16],
         principal_id: String,
+        binding: ReplayHttpBinding,
     ) {
         if should_spawn {
             let state = self.clone();
             tokio::spawn(async move {
-                state.reap_v2_resume(session_id, principal_id, true).await;
+                state
+                    .reap_v2_resume(session_id, principal_id, true, binding)
+                    .await;
             });
         }
     }
 
-    fn spawn_forced_v2_resume_reap(&self, session_id: [u8; 16], principal_id: String) {
+    fn spawn_forced_v2_resume_reap(
+        &self,
+        session_id: [u8; 16],
+        principal_id: String,
+        binding: ReplayHttpBinding,
+    ) {
         let state = self.clone();
         tokio::spawn(async move {
-            state.reap_v2_resume(session_id, principal_id, false).await;
+            state
+                .reap_v2_resume(session_id, principal_id, false, binding)
+                .await;
         });
     }
 
@@ -163,14 +214,13 @@ impl ReplayHttpState {
         session_id: [u8; 16],
         principal_id: String,
         require_reaping_state: bool,
+        binding: ReplayHttpBinding,
     ) {
         loop {
             let still_reaping = self
                 .provisional_resume_sessions
                 .lock()
-                .map(|sessions| {
-                    sessions.get(&session_id) == Some(&V2ResumeLeaseState::Reaping)
-                })
+                .map(|sessions| sessions.get(&session_id) == Some(&V2ResumeLeaseState::Reaping))
                 .unwrap_or(false);
             if require_reaping_state && !still_reaping {
                 return;
@@ -180,9 +230,9 @@ impl ReplayHttpState {
                 .close_session(
                     &session_id,
                     &principal_id,
-                    self.binding.session_generation,
-                    &self.binding.authority_id,
-                    self.binding.authorization_epoch,
+                    binding.session_generation,
+                    &binding.authority_id,
+                    binding.authorization_epoch,
                 )
                 .await
             {

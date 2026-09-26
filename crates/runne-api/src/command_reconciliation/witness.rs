@@ -21,6 +21,7 @@ enum Witness {
     BindWorkspaceRoot(WorkspaceId, u64, [u8; 32]),
     OpenWorkspace(WorkspaceId, u64),
     CreateConversation(ConversationId, WorkspaceId),
+    CreateTextOnlyConversation(ConversationId, WorkspaceId),
     GenerateConversationText(ConversationId, u64, CanonicalMessageText),
     CancelTaskRun(TaskRunId, u64),
     SubmitTaskRun(ConversationId, WorkspaceId, Option<TaskRunInput>),
@@ -89,6 +90,13 @@ impl CommandReconciliationWitness {
     pub const fn create_conversation(id: ConversationId, workspace: WorkspaceId) -> Self {
         Self {
             inner: Witness::CreateConversation(id, workspace),
+        }
+    }
+
+    #[must_use]
+    pub const fn create_text_only_conversation(id: ConversationId, workspace: WorkspaceId) -> Self {
+        Self {
+            inner: Witness::CreateTextOnlyConversation(id, workspace),
         }
     }
 
@@ -165,6 +173,7 @@ impl CommandReconciliationWitness {
             Witness::BindWorkspaceRoot(..) => ReconciliationOperation::BindWorkspaceRoot,
             Witness::OpenWorkspace(..) => ReconciliationOperation::OpenWorkspace,
             Witness::CreateConversation(..) => ReconciliationOperation::CreateConversation,
+            Witness::CreateTextOnlyConversation(..) => ReconciliationOperation::CreateConversation,
             Witness::GenerateConversationText(..) => {
                 ReconciliationOperation::GenerateConversationText
             }
@@ -222,6 +231,12 @@ impl CommandReconciliationWitness {
             }
             Witness::CreateConversation(id, workspace_id) => {
                 CommandReconciliationWitnessRef::CreateConversation {
+                    conversation_id: *id,
+                    workspace_id: *workspace_id,
+                }
+            }
+            Witness::CreateTextOnlyConversation(id, workspace_id) => {
+                CommandReconciliationWitnessRef::CreateTextOnlyConversation {
                     conversation_id: *id,
                     workspace_id: *workspace_id,
                 }

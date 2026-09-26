@@ -58,6 +58,9 @@ impl NormalizedMutationCommand {
             }
             Self::CreateConversation {
                 conversation_id, ..
+            }
+            | Self::CreateTextOnlyConversation {
+                conversation_id, ..
             } => {
                 identity.operation() == MutationOperation::ConversationCreate
                     && identity.expected_version() == 0

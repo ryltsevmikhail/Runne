@@ -1,8 +1,12 @@
 export {
   openWorkspaceConversation,
+  openTextOnlyConversation,
   resyncWorkspaceConversation,
+  resyncTextOnlyConversation,
   subscribeWorkspaceConversation,
+  subscribeTextOnlyConversation,
   sendWorkspaceMessage,
+  sendTextOnlyMessage,
 } from './api/conversations'
 export type {
   ConversationChannelError,

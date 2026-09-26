@@ -6,12 +6,17 @@ impl AppCore {
         workspace_id: CanonicalId,
         identity: CommandIdentity,
         idempotency_key: String,
+        text_only: bool,
     ) -> Result<runne_runtime_client::ConversationCreated, AppCoreError> {
         let request = conversation_request(
             runne_local_store::MutationOperation::ConversationCreate,
             conversation_id,
             0,
-            CanonicalMutationCommand::CreateConversation { conversation_id, workspace_id },
+            if text_only {
+                CanonicalMutationCommand::CreateTextOnlyConversation { conversation_id, workspace_id }
+            } else {
+                CanonicalMutationCommand::CreateConversation { conversation_id, workspace_id }
+            },
             identity,
             idempotency_key,
         )?;

@@ -59,6 +59,35 @@ impl MutationRequest {
         ))
     }
 
+    /// Creates an AppCore-owned TextOnly conversation create request.
+    pub fn create_text_only_conversation(
+        conversation_id: CanonicalId,
+        workspace_id: CanonicalId,
+    ) -> Result<Self, AppCoreError> {
+        let command_id = CanonicalId::now_v7();
+        let idempotency_key = command_id.to_string();
+        let command_identity = CommandIdentity::new(command_id, idempotency_key.clone())
+            .map_err(|_| AppCoreError::InvalidMutation)?;
+        let target = MutationTarget::try_new(
+            runne_local_store::MutationOperation::ConversationCreate,
+            runne_local_store::MutationTargetKind::Conversation,
+            runne_local_store::BoundedCanonicalId::parse(conversation_id.to_string().as_bytes())
+                .map_err(|_| AppCoreError::InvalidMutation)?,
+        )
+        .map_err(|_| AppCoreError::InvalidMutation)?;
+        Ok(Self::for_conversation(
+            runne_local_store::MutationOperation::ConversationCreate,
+            target,
+            0,
+            CanonicalMutationCommand::CreateTextOnlyConversation {
+                conversation_id,
+                workspace_id,
+            },
+            command_identity,
+            idempotency_key,
+        ))
+    }
+
     /// Creates an AppCore-owned normalized Project create request.
     ///
     /// # Errors

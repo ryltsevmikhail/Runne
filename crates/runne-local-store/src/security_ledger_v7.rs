@@ -1,6 +1,8 @@
 mod codec;
 mod command;
 mod command_identity;
+#[cfg(test)]
+mod command_tests;
 pub mod digest;
 mod outcome;
 mod outcome_generation;

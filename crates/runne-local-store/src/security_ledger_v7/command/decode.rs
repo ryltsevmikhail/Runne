@@ -43,6 +43,10 @@ impl NormalizedMutationCommand {
                 conversation_id: codec::id(&mut input)?,
                 workspace_id: codec::id(&mut input)?,
             },
+            14 => Self::CreateTextOnlyConversation {
+                conversation_id: codec::id(&mut input)?,
+                workspace_id: codec::id(&mut input)?,
+            },
             8 => Self::GenerateText {
                 conversation_id: codec::id(&mut input)?,
                 expected_version: version(&mut input)?,

@@ -62,6 +62,7 @@ include!("lib_parts/operational_telemetry_events.rs");
 include!("lib_parts/operational_telemetry_state.rs");
 include!("lib_parts/operational_telemetry_snapshot.rs");
 include!("lib_parts/conversation.rs");
+include!("lib_parts/conversation_reference_owner.rs");
 include!("lib_parts/conversation_workspace.rs");
 include!("lib_parts/task_run.rs");
 include!("lib_parts/task_run_count.rs");
@@ -82,12 +83,14 @@ include!("lib_parts/bootstrap.rs");
 #[cfg(test)]
 mod tests {
     include!("lib_parts/tests.rs");
+    include!("lib_parts/text_only_owner_tests.rs");
     include!("lib_parts/conversation_workspace_tests.rs");
     mod canonical_project_pagination_tests {
         include!("lib_parts/canonical_project_pagination_tests.rs");
     }
     include!("lib_parts/operational_telemetry_tests.rs");
     include!("lib_parts/mutation_dispatch_tests.rs");
+    include!("lib_parts/text_only_dispatch_tests.rs");
     include!("lib_parts/mutation_adversarial_tests.rs");
     include!("lib_parts/mutation_workspace_tests.rs");
     include!("lib_parts/mutation_workspace_admission_tests.rs");

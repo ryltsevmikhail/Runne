@@ -26,7 +26,8 @@ pub(super) fn correlate(
         | CommandReconciliationWitness::OpenWorkspace { .. } => {
             project_workspace::correlate_workspace(witness, outcome)
         }
-        CommandReconciliationWitness::CreateConversation { .. } => {
+        CommandReconciliationWitness::CreateConversation { .. }
+        | CommandReconciliationWitness::CreateTextOnlyConversation { .. } => {
             conversation_task_run::correlate_conversation(witness, outcome)
         }
         CommandReconciliationWitness::GenerateConversationText { .. } => {

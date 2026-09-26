@@ -79,6 +79,9 @@ async function retryProjects() {
 
 <template>
   <section v-show="!collapsed" class="sidebar-projects" :aria-label="translate('projects.title')">
+    <RouterLink class="sidebar-projects__text-chat" to="/text-chat">
+      {{ translate('conversation.textOnlyNavigation') }}
+    </RouterLink>
     <p v-if="loadError" class="sidebar-projects__error" role="alert">
       {{ translate(runtimeStatus === 'live' ? 'projects.loadFailed' : 'projects.runtimeUnavailable') }}
     </p>
@@ -101,6 +104,7 @@ async function retryProjects() {
 <style scoped>
 .sidebar-projects { display: flex; min-height: 0; flex: 1; flex-direction: column; margin: 8px 0; overflow: auto; border-top: 1px solid var(--runne-border); }
 .sidebar-projects__list { display: grid; gap: 3px; margin: 6px 0; padding: 0; list-style: none; }
+.sidebar-projects__text-chat { margin: 8px 6px 2px; color: var(--runne-text-secondary); font-size: 12px; text-decoration: none; }
 .sidebar-projects__retry { align-self: flex-start; margin: 0 6px 6px; padding: 2px 0; border: 0; color: var(--runne-text-secondary); background: transparent; font: inherit; font-size: 11px; text-decoration: underline; cursor: pointer; }
 .sidebar-projects__status, .sidebar-projects__error { margin: 6px; color: var(--runne-text-secondary); font-size: 11px; line-height: 1.4; }
 .sidebar-projects__error { color: var(--runne-error-coral); }

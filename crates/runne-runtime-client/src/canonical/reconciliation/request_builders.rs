@@ -152,6 +152,21 @@ impl CommandReconciliationRequest {
             },
         }
     }
+
+    #[must_use]
+    pub const fn create_text_only_conversation(
+        identity: CommandIdentity,
+        conversation_id: CanonicalId,
+        workspace_id: CanonicalId,
+    ) -> Self {
+        Self {
+            identity,
+            witness: CommandReconciliationWitness::CreateTextOnlyConversation {
+                conversation_id,
+                workspace_id,
+            },
+        }
+    }
     /// Builds a validated text-generation reconciliation witness.
     ///
     /// # Errors

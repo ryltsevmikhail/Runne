@@ -67,6 +67,13 @@ fn command_matches(request: &MutationRequest) -> bool {
             },
         )
         | (
+            Operation::ConversationCreate,
+            target,
+            CanonicalMutationCommand::CreateTextOnlyConversation {
+                conversation_id, ..
+            },
+        )
+        | (
             Operation::TaskRunSubmit,
             target,
             CanonicalMutationCommand::SubmitTaskRun {

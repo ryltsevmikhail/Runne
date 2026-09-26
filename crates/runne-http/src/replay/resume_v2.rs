@@ -54,6 +54,7 @@ async fn resume_from_baseline(
         if authenticated.binding.stable().principal_id() != principal.as_api_principal() {
             return Err(replay_authorization_revoked());
         }
+        let binding = state.binding_for_authenticated(&authenticated)?;
         let permit = state
             .quotas
             .reserve_session(principal.as_api_principal().as_str())
@@ -71,6 +72,7 @@ async fn resume_from_baseline(
             context,
             delivery_guard,
             permit,
+            binding,
         )
         .await
         .map_err(|error| replay_error_to_http(&error))?;
@@ -130,11 +132,7 @@ struct ResumeAdmissionGuard {
 }
 
 impl ResumeAdmissionGuard {
-    fn new(
-        state: ReplayHttpState,
-        principal_id: String,
-        session_id: [u8; 16],
-    ) -> Self {
+    fn new(state: ReplayHttpState, principal_id: String, session_id: [u8; 16]) -> Self {
         Self {
             state,
             principal_id,

@@ -15,6 +15,7 @@ import { TaskRunPage } from '@/pages/task-run'
 import { TaskRunInventoryPage } from '@/pages/task-run-inventory'
 import { UpdatesPage } from '@/pages/updates'
 import { WorkspacePage } from '@/pages/workspace'
+import { TextChatPage } from '@/pages/text-chat'
 
 export const routes: RouteRecordRaw[] = [
   {
@@ -52,6 +53,7 @@ export const routes: RouteRecordRaw[] = [
     name: 'workspace',
     component: WorkspacePage,
   },
+  { path: '/text-chat', name: 'text-chat', component: TextChatPage },
   {
     path: '/',
     name: 'projects',

@@ -82,6 +82,28 @@ async fn sealed_host_contour_shares_bootstrap_service_with_profile_auth() {
 }
 
 #[tokio::test]
+async fn replay_open_accepts_current_authenticated_epoch_after_in_process_rotation() {
+    let (host, binding) = host_with_rotated_replay_epoch();
+    let app = host.router_for_test();
+    let authority = bootstrap_authority(&app, &binding).await;
+    let mut request = json_request(
+        "/v1/replay/open-session",
+        serde_json::json!({
+            "aggregateType": "conversation",
+            "aggregateId": "018f2e3a-7000-7000-8000-000000000001"
+        }),
+    );
+    request.headers_mut().insert(
+        "authorization",
+        format!("GocodeSession {}", URL_SAFE_NO_PAD.encode(authority))
+            .parse()
+            .unwrap(),
+    );
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn operational_telemetry_is_capability_gated_and_auth_no_store() {
     const TELEMETRY_CAPABILITIES: &[&str] = &[OPERATIONAL_TELEMETRY_CAPABILITY_V1];
     let telemetry = OperationalTelemetryHttpState::new(Arc::new(UnavailableOperationalTelemetry));
@@ -211,20 +233,48 @@ async fn local_client_contour_mounts_only_the_canonical_task_run_surface() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
     let response = app
-        .oneshot(Request::builder().method("POST").uri("/v2/task-runs/submit")
-            .header("authorization", &session).body(Body::empty()).unwrap())
-        .await.unwrap();
-    assert_eq!(response.status(), StatusCode::NOT_FOUND, "legacy profile must not mount prompted submit v2");
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v2/task-runs/submit")
+                .header("authorization", &session)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::NOT_FOUND,
+        "legacy profile must not mount prompted submit v2"
+    );
 }
 
 #[tokio::test]
 async fn prompted_submit_v2_is_mounted_when_profile_advertises_capability() {
-    const CAPABILITIES: &[&str] = &["conversation.create.v1", "conversation.list.v1", "task_run.submit.v2"];
+    const CAPABILITIES: &[&str] = &[
+        "conversation.create.v1",
+        "conversation.list.v1",
+        "task_run.submit.v2",
+    ];
     let host = host_with_capabilities(CAPABILITIES);
     let app = host.router_for_test();
     let authority = bootstrap_authority(&app, &binding_with_capabilities(CAPABILITIES)).await;
     let session = format!("GocodeSession {}", URL_SAFE_NO_PAD.encode(authority));
-    let response = app.oneshot(Request::builder().method("POST").uri("/v2/task-runs/submit")
-        .header("authorization", session).body(Body::empty()).unwrap()).await.unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST, "advertised v2 route should reach request validation");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v2/task-runs/submit")
+                .header("authorization", session)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "advertised v2 route should reach request validation"
+    );
 }

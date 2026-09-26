@@ -48,6 +48,10 @@ pub(super) enum ReconciliationBody {
         conversation_id: String,
         workspace_id: String,
     },
+    CreateTextOnlyConversation {
+        conversation_id: String,
+        workspace_id: String,
+    },
     GenerateConversationText {
         conversation_id: String,
         expected_version: u64,
@@ -129,6 +133,13 @@ impl ReconciliationBody {
                 conversation_id,
                 workspace_id,
             } => Some(CommandReconciliationWitness::create_conversation(
+                conversation(&conversation_id)?,
+                workspace(&workspace_id)?,
+            )),
+            Self::CreateTextOnlyConversation {
+                conversation_id,
+                workspace_id,
+            } => Some(CommandReconciliationWitness::create_text_only_conversation(
                 conversation(&conversation_id)?,
                 workspace(&workspace_id)?,
             )),

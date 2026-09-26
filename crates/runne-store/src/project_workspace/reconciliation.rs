@@ -40,6 +40,7 @@ fn lookup(
 ) -> Result<Evidence, Error> {
     match witness.view() {
         CommandReconciliationWitnessRef::CreateConversation { .. }
+        | CommandReconciliationWitnessRef::CreateTextOnlyConversation { .. }
         | CommandReconciliationWitnessRef::GenerateConversationText { .. } => {
             conversation_lookup(transaction, store, context, witness)
         }

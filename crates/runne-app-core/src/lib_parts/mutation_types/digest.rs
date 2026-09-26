@@ -81,6 +81,14 @@ fn update_command_digest(
                 update_id(digest, *conversation_id);
                 update_id(digest, *workspace_id);
             }
+            CanonicalMutationCommand::CreateTextOnlyConversation {
+                conversation_id,
+                workspace_id,
+            } => {
+                digest.update([14]);
+                update_id(digest, *conversation_id);
+                update_id(digest, *workspace_id);
+            }
             CanonicalMutationCommand::GenerateText {
                 conversation_id,
                 text,

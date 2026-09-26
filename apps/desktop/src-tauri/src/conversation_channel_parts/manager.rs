@@ -67,6 +67,28 @@ impl ConversationSubscriptionManager {
         )
     }
 
+    /// Admits the singleton TextOnly conversation subscription.
+    pub fn subscribe_text_only<S>(
+        &self,
+        source: Arc<S>,
+        window_label: &str,
+        on_update: Channel<ConversationChannelEvent>,
+    ) -> Result<String, ConversationChannelError>
+    where
+        S: ConversationUpdateSource,
+    {
+        if window_label.is_empty() {
+            return Err(ConversationChannelError::unavailable());
+        }
+        self.subscribe_target(
+            source,
+            ConversationSubscriptionTarget::TextOnly,
+            "text-only:v1".to_owned(),
+            window_label,
+            on_update,
+        )
+    }
+
     fn subscribe_target<S>(
         &self,
         source: Arc<S>,

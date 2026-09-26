@@ -78,6 +78,10 @@ enum CommandReconciliationWitness {
         conversation_id: CanonicalId,
         workspace_id: CanonicalId,
     },
+    CreateTextOnlyConversation {
+        conversation_id: CanonicalId,
+        workspace_id: CanonicalId,
+    },
     GenerateConversationText {
         conversation_id: CanonicalId,
         expected_version: u64,

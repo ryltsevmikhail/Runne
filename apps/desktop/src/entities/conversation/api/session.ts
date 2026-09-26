@@ -14,10 +14,11 @@ import type {
   Invoke,
 } from './types'
 import {
-  openWorkspaceConversation,
-  resyncWorkspaceConversation,
-  sendWorkspaceMessage,
-} from './transport'
+  openConversationForOwner,
+  resyncConversationForOwner,
+  sendMessageForOwner,
+  subscribeForOwner,
+} from './owner-transport'
 import {
   isCanonicalId,
   parseConversationChannelEvent,
@@ -27,13 +28,14 @@ import {
   validateWorkspaceId,
 } from './validation'
 
-export async function subscribeWorkspaceConversation(
+export async function subscribeConversationForOwner(
+  textOnly: boolean,
   workspaceId: string,
   initialSnapshot: ConversationSnapshot,
   onTimeline: ConversationTimelineListener,
-  invoke: Invoke = tauriInvoke,
+  invoke: Invoke,
 ): Promise<ConversationSession> {
-  validateWorkspaceId(workspaceId)
+  if (!textOnly) validateWorkspaceId(workspaceId)
   const sanitizedInitial = parseConversationSnapshot(initialSnapshot)
   if (sanitizedInitial === null) {
     throw new Error('Invalid conversation response')
@@ -96,10 +98,7 @@ export async function subscribeWorkspaceConversation(
       }
       void serialize(() => handleEvent(value, currentGeneration))
     })
-    const value = await invoke('subscribe_workspace_conversation', {
-      workspaceId,
-      onUpdate: channel,
-    })
+    const value = await subscribeForOwner(textOnly, workspaceId, channel, invoke)
     if (!isCanonicalId(value)) {
       await terminate('incompatible')
       throw new Error('Invalid conversation subscription response')
@@ -125,7 +124,7 @@ export async function subscribeWorkspaceConversation(
     if (closed) {
       return
     }
-    const snapshot = await openWorkspaceConversation(workspaceId, invoke)
+    const snapshot = await openConversationForOwner(textOnly, workspaceId, invoke)
     if (closed) {
       return
     }
@@ -219,7 +218,7 @@ export async function subscribeWorkspaceConversation(
     if (closed) {
       throw new Error('Conversation subscription is closed')
     }
-    const snapshot = await sendWorkspaceMessage(workspaceId, text, invoke)
+    const snapshot = await sendMessageForOwner(textOnly, workspaceId, text, invoke)
     if (closed) {
       throw new Error('Conversation subscription is closed')
     }
@@ -259,7 +258,7 @@ export async function subscribeWorkspaceConversation(
       }
       let snapshot = resyncedSnapshot
       if (snapshot === null) {
-        snapshot = await resyncWorkspaceConversation(workspaceId, invoke)
+        snapshot = await resyncConversationForOwner(textOnly, workspaceId, invoke)
         if (
           snapshot.conversationId !== timeline.snapshot.conversationId
           || snapshot.recovery !== 'live'

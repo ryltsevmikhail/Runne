@@ -40,6 +40,10 @@ pub enum CommandReconciliationWitnessRef<'a> {
         conversation_id: ConversationId,
         workspace_id: WorkspaceId,
     },
+    CreateTextOnlyConversation {
+        conversation_id: ConversationId,
+        workspace_id: WorkspaceId,
+    },
     GenerateConversationText {
         conversation_id: ConversationId,
         expected_version: u64,

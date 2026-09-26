@@ -17,6 +17,10 @@ async fn stream_live(
         }
     };
     let principal_id = principal.as_api_principal().as_str().to_owned();
+    let binding = match state.binding_for_authenticated(&authenticated) {
+        Ok(binding) => binding,
+        Err(error) => return error.into_response(&request_id),
+    };
     let live_permit = match state.quotas.reserve_live(&principal_id) {
         Ok(permit) => permit,
         Err(_) => return replay_backpressure().into_response(&request_id),
@@ -26,9 +30,9 @@ async fn stream_live(
         .poll_live(
             &session_id,
             &principal_id,
-            state.binding.session_generation,
-            &state.binding.authority_id,
-            state.binding.authorization_epoch,
+            binding.session_generation,
+            &binding.authority_id,
+            binding.authorization_epoch,
             live_delivery_guard(&state, &authenticated, 1),
         )
         .await;
@@ -63,6 +67,7 @@ async fn stream_live(
             session_id,
             principal_id,
             authenticated,
+            binding,
             sender,
             _session_permit: session_permit,
             _live_permit: live_permit,

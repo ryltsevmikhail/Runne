@@ -110,6 +110,9 @@ impl AppCore {
             ConversationReferenceOwner::Workspace(workspace_id) => {
                 self.load_or_prepare_workspace_conversation_reference(&workspace_id.to_string())?
             }
+            ConversationReferenceOwner::TextOnly => {
+                self.load_or_prepare_text_only_conversation_reference()?
+            }
         };
         if reference
             .bound()
@@ -131,6 +134,7 @@ impl AppCore {
                     reference.workspace_id(),
                     identity,
                     reference.idempotency_key().to_owned(),
+                    reference.text_only(),
                 )
                 .await?;
             if created.conversation_id != reference.conversation_id()
