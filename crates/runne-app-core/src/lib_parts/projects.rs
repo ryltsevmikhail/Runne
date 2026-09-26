@@ -9,14 +9,24 @@ impl AppCore {
         &self,
     ) -> Result<Vec<CanonicalProjectSummary>, AppCoreError> {
         let _operation = self.runtime_operation.lock().await;
-        let client = self.live_runtime_client()?;
+        let client = self.live_runtime_client().inspect_err(|_| {
+            eprintln!(
+                "runne-http-diagnostic component=projects phase=client_lookup kind=runtime_unavailable"
+            );
+        })?;
         let mut cursor = None;
         let mut projects = Vec::with_capacity(project_page_capacity());
         for _ in 0..MAX_CANONICAL_PROJECT_PAGES {
             let page = client
                 .list_projects(PROJECT_PAGE_LIMIT, cursor.as_ref())
                 .await
-                .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+                .map_err(|error| {
+                    eprintln!(
+                        "runne-http-diagnostic component=projects phase=client_response kind={:?}",
+                        error.kind()
+                    );
+                    AppCoreError::RuntimeUnavailable
+                })?;
             projects.extend(page.items().iter().map(CanonicalProjectSummary::from));
             match page.next_cursor().cloned() {
                 None => return Ok(projects),
@@ -36,7 +46,8 @@ impl AppCore {
         &self,
         project_id: &str,
     ) -> Result<CanonicalProjectDetails, AppCoreError> {
-        let project_id = CanonicalId::parse(project_id).map_err(|_| AppCoreError::ProjectUnavailable)?;
+        let project_id =
+            CanonicalId::parse(project_id).map_err(|_| AppCoreError::ProjectUnavailable)?;
         let _operation = self.runtime_operation.lock().await;
         let client = self.live_runtime_client()?;
         let project = client
@@ -52,10 +63,12 @@ impl AppCore {
                 .map_err(|_| AppCoreError::RuntimeUnavailable)?;
             workspaces.extend(page.items().iter().map(CanonicalWorkspaceSummary::from));
             match page.next_cursor().cloned() {
-                None => return Ok(CanonicalProjectDetails {
-                    project: CanonicalProjectSummary::from(&project),
-                    workspaces,
-                }),
+                None => {
+                    return Ok(CanonicalProjectDetails {
+                        project: CanonicalProjectSummary::from(&project),
+                        workspaces,
+                    });
+                }
                 Some(next) => cursor = Some(next),
             }
         }
@@ -71,7 +84,8 @@ impl AppCore {
         &self,
         workspace_id: &str,
     ) -> Result<CanonicalWorkspaceSummary, AppCoreError> {
-        let workspace_id = CanonicalId::parse(workspace_id).map_err(|_| AppCoreError::ProjectUnavailable)?;
+        let workspace_id =
+            CanonicalId::parse(workspace_id).map_err(|_| AppCoreError::ProjectUnavailable)?;
         let _operation = self.runtime_operation.lock().await;
         self.live_runtime_client()?
             .get_workspace(workspace_id)
@@ -132,9 +146,17 @@ impl AppCore {
     /// # Errors
     ///
     /// Returns an error when locking or canonical root storage fails.
-    pub fn get_workspace(&self, workspace_id: &str) -> Result<Option<ProjectSummary>, AppCoreError> {
-        let store = self.store.lock().map_err(|_| AppCoreError::StateUnavailable)?;
-        Ok(store.get_workspace_root(workspace_id)?.map(ProjectSummary::from))
+    pub fn get_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Option<ProjectSummary>, AppCoreError> {
+        let store = self
+            .store
+            .lock()
+            .map_err(|_| AppCoreError::StateUnavailable)?;
+        Ok(store
+            .get_workspace_root(workspace_id)?
+            .map(ProjectSummary::from))
     }
 
     /// Returns a bounded diagnostics snapshot without paths or content.

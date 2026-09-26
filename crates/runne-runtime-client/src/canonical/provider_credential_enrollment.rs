@@ -72,17 +72,24 @@ impl AuthenticatedRuntimeClient {
         &self,
         provider: ProviderCredentialProviderV2,
     ) -> Result<ProviderCredentialSafeSnapshotV2, RuntimeApiError> {
-        require_enrollment_capability(self)?;
-        let response = self
-            .authenticated_request(self.http_client().get(self.url(&format!(
-                "/v2/providers/{}/credential-enrollment",
-                provider_path(provider)
-            ))))?
-            .send()
-            .await
-            .map_err(map_transport)?;
-        let snapshot =
-            read_success_json::<ProviderCredentialSafeSnapshotV2>(response, &[200]).await?;
+        require_enrollment_capability(self).inspect_err(|error| {
+            report_http_diagnostic(
+                "credential_status",
+                "capability",
+                None,
+                diagnostic_error_kind(error),
+            );
+        })?;
+        let request = self.authenticated_request(self.http_client().get(self.url(&format!(
+            "/v2/providers/{}/credential-enrollment",
+            provider_path(provider)
+        ))))?;
+        let snapshot = diagnostic_json::<ProviderCredentialSafeSnapshotV2>(
+            request,
+            "credential_status",
+            &[200],
+        )
+        .await?;
         (snapshot.provider_id() == provider)
             .then_some(snapshot)
             .ok_or_else(invalid_response)

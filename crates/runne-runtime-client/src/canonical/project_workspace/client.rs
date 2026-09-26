@@ -5,7 +5,8 @@ use super::{
     WorkspacePageDto, WorkspaceSnapshotDto, wire::*,
 };
 use crate::canonical::{
-    AuthenticatedRuntimeClient, CanonicalId, RuntimeApiError, read_success_json,
+    AuthenticatedRuntimeClient, CanonicalId, RuntimeApiError, diagnostic_json, read_success_json,
+    report_api_error,
 };
 use reqwest::{Method, header::CONTENT_TYPE};
 #[path = "client/errors.rs"]
@@ -27,17 +28,17 @@ impl AuthenticatedRuntimeClient {
         if let Some(cursor) = cursor {
             request = request.query(&[("cursor", cursor.as_str())]);
         }
-        let response = self
-            .authenticated_request(request)?
-            .send()
-            .await
-            .map_err(map_transport)?;
-        project_page(
-            read_success_json::<ProjectPageWire>(response, &[200]).await?,
-            limit,
-            &runne_api::ApiPrincipalId::new(self.session_info().principal_id.clone())
-                .map_err(|_| invalid_response())?,
+        let page = diagnostic_json::<ProjectPageWire>(
+            self.authenticated_request(request)?,
+            "projects",
+            &[200],
         )
+        .await?;
+        let principal = runne_api::ApiPrincipalId::new(self.session_info().principal_id.clone())
+            .map_err(|_| invalid_response())?;
+        project_page(page, limit, &principal).inspect_err(|error| {
+            report_api_error("projects", "response_validation", Some(200), error);
+        })
     }
     /// Reads one Project without exposing a raw transport escape hatch.
     pub async fn get_project(
