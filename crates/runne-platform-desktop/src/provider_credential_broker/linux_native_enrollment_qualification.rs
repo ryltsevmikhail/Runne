@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 pub const FIXTURE_ROOT_ENV: &str = "RUNNE_D1_1B_POST_DELETE_KILL_FIXTURE_ROOT";
 const DIAGNOSTIC_FILE: &str = "linux-enrollment-stage.log";
+const DIAGNOSTIC_STAGES: &str = "begin_snapshot|writer_launch|writer_claim_and_relay|writer_installed_spec|writer_endpoint_handoff|writer_release_tuple|writer_private_endpoint|writer_endpoint_offer_prepare|writer_child_spawn|writer_endpoint_send|writer_spawn_startup_handshake|writer_capability_before_spawn|writer_broker_handoff|writer_spawn_and_handshake|writer_post_spawn_revalidation|writer_channel_binding|writer_process_claim_facts|writer_claim_measurements|writer_claim_preflight|writer_peer_remeasurement|writer_peer_release_match|writer_live_session|writer_ticket_claim_pipeline|claim_issue_context|claim_ticket_authority|claim_issue_ticket|claim_ticket_accept";
 
 /// Records one fixed native Linux enrollment stage when qualification logging is opted in.
 ///
@@ -44,10 +45,20 @@ pub fn record_enrollment_stage(stage: &'static str) {
     let Ok(Some(root)) = fixture_root_from_env() else {
         return;
     };
-    append_diagnostic(&root, stage);
+    append_diagnostic(&root, stage, None);
 }
 
-fn append_diagnostic(root: &Path, stage: &str) {
+pub fn record_enrollment_stage_outcome(stage: &'static str, succeeded: bool) {
+    if !DIAGNOSTIC_STAGES.split('|').any(|allowed| allowed == stage) {
+        return;
+    }
+    let Ok(Some(root)) = fixture_root_from_env() else {
+        return;
+    };
+    append_diagnostic(&root, stage, Some(succeeded));
+}
+
+fn append_diagnostic(root: &Path, stage: &str, outcome: Option<bool>) {
     use std::io::Write as _;
     use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _};
 
@@ -72,7 +83,17 @@ fn append_diagnostic(root: &Path, stage: &str) {
     {
         return;
     }
-    let _ = writeln!(file, "stage={stage}");
+    match outcome {
+        Some(true) => {
+            let _ = writeln!(file, "stage={stage} outcome=ok");
+        }
+        Some(false) => {
+            let _ = writeln!(file, "stage={stage} outcome=failed");
+        }
+        None => {
+            let _ = writeln!(file, "stage={stage}");
+        }
+    }
     let _ = file.sync_data();
 }
 
@@ -185,7 +206,7 @@ mod tests {
         std::fs::write(&target, b"").unwrap();
         std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
         std::os::unix::fs::symlink(&target, root.join(DIAGNOSTIC_FILE)).unwrap();
-        append_diagnostic(&root, "measurement_ready");
+        append_diagnostic(&root, "measurement_ready", None);
         assert_eq!(std::fs::read(&target).unwrap(), b"");
         std::fs::remove_file(root.join(DIAGNOSTIC_FILE)).unwrap();
 
@@ -201,7 +222,7 @@ mod tests {
             rustix::fs::Mode::from_bits_truncate(0o600),
         )
         .unwrap();
-        append_diagnostic(&root, "measurement_ready");
+        append_diagnostic(&root, "measurement_ready", None);
         assert!(
             std::fs::symlink_metadata(root.join(DIAGNOSTIC_FILE))
                 .unwrap()
@@ -216,7 +237,47 @@ mod tests {
             std::fs::Permissions::from_mode(0o2600),
         )
         .unwrap();
-        append_diagnostic(&root, "measurement_ready");
+        append_diagnostic(&root, "measurement_ready", None);
         assert_eq!(std::fs::read(root.join(DIAGNOSTIC_FILE)).unwrap(), b"");
+    }
+
+    #[test]
+    fn child_process_stage_record_is_visible_in_fixture_log() {
+        const CHILD: &str = "provider_credential_broker::linux_native_enrollment_qualification::tests::write_stage_child";
+        let parent = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(parent.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let root = parent.path().join("fixture");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", CHILD])
+            .env(FIXTURE_ROOT_ENV, &root)
+            .env("RUNNE_QUALIFICATION_LOG_CHILD", "1")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        use std::os::unix::fs::PermissionsExt as _;
+        assert_eq!(
+            std::fs::metadata(root.join(DIAGNOSTIC_FILE))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o7777,
+            0o600
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join(DIAGNOSTIC_FILE)).unwrap(),
+            "stage=claim_issue_ticket outcome=failed\n"
+        );
+    }
+
+    #[test]
+    fn write_stage_child() {
+        if std::env::var_os("RUNNE_QUALIFICATION_LOG_CHILD").is_some() {
+            record_enrollment_stage_outcome("claim_issue_ticket", false);
+            record_enrollment_stage_outcome("untrusted_payload", false);
+        }
     }
 }

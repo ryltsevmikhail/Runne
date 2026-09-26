@@ -1,13 +1,10 @@
 pub(crate) fn record(stage: &'static str, succeeded: bool) {
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "linux-native-enrollment-qualification"))]
     {
-        use std::io::Write as _;
-        let outcome = if succeeded { "ok" } else { "failed" };
-        let _ = writeln!(
-            std::io::stderr().lock(),
-            "runne-linux-enrollment stage={stage} outcome={outcome}"
+        runne_platform_desktop::provider_credential_broker::linux_native_enrollment_qualification::record_enrollment_stage_outcome(
+            stage, succeeded,
         );
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(all(target_os = "linux", feature = "linux-native-enrollment-qualification")))]
     let _ = (stage, succeeded);
 }
