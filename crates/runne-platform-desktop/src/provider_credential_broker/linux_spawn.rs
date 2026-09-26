@@ -40,6 +40,13 @@ mod control_only;
 mod pair;
 #[path = "linux_spawn/plan.rs"]
 mod plan;
+#[cfg(all(
+    test,
+    feature = "linux-native-enrollment-qualification",
+    not(feature = "test-support")
+))]
+#[path = "linux_spawn/qualification_env_tests.rs"]
+mod qualification_env_tests;
 #[cfg(target_os = "linux")]
 pub use control_only::spawn_linux_writer_from_prepared_handoff;
 pub use pair::spawn_linux_pair_writer_from_prepared_handoff;
@@ -48,6 +55,22 @@ pub(in crate::provider_credential_broker) use plan::SpawnPlan;
 #[cfg(test)]
 pub(in crate::provider_credential_broker) use plan::build_plan_for_tests;
 use plan::{apply_plan, build_plan, close_inventory, duplicate_above_reserved, open_null};
+
+#[cfg(any(
+    feature = "test-support",
+    feature = "linux-native-enrollment-qualification"
+))]
+fn opted_in_fixture_root() -> Result<Option<std::path::PathBuf>, BrokerHandoffError> {
+    plan::opted_in_fixture_root()
+}
+
+#[cfg(not(any(
+    feature = "test-support",
+    feature = "linux-native-enrollment-qualification"
+)))]
+fn opted_in_fixture_root() -> Result<Option<std::path::PathBuf>, BrokerHandoffError> {
+    Ok(None)
+}
 
 /// Strictly validated session-bus address. Production uses only the
 /// euid-derived canonical socket; tests may validate a private fixture
@@ -149,10 +172,7 @@ fn spawn_with_secret(
     let handshake = duplicate_above_reserved(&handshake_end)?;
     let stderr_null = duplicate_above_reserved(&open_null(OFlag::O_WRONLY)?)?;
     let mut reserved_fd = Some(open_null(OFlag::O_RDONLY)?);
-    #[cfg(feature = "test-support")]
-    let fixture_root = plan::opted_in_fixture_root()?;
-    #[cfg(not(feature = "test-support"))]
-    let fixture_root: Option<std::path::PathBuf> = None;
+    let fixture_root = opted_in_fixture_root()?;
     let plan = build_plan(
         spec,
         address,
