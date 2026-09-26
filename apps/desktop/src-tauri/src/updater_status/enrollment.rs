@@ -46,16 +46,22 @@ impl NativeInstalledEnrollmentLease {
     #[cfg(target_os = "linux")]
     pub(crate) fn refresh_linux(&mut self) -> Result<(), ()> {
         let (desktop_executable, resource_directory) = self.linux_paths.as_ref().ok_or(())?;
-        let prepared = self.prepared.take().ok_or(())?;
-        self.prepared = self
-            .updater
-            .coordinator
-            .refresh_linux_installed_native_enrollment(
-                prepared,
-                desktop_executable,
-                resource_directory,
-            )
-            .map_err(|_| ())?;
+        self.prepared = match self.prepared.take() {
+            Some(prepared) => self
+                .updater
+                .coordinator
+                .refresh_linux_installed_native_enrollment(
+                    prepared,
+                    desktop_executable,
+                    resource_directory,
+                )
+                .map_err(|_| ())?,
+            None => self
+                .updater
+                .coordinator
+                .prepare_linux_installed_native_enrollment(desktop_executable, resource_directory)
+                .map_err(|_| ())?,
+        };
         self.prepared.as_ref().ok_or(())?;
         Ok(())
     }

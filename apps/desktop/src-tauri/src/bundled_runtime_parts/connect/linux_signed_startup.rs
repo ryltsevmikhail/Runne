@@ -85,6 +85,28 @@ pub(super) fn route(state: RouteState) -> Route {
     Route::Transition
 }
 
+fn confirmed_v3_successor(
+    previous: &runne_platform_desktop::ConfirmedInstalledNativeEnrollment,
+    current: &runne_platform_desktop::ConfirmedInstalledNativeEnrollment,
+) -> bool {
+    let (Some(previous), Some(current)) = (
+        previous.enrollment_transition_facts(),
+        current.enrollment_transition_facts(),
+    ) else {
+        return false;
+    };
+    transition_facts_are_v3_successor(previous, current)
+}
+
+fn transition_facts_are_v3_successor(
+    previous: runne_platform_desktop::EnrollmentTransitionFacts,
+    current: runne_platform_desktop::EnrollmentTransitionFacts,
+) -> bool {
+    previous.release_tuple_digest == current.release_tuple_digest
+        && previous.qualification_binding_digest == current.qualification_binding_digest
+        && previous.supervisor_generation.checked_add(1) == Some(current.supervisor_generation)
+}
+
 pub(super) async fn transition_and_install(
     controller: &BundledRuntimeController,
     lease: runne_app_core::BundledRuntimeActivationLease,
@@ -156,7 +178,27 @@ pub(super) async fn transition_and_install(
     installed
         .revalidate_confirmed(&confirmed)
         .map_err(|error| failed("final_revalidate", error))?;
-    let marker = ActiveSignedLinuxV3Marker::from_confirmed(&confirmed)
+    // The transition rotates the V2 session into V3 and advances the launch
+    // generation. Reconfirm against that Ready V3 identity before minting the
+    // host-only marker, under the same retained updater operation lease.
+    installed
+        .refresh_linux()
+        .map_err(|error| failed("v3_confirm_refresh", error))?;
+    let v3_prepared = installed
+        .take_prepared()
+        .map_err(|error| failed("v3_confirm_take", error))?;
+    let v3_confirmed = controller
+        .run_supervisor(move |supervisor| supervisor.confirm_installed_native_enrollment(v3_prepared))
+        .await
+        .map_err(|error| failed("v3_confirm_tuple", error))?;
+    installed
+        .revalidate_confirmed(&v3_confirmed)
+        .map_err(|error| failed("v3_confirm_revalidate", error))?;
+    if !confirmed_v3_successor(&confirmed, &v3_confirmed) {
+        diagnostic("v3_confirm_mismatch");
+        return Err(AppCoreError::RuntimeUnavailable);
+    }
+    let marker = ActiveSignedLinuxV3Marker::from_confirmed(&v3_confirmed)
         .ok_or_else(|| failed("confirmed_marker", ()))?;
     *controller
         .active_signed_linux_v3
@@ -229,4 +271,27 @@ fn ensure_not_stopping(controller: &BundledRuntimeController) -> Result<(), AppC
     (!controller.operation_fence.is_stopping())
         .then_some(())
         .ok_or(AppCoreError::RuntimeUnavailable)
+}
+
+#[cfg(test)]
+mod transition_tests {
+    use super::transition_facts_are_v3_successor;
+    use runne_platform_desktop::EnrollmentTransitionFacts;
+
+    fn facts(release: u8, qualification: u8, generation: u64) -> EnrollmentTransitionFacts {
+        EnrollmentTransitionFacts {
+            release_tuple_digest: [release; 32],
+            qualification_binding_digest: [qualification; 32],
+            supervisor_generation: generation,
+        }
+    }
+
+    #[test]
+    fn v3_marker_uses_next_generation_of_same_signed_tuple() {
+        assert!(transition_facts_are_v3_successor(facts(1, 2, 8), facts(1, 2, 9)));
+        assert!(!transition_facts_are_v3_successor(facts(1, 2, 8), facts(1, 2, 8)));
+        assert!(!transition_facts_are_v3_successor(facts(1, 2, 8), facts(1, 2, 10)));
+        assert!(!transition_facts_are_v3_successor(facts(1, 2, 8), facts(3, 2, 9)));
+        assert!(!transition_facts_are_v3_successor(facts(1, 2, 8), facts(1, 4, 9)));
+    }
 }
