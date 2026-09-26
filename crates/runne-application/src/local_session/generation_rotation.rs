@@ -1,4 +1,6 @@
 impl LocalSessionService {
+    const ENROLLMENT_RESERVATION_TTL: std::time::Duration = std::time::Duration::from_secs(30);
+
     /// Reserves the exact authoritative successor of the current launch generation.
     ///
     /// Only a `OneTimeProtected` service may reserve, and the authoritative
@@ -7,7 +9,9 @@ impl LocalSessionService {
     /// [`LocalSessionService::rotate_protected_enrollment_generation`] consumes
     /// it once through the same authoritative store.
     pub fn reserve_protected_enrollment_generation(&self) -> Result<u64, LocalSessionError> {
-        if self.bootstrap_policy != BootstrapPolicy::OneTimeProtected {
+        if self.bootstrap_policy != BootstrapPolicy::OneTimeProtected
+            || self.pending_protected_enrollment_generation().is_some()
+        {
             return Err(LocalSessionError::Unauthorized);
         }
         let Some(expected) = self
@@ -19,7 +23,14 @@ impl LocalSessionService {
             return Err(LocalSessionError::Unauthorized);
         };
         match self.enrollment_generation_store.reserve_next_enrollment_generation() {
-            Ok(reserved) if reserved == expected => Ok(reserved),
+            Ok(reserved) if reserved == expected => {
+                let deadline = std::time::Instant::now()
+                    .checked_add(Self::ENROLLMENT_RESERVATION_TTL)
+                    .ok_or(LocalSessionError::Unavailable)?;
+                self.pending_enrollment_generation
+                    .set(Some((reserved, deadline)));
+                Ok(reserved)
+            }
             Ok(_) => Err(LocalSessionError::Unauthorized),
             Err(EnrollmentLaunchGenerationConsumeError::Unavailable) => {
                 Err(LocalSessionError::Unavailable)
@@ -49,6 +60,9 @@ impl LocalSessionService {
             return Err(LocalSessionError::Unauthorized);
         };
         if self.bootstrap_policy != BootstrapPolicy::OneTimeProtected
+            || self.pending_enrollment_generation.get().is_some_and(|(generation, deadline)| {
+                generation != expected_generation || std::time::Instant::now() >= deadline
+            })
             || current_binding != &self.binding
             || bootstrap_secret == [0; 32]
             || next_ephemeral.launch_generation() != expected_generation
@@ -77,6 +91,7 @@ impl LocalSessionService {
         }
 
         self.binding = next_binding;
+        self.pending_enrollment_generation.set(None);
         self.bootstrap_secret = Some(Zeroizing::new(bootstrap_secret));
         self.bootstrap_expires_at = Some(expires_at);
         self.challenges.clear();
@@ -113,6 +128,9 @@ impl LocalSessionService {
             return Err(LocalSessionError::Unauthorized);
         };
         if self.bootstrap_policy != BootstrapPolicy::OneTimeProtected
+            || self.pending_enrollment_generation.get().is_some_and(|(generation, deadline)| {
+                generation != expected_generation || std::time::Instant::now() >= deadline
+            })
             || current_binding != &self.binding
             || bootstrap_secret == [0; 32]
             || next_ephemeral.launch_generation() != expected_generation
@@ -141,6 +159,7 @@ impl LocalSessionService {
         }
 
         self.binding = next_binding;
+        self.pending_enrollment_generation.set(None);
         self.bootstrap_secret = Some(Zeroizing::new(bootstrap_secret));
         self.bootstrap_expires_at = Some(expires_at);
         self.challenges.clear();

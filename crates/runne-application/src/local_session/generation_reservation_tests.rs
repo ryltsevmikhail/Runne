@@ -93,6 +93,28 @@ fn successful_reservation_never_mutates_the_in_memory_binding() {
     ).unwrap();
     assert_eq!(service.reserve_protected_enrollment_generation(), Ok(5));
     assert_eq!(service.current_binding(), &current);
+    assert_eq!(service.pending_protected_enrollment_generation(), Some(5));
+}
+
+#[test]
+fn pending_reservation_expires_and_verified_rotation_clears_it() {
+    let current = rotation_binding(4, [5; 16], 7, Sensitivity::Internal, [6; 32]);
+    let mut service = LocalSessionService::new_protected_with_stores(
+        current.clone(), [1; 16], [2; 32], [0x22; 32],
+        Arc::new(UnavailableBootstrapReservationStore),
+        Arc::new(ReservedGenerationStore::Value(5)),
+        Duration::ZERO, Duration::from_secs(30),
+    ).unwrap();
+    assert_eq!(service.reserve_protected_enrollment_generation(), Ok(5));
+    let future = std::time::Instant::now() + std::time::Duration::from_secs(31);
+    assert_eq!(service.pending_protected_enrollment_generation_at(future), None);
+
+    let next = rotation_binding(5, [9; 16], 8, Sensitivity::Internal, [6; 32]);
+    service.rotate_protected_enrollment_epoch(
+        &current, next.clone(), [0x33; 32], Duration::from_secs(1), Duration::from_secs(30),
+    ).unwrap();
+    assert_eq!(service.current_binding(), &next);
+    assert_eq!(service.pending_protected_enrollment_generation(), None);
 }
 
 #[test]

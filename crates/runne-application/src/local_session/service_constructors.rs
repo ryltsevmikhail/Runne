@@ -133,6 +133,7 @@ impl LocalSessionService {
             sensitivity_ceiling: binding.ephemeral().sensitivity_ceiling(),
             reservation_store,
             enrollment_generation_store,
+            pending_enrollment_generation: std::cell::Cell::new(None),
             binding,
             launch_authority_id,
             executable_sha256,
@@ -149,5 +150,21 @@ impl LocalSessionService {
     /// Returns the current exact in-memory session binding.
     pub const fn current_binding(&self) -> &RuntimeSessionBinding {
         &self.binding
+    }
+
+    /// Exact successor reservation made by this live protected session, if it
+    /// is still inside the bounded transition window.
+    pub fn pending_protected_enrollment_generation(&self) -> Option<u64> {
+        self.pending_protected_enrollment_generation_at(std::time::Instant::now())
+    }
+
+    fn pending_protected_enrollment_generation_at(
+        &self,
+        now: std::time::Instant,
+    ) -> Option<u64> {
+        self.pending_enrollment_generation
+            .get()
+            .filter(|(_, deadline)| now < *deadline)
+            .map(|(generation, _)| generation)
     }
 }

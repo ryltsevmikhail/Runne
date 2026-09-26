@@ -13,6 +13,9 @@ use super::{
 };
 use runne_api::{ProtectedCredentialStatusAckV2, ProtectedCredentialStatusRequestV2};
 
+#[cfg(all(test, target_os = "linux"))]
+#[path = "enrollment_status/linux_tests.rs"]
+mod linux_tests;
 #[cfg(all(test, target_os = "macos"))]
 mod tests;
 
@@ -31,13 +34,21 @@ impl ProtectedBundledRuntimeSupervisor {
         let facts = confirmed
             .enrollment_transition_facts()
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        let generation = std::num::NonZeroU64::new(facts.supervisor_generation)
+        #[cfg(target_os = "linux")]
+        let peer_generation = self
+            .process
+            .as_ref()
+            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?
+            .credential_status_peer_generation(facts.supervisor_generation)?;
+        #[cfg(not(target_os = "linux"))]
+        let peer_generation = facts.supervisor_generation;
+        let generation = std::num::NonZeroU64::new(peer_generation)
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
         let claims = EnrollmentTransitionClaims::new(
             facts.release_tuple_digest,
             facts.qualification_binding_digest,
             confirmed.current_desktop_peer_binding_digest(generation)?,
-            facts.supervisor_generation,
+            peer_generation,
         );
         self.process
             .as_mut()
@@ -47,6 +58,22 @@ impl ProtectedBundledRuntimeSupervisor {
 }
 
 impl ProtectedBundledRuntimeProcess {
+    #[cfg(target_os = "linux")]
+    const fn credential_status_peer_generation(
+        &self,
+        confirmed_generation: u64,
+    ) -> Result<u64, ProtectedBundledRuntimeError> {
+        match &self.activation {
+            ProtectedProcessActivation::V2 { .. } => Ok(confirmed_generation),
+            ProtectedProcessActivation::V3 { owned, .. }
+                if owned.launch_generation() == confirmed_generation =>
+            {
+                Ok(owned.enrollment_binding().desktop_supervisor_generation())
+            }
+            _ => Err(ProtectedBundledRuntimeError::OwnershipMismatch),
+        }
+    }
+
     pub(super) fn prepare_credential_status(
         &mut self,
         claims: &EnrollmentTransitionClaims,

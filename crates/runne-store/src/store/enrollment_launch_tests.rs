@@ -246,13 +246,18 @@ fn local_session_reserve_admits_only_the_exact_successor_and_rotate_consumes_it_
     .unwrap();
     assert_eq!(service.reserve_protected_enrollment_generation(), Ok(2));
 
-    // A second reservation advances the canonical counter past the pending
-    // exact-successor expectation; the stale reservation fails closed.
+    // This service cannot replace its own pending reservation, so the
+    // canonical counter remains at two.
     assert_eq!(
         service.reserve_protected_enrollment_generation(),
         Err(LocalSessionError::Unauthorized)
     );
     assert_eq!(service.current_binding(), &current);
+    assert_eq!(store.validate_enrollment_launch_generation(2), Ok(()));
+
+    // Model another process advancing the canonical counter while this
+    // service retains its pending reservation.
+    assert_eq!(store.reserve_enrollment_launch_generation(), Ok(3));
 
     // Re-anchor on the canonical counter value and complete the reserved flow.
     let reanchored = binding(3, [5; 16]);

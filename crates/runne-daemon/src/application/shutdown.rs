@@ -31,17 +31,22 @@ impl DaemonApplication {
         } = self;
 
         #[cfg(target_os = "linux")]
-        let execution_node = super::execution_node_lifecycle::LinuxExecutionNode::new(
+        let mut execution_node = super::execution_node_lifecycle::LinuxExecutionNode::new(
             bootstrap.authority_id,
+            binding.ephemeral().daemon_instance_id().into_bytes(),
             bootstrap.launch_generation,
         );
         #[cfg(target_os = "linux")]
-        let http_result = match execution_node.register(&store) {
+        let http_result = match execution_node.register(&store, &local_session_service) {
             Err(error) => Err(error),
             Ok(()) => {
                 http_host
                     .start()
-                    .run_until(execution_node.run_until_shutdown(store.clone(), shutdown))
+                    .run_until(execution_node.run_until_shutdown(
+                        store.clone(),
+                        local_session_service.clone(),
+                        shutdown,
+                    ))
                     .await
             }
         };

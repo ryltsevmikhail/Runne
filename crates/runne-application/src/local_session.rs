@@ -170,6 +170,7 @@ pub struct LocalSessionService {
     trusted_clock_origin: std::time::Instant,
     reservation_store: Arc<dyn BootstrapReservationStore>,
     enrollment_generation_store: Arc<dyn EnrollmentLaunchGenerationStore>,
+    pending_enrollment_generation: std::cell::Cell<Option<(u64, std::time::Instant)>>,
 }
 
 mod bootstrap_reservation_store;

@@ -45,6 +45,23 @@ impl StoreTransaction {
             .map_err(map_enrollment_launch_error)
     }
 
+    /// Confirms that a reservation remains canonical and has not been consumed.
+    ///
+    /// The canonical generation and consumed watermark are read under the same
+    /// writer lock so callers cannot accept a generation consumed concurrently.
+    pub fn validate_unconsumed_enrollment_launch_generation(
+        &self,
+        generation: u64,
+    ) -> Result<(), EnrollmentLaunchGenerationError> {
+        let connection = self
+            .inner
+            .writer
+            .lock()
+            .map_err(|_| EnrollmentLaunchGenerationError::Unavailable)?;
+        crate::schema::validate_unconsumed_reserved_launch_generation(&connection, generation)
+            .map_err(map_enrollment_launch_error)
+    }
+
     /// Atomically consumes the current enrollment reservation through the writer.
     pub fn consume_enrollment_launch_generation(
         &self,
