@@ -5,6 +5,8 @@ include!("project_commands.rs");
 include!("setup_state.rs");
 #[cfg(target_os = "linux")]
 include!("linux_enrollment_approval.rs");
+#[cfg(target_os = "linux")]
+include!("profile_directory_linux.rs");
 
 fn handle_window_event(window: &tauri::Window, event: &WindowEvent) {
     match event {
@@ -49,10 +51,13 @@ fn handle_window_event(window: &tauri::Window, event: &WindowEvent) {
 
 fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let profile_directory = app.path().app_data_dir()?;
+    #[cfg(target_os = "linux")]
+    ensure_linux_profile_directory_private(&profile_directory)?;
+    #[cfg(not(target_os = "linux"))]
+    std::fs::create_dir_all(&profile_directory)?;
     app.manage(crate::LocalModelState::new(
         profile_directory.join("local-engine").join("models"),
     ));
-    std::fs::create_dir_all(&profile_directory)?;
     let profile_lock = ProfileLock::acquire(&profile_directory.join("profile.lock"))?;
     let arguments: Vec<_> = std::env::args_os().skip(1).collect();
     #[cfg(target_os = "linux")]
