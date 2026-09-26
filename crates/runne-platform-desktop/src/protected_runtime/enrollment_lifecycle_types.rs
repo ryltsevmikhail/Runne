@@ -6,6 +6,8 @@ use runne_api::{
 };
 
 use super::ProtectedBundledRuntimeError;
+#[cfg(target_os = "linux")]
+use zeroize::Zeroizing;
 
 /// Native-only metadata accepted by the protected V3 enrollment transcript.
 pub struct NativeProtectedCredentialEnrollmentBegin {
@@ -65,6 +67,8 @@ pub struct PreparedProtectedCredentialEnrollment {
     pub(super) relay_taken: bool,
     #[cfg(target_os = "linux")]
     pub(super) relay_fd_taken: bool,
+    #[cfg(target_os = "linux")]
+    pub(super) relay_lifecycle_frame: Option<Zeroizing<Vec<u8>>>,
     pub(super) terminal: bool,
 }
 

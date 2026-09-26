@@ -165,7 +165,7 @@ impl ProtectedBundledRuntimeProcess {
         if !terminal && (snapshot.state() != ProviderCredentialOperationStateV2::Prepared || snapshot.broker_rendezvous_id().is_none()) {
             return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
         }
-        Ok(PreparedProtectedCredentialEnrollment { codec, snapshot, relay: None, relay_taken: false, relay_fd_taken: false, terminal })
+        Ok(PreparedProtectedCredentialEnrollment { codec, snapshot, relay: None, relay_taken: false, relay_fd_taken: false, relay_lifecycle_frame: None, terminal })
     }
 
     fn receive_linux_credential_secret_relay(
@@ -173,9 +173,11 @@ impl ProtectedBundledRuntimeProcess {
         enrollment: &mut PreparedProtectedCredentialEnrollment,
     ) -> Result<(), ProtectedBundledRuntimeError> {
         if enrollment.relay.is_some() || enrollment.relay_taken || enrollment.terminal { return Err(ProtectedBundledRuntimeError::InvalidState); }
-        let relay = enrollment.codec.decode_daemon_relay(&read_frame(&mut self.channel)?, 1)
+        let frame = read_frame(&mut self.channel)?;
+        let relay = enrollment.codec.decode_daemon_relay(&frame, 1)
             .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
         enrollment.relay = Some(relay.try_into().map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?);
+        enrollment.relay_lifecycle_frame = Some(frame);
         Ok(())
     }
 
@@ -204,6 +206,7 @@ fn accept_linux_terminal(
     process.record_linux_enrollment_terminal()?;
     enrollment.snapshot = terminal;
     enrollment.relay = None;
+    enrollment.relay_lifecycle_frame = None;
     enrollment.relay_taken = true;
     enrollment.terminal = true;
     Ok(())

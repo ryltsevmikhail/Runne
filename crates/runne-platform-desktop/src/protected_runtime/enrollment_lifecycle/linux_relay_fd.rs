@@ -37,9 +37,12 @@ impl ProtectedBundledRuntimeProcess {
         if enrollment.relay_fd_taken || enrollment.terminal {
             return Err(ProtectedBundledRuntimeError::InvalidState);
         }
-        let relay_frame = *enrollment
-            .relay
-            .as_ref()
+        if enrollment.relay.is_none() {
+            return Err(ProtectedBundledRuntimeError::InvalidState);
+        }
+        let lifecycle_frame = enrollment
+            .relay_lifecycle_frame
+            .take()
             .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
         enrollment.relay_fd_taken = true;
         let facts = self
@@ -50,7 +53,7 @@ impl ProtectedBundledRuntimeProcess {
         LinuxAuthenticatedPairSecretRelay::receive_linux_over_protected_stream(
             &self.channel,
             &authenticator,
-            &relay_frame,
+            &lifecycle_frame,
             &facts.binding(),
             &facts.publication_public_key(),
         )

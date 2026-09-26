@@ -149,6 +149,8 @@ mod tests {
                     relay_taken: consumed,
                     #[cfg(target_os = "linux")]
                     relay_fd_taken: false,
+                    #[cfg(target_os = "linux")]
+                    relay_lifecycle_frame: None,
                     terminal: false,
                 };
                 let result = ProtectedBundledRuntimeSupervisor::finish_control_only_credential_enrollment_with_rejoin(

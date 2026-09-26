@@ -59,6 +59,8 @@ async fn terminal_rejoin(pair: bool) {
             relay_taken: pair,
             #[cfg(target_os = "linux")]
             relay_fd_taken: false,
+            #[cfg(target_os = "linux")]
+            relay_lifecycle_frame: None,
             terminal: false,
         };
         let daemon = std::thread::spawn(move || {

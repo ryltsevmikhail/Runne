@@ -232,6 +232,8 @@ impl ProtectedBundledRuntimeProcess {
             relay_taken: false,
             #[cfg(target_os = "linux")]
             relay_fd_taken: false,
+            #[cfg(target_os = "linux")]
+            relay_lifecycle_frame: None,
             terminal,
         })
     }

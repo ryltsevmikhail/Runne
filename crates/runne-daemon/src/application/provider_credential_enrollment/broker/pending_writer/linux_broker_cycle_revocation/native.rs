@@ -1,5 +1,9 @@
 use super::fixture::DurableFixture;
-use runne_provider::CredentialVersionRef;
+use runne_provider::{CredentialDispatchCapability, CredentialVersionRef};
+use runne_secure_store::{
+    NativeKeyringStore, NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy,
+    ProviderCredentialStatus, SecureStoreError,
+};
 use std::process::Command;
 
 pub(super) fn reconcile_native(f: &DurableFixture, binary: &std::path::Path, now: i64) {
@@ -33,10 +37,6 @@ pub(super) struct NativeItemCleanup(String);
 impl NativeItemCleanup {
     pub(super) fn new(service: &str) -> Self {
         Self(service.to_owned())
-    }
-
-    pub(super) fn clear(&self) {
-        clear_item(&self.0);
     }
 }
 
@@ -96,4 +96,47 @@ pub(super) fn poll_absence(service: &str) {
 
 pub(super) fn assert_native_absent(service: &str) {
     poll_absence(service);
+}
+
+pub(super) fn assert_version_missing(binary: &std::path::Path, version: &CredentialVersionRef) {
+    let access =
+        ProviderCredentialAccessPolicy::new(binary, &std::env::current_exe().unwrap()).unwrap();
+    let native = NativeKeyringStore::new();
+    assert_eq!(
+        native.version_status(version, &access).unwrap(),
+        ProviderCredentialStatus::Missing,
+        "the unique allocated native version must be absent before Pair"
+    );
+}
+
+pub(super) fn load_sqlite_leased_native_secret(
+    f: &DurableFixture,
+    binary: &std::path::Path,
+) -> CredentialDispatchCapability {
+    let lease = f
+        .store()
+        .active_lease(f.operation.provider())
+        .unwrap()
+        .expect("paired SQLite version must have an active lease");
+    let capability = f.lifecycle.issue_dispatch(lease);
+    let access =
+        ProviderCredentialAccessPolicy::new(binary, &std::env::current_exe().unwrap()).unwrap();
+    let native = NativeKeyringStore::new_versioned(f.native_authority.clone());
+    let material = native.load_version(&capability, &access).unwrap();
+    assert!(material.with_bytes(|bytes| bytes == b"d1.1b-disposable-pair-seed"));
+    capability
+}
+
+pub(super) fn assert_old_native_capability_cannot_load(
+    f: &DurableFixture,
+    binary: &std::path::Path,
+    capability: &CredentialDispatchCapability,
+) {
+    let access =
+        ProviderCredentialAccessPolicy::new(binary, &std::env::current_exe().unwrap()).unwrap();
+    let native = NativeKeyringStore::new_versioned(f.native_authority.clone());
+    assert!(matches!(
+        native.load_version(capability, &access),
+        Err(SecureStoreError::ProviderCredentialNotFound)
+    ));
 }

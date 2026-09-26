@@ -6,6 +6,7 @@ pub(super) struct DurableFixture {
     _directory: tempfile::TempDir,
     pub(super) path: std::path::PathBuf,
     pub(super) lifecycle: CredentialLifecycleAuthority,
+    pub(super) native_authority: NativeCredentialAuthority,
     pub(super) enrollment: CredentialEnrollmentStoreAuthority,
     pub(super) measurements: std::sync::Arc<CredentialEnrollmentMeasurementAuthority>,
     pub(super) store: Option<runne_store::provider::SqliteProviderCredentialLifecycleStore>,
@@ -19,7 +20,7 @@ impl DurableFixture {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("daemon").join("lifecycle.sqlite");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let (lifecycle, _) = CredentialAuthorityPair::new().split();
+        let (lifecycle, native_authority) = CredentialAuthorityPair::new().split();
         let (enrollment, measurements) = CredentialEnrollmentAuthorityPair::new().split();
         let measurements = std::sync::Arc::new(measurements);
         let store =
@@ -73,6 +74,7 @@ impl DurableFixture {
             _directory: directory,
             path,
             lifecycle,
+            native_authority,
             enrollment,
             broker: ProviderCredentialBroker::new(measurements.clone()),
             measurements,

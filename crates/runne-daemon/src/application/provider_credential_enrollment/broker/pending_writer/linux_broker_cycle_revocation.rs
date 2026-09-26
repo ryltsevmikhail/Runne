@@ -15,7 +15,10 @@ mod writer;
 use fixture::DurableFixture;
 use fixture::unix_now;
 use kill_fixture::PostDeleteKillFixture;
-use native::{NativeItemCleanup, assert_native_absent, item_service, reconcile_native};
+use native::{
+    NativeItemCleanup, assert_native_absent, assert_old_native_capability_cannot_load,
+    assert_version_missing, item_service, load_sqlite_leased_native_secret, reconcile_native,
+};
 use revoke_after_kill::revoke_through_real_writer_after_delete_kill;
 use writer::{pair_through_real_writer, production_cli};
 
@@ -30,8 +33,9 @@ fn linux_production_writer_revoke_lost_ack_recovers_after_sqlite_reopen() {
     assert!(
         Command::new("keyctl")
             .args(["show", "@s"])
-            .status()
+            .output()
             .unwrap()
+            .status
             .success()
     );
     let binary = production_cli();
@@ -42,8 +46,8 @@ fn linux_production_writer_revoke_lost_ack_recovers_after_sqlite_reopen() {
         .unwrap()
         .clone();
     let service = item_service(&version);
+    assert_version_missing(&binary, &version);
     let _cleanup = NativeItemCleanup::new(&service);
-    _cleanup.clear();
 
     pair_through_real_writer(&mut fixture, &binary);
     let paired = fixture
@@ -57,6 +61,7 @@ fn linux_production_writer_revoke_lost_ack_recovers_after_sqlite_reopen() {
         .unwrap();
     let target = head.active_version().unwrap().clone();
     assert_eq!(target, version);
+    let old_capability = load_sqlite_leased_native_secret(&fixture, &binary);
     let revoke = fixture.begin_revoke(target);
     let fenced = fixture
         .store()
@@ -65,6 +70,7 @@ fn linux_production_writer_revoke_lost_ack_recovers_after_sqlite_reopen() {
     assert_eq!(fenced.lifecycle_revision().get(), 3);
     assert_eq!(fenced.fence().get(), 3);
     assert!(fenced.active_version().is_none());
+    assert!(fixture.stale_pair_begin().is_err());
 
     let kill_fixture = PostDeleteKillFixture::new();
     let killed_pid = revoke_through_real_writer_after_delete_kill(
@@ -80,6 +86,7 @@ fn linux_production_writer_revoke_lost_ack_recovers_after_sqlite_reopen() {
         .unwrap();
     assert_eq!(claimed.state(), CredentialOperationState::Claimed);
     assert_native_absent(&service);
+    assert_old_native_capability_cannot_load(&fixture, &binary, &old_capability);
 
     fixture.close_store();
     fixture.reopen_store();
@@ -99,6 +106,7 @@ fn linux_production_writer_revoke_lost_ack_recovers_after_sqlite_reopen() {
         .unwrap();
     assert_eq!(recovered.fence(), fenced.fence());
     assert!(recovered.active_version().is_none());
+    assert_old_native_capability_cannot_load(&fixture, &binary, &old_capability);
     assert_native_absent(&service);
     assert!(
         fixture.stale_pair_begin().is_err(),

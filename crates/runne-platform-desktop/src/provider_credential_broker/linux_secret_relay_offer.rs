@@ -234,6 +234,9 @@ mod tests {
         LinuxPairSecretRelayOfferAuthenticator::from_protected_activation(&keys)
     }
 
+    #[path = "linux_secret_relay_offer/frame_binding_tests.rs"]
+    mod frame_binding;
+
     fn relay() -> (MacOsAuthenticatedPairSecretRelay, OwnedFd) {
         let (reader, writer) = PreparedMacOsPairSecretPipe::prepare().unwrap().into_parts();
         let sealer = AuthenticatedPairSecretSealer::from_verified_public_context([7; 32], [8; 32]);
