@@ -1,11 +1,15 @@
 //! Exact spawn plan surface (B3 seam), split from the pidfd spawn core so
-//! each responsibility stays bounded. The plan pins: argv, the single
+//! each responsibility stays bounded. The plan pins: argv, the fixed
 //! `DBUS_SESSION_BUS_ADDRESS` environment entry, stdin ← broker control
 //! socket, stdout ← private writer startup (handshake) socket, stderr ←
-//! null, and the defense-in-depth close snapshot.
+//! null, and the defense-in-depth close snapshot. Test-support may add one
+//! validated private fixture path for the Linux post-delete kill barrier.
 
 use std::ffi::CString;
 use std::os::fd::{AsFd, AsRawFd as _, OwnedFd};
+use std::path::Path;
+#[cfg(feature = "test-support")]
+use std::path::PathBuf;
 
 use nix::fcntl::OFlag;
 use nix::spawn::PosixSpawnFileActions;
@@ -33,7 +37,35 @@ pub(in crate::provider_credential_broker) fn build_plan_for_tests(
     handshake_fd: i32,
     stderr_fd: i32,
 ) -> Result<SpawnPlan, BrokerHandoffError> {
-    build_plan(spec, address, channel_fd, handshake_fd, stderr_fd, None)
+    build_plan(
+        spec,
+        address,
+        channel_fd,
+        handshake_fd,
+        stderr_fd,
+        None,
+        None,
+    )
+}
+
+#[cfg(all(test, feature = "test-support"))]
+pub(in crate::provider_credential_broker) fn build_plan_for_tests_with_fixture_root(
+    spec: &VerifiedWriterLaunchSpec,
+    address: &SessionBusAddress,
+    channel_fd: i32,
+    handshake_fd: i32,
+    stderr_fd: i32,
+    fixture_root: Option<&Path>,
+) -> Result<SpawnPlan, BrokerHandoffError> {
+    build_plan(
+        spec,
+        address,
+        channel_fd,
+        handshake_fd,
+        stderr_fd,
+        None,
+        fixture_root,
+    )
 }
 
 pub(in crate::provider_credential_broker) fn build_plan(
@@ -43,6 +75,7 @@ pub(in crate::provider_credential_broker) fn build_plan(
     handshake_fd: i32,
     stderr_fd: i32,
     secret_fd: Option<i32>,
+    fixture_root: Option<&Path>,
 ) -> Result<SpawnPlan, BrokerHandoffError> {
     if [channel_fd, handshake_fd, stderr_fd]
         .into_iter()
@@ -67,11 +100,65 @@ pub(in crate::provider_credential_broker) fn build_plan(
         ],
         closes: vec![channel_fd, handshake_fd, stderr_fd],
     };
+    if let Some(_root) = fixture_root {
+        #[cfg(feature = "test-support")]
+        plan.environment.push(fixture_root_environment(_root)?);
+        #[cfg(not(feature = "test-support"))]
+        return Err(BrokerHandoffError::Rejected);
+    }
     if let Some(secret_fd) = secret_fd {
         plan.duplications.push((secret_fd, 3));
         plan.closes.push(secret_fd);
     }
     Ok(plan)
+}
+
+#[cfg(all(target_os = "linux", feature = "test-support"))]
+pub(super) fn opted_in_fixture_root() -> Result<Option<PathBuf>, BrokerHandoffError> {
+    const ENV: &str = "RUNNE_D1_1B_POST_DELETE_KILL_FIXTURE_ROOT";
+    let Some(root) = std::env::var_os(ENV) else {
+        return Ok(None);
+    };
+    let root = PathBuf::from(root);
+    validate_private_fixture_root(&root)?;
+    Ok(Some(root))
+}
+
+#[cfg(feature = "test-support")]
+fn fixture_root_environment(root: &Path) -> Result<CString, BrokerHandoffError> {
+    use std::os::unix::ffi::OsStrExt as _;
+    const PREFIX: &[u8] = b"RUNNE_D1_1B_POST_DELETE_KILL_FIXTURE_ROOT=";
+    validate_private_fixture_root(root)?;
+    let mut value = PREFIX.to_vec();
+    value.extend_from_slice(root.as_os_str().as_bytes());
+    CString::new(value).map_err(|_| BrokerHandoffError::Rejected)
+}
+
+#[cfg(feature = "test-support")]
+fn validate_private_fixture_root(root: &Path) -> Result<(), BrokerHandoffError> {
+    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+
+    if !root.is_absolute() || std::fs::canonicalize(root).ok().as_deref() != Some(root) {
+        return Err(BrokerHandoffError::Rejected);
+    }
+    let root_metadata =
+        std::fs::symlink_metadata(root).map_err(|_| BrokerHandoffError::Rejected)?;
+    let parent = root.parent().ok_or(BrokerHandoffError::Rejected)?;
+    let parent_metadata =
+        std::fs::symlink_metadata(parent).map_err(|_| BrokerHandoffError::Rejected)?;
+    let owner = rustix::process::geteuid().as_raw();
+    if root_metadata.is_symlink()
+        || !root_metadata.is_dir()
+        || parent_metadata.is_symlink()
+        || !parent_metadata.is_dir()
+        || root_metadata.uid() != owner
+        || parent_metadata.uid() != owner
+        || root_metadata.permissions().mode() & 0o077 != 0
+        || parent_metadata.permissions().mode() & 0o077 != 0
+    {
+        return Err(BrokerHandoffError::Rejected);
+    }
+    Ok(())
 }
 
 pub(super) fn apply_plan(plan: &SpawnPlan) -> Result<PosixSpawnFileActions, BrokerHandoffError> {

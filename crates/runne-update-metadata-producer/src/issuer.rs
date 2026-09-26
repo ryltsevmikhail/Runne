@@ -9,7 +9,9 @@ use runne_platform_desktop::{
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::input::{UpdateMetadataDraft, read_native_enrollment_tuple_v3};
+use crate::input::{
+    UpdateMetadataDraft, read_linux_native_enrollment_tuple_v2, read_native_enrollment_tuple_v3,
+};
 use crate::key_store::{KeySlot, UpdateSigningKeyStore};
 
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
@@ -101,12 +103,17 @@ fn target(
     size: u64,
     digest: String,
 ) -> Result<UpdateTargetV2, ProducerError> {
+    if draft.native_enrollment_tuple_path.is_some()
+        && draft.native_enrollment_tuple_v2_path.is_some()
+    {
+        return Err(ProducerError::Input);
+    }
     let native_enrollment_tuple_v3 = draft
         .native_enrollment_tuple_path
         .as_deref()
         .map(read_native_enrollment_tuple_v3)
         .transpose()?;
-    Ok(UpdateTargetV2 {
+    let mut target = UpdateTargetV2 {
         product_id: draft.product_id.clone(),
         version: draft.version.clone(),
         platform: draft.platform.clone(),
@@ -127,7 +134,15 @@ fn target(
         native_enrollment_tuple: None,
         native_enrollment_tuple_v3,
         qualification_bootstrap_client_v1: None,
-    })
+    };
+    if let Some(path) = draft.native_enrollment_tuple_v2_path.as_deref() {
+        let (tuple_target, tuple) = read_linux_native_enrollment_tuple_v2(path)?;
+        if draft.platform != "linux" || tuple_target != target {
+            return Err(ProducerError::Verification);
+        }
+        target.native_enrollment_tuple = Some(tuple);
+    }
+    Ok(target)
 }
 
 fn root_signatures(

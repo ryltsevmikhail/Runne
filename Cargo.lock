@@ -5081,6 +5081,7 @@ dependencies = [
 name = "runne-update-metadata-producer"
 version = "0.0.3"
 dependencies = [
+ "dbus-secret-service",
  "ed25519-dalek",
  "hex",
  "rand 0.8.7",

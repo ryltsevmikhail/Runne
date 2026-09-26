@@ -17,6 +17,9 @@ use super::{
 mod service;
 #[cfg(target_os = "macos")]
 use service::{consume_service_control, consume_service_legacy_migration, consume_service_pair};
+#[cfg(all(feature = "local-native-enrollment-test", target_os = "linux"))]
+#[path = "effect/linux_post_delete_test.rs"]
+mod linux_post_delete_test;
 #[cfg(all(test, target_os = "macos"))]
 pub use service::{
     consume_service_control_with_port, consume_service_legacy_migration_with_port,
@@ -215,6 +218,10 @@ pub fn execute_non_pair_effect(authority: AuthorizedWriterControl) -> Result<(),
                 .map_err(|_| CliError::CredentialOperation)
         }
     };
+    #[cfg(all(feature = "local-native-enrollment-test", target_os = "linux"))]
+    if command.action() == CredentialOperationAction::Revoke {
+        linux_post_delete_test::kill_after_delete(&result)?;
+    }
     #[cfg(all(feature = "local-native-enrollment-test", target_os = "macos"))]
     pause_after_legacy_source_delete(&result, legacy_source_cleanup)?;
     result?;

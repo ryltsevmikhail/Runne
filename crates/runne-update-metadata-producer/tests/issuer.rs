@@ -2,10 +2,10 @@ use std::path::{Path, PathBuf};
 
 use ed25519_dalek::{Signer, SigningKey};
 use runne_platform_desktop::{
-    MacOsCodeIdentityExpectationV1, NativeEnrollmentTupleV3, NativeEnrollmentTupleV3CodeIdentities,
-    NativeEnrollmentTupleV3Deployment, NativeEnrollmentTupleV3Digests,
-    NativeEnrollmentTupleV3ProtocolCompatibility, NativeEnrollmentTupleV3ProtocolVersions,
-    UpdateTargetV2,
+    MacOsCodeIdentityExpectationV1, NativeEnrollmentTupleV2, NativeEnrollmentTupleV3,
+    NativeEnrollmentTupleV3CodeIdentities, NativeEnrollmentTupleV3Deployment,
+    NativeEnrollmentTupleV3Digests, NativeEnrollmentTupleV3ProtocolCompatibility,
+    NativeEnrollmentTupleV3ProtocolVersions, UpdateTargetV2,
 };
 use runne_update_metadata_producer::{
     KeySlot, ProducerError, UpdateMetadataDraft, UpdateSigningKeyStore, issue_metadata,
@@ -62,6 +62,7 @@ fn draft(artifact_path: PathBuf) -> UpdateMetadataDraft {
         snapshot_version: 1,
         timestamp_version: 1,
         native_enrollment_tuple_path: None,
+        native_enrollment_tuple_v2_path: None,
     }
 }
 
@@ -127,6 +128,28 @@ fn dev_tuple(target: &UpdateTargetV2) -> NativeEnrollmentTupleV3 {
     .unwrap()
 }
 
+fn write_v2_tuple_file(directory: &Path, target: &UpdateTargetV2) -> PathBuf {
+    let tuple = NativeEnrollmentTupleV2::new(
+        target.release_candidate_sha256.clone(),
+        "d".repeat(64),
+        "e".repeat(64),
+        "f".repeat(64),
+        target.bundle_sha256.clone(),
+        target,
+    )
+    .unwrap();
+    let path = directory.join("tuple-v2.json");
+    std::fs::write(
+        &path,
+        serde_json::to_vec(&serde_json::json!({
+            "schemaVersion": 1, "target": target, "tuple": tuple,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    path
+}
+
 /// Serializes the same `{"schemaVersion":1,"target":...,"tuple":...}` wrapper
 /// the `dev_enrollment_tuple` harness writes.
 fn write_tuple_file(
@@ -187,6 +210,45 @@ fn producer_keeps_native_enrollment_tuple_v3_absent_without_draft_path() {
     let (artifact, _) = write_artifact(directory.path());
     let metadata = issue_metadata(&draft(artifact), &MemoryKeys).unwrap();
     assert!(metadata.targets.target.native_enrollment_tuple_v3.is_none());
+}
+
+#[test]
+fn producer_embeds_linux_native_enrollment_tuple_v2_from_strict_output() {
+    let directory = tempfile::tempdir().unwrap();
+    let (artifact, digest) = write_artifact(directory.path());
+    let mut value = draft(artifact);
+    value.platform = "linux".into();
+    value.arch = "x86_64".into();
+    value.min_os = "linux".into();
+    value.artifact_url = "https://updates.example.test/Runne.AppImage".into();
+    value.bundle_sha256 = "9".repeat(64);
+    value.runtime_digest = "8".repeat(64);
+    let target = harness_target(&value, digest);
+    value.native_enrollment_tuple_v2_path = Some(write_v2_tuple_file(directory.path(), &target));
+    let metadata = issue_metadata(&value, &MemoryKeys).unwrap();
+    assert!(metadata.targets.target.native_enrollment_tuple.is_some());
+}
+
+#[test]
+fn producer_rejects_mismatched_or_simultaneous_tuple_versions() {
+    let directory = tempfile::tempdir().unwrap();
+    let (artifact, digest) = write_artifact(directory.path());
+    let mut value = draft(artifact.clone());
+    value.platform = "linux".into();
+    let target = harness_target(&value, digest);
+    let mut mismatched = target.clone();
+    mismatched.arch = "aarch64".into();
+    value.native_enrollment_tuple_v2_path =
+        Some(write_v2_tuple_file(directory.path(), &mismatched));
+    assert_eq!(
+        issue_metadata(&value, &MemoryKeys),
+        Err(ProducerError::Verification)
+    );
+    value.native_enrollment_tuple_path = Some(directory.path().join("unused-v3.json"));
+    assert_eq!(
+        issue_metadata(&value, &MemoryKeys),
+        Err(ProducerError::Input)
+    );
 }
 
 #[test]

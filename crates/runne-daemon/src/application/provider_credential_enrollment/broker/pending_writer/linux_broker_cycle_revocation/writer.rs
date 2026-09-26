@@ -1,5 +1,4 @@
 use super::fixture::DurableFixture;
-use super::native::poll_absence;
 use super::*;
 
 pub(super) fn production_cli() -> std::path::PathBuf {
@@ -14,14 +13,18 @@ pub(super) fn production_cli() -> std::path::PathBuf {
     path
 }
 
-struct Started {
-    owned: Channel,
+pub(super) struct Started {
+    pub(super) owned: Channel,
     relay: Arc<Mutex<Option<platform::LinuxAuthenticatedPairSecretRelay>>>,
-    facts: CredentialMeasurementSnapshot,
-    channel_binding: [u8; 32],
+    pub(super) facts: CredentialMeasurementSnapshot,
+    pub(super) channel_binding: [u8; 32],
 }
 
-fn start_writer(fixture: &DurableFixture, binary: &std::path::Path, pair: bool) -> Started {
+pub(super) fn start_writer(
+    fixture: &DurableFixture,
+    binary: &std::path::Path,
+    pair: bool,
+) -> Started {
     let release = fixture
         .operation
         .metadata()
@@ -219,68 +222,4 @@ pub(super) fn pair_through_real_writer(f: &mut DurableFixture, binary: &std::pat
             .state(),
         CredentialOperationState::Completed
     );
-}
-
-pub(super) fn revoke_through_real_writer_without_reading_ack(
-    f: &mut DurableFixture,
-    binary: &std::path::Path,
-    service: &str,
-) {
-    let mut started = start_writer(f, binary, false);
-    let channel = started.owned.0.as_mut().unwrap();
-    let head = f
-        .store()
-        .lifecycle_snapshot(f.operation.provider())
-        .unwrap();
-    let accepted = f
-        .store()
-        .accept_cleanup_recovery(CredentialCleanupRecoveryRequest::new(
-            f.operation.operation_id(),
-            f.operation.installation_owner_id(),
-            f.measurements.release_manifest_digest([9; 32]).unwrap(),
-            f.measurements.protected_session_id([17; 32]).unwrap(),
-            f.measurements.desktop_supervisor_generation(8).unwrap(),
-            7,
-            head.lifecycle_revision(),
-            head.fence(),
-            f.measurements
-                .continuation_binding_digest([45; 32])
-                .unwrap(),
-            60,
-        ))
-        .unwrap();
-    let context = f
-        .broker
-        .claim_issue_context(
-            started.facts.clone(),
-            started.channel_binding,
-            f.continuation,
-            7,
-            8,
-        )
-        .unwrap();
-    let receipt = f
-        .broker
-        .issue_ticket(accepted, f.continuation, &context, 60, f.store(), channel)
-        .unwrap();
-    let mut claimed = f
-        .broker
-        .claim_ticket_from_channel(
-            receipt,
-            f.continuation,
-            7,
-            8,
-            started.facts,
-            f.store(),
-            channel,
-        )
-        .unwrap();
-    assert!(claimed.take_secret_relay().unwrap().is_none());
-    f.broker
-        .release_control_only_effect(&claimed, f.operation.operation_id(), f.store(), channel)
-        .unwrap();
-    poll_absence(service);
-    // We intentionally never call observe_effect_from_channel: the writer's
-    // terminal frame remains unread while the retained child is terminated.
-    drop(started.owned);
 }

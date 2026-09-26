@@ -4,16 +4,20 @@ use runne_provider::*;
 use std::process::Command;
 #[path = "linux_broker_cycle_revocation/fixture.rs"]
 mod fixture;
+#[path = "linux_broker_cycle_revocation/kill_fixture.rs"]
+mod kill_fixture;
 #[path = "linux_broker_cycle_revocation/native.rs"]
 mod native;
+#[path = "linux_broker_cycle_revocation/revoke_after_kill.rs"]
+mod revoke_after_kill;
 #[path = "linux_broker_cycle_revocation/writer.rs"]
 mod writer;
 use fixture::DurableFixture;
 use fixture::unix_now;
+use kill_fixture::PostDeleteKillFixture;
 use native::{NativeItemCleanup, assert_native_absent, item_service, reconcile_native};
-use writer::{
-    pair_through_real_writer, production_cli, revoke_through_real_writer_without_reading_ack,
-};
+use revoke_after_kill::revoke_through_real_writer_after_delete_kill;
+use writer::{pair_through_real_writer, production_cli};
 
 #[test]
 #[ignore = "requires owner DBus + keyutils session and RUNNE_NATIVE_SECRET_SERVICE_E2E=1"]
@@ -62,7 +66,14 @@ fn linux_production_writer_revoke_lost_ack_recovers_after_sqlite_reopen() {
     assert_eq!(fenced.fence().get(), 3);
     assert!(fenced.active_version().is_none());
 
-    revoke_through_real_writer_without_reading_ack(&mut fixture, &binary, &service);
+    let kill_fixture = PostDeleteKillFixture::new();
+    let killed_pid = revoke_through_real_writer_after_delete_kill(
+        &mut fixture,
+        &binary,
+        &service,
+        &kill_fixture,
+    );
+    assert!(!std::path::Path::new(&format!("/proc/{killed_pid}")).exists());
     let claimed = fixture
         .store()
         .load_operation(revoke.operation_id())

@@ -17,6 +17,12 @@ pub use runne_api::{
     VerifiedSignedNativeEnrollmentTupleV3, update_metadata_signing_bytes,
 };
 
+#[cfg(target_os = "linux")]
+#[path = "updater_metadata/linux_tuple_v2.rs"]
+mod linux_tuple_v2;
+#[cfg(target_os = "linux")]
+pub use linux_tuple_v2::{LinuxTupleV2Output, produce_linux_native_enrollment_tuple_v2};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NativeEnrollmentTupleV3EffectState {
     Reconciled,

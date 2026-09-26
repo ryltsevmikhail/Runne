@@ -10,6 +10,36 @@ mod demo;
 fn main() {
     let arguments: Vec<String> = std::env::args().collect();
     let result = match arguments.as_slice() {
+        #[cfg(all(target_os = "linux", debug_assertions, feature = "dev-keyset-init"))]
+        [_, command, manifest_flag, path, store_flag, store]
+            if command == "init-dev-keyset"
+                && manifest_flag == "--public-manifest"
+                && store_flag == "--key-store"
+                && store == "secret-service" =>
+        {
+            runne_update_metadata_producer::initialize_linux_dev_keyset(Path::new(path))
+        }
+        #[cfg(target_os = "linux")]
+        [
+            _,
+            command,
+            draft_flag,
+            draft,
+            output_flag,
+            output,
+            store_flag,
+            store,
+        ] if command == "issue"
+            && draft_flag == "--draft"
+            && output_flag == "--output"
+            && store_flag == "--key-store"
+            && store == "secret-service" =>
+        {
+            runne_update_metadata_producer::issue_from_files_secret_service(
+                Path::new(draft),
+                Path::new(output),
+            )
+        }
         [_, command, manifest_flag, path, keychain_flag, keychain]
             if command == "init-dev-keyset"
                 && manifest_flag == "--public-manifest"

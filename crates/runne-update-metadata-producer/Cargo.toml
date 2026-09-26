@@ -25,6 +25,9 @@ zeroize.workspace = true
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = { version = "=3.7.0", features = ["OSX_10_15"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+dbus-secret-service = { version = "=4.1.0", default-features = false, features = ["crypto-rust"] }
+
 [dev-dependencies]
 tempfile = "=3.27.0"
 

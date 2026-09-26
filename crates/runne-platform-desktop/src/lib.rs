@@ -147,6 +147,8 @@ pub use updater_metadata::{
     VerifiedUpdateV2, evaluate_native_enrollment_tuple_v3_update, update_metadata_signing_bytes,
     verify_update_v2,
 };
+#[cfg(target_os = "linux")]
+pub use updater_metadata::{LinuxTupleV2Output, produce_linux_native_enrollment_tuple_v2};
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use updater_metadata::{
     PreparedDesktopQualificationRun, QualificationAdmissionError,

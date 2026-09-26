@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use runne_platform_desktop::NativeEnrollmentTupleV3;
+use runne_platform_desktop::{NativeEnrollmentTupleV2, NativeEnrollmentTupleV3, UpdateTargetV2};
 use serde::{Deserialize, Serialize};
 
 use crate::issuer::ProducerError;
@@ -38,6 +38,10 @@ pub struct UpdateMetadataDraft {
     /// is embedded into the issued target and is fully re-validated against the
     /// draft-derived target during the issuer self-verification.
     pub native_enrollment_tuple_path: Option<PathBuf>,
+    /// Linux native enrollment tuple V2 output from
+    /// `produce_linux_native_enrollment_tuple_v2`.
+    #[serde(default)]
+    pub native_enrollment_tuple_v2_path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -68,11 +72,29 @@ struct NativeEnrollmentTupleHarnessOutputV1 {
     tuple: NativeEnrollmentTupleV3,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LinuxNativeEnrollmentTupleOutputV1 {
+    schema_version: u32,
+    target: UpdateTargetV2,
+    tuple: NativeEnrollmentTupleV2,
+}
+
 pub fn read_native_enrollment_tuple_v3(
     path: &Path,
 ) -> Result<NativeEnrollmentTupleV3, ProducerError> {
     let output: NativeEnrollmentTupleHarnessOutputV1 = read_json(path)?;
     Ok(output.tuple)
+}
+
+pub fn read_linux_native_enrollment_tuple_v2(
+    path: &Path,
+) -> Result<(UpdateTargetV2, NativeEnrollmentTupleV2), ProducerError> {
+    let output: LinuxNativeEnrollmentTupleOutputV1 = read_json(path)?;
+    if output.schema_version != 1 {
+        return Err(ProducerError::Input);
+    }
+    Ok((output.target, output.tuple))
 }
 
 pub fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, ProducerError> {

@@ -5,6 +5,10 @@
 mod input;
 mod issuer;
 mod key_store;
+#[cfg(target_os = "linux")]
+mod linux_key_store;
+#[cfg(target_os = "linux")]
+mod linux_secret_service;
 mod output;
 
 pub use input::{UpdateMetadataDraft, UpdatePublicKeyManifest};
@@ -27,6 +31,11 @@ pub fn initialize_dev_keyset(path: &Path, keychain_ref: &Path) -> Result<(), Pro
     }
 }
 
+#[cfg(all(target_os = "linux", debug_assertions, feature = "dev-keyset-init"))]
+pub fn initialize_linux_dev_keyset(path: &Path) -> Result<(), ProducerError> {
+    linux_key_store::initialize_and_publish(path, output::publish_json)
+}
+
 pub fn issue_from_files(
     draft: &Path,
     output_path: &Path,
@@ -40,6 +49,17 @@ pub fn issue_from_files(
         let _ = keychain_ref;
         key_store::UnavailableKeyStore
     };
+    let metadata = issue_metadata(&draft, &store)?;
+    output::publish_json(output_path, &metadata)
+}
+
+#[cfg(target_os = "linux")]
+pub fn issue_from_files_secret_service(
+    draft: &Path,
+    output_path: &Path,
+) -> Result<(), ProducerError> {
+    let draft: UpdateMetadataDraft = input::read_json(draft)?;
+    let store = linux_key_store::SecretServiceStore::open()?;
     let metadata = issue_metadata(&draft, &store)?;
     output::publish_json(output_path, &metadata)
 }

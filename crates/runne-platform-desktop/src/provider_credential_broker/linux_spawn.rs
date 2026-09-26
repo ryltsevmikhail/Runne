@@ -149,6 +149,10 @@ fn spawn_with_secret(
     let handshake = duplicate_above_reserved(&handshake_end)?;
     let stderr_null = duplicate_above_reserved(&open_null(OFlag::O_WRONLY)?)?;
     let mut reserved_fd = Some(open_null(OFlag::O_RDONLY)?);
+    #[cfg(feature = "test-support")]
+    let fixture_root = plan::opted_in_fixture_root()?;
+    #[cfg(not(feature = "test-support"))]
+    let fixture_root: Option<std::path::PathBuf> = None;
     let plan = build_plan(
         spec,
         address,
@@ -156,6 +160,7 @@ fn spawn_with_secret(
         handshake.as_fd().as_raw_fd(),
         stderr_null.as_fd().as_raw_fd(),
         secret_reader.as_ref().map(AsRawFd::as_raw_fd),
+        fixture_root.as_deref(),
     )?;
     let mut actions = apply_plan(&plan)?;
     close_inventory(&mut actions, &channel, secret_reader.is_some())?;
