@@ -1,7 +1,6 @@
 #[cfg(all(
     feature = "desktop-protected",
-    target_os = "macos",
-    target_arch = "aarch64"
+    any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64"))
 ))]
 use std::sync::Arc;
 
@@ -9,14 +8,12 @@ use rand::{RngCore as _, rngs::OsRng};
 use runne_api::ProviderCredentialEnrollmentHostError;
 #[cfg(all(
     feature = "desktop-protected",
-    target_os = "macos",
-    target_arch = "aarch64"
+    any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64"))
 ))]
 use runne_api::ProviderCredentialProviderV2;
 #[cfg(all(
     feature = "desktop-protected",
-    target_os = "macos",
-    target_arch = "aarch64"
+    any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64"))
 ))]
 use runne_api::{
     ProviderCredentialBaseRequestAuthority, ProviderCredentialOperationHandleV2,
@@ -90,8 +87,7 @@ impl DaemonProviderCredentialEnrollmentControl {
 
     #[cfg(all(
         feature = "desktop-protected",
-        target_os = "macos",
-        target_arch = "aarch64"
+        any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64"))
     ))]
     pub(crate) fn http_enrollment_router(
         self: &Arc<Self>,
@@ -178,8 +174,7 @@ impl DaemonProviderCredentialEnrollmentControl {
 
     #[cfg(all(
         feature = "desktop-protected",
-        target_os = "macos",
-        target_arch = "aarch64"
+        any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64"))
     ))]
     pub(crate) fn status_http(
         &self,
@@ -193,6 +188,15 @@ impl DaemonProviderCredentialEnrollmentControl {
             .lock()
             .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
         require_current_http_authority(current.as_ref(), authority)?;
+        #[cfg(target_os = "linux")]
+        let session = current
+            .as_ref()
+            .ok_or(ProviderCredentialEnrollmentHostError::Unavailable)?
+            .http_authority_parts()
+            .0;
+        #[cfg(target_os = "linux")]
+        self.linux_preadmission_for(session, self.runtime_authority)?
+            .enforce(provider)?;
         let snapshot = super::super::ProviderCredentialEnrollmentStatus::new(
             super::super::ProviderCredentialAdmission::new(
                 verifier.clone(),
@@ -208,8 +212,7 @@ impl DaemonProviderCredentialEnrollmentControl {
 
     #[cfg(all(
         feature = "desktop-protected",
-        target_os = "macos",
-        target_arch = "aarch64"
+        any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64"))
     ))]
     pub(crate) fn resume_http(
         &self,
@@ -223,6 +226,27 @@ impl DaemonProviderCredentialEnrollmentControl {
             .lock()
             .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
         require_current_http_authority(current.as_ref(), authority)?;
+        #[cfg(target_os = "linux")]
+        {
+            let session = current
+                .as_ref()
+                .ok_or(ProviderCredentialEnrollmentHostError::Unavailable)?
+                .http_authority_parts()
+                .0;
+            let resume = super::super::resume::ProviderCredentialEnrollmentResume::new(
+                super::super::ProviderCredentialAdmission::new(
+                    verifier.clone(),
+                    self.measurements.clone(),
+                ),
+                self.handles.duplicate(),
+                self.store.as_ref(),
+                self.readback.as_ref(),
+                self.rendezvous.clone(),
+            );
+            let provider = resume.provider_for_http(authority, handle)?;
+            self.linux_preadmission_for(session, self.runtime_authority)?
+                .enforce(provider)?;
+        }
         let snapshot = super::super::resume::ProviderCredentialEnrollmentResume::new(
             super::super::ProviderCredentialAdmission::new(
                 verifier.clone(),
@@ -241,8 +265,7 @@ impl DaemonProviderCredentialEnrollmentControl {
 
 #[cfg(all(
     feature = "desktop-protected",
-    target_os = "macos",
-    target_arch = "aarch64"
+    any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64"))
 ))]
 fn require_current_http_authority(
     facts: Option<&ProtectedEnrollmentSessionFacts>,

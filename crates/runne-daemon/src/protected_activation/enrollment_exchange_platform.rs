@@ -121,6 +121,11 @@ pub(crate) fn run_enrollment_control_exchange(
             #[cfg(feature = "linux-native-enrollment-qualification")]
             runne_platform_desktop::provider_credential_broker::linux_native_enrollment_qualification::record_enrollment_stage("writer_capability_ready");
             *writer_capability.borrow_mut() = Some(capability);
+            if require_linux_transition_control(composition.enrollment_control.is_some()).is_err() {
+                #[cfg(feature = "linux-native-enrollment-qualification")]
+                runne_platform_desktop::provider_credential_broker::linux_native_enrollment_qualification::record_enrollment_stage("enrollment_control_missing");
+                return false;
+            }
             #[cfg(feature = "linux-native-enrollment-qualification")]
             runne_platform_desktop::provider_credential_broker::linux_native_enrollment_qualification::record_enrollment_stage("measurement_begin");
             *measured.borrow_mut() =
@@ -154,22 +159,59 @@ pub(crate) fn run_enrollment_control_exchange(
     );
     #[cfg(feature = "linux-native-enrollment-qualification")]
     runne_platform_desktop::provider_credential_broker::linux_native_enrollment_qualification::record_enrollment_stage(if outcome.is_ok() { "transition_ready" } else { "transition_failed" });
-    let outcome = outcome?;
-    if let Some(control) = composition.enrollment_control.as_ref() {
-        let installed = control.install_linux_preadmission(
-            outcome.owned_launch(),
-            &composition.runtime_root,
-            measured
-                .into_inner()
-                .ok_or(LaunchAuthorityError::OwnershipMismatch)?,
-        );
-        #[cfg(feature = "linux-native-enrollment-qualification")]
-        runne_platform_desktop::provider_credential_broker::linux_native_enrollment_qualification::record_enrollment_stage(if installed.is_ok() { "profile_install_ready" } else { "profile_install_failed" });
-        installed.map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
+    let outcome = match outcome {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            if let Some(control) = composition.enrollment_control.as_ref() {
+                control.clear_http_facts(*owned.session_id());
+            }
+            return Err(error);
+        }
+    };
+    let control = composition
+        .enrollment_control
+        .as_ref()
+        .ok_or(LaunchAuthorityError::OwnershipMismatch)?;
+    let installed = control.install_linux_preadmission(
+        outcome.owned_launch(),
+        &composition.runtime_root,
+        measured
+            .into_inner()
+            .ok_or(LaunchAuthorityError::OwnershipMismatch)?,
+    );
+    #[cfg(feature = "linux-native-enrollment-qualification")]
+    runne_platform_desktop::provider_credential_broker::linux_native_enrollment_qualification::record_enrollment_stage(if installed.is_ok() { "profile_install_ready" } else { "profile_install_failed" });
+    if installed.is_err() {
+        control.clear_http_facts(*outcome.owned_launch().session_id());
     }
+    installed.map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
     Ok(outcome.with_linux_writer_capability(
         writer_capability
             .into_inner()
             .ok_or(LaunchAuthorityError::OwnershipMismatch)?,
     ))
+}
+
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+fn require_linux_transition_control(has_control: bool) -> Result<(), LaunchAuthorityError> {
+    if has_control {
+        Ok(())
+    } else {
+        Err(LaunchAuthorityError::OwnershipMismatch)
+    }
+}
+
+#[cfg(all(test, target_os = "linux", feature = "desktop-protected"))]
+mod linux_control_tests {
+    use super::require_linux_transition_control;
+    use runne_api::LaunchAuthorityError;
+
+    #[test]
+    fn signed_writer_transition_fails_before_prelude_without_control() {
+        assert_eq!(
+            require_linux_transition_control(false),
+            Err(LaunchAuthorityError::OwnershipMismatch)
+        );
+        assert!(require_linux_transition_control(true).is_ok());
+    }
 }

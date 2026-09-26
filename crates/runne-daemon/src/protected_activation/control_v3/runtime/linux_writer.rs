@@ -13,7 +13,7 @@ use std::os::unix::net::UnixStream;
 use zeroize::{Zeroize as _, Zeroizing};
 
 pub(crate) struct LinuxEnrollmentWriter {
-    pub(super) capability: VerifiedInstalledLinuxWriterCapability,
+    pub(super) capability: std::sync::Arc<VerifiedInstalledLinuxWriterCapability>,
     pub(super) installed: VerifiedInstalledLinuxEnrollmentMeasurementFacts,
     pub(super) channel_binding: [u8; 32],
     pub(super) publication_key: [u8; 32],
@@ -26,6 +26,10 @@ pub(crate) struct LinuxEnrollmentWriter {
 }
 
 impl LinuxEnrollmentWriter {
+    pub(in crate::protected_activation::control_v3) fn in_flight(&self) -> bool {
+        self.channel.is_some() || self.claim_measurements.is_some()
+    }
+
     pub(in crate::protected_activation::control_v3) fn drive_claimed_writer(
         &mut self,
         protected: &mut crate::protected_activation::ProtectedActivationChannel,
@@ -146,7 +150,7 @@ impl LinuxEnrollmentWriter {
 
 pub fn launch_after_begin(
     enrollment: &mut DaemonProtectedCredentialEnrollmentSession,
-    capability: VerifiedInstalledLinuxWriterCapability,
+    capability: std::sync::Arc<VerifiedInstalledLinuxWriterCapability>,
     stream: &UnixStream,
     keys: &runne_api::ProtectedActivationKeys,
 ) -> Result<LinuxEnrollmentWriter, runne_api::LaunchAuthorityError> {

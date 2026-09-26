@@ -23,6 +23,18 @@ impl V3EnrollmentRuntime {
     /// live-session authority is released before the shutdown acknowledgement.
     #[cfg(all(unix, not(all(target_os = "macos", target_arch = "aarch64"))))]
     pub(super) fn revoke_shutdown_authorization(&mut self) {
+        #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+        if let Some(session) = self.session.as_ref() {
+            session.clear_http_facts();
+        }
+        #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+        {
+            let _ = self.terminate_retained_writer();
+            self.linux_writer.take();
+            self.linux_writer_capability.take();
+        }
         self.live.take();
+        #[cfg(target_os = "linux")]
+        self.session.take();
     }
 }

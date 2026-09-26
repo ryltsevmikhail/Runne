@@ -56,6 +56,8 @@ pub use enrollment_lifecycle_types::{
 include!("protected_runtime/enrollment_lifecycle.rs");
 #[cfg(all(target_os = "linux", feature = "protected-channel-integration"))]
 include!("protected_runtime/linux_enrollment_lifecycle.rs");
+#[cfg(all(target_os = "linux", feature = "protected-channel-integration"))]
+mod linux_credential_round;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 include!("protected_runtime/enrollment_verification.rs");
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

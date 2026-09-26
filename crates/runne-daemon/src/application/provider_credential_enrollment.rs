@@ -41,19 +41,15 @@ pub(crate) use control_facade::InitialCredentialExchange;
     target_arch = "aarch64"
 ))]
 pub(crate) use control_facade::PostcommitAdmissionPermit;
-#[cfg(all(
-    test,
-    feature = "desktop-protected",
-    target_os = "macos",
-    target_arch = "aarch64"
-))]
+#[cfg(all(test, feature = "desktop-protected", unix))]
 pub(crate) use control_facade::test_control;
+#[cfg(all(test, unix, feature = "desktop-protected"))]
+pub(crate) use control_facade::test_http_status_facts_available;
 pub(crate) use coordinator::ProviderCredentialAdmission;
 use effect_authority::ProviderCredentialEffectAuthority;
 #[cfg(all(
     feature = "desktop-protected",
-    target_os = "macos",
-    target_arch = "aarch64"
+    any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64"))
 ))]
 pub(crate) use host::DaemonProviderCredentialEnrollmentHttpHost;
 pub(crate) use host::ProviderCredentialVerificationHost;

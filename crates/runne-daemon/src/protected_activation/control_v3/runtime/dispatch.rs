@@ -17,7 +17,7 @@ pub(crate) struct V3EnrollmentDispatch {
         crate::protected_activation::enrollment_control_transition::DaemonEnrollmentRendezvous,
     #[cfg(target_os = "linux")]
     pub(super) linux_writer_capability:
-        Option<runne_platform_desktop::VerifiedInstalledLinuxWriterCapability>,
+        Option<Arc<runne_platform_desktop::VerifiedInstalledLinuxWriterCapability>>,
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     pub(super) installed_facts:
         Option<runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts>,
@@ -65,7 +65,7 @@ impl V3EnrollmentDispatch {
         mut self,
         capability: runne_platform_desktop::VerifiedInstalledLinuxWriterCapability,
     ) -> Self {
-        self.linux_writer_capability = Some(capability);
+        self.linux_writer_capability = Some(Arc::new(capability));
         self
     }
 

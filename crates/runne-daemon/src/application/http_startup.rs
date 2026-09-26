@@ -3,6 +3,7 @@ use super::*;
 use runne_security::project_trust_policy::ProjectTrustPolicyAuthority;
 mod command_hosts;
 mod enrollment;
+mod linux_enrollment_control;
 mod provider_credentials;
 mod session;
 #[allow(clippy::too_many_arguments)]
@@ -31,13 +32,15 @@ pub(super) async fn start_http_and_runtime(
         crate::protected_activation::VerifiedProtectedEnrollmentCapability,
     >,
 ) -> Result<DaemonApplication, DaemonError> {
-    let enrollment = enrollment::compose(
+    let enrollment = linux_enrollment_control::compose_startup_enrollment(
+        config,
+        bootstrap.authority_id,
+        replay_lineage,
         provider_service.as_ref(),
         protected_activation,
         root_admission_keys.as_ref(),
         enrollment_capability.as_ref(),
     )?;
-    let runtime_capabilities = enrollment.runtime_capabilities;
     let bootstrap_reservation_store = Arc::new(SqliteBootstrapReservationStore::new(
         open_runtime_connection(
             &config.db_path,
@@ -47,12 +50,7 @@ pub(super) async fn start_http_and_runtime(
             "bootstrap reservation store",
         )?,
     ));
-    let runtime_config = RuntimeConfig {
-        max_in_flight_requests: usize::try_from(config.max_in_flight).map_err(|_| {
-            DaemonError::Config("max_in_flight does not fit this platform".to_owned())
-        })?,
-        ..RuntimeConfig::default()
-    };
+    let runtime_config = linux_enrollment_control::runtime_config(config.max_in_flight)?;
     let generation = RuntimeGenerationId(bootstrap.launch_generation);
     let (handle, mut runtime_controller) =
         if let Some(provider_service) = provider_service.as_ref() {
@@ -132,7 +130,7 @@ pub(super) async fn start_http_and_runtime(
         replay_lineage,
         runne_runtime::bundle::BUNDLE_ID,
         schema_hash,
-        runne_http::runtime_profile::ordered_capability_digest(runtime_capabilities),
+        runne_http::runtime_profile::ordered_capability_digest(enrollment.runtime_capabilities),
     )
     .map_err(|_| DaemonError::Bootstrap("build stable local session binding".into()))?;
     let binding = RuntimeSessionBinding::new(
@@ -169,7 +167,8 @@ pub(super) async fn start_http_and_runtime(
             &store,
             guard,
             replay_binding,
-            runtime_capabilities
+            enrollment
+                .runtime_capabilities
                 .contains(&runne_http::replay::REPLAY_BASELINE_RESUME_V2_CAPABILITY),
         )
     };
@@ -194,7 +193,7 @@ pub(super) async fn start_http_and_runtime(
         provider_service.clone(),
         &provider_activation,
         provider_readiness,
-        runtime_capabilities,
+        enrollment.runtime_capabilities,
     );
     let http_host = LocalRuntimeTlsHost::bind_with_project_workspace_and_command_reconciliation(
         &config.http_bind,
@@ -255,7 +254,7 @@ pub(super) async fn start_http_and_runtime(
                     bootstrap.local_session_authority_id,
                     uuid::Uuid::from_bytes(*replay_lineage.as_bytes()),
                     session_id,
-                    runtime_capabilities,
+                    enrollment.runtime_capabilities,
                 )
             });
         match result {
@@ -291,7 +290,7 @@ pub(super) async fn start_http_and_runtime(
         shutdown_timeout,
         #[cfg(feature = "desktop-protected")]
         root_control,
-        runtime_capabilities,
+        runtime_capabilities: enrollment.runtime_capabilities,
         credential_enrollment_control: enrollment.control,
     })
 }

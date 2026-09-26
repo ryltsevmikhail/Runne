@@ -178,6 +178,7 @@ pub(crate) struct DaemonProviderCredentialEnrollmentControl {
     #[cfg_attr(
         not(any(
             test,
+            all(target_os = "linux", feature = "desktop-protected"),
             all(
                 target_os = "macos",
                 target_arch = "aarch64",
@@ -199,7 +200,10 @@ pub(crate) struct DaemonProviderCredentialEnrollmentControl {
         )
     ))]
     #[cfg_attr(
-        not(all(target_os = "macos", feature = "desktop-protected")),
+        not(any(
+            all(target_os = "linux", feature = "desktop-protected"),
+            all(target_os = "macos", feature = "desktop-protected")
+        )),
         expect(
             dead_code,
             reason = "the only reader is the protected macOS admission flow; Linux D1 composition consumes it in a later slice"
@@ -283,10 +287,7 @@ mod protected_session_tests;
 ))]
 #[path = "control_facade_tests/verify.rs"]
 mod verify_tests;
-#[cfg(all(
-    test,
-    feature = "desktop-protected",
-    target_os = "macos",
-    target_arch = "aarch64"
-))]
+#[cfg(all(test, unix, feature = "desktop-protected"))]
+pub(crate) use http_admission_tests::test_http_status_facts_available;
+#[cfg(all(test, unix))]
 pub(crate) use protected_session_tests::control as test_control;

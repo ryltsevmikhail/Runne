@@ -97,6 +97,11 @@ pub(crate) async fn probe_provider_readiness(
 pub(crate) fn credential_access_policy(
     _credential_id: ProviderCredentialId,
 ) -> Result<ProviderCredentialAccessPolicy, DaemonError> {
+    native_credential_access_policy()
+}
+
+pub(crate) fn native_credential_access_policy()
+-> Result<ProviderCredentialAccessPolicy, DaemonError> {
     let reader = std::env::current_exe()
         .map_err(|_| DaemonError::Bootstrap("provider credential identity unavailable".into()))?;
     let reader = std::fs::canonicalize(reader)

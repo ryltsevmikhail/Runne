@@ -4,6 +4,8 @@
 // keeps every file in this module under the 300-line source limit.
 
 use super::super::live_session;
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+use std::sync::Arc;
 
 pub(crate) struct V3EnrollmentRuntime {
     #[cfg(target_os = "macos")]
@@ -27,6 +29,16 @@ pub(crate) struct V3EnrollmentRuntime {
     #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
     pub(in crate::protected_activation::control_v3) linux_writer:
         Option<super::LinuxEnrollmentWriter>,
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+    pub(in crate::protected_activation::control_v3) linux_writer_capability:
+        Option<Arc<runne_platform_desktop::VerifiedInstalledLinuxWriterCapability>>,
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+    pub(in crate::protected_activation::control_v3) round_previous:
+        Option<runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3>,
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+    pub(in crate::protected_activation::control_v3) linux_control: Option<Arc<
+        crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl,
+    >>,
     pub(crate) terminal: bool,
     #[cfg(target_os = "macos")]
     pub(super) claim_measurements: Option<(

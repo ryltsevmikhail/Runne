@@ -4,9 +4,45 @@ use crate::application::provider_credential_enrollment::effect_authority::map_st
 use runne_provider::ProviderCredentialEnrollmentStore;
 
 impl DaemonProtectedCredentialEnrollmentSession {
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+    pub(crate) fn is_idle(&self) -> bool {
+        self.pending.is_none()
+            && self.begun.is_none()
+            && self.verified.is_none()
+            && !self.recovery.started
+    }
+
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+    pub(crate) fn take_idle_rendezvous(
+        &mut self,
+    ) -> Result<super::DaemonOwnedUnixBrokerRendezvous, ProviderCredentialEnrollmentHostError> {
+        if !self.is_idle() {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        self.rendezvous
+            .take()
+            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)
+    }
+
     pub(crate) fn require_durable_terminal(
         &self,
     ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        #[cfg(target_os = "linux")]
+        if self.pending.is_none()
+            && self.begun.is_none()
+            && self.verified.is_none()
+            && !self.recovery.started
+        {
+            return Ok(());
+        }
+        #[cfg(not(target_os = "linux"))]
+        if self.pending.is_none()
+            && self.begun.is_none()
+            && self.verified.is_none()
+            && !self.recovery.started
+        {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
         if let Some((command, snapshot)) = &self.verified {
             if !snapshot.state().terminal()
                 || snapshot.operation_kind()

@@ -121,6 +121,11 @@ async fn confirm_installed_enrollment(
         .map_err(|_| DispatchFailure::Closed("provider_credential_enrollment_unavailable"))?;
     leases
         .runtime
+        .rearm_after_terminal_operation(&installed)
+        .await
+        .map_err(|_| DispatchFailure::Closed("provider_credential_unavailable"))?;
+    leases
+        .runtime
         .prepare_credential_status(installed)
         .await
         .map_err(|_| DispatchFailure::Closed("provider_credential_unavailable"))?;

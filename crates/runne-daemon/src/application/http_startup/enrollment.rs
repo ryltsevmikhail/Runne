@@ -11,11 +11,14 @@ pub(super) struct EnrollmentHttpComposition {
 
 pub(super) fn compose(
     provider_service: Option<&Arc<super::super::DaemonCanonicalProviderService>>,
+    standalone_control: Option<Arc<DaemonProviderCredentialEnrollmentControl>>,
     protected: bool,
     root_admission_keys: Option<&runne_api::ProtectedActivationKeys>,
     capability: Option<&crate::protected_activation::VerifiedProtectedEnrollmentCapability>,
 ) -> Result<EnrollmentHttpComposition, DaemonError> {
-    let control = provider_service.and_then(|service| service.credential_enrollment_control());
+    let control = provider_service
+        .and_then(|service| service.credential_enrollment_control())
+        .or(standalone_control);
     let mounted = mounted(
         protected,
         root_admission_keys.is_some(),
@@ -27,7 +30,11 @@ pub(super) fn compose(
         root_admission_keys.is_some(),
         mounted,
     );
-    let routes = routes(control.as_ref(), mounted);
+    let routes = routes(
+        control.as_ref(),
+        mounted,
+        protected && root_admission_keys.is_some(),
+    );
     Ok(EnrollmentHttpComposition {
         control,
         routes,
@@ -60,6 +67,7 @@ pub(super) fn mounted(
 pub(super) fn routes(
     control: Option<&Arc<DaemonProviderCredentialEnrollmentControl>>,
     mounted: bool,
+    protected_admission: bool,
 ) -> Option<axum::Router> {
     #[cfg(all(
         target_os = "macos",
@@ -67,6 +75,7 @@ pub(super) fn routes(
         feature = "desktop-protected"
     ))]
     {
+        let _ = protected_admission;
         control.filter(|_| mounted).map(|control| {
             control.http_enrollment_router(Arc::new(|| chrono::Utc::now().timestamp()))
         })
@@ -77,8 +86,18 @@ pub(super) fn routes(
         feature = "desktop-protected"
     )))]
     {
-        let _ = (control, mounted);
-        None
+        #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+        {
+            let _ = mounted;
+            control.filter(|_| protected_admission).map(|control| {
+                control.http_enrollment_router(Arc::new(|| chrono::Utc::now().timestamp()))
+            })
+        }
+        #[cfg(not(all(target_os = "linux", feature = "desktop-protected")))]
+        {
+            let _ = (control, mounted, protected_admission);
+            None
+        }
     }
 }
 

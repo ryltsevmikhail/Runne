@@ -51,6 +51,20 @@ where
     S: ProviderCredentialEnrollmentStore + ?Sized,
     R: CredentialEnrollmentReadback + ?Sized,
 {
+    pub(crate) fn provider_for_http(
+        &self,
+        authority: &ProviderCredentialBaseRequestAuthority,
+        handle: ProviderCredentialOperationHandleV2,
+    ) -> Result<runne_api::ProviderCredentialProviderV2, ProviderCredentialEnrollmentHostError>
+    {
+        self.admission.require_base(authority)?;
+        let operation_id = self.handles.resolve(handle)?;
+        let operation = self.store.load_operation(operation_id).map_err(map_store)?;
+        require_owner(authority, &operation)?;
+        runne_api::ProviderCredentialProviderV2::parse(operation.provider().as_str())
+            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)
+    }
+
     /// Resolves a caller-owned operation after recovery, never issuing a ticket.
     pub(crate) fn load(
         &self,

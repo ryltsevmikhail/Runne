@@ -165,6 +165,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
         })
     }
 
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     pub(crate) fn begun_is_terminal(&self) -> bool {
         self.begun
             .as_ref()
@@ -189,14 +190,16 @@ impl DaemonProtectedCredentialEnrollmentSession {
     }
 
     #[cfg(all(
-        target_os = "macos",
-        target_arch = "aarch64",
+        any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64")),
         feature = "desktop-protected"
     ))]
     pub(crate) fn refresh_http_facts(
         &mut self,
         owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
     ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        #[cfg(target_os = "linux")]
+        self.control
+            .rebind_linux_preadmission(self.http_session, *owned.session_id())?;
         let facts = ProtectedEnrollmentSessionFacts::from_owned(
             owned,
             self.control.runtime_authority,
@@ -209,6 +212,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
 
     #[cfg(any(
         all(test, unix),
+        all(target_os = "linux", feature = "desktop-protected"),
         all(
             target_os = "macos",
             target_arch = "aarch64",

@@ -77,6 +77,26 @@ mod tests {
         let gate = control
             .linux_preadmission_for(session, control.runtime_authority)
             .unwrap();
+        let successor = [10; 16];
+        control
+            .rebind_idle_linux_preadmission(session, successor)
+            .unwrap();
+        assert!(
+            control
+                .linux_preadmission_for(session, control.runtime_authority)
+                .unwrap()
+                .enforce(ProviderCredentialProviderV2::DeepSeek)
+                .is_err(),
+            "rotation must revoke the prior signed V3 session"
+        );
+        assert!(
+            control
+                .linux_preadmission_for(successor, control.runtime_authority)
+                .unwrap()
+                .enforce(ProviderCredentialProviderV2::DeepSeek)
+                .is_ok(),
+            "rotation must retain live approval for its exact successor"
+        );
         for provider in runne_api::provider_catalog() {
             assert!(gate.enforce(provider.provider_id.parse().unwrap()).is_ok());
         }
@@ -119,6 +139,35 @@ mod tests {
 }
 
 impl DaemonProviderCredentialEnrollmentControl {
+    pub(crate) fn rebind_idle_linux_preadmission(
+        &self,
+        old_session: [u8; 16],
+        new_session: [u8; 16],
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        self.rebind_linux_preadmission(old_session, new_session)
+    }
+
+    pub(super) fn rebind_linux_preadmission(
+        &self,
+        old_session: [u8; 16],
+        new_session: [u8; 16],
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        if old_session == [0; 16] || new_session == [0; 16] {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        let mut slot = self
+            .linux_preadmission
+            .lock()
+            .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
+        if let Some(bound) = slot.as_mut() {
+            if bound.session != old_session {
+                return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+            }
+            bound.session = new_session;
+        }
+        Ok(())
+    }
+
     /// Called only after the signed transition has succeeded. Facts are
     /// independently measured from its kernel peer and managed runtime root.
     pub(crate) fn install_linux_preadmission(

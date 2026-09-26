@@ -15,6 +15,15 @@ fn resolver(control: &Arc<DaemonProviderCredentialEnrollmentControl>) -> Resolve
     )
 }
 
+pub(crate) fn test_http_status_facts_available(
+    control: &Arc<DaemonProviderCredentialEnrollmentControl>,
+    session: [u8; 16],
+) -> bool {
+    resolver(control)
+        .resolve_status(session, &ProviderCredentialProviderV2::DeepSeek)
+        .is_ok()
+}
+
 fn assert_status_error(
     resolver: &Resolver,
     session: [u8; 16],
@@ -115,4 +124,83 @@ fn renewal_then_next_round_keeps_replacement_http_facts_until_its_drop() {
         id(4),
         ProviderCredentialEnrollmentHostError::Unavailable,
     );
+}
+
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+#[test]
+fn linux_http_status_requires_live_signed_transition_and_approval() {
+    use runne_api::provider_credential_enrollment::linux_activation_policy::{
+        ACTIVATION_RECORD_FILE, LinuxEnrollmentActivationRecord, LinuxEnrollmentScope,
+        LinuxInstallationFacts,
+    };
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let (mut control, _) = control();
+    let (owned, _, _) = crate::protected_activation::test_enrollment_owned_and_sessions();
+    let runtime_authority = *owned.stable().authority_id();
+    std::sync::Arc::get_mut(&mut control)
+        .unwrap()
+        .runtime_authority = runtime_authority;
+    let facts = ProtectedEnrollmentSessionFacts::from_owned(&owned, runtime_authority, 10).unwrap();
+    control.publish_http_facts(facts.clone()).unwrap();
+    let (session, installation, release, binding, supervisor, peer, database, daemon) =
+        facts.http_authority_parts();
+    let authority = control
+        .http_authority_issuer
+        .issue_base(
+            installation,
+            release,
+            binding,
+            supervisor,
+            daemon,
+            database,
+            peer,
+        )
+        .unwrap();
+    let provider = ProviderCredentialProviderV2::DeepSeek;
+    let status =
+        || control.status_http(&control.http_authority_verifier, &authority, provider, 100);
+    assert!(
+        status().is_err(),
+        "uninstalled transition gate denies status"
+    );
+
+    let root = tempfile::tempdir().unwrap();
+    let installation_facts = LinuxInstallationFacts {
+        runtime_root_digest: [21; 32],
+        desktop_image_digest: [22; 32],
+        writer_image_digest: [23; 32],
+        daemon_image_digest: [24; 32],
+        runtime_authority_id: runtime_authority,
+        machine_id_digest: [25; 32],
+    };
+    control
+        .install_linux_preadmission(&owned, root.path(), installation_facts)
+        .unwrap();
+    assert!(status().is_err(), "missing approval denies status");
+
+    let record = LinuxEnrollmentActivationRecord {
+        provider_scope: LinuxEnrollmentScope::Catalog,
+        runtime_root_digest: installation_facts.runtime_root_digest,
+        desktop_image_digest: installation_facts.desktop_image_digest,
+        writer_image_digest: installation_facts.writer_image_digest,
+        daemon_image_digest: installation_facts.daemon_image_digest,
+        runtime_authority_id: installation_facts.runtime_authority_id,
+        machine_id_digest: installation_facts.machine_id_digest,
+        approved_at_unix_millis: 1,
+    };
+    let path = root.path().join(ACTIVATION_RECORD_FILE);
+    std::fs::write(&path, record.to_config_json()).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(
+        status().is_ok(),
+        "verified V3 facts and live approval admit status"
+    );
+
+    std::fs::remove_file(&path).unwrap();
+    assert!(status().is_err(), "revoked approval denies status");
+    control
+        .rebind_linux_preadmission(session, [31; 16])
+        .unwrap();
+    assert!(status().is_err(), "stale signed session denies status");
 }
