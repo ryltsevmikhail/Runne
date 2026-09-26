@@ -290,13 +290,9 @@ impl ProtectedBundledRuntimeProcess {
                 daemon: *owned.daemon_instance_id(),
                 generation: owned.launch_generation(),
             }),
-            ProtectedProcessActivation::V1 { .. } => {
-                Err(ProtectedBundledRuntimeError::InvalidState)
-            }
+            ProtectedProcessActivation::V1 { .. } => Err(ProtectedBundledRuntimeError::InvalidState),
             #[cfg(feature = "test-support")]
-            ProtectedProcessActivation::Test { .. } => {
-                Err(ProtectedBundledRuntimeError::InvalidState)
-            }
+            ProtectedProcessActivation::Test { .. } => Err(ProtectedBundledRuntimeError::InvalidState),
         }
     }
 }
