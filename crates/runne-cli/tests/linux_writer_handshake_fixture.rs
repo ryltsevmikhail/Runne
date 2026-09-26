@@ -13,7 +13,8 @@
 #[path = "linux_writer_handshake_support/mod.rs"]
 mod linux_writer_handshake_support;
 
-use std::io::Write as _;
+use std::io::{Read as _, Write as _};
+use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 
 use linux_writer_handshake_support::{
@@ -31,7 +32,9 @@ use runne_provider::daemon_credential_publication::CredentialWriterSessionAttest
 fn actual_writer_binary_completes_the_live_cross_bound_handshake() {
     let (issuer, _) = ProviderCredentialRequestAuthorityPair::new().split();
     let authority = fixture_authority(&issuer);
-    let (daemon_end, writer_end) = UnixStream::pair().unwrap();
+    let (daemon_end, relay_daemon) = UnixStream::pair().unwrap();
+    let (relay_writer, writer_end) = UnixStream::pair().unwrap();
+    let relay = spawn_startup_relay(relay_daemon, relay_writer, false);
     let mut child = spawn_writer(writer_end);
     let live_start = oracle_start_identity(child.id());
     let live_image = oracle_image_digest();
@@ -51,6 +54,7 @@ fn actual_writer_binary_completes_the_live_cross_bound_handshake() {
     });
     let kill = receiver.join().unwrap().expect("verified handshake");
     assert_ne!(kill, [0; 32], "a real generated kill key must arrive");
+    assert_eq!(relay.join().unwrap().unwrap(), 288);
     // Without the signed CONTROL attestation the verified receive closes the
     // writer instead of draining: control EOF after the handshake. The kill
     // key is intentionally released here (Copy: explicit binding release).
@@ -63,17 +67,19 @@ fn actual_writer_binary_completes_the_live_cross_bound_handshake() {
 }
 
 #[test]
-fn actual_writer_binary_denies_a_foreign_launch_secret() {
+fn actual_writer_binary_denies_a_foreign_scoped_startup_key() {
     let (issuer, _) = ProviderCredentialRequestAuthorityPair::new().split();
     let authority = fixture_authority(&issuer);
-    let (daemon_end, writer_end) = UnixStream::pair().unwrap();
+    let (daemon_end, relay_daemon) = UnixStream::pair().unwrap();
+    let (relay_writer, writer_end) = UnixStream::pair().unwrap();
+    let relay = spawn_startup_relay(relay_daemon, relay_writer, true);
     let mut child = spawn_writer(writer_end);
     let live_start = oracle_start_identity(child.id());
     let receiver = std::thread::spawn(move || {
         receive_linux_writer_startup(
             daemon_end,
             authority,
-            &[40; 32],
+            &LAUNCH_SECRET,
             RELEASE_TUPLE,
             CHANNEL,
             PUBLICATION,
@@ -85,10 +91,44 @@ fn actual_writer_binary_denies_a_foreign_launch_secret() {
     });
     assert!(
         receiver.join().unwrap().is_err(),
-        "the daemon must deny a writer holding a foreign launch secret"
+        "the daemon must deny a writer holding a foreign scoped startup key"
     );
-    let _ = child.kill();
-    let _ = child.wait();
+    assert_eq!(
+        relay.join().unwrap().unwrap(),
+        0,
+        "tampered key must yield no response"
+    );
+    let status = child.wait().unwrap();
+    assert!(
+        !status.success(),
+        "the real writer must reject a tampered scoped startup key"
+    );
+}
+
+fn spawn_startup_relay(
+    mut daemon: UnixStream,
+    mut writer: UnixStream,
+    tamper_key: bool,
+) -> std::thread::JoinHandle<std::io::Result<usize>> {
+    std::thread::spawn(move || {
+        daemon.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
+        writer.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
+        let mut payload = [0; 160];
+        daemon.read_exact(&mut payload)?;
+        if tamper_key {
+            payload[0] ^= 1;
+        }
+        writer.write_all(&payload)?;
+        let mut challenge = [0; 128];
+        daemon.read_exact(&mut challenge)?;
+        writer.write_all(&challenge)?;
+        writer.shutdown(Shutdown::Write)?;
+        let mut response = Vec::new();
+        writer.read_to_end(&mut response)?;
+        daemon.write_all(&response)?;
+        daemon.shutdown(Shutdown::Write)?;
+        Ok(response.len())
+    })
 }
 
 #[test]
