@@ -17,6 +17,8 @@ impl ProtectedBundledRuntimeSupervisor {
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
         let generation = std::num::NonZeroU64::new(facts.supervisor_generation)
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        #[cfg(target_os = "linux")]
+        linux_transition_stage("peer_binding");
         let claims = EnrollmentTransitionClaims::new(
             facts.release_tuple_digest,
             facts.qualification_binding_digest,
@@ -25,6 +27,8 @@ impl ProtectedBundledRuntimeSupervisor {
         );
         let process = self.process.as_mut()
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        #[cfg(target_os = "linux")]
+        linux_transition_stage("transition_begin");
         let profile = process.begin_confirmed_linux_credential_transition(&claims, resource_directory_hint)?;
         self.backoff.record_disconnected();
         self.pending_profile = Some(profile);

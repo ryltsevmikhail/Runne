@@ -99,8 +99,12 @@ pub(crate) fn run_enrollment_control_exchange(
         session_clock,
         |profile_directory, claims, stream| {
             let Some(resource_directory_hint) = claims.resource_directory_hint() else {
+                #[cfg(feature = "linux-native-enrollment-qualification")]
+                runne_platform_desktop::provider_credential_broker::linux_native_enrollment_qualification::record_enrollment_stage("resource_hint_missing");
                 return false;
             };
+            #[cfg(feature = "linux-native-enrollment-qualification")]
+            runne_platform_desktop::provider_credential_broker::linux_native_enrollment_qualification::record_enrollment_stage("writer_capability_begin");
             let Some(capability) =
                 runne_platform_desktop::VerifiedInstalledLinuxWriterCapability::
                     load_current_for_authenticated_desktop_peer(
@@ -110,9 +114,15 @@ pub(crate) fn run_enrollment_control_exchange(
                         stream,
                     )
             else {
+                #[cfg(feature = "linux-native-enrollment-qualification")]
+                runne_platform_desktop::provider_credential_broker::linux_native_enrollment_qualification::record_enrollment_stage("writer_capability_failed");
                 return false;
             };
+            #[cfg(feature = "linux-native-enrollment-qualification")]
+            runne_platform_desktop::provider_credential_broker::linux_native_enrollment_qualification::record_enrollment_stage("writer_capability_ready");
             *writer_capability.borrow_mut() = Some(capability);
+            #[cfg(feature = "linux-native-enrollment-qualification")]
+            runne_platform_desktop::provider_credential_broker::linux_native_enrollment_qualification::record_enrollment_stage("measurement_begin");
             *measured.borrow_mut() =
                 runne_platform_desktop::measure_verified_linux_enrollment_installation(
                     stream,
@@ -124,9 +134,14 @@ pub(crate) fn run_enrollment_control_exchange(
                         .executable()
                         .executable_sha256(),
                 );
-            measured.borrow().is_some()
+            let ready = measured.borrow().is_some();
+            #[cfg(feature = "linux-native-enrollment-qualification")]
+            runne_platform_desktop::provider_credential_broker::linux_native_enrollment_qualification::record_enrollment_stage(if ready { "measurement_ready" } else { "measurement_failed" });
+            ready
         },
         |input, request, channel| {
+            #[cfg(feature = "linux-native-enrollment-qualification")]
+            runne_platform_desktop::provider_credential_broker::linux_native_enrollment_qualification::record_enrollment_stage("transition_begin");
             transition_with(
                 input,
                 request,
@@ -136,17 +151,21 @@ pub(crate) fn run_enrollment_control_exchange(
                 channel,
             )
         },
-    )?;
+    );
+    #[cfg(feature = "linux-native-enrollment-qualification")]
+    runne_platform_desktop::provider_credential_broker::linux_native_enrollment_qualification::record_enrollment_stage(if outcome.is_ok() { "transition_ready" } else { "transition_failed" });
+    let outcome = outcome?;
     if let Some(control) = composition.enrollment_control.as_ref() {
-        control
-            .install_linux_preadmission(
-                outcome.owned_launch(),
-                &composition.runtime_root,
-                measured
-                    .into_inner()
-                    .ok_or(LaunchAuthorityError::OwnershipMismatch)?,
-            )
-            .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
+        let installed = control.install_linux_preadmission(
+            outcome.owned_launch(),
+            &composition.runtime_root,
+            measured
+                .into_inner()
+                .ok_or(LaunchAuthorityError::OwnershipMismatch)?,
+        );
+        #[cfg(feature = "linux-native-enrollment-qualification")]
+        runne_platform_desktop::provider_credential_broker::linux_native_enrollment_qualification::record_enrollment_stage(if installed.is_ok() { "profile_install_ready" } else { "profile_install_failed" });
+        installed.map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
     }
     Ok(outcome.with_linux_writer_capability(
         writer_capability

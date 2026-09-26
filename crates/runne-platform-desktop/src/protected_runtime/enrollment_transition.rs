@@ -43,6 +43,11 @@ impl EnrollmentTransitionClaims {
 /// Bounded continuous-clock validity for the V3 launch request.
 const ENROLLMENT_REQUEST_TTL_MILLIS: u64 = 20_000;
 
+#[cfg(target_os = "linux")]
+fn linux_transition_stage(stage: &'static str) {
+    eprintln!("runne-linux-transition stage={stage}");
+}
+
 fn random_nonce() -> Option<[u8; 32]> {
     use rand::{RngCore, rngs::OsRng};
     let mut nonce = [0_u8; 32];
@@ -94,6 +99,8 @@ impl ProtectedBundledRuntimeProcess {
         resource_directory_hint: Option<&str>,
         request_started: &mut bool,
     ) -> Result<ProtectedBundledRuntimeProfile, ProtectedBundledRuntimeError> {
+        #[cfg(target_os = "linux")]
+        linux_transition_stage("prepare_build");
         let nonce = random_nonce().ok_or_else(|| {
             launch_error(LaunchAuthorityError::RenewalUnavailable)
         })?;
@@ -114,6 +121,8 @@ impl ProtectedBundledRuntimeProcess {
         #[cfg(not(target_os = "linux"))]
         let _ = resource_directory_hint;
         prepare.sign(&self.keys);
+        #[cfg(target_os = "linux")]
+        linux_transition_stage("prepare_write");
         write_frame(
             &mut self.channel,
             &Zeroizing::new(
@@ -124,12 +133,16 @@ impl ProtectedBundledRuntimeProcess {
         )?;
         *request_started = true;
 
+        #[cfg(target_os = "linux")]
+        linux_transition_stage("prelude_read_decode");
         let frame = Zeroizing::new(read_frame(&mut self.channel)?);
         let signed_prelude =
             ProtectedCredentialEnrollmentPreludeV2::decode_frame(&frame)
                 .map_err(|_| launch_error(LaunchAuthorityError::RenewalUnavailable))?;
         let now = unix_wall_millis()
             .map_err(|_| launch_error(LaunchAuthorityError::RenewalUnavailable))?;
+        #[cfg(target_os = "linux")]
+        linux_transition_stage("prelude_verify");
         signed_prelude
             .verify_exact_at(&prepare, owned, 0, now, &self.keys)
             .map_err(launch_error)?;
@@ -141,7 +154,11 @@ impl ProtectedBundledRuntimeProcess {
             prelude.publication_key(),
         ));
 
+        #[cfg(target_os = "linux")]
+        linux_transition_stage("v3_build");
         let mut v3 = Self::build_enrollment_v3_request(claims, compatibility, owned, &prelude, now)?;
+        #[cfg(target_os = "linux")]
+        linux_transition_stage("v3_write");
         write_frame(
             &mut self.channel,
             &Zeroizing::new(
@@ -150,15 +167,23 @@ impl ProtectedBundledRuntimeProcess {
             ),
         )?;
 
+        #[cfg(target_os = "linux")]
+        linux_transition_stage("ready_read_decode");
         let frame = Zeroizing::new(read_frame(&mut self.channel)?);
         let v3_keys = v3.derive_keys_and_forget();
         let ready = ProtectedCredentialEnrollmentReadyV3::decode_frame(&frame)
             .map_err(|_| launch_error(LaunchAuthorityError::ReadinessProofMismatch))?;
+        #[cfg(target_os = "linux")]
+        linux_transition_stage("ready_verify");
         ready.verify_exact(&v3, &v3_keys).map_err(launch_error)?;
         let owned_v3 = ready.owned_launch();
+        #[cfg(target_os = "linux")]
+        linux_transition_stage("profile_build");
         let profile =
             ProtectedBundledRuntimeProfile::from_ready_v3(&ready, &v3, now, &v3_keys)
                 .map_err(launch_error)?;
+        #[cfg(target_os = "linux")]
+        linux_transition_stage("profile_ready");
         self.keys = v3_keys;
         self.activation = ProtectedProcessActivation::V3 {
             request: v3,

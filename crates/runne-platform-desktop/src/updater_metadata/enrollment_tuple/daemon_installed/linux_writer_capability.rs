@@ -16,6 +16,14 @@ use super::super::{
 };
 use super::{compiled_policy, refresh_retained_admission_at, verified_admission};
 
+#[inline]
+fn linux_stage(stage: &'static str) {
+    #[cfg(feature = "linux-native-enrollment-qualification")]
+    crate::provider_credential_broker::linux_native_enrollment_qualification::record_enrollment_stage(stage);
+    #[cfg(not(feature = "linux-native-enrollment-qualification"))]
+    let _ = stage;
+}
+
 /// Opaque daemon-owned Linux writer admission, bound to a live desktop peer.
 /// The value grants a launch spec only while its signed installed tuple remains current.
 pub struct VerifiedInstalledLinuxWriterCapability {
@@ -36,23 +44,30 @@ impl VerifiedInstalledLinuxWriterCapability {
         resource_directory_hint: &Path,
         stream: &UnixStream,
     ) -> Option<Self> {
+        linux_stage("capability_profile_runtime");
         if !valid_profile_runtime_pair(profile_directory, canonical_runtime_root) {
             return None;
         }
+        linux_stage("capability_peer_paths");
         let (paths, peer) = NativeEnrollmentArtifactPathsV1::resolve_linux_from_authenticated_peer(
             stream,
             resource_directory_hint,
         )
         .ok()?;
+        linux_stage("capability_policy");
         let policy = compiled_policy()?;
+        linux_stage("capability_trust");
         let trust = crate::CompiledUpdateTrustRootV2::load()?.into_trust_root();
+        linux_stage("capability_admission");
         let admission = verified_admission(profile_directory, &paths, &trust, &policy)?;
+        linux_stage("capability_identity");
         let identity = paths
             .confirm_current_daemon(admission.daemon_sha256, canonical_runtime_root)
             .is_ok();
         if !identity || paths.confirm_authenticated_peer(&peer, stream).is_err() {
             return None;
         }
+        linux_stage("capability_refresh");
         let fresh = refresh_retained_admission_at(
             profile_directory,
             &paths,
@@ -82,17 +97,21 @@ impl VerifiedInstalledLinuxWriterCapability {
     /// Revalidates peer identity, committed journals, installed files and daemon image.
     #[must_use]
     pub fn revalidate_for_authenticated_desktop_peer(&self, stream: &UnixStream) -> bool {
+        linux_stage("capability_revalidate_policy");
         let Some(policy) = compiled_policy() else {
             return false;
         };
+        linux_stage("capability_revalidate_trust");
         let Some(trust) = crate::CompiledUpdateTrustRootV2::load()
             .map(runne_api::CompiledUpdateTrustRootV2::into_trust_root)
         else {
             return false;
         };
+        linux_stage("capability_revalidate_time");
         let Some(now) = now() else {
             return false;
         };
+        linux_stage("capability_revalidate_admission");
         let Some(fresh) = refresh_retained_admission_at(
             &self.profile_directory,
             &self.paths,
@@ -118,6 +137,7 @@ impl VerifiedInstalledLinuxWriterCapability {
     /// Revalidates immediately before producing the writer launch spec.
     #[must_use]
     pub fn writer_launch_spec(&self, stream: &UnixStream) -> Option<VerifiedWriterLaunchSpec> {
+        linux_stage("capability_artifact");
         self.revalidate_for_authenticated_desktop_peer(stream)
             .then_some(())?;
         let artifact = self
@@ -139,6 +159,7 @@ impl VerifiedInstalledLinuxWriterCapability {
         &self,
         stream: &UnixStream,
     ) -> Option<VerifiedInstalledLinuxEnrollmentMeasurementFacts> {
+        linux_stage("capability_measurement");
         if !self.revalidate_for_authenticated_desktop_peer(stream) {
             return None;
         }
@@ -147,6 +168,7 @@ impl VerifiedInstalledLinuxWriterCapability {
             [desktop, writer, daemon, contract],
             &self.admission,
         )?;
+        linux_stage("capability_measurement_facts");
         self.paths
             .confirm_authenticated_peer(&self.peer, stream)
             .ok()?;
