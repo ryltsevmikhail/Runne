@@ -51,6 +51,7 @@ struct SessionPeer {
     capabilities: Vec<String>,
     capability_digest: [u8; 32],
     provider_binding: Option<ProviderActivationBindingV1>,
+    native_v3_enrollment_attested: bool,
 }
 
 enum BootstrapMaterial {

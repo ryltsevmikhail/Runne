@@ -105,8 +105,9 @@ mod tests {
         let mut ready = ProtectedReadyV2::new(ready_v1, binding, ProviderActivationReadinessV1::Ready).unwrap();
         ready.sign(&keys);
 
-        ProtectedBundledRuntimeProfile::from_ready_v2(&ready, &request, &keys)
+        let v2_profile = ProtectedBundledRuntimeProfile::from_ready_v2(&ready, &request, &keys)
             .expect("exact V2 protected profile");
+        assert!(!v2_profile.peer.native_v3_enrollment_attested);
 
         let changed = ProviderActivationBindingV1::deterministic_v1();
         let changed_request =
@@ -154,6 +155,7 @@ mod tests {
             capabilities,
             capability_digest,
             provider_binding: None,
+            native_v3_enrollment_attested: false,
         }
     }
 

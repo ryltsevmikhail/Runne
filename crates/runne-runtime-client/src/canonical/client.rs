@@ -8,6 +8,7 @@ pub struct AuthenticatedRuntimeClient {
     session: RuntimeSessionInfo,
     provider_statuses: Vec<runne_api::ProviderStatusSnapshotV1>,
     transport_kind: RuntimeTransportKind,
+    native_v3_enrollment_attested: bool,
 }
 
 impl AuthenticatedRuntimeClient {
@@ -94,6 +95,7 @@ impl AuthenticatedRuntimeClient {
             session,
             provider_statuses,
             transport_kind: RuntimeTransportKind::ExternalLocal,
+            native_v3_enrollment_attested: false,
         }
     }
 
@@ -112,7 +114,30 @@ impl AuthenticatedRuntimeClient {
             session,
             provider_statuses,
             transport_kind: RuntimeTransportKind::ProtectedBundled,
+            native_v3_enrollment_attested: false,
         }
+    }
+
+    pub(crate) fn from_attested_v3_protected_session(
+        client: reqwest::Client,
+        origin: String,
+        authority: RuntimeSessionAuthority,
+        session: RuntimeSessionInfo,
+        provider_statuses: Vec<runne_api::ProviderStatusSnapshotV1>,
+    ) -> Self {
+        let mut client = Self::from_protected_bundled_session(
+            client,
+            origin,
+            authority,
+            session,
+            provider_statuses,
+        );
+        client.native_v3_enrollment_attested = true;
+        client
+    }
+
+    pub(crate) const fn has_native_v3_enrollment_attestation(&self) -> bool {
+        self.native_v3_enrollment_attested
     }
 
     /// Creates one durable Conversation.

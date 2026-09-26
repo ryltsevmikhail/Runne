@@ -35,6 +35,14 @@ mod provider_credential_enrollment_tests {
             session(crate::PROTECTED_RUNTIME_CAPABILITIES),
         )
         .unwrap();
+        let qualified_external = mock_authenticated_runtime_client(
+            &origin,
+            session(crate::ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES),
+        )
+        .unwrap();
+
+        assert!(crate::canonical::require_status_capability(&protected).is_err());
+        assert!(crate::canonical::require_status_capability(&qualified_external).is_err());
 
         for client in [&external, &protected] {
             assert_eq!(

@@ -128,5 +128,6 @@ fn session_peer_from_v3_ready(
         capabilities: ready.capabilities().to_vec(),
         capability_digest: *profile.capability_digest(),
         provider_binding: Some(ready.provider_binding().clone()),
+        native_v3_enrollment_attested: true,
     })
 }

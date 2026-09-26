@@ -66,13 +66,13 @@ impl AuthenticatedRuntimeClient {
     ///
     /// # Errors
     ///
-    /// Returns `Incompatible` before transport unless the exact qualified
-    /// protected capability profile was admitted.
+    /// Returns `Incompatible` before transport unless the qualified profile
+    /// or exact native V3-attested protected profile was admitted.
     pub async fn provider_credential_status(
         &self,
         provider: ProviderCredentialProviderV2,
     ) -> Result<ProviderCredentialSafeSnapshotV2, RuntimeApiError> {
-        require_enrollment_capability(self).inspect_err(|error| {
+        require_status_capability(self).inspect_err(|error| {
             report_http_diagnostic(
                 "credential_status",
                 "capability",
@@ -153,11 +153,47 @@ const fn provider_path(provider: ProviderCredentialProviderV2) -> &'static str {
     provider.as_str()
 }
 
-fn require_enrollment_capability(
+#[allow(
+    clippy::redundant_pub_crate,
+    reason = "kept visible to crate-local sibling tests through the private canonical module"
+)]
+pub(super) fn require_enrollment_capability(
     client: &AuthenticatedRuntimeClient,
 ) -> Result<(), RuntimeApiError> {
     (client.transport_kind() == RuntimeTransportKind::ProtectedBundled
         && is_enrollment_qualified_capability_profile(&client.session_info().capabilities))
     .then_some(())
     .ok_or_else(|| RuntimeApiError::new(RuntimeApiErrorKind::Incompatible))
+}
+
+#[allow(
+    clippy::redundant_pub_crate,
+    reason = "kept visible to crate-local sibling tests through the private canonical module"
+)]
+pub(super) fn require_status_capability(
+    client: &AuthenticatedRuntimeClient,
+) -> Result<(), RuntimeApiError> {
+    (client.transport_kind() == RuntimeTransportKind::ProtectedBundled
+        && (is_enrollment_qualified_capability_profile(&client.session_info().capabilities)
+            || has_linux_v3_status_profile(client)))
+    .then_some(())
+    .ok_or_else(|| RuntimeApiError::new(RuntimeApiErrorKind::Incompatible))
+}
+
+fn has_linux_v3_status_profile(client: &AuthenticatedRuntimeClient) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        client.has_native_v3_enrollment_attestation()
+            && client
+                .session_info()
+                .capabilities
+                .iter()
+                .map(String::as_str)
+                .eq(crate::PROTECTED_RUNTIME_CAPABILITIES.iter().copied())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = client.has_native_v3_enrollment_attestation();
+        false
+    }
 }

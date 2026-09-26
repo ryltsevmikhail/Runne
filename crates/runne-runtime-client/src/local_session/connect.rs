@@ -50,6 +50,7 @@ fn session_peer_from_ready(
         capabilities: ready.capabilities().to_vec(),
         capability_digest: *profile.capability_digest(),
         provider_binding: None,
+        native_v3_enrollment_attested: false,
     })
 }
 
@@ -102,6 +103,7 @@ pub async fn connect(
             capabilities,
             capability_digest,
             provider_binding: None,
+            native_v3_enrollment_attested: false,
         },
         BootstrapMaterial::ExternalPath(bootstrap_secret_path),
         RuntimeTransportKind::ExternalLocal,
@@ -152,7 +154,25 @@ async fn connect_with_peer(
         .map_err(|_| RuntimeTransportError::Unavailable)?;
     let remote: SessionRuntimeProfileWire = read_json(profile_response).await?;
     let (session, provider_statuses) = verify_remote_profile(&profile, remote, issued_session_id)?;
-    Ok(match transport_kind {
+    Ok(client_from_verified_profile(
+        client,
+        profile,
+        credential,
+        session,
+        provider_statuses,
+        transport_kind,
+    ))
+}
+
+fn client_from_verified_profile(
+    client: reqwest::Client,
+    profile: SessionPeer,
+    credential: RuntimeCredential,
+    session: RuntimeSessionInfo,
+    provider_statuses: Vec<runne_api::ProviderStatusSnapshotV1>,
+    transport_kind: RuntimeTransportKind,
+) -> AuthenticatedRuntimeClient {
+    match transport_kind {
         RuntimeTransportKind::ExternalLocal => AuthenticatedRuntimeClient::from_local_session(
             client,
             profile.origin,
@@ -161,15 +181,25 @@ async fn connect_with_peer(
             provider_statuses,
         ),
         RuntimeTransportKind::ProtectedBundled => {
-            AuthenticatedRuntimeClient::from_protected_bundled_session(
-                client,
-                profile.origin,
-                credential,
-                session,
-                provider_statuses,
-            )
+            if profile.native_v3_enrollment_attested {
+                AuthenticatedRuntimeClient::from_attested_v3_protected_session(
+                    client,
+                    profile.origin,
+                    credential,
+                    session,
+                    provider_statuses,
+                )
+            } else {
+                AuthenticatedRuntimeClient::from_protected_bundled_session(
+                    client,
+                    profile.origin,
+                    credential,
+                    session,
+                    provider_statuses,
+                )
+            }
         }
-    })
+    }
 }
 
 async fn authenticate_bootstrap(

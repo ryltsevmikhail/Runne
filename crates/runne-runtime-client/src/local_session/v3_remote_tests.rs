@@ -56,6 +56,28 @@ fn v3_enrolled_session_carries_the_raised_epoch_for_the_protected_predicate() {
     );
 }
 
+#[test]
+#[cfg(target_os = "linux")]
+fn v3_status_attestation_survives_exact_remote_profile_client_handoff() {
+    let (launch, ready, keys) = v3_fixture(false, 6);
+    let profile = ProtectedBundledRuntimeProfile::from_ready_v3(&ready, &launch, 1_000, &keys)
+        .expect("exact V3 readiness");
+    let remote = v3_remote(&profile, ready.provider_binding(), true);
+    let (session, statuses) = verify_remote_profile(&profile.peer, remote, *ready.session_id())
+        .expect("exact authenticated remote profile");
+    let client = client_from_verified_profile(
+        reqwest::Client::new(),
+        profile.peer,
+        RuntimeCredential::from_local_session([8; 32]),
+        session,
+        statuses,
+        RuntimeTransportKind::ProtectedBundled,
+    );
+
+    assert!(crate::canonical::require_status_capability(&client).is_ok());
+    assert!(crate::canonical::require_enrollment_capability(&client).is_err());
+}
+
 fn v3_remote(
     profile: &ProtectedBundledRuntimeProfile,
     binding: &ProviderActivationBindingV1,
