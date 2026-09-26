@@ -10,7 +10,7 @@ fn target() -> UpdateTargetV2 {
         artifact_sha256: "0".repeat(64),
         artifact_size: 0,
         artifact_url: "https://updates.example/runne.AppImage".into(),
-        release_candidate_sha256: "1".repeat(64),
+        release_candidate_sha256: hex::encode(Sha256::digest("a".repeat(40).as_bytes())),
         min_os: "linux".into(),
         profile_id: "stable".into(),
         bundle_sha256: "2".repeat(64),
@@ -54,7 +54,8 @@ fn fixture() -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf) {
         serde_json::to_vec(&serde_json::json!({
             "schemaVersion": 1,
             "artifactSha256": digest(b"appimage-content"),
-            "releaseCandidateSha256": "1".repeat(64),
+            "sourceCommit": "a".repeat(40),
+            "releaseCandidateSha256": digest("a".repeat(40).as_bytes()),
             "desktopSha256": digest(b"file-0"),
             "cliSha256": digest(b"file-1"),
             "daemonSha256": digest(b"file-2"),

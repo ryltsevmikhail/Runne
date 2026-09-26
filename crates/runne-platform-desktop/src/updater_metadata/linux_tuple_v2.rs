@@ -25,6 +25,7 @@ pub struct LinuxTupleV2Output {
 struct QualificationReceiptV1 {
     schema_version: u32,
     artifact_sha256: String,
+    source_commit: String,
     release_candidate_sha256: String,
     desktop_sha256: String,
     cli_sha256: String,
@@ -49,6 +50,13 @@ impl QualificationReceiptV1 {
     ) -> bool {
         self.schema_version == 1
             && self.artifact_sha256 == artifact
+            && self.source_commit.len() == 40
+            && self
+                .source_commit
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+            && hex::encode(Sha256::digest(self.source_commit.as_bytes()))
+                == self.release_candidate_sha256
             && self.release_candidate_sha256 == target.release_candidate_sha256
             && self.desktop_sha256 == components[0]
             && self.cli_sha256 == components[1]
