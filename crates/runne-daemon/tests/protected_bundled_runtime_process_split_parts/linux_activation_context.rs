@@ -21,7 +21,9 @@ async fn real_linux_baseline_v2_remains_usable_without_installed_enrollment() {
     let client = profile.connect(Duration::from_secs(10)).await.unwrap();
     assert_eq!(client.session_info().authorization_epoch, 0);
     supervisor.record_client_ready(&client).unwrap();
-    let (_, facts) = supervisor.linux_activation_context().unwrap();
+    let (_, facts) = supervisor
+        .test_only_linux_activation_context_with_desktop_image(executable.path())
+        .unwrap();
     assert_eq!(
         hex::encode(facts.runtime_authority_id),
         client.session_info().authority_id
@@ -59,7 +61,9 @@ async fn linux_gate_facts_follow_live_v2_authority_and_deny_after_stop() {
         .await
         .unwrap();
     supervisor.record_client_ready(&client).unwrap();
-    let (measured_root, facts) = supervisor.linux_activation_context().expect("live context");
+    let (measured_root, facts) = supervisor
+        .test_only_linux_activation_context_with_desktop_image(executable.path())
+        .expect("live context");
     assert_eq!(measured_root, root);
     assert_eq!(
         hex::encode(facts.runtime_authority_id),
@@ -79,16 +83,37 @@ async fn linux_gate_facts_follow_live_v2_authority_and_deny_after_stop() {
     use std::os::unix::fs::PermissionsExt as _;
     std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
     assert!(
-        supervisor.linux_activation_context().is_err(),
+        supervisor
+            .test_only_linux_activation_context_with_desktop_image(executable.path())
+            .is_err(),
         "changed root permissions must deny"
     );
     std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
-    assert!(supervisor.linux_activation_context().is_ok());
-    std::fs::remove_file(root.join(".desktop-protected-activation/executables-v1/runne")).unwrap();
     assert!(
-        supervisor.linux_activation_context().is_err(),
-        "missing staged writer must deny"
+        supervisor
+            .test_only_linux_activation_context_with_desktop_image(executable.path())
+            .is_ok()
+    );
+    std::fs::remove_file(executable.path().parent().unwrap().join("runne")).unwrap();
+    assert!(
+        supervisor
+            .test_only_linux_activation_context_with_desktop_image(executable.path())
+            .is_err(),
+        "missing package writer must deny"
+    );
+    let writer = executable.path().parent().unwrap().join("runne");
+    std::fs::copy(executable.path(), &writer).unwrap();
+    std::fs::set_permissions(&writer, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(
+        supervisor
+            .test_only_linux_activation_context_with_desktop_image(executable.path())
+            .is_ok(),
+        "restored package writer must restore the live context"
     );
     supervisor.stop().unwrap();
-    assert!(supervisor.linux_activation_context().is_err());
+    assert!(
+        supervisor
+            .test_only_linux_activation_context_with_desktop_image(executable.path())
+            .is_err()
+    );
 }

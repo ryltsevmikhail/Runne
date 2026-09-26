@@ -20,6 +20,26 @@ impl ProtectedBundledRuntimeSupervisor {
     pub fn linux_activation_context(
         &mut self,
     ) -> Result<(PathBuf, LinuxInstallationFacts), ProtectedBundledRuntimeError> {
+        self.linux_activation_context_for_desktop(Path::new("/proc/self/exe"))
+    }
+
+    /// Uses a controlled desktop image in integration tests.
+    ///
+    /// # Errors
+    /// Returns the same closed failures as [`Self::linux_activation_context`].
+    #[cfg(feature = "test-support")]
+    #[doc(hidden)]
+    pub fn test_only_linux_activation_context_with_desktop_image(
+        &mut self,
+        desktop_image: &Path,
+    ) -> Result<(PathBuf, LinuxInstallationFacts), ProtectedBundledRuntimeError> {
+        self.linux_activation_context_for_desktop(desktop_image)
+    }
+
+    fn linux_activation_context_for_desktop(
+        &mut self,
+        desktop_image: &Path,
+    ) -> Result<(PathBuf, LinuxInstallationFacts), ProtectedBundledRuntimeError> {
         if self.state != BundledRuntimeLifecycleState::Ready || self.pending_profile.is_some() {
             return Err(ProtectedBundledRuntimeError::InvalidState);
         }
@@ -47,7 +67,6 @@ impl ProtectedBundledRuntimeSupervisor {
         let daemon_image = PathBuf::from(format!("/proc/{}/exe", process.child.id()));
         std::fs::canonicalize(&daemon_image)
             .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-        let desktop_image = Path::new("/proc/self/exe");
         let desktop = std::fs::canonicalize(desktop_image)
             .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
         let writer = package_writer_for_desktop(&desktop)
