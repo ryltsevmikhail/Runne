@@ -77,25 +77,19 @@ fn update_command_digest(
                 conversation_id,
                 workspace_id,
             } => {
-                digest.update([7]);
-                update_id(digest, *conversation_id);
-                update_id(digest, *workspace_id);
+                update_conversation_creation_digest(digest, 7, *conversation_id, *workspace_id);
             }
             CanonicalMutationCommand::CreateTextOnlyConversation {
                 conversation_id,
                 workspace_id,
             } => {
-                digest.update([14]);
-                update_id(digest, *conversation_id);
-                update_id(digest, *workspace_id);
+                update_conversation_creation_digest(digest, 14, *conversation_id, *workspace_id);
             }
             CanonicalMutationCommand::GenerateText {
                 conversation_id,
                 text,
             } => {
-                digest.update([8]);
-                update_id(digest, *conversation_id);
-                update_bytes(digest, text.as_bytes());
+                update_generated_text_digest(digest, *conversation_id, text);
             }
             CanonicalMutationCommand::CancelTaskRun { task_run_id } => {
                 digest.update([9]);
@@ -131,4 +125,27 @@ fn update_command_digest(
                 digest.update(renderer_generation.to_be_bytes());
             }
     }
+}
+
+fn update_conversation_creation_digest(
+    digest: &mut sha2::Sha256,
+    tag: u8,
+    conversation_id: CanonicalId,
+    workspace_id: CanonicalId,
+) {
+    use sha2::Digest;
+    digest.update([tag]);
+    update_id(digest, conversation_id);
+    update_id(digest, workspace_id);
+}
+
+fn update_generated_text_digest(
+    digest: &mut sha2::Sha256,
+    conversation_id: CanonicalId,
+    text: &str,
+) {
+    use sha2::Digest;
+    digest.update([8]);
+    update_id(digest, conversation_id);
+    update_bytes(digest, text.as_bytes());
 }

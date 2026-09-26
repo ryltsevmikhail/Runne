@@ -64,12 +64,7 @@ fn command_matches(request: &MutationRequest) -> bool {
             target,
             CanonicalMutationCommand::CreateConversation {
                 conversation_id, ..
-            },
-        )
-        | (
-            Operation::ConversationCreate,
-            target,
-            CanonicalMutationCommand::CreateTextOnlyConversation {
+            } | CanonicalMutationCommand::CreateTextOnlyConversation {
                 conversation_id, ..
             },
         )

@@ -39,7 +39,11 @@ impl AppCore {
             .await
     }
 
-    /// Reconciles and streams the dedicated TextOnly Conversation.
+    /// Reconciles and streams the dedicated `TextOnly` Conversation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed local, replay, or runtime failure.
     pub async fn subscribe_text_only_conversation<F>(&self, on_update: F) -> Result<(), AppCoreError>
     where
         F: FnMut(ConversationTimelineUpdate) + Send,

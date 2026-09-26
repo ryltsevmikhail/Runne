@@ -32,9 +32,8 @@ async fn task_run_cancellation_outcome_parses_and_correlates() {
     ));
     server.await.unwrap();
 }
-
 #[tokio::test]
-async fn non_text_outcomes_and_scoped_conversation_witnesses_correlate() {
+async fn non_text_outcomes_correlate_to_their_requests() {
     let digest = "07".repeat(32);
     let requests = vec![
         CommandReconciliationRequest::create_project(identity(), id(PROJECT), "Name").unwrap(),
@@ -52,16 +51,6 @@ async fn non_text_outcomes_and_scoped_conversation_witnesses_correlate() {
         CommandReconciliationRequest::bind_workspace_root(identity(), id(WORKSPACE), 1, digest)
             .unwrap(),
         CommandReconciliationRequest::open_workspace(identity(), id(WORKSPACE), 1).unwrap(),
-        CommandReconciliationRequest::create_conversation(
-            identity(),
-            id(CONVERSATION),
-            id(WORKSPACE),
-        ),
-        CommandReconciliationRequest::create_text_only_conversation(
-            identity(),
-            id(CONVERSATION),
-            id(WORKSPACE),
-        ),
     ];
     let bodies = vec![
         format!(
@@ -85,12 +74,6 @@ async fn non_text_outcomes_and_scoped_conversation_witnesses_correlate() {
         format!(
             r#"{{"disposition":"durably_recorded","outcome":{{"operation":"open_workspace","workspaceId":"{WORKSPACE}","newVersion":2}}}}"#
         ),
-        format!(
-            r#"{{"disposition":"durably_recorded","outcome":{{"operation":"create_conversation","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}","streamVersion":1,"committedAt":7}}}}"#
-        ),
-        format!(
-            r#"{{"disposition":"durably_recorded","outcome":{{"operation":"create_conversation","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}","streamVersion":1,"committedAt":7}}}}"#
-        ),
     ];
     let request_bodies = vec![
         format!(r#"{{"operation":"create_project","projectId":"{PROJECT}","displayName":"Name"}}"#),
@@ -108,12 +91,6 @@ async fn non_text_outcomes_and_scoped_conversation_witnesses_correlate() {
         ),
         format!(
             r#"{{"operation":"open_workspace","workspaceId":"{WORKSPACE}","expectedVersion":1}}"#
-        ),
-        format!(
-            r#"{{"operation":"create_conversation","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}"}}"#
-        ),
-        format!(
-            r#"{{"operation":"create_text_only_conversation","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}"}}"#
         ),
     ];
     for (case, ((request, body), request_body)) in requests
@@ -140,8 +117,55 @@ async fn non_text_outcomes_and_scoped_conversation_witnesses_correlate() {
                     | (4, CommandReconciliationOutcome::WorkspaceCreated(_))
                     | (5, CommandReconciliationOutcome::WorkspaceRootBound(_))
                     | (6, CommandReconciliationOutcome::WorkspaceOpened(_))
-                    | (7, CommandReconciliationOutcome::ConversationCreated(_))
-                    | (8, CommandReconciliationOutcome::ConversationCreated(_))
+            ),
+            "case {case}"
+        );
+        server.await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn scoped_conversation_witnesses_correlate_to_create_outcome() {
+    let cases = [
+        (
+            7,
+            CommandReconciliationRequest::create_conversation(
+                identity(),
+                id(CONVERSATION),
+                id(WORKSPACE),
+            ),
+            format!(
+                r#"{{"operation":"create_conversation","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}"}}"#
+            ),
+        ),
+        (
+            8,
+            CommandReconciliationRequest::create_text_only_conversation(
+                identity(),
+                id(CONVERSATION),
+                id(WORKSPACE),
+            ),
+            format!(
+                r#"{{"operation":"create_text_only_conversation","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}"}}"#
+            ),
+        ),
+    ];
+    for (case, request, expected_request) in cases {
+        let body = format!(
+            r#"{{"disposition":"durably_recorded","outcome":{{"operation":"create_conversation","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}","streamVersion":1,"committedAt":7}}}}"#
+        );
+        let (origin, server) = serve(body, expected_request).await;
+        let client = mock_authenticated_runtime_client(&origin, session()).unwrap();
+        let result = client.reconcile_command(request).await.unwrap();
+        let runne_runtime_client::CommandReconciliationDisposition::DurablyRecorded(outcome) =
+            result
+        else {
+            panic!("expected durable outcome")
+        };
+        assert!(
+            matches!(
+                (case, outcome),
+                (7 | 8, CommandReconciliationOutcome::ConversationCreated(_))
             ),
             "case {case}"
         );

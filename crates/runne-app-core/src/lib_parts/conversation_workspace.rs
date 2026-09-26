@@ -1,5 +1,9 @@
 impl AppCore {
-    /// Opens the dedicated durable TextOnly conversation, isolated from workspaces.
+    /// Opens the dedicated durable `TextOnly` conversation, isolated from workspaces.
+    ///
+    /// # Errors
+    ///
+    /// Returns a fail-closed local, replay, or runtime error.
     pub async fn open_text_only_conversation(&self) -> Result<ConversationSnapshot, AppCoreError> {
         let _operation = self.runtime_operation.lock().await;
         let context = self.live_runtime_operation_context()?;
@@ -7,7 +11,11 @@ impl AppCore {
             .await
     }
 
-    /// Sends text only through the dedicated TextOnly conversation.
+    /// Sends text only through the dedicated `TextOnly` conversation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a fail-closed local, replay, or runtime error.
     pub async fn send_text_only_message(
         &self,
         text: &str,
@@ -119,7 +127,11 @@ impl AppCore {
             .await
     }
 
-    /// Resynchronizes the dedicated TextOnly conversation after explicit recovery.
+    /// Resynchronizes the dedicated `TextOnly` conversation after explicit recovery.
+    ///
+    /// # Errors
+    ///
+    /// Returns a fail-closed local, replay, or runtime error.
     pub async fn resync_text_only_conversation(&self) -> Result<ConversationSnapshot, AppCoreError> {
         let _operation = self.runtime_operation.lock().await;
         let context = self.resync_runtime_operation_context()?;

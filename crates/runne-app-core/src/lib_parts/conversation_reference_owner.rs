@@ -45,6 +45,7 @@ impl AppCore {
         if !reference.text_only() {
             return Err(AppCoreError::InvalidConversationReference);
         }
+        drop(store);
         Ok(reference)
     }
 

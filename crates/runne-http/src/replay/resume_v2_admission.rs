@@ -1,5 +1,4 @@
-async fn owned_resume_admission(
-    state: &ReplayHttpState,
+struct OwnedResumeAdmission {
     principal_id: String,
     scope: ReplayScope,
     wire: runne_api::ReplayRetentionBaselineWireV2,
@@ -7,6 +6,11 @@ async fn owned_resume_admission(
     delivery_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
     permit: ReplayCountPermit,
     binding: ReplayHttpBinding,
+}
+
+async fn owned_resume_admission(
+    state: &ReplayHttpState,
+    admission: OwnedResumeAdmission,
 ) -> Result<
     (
         ReplaySession,
@@ -16,6 +20,15 @@ async fn owned_resume_admission(
     ),
     ReplayError,
 > {
+    let OwnedResumeAdmission {
+        principal_id,
+        scope,
+        wire,
+        context,
+        delivery_guard,
+        permit,
+        binding,
+    } = admission;
     let service = Arc::clone(&state.service);
     let owned_state = state.clone();
     let delivery_deadline =

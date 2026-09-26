@@ -66,13 +66,15 @@ async fn resume_from_baseline(
         });
         let (session, events, baseline_cursor, accepted) = owned_resume_admission(
             &state,
-            principal.as_api_principal().as_str().to_owned(),
-            scope,
-            wire,
-            context,
-            delivery_guard,
-            permit,
-            binding,
+            OwnedResumeAdmission {
+                principal_id: principal.as_api_principal().as_str().to_owned(),
+                scope,
+                wire,
+                context,
+                delivery_guard,
+                permit,
+                binding,
+            },
         )
         .await
         .map_err(|error| replay_error_to_http(&error))?;

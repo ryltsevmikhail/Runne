@@ -67,7 +67,11 @@ impl ConversationSubscriptionManager {
         )
     }
 
-    /// Admits the singleton TextOnly conversation subscription.
+    /// Admits the singleton `TextOnly` conversation subscription.
+    ///
+    /// # Errors
+    ///
+    /// Returns an unavailable error when the window label or subscription cannot be admitted.
     pub fn subscribe_text_only<S>(
         &self,
         source: Arc<S>,

@@ -59,7 +59,11 @@ impl MutationRequest {
         ))
     }
 
-    /// Creates an AppCore-owned TextOnly conversation create request.
+    /// Creates an AppCore-owned `TextOnly` conversation create request.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid command identity or target.
     pub fn create_text_only_conversation(
         conversation_id: CanonicalId,
         workspace_id: CanonicalId,

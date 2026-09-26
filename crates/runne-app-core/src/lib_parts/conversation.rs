@@ -18,9 +18,8 @@ impl ConversationReferenceOwner {
 
     fn workspace_id(self) -> CanonicalId {
         match self {
-            Self::Project(_) => CanonicalId::now_v7(),
+            Self::Project(_) | Self::TextOnly => CanonicalId::now_v7(),
             Self::Workspace(workspace_id) => workspace_id,
-            Self::TextOnly => CanonicalId::now_v7(),
         }
     }
 

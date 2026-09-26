@@ -2,23 +2,23 @@ use runne_api::ProviderActivationBindingV1;
 use std::ffi::OsString;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ProviderSelection {
+pub struct ProviderSelection {
     binding: ProviderActivationBindingV1,
     explicit: bool,
 }
 
 impl ProviderSelection {
-    pub(crate) fn binding(&self) -> ProviderActivationBindingV1 {
+    pub fn binding(&self) -> ProviderActivationBindingV1 {
         self.binding.clone()
     }
 
-    pub(crate) const fn is_explicit(&self) -> bool {
+    pub const fn is_explicit(&self) -> bool {
         self.explicit
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct ProviderSelectionError;
+pub struct ProviderSelectionError;
 
 impl std::fmt::Display for ProviderSelectionError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -28,7 +28,7 @@ impl std::fmt::Display for ProviderSelectionError {
 
 impl std::error::Error for ProviderSelectionError {}
 
-pub(crate) fn provider_selection<I>(arguments: I) -> Result<ProviderSelection, ProviderSelectionError>
+pub fn provider_selection<I>(arguments: I) -> Result<ProviderSelection, ProviderSelectionError>
 where
     I: IntoIterator<Item = OsString>,
 {
