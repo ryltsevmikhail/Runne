@@ -100,9 +100,11 @@ pub(in crate::provider_credential_broker) fn build_plan(
         ],
         closes: vec![channel_fd, handshake_fd, stderr_fd],
     };
-    if let Some(_root) = fixture_root {
+    if let Some(root) = fixture_root {
         #[cfg(feature = "test-support")]
-        plan.environment.push(fixture_root_environment(_root)?);
+        plan.environment.push(fixture_root_environment(root)?);
+        #[cfg(not(feature = "test-support"))]
+        let _ = root;
         #[cfg(not(feature = "test-support"))]
         return Err(BrokerHandoffError::Rejected);
     }

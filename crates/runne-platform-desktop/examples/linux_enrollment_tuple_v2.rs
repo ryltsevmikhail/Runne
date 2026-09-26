@@ -1,4 +1,4 @@
-//! Produce a qualified Linux V2 tuple from a staged AppDir and AppImage.
+//! Produce a qualified Linux V2 tuple from a staged `AppDir` and `AppImage`.
 //!
 //! Usage: `linux_enrollment_tuple_v2 --app-dir PATH --appimage PATH --receipt PATH \
 //! --output PATH --target PATH --qualified-at UNIX --qualification-expires UNIX`
