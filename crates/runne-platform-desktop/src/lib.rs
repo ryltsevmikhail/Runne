@@ -13,6 +13,10 @@ use runne_platform_desktop::test_only_ready_v3_enrollment_supervisor;
 compile_error!("dev-loopback-updater cannot be compiled without debug assertions");
 
 mod protected_runtime;
+#[cfg(target_os = "linux")]
+pub use protected_runtime::linux_activation_approval::{
+    LinuxActivationApprovalPublishError, publish_linux_activation_record,
+};
 /// Platform-validated writer-process handoff for protected credential enrollment.
 pub mod provider_credential_broker;
 mod provider_credential_prompt;

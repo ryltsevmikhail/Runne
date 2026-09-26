@@ -14,6 +14,10 @@ pub(super) fn kill_after_delete(result: &Result<(), CliError>) -> Result<(), Cli
     let Some(root) = std::env::var_os(FIXTURE_ENV) else {
         return Ok(());
     };
+    #[cfg(feature = "linux-native-enrollment-qualification")]
+    let root = runne_platform_desktop::provider_credential_broker::linux_native_enrollment_qualification::validate_fixture_root(std::path::Path::new(&root))
+        .map_err(|_| CliError::CredentialOperation)?;
+    #[cfg(not(feature = "linux-native-enrollment-qualification"))]
     let root = std::fs::canonicalize(root).map_err(|_| CliError::CredentialOperation)?;
     let marker = root.join("post-delete.marker");
     let release = root.join("post-delete.release");

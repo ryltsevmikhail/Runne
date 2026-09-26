@@ -9,6 +9,7 @@ rust-version.workspace = true
 default = []
 dev-loopback-updater = []
 protected-channel-integration = []
+linux-native-enrollment-qualification = []
 test-support = [
     "runne-api/test-support",
     "runne-macos-process-identity/test-support",

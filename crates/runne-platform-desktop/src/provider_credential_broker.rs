@@ -81,6 +81,14 @@ pub use macos_writer_transfer::{
 };
 #[cfg(unix)]
 pub use unix::UnixRetainedWriterProcess;
+#[cfg(all(
+    target_os = "linux",
+    any(
+        feature = "test-support",
+        feature = "linux-native-enrollment-qualification"
+    )
+))]
+pub mod linux_native_enrollment_qualification;
 #[cfg(unix)]
 pub use unix::observe_current_process_start;
 #[cfg(target_os = "linux")]

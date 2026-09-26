@@ -34,9 +34,21 @@ function targetTriple() {
 }
 
 const target = targetTriple();
+const qualificationMode = process.env.RUNNE_LINUX_NATIVE_ENROLLMENT_QUALIFICATION;
+if (qualificationMode !== undefined && qualificationMode !== "1") {
+  throw new Error("RUNNE_LINUX_NATIVE_ENROLLMENT_QUALIFICATION must be unset or 1");
+}
+if (qualificationMode === "1" && !target.includes("linux")) {
+  throw new Error("Linux native enrollment qualification is Linux-only");
+}
 const extension = target.includes("windows") ? ".exe" : "";
 const binaryName = `runned${extension}`;
-execFileSync("cargo", ["build", "-p", "runne-daemon", "--bin", "runned", "--release", "--features", "desktop-protected", "--target", target], {
+const buildArgs = ["build", "-p", "runne-daemon", "--bin", "runned", "--release", "--features"];
+buildArgs.push(qualificationMode === "1"
+  ? "linux-native-enrollment-qualification"
+  : "desktop-protected");
+buildArgs.push("--target", target);
+execFileSync("cargo", buildArgs, {
   cwd: ROOT,
   stdio: "inherit",
   env: { ...process.env, CARGO_TARGET_DIR: SIDECAR_TARGET_DIR },

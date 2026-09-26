@@ -20,6 +20,10 @@ persistent-reference-probe = [
     "local-native-enrollment-test",
     "runne-macos-keychain-acl/persistent-reference-probe",
 ]
+linux-native-enrollment-qualification = [
+    "nix/signal",
+    "runne-platform-desktop/linux-native-enrollment-qualification",
+]
 
 [dependencies]
 base64.workspace = true

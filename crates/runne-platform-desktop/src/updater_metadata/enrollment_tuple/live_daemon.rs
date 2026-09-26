@@ -7,6 +7,9 @@ use std::fmt;
 mod retained_live_daemon;
 #[path = "live_daemon/v3_confirmation.rs"]
 mod v3_confirmation;
+#[cfg(target_os = "linux")]
+#[path = "live_daemon/linux_activation_facts.rs"]
+mod linux_activation_facts;
 #[cfg(target_os = "macos")]
 pub(super) use retained_live_daemon::verify_macos_daemon;
 

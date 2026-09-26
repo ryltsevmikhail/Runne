@@ -31,6 +31,10 @@ pub fn install_managed_context(controller: &Arc<BundledRuntimeController>) {
     let _ = MANAGED_CONTEXT.set(Arc::downgrade(controller));
 }
 
+pub fn managed_context() -> Option<Arc<BundledRuntimeController>> {
+    MANAGED_CONTEXT.get()?.upgrade()
+}
+
 pub(super) struct DesktopLinuxActivationGate {
     record: Option<LinuxEnrollmentActivationRecord>,
     facts: LinuxInstallationFacts,
@@ -73,7 +77,7 @@ impl DesktopLinuxActivationGate {
 /// `O_NOFOLLOW` loader; this crate has no such primitive without new deps,
 /// so canonical-path equality plus fd checks provide the same closed
 /// behavior under the accepted TD-1 same-UID trust envelope.)
-fn read_approval_record(path: &std::path::Path) -> Option<LinuxEnrollmentActivationRecord> {
+pub fn read_approval_record(path: &std::path::Path) -> Option<LinuxEnrollmentActivationRecord> {
     use std::io::Read as _;
     use std::os::unix::fs::MetadataExt as _;
     let canonical = std::fs::canonicalize(path).ok()?;

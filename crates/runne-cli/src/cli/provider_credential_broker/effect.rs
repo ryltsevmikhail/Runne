@@ -1,6 +1,9 @@
 //! Native/service effect dispatch after an accepted writer claim.
 
-use runne_provider::{CredentialBrokerFrame, CredentialOperationAction};
+use runne_provider::{
+    CredentialBindingDigest, CredentialBrokerCommand, CredentialBrokerFrame,
+    CredentialOperationAction,
+};
 use runne_secure_store::{
     BrokeredCreateInput, BrokeredDeleteInput, BrokeredLegacySourceDeleteInput,
     BrokeredMigrateLegacyInput, NativeProviderCredentialEffectRoute,
@@ -17,7 +20,13 @@ use super::{
 mod service;
 #[cfg(target_os = "macos")]
 use service::{consume_service_control, consume_service_legacy_migration, consume_service_pair};
-#[cfg(all(feature = "local-native-enrollment-test", target_os = "linux"))]
+#[cfg(all(
+    any(
+        feature = "local-native-enrollment-test",
+        feature = "linux-native-enrollment-qualification"
+    ),
+    target_os = "linux"
+))]
 #[path = "effect/linux_post_delete_test.rs"]
 mod linux_post_delete_test;
 #[cfg(all(test, target_os = "macos"))]
@@ -25,6 +34,17 @@ pub use service::{
     consume_service_control_with_port, consume_service_legacy_migration_with_port,
     consume_service_pair_with_port,
 };
+
+fn write_native_effect_observed(
+    control: &mut dyn super::claim::BrokerControl,
+    command: &CredentialBrokerCommand,
+    binding: CredentialBindingDigest,
+) -> Result<(), CliError> {
+    control.write_frame(CredentialBrokerFrame::NativeEffectObserved {
+        operation_id: command.operation_id(),
+        binding,
+    })
+}
 
 /// Executes a sealed Pair effect only after source decoding and claim acceptance.
 pub fn execute_pair_effect(authority: AuthorizedPairWriterControl) -> Result<(), CliError> {
@@ -69,10 +89,7 @@ pub fn execute_pair_effect(authority: AuthorizedPairWriterControl) -> Result<(),
         ),
     };
     result?;
-    control.write_frame(CredentialBrokerFrame::NativeEffectObserved {
-        operation_id: command.operation_id(),
-        binding,
-    })?;
+    write_native_effect_observed(control.as_mut(), &command, binding)?;
     Ok(())
 }
 
@@ -126,6 +143,23 @@ fn wait_for_legacy_delete_release() -> Result<(), CliError> {
         std::thread::sleep(Duration::from_millis(10));
     }
     Err(CliError::CredentialOperation)
+}
+
+#[cfg(all(
+    any(
+        feature = "local-native-enrollment-test",
+        feature = "linux-native-enrollment-qualification"
+    ),
+    target_os = "linux"
+))]
+fn pause_after_linux_revoke(
+    result: &Result<(), CliError>,
+    action: CredentialOperationAction,
+) -> Result<(), CliError> {
+    if action == CredentialOperationAction::Revoke {
+        linux_post_delete_test::kill_after_delete(result)?;
+    }
+    Ok(())
 }
 
 /// Executes a closed non-Pair effect only after native endpoint admission.
@@ -218,16 +252,16 @@ pub fn execute_non_pair_effect(authority: AuthorizedWriterControl) -> Result<(),
                 .map_err(|_| CliError::CredentialOperation)
         }
     };
-    #[cfg(all(feature = "local-native-enrollment-test", target_os = "linux"))]
-    if command.action() == CredentialOperationAction::Revoke {
-        linux_post_delete_test::kill_after_delete(&result)?;
-    }
+    #[cfg(all(
+        any(
+            feature = "local-native-enrollment-test",
+            feature = "linux-native-enrollment-qualification"
+        ),
+        target_os = "linux"
+    ))]
+    pause_after_linux_revoke(&result, command.action())?;
     #[cfg(all(feature = "local-native-enrollment-test", target_os = "macos"))]
     pause_after_legacy_source_delete(&result, legacy_source_cleanup)?;
     result?;
-    control.write_frame(CredentialBrokerFrame::NativeEffectObserved {
-        operation_id: command.operation_id(),
-        binding,
-    })?;
-    Ok(())
+    write_native_effect_observed(control.as_mut(), &command, binding)
 }

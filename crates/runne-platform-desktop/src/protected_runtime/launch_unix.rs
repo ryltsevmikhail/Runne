@@ -109,6 +109,12 @@ impl DevelopmentBundledRuntimeLauncher {
         let child_stdin = Stdio::from(OwnedFd::from(child_channel));
         let mut command = Command::new(&launch_executable_path);
         command.env_clear().stdin(child_stdin);
+        #[cfg(all(
+            target_os = "linux",
+            feature = "linux-native-enrollment-qualification"
+        ))]
+        crate::provider_credential_broker::linux_native_enrollment_qualification::forward_fixture_root(&mut command)
+            .map_err(|_| ProtectedBundledRuntimeError::RuntimeRootUnavailable)?;
         #[cfg(feature = "test-support")]
         preserve_local_process_environment(&mut command)?;
         #[cfg(feature = "test-support")]

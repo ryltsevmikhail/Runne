@@ -8,7 +8,10 @@
 use std::ffi::CString;
 use std::os::fd::{AsFd, AsRawFd as _, OwnedFd};
 use std::path::Path;
-#[cfg(feature = "test-support")]
+#[cfg(any(
+    feature = "test-support",
+    feature = "linux-native-enrollment-qualification"
+))]
 use std::path::PathBuf;
 
 use nix::fcntl::OFlag;
@@ -101,11 +104,20 @@ pub(in crate::provider_credential_broker) fn build_plan(
         closes: vec![channel_fd, handshake_fd, stderr_fd],
     };
     if let Some(root) = fixture_root {
-        #[cfg(feature = "test-support")]
+        #[cfg(any(
+            feature = "test-support",
+            feature = "linux-native-enrollment-qualification"
+        ))]
         plan.environment.push(fixture_root_environment(root)?);
-        #[cfg(not(feature = "test-support"))]
+        #[cfg(not(any(
+            feature = "test-support",
+            feature = "linux-native-enrollment-qualification"
+        )))]
         let _ = root;
-        #[cfg(not(feature = "test-support"))]
+        #[cfg(not(any(
+            feature = "test-support",
+            feature = "linux-native-enrollment-qualification"
+        )))]
         return Err(BrokerHandoffError::Rejected);
     }
     if let Some(secret_fd) = secret_fd {
@@ -115,52 +127,34 @@ pub(in crate::provider_credential_broker) fn build_plan(
     Ok(plan)
 }
 
-#[cfg(all(target_os = "linux", feature = "test-support"))]
+#[cfg(all(
+    target_os = "linux",
+    any(
+        feature = "test-support",
+        feature = "linux-native-enrollment-qualification"
+    )
+))]
 pub(super) fn opted_in_fixture_root() -> Result<Option<PathBuf>, BrokerHandoffError> {
-    const ENV: &str = "RUNNE_D1_1B_POST_DELETE_KILL_FIXTURE_ROOT";
-    let Some(root) = std::env::var_os(ENV) else {
-        return Ok(None);
-    };
-    let root = PathBuf::from(root);
-    validate_private_fixture_root(&root)?;
-    Ok(Some(root))
+    crate::provider_credential_broker::linux_native_enrollment_qualification::fixture_root_from_env(
+    )
+    .map_err(|_| BrokerHandoffError::Rejected)
 }
 
-#[cfg(feature = "test-support")]
+#[cfg(any(
+    feature = "test-support",
+    feature = "linux-native-enrollment-qualification"
+))]
 fn fixture_root_environment(root: &Path) -> Result<CString, BrokerHandoffError> {
     use std::os::unix::ffi::OsStrExt as _;
-    const PREFIX: &[u8] = b"RUNNE_D1_1B_POST_DELETE_KILL_FIXTURE_ROOT=";
-    validate_private_fixture_root(root)?;
-    let mut value = PREFIX.to_vec();
-    value.extend_from_slice(root.as_os_str().as_bytes());
+    let validated = crate::provider_credential_broker::linux_native_enrollment_qualification::validate_fixture_root(root)
+        .map_err(|_| BrokerHandoffError::Rejected)?;
+    let mut value = format!(
+        "{}=",
+        crate::provider_credential_broker::linux_native_enrollment_qualification::FIXTURE_ROOT_ENV
+    )
+    .into_bytes();
+    value.extend_from_slice(validated.as_os_str().as_bytes());
     CString::new(value).map_err(|_| BrokerHandoffError::Rejected)
-}
-
-#[cfg(feature = "test-support")]
-fn validate_private_fixture_root(root: &Path) -> Result<(), BrokerHandoffError> {
-    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
-
-    if !root.is_absolute() || std::fs::canonicalize(root).ok().as_deref() != Some(root) {
-        return Err(BrokerHandoffError::Rejected);
-    }
-    let root_metadata =
-        std::fs::symlink_metadata(root).map_err(|_| BrokerHandoffError::Rejected)?;
-    let parent = root.parent().ok_or(BrokerHandoffError::Rejected)?;
-    let parent_metadata =
-        std::fs::symlink_metadata(parent).map_err(|_| BrokerHandoffError::Rejected)?;
-    let owner = rustix::process::geteuid().as_raw();
-    if root_metadata.is_symlink()
-        || !root_metadata.is_dir()
-        || parent_metadata.is_symlink()
-        || !parent_metadata.is_dir()
-        || root_metadata.uid() != owner
-        || parent_metadata.uid() != owner
-        || root_metadata.permissions().mode() & 0o077 != 0
-        || parent_metadata.permissions().mode() & 0o077 != 0
-    {
-        return Err(BrokerHandoffError::Rejected);
-    }
-    Ok(())
 }
 
 pub(super) fn apply_plan(plan: &SpawnPlan) -> Result<PosixSpawnFileActions, BrokerHandoffError> {
@@ -224,4 +218,74 @@ pub(super) fn duplicate_above_reserved(
     descriptor: &impl AsFd,
 ) -> Result<OwnedFd, BrokerHandoffError> {
     rustix::io::fcntl_dupfd_cloexec(descriptor, 4).map_err(|_| BrokerHandoffError::Unavailable)
+}
+
+#[cfg(all(test, feature = "linux-native-enrollment-qualification"))]
+#[test]
+fn qualification_plan_forwards_only_the_validated_private_fixture_root() {
+    use super::SessionBusAddress;
+    use runne_platform_ports::provider_credential_broker::{
+        VerifiedWriterArtifact, VerifiedWriterLaunchSpec,
+    };
+    use std::os::unix::fs::PermissionsExt as _;
+    use std::os::unix::net::UnixListener;
+
+    let parent = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(parent.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let root = parent.path().join("fixture");
+    std::fs::create_dir(&root).unwrap();
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let bus_path = parent.path().join("bus");
+    let _bus = UnixListener::bind(&bus_path).unwrap();
+    let address = SessionBusAddress::for_tests(&bus_path).unwrap();
+    let spec = VerifiedWriterLaunchSpec::new(
+        VerifiedWriterArtifact::new("/bundle/runne".into(), [1; 32], [2; 32]).unwrap(),
+    );
+
+    let with_fixture = build_plan(&spec, &address, 10, 11, 12, None, Some(&root)).unwrap();
+    assert_eq!(with_fixture.environment.len(), 2);
+    assert!(with_fixture.environment.iter().any(|value| {
+        value.to_bytes().starts_with(
+            format!("{}=", crate::provider_credential_broker::linux_native_enrollment_qualification::FIXTURE_ROOT_ENV).as_bytes(),
+        )
+    }));
+    let default = build_plan(&spec, &address, 10, 11, 12, None, None).unwrap();
+    assert_eq!(default.environment.len(), 1);
+}
+
+#[cfg(all(
+    test,
+    not(any(
+        feature = "test-support",
+        feature = "linux-native-enrollment-qualification"
+    ))
+))]
+#[test]
+fn default_plan_rejects_qualification_fixture_forwarding() {
+    use super::SessionBusAddress;
+    use runne_platform_ports::provider_credential_broker::{
+        VerifiedWriterArtifact, VerifiedWriterLaunchSpec,
+    };
+    use std::os::unix::fs::PermissionsExt as _;
+    use std::os::unix::net::UnixListener;
+
+    let parent = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(parent.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let root = parent.path().join("fixture");
+    std::fs::create_dir(&root).unwrap();
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let bus_path = parent.path().join("bus");
+    let _bus = UnixListener::bind(&bus_path).unwrap();
+    let address = SessionBusAddress::for_tests(&bus_path).unwrap();
+    let spec = VerifiedWriterLaunchSpec::new(
+        VerifiedWriterArtifact::new("/bundle/runne".into(), [1; 32], [2; 32]).unwrap(),
+    );
+    assert!(build_plan(&spec, &address, 10, 11, 12, None, Some(&root)).is_err());
+    assert_eq!(
+        build_plan(&spec, &address, 10, 11, 12, None, None)
+            .unwrap()
+            .environment
+            .len(),
+        1
+    );
 }

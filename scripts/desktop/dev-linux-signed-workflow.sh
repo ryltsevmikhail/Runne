@@ -8,14 +8,21 @@ Owner-dev Linux AppImage signing workflow (x86_64).
 
   dev-linux-signed-workflow.sh init
   dev-linux-signed-workflow.sh build PROFILE
+  dev-linux-signed-workflow.sh build-qualification PROFILE
   dev-linux-signed-workflow.sh finalize PROFILE
+  dev-linux-signed-workflow.sh finalize-qualification PROFILE
+  dev-linux-signed-workflow.sh activate PROFILE
 
 init creates a development keyset in Linux Secret Service and publishes only
 its public manifest/root environment under target/dev-linux-metadata.
 build compiles the public roots into desktop/daemon, creates the AppImage, and
 stages its extracted AppDir. PROFILE is a new named isolated XDG profile.
+build-qualification enables only the Linux native enrollment post-delete test
+hook and private fixture transport; it creates a distinct qualification package.
 finalize runs qualification checks, issues signed V2 metadata, and seeds journals.
-GUI signed admission remains a separate post-signing check.
+finalize-qualification signs the measured qualification-package bytes.
+activate performs the explicit one-shot catalog-scope owner approval for that
+qualification profile; it does not rebuild, sign, or alter package bytes.
 The qualification receipt is operational local evidence, not third-party
 attestation; cryptographic provenance requires ops preprod qualification.
 No sudo is used. Existing profile journals are never replaced or deleted.
@@ -33,39 +40,33 @@ cd "$repo_root"
 command="${1:-}"
 [[ -n "$command" ]] || { usage >&2; exit 2; }
 shift
+workflow_mode=standard
+case "$command" in
+  build-qualification) command=build; workflow_mode=qualification ;;
+  finalize-qualification) command=finalize; workflow_mode=qualification ;;
+esac
+if [[ "$workflow_mode" == qualification && "$command" == build ]]; then
+  export RUNNE_LINUX_NATIVE_ENROLLMENT_QUALIFICATION=1
+elif [[ -n "${RUNNE_LINUX_NATIVE_ENROLLMENT_QUALIFICATION:-}" ]]; then
+  echo "error: use build-qualification to enable the qualification feature" >&2
+  exit 2
+fi
 metadata="$repo_root/target/dev-linux-metadata"
 manifest="$metadata/public-keys.json"
 root_env="$metadata/update-root.env"
 version="$(python3 -c 'import json; print(json.load(open("apps/desktop/src-tauri/tauri.conf.json"))["version"])')"
 
 case "$command" in
+  activate)
+    [[ $# == 1 ]] || { usage >&2; exit 2; }
+    profile="$1"
+    [[ "$profile" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || fail "invalid profile name"
+    [[ "$(cat "$repo_root/target/dev-linux-profiles/$profile/qualification-mode.txt" 2>/dev/null || true)" == linux-native-enrollment-qualification-v1 ]] \
+      || fail "activation requires a signed qualification profile"
+    exec "$repo_root/scripts/desktop/dev-linux-activate.sh" "$profile"
+    ;;
   init)
-    [[ $# == 0 ]] || fail "init takes no arguments"
-    mkdir -p "$metadata"
-    [[ ! -e "$manifest" && ! -e "$root_env" ]] || fail "keyset outputs already exist; refusing reinitialization"
-    cargo build -p runne-update-metadata-producer --features dev-keyset-init
-    target/debug/runne-update-metadata-producer init-dev-keyset \
-      --public-manifest "$manifest" --key-store secret-service
-    MANIFEST="$manifest" ROOT_ENV="$root_env" python3 <<'PY'
-import json, os, re
-manifest = json.load(open(os.environ["MANIFEST"], encoding="utf-8"))
-mapping = {
-    "RUNNE_UPDATE_ROOT_A_ID": "rootAId", "RUNNE_UPDATE_ROOT_A_HEX": "rootAHex",
-    "RUNNE_UPDATE_ROOT_B_ID": "rootBId", "RUNNE_UPDATE_ROOT_B_HEX": "rootBHex",
-    "RUNNE_UPDATE_ROOT_C_ID": "rootCId", "RUNNE_UPDATE_ROOT_C_HEX": "rootCHex",
-    "RUNNE_UPDATE_SNAPSHOT_ID": "snapshotId", "RUNNE_UPDATE_SNAPSHOT_HEX": "snapshotHex",
-    "RUNNE_UPDATE_TIMESTAMP_ID": "timestampId", "RUNNE_UPDATE_TIMESTAMP_HEX": "timestampHex",
-}
-with open(os.environ["ROOT_ENV"], "x", encoding="utf-8") as out:
-    os.chmod(out.name, 0o600)
-    for env, field in mapping.items():
-        value = manifest[field]
-        if not re.fullmatch(r"[A-Za-z0-9_-]+", value):
-            raise SystemExit("invalid public key manifest value")
-        out.write(f"{env}={value}\n")
-PY
-    chmod 600 "$manifest" "$root_env"
-    echo "Public development trust roots created; signing seeds remain in Secret Service."
+    exec "$repo_root/scripts/desktop/dev-linux-signed-workflow-init.sh" "$@"
     ;;
   build)
     [[ $# == 1 ]] || { usage >&2; exit 2; }
@@ -81,6 +82,11 @@ PY
     profile_root="$repo_root/target/dev-linux-profiles/$profile"
     [[ ! -e "$profile_root" ]] || fail "named profile already exists; choose a fresh profile"
     mkdir -p "$app_out"
+    if [[ "$workflow_mode" == qualification ]]; then
+      printf '%s\n' linux-native-enrollment-qualification-v1 > "$profile_root/qualification-mode.txt"
+    else
+      printf '%s\n' standard-v1 > "$profile_root/qualification-mode.txt"
+    fi
     updates="$data_home/com.runne.desktop/bundled-runtime/updates"
     [[ ! -d "$updates" ]] || fail "named profile already exists; choose a fresh profile"
     # Bind this named dev profile to the current source tree and Linux policy.
@@ -119,7 +125,11 @@ PY
     export RUNNE_UPDATE_ROLLBACK_FLOOR=0.0.1
     export RUNNE_UPDATE_METADATA_ENDPOINT="https://updates.dev.runne.invalid/linux/$profile.json"
     triple="$(rustc -vV | sed -n 's/^host: //p')"
-    CARGO_TARGET_DIR=target/sidecars/runned cargo build --release --target "$triple" -p runne-daemon --bin runned --features desktop-protected
+    daemon_features=desktop-protected
+    if [[ "$workflow_mode" == qualification ]]; then
+      daemon_features=linux-native-enrollment-qualification
+    fi
+    CARGO_TARGET_DIR=target/sidecars/runned cargo build --release --target "$triple" -p runne-daemon --bin runned --features "$daemon_features"
     runtime="target/sidecars/runned/$triple/release/runned"
     [[ -f "$runtime" ]] || fail "release daemon was not built"
     export RUNNE_UPDATE_RUNTIME_DIGEST="$(sha256sum "$runtime" | awk '{print $1}')"
@@ -127,7 +137,11 @@ PY
     export APPIMAGE_EXTRACT_AND_RUN=1 NO_STRIP=1
     source_app_dir="$repo_root/target/release/bundle/appimage/Runne.AppDir"
     rm -rf "$source_app_dir"
-    if ! pnpm --filter @runne/desktop tauri build --bundles appimage; then
+    tauri_features=()
+    if [[ "$workflow_mode" == qualification ]]; then
+      tauri_features=(--features linux-native-enrollment-qualification)
+    fi
+    if ! pnpm --filter @runne/desktop tauri build --bundles appimage "${tauri_features[@]}"; then
       [[ -d "$source_app_dir" ]] || fail "Tauri build failed before staging AppDir"
       echo "Tauri final bundling failed; using its staged AppDir with linuxdeploy." >&2
     fi
@@ -137,7 +151,7 @@ PY
     export RUNNE_UPDATE_RUNTIME_DIGEST="$packaged_runtime_digest"
     cargo clean -p runne-desktop
     rm -rf "$source_app_dir"
-    if ! pnpm --filter @runne/desktop tauri build --bundles appimage; then
+    if ! pnpm --filter @runne/desktop tauri build --bundles appimage "${tauri_features[@]}"; then
       [[ -d "$source_app_dir" ]] || fail "second Tauri build failed before staging AppDir"
       echo "Tauri final bundling failed; using its staged AppDir with linuxdeploy." >&2
     fi
@@ -174,8 +188,15 @@ PY
     [[ "$profile" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || fail "invalid profile name"
     target_json="$repo_root/target/dev-linux-profiles/$profile/target.json"
     receipt="$repo_root/target/dev-linux-profiles/$profile/artifacts/qualification-v1.json"
+    profile_root="$repo_root/target/dev-linux-profiles/$profile"
     [[ -f "$root_env" && -f "$target_json" ]] || fail "missing trust roots or generated target policy; run init and build first"
     require_clean_source
+    expected_mode=standard-v1
+    if [[ "$workflow_mode" == qualification ]]; then
+      expected_mode=linux-native-enrollment-qualification-v1
+    fi
+    [[ "$(cat "$profile_root/qualification-mode.txt" 2>/dev/null || true)" == "$expected_mode" ]] \
+      || fail "finalize mode does not match the package build mode"
     source_commit="$(git rev-parse --verify HEAD^{commit})"
     [[ "$(cat "$repo_root/target/dev-linux-profiles/$profile/source-commit.txt")" == "$source_commit" ]] \
       || fail "source commit changed since the AppImage build"
@@ -264,6 +285,7 @@ trust = {"schemaVersion": 1, "rootVersion": issued["root"]["version"],
 (base / "trust-state.json.1.json").write_text(json.dumps(trust, separators=(",", ":")))
 PY
     echo "V2 metadata and committed journals created in isolated profile $profile."
+    echo "Package mode: $expected_mode"
     echo "Qualification is operational local evidence, not third-party attestation; use ops preprod for cryptographic provenance."
     echo "Launch with: XDG_DATA_HOME='$data_home' '$appimage'"
     ;;

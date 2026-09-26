@@ -3,6 +3,8 @@ include!("page_load.rs");
 include!("project_commands.rs");
 
 include!("setup_state.rs");
+#[cfg(target_os = "linux")]
+include!("linux_enrollment_approval.rs");
 
 fn handle_window_event(window: &tauri::Window, event: &WindowEvent) {
     match event {
@@ -52,7 +54,14 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     ));
     std::fs::create_dir_all(&profile_directory)?;
     let profile_lock = ProfileLock::acquire(&profile_directory.join("profile.lock"))?;
-    let runtime_mode = select_runtime_mode(std::env::args_os().skip(1))?;
+    let arguments: Vec<_> = std::env::args_os().skip(1).collect();
+    #[cfg(target_os = "linux")]
+    let approve_linux_enrollment = linux_enrollment_approval_requested(&arguments)?;
+    let runtime_mode = select_runtime_mode(arguments.iter().cloned())?;
+    #[cfg(target_os = "linux")]
+    if approve_linux_enrollment && runtime_mode != RuntimeMode::Bundled {
+        return Err("activation requires bundled runtime".into());
+    }
     let core = Arc::new(AppCore::open_production(
         &profile_directory.join("profile.sqlite3"),
         runtime_mode,
@@ -106,6 +115,10 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     app.manage(qualification_admission);
     app.manage(lifecycle);
+    #[cfg(target_os = "linux")]
+    if approve_linux_enrollment {
+        start_linux_enrollment_approval(app.handle().clone());
+    }
     if let Some(controller) = monitor.take() {
         controller.spawn_monitor(app.handle().clone());
     }
