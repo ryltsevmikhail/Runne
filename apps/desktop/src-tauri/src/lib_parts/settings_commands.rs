@@ -89,12 +89,14 @@ fn get_provider_catalog() -> Vec<runne_api::ProviderCatalogSnapshotV1> {
 
 #[tauri::command]
 async fn get_provider_credential_enrollment_status(
+    app: tauri::AppHandle,
     state: tauri::State<'_, std::sync::Arc<AppCore>>,
     lifecycle: tauri::State<'_, RuntimeLifecycleManager>,
     updater: tauri::State<'_, UpdateStatusStore>,
     provider: runne_api::ProviderCredentialProviderV2,
 ) -> Result<runne_app_core::ProviderCredentialEnrollmentProjection, IpcError> {
     crate::provider_credential_enrollment::load_status(
+        &app,
         state.inner(),
         lifecycle.inner(),
         updater.inner(),

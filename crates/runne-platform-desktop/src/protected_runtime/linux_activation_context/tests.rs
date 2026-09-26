@@ -50,3 +50,31 @@ fn measurement_requires_the_daemon_admitted_by_the_transcript() {
     std::fs::write(&artifact, b"substituted image").unwrap();
     assert!(measure(&layout, [7; 16], expected).is_err());
 }
+
+#[test]
+fn activation_writer_comes_from_desktop_package_when_daemon_is_staged() {
+    let directory = tempfile::tempdir().unwrap();
+    let package = directory.path().join("package/MacOS");
+    let stage = directory
+        .path()
+        .join("runtime/.desktop-protected-activation/executables-v1");
+    std::fs::create_dir_all(&package).unwrap();
+    std::fs::create_dir_all(&stage).unwrap();
+    let desktop = package.join("runne-desktop");
+    let packaged_writer = package.join("runne");
+    let staged_daemon = stage.join("signed-daemon.runned");
+    let staged_writer = stage.join("staged-writer.runned");
+    std::fs::write(&desktop, b"desktop").unwrap();
+    std::fs::write(&packaged_writer, b"signed package writer").unwrap();
+    std::fs::write(&staged_daemon, b"daemon").unwrap();
+    std::fs::write(&staged_writer, b"different writer").unwrap();
+    std::os::unix::fs::symlink(&staged_writer, stage.join("runne")).unwrap();
+
+    assert_eq!(
+        super::package_writer_for_desktop(&desktop),
+        Some(packaged_writer)
+    );
+    assert!(super::package_writer_for_desktop(&staged_daemon).is_none());
+    std::fs::remove_file(package.join("runne")).unwrap();
+    assert!(super::package_writer_for_desktop(&desktop).is_none());
+}

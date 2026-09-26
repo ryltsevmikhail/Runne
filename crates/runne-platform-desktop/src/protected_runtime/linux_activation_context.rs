@@ -45,16 +45,17 @@ impl ProtectedBundledRuntimeSupervisor {
         }
         super::validate_owner_private_directory(root)?;
         let daemon_image = PathBuf::from(format!("/proc/{}/exe", process.child.id()));
-        let daemon = std::fs::canonicalize(&daemon_image)
+        std::fs::canonicalize(&daemon_image)
             .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-        let writer = daemon
-            .parent()
-            .ok_or(ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?
-            .join("runne");
+        let desktop_image = Path::new("/proc/self/exe");
+        let desktop = std::fs::canonicalize(desktop_image)
+            .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
+        let writer = package_writer_for_desktop(&desktop)
+            .ok_or(ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
         let facts = measure(
             &LinuxInstallationLayout {
                 runtime_root: root,
-                desktop_image: Path::new("/proc/self/exe"),
+                desktop_image,
                 writer_image: &writer,
                 daemon_image: &daemon_image,
                 machine_id_path: Path::new("/etc/machine-id"),
@@ -72,6 +73,19 @@ impl ProtectedBundledRuntimeSupervisor {
         }
         Ok((root.to_path_buf(), facts))
     }
+}
+
+fn package_writer_for_desktop(desktop: &Path) -> Option<PathBuf> {
+    let desktop = desktop.canonicalize().ok()?;
+    let writer = desktop.parent()?.join("runne");
+    let metadata = std::fs::symlink_metadata(&writer).ok()?;
+    if metadata.file_type().is_symlink()
+        || !metadata.is_file()
+        || writer.canonicalize().ok()?.as_path() != writer
+    {
+        return None;
+    }
+    Some(writer)
 }
 
 fn measure(
