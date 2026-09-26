@@ -105,7 +105,7 @@ fn activation_binding(
             *owned.stable().authority_id(),
             *request.executable().executable_sha256(),
         )),
-        _ => None,
+        ProtectedProcessActivation::V1 { .. } => None,
     }
 }
 

@@ -134,7 +134,9 @@ fn failed_publication_rolls_back_keyset_for_retry() {
 }
 
 #[derive(Clone, Default)]
-struct OverwritingPort(Arc<Mutex<Vec<(KeySlot, Vec<u8>)>>>);
+struct OverwritingPort(Arc<Mutex<StoredValues>>);
+
+type StoredValues = Vec<(KeySlot, Vec<u8>)>;
 
 impl SecretPort for OverwritingPort {
     fn read(&self, slot: KeySlot) -> Result<Option<Zeroizing<Vec<u8>>>, ProducerError> {
@@ -150,6 +152,7 @@ impl SecretPort for OverwritingPort {
         let mut values = self.0.lock().unwrap();
         values.retain(|(key, _)| *key != slot);
         values.push((slot, seed.to_vec()));
+        drop(values);
         Ok(slot.account().into())
     }
     fn remove_if_value(
@@ -169,6 +172,7 @@ impl SecretPort for OverwritingPort {
             return Err(ProducerError::KeyStore);
         }
         values.retain(|(key, _)| *key != slot);
+        drop(values);
         Ok(())
     }
 }
@@ -182,7 +186,7 @@ fn concurrent_initializers_serialize_before_overwriting_backend_create() {
     let first_dir = runtime_dir.clone();
     let first = std::thread::spawn(move || run_init(&first_port, &first_dir, |_| Ok(())));
     let second_port = port.clone();
-    let second_dir = runtime_dir.clone();
+    let second_dir = runtime_dir;
     let second = std::thread::spawn(move || run_init(&second_port, &second_dir, |_| Ok(())));
     let results = [first.join().unwrap(), second.join().unwrap()];
     assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);

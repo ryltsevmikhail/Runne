@@ -3,9 +3,9 @@ use dbus_secret_service::{EncryptionType, Item, Path, SecretService};
 use crate::issuer::ProducerError;
 use crate::key_store::KeySlot;
 
-pub(crate) const SERVICE: &str = "runne.desktop.update-metadata/2";
+pub const SERVICE: &str = "runne.desktop.update-metadata/2";
 
-pub(crate) fn read(slot: KeySlot) -> Result<Option<Vec<u8>>, ProducerError> {
+pub fn read(slot: KeySlot) -> Result<Option<Vec<u8>>, ProducerError> {
     let service =
         SecretService::connect(EncryptionType::Dh).map_err(|_| ProducerError::KeyStore)?;
     let collection = service
@@ -26,7 +26,7 @@ pub(crate) fn read(slot: KeySlot) -> Result<Option<Vec<u8>>, ProducerError> {
     }
 }
 
-pub(crate) fn create(slot: KeySlot, seed: &[u8]) -> Result<String, ProducerError> {
+pub fn create(slot: KeySlot, seed: &[u8]) -> Result<String, ProducerError> {
     let service =
         SecretService::connect(EncryptionType::Dh).map_err(|_| ProducerError::KeyStore)?;
     let collection = service
@@ -53,12 +53,9 @@ pub(crate) fn create(slot: KeySlot, seed: &[u8]) -> Result<String, ProducerError
         )
         .map_err(|_| ProducerError::KeyStore)?;
     let identity = item.path.to_string();
-    let matches = match collection.search_items(attributes) {
-        Ok(matches) => matches,
-        Err(_) => {
-            delete_if_owned(&item, slot, seed)?;
-            return Err(ProducerError::KeyStore);
-        }
+    let Ok(matches) = collection.search_items(attributes) else {
+        delete_if_owned(&item, slot, seed)?;
+        return Err(ProducerError::KeyStore);
     };
     if matches.len() != 1 || matches[0].path != item.path {
         delete_if_owned(&item, slot, seed)?;
@@ -67,7 +64,7 @@ pub(crate) fn create(slot: KeySlot, seed: &[u8]) -> Result<String, ProducerError
     Ok(identity)
 }
 
-pub(crate) fn remove_if_value(
+pub fn remove_if_value(
     slot: KeySlot,
     identity: &str,
     expected: &[u8],
@@ -97,9 +94,7 @@ fn item_matches(item: &Item<'_>, slot: KeySlot, expected: &[u8]) -> Result<bool,
     Ok(item.get_secret().map_err(|_| ProducerError::KeyStore)? == expected)
 }
 
-pub(crate) fn slot_attributes(
-    slot: KeySlot,
-) -> std::collections::HashMap<&'static str, &'static str> {
+pub fn slot_attributes(slot: KeySlot) -> std::collections::HashMap<&'static str, &'static str> {
     std::collections::HashMap::from([
         ("service", SERVICE),
         ("username", slot.account()),

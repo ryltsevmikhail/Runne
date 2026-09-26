@@ -233,10 +233,10 @@ fn producer_embeds_linux_native_enrollment_tuple_v2_from_strict_output() {
 fn producer_rejects_mismatched_or_simultaneous_tuple_versions() {
     let directory = tempfile::tempdir().unwrap();
     let (artifact, digest) = write_artifact(directory.path());
-    let mut value = draft(artifact.clone());
+    let mut value = draft(artifact);
     value.platform = "linux".into();
     let target = harness_target(&value, digest);
-    let mut mismatched = target.clone();
+    let mut mismatched = target;
     mismatched.arch = "aarch64".into();
     value.native_enrollment_tuple_v2_path =
         Some(write_v2_tuple_file(directory.path(), &mismatched));

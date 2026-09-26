@@ -113,7 +113,6 @@ impl<P: SecretPort> UpdateSigningKeyStore for SecretServiceStore<P> {
 }
 
 #[cfg(all(debug_assertions, feature = "dev-keyset-init"))]
-
 pub fn initialize_and_publish(
     manifest_path: &Path,
     publish: impl FnOnce(&Path, &UpdatePublicKeyManifest) -> Result<(), ProducerError>,
@@ -128,7 +127,6 @@ pub fn initialize_and_publish(
 }
 
 #[cfg(all(debug_assertions, feature = "dev-keyset-init"))]
-
 fn with_init_lock<T>(
     runtime_dir: &Path,
     operation: impl FnOnce() -> Result<T, ProducerError>,
@@ -152,6 +150,7 @@ fn with_init_lock<T>(
         .read(true)
         .write(true)
         .create(true)
+        .truncate(false)
         .mode(0o600)
         .custom_flags(0x20000) // O_NOFOLLOW
         .open(lock_path)
@@ -169,7 +168,6 @@ fn with_init_lock<T>(
 }
 
 #[cfg(all(debug_assertions, feature = "dev-keyset-init"))]
-
 fn initialize_transaction(
     port: &impl SecretPort,
     publish: impl FnOnce(&UpdatePublicKeyManifest) -> Result<(), ProducerError>,
@@ -198,15 +196,16 @@ fn initialize_transaction(
         Ok(manifest) => match publish(&manifest) {
             Ok(()) => Ok(()),
             Err(error) => {
-                rollback(port, &created).map_or(Err(ProducerError::KeyStore), |_| Err(error))
+                rollback(port, &created).map_or(Err(ProducerError::KeyStore), |()| Err(error))
             }
         },
-        Err(error) => rollback(port, &created).map_or(Err(ProducerError::KeyStore), |_| Err(error)),
+        Err(error) => {
+            rollback(port, &created).map_or(Err(ProducerError::KeyStore), |()| Err(error))
+        }
     }
 }
 
 #[cfg(all(debug_assertions, feature = "dev-keyset-init"))]
-
 fn rollback(
     port: &impl SecretPort,
     created: &[(KeySlot, String, Zeroizing<[u8; 32]>)],
