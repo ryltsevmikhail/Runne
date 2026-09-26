@@ -145,7 +145,6 @@ function receiveExternalActivation(target: ActivationTarget) {
     void openExternalActivation(target)
   }
 }
-
 onMounted(async () => {
   if (isTauri()) {
     try {
@@ -247,6 +246,7 @@ async function navigateSidebar(id: string) {
         <RuntimeStatus
           :mode="runtimeMode"
           :connection="runtimeState"
+          :session-proven="!isTauri() || runtimeSession.snapshot.value.status === 'live'"
           :lifecycle="runtimeLifecycle"
           :failure="runtimeFailure"
         />

@@ -69,6 +69,12 @@ where
 
 pub(super) async fn read_replay_error(response: reqwest::Response) -> ReplayClientError {
     let status = response.status().as_u16();
+    let error = read_replay_error_inner(response, status).await;
+    super::http_diagnostics::report_replay_error(status, &error);
+    error
+}
+
+async fn read_replay_error_inner(response: reqwest::Response, status: u16) -> ReplayClientError {
     if ensure_content_type(&response, "application/json").is_err() {
         return ReplayClientError::new(ReplayClientErrorKind::UnexpectedContentType);
     }

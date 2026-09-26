@@ -1,3 +1,7 @@
+mod provider_selection {
+    include!("../provider_selection.rs");
+}
+
 include!("page_load.rs");
 
 include!("project_commands.rs");
@@ -60,9 +64,13 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     ));
     let profile_lock = ProfileLock::acquire(&profile_directory.join("profile.lock"))?;
     let arguments: Vec<_> = std::env::args_os().skip(1).collect();
+    let provider_selection = crate::provider_selection::provider_selection(arguments.iter().cloned())?;
     #[cfg(target_os = "linux")]
     let approve_linux_enrollment = linux_enrollment_approval_requested(&arguments)?;
     let runtime_mode = select_runtime_mode(arguments.iter().cloned())?;
+    if provider_selection.is_explicit() && runtime_mode != RuntimeMode::Bundled {
+        return Err("provider selection requires bundled runtime".into());
+    }
     #[cfg(target_os = "linux")]
     if approve_linux_enrollment && runtime_mode != RuntimeMode::Bundled {
         return Err("activation requires bundled runtime".into());
@@ -77,10 +85,11 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         RuntimeMode::Bundled => match std::env::current_exe()
             .map_err(|_| RuntimeFailureCode::BundledExecutableUnavailable)
             .and_then(|executable| {
-                BundledRuntimeController::discover(
+                BundledRuntimeController::discover_with_provider_activation(
                     Arc::clone(&core),
                     &executable,
                     &profile_directory.join("bundled-runtime"),
+                    provider_selection.binding(),
                 )
             }) {
             Ok(controller) => {

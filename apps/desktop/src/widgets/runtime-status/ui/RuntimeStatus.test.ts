@@ -44,4 +44,41 @@ describe('runtime lifecycle status', () => {
     expect(wrapper.text()).not.toContain('token')
     expect(wrapper.text()).not.toContain('path')
   })
+
+  it('keeps lifecycle readiness separate while showing an unproven session as degraded', () => {
+    const wrapper = mount(RuntimeStatus, {
+      props: {
+        mode: 'bundled',
+        connection: 'live',
+        sessionProven: false,
+        lifecycle: 'ready',
+        failure: null,
+      },
+    })
+
+    expect(wrapper.get('[role="status"]').text()).toContain('Runtime degraded')
+    expect(wrapper.get('[role="status"]').text()).not.toContain('Protected session')
+    expect(wrapper.get('[role="status"]').attributes('data-lifecycle')).toBe('ready')
+    expect(wrapper.get('[role="status"]').attributes('data-connection')).toBe('reconnecting')
+    expect(wrapper.get('[role="status"]').attributes('data-session-proven')).toBe('false')
+    expect(wrapper.get('[role="status"]').attributes('data-session-unproven-ready')).toBe('true')
+    expect(wrapper.text()).toContain('Runtime unavailable')
+  })
+
+  it('preserves terminal runtime state when session proof is absent', () => {
+    const wrapper = mount(RuntimeStatus, {
+      props: {
+        mode: 'bundled',
+        connection: 'revoked',
+        sessionProven: false,
+        lifecycle: 'failed',
+        failure: null,
+      },
+    })
+
+    expect(wrapper.get('[role="status"]').text()).toContain('Runtime failed')
+    expect(wrapper.get('[role="status"]').attributes('data-lifecycle')).toBe('failed')
+    expect(wrapper.get('[role="status"]').attributes('data-connection')).toBe('revoked')
+    expect(wrapper.get('[role="status"]').attributes('data-session-unproven-ready')).toBe('false')
+  })
 })

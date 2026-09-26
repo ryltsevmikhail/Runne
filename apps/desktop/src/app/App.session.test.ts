@@ -134,4 +134,31 @@ describe('desktop application shell fenced bootstrap reads', () => {
     expect(wrapper.attributes('data-theme')).toBe('dark')
     wrapper.unmount()
   })
+
+  it('keeps a ready bootstrap degraded until an authenticated retry succeeds', async () => {
+    let connectionAttempts = 0
+    platform.connectRuntime.mockImplementation(async () => {
+      connectionAttempts += 1
+      return connectionAttempts === 1 ? 'fatal' : 'live'
+    })
+    platform.loadBootstrap.mockResolvedValue(liveBootstrap())
+    const wrapper = await mountApp()
+    await flushPromises()
+
+    const status = wrapper.get('[data-lifecycle]')
+    expect(status.attributes('data-lifecycle')).toBe('ready')
+    expect(status.attributes('data-session-proven')).toBe('false')
+    expect(status.text()).toContain('Runtime degraded')
+    expect(status.text()).not.toContain('Protected session')
+    expect(wrapper.get('[role="alert"]').text()).toContain('Runtime session is unavailable')
+
+    await wrapper.get('.sidebar-projects__retry').trigger('click')
+    await flushPromises()
+
+    expect(connectionAttempts).toBe(2)
+    expect(status.attributes('data-session-proven')).toBe('true')
+    expect(status.text()).toContain('Runtime ready')
+    expect(status.text()).toContain('Protected session')
+    wrapper.unmount()
+  })
 })

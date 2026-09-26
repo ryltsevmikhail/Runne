@@ -9,12 +9,16 @@ import type {
 } from '@/shared/api/platform/bootstrap'
 import { translate, type LocaleKey } from '@/shared/i18n'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   mode: RuntimeMode
   connection: RuntimeConnectionState
+  sessionProven?: boolean
   lifecycle: RuntimeLifecycleStatus
   failure: RuntimeFailureCode | null
-}>()
+}>(), { sessionProven: true })
+const sessionUnprovenReady = computed(() => props.lifecycle === 'ready'
+  && props.connection === 'live'
+  && !props.sessionProven)
 
 const failureLabels: Record<RuntimeFailureCode, LocaleKey> = {
   configuration_required: 'runtime.failure.configuration',
@@ -38,7 +42,11 @@ const lifecycleTitles: Record<RuntimeLifecycleStatus, LocaleKey> = {
   external: 'runtime.title.external',
 }
 
-const title = computed(() => translate(lifecycleTitles[props.lifecycle]))
+const title = computed(() => translate(
+  sessionUnprovenReady.value
+    ? lifecycleTitles.degraded
+    : lifecycleTitles[props.lifecycle],
+))
 
 const detail = computed(() => {
   if (props.failure !== null) {
@@ -50,6 +58,7 @@ const detail = computed(() => {
     case 'starting':
       return translate('runtime.detail.protectedActivation')
     case 'ready':
+      if (sessionUnprovenReady.value) return translate('runtime.detail.unavailable')
       return props.connection === 'resync_required' ? translate('runtime.detail.replayResync') : translate('runtime.detail.protectedSession')
     case 'restarting':
       return translate('runtime.detail.rotatingSession')
@@ -69,7 +78,9 @@ const detail = computed(() => {
     class="runtime-status"
     :data-lifecycle="lifecycle"
     :data-mode="mode"
-    :data-connection="connection"
+    :data-connection="sessionUnprovenReady ? 'reconnecting' : connection"
+    :data-session-proven="sessionProven !== false"
+    :data-session-unproven-ready="sessionUnprovenReady"
     :title="`${title}: ${detail}`"
     role="status"
     aria-live="polite"
@@ -84,3 +95,10 @@ const detail = computed(() => {
     </span>
   </div>
 </template>
+
+<style scoped>
+.runtime-status.runtime-status[data-session-unproven-ready="true"] .status-dot {
+  background: var(--runne-warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--runne-warning) 16%, transparent);
+}
+</style>

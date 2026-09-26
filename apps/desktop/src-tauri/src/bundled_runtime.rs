@@ -26,7 +26,7 @@ use crate::{
     NativeRootAdmission, NativeRootAdmissionLifecycle, OwnedRuntimeLifecycle, RootAdmissionFuture,
     RootAdmissionReapFuture, RuntimeConnectionFuture,
 };
-use runne_api::ProviderActivationReadinessV1;
+use runne_api::{ProviderActivationBindingV1, ProviderActivationReadinessV1};
 use runne_app_core::{
     AppCore, AppCoreError, BundledRuntimeActivationLease, RuntimeAvailability, RuntimeFailureCode,
     RuntimeMode,

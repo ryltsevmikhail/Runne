@@ -48,6 +48,7 @@ mod baseline_tests;
 mod client;
 mod client_open;
 mod http;
+mod http_diagnostics;
 mod http_retention;
 mod identity;
 mod policy;
