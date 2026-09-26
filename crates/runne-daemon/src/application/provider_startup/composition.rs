@@ -99,6 +99,11 @@ impl DaemonApplication {
         ) = startup.into_parts();
         let launch_authority_id =
             launch_authority_id.unwrap_or(bootstrap.local_session_authority_id);
+        #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+        let installed_candidate = protected_activation
+            && super::installed_candidate::has_installed_candidate(&config.db_path);
+        #[cfg(not(all(target_os = "linux", feature = "desktop-protected")))]
+        let installed_candidate = false;
         let provider_profile_digest = *provider_activation.binding().profile_digest();
         let readiness_credential_id = provider_credential_id(&provider_activation);
         let quota_store = Arc::new(QuotaStateStore::new());
@@ -236,6 +241,7 @@ impl DaemonApplication {
             provider_activation,
             provider_service,
             protected_activation,
+            installed_candidate,
             launch_authority_id,
             executable_sha256,
             session_id,

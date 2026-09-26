@@ -42,11 +42,16 @@ fn v3_control_rejects_v1_and_v2_renewal_and_shutdown_frames() {
     v2_renewal.sign(&keys);
     let mut v2_shutdown = ProtectedShutdownV2::new(v2);
     v2_shutdown.sign(&keys);
-    for frame in [
-        v1_renewal.encode_frame().unwrap(),
-        v1_shutdown.encode_frame().unwrap(),
-        v2_renewal.encode_frame().unwrap(),
-        v2_shutdown.encode_frame().unwrap(),
+    let expected_rejection = if cfg!(target_os = "linux") {
+        runne_api::LaunchAuthorityError::OwnershipMismatch
+    } else {
+        runne_api::LaunchAuthorityError::InvalidContract
+    };
+    for (frame, expected) in [
+        (v1_renewal.encode_frame().unwrap(), expected_rejection),
+        (v1_shutdown.encode_frame().unwrap(), expected_rejection),
+        (v2_renewal.encode_frame().unwrap(), expected_rejection),
+        (v2_shutdown.encode_frame().unwrap(), expected_rejection),
     ] {
         let (owned, keys, sessions) = owned_and_sessions();
         let (mut client, server) = UnixStream::pair().unwrap();
@@ -62,9 +67,6 @@ fn v3_control_rejects_v1_and_v2_renewal_and_shutdown_frames() {
             )
         });
         client.write_all(&frame).unwrap();
-        assert_eq!(
-            server.join().unwrap(),
-            Err(runne_api::LaunchAuthorityError::InvalidContract)
-        );
+        assert_eq!(server.join().unwrap(), Err(expected));
     }
 }

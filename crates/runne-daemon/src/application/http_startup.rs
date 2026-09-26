@@ -23,6 +23,7 @@ pub(super) async fn start_http_and_runtime(
     provider_activation: ProviderActivation,
     provider_service: Option<Arc<DaemonCanonicalProviderService>>,
     protected_activation: bool,
+    installed_candidate: bool,
     launch_authority_id: [u8; 16],
     executable_sha256: [u8; 32],
     session_id: [u8; 16],
@@ -38,6 +39,7 @@ pub(super) async fn start_http_and_runtime(
         replay_lineage,
         provider_service.as_ref(),
         protected_activation,
+        installed_candidate,
         root_admission_keys.as_ref(),
         enrollment_capability.as_ref(),
     )?;

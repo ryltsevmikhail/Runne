@@ -6,6 +6,8 @@ use super::*;
 use crate::protected_activation::VerifiedProtectedApplicationStart;
 
 mod composition;
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+mod installed_candidate;
 pub(super) struct StartupProvider {
     activation: ProviderActivation,
     provenance: Option<DaemonActivationProvenance>,
