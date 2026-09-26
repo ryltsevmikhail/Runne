@@ -2,15 +2,6 @@
 use crate::updater_metadata::NativeEnrollmentConfirmationV1;
 use crate::{ConfirmedInstalledNativeEnrollment, PreparedInstalledNativeEnrollment};
 
-#[cfg(target_os = "linux")]
-struct LinuxEnrollmentPeerIdentity {
-    authority: [u8; 16],
-    desktop: [u8; 16],
-    session: [u8; 16],
-    daemon: [u8; 16],
-    generation: u64,
-}
-
 impl ProtectedBundledRuntimeSupervisor {
     /// Reports the protocol version of the queued authenticated runtime profile.
     ///
@@ -49,17 +40,6 @@ impl ProtectedBundledRuntimeSupervisor {
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?
             .confirm_installed_native_enrollment(prepared)
     }
-}
-
-#[cfg(target_os = "linux")]
-fn linux_process_start_ticks(pid: u32) -> Result<u64, ProtectedBundledRuntimeError> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat"))
-        .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-    stat.rsplit_once(')')
-        .and_then(|(_, fields)| fields.split_whitespace().nth(19))
-        .and_then(|value| value.parse().ok())
-        .filter(|value| *value != 0)
-        .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)
 }
 
 impl ProtectedBundledRuntimeSupervisor {
@@ -243,15 +223,21 @@ impl ProtectedBundledRuntimeProcess {
         use sha2::{Digest as _, Sha256};
 
         let pid = self.child.id();
+        let launch_image = self.linux_launch_image.as_ref()
+            .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
         let credentials = rustix::net::sockopt::socket_peercred(&self.channel)
             .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        if u32::try_from(credentials.pid.as_raw_pid()).ok() != Some(pid)
+        // SO_PEERCRED on a pre-created socketpair reports its creator (this
+        // desktop process), not the child which later inherits one endpoint.
+        if u32::try_from(credentials.pid.as_raw_pid()).ok() != Some(std::process::id())
             || credentials.uid != rustix::process::geteuid()
         {
             return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
         }
         let before = linux_process_start_ticks(pid)?;
-        prepared.confirm_linux_daemon_image(pid, before)?;
+        prepared.confirm_linux_daemon_image(
+            pid, before, &launch_image.executable, &launch_image.runtime_root,
+        )?;
         let peer = self.linux_enrollment_peer_facts()?;
         let after = linux_process_start_ticks(pid)?;
         if before != after {

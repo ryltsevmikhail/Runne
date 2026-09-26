@@ -161,7 +161,10 @@ fn ready_v3_parts(
     let (channel, peer) = std::os::unix::net::UnixStream::pair().expect("channel");
     channel.set_read_timeout(Some(std::time::Duration::from_secs(2))).expect("timeout");
     let process = ProtectedBundledRuntimeProcess {
-        child, channel, keys: keys.clone(), activation, runtime_profile: None, renewal_sequence: 0,
+        child,
+        #[cfg(target_os = "linux")]
+        linux_launch_image: None,
+        channel, keys: keys.clone(), activation, runtime_profile: None, renewal_sequence: 0,
         #[cfg(feature = "protected-channel-integration")]
         root_control_sequence: 0,
         graceful_requested: false, graceful_acknowledged: false,

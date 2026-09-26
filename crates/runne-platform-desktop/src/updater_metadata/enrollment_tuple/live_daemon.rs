@@ -218,12 +218,16 @@ impl PreparedInstalledNativeEnrollment {
         &self,
         pid: u32,
         start_ticks: u64,
+        launched_file: &std::fs::File,
+        runtime_root: &std::path::Path,
     ) -> Result<(), ProtectedBundledRuntimeError> {
         let admission = self.admission.as_ref()
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
         let paths = self.paths.as_ref()
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        paths.confirm_daemon_process(pid, start_ticks)
+        paths.confirm_daemon_process(
+            pid, start_ticks, launched_file, runtime_root, admission.daemon_sha256,
+        )
             .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
         let measured = paths.daemon_file.measure()
             .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;

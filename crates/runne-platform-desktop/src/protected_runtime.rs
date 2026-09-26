@@ -8,6 +8,8 @@
 include!("protected_runtime/state_records.rs");
 include!("protected_runtime/state_store.rs");
 include!("protected_runtime/launcher.rs");
+#[cfg(target_os = "linux")]
+include!("protected_runtime/linux_launch_image.rs");
 include!("protected_runtime/activation_rebind.rs");
 #[cfg(unix)]
 include!("protected_runtime/local_process_fixture.rs");
@@ -19,6 +21,8 @@ include!("protected_runtime/supervisor.rs");
 include!("protected_runtime/launch_unix.rs");
 include!("protected_runtime/helpers.rs");
 include!("protected_runtime/native_enrollment.rs");
+#[cfg(target_os = "linux")]
+include!("protected_runtime/linux_native_enrollment.rs");
 #[cfg(all(
     any(
         all(target_os = "macos", target_arch = "aarch64"),

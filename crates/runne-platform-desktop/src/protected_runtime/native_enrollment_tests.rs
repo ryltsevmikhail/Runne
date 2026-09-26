@@ -95,3 +95,21 @@ fn enrollment_transition_queues_v3_profile_before_any_writer_handoff_surface() {
         .expect("separate post-Begin handoff entry point");
     assert!(transition + queued < handoff);
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn inherited_socketpair_peer_credentials_name_the_creator_not_child() {
+    use std::{os::fd::OwnedFd, os::unix::net::UnixStream, process::{Command, Stdio}};
+    let (desktop, child_end) = UnixStream::pair().unwrap();
+    let mut child = Command::new("/bin/cat")
+        .stdin(Stdio::from(OwnedFd::from(child_end)))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let peer = rustix::net::sockopt::socket_peercred(&desktop).unwrap();
+    assert_eq!(u32::try_from(peer.pid.as_raw_pid()).unwrap(), std::process::id());
+    assert_ne!(child.id(), std::process::id());
+    child.kill().unwrap();
+    child.wait().unwrap();
+}

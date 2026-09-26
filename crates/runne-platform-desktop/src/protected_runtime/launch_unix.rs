@@ -28,6 +28,8 @@ impl DevelopmentBundledRuntimeLauncher {
             spec.trusted_source_identity(),
             spec.provider_activation().is_some(),
         )?;
+        #[cfg(target_os = "linux")]
+        let launched_executable = open_launch_image(&launch_executable_path, &executable)?;
         let stable = state_store.load_stable()?;
         let pending = state_store.load_pending()?;
 
@@ -87,7 +89,7 @@ impl DevelopmentBundledRuntimeLauncher {
             LOCAL_PRINCIPAL,
             profile,
             executable,
-            runtime_root,
+            runtime_root.clone(),
             disposition,
         )?;
         let mut request = match spec.provider_activation() {
@@ -225,6 +227,11 @@ impl DevelopmentBundledRuntimeLauncher {
                 child: child
                     .take()
                     .ok_or(ProtectedBundledRuntimeError::InvalidState)?,
+                #[cfg(target_os = "linux")]
+                linux_launch_image: Some(LinuxLaunchImage {
+                    runtime_root: runtime_root.clone(),
+                    executable: launched_executable,
+                }),
                 channel: parent_channel,
                 keys,
                 activation,

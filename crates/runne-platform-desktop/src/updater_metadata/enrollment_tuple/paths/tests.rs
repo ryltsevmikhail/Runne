@@ -18,6 +18,68 @@ fn macos_layout(directory: &Path) -> [PathBuf; 4] {
     paths
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn staged_running_daemon_is_bound_by_signed_bytes_child_identity_and_stable_image() {
+    use std::{os::unix::fs::PermissionsExt as _, process::{Command, Stdio}};
+    use sha2::Digest as _;
+    let directory = tempfile::tempdir().unwrap();
+    let contents = directory.path().join("Runne.app/Contents");
+    let macos = contents.join("MacOS");
+    let resources = contents.join("Resources/contracts/gocode-ui-client-3");
+    std::fs::create_dir_all(&macos).unwrap();
+    std::fs::create_dir_all(&resources).unwrap();
+    let paths = [macos.join("runne-desktop"), macos.join("runne"), macos.join("runned"), resources.join("bundle.json")];
+    std::fs::write(&paths[0], b"desktop").unwrap();
+    std::fs::write(&paths[1], b"writer").unwrap();
+    std::fs::copy("/bin/sleep", &paths[2]).unwrap();
+    std::fs::write(&paths[3], b"contract").unwrap();
+    for path in &paths { std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o500)).unwrap(); }
+    let retained = NativeEnrollmentArtifactPathsV1::new(&paths[0], &paths[1], &paths[2], &paths[3]).unwrap();
+    let digest: [u8; 32] = sha2::Sha256::digest(std::fs::read(&paths[2]).unwrap()).into();
+
+    let runtime = directory.path().join("runtime");
+    let stage = runtime.join(".desktop-protected-activation/executables-v1");
+    std::fs::create_dir_all(&stage).unwrap();
+    std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::set_permissions(runtime.join(".desktop-protected-activation"), std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::set_permissions(&stage, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let staged = stage.join(format!("{}-{}.runned", hex::encode(digest), std::fs::metadata(&paths[2]).unwrap().len()));
+    std::fs::copy(&paths[2], &staged).unwrap();
+    std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let launched = File::open(&staged).unwrap();
+    let mut child = Command::new(&staged).arg("60").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let pid = child.id();
+    let start = super::linux::process_start_ticks(pid).unwrap();
+    retained.confirm_daemon_process(pid, start, &launched, &runtime, digest).unwrap();
+    assert!(retained.confirm_daemon_process(pid, start + 1, &launched, &runtime, digest).is_err());
+    assert!(retained.confirm_daemon_process(pid, start, &launched, &runtime, [0; 32]).is_err());
+
+    let wrong = directory.path().join("wrong-image");
+    std::fs::copy("/bin/true", &wrong).unwrap();
+    std::fs::set_permissions(&wrong, std::fs::Permissions::from_mode(0o500)).unwrap();
+    assert!(retained.confirm_daemon_process(pid, start, &File::open(wrong).unwrap(), &runtime, digest).is_err());
+    std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o4500)).unwrap();
+    assert!(retained.confirm_daemon_process(pid, start, &launched, &runtime, digest).is_err());
+    std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o500)).unwrap();
+    std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o555)).unwrap();
+    assert!(retained.confirm_daemon_process(pid, start, &launched, &runtime, digest).is_err());
+    std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o500)).unwrap();
+    std::fs::set_permissions(&stage, std::fs::Permissions::from_mode(0o2700)).unwrap();
+    assert!(retained.confirm_daemon_process(pid, start, &launched, &runtime, digest).is_err());
+    std::fs::set_permissions(&stage, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::set_permissions(&stage, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(retained.confirm_daemon_process(pid, start, &launched, &runtime, digest).is_err());
+    std::fs::set_permissions(&stage, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let modified = stage.join("replacement");
+    std::fs::copy("/bin/true", &modified).unwrap();
+    std::fs::set_permissions(&modified, std::fs::Permissions::from_mode(0o500)).unwrap();
+    std::fs::rename(modified, &staged).unwrap();
+    assert!(retained.confirm_daemon_process(pid, start, &launched, &runtime, digest).is_err());
+    child.kill().unwrap();
+    child.wait().unwrap();
+}
+
 #[test]
 fn paths_reject_a_layout_outside_the_macos_application_bundle() {
     let directory = tempfile::tempdir().unwrap();

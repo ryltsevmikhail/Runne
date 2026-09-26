@@ -47,7 +47,9 @@ impl VerifiedInstalledLinuxWriterCapability {
         let policy = compiled_policy()?;
         let trust = crate::CompiledUpdateTrustRootV2::load()?.into_trust_root();
         let admission = verified_admission(profile_directory, &paths, &trust, &policy)?;
-        let identity = paths.confirm_current_daemon().is_ok();
+        let identity = paths
+            .confirm_current_daemon(admission.daemon_sha256, canonical_runtime_root)
+            .is_ok();
         if !identity || paths.confirm_authenticated_peer(&peer, stream).is_err() {
             return None;
         }
@@ -60,7 +62,9 @@ impl VerifiedInstalledLinuxWriterCapability {
             now()?,
         )?;
         if fresh != admission
-            || paths.confirm_current_daemon().is_err()
+            || paths
+                .confirm_current_daemon(admission.daemon_sha256, canonical_runtime_root)
+                .is_err()
             || paths.confirm_authenticated_peer(&peer, stream).is_err()
             || !valid_profile_runtime_pair(profile_directory, canonical_runtime_root)
         {
@@ -101,7 +105,10 @@ impl VerifiedInstalledLinuxWriterCapability {
         };
         fresh == self.admission
             && valid_profile_runtime_pair(&self.profile_directory, &self.runtime_root)
-            && self.paths.confirm_current_daemon().is_ok()
+            && self
+                .paths
+                .confirm_current_daemon(self.admission.daemon_sha256, &self.runtime_root)
+                .is_ok()
             && self
                 .paths
                 .confirm_authenticated_peer(&self.peer, stream)

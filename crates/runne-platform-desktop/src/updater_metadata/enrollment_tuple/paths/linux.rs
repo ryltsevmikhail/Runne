@@ -82,7 +82,7 @@ impl LinuxAuthenticatedDesktopPeer {
     }
 }
 
-fn process_start_ticks(pid: u32) -> Result<u64, NativeEnrollmentTupleError> {
+pub(super) fn process_start_ticks(pid: u32) -> Result<u64, NativeEnrollmentTupleError> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat"))
         .map_err(|_| NativeEnrollmentTupleError::Rejected)?;
     stat.rsplit_once(')')

@@ -36,6 +36,8 @@ impl EnrollmentBrokerFacts {
 /// one desktop-spawned bundled daemon.
 pub struct ProtectedBundledRuntimeProcess {
     child: Child,
+    #[cfg(target_os = "linux")]
+    linux_launch_image: Option<LinuxLaunchImage>,
     #[cfg(windows)]
     job: OwnedHandle,
     channel: ProtectedChannel,
@@ -55,6 +57,12 @@ pub struct ProtectedBundledRuntimeProcess {
     captured_stdout: Option<std::process::ChildStdout>,
     #[cfg(feature = "test-support")]
     captured_stderr: Option<std::process::ChildStderr>,
+}
+
+#[cfg(target_os = "linux")]
+struct LinuxLaunchImage {
+    runtime_root: PathBuf,
+    executable: File,
 }
 
 impl fmt::Debug for ProtectedBundledRuntimeProcess {

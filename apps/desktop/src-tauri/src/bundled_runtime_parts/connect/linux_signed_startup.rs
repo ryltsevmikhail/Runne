@@ -12,6 +12,15 @@ pub(super) enum Route {
     RejectDowngrade,
 }
 
+pub(super) fn diagnostic(stage: &'static str) {
+    eprintln!("runne-linux-startup stage={stage}");
+}
+
+fn failed<E>(stage: &'static str, _error: E) -> AppCoreError {
+    diagnostic(stage);
+    AppCoreError::RuntimeUnavailable
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Evidence {
     Present,
@@ -84,34 +93,34 @@ pub(super) async fn transition_and_install(
     // Authenticate V2 so the supervisor can confirm the signed tuple. This
     // client stays host-local and is never installed into AppCore.
     connect_and_record_ready(controller).await?;
-    ensure_not_stopping(controller)?;
+    ensure_not_stopping(controller).map_err(|error| failed("v2_stop_check", error))?;
     installed
         .refresh_linux()
-        .map_err(|()| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|error| failed("refresh_installed", error))?;
     let prepared = installed
         .take_prepared()
-        .map_err(|()| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|error| failed("take_prepared", error))?;
     let confirmed = controller
         .run_supervisor(move |supervisor| supervisor.confirm_installed_native_enrollment(prepared))
         .await
-        .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|error| failed("confirm_tuple", error))?;
     installed
         .revalidate_confirmed(&confirmed)
-        .map_err(|()| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|error| failed("revalidate_tuple", error))?;
 
     let latch_path = controller.signed_linux_v3_latch_path.clone();
     let app = controller
         .startup_app
         .lock()
-        .map_err(|_| AppCoreError::RuntimeUnavailable)?
+        .map_err(|error| failed("resource_path", error))?
         .clone()
-        .ok_or(AppCoreError::RuntimeUnavailable)?;
+        .ok_or_else(|| failed("resource_path", ()))?;
     let hint = app
         .path()
         .resource_dir()
-        .map_err(|_| AppCoreError::RuntimeUnavailable)?
+        .map_err(|error| failed("resource_path", error))?
         .to_str()
-        .ok_or(AppCoreError::RuntimeUnavailable)?
+        .ok_or_else(|| failed("resource_path", ()))?
         .to_owned();
     let confirmed = controller
         .run_supervisor(move |supervisor| {
@@ -126,39 +135,39 @@ pub(super) async fn transition_and_install(
             Ok(confirmed)
         })
         .await
-        .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|error| failed("persist_transition", error))?;
 
     let profile = controller
         .supervisor
         .lock()
-        .map_err(|_| AppCoreError::RuntimeUnavailable)?
+        .map_err(|error| failed("v3_profile", error))?
         .take_runtime_profile()
-        .ok_or(AppCoreError::RuntimeUnavailable)?;
+        .ok_or_else(|| failed("v3_profile", ()))?;
     let v3 = profile
         .connect(super::BUNDLED_CLIENT_CONNECT_TIMEOUT)
         .await
-        .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|error| failed("v3_connect", error))?;
     let readiness = v3.clone();
     controller
         .run_supervisor(move |supervisor| supervisor.record_client_ready(&readiness))
         .await
-        .map_err(|_| AppCoreError::RuntimeUnavailable)?;
-    ensure_not_stopping(controller)?;
+        .map_err(|error| failed("v3_ready", error))?;
+    ensure_not_stopping(controller).map_err(|error| failed("v3_stop_check", error))?;
     installed
         .revalidate_confirmed(&confirmed)
-        .map_err(|()| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|error| failed("final_revalidate", error))?;
     let marker = ActiveSignedLinuxV3Marker::from_confirmed(&confirmed)
-        .ok_or(AppCoreError::RuntimeUnavailable)?;
+        .ok_or_else(|| failed("confirmed_marker", ()))?;
     *controller
         .active_signed_linux_v3
         .lock()
-        .map_err(|_| AppCoreError::RuntimeUnavailable)? = Some(marker);
+        .map_err(|error| failed("marker_store", error))? = Some(marker);
     controller.arm_renewal_schedule()?;
     controller
         .core
         .install_bundled_runtime_client(lease, v3)
         .await
-        .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|error| failed("install_client", error))?;
     Ok(RuntimeAvailability::Live)
 }
 
@@ -168,18 +177,18 @@ async fn connect_and_record_ready(
     let profile = controller
         .supervisor
         .lock()
-        .map_err(|_| AppCoreError::RuntimeUnavailable)?
+        .map_err(|error| failed("v2_profile", error))?
         .take_runtime_profile()
-        .ok_or(AppCoreError::RuntimeUnavailable)?;
+        .ok_or_else(|| failed("v2_profile", ()))?;
     let client = profile
         .connect(super::BUNDLED_CLIENT_CONNECT_TIMEOUT)
         .await
-        .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|error| failed("v2_connect", error))?;
     let readiness = client.clone();
     controller
         .run_supervisor(move |supervisor| supervisor.record_client_ready(&readiness))
         .await
-        .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|error| failed("v2_ready", error))?;
     Ok(())
 }
 
@@ -190,28 +199,29 @@ pub(super) async fn confirm_current_marker(
 ) -> Result<(), AppCoreError> {
     installed
         .refresh_linux()
-        .map_err(|()| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|error| failed("verify_refresh", error))?;
     let prepared = installed
         .take_prepared()
-        .map_err(|()| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|error| failed("verify_take_prepared", error))?;
     let confirmed = controller
         .run_supervisor(move |supervisor| supervisor.confirm_installed_native_enrollment(prepared))
         .await
-        .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|error| failed("verify_confirm_tuple", error))?;
     installed
         .revalidate_confirmed(&confirmed)
-        .map_err(|()| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|error| failed("verify_revalidate", error))?;
     let marker = ActiveSignedLinuxV3Marker::from_confirmed(&confirmed)
-        .ok_or(AppCoreError::RuntimeUnavailable)?;
+        .ok_or_else(|| failed("verify_marker", ()))?;
     if previous != Some(marker) {
+        diagnostic("verify_marker_mismatch");
         return Err(AppCoreError::RuntimeUnavailable);
     }
     linux_v3_latch::persist(&controller.signed_linux_v3_latch_path)
-        .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        .map_err(|error| failed("verify_latch_persist", error))?;
     *controller
         .active_signed_linux_v3
         .lock()
-        .map_err(|_| AppCoreError::RuntimeUnavailable)? = Some(marker);
+        .map_err(|error| failed("verify_marker_store", error))? = Some(marker);
     Ok(())
 }
 

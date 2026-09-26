@@ -59,7 +59,7 @@ impl OpenedNativeEnrollmentFile {
         self.matches_file(&other.file)
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(unix)]
     pub(in crate::updater_metadata) const fn metadata(&self) -> &Metadata {
         &self.metadata
     }
