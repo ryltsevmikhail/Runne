@@ -57,9 +57,8 @@ mod tests {
     #[test]
     fn sweep_closes_real_inherited_descriptor_and_tolerates_only_ebadf() -> std::io::Result<()> {
         use std::os::fd::IntoRawFd as _;
-        let file = std::fs::File::create(
-            std::env::temp_dir().join(format!("runne-writer-sweep-{}", std::process::id())),
-        )?;
+        let path = std::env::temp_dir().join(format!("runne-writer-sweep-{}", std::process::id()));
+        let file = std::fs::File::create(&path)?;
         // Ownership is released before the raw sweep close, so exactly one
         // close happens and no runtime IO-safety invariant is involved.
         let fd = file.into_raw_fd();
@@ -74,11 +73,12 @@ mod tests {
         close_inherited_descriptors(|| Ok(snapshot)).map_err(|_| {
             std::io::Error::other("sweep must tolerate exactly one already-closed entry")
         })?;
-        if std::fs::read_link(format!("/proc/self/fd/{fd}")).is_ok() {
+        if std::fs::read_link(format!("/proc/self/fd/{fd}")).is_ok_and(|target| target == path) {
             return Err(std::io::Error::other(
                 "descriptor must be closed by the sweep",
             ));
         }
+        std::fs::remove_file(path)?;
         Ok(())
     }
 
