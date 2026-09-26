@@ -106,6 +106,8 @@ fn activation_binding(
             *request.executable().executable_sha256(),
         )),
         ProtectedProcessActivation::V1 { .. } => None,
+        #[cfg(feature = "test-support")]
+        ProtectedProcessActivation::Test { .. } => None,
     }
 }
 

@@ -293,6 +293,10 @@ impl ProtectedBundledRuntimeProcess {
             ProtectedProcessActivation::V1 { .. } => {
                 Err(ProtectedBundledRuntimeError::InvalidState)
             }
+            #[cfg(feature = "test-support")]
+            ProtectedProcessActivation::Test { .. } => {
+                Err(ProtectedBundledRuntimeError::InvalidState)
+            }
         }
     }
 }
