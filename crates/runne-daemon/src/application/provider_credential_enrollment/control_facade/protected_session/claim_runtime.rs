@@ -7,6 +7,7 @@ use super::DaemonProtectedCredentialEnrollmentSession;
 use crate::application::provider_credential_enrollment::{
     CredentialEnrollmentRecoveryGateway, broker, effect_authority::map_store, operation_projection,
 };
+use crate::protected_activation::linux_pair_diagnostics::record as pair_diag;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod qualified;
@@ -84,7 +85,9 @@ impl DaemonProtectedCredentialEnrollmentSession {
             continuation,
             self.facts.database_generation,
             self.facts.supervisor_generation,
-        )?;
+        );
+        pair_diag("claim_issue_context", context.is_ok());
+        let context = context?;
         #[cfg(all(
             target_os = "macos",
             target_arch = "aarch64",
@@ -102,7 +105,9 @@ impl DaemonProtectedCredentialEnrollmentSession {
                 service,
             );
         }
-        let authority = self.take_ticket_authority()?;
+        let authority = self.take_ticket_authority();
+        pair_diag("claim_ticket_authority", authority.is_ok());
+        let authority = authority?;
         let receipt = coordinator.issue_ticket(
             authority,
             continuation,
@@ -110,7 +115,9 @@ impl DaemonProtectedCredentialEnrollmentSession {
             claim_ticket_ttl_seconds(),
             self.control.store.as_ref(),
             channel,
-        )?;
+        );
+        pair_diag("claim_issue_ticket", receipt.is_ok());
+        let receipt = receipt?;
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         let service_command = service
             .as_ref()
@@ -123,7 +130,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
                 .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)
             })
             .transpose()?;
-        let mut claimed = coordinator.claim_ticket_from_channel(
+        let claimed = coordinator.claim_ticket_from_channel(
             receipt,
             continuation,
             self.facts.database_generation,
@@ -131,7 +138,9 @@ impl DaemonProtectedCredentialEnrollmentSession {
             measurements,
             self.control.store.as_ref(),
             channel,
-        )?;
+        );
+        pair_diag("claim_ticket_accept", claimed.is_ok());
+        let mut claimed = claimed?;
         self.control
             .rendezvous
             .release_detached_after_claim(claimed.operation_id());

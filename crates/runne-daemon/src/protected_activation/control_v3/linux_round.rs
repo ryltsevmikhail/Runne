@@ -1,6 +1,7 @@
 use super::*;
 use crate::application::provider_credential_enrollment::DaemonProtectedCredentialEnrollmentSession;
 use crate::protected_activation::ProtectedActivationChannel;
+use crate::protected_activation::linux_pair_diagnostics::record as pair_diag;
 use runne_api::{ProtectedCredentialRoundBrokerFacts, ProtectedCredentialRoundCodec};
 use runne_application::local_session::LocalSessionService;
 use std::sync::{Arc, Mutex};
@@ -91,7 +92,9 @@ pub(super) fn run_linux_initial_exchange(
         .session
         .as_mut()
         .ok_or(LaunchAuthorityError::OwnershipMismatch)?;
-    initial_exchange::run(channel, session, live, sessions, request)?;
+    let initial_result = initial_exchange::run(channel, session, live, sessions, request);
+    pair_diag("begin_snapshot", initial_result.is_ok());
+    initial_result?;
     runtime.terminal = session.require_durable_terminal().is_ok();
     if runtime.terminal {
         return Ok(());
@@ -101,13 +104,17 @@ pub(super) fn run_linux_initial_exchange(
         .as_ref()
         .ok_or(LaunchAuthorityError::OwnershipMismatch)?
         .clone();
-    let writer = runtime::launch_after_begin(session, capability, channel.unix_stream(), keys)?;
+    let writer_result =
+        runtime::launch_after_begin(session, capability, channel.unix_stream(), keys);
+    pair_diag("writer_launch", writer_result.is_ok());
+    let writer = writer_result?;
     runtime.linux_writer = Some(writer);
     let result = runtime
         .linux_writer
         .as_mut()
         .ok_or(LaunchAuthorityError::OwnershipMismatch)?
         .drive_claimed_writer(channel, sessions, keys, session, live);
+    pair_diag("writer_claim_and_relay", result.is_ok());
     result?;
     runtime.terminal = true;
     Ok(())

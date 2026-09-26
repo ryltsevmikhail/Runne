@@ -1,5 +1,7 @@
 #![cfg_attr(not(feature = "desktop-protected"), allow(dead_code, unused_imports))]
 
+pub(crate) mod linux_pair_diagnostics;
+
 #[cfg(feature = "desktop-protected")]
 use crate::application::root_handle_admission::RootHandleAdmissionAuthority;
 #[cfg(any(unix, windows))]

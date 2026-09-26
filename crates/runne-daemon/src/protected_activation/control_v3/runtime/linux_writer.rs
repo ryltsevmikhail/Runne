@@ -4,6 +4,7 @@ use crate::application::provider_credential_enrollment::broker::{
     CredentialBrokerChannel, LinuxCredentialBrokerChannel, launch_verified_linux_control_writer,
     launch_verified_linux_pair_writer,
 };
+use crate::protected_activation::linux_pair_diagnostics::record as pair_diag;
 use rand::RngCore as _;
 use runne_platform_desktop::{
     VerifiedInstalledLinuxEnrollmentMeasurementFacts, VerifiedInstalledLinuxWriterCapability,
@@ -39,25 +40,31 @@ impl LinuxEnrollmentWriter {
         live: &super::super::live_session::LiveEnrollmentSession,
     ) -> Result<(), runne_api::LaunchAuthorityError> {
         if self.channel.is_none() || self.claim_measurements.is_none() {
+            pair_diag("writer_claim_preflight", false);
             return Err(runne_api::LaunchAuthorityError::OwnershipMismatch);
         }
         if !self
             .capability
             .revalidate_for_authenticated_desktop_peer(protected.unix_stream())
         {
+            pair_diag("writer_claim_preflight", false);
             return Err(runne_api::LaunchAuthorityError::OwnershipMismatch);
         }
-        let current = self
-            .capability
-            .measurement_facts(protected.unix_stream())
-            .ok_or(runne_api::LaunchAuthorityError::OwnershipMismatch)?;
+        let current = self.capability.measurement_facts(protected.unix_stream());
+        pair_diag("writer_peer_remeasurement", current.is_some());
+        let current = current.ok_or(runne_api::LaunchAuthorityError::OwnershipMismatch)?;
         if !same_release(&self.installed, &current) {
+            pair_diag("writer_peer_release_match", false);
             return Err(runne_api::LaunchAuthorityError::OwnershipMismatch);
         }
+        pair_diag("writer_peer_release_match", true);
         if self.channel_binding == [0; 32] || self.publication_key == [0; 32] {
+            pair_diag("writer_claim_preflight", false);
             return Err(runne_api::LaunchAuthorityError::OwnershipMismatch);
         }
-        live.with_current(sessions, || Ok(()))?;
+        let live_result = live.with_current(sessions, || Ok(()));
+        pair_diag("writer_live_session", live_result.is_ok());
+        live_result?;
         let (measurements, continuation) = self
             .claim_measurements
             .take()
@@ -66,11 +73,14 @@ impl LinuxEnrollmentWriter {
             .channel
             .as_mut()
             .ok_or(runne_api::LaunchAuthorityError::InvalidContract)?;
-        let pending = live.with_current(sessions, || {
+        pair_diag("writer_claim_preflight", true);
+        let claim = live.with_current(sessions, || {
             session
                 .claim_writer(measurements, continuation, broker_channel)
                 .map_err(map_enrollment_error)
-        })?;
+        });
+        pair_diag("writer_ticket_claim_pipeline", claim.is_ok());
+        let pending = claim?;
         let released = if let Some(relay_bytes) = pending.relay().map(<[u8]>::to_vec) {
             let frame = session
                 .encode_relay(&relay_bytes)
@@ -155,11 +165,15 @@ pub fn launch_after_begin(
     keys: &runne_api::ProtectedActivationKeys,
 ) -> Result<LinuxEnrollmentWriter, runne_api::LaunchAuthorityError> {
     if !capability.revalidate_for_authenticated_desktop_peer(stream) {
+        pair_diag("writer_capability_before_spawn", false);
         return Err(runne_api::LaunchAuthorityError::OwnershipMismatch);
     }
+    pair_diag("writer_capability_before_spawn", true);
     let handoff = enrollment
         .take_bound_broker_handoff()
-        .map_err(map_enrollment_error)?;
+        .map_err(map_enrollment_error);
+    pair_diag("writer_broker_handoff", handoff.is_ok());
+    let handoff = handoff?;
     let mut launch_secret = Zeroizing::new([0; 32]);
     let mut launch_attempt = [0; 32];
     rand::rngs::OsRng.fill_bytes(&mut launch_secret[..]);
@@ -167,45 +181,59 @@ pub fn launch_after_begin(
     let action = enrollment.begun_action().map_err(map_enrollment_error)?;
     let (channel, relay, before, channel_binding, publication_key) = match action {
         runne_api::ProviderCredentialEnrollmentActionV2::Pair => {
-            let (channel, relay, facts, binding, publication) = launch_verified_linux_pair_writer(
+            let launched = launch_verified_linux_pair_writer(
                 handoff,
                 &capability,
                 stream,
                 keys,
                 *launch_secret,
             )
-            .map_err(map_enrollment_error)?;
+            .map_err(map_enrollment_error);
+            pair_diag("writer_spawn_and_handshake", launched.is_ok());
+            let (channel, relay, facts, binding, publication) = launched?;
             (channel, Some(relay), facts, binding, publication)
         }
         runne_api::ProviderCredentialEnrollmentActionV2::Revoke => {
-            let (channel, facts, binding, publication) = launch_verified_linux_control_writer(
+            let launched = launch_verified_linux_control_writer(
                 handoff,
                 &capability,
                 stream,
                 keys,
                 *launch_secret,
             )
-            .map_err(map_enrollment_error)?;
+            .map_err(map_enrollment_error);
+            pair_diag("writer_spawn_and_handshake", launched.is_ok());
+            let (channel, facts, binding, publication) = launched?;
             (channel, None, facts, binding, publication)
         }
         _ => return Err(runne_api::LaunchAuthorityError::UnsupportedPlatformBackend),
     };
     if !capability.revalidate_for_authenticated_desktop_peer(stream) {
+        pair_diag("writer_post_spawn_revalidation", false);
         return reject_after_reap(channel, runne_api::LaunchAuthorityError::OwnershipMismatch);
     }
     let Some(after) = capability.measurement_facts(stream) else {
+        pair_diag("writer_post_spawn_revalidation", false);
         return reject_after_reap(channel, runne_api::LaunchAuthorityError::OwnershipMismatch);
     };
     if !same_release(&before, &after) {
+        pair_diag("writer_post_spawn_revalidation", false);
         return reject_after_reap(channel, runne_api::LaunchAuthorityError::OwnershipMismatch);
     }
+    pair_diag("writer_post_spawn_revalidation", true);
     let measured_channel = channel.binding_digest().as_bytes();
     if measured_channel != channel_binding || publication_key == [0; 32] {
+        pair_diag("writer_channel_binding", false);
         return reject_after_reap(channel, runne_api::LaunchAuthorityError::OwnershipMismatch);
     }
+    pair_diag("writer_channel_binding", true);
     let writer = match channel.claim_process_facts() {
-        Ok(writer) => writer,
+        Ok(writer) => {
+            pair_diag("writer_process_claim_facts", true);
+            writer
+        }
         Err(error) => {
+            pair_diag("writer_process_claim_facts", false);
             return reject_after_reap(channel, map_enrollment_error(error));
         }
     };
@@ -215,8 +243,12 @@ pub fn launch_after_begin(
         measured_channel,
         launch_attempt,
     ) {
-        Ok(measurements) => measurements,
+        Ok(measurements) => {
+            pair_diag("writer_claim_measurements", true);
+            measurements
+        }
         Err(error) => {
+            pair_diag("writer_claim_measurements", false);
             return reject_after_reap(channel, map_enrollment_error(error));
         }
     };

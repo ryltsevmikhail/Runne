@@ -2,6 +2,7 @@
 
 use std::os::unix::net::UnixStream;
 
+use crate::protected_activation::linux_pair_diagnostics::record as pair_diag;
 use runne_api::{CredentialBrokerTransferAuthenticator, ProtectedActivationKeys};
 use runne_platform_desktop::{
     VerifiedInstalledLinuxEnrollmentMeasurementFacts, VerifiedInstalledLinuxWriterCapability,
@@ -59,20 +60,25 @@ pub(crate) fn launch_verified_linux_pair_writer(
     ),
     runne_api::ProviderCredentialEnrollmentHostError,
 > {
-    let (spec, facts) = VerifiedLinuxWriterLaunchSpec::from_installed(capability, stream)
-        .ok_or(runne_api::ProviderCredentialEnrollmentHostError::AccessDenied)?;
-    let (binding, rendezvous, control_end_for_writer, transfer_authority) =
-        handoff.into_linux_writer_parts()?;
+    let installed = VerifiedLinuxWriterLaunchSpec::from_installed(capability, stream)
+        .ok_or(runne_api::ProviderCredentialEnrollmentHostError::AccessDenied);
+    pair_diag("writer_installed_spec", installed.is_ok());
+    let (spec, facts) = installed?;
+    let parts = handoff.into_linux_writer_parts();
+    pair_diag("writer_endpoint_handoff", parts.is_ok());
+    let (binding, rendezvous, control_end_for_writer, transfer_authority) = parts?;
     if binding.release_tuple.as_bytes() != facts.release_tuple() {
+        pair_diag("writer_release_tuple", false);
         return Err(runne_api::ProviderCredentialEnrollmentHostError::AccessDenied);
     }
+    pair_diag("writer_release_tuple", true);
     let daemon_image = facts.daemon();
     let channel_binding = rendezvous.channel_binding();
     let publication_key = rendezvous.publication_public_key();
     let authenticator = CredentialBrokerTransferAuthenticator::from_protected_activation(keys);
     let spawn_authenticator = authenticator.clone();
     let spec_for_spawn = spec.0.clone();
-    let (channel, relay) = launch_linux_pair_writer_with_handshake(
+    let launched = launch_linux_pair_writer_with_handshake(
         LinuxWriterLaunchInputs {
             rendezvous,
             control_end_for_writer,
@@ -84,15 +90,19 @@ pub(crate) fn launch_verified_linux_pair_writer(
         &spec.0,
         &authenticator,
         Box::new(move |control, startup, transfer, auth| {
-            let (sender, receiver) = UnixStream::pair()
-                .map_err(|_| runne_api::ProviderCredentialEnrollmentHostError::Unavailable)?;
+            let endpoints = UnixStream::pair()
+                .map_err(|_| runne_api::ProviderCredentialEnrollmentHostError::Unavailable);
+            pair_diag("writer_private_endpoint", endpoints.is_ok());
+            let (sender, receiver) = endpoints?;
             let prepared = prepare_daemon_owned_writer_endpoint_handoff(
                 receiver,
                 auth,
                 channel_binding,
                 publication_key,
             )
-            .map_err(|_| runne_api::ProviderCredentialEnrollmentHostError::AccessDenied)?;
+            .map_err(|_| runne_api::ProviderCredentialEnrollmentHostError::AccessDenied);
+            pair_diag("writer_endpoint_offer_prepare", prepared.is_ok());
+            let prepared = prepared?;
             std::thread::scope(|scope| {
                 let sender_task = scope.spawn(|| {
                     send_daemon_owned_writer_endpoint(
@@ -109,6 +119,7 @@ pub(crate) fn launch_verified_linux_pair_writer(
                     startup,
                     &spawn_authenticator,
                 );
+                pair_diag("writer_child_spawn", spawned.is_ok());
                 let sent = match sender_task.join() {
                     Ok(Ok(_facts)) => Ok(()),
                     Ok(Err(_)) => {
@@ -116,6 +127,7 @@ pub(crate) fn launch_verified_linux_pair_writer(
                     }
                     Err(_) => Err(runne_api::ProviderCredentialEnrollmentHostError::Unavailable),
                 };
+                pair_diag("writer_endpoint_send", sent.is_ok());
                 match (sent, spawned) {
                     (Ok(()), Ok(spawned)) => Ok(spawned),
                     (_, Ok((mut process, relay))) => {
@@ -132,7 +144,9 @@ pub(crate) fn launch_verified_linux_pair_writer(
                 }
             })
         }),
-    )?;
+    );
+    pair_diag("writer_spawn_startup_handshake", launched.is_ok());
+    let (channel, relay) = launched?;
     Ok((channel, relay, facts, channel_binding, publication_key))
 }
 

@@ -89,7 +89,15 @@ impl AuthenticatedRuntimeClient {
             "credential_status",
             &[200],
         )
-        .await?;
+        .await
+        .inspect_err(|_| {
+            use std::io::Write as _;
+            let _ = writeln!(
+                std::io::stderr().lock(),
+                "runne-credential-status provider={} phase=http_request",
+                provider.as_str()
+            );
+        })?;
         (snapshot.provider_id() == provider)
             .then_some(snapshot)
             .ok_or_else(invalid_response)

@@ -93,15 +93,17 @@ pub(super) fn run_exchange_owner(
     pair: bool,
 ) -> Result<(), ()> {
     (|| {
-        let mut enrollment = supervisor
+        let begin_result = supervisor
             .lock()
             .map_err(|_| ())?
             .begin_protected_credential_enrollment(begin)
-            .map_err(|_| ())?;
-        if enrollment.snapshot().state() != runne_api::ProviderCredentialOperationStateV2::Prepared
-        {
-            return Err(());
-        }
+            .map_err(|_| ());
+        let mut enrollment = stage_result("desktop_begin", begin_result)?;
+        stage_check(
+            "desktop_prepared_snapshot",
+            enrollment.snapshot().state()
+                == runne_api::ProviderCredentialOperationStateV2::Prepared,
+        )?;
         if pair {
             run_pair_exchange(supervisor, &mut enrollment, material)?;
         } else {
@@ -114,11 +116,12 @@ pub(super) fn run_exchange_owner(
                 .finish_control_only_credential_enrollment(&mut enrollment)
                 .map_err(|_| ())?;
         }
-        (enrollment.terminal()
-            && enrollment.snapshot().state()
-                == runne_api::ProviderCredentialOperationStateV2::Completed)
-            .then_some(())
-            .ok_or(())
+        stage_check(
+            "desktop_terminal_completed",
+            enrollment.terminal()
+                && enrollment.snapshot().state()
+                    == runne_api::ProviderCredentialOperationStateV2::Completed,
+        )
     })()
 }
 
@@ -127,30 +130,57 @@ fn run_pair_exchange(
     enrollment: &mut runne_platform_desktop::PreparedProtectedCredentialEnrollment,
     material: Option<SecureCredentialMaterial>,
 ) -> Result<(), ()> {
-    let material = material.ok_or(())?;
+    let material = stage_result("desktop_pair_material", material.ok_or(()))?;
     let mut guard = supervisor.lock().map_err(|_| ())?;
-    guard
-        .receive_credential_secret_relay(enrollment)
-        .map_err(|_| ())?;
-    let relay = guard
-        .receive_linux_pair_secret_relay_fd(enrollment)
-        .map_err(|_| ())?;
+    stage_result(
+        "desktop_lifecycle_relay",
+        guard
+            .receive_credential_secret_relay(enrollment)
+            .map_err(|_| ()),
+    )?;
+    let relay = stage_result(
+        "desktop_pair_relay_fd",
+        guard
+            .receive_linux_pair_secret_relay_fd(enrollment)
+            .map_err(|_| ()),
+    )?;
     drop(guard);
-    let frame = enrollment.take_relay().ok_or(())?;
+    let frame = stage_result("desktop_relay_frame", enrollment.take_relay().ok_or(()))?;
     let native_oauth =
         material.kind() == runne_platform_desktop::SecureCredentialMaterialKind::NativeOAuth;
     let secret = material.into_pipe_bytes().into_zeroizing();
-    if native_oauth {
+    let write_result = if native_oauth {
         relay.seal_and_write_native_oauth(&frame, secret)
     } else {
         relay.seal_and_write(&frame, secret)
     }
-    .map_err(|_| ())?;
-    supervisor
+    .map_err(|_| ());
+    stage_result("desktop_secret_write", write_result)?;
+    let finish_result = supervisor
         .lock()
         .map_err(|_| ())?
         .finish_protected_credential_enrollment(enrollment, &frame)
-        .map_err(|_| ())
+        .map_err(|_| ());
+    stage_result("desktop_terminal_readback", finish_result)
+}
+
+fn stage_result<T>(stage: &'static str, result: Result<T, ()>) -> Result<T, ()> {
+    record_stage(stage, result.is_ok());
+    result
+}
+
+fn stage_check(stage: &'static str, succeeded: bool) -> Result<(), ()> {
+    record_stage(stage, succeeded);
+    succeeded.then_some(()).ok_or(())
+}
+
+fn record_stage(stage: &'static str, succeeded: bool) {
+    use std::io::Write as _;
+    let outcome = if succeeded { "ok" } else { "failed" };
+    let _ = writeln!(
+        std::io::stderr().lock(),
+        "runne-linux-enrollment stage={stage} outcome={outcome}"
+    );
 }
 
 fn renderer_binding_digest(window: &str, generation: u64) -> [u8; 32] {
