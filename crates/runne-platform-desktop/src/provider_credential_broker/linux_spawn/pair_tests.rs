@@ -57,6 +57,7 @@ fn post_delete_fixture_is_forwarded_only_from_a_private_root() {
     }));
 
     let public_parent = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(public_parent.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
     let public_root = public_parent.path().join("fixture");
     std::fs::create_dir(&public_root).unwrap();
     assert!(
