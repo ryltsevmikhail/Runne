@@ -69,7 +69,7 @@ fn orchestrator_launches_the_real_writer_into_a_verified_channel() {
             control_end_for_writer: writer_control,
             binding,
             transfer_authority: transfer,
-            launch_secret: [31; 32],
+            launch_secret: [40; 32],
             daemon_image: [55; 32],
         },
         &spec,
@@ -83,7 +83,7 @@ fn orchestrator_launches_the_real_writer_into_a_verified_channel() {
 
 #[test]
 #[ignore = "requires the owner Linux session-bus socket; the verified launch uses the production DBus address"]
-fn orchestrator_denies_a_wrong_startup_launch_secret() {
+fn orchestrator_denies_a_zero_startup_nonce() {
     let (binding, authority, writer_control, transfer) = orchestrator_fixture([31; 32]);
     let spec = real_writer_launch_spec();
     let spawned_spec = real_writer_launch_spec();
@@ -97,7 +97,7 @@ fn orchestrator_denies_a_wrong_startup_launch_secret() {
             control_end_for_writer: writer_control,
             binding,
             transfer_authority: transfer,
-            launch_secret: [40; 32],
+            launch_secret: [0; 32],
             daemon_image: [55; 32],
         },
         &spec,
@@ -105,6 +105,6 @@ fn orchestrator_denies_a_wrong_startup_launch_secret() {
     );
     assert!(
         denied.is_err(),
-        "a writer started with the wrong startup secret must never yield a channel"
+        "a zero startup nonce must never yield a channel"
     );
 }

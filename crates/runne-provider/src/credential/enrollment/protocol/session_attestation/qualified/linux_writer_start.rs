@@ -10,7 +10,7 @@ use std::os::unix::net::UnixStream;
 use ed25519_dalek::SigningKey;
 use rand::RngCore as _;
 use rand::rngs::OsRng;
-use runne_api::CredentialBrokerTransferAuthenticator;
+use runne_api::CredentialBrokerWriterStartupAuthenticator;
 
 use sha2::{Digest as _, Sha256};
 use zeroize::Zeroizing;
@@ -34,7 +34,7 @@ const RECORD_BYTES: usize = CHALLENGE_BYTES + 128;
 const FRAME_BYTES: usize = RECORD_BYTES + 32;
 const CHALLENGE_TAG: &[u8] = b"gocode/provider-credential-broker/daemon-evidence/v1/challenge\0";
 const RESPONSE_TAG: &[u8] = b"gocode/provider-credential-broker/daemon-evidence/v1/response\0";
-const STARTUP_PAYLOAD_BYTES: usize = 64;
+const STARTUP_PAYLOAD_BYTES: usize = 160;
 const STARTUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// One writer startup outcome: the real kill keypair plus the daemon-PROOF-
@@ -80,20 +80,16 @@ pub fn linux_writer_self_measurements() -> Result<([u8; 32], [u8; 32]), StartupE
     Ok((start, image))
 }
 
-/// Fills one sealed startup payload: launch secret then release tuple.
+/// Fills a sealed payload containing only one writer-scoped startup key.
 #[must_use]
 pub fn encode_linux_writer_startup_payload(
-    launch_secret: &[u8; 32],
-    release_tuple: [u8; 32],
-) -> Zeroizing<[u8; 64]> {
-    let mut payload = Zeroizing::new([0; 64]);
-    payload[..32].copy_from_slice(launch_secret);
-    payload[32..].copy_from_slice(&release_tuple);
-    payload
+    authenticator: &CredentialBrokerWriterStartupAuthenticator,
+) -> Zeroizing<[u8; 160]> {
+    authenticator.handoff_payload()
 }
 
 /// Writer side of the startup handshake over the inherited one-shot duplex
-/// transport: reads the sealed payload, derives the authenticator, verifies
+/// transport: reads the sealed scoped key, verifies
 /// the daemon challenge proof, adopts only daemon-authenticated facts,
 /// self-measures, generates a real kill keypair, and answers in the exact
 /// existing transcript domains.
@@ -112,13 +108,10 @@ pub fn respond_linux_writer_startup(
     transport
         .read_exact(&mut *payload)
         .map_err(|_| StartupError::Rejected)?;
-    let (secret, release_tuple) = split_payload(*payload);
-    let keys = runne_api::LaunchSecret::from_bytes(secret)
-        .map_err(|_| StartupError::Rejected)?
-        .derive_keys();
+    let authenticator = CredentialBrokerWriterStartupAuthenticator::from_handoff_payload(&payload)
+        .ok_or(StartupError::Rejected)?;
     drop(payload);
-    let authenticator = CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
-    answer_challenge(&mut transport, &authenticator, release_tuple)
+    answer_challenge(&mut transport, &authenticator)
 }
 
 impl LinuxWriterStartup {
@@ -154,8 +147,7 @@ impl LinuxWriterStartup {
 
 fn answer_challenge(
     transport: &mut UnixStream,
-    authenticator: &CredentialBrokerTransferAuthenticator,
-    release_tuple: [u8; 32],
+    authenticator: &CredentialBrokerWriterStartupAuthenticator,
 ) -> Result<LinuxWriterStartup, StartupError> {
     let mut challenge = [0; CHALLENGE_BYTES];
     transport
@@ -164,15 +156,16 @@ fn answer_challenge(
     let proof: [u8; 32] = challenge[96..]
         .try_into()
         .map_err(|_| StartupError::Rejected)?;
-    if !authenticator.verifies_transfer(&transcript(CHALLENGE_TAG, &challenge[..96]), &proof) {
+    if challenge[..32] != authenticator.channel()
+        || challenge[32..64] != authenticator.publication_key()
+        || challenge[64..96] != authenticator.nonce()
+        || !authenticator
+            .verifies_daemon_proof(&transcript(CHALLENGE_TAG, &challenge[..96]), &proof)
+    {
         return Err(StartupError::Rejected);
     }
-    let channel_binding: [u8; 32] = challenge[..32]
-        .try_into()
-        .map_err(|_| StartupError::Rejected)?;
-    let publication_public_key: [u8; 32] = challenge[32..64]
-        .try_into()
-        .map_err(|_| StartupError::Rejected)?;
+    let channel_binding = authenticator.channel();
+    let publication_public_key = authenticator.publication_key();
     let (start, image) = linux_writer_self_measurements()?;
     let mut seed = Zeroizing::new([0_u8; 32]);
     OsRng.fill_bytes(&mut *seed);
@@ -182,9 +175,9 @@ fn answer_challenge(
     record[..CHALLENGE_BYTES].copy_from_slice(&challenge);
     record[CHALLENGE_BYTES..160].copy_from_slice(&start);
     record[160..192].copy_from_slice(&image);
-    record[192..224].copy_from_slice(&release_tuple);
+    record[192..224].copy_from_slice(&authenticator.release());
     record[224..].copy_from_slice(&kill_public_key);
-    let proof = authenticator.authenticate_transfer(&transcript(RESPONSE_TAG, &record));
+    let proof = authenticator.authenticate_writer_proof(&transcript(RESPONSE_TAG, &record));
     let mut frame = [0; FRAME_BYTES];
     frame[..RECORD_BYTES].copy_from_slice(&record);
     frame[RECORD_BYTES..].copy_from_slice(&proof);
@@ -197,14 +190,8 @@ fn answer_challenge(
         kill_signing_key,
         channel_binding,
         publication_public_key,
-        release_tuple,
+        release_tuple: authenticator.release(),
     })
-}
-
-fn split_payload(payload: [u8; 64]) -> ([u8; 32], [u8; 32]) {
-    let secret: [u8; 32] = payload[..32].try_into().expect("fixed split");
-    let release_tuple: [u8; 32] = payload[32..].try_into().expect("fixed split");
-    (secret, release_tuple)
 }
 
 fn transcript(tag: &[u8], record: &[u8]) -> Vec<u8> {

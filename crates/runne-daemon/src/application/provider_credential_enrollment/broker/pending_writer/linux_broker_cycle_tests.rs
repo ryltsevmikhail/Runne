@@ -129,7 +129,7 @@ fn cycle(shared: bool) {
                 control_end_for_writer: writer,
                 binding,
                 transfer_authority: startup_authority,
-                launch_secret: [31; 32],
+                launch_secret: [40; 32],
                 daemon_image: Sha256::digest(
                     std::fs::read(std::env::current_exe().unwrap()).unwrap(),
                 )

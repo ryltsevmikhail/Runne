@@ -28,7 +28,7 @@ fn handshake_fixture() -> HandshakeFixture {
     HandshakeFixture {
         transfer,
         sender,
-        launch_secret: [30; 32],
+        launch_secret: [40; 32],
         issuer: fixture.issuer,
         channel,
         publication,
@@ -168,28 +168,70 @@ fn real_writer_startup_answers_the_daemon_challenge_cross_bound() {
 }
 
 #[test]
-fn writer_delivered_a_foreign_launch_secret_is_denied() {
+fn startup_nonce_is_independent_of_the_protected_activation_secret() {
     use runne_platform_desktop::provider_credential_broker::LinuxWriterLiveFacts;
+    use runne_platform_desktop::provider_credential_broker::linux_writer_self_measurements;
     use runne_platform_desktop::provider_credential_broker::receive_linux_writer_startup;
     use runne_platform_desktop::provider_credential_broker::respond_linux_writer_startup;
 
     let fixture = handshake_fixture();
     let (writer_end, receiver_end) = UnixStream::pair().unwrap();
     let writer = std::thread::spawn(move || respond_linux_writer_startup(writer_end));
+    let (live_start, live_image) = linux_writer_self_measurements().unwrap();
     let received = receive_linux_writer_startup(
         receiver_end,
         fixture.transfer,
-        &[40; 32],
+        &fixture.launch_secret,
         fixture.release_tuple,
         fixture.channel,
         fixture.publication,
         LinuxWriterLiveFacts {
-            start_identity: LIVE_START,
-            image_digest: LIVE_IMAGE,
+            start_identity: live_start,
+            image_digest: live_image,
         },
-    );
-    assert!(writer.join().unwrap().is_err());
-    assert!(received.is_err(), "a foreign launch secret must be denied");
+    )
+    .unwrap();
+    assert_eq!(writer.join().unwrap().unwrap().kill_public_key, received);
+}
+
+#[test]
+fn startup_rejects_mismatched_live_process_measurements() {
+    use runne_platform_desktop::provider_credential_broker::LinuxWriterLiveFacts;
+    use runne_platform_desktop::provider_credential_broker::linux_writer_self_measurements;
+    use runne_platform_desktop::provider_credential_broker::receive_linux_writer_startup;
+    use runne_platform_desktop::provider_credential_broker::respond_linux_writer_startup;
+
+    for wrong_start in [true, false] {
+        let fixture = handshake_fixture();
+        let (writer_end, receiver_end) = UnixStream::pair().unwrap();
+        let writer = std::thread::spawn(move || respond_linux_writer_startup(writer_end));
+        let (live_start, live_image) = linux_writer_self_measurements().unwrap();
+        let (expected_start, expected_image) = if wrong_start {
+            let mut wrong = live_start;
+            wrong[0] ^= 1;
+            (wrong, live_image)
+        } else {
+            let mut wrong = live_image;
+            wrong[0] ^= 1;
+            (live_start, wrong)
+        };
+        assert!(
+            receive_linux_writer_startup(
+                receiver_end,
+                fixture.transfer,
+                &fixture.launch_secret,
+                fixture.release_tuple,
+                fixture.channel,
+                fixture.publication,
+                LinuxWriterLiveFacts {
+                    start_identity: expected_start,
+                    image_digest: expected_image,
+                },
+            )
+            .is_err()
+        );
+        assert!(writer.join().unwrap().is_ok());
+    }
 }
 
 #[test]

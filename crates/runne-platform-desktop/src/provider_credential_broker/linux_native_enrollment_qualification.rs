@@ -258,7 +258,6 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success());
-        use std::os::unix::fs::PermissionsExt as _;
         assert_eq!(
             std::fs::metadata(root.join(DIAGNOSTIC_FILE))
                 .unwrap()

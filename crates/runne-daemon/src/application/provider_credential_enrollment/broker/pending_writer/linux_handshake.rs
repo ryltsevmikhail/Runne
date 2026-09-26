@@ -2,13 +2,14 @@
 //!
 //! Reuses the existing platform-neutral daemon-evidence protocol: the daemon
 //! challenges with its OWN rendezvous facts (channel binding, publication
-//! key, nonce) and receives the transfer-authority-authenticated writer
-//! evidence — including the writer-generated kill publication key — over one
-//! one-shot transport. The frame is then cross-bound to the daemon's LIVE
-//! remeasure of the exact pidfd-retained process, so evidence replayed from
-//! any other writer is denied. No raw facts session minter exists here: the
-//! only product is a verified handshake feeding the already-closed writer
-//! authority constructor.
+//! key, nonce) and receives writer evidence authenticated by a one-writer
+//! startup key derived from the transfer authority and sealed by that
+//! authority's one-use evidence witness — including the writer-generated kill
+//! publication key — over one one-shot transport. The frame is then
+//! cross-bound to the daemon's LIVE remeasure of the exact pidfd-retained
+//! process, so evidence replayed from any other writer is denied. No raw facts
+//! session minter exists here: the only product is a verified handshake
+//! feeding the already-closed writer authority constructor.
 
 #![cfg_attr(
     not(any(test, all(target_os = "linux", feature = "desktop-protected"))),

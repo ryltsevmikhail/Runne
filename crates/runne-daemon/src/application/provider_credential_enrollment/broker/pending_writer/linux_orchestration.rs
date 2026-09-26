@@ -5,10 +5,11 @@
 //! pidfd admission remeasure cross-bound with the authenticated startup
 //! evidence → `VerifiedLinuxWriterHandshake::into_admitted_writer` with the
 //! handshake-delivered REAL kill publication key → the consolidated
-//! `LinuxCredentialBrokerChannel`. The startup payload (launch secret ‖
-//! release tuple) travels ONLY over the intentionally inherited private
-//! startup socket — inherited-descriptor delivery, not encryption. No
-//! independent trust key is created anywhere.
+//! `LinuxCredentialBrokerChannel`. The startup payload contains a writer-scoped
+//! key derived from the transfer authority plus its nonce, release, channel,
+//! and publication-key context. It travels ONLY over the intentionally
+//! inherited private startup socket — inherited-descriptor delivery, not
+//! encryption. The scoped key is not an independent trust root.
 
 #![cfg_attr(
     not(test),
@@ -71,7 +72,7 @@ pub(crate) struct LinuxWriterLaunchInputs {
     pub(crate) binding: PendingBrokerRendezvousBinding,
     /// Transfer authority proving this daemon owns the launch.
     pub(crate) transfer_authority: ProviderCredentialBrokerTransferAuthority,
-    /// Private startup secret shared only over the inherited startup socket.
+    /// Random startup nonce used to derive the writer-scoped key.
     pub(crate) launch_secret: [u8; 32],
     /// Caller-owned canonical daemon image digest from the build-time
     /// release tuple — never substituted from channel facts.

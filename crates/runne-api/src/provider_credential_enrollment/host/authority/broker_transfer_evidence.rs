@@ -1,7 +1,7 @@
 const EVIDENCE_CHALLENGE: &[u8] =
     b"gocode/provider-credential-broker/daemon-evidence/v1/challenge\0";
-const EVIDENCE_RESPONSE: &[u8] =
-    b"gocode/provider-credential-broker/daemon-evidence/v1/response\0";
+const EVIDENCE_RESPONSE: &[u8] = b"gocode/provider-credential-broker/daemon-evidence/v1/response\0";
+use crate::CredentialBrokerWriterStartupAuthenticator;
 
 /// Opaque one-use proof that Desktop authenticated one exact writer tuple.
 pub struct ProviderCredentialBrokerWriterEvidenceWitness {
@@ -16,6 +16,20 @@ pub struct ProviderCredentialBrokerCapturedWriter {
 }
 
 impl ProviderCredentialBrokerTransferAuthority {
+    /// Derives a one-writer startup authenticator from this exact transfer authority.
+    pub fn derive_linux_writer_startup_authenticator(
+        &self,
+        nonce: [u8; 32],
+        release: [u8; 32],
+        channel: [u8; 32],
+        publication_key: [u8; 32],
+    ) -> Result<CredentialBrokerWriterStartupAuthenticator, ProviderCredentialEnrollmentHostError>
+    {
+        self.authenticator
+            .derive_writer_startup_authenticator(nonce, release, channel, publication_key)
+            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)
+    }
+
     /// Verifies both directions of the fixed daemon-evidence frame.
     pub fn verify_writer_evidence(
         &mut self,
@@ -24,6 +38,47 @@ impl ProviderCredentialBrokerTransferAuthority {
         expected_release: [u8; 32],
         expected_channel: [u8; 32],
         expected_publication_key: [u8; 32],
+    ) -> Result<ProviderCredentialBrokerWriterEvidenceWitness, ProviderCredentialEnrollmentHostError>
+    {
+        self.verify_writer_evidence_with_startup_authenticator(
+            record,
+            response_proof,
+            expected_release,
+            expected_channel,
+            expected_publication_key,
+            None,
+        )
+    }
+
+    /// Verifies Linux startup evidence with the scoped key while retaining issuer and one-use seals.
+    pub fn verify_linux_writer_startup_evidence(
+        &mut self,
+        record: &[u8; 256],
+        response_proof: &[u8; 32],
+        expected_release: [u8; 32],
+        expected_channel: [u8; 32],
+        expected_publication_key: [u8; 32],
+        startup: &CredentialBrokerWriterStartupAuthenticator,
+    ) -> Result<ProviderCredentialBrokerWriterEvidenceWitness, ProviderCredentialEnrollmentHostError>
+    {
+        self.verify_writer_evidence_with_startup_authenticator(
+            record,
+            response_proof,
+            expected_release,
+            expected_channel,
+            expected_publication_key,
+            Some(startup),
+        )
+    }
+
+    fn verify_writer_evidence_with_startup_authenticator(
+        &mut self,
+        record: &[u8; 256],
+        response_proof: &[u8; 32],
+        expected_release: [u8; 32],
+        expected_channel: [u8; 32],
+        expected_publication_key: [u8; 32],
+        startup: Option<&CredentialBrokerWriterStartupAuthenticator>,
     ) -> Result<ProviderCredentialBrokerWriterEvidenceWitness, ProviderCredentialEnrollmentHostError>
     {
         if !std::mem::take(&mut self.writer_evidence_available) {
@@ -44,12 +99,27 @@ impl ProviderCredentialBrokerTransferAuthority {
             exact_32(&record[32..64])?,
             exact_32(&record[224..256])?,
         );
+        let proofs_valid = match startup {
+            Some(startup) => {
+                startup.is_derived_for(
+                    &self.authenticator,
+                    expected_release,
+                    expected_channel,
+                    expected_publication_key,
+                ) && record[64..96] == startup.nonce()
+                    && startup.verifies_daemon_proof(&challenge, &challenge_proof)
+                    && startup.verifies_writer_proof(&response, response_proof)
+            }
+            None => {
+                self.authenticate_daemon_transfer(&challenge) == challenge_proof
+                    && self.verifies_desktop_transfer(&response, response_proof)
+            }
+        };
         if !binding.valid()
             || binding.release != expected_release
             || binding.channel != expected_channel
             || binding.key != expected_publication_key
-            || self.authenticate_daemon_transfer(&challenge) != challenge_proof
-            || !self.verifies_desktop_transfer(&response, response_proof)
+            || !proofs_valid
         {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
@@ -128,8 +198,7 @@ mod tests {
     #[test]
     fn one_evidence_frame_cannot_mint_two_writer_witnesses() {
         let keys = LaunchSecret::from_bytes([41; 32]).unwrap().derive_keys();
-        let authenticator =
-            CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
+        let authenticator = CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
         let mut authority = ProviderCredentialBrokerTransferAuthority {
             seal: Arc::new(AuthoritySeal),
             transfer_seal: Arc::new(AuthoritySeal),
@@ -164,3 +233,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "broker_transfer_evidence_startup_tests.rs"]
+mod startup_tests;

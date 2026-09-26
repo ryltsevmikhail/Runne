@@ -31,6 +31,11 @@ pub use runne_provider::{
     LinuxWriterStartup, encode_linux_writer_startup_payload, linux_writer_self_measurements,
     respond_linux_writer_startup,
 };
+#[cfg(target_os = "linux")]
+#[path = "daemon_evidence/linux_startup.rs"]
+mod linux_startup;
+#[cfg(target_os = "linux")]
+pub use linux_startup::receive_linux_writer_startup;
 
 const CHALLENGE_BYTES: usize = 128;
 const RECORD_BYTES: usize = CHALLENGE_BYTES + 128;
@@ -252,41 +257,4 @@ pub fn receive_daemon_owned_writer_measurements(
         return Err(BrokerHandoffError::Rejected);
     }
     Ok((measurements, authority))
-}
-
-/// Daemon side: writes the sealed payload, then runs the exact existing
-/// evidence challenge, cross-bound to the live retained-process facts.
-///
-/// # Errors
-///
-/// Fails closed on any transport, proof, binding, or live-fact mismatch.
-#[cfg(target_os = "linux")]
-pub fn receive_linux_writer_startup(
-    mut transport: UnixStream,
-    transfer_authority: runne_api::ProviderCredentialBrokerTransferAuthority,
-    launch_secret: &[u8; 32],
-    expected_release_tuple: [u8; 32],
-    expected_channel: [u8; 32],
-    expected_publication_public_key: [u8; 32],
-    live: LinuxWriterLiveFacts,
-) -> Result<[u8; 32], runne_api::ProviderCredentialEnrollmentHostError> {
-    let payload = encode_linux_writer_startup_payload(launch_secret, expected_release_tuple);
-    transport
-        .set_write_timeout(Some(std::time::Duration::from_secs(5)))
-        .and_then(|()| transport.set_read_timeout(Some(std::time::Duration::from_secs(5))))
-        .map_err(|_| runne_api::ProviderCredentialEnrollmentHostError::Unavailable)?;
-    transport
-        .write_all(&*payload)
-        .map_err(|_| runne_api::ProviderCredentialEnrollmentHostError::AccessDenied)?;
-    let (measurements, _rotated) = receive_daemon_owned_writer_measurements(
-        transport,
-        transfer_authority,
-        expected_release_tuple,
-        expected_channel,
-        expected_publication_public_key,
-    )
-    .map_err(|_| runne_api::ProviderCredentialEnrollmentHostError::AccessDenied)?;
-    measurements
-        .verified_linux_kill_public_key(live.start_identity, live.image_digest)
-        .ok_or(runne_api::ProviderCredentialEnrollmentHostError::AccessDenied)
 }
