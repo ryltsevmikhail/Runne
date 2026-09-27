@@ -80,7 +80,7 @@ pub(super) fn v42_structure_matches(
         [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     )?;
     let marker_matches = if include_v43_extensions {
-        matches!(marker, (43, 1, 42, 927) | (43, 1, 43, 946) | (44, 1, 43, 971) | (44, 1, 44, 990) | (45, 1, 44, 1016) | (45, 1, 45, 1035) | (46, 1, 45, 1062) | (46, 1, 46, 1081))
+        matches!(marker, (43, 1, 42, 927) | (43, 1, 43, 946) | (44, 1, 43, 971) | (44, 1, 44, 990) | (45, 1, 44, 1016) | (45, 1, 45, 1035) | (46, 1, 45, 1062) | (46, 1, 46, 1081) | (47, 1, 46, 1109) | (47, 1, 47, 1128))
     } else {
         matches!(marker, (42, 1, 41, 884) | (42, 1, 42, 903))
     };
@@ -132,6 +132,17 @@ pub(super) fn v42_structure_matches(
         triggers.extend([
             ("taskrun_provider_bindings_immutable", "CREATE TRIGGER taskrun_provider_bindings_immutable BEFORE UPDATE ON taskrun_provider_bindings BEGIN SELECT RAISE(ABORT,'TaskRun provider binding is append only'); END"),
             ("taskrun_provider_bindings_no_delete", "CREATE TRIGGER taskrun_provider_bindings_no_delete BEFORE DELETE ON taskrun_provider_bindings BEGIN SELECT RAISE(ABORT,'TaskRun provider binding is append only'); END"),
+        ]);
+    }
+    if marker.0 >= 47 {
+        tables.push("text_only_taskrun_lineage");
+        triggers.extend([
+            ("text_only_taskrun_lineage_immutable", "CREATE TRIGGER text_only_taskrun_lineage_immutable BEFORE UPDATE ON text_only_taskrun_lineage BEGIN SELECT RAISE(ABORT,'TextOnly TaskRun lineage is append only'); END"),
+            ("text_only_taskrun_lineage_no_delete", "CREATE TRIGGER text_only_taskrun_lineage_no_delete BEFORE DELETE ON text_only_taskrun_lineage BEGIN SELECT RAISE(ABORT,'TextOnly TaskRun lineage is append only'); END"),
+            ("text_only_taskrun_lineage_no_workspace_collision", "CREATE TRIGGER text_only_taskrun_lineage_no_workspace_collision BEFORE INSERT ON text_only_taskrun_lineage WHEN EXISTS(SELECT 1 FROM task_run_workspace_lineage WHERE taskrun_id=NEW.taskrun_id) BEGIN SELECT RAISE(ABORT,'TaskRun lineage owner collision'); END"),
+            ("schema_v12_fence_text_only_taskrun_lineage_insert", "CREATE TRIGGER \"schema_v12_fence_text_only_taskrun_lineage_insert\" AFTER INSERT ON \"text_only_taskrun_lineage\" BEGIN INSERT INTO schema_upgrade_write_latch (id, closed) VALUES (1, 1) ON CONFLICT(id) DO NOTHING; END"),
+            ("schema_v12_fence_text_only_taskrun_lineage_update", "CREATE TRIGGER \"schema_v12_fence_text_only_taskrun_lineage_update\" AFTER UPDATE ON \"text_only_taskrun_lineage\" BEGIN INSERT INTO schema_upgrade_write_latch (id, closed) VALUES (1, 1) ON CONFLICT(id) DO NOTHING; END"),
+            ("schema_v12_fence_text_only_taskrun_lineage_delete", "CREATE TRIGGER \"schema_v12_fence_text_only_taskrun_lineage_delete\" AFTER DELETE ON \"text_only_taskrun_lineage\" BEGIN INSERT INTO schema_upgrade_write_latch (id, closed) VALUES (1, 1) ON CONFLICT(id) DO NOTHING; END"),
         ]);
     }
     let extensions = CredentialSchemaExtensions { tables: &tables, indexes: &indexes, triggers: &triggers, replacements: &[] };

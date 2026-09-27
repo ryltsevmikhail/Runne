@@ -4,8 +4,8 @@ fn v40_conversation_context_scope_reopens_and_rejects_drift() {
     let path = directory.path().join("context-scope-v40.sqlite");
     let connection = Connection::open(&path).unwrap();
     apply_migrations(&connection).unwrap();
-    assert_eq!(schema_marker(&connection), 46);
-    assert!(v46_matches(&connection, 46).unwrap());
+    assert_eq!(schema_marker(&connection), 47);
+    assert!(v46_matches(&connection, 47).unwrap());
     // The CHECK contract only admits the two closed scope values.
     connection
         .execute(

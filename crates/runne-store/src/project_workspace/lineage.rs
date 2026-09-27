@@ -83,14 +83,25 @@ pub(crate) fn record_text_taskrun_lineage(
     command_id: CommandId,
     scope: &IdempotencyScope,
 ) -> Result<(), CommitError> {
-    record(
-        transaction,
-        taskrun_id,
-        workspace_id,
-        command_id,
-        OperationTag::GenerateConversationText as i64,
-        &scope.principal_id.0,
-    )
+    let conversation_id = text_conversation_id(scope)?;
+    match read_conversation_scope(transaction, conversation_id)? {
+        ConversationContextScope::Workspace => record(
+            transaction,
+            taskrun_id,
+            workspace_id,
+            command_id,
+            OperationTag::GenerateConversationText as i64,
+            &scope.principal_id.0,
+        ),
+        ConversationContextScope::TextOnly => record_text_only(
+            transaction,
+            taskrun_id,
+            conversation_id,
+            workspace_id,
+            command_id,
+            scope,
+        ),
+    }
 }
 
 pub(crate) fn validate_direct_taskrun_lineage(
@@ -119,15 +130,29 @@ pub(crate) fn validate_text_taskrun_lineage(
     command_id: CommandId,
     scope: &IdempotencyScope,
 ) -> Result<(), CommitError> {
-    validate(
-        connection,
-        taskrun_id,
-        workspace_id,
-        command_id,
-        OperationTag::GenerateConversationText as i64,
-        &scope.principal_id.0,
-    )
+    let conversation_id = text_conversation_id(scope)?;
+    match read_conversation_scope(connection, conversation_id)? {
+        ConversationContextScope::Workspace => validate(
+            connection,
+            taskrun_id,
+            workspace_id,
+            command_id,
+            OperationTag::GenerateConversationText as i64,
+            &scope.principal_id.0,
+        ),
+        ConversationContextScope::TextOnly => validate_text_only(
+            connection,
+            taskrun_id,
+            conversation_id,
+            workspace_id,
+            command_id,
+            scope,
+        ),
+    }
 }
+
+include!("lineage/text_only.rs");
+include!("lineage/text_only_audit.rs");
 
 fn record(
     transaction: &Transaction<'_>,
@@ -137,6 +162,16 @@ fn record(
     operation: i64,
     principal_id: &str,
 ) -> Result<(), CommitError> {
+    let text_only_owner_exists: bool = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM text_only_taskrun_lineage WHERE taskrun_id=?1)",
+            [taskrun_id.as_bytes()],
+            |row| row.get(0),
+        )
+        .map_err(corrupt)?;
+    if text_only_owner_exists {
+        return Err(corrupt(rusqlite::Error::InvalidQuery));
+    }
     let canonical = transaction
         .query_row(
             "SELECT w.project_id, w.principal_id, w.live,
@@ -217,6 +252,13 @@ fn validate(
         .optional()
         .map_err(corrupt)?
         .ok_or_else(|| corrupt(rusqlite::Error::InvalidQuery))?;
+    let text_only_owner_exists: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM text_only_taskrun_lineage WHERE taskrun_id=?1)",
+            [taskrun_id.as_bytes()],
+            |row| row.get(0),
+        )
+        .map_err(corrupt)?;
     let history = connection
         .query_row(
             "SELECT project_id, principal_id, classification
@@ -239,7 +281,8 @@ fn validate(
         ("legacy_unbound", None, Some((None, None, kind))) => kind == "legacy_unbound",
         _ => false,
     };
-    if row.0 != workspace_id.as_bytes()
+    if text_only_owner_exists
+        || row.0 != workspace_id.as_bytes()
         || row.3 != command_id.as_bytes()
         || row.4 != operation
         || !classification_valid

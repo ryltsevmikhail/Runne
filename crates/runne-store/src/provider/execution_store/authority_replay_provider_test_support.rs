@@ -95,6 +95,13 @@ pub(super) fn upgraded_v25_for_provider(
              DROP TRIGGER taskrun_provider_bindings_immutable;
              DROP TRIGGER taskrun_provider_bindings_no_delete;
              DROP TABLE taskrun_provider_bindings;
+             DROP TRIGGER text_only_taskrun_lineage_immutable;
+             DROP TRIGGER text_only_taskrun_lineage_no_delete;
+             DROP TRIGGER text_only_taskrun_lineage_no_workspace_collision;
+             DROP TRIGGER schema_v12_fence_text_only_taskrun_lineage_insert;
+             DROP TRIGGER schema_v12_fence_text_only_taskrun_lineage_update;
+             DROP TRIGGER schema_v12_fence_text_only_taskrun_lineage_delete;
+             DROP TABLE text_only_taskrun_lineage;
              DROP TABLE taskrun_dispatch_intents;
              DROP TRIGGER global_command_id_from_release_v45;
              DROP TRIGGER global_command_id_from_command_receipts_v45;
@@ -136,12 +143,12 @@ pub(super) fn upgraded_v25_for_provider(
     );
     let v46_objects: i64 = connection
         .query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('taskrun_provider_bindings', 'taskrun_provider_bindings_immutable', 'taskrun_provider_bindings_no_delete')",
+            "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('taskrun_provider_bindings', 'taskrun_provider_bindings_immutable', 'taskrun_provider_bindings_no_delete', 'text_only_taskrun_lineage', 'text_only_taskrun_lineage_immutable', 'text_only_taskrun_lineage_no_delete', 'text_only_taskrun_lineage_no_workspace_collision')",
             [],
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(v46_objects, 0, "V25 fixture must not retain V46 schema objects");
+    assert_eq!(v46_objects, 0, "V25 fixture must not retain V46/V47 schema objects");
     drop(connection);
 
     (directory, path, request)

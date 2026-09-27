@@ -19,9 +19,9 @@ fn v39_lineage_rebuild_preserves_rows_and_admits_the_submit_origin() {
 
     apply_migrations(&connection).unwrap();
 
-    assert_eq!(schema_marker(&connection), 46);
+    assert_eq!(schema_marker(&connection), 47);
     assert!(
-        v46_matches(&connection, 46).unwrap(),
+        v46_matches(&connection, 47).unwrap(),
         "upgraded structure: marker={:?} inherited={:?} receipts={:?} triggers={:?} lineage={:?}",
         connection
             .query_row(
@@ -113,7 +113,7 @@ fn lineage_ddl_drift_is_rejected_per_schema_version() {
     // must equally stay rejected.
     let rolled_back = Connection::open_in_memory().unwrap();
     apply_migrations(&rolled_back).unwrap();
-    assert!(v46_matches(&rolled_back, 46).unwrap());
+    assert!(v46_matches(&rolled_back, 47).unwrap());
     let v18_lineage = project_workspace_schema::MIGRATION_V18
         .split(';')
         .map(str::trim)
@@ -132,13 +132,15 @@ fn lineage_ddl_drift_is_rejected_per_schema_version() {
         .execute_batch(
             "INSERT INTO task_run_workspace_lineage_drift
              SELECT * FROM task_run_workspace_lineage;
+             DROP TRIGGER text_only_taskrun_lineage_no_workspace_collision;
              DROP TABLE task_run_workspace_lineage;
              ALTER TABLE task_run_workspace_lineage_drift
              RENAME TO task_run_workspace_lineage;",
         )
         .unwrap();
+    rolled_back.execute_batch("CREATE TRIGGER text_only_taskrun_lineage_no_workspace_collision BEFORE INSERT ON text_only_taskrun_lineage WHEN EXISTS(SELECT 1 FROM task_run_workspace_lineage WHERE taskrun_id=NEW.taskrun_id) BEGIN SELECT RAISE(ABORT,'TaskRun lineage owner collision'); END;").unwrap();
     assert!(
-        !v46_matches(&rolled_back, 46).unwrap(),
+        !v46_matches(&rolled_back, 47).unwrap(),
         "v18 lineage DDL under a v40 marker is DDL drift"
     );
     assert!(classify_schema_version(&rolled_back).is_err());
@@ -156,7 +158,7 @@ fn v39_reopens_full_and_no_v19_lineages() {
             apply_migrations_internal(&connection, 19).unwrap();
         }
         apply_migrations(&connection).unwrap();
-        assert!(v46_matches(&connection, 46).unwrap(), "lineage {no_v19_lineage}");
+        assert!(v46_matches(&connection, 47).unwrap(), "lineage {no_v19_lineage}");
         assert_eq!(
             connection
                 .query_row(
@@ -165,7 +167,7 @@ fn v39_reopens_full_and_no_v19_lineages() {
                     |row| row.get::<_, i64>(0),
                 )
                 .unwrap(),
-            if no_v19_lineage { 1062 } else { 1081 }
+            if no_v19_lineage { 1109 } else { 1128 }
         );
         drop(connection);
         drop(open_managed_connection(&path, ConnectionMode::Writer).unwrap());

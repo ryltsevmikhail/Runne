@@ -18,6 +18,27 @@ type AuditRow = (
 pub(super) fn ensure_all_taskrun_streams_have_lineage(
     transaction: &Transaction<'_>,
 ) -> Result<(), Error> {
+    let missing: bool = transaction
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM aggregate_streams stream
+                LEFT JOIN task_run_workspace_lineage workspace_lineage
+                  ON workspace_lineage.taskrun_id=stream.aggregate_id
+                LEFT JOIN text_only_taskrun_lineage text_lineage
+                  ON text_lineage.taskrun_id=stream.aggregate_id
+                WHERE stream.aggregate_type=1
+                  AND workspace_lineage.taskrun_id IS NULL
+                  AND text_lineage.taskrun_id IS NULL
+             )",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|_| Error::Unavailable)?;
+    if missing {
+        return Err(Error::InvariantViolation);
+    }
+    super::lineage::validate_all_text_only_taskrun_lineage(transaction)
+        .map_err(|_| Error::InvariantViolation)?;
     let mut statement = transaction
         .prepare(
             "SELECT stream.aggregate_id, lineage.workspace_id, lineage.project_id,
@@ -32,7 +53,9 @@ pub(super) fn ensure_all_taskrun_streams_have_lineage(
                ON history.workspace_id = lineage.workspace_id
              LEFT JOIN workspaces workspace
                ON workspace.workspace_id = lineage.workspace_id
-             WHERE stream.aggregate_type = 1 ORDER BY stream.aggregate_id",
+             WHERE stream.aggregate_type = 1
+               AND lineage.taskrun_id IS NOT NULL
+             ORDER BY stream.aggregate_id",
         )
         .map_err(|_| Error::Unavailable)?;
     let rows = statement

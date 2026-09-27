@@ -2,7 +2,14 @@ use rusqlite::Connection;
 
 pub fn drop_v42_v43_taskrun_schema(connection: &Connection) -> rusqlite::Result<()> {
     connection.execute_batch(
-        "DROP TRIGGER IF EXISTS global_command_id_from_release_v45;
+        "DROP TRIGGER IF EXISTS text_only_taskrun_lineage_immutable;
+         DROP TRIGGER IF EXISTS text_only_taskrun_lineage_no_delete;
+         DROP TRIGGER IF EXISTS text_only_taskrun_lineage_no_workspace_collision;
+         DROP TRIGGER IF EXISTS schema_v12_fence_text_only_taskrun_lineage_insert;
+         DROP TRIGGER IF EXISTS schema_v12_fence_text_only_taskrun_lineage_update;
+         DROP TRIGGER IF EXISTS schema_v12_fence_text_only_taskrun_lineage_delete;
+         DROP TABLE IF EXISTS text_only_taskrun_lineage;
+         DROP TRIGGER IF EXISTS global_command_id_from_release_v45;
          DROP TRIGGER IF EXISTS global_command_id_from_command_receipts_v45;
          DROP TRIGGER IF EXISTS global_command_id_from_project_workspace_receipts_v45;
          DROP TRIGGER IF EXISTS global_command_id_from_taskrun_claim_receipts_v45;

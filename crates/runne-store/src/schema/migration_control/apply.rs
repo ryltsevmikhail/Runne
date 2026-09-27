@@ -77,64 +77,6 @@ fn apply_migrations_internal(conn: &Connection, target_version: i64) -> SqliteRe
     Ok(())
 }
 
-fn classify_schema_version(conn: &Connection) -> SqliteResult<i64> {
-    let has_version_table: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version')",
-        [],
-        |row| row.get(0),
-    )?;
-    if !has_version_table {
-        return Ok(0);
-    }
-    let version: i64 = conn.query_row(
-        "SELECT COALESCE(MAX(version), 0) FROM schema_version",
-        [],
-        |row| row.get(0),
-    )?;
-    let compatible = match version {
-        0..=8 => true,
-        9 => is_released_strict_v9(conn, version)?,
-        10 => is_released_provider_v10(conn, version)?,
-        11 => is_released_provider_v11(conn, version)?,
-        12 => is_released_provider_v12(conn, version)?,
-        13 => is_released_provider_v13(conn, version)?,
-        14 => is_released_provider_v14(conn, version)?,
-        15 => is_released_provider_v15(conn, version)?,
-        16 => is_released_provider_v16(conn, version)?,
-        17 => is_released_provider_v17(conn, version)?,
-        18 => project_workspace_schema::v18_matches(conn, version)?,
-        19 => replay_snapshot_schema::v19_matches(conn, version)?,
-        20 => replay_promotion_snapshot_schema::v20_matches(conn, version)?,
-        21 => v21_matches(conn, version)?,
-        22 => v22_matches(conn, version)?,
-        23 => v23_matches(conn, version)?,
-        24 => v24_matches(conn, version)?,
-        25 => v25_matches(conn, version)?,
-        26 => v26_matches(conn, version)?,
-        27 => v27_matches(conn, version)?,
-        28 => v28_matches(conn, version)?,
-        29 => v29_matches(conn, version)?,
-        30 => v30_matches(conn, version)?,
-        31 => v31_matches(conn, version)?,
-        32 => v32_matches(conn, version)?,
-        33 => v33_matches(conn, version)?,
-        34 => v34_matches(conn, version)?,
-        35 => v35_matches(conn, version)?,
-        36 => project_workspace_schema::v36_matches(conn, version)?,
-        37 => v37_matches(conn, version)?,
-        38 => v38_matches(conn, version)?,
-        39 => v39_matches(conn, version)?,
-        40 => v40_matches(conn, version)?,
-        41 => v41_matches(conn, version)?,
-        42 => v42_matches(conn, version)?,
-        43 => v43_matches(conn, version)?, 44 => v44_matches(conn, version)?,
-        45 => v45_matches(conn, version)?,
-        46 => v46_matches(conn, version)?,
-        _ => false,
-    };
-    compatible.then_some(version).ok_or(rusqlite::Error::InvalidQuery)
-}
-
 fn apply_legacy_migrations(conn: &Connection, version: i64) -> SqliteResult<()> {
     if version < 1 {
         apply_sql_migration(conn, 1, MIGRATION_V1)?;
