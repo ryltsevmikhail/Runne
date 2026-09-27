@@ -4,6 +4,7 @@ fn validate_output(
     text: &str,
     status: &str,
     allow_empty: bool,
+    trace: &mut DecodeTrace,
 ) -> Result<(), DeepSeekStreamError> {
     let output = response
         .get("output")
@@ -22,6 +23,7 @@ fn validate_output(
         item_id,
         text,
         status,
+        trace,
     )
 }
 
@@ -38,16 +40,19 @@ fn parse_usage(value: &Value) -> Result<ProviderUsage, DeepSeekStreamError> {
         ],
     )
     .map_err(|_| DeepSeekStreamError::InvalidUsage)?;
-    let input = required_u64(usage, "input_tokens").map_err(|_| DeepSeekStreamError::InvalidUsage)?;
+    let input =
+        required_u64(usage, "input_tokens").map_err(|_| DeepSeekStreamError::InvalidUsage)?;
     let output =
         required_u64(usage, "output_tokens").map_err(|_| DeepSeekStreamError::InvalidUsage)?;
-    let total = required_u64(usage, "total_tokens").map_err(|_| DeepSeekStreamError::InvalidUsage)?;
+    let total =
+        required_u64(usage, "total_tokens").map_err(|_| DeepSeekStreamError::InvalidUsage)?;
     if input.checked_add(output) != Some(total) {
         return Err(DeepSeekStreamError::InvalidUsage);
     }
     let input_details = required_object(usage, "input_tokens_details")
         .map_err(|_| DeepSeekStreamError::InvalidUsage)?;
-    require_keys(input_details, &["cached_tokens"]).map_err(|_| DeepSeekStreamError::InvalidUsage)?;
+    require_keys(input_details, &["cached_tokens"])
+        .map_err(|_| DeepSeekStreamError::InvalidUsage)?;
     let cached = required_u64(input_details, "cached_tokens")
         .map_err(|_| DeepSeekStreamError::InvalidUsage)?;
     let output_details = required_object(usage, "output_tokens_details")

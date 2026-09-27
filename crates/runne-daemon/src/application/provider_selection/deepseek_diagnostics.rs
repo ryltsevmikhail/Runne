@@ -51,6 +51,13 @@ fn stage_for(diagnostic: Diagnostic) -> (&'static str, bool) {
         D::BodyComplete => "deepseek_body_complete",
         D::ResponseConstructionFailed => "deepseek_response_construction_failed",
         D::DecodeFailed(error) => return (decode_stage(error), false),
+        D::DecodeDetail { error, detail } => {
+            #[cfg(all(target_os = "linux", feature = "linux-native-enrollment-qualification"))]
+            runne_platform_desktop::provider_credential_broker::linux_native_enrollment_qualification::record_deepseek_decode_detail(
+                detail.ordinals(),
+            );
+            return (decode_stage(error), false);
+        }
         D::Decoded => "deepseek_decode_ok",
         D::StreamStoreFailed => "deepseek_stream_store_failed",
         D::StreamStored => "deepseek_stream_stored",

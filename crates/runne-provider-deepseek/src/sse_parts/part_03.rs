@@ -8,7 +8,6 @@ impl Lifecycle {
         }
         Ok(())
     }
-
 }
 impl Lifecycle {
     fn accept_optional_terminal_output(
@@ -37,7 +36,7 @@ impl Lifecycle {
         if self.item_id.is_none() {
             let item_id = required_string(item, "id")?;
             validate_identifier(item_id)?;
-            let text = terminal_item_text(item, status)?;
+            let text = terminal_item_text(item, status, &mut self.trace)?;
             let next = self
                 .text
                 .len()
@@ -56,9 +55,9 @@ impl Lifecycle {
                 })?;
             }
         }
-        validate_completed_item(item, self.item_id()?, &self.text, status)
+        let item_id = self.item_id()?.to_owned();
+        validate_completed_item(item, &item_id, &self.text, status, &mut self.trace)
     }
-
 }
 impl Lifecycle {
     fn push_optional_usage(
@@ -73,13 +72,11 @@ impl Lifecycle {
             Some(_) | None => self.push_normalized(ProviderStreamEventKind::UsageUnavailable),
         }
     }
-
 }
 impl Lifecycle {
     fn ensure_terminal_prefix_allowed(&mut self) -> Result<(), DeepSeekStreamError> {
         self.ensure_started()
     }
-
 }
 impl Lifecycle {
     fn ensure_started(&mut self) -> Result<(), DeepSeekStreamError> {
@@ -88,10 +85,12 @@ impl Lifecycle {
         }
         Ok(())
     }
-
 }
 impl Lifecycle {
-    fn push_normalized(&mut self, kind: ProviderStreamEventKind) -> Result<(), DeepSeekStreamError> {
+    fn push_normalized(
+        &mut self,
+        kind: ProviderStreamEventKind,
+    ) -> Result<(), DeepSeekStreamError> {
         let sequence = u64::try_from(self.normalized.len())
             .map_err(|_| DeepSeekStreamError::StreamLimitExceeded)?;
         let event = ProviderStreamEvent::new(sequence, kind)
@@ -99,7 +98,6 @@ impl Lifecycle {
         self.normalized.push(event);
         Ok(())
     }
-
 }
 impl Lifecycle {
     fn item_id(&self) -> Result<&str, DeepSeekStreamError> {
@@ -111,7 +109,9 @@ impl Lifecycle {
 pub fn validate_remote_rejection(body: &[u8]) -> Result<(), DeepSeekStreamError> {
     let value: Value =
         serde_json::from_slice(body).map_err(|_| DeepSeekStreamError::MalformedEvent)?;
-    let root = value.as_object().ok_or(DeepSeekStreamError::MalformedEvent)?;
+    let root = value
+        .as_object()
+        .ok_or(DeepSeekStreamError::MalformedEvent)?;
     require_keys(root, &["error"])?;
     let error = required_object(root, "error")?;
     let allowed = ["code", "message", "param", "type"];
@@ -167,103 +167,6 @@ fn validate_terminal_response_guards(
         let details = required_object(response, "incomplete_details")?;
         require_keys(details, &["reason"])?;
         validate_diagnostic_string(details, "reason")?;
-    }
-    Ok(())
-}
-
-fn validate_added_item(item: &Map<String, Value>) -> Result<(), DeepSeekStreamError> {
-    require_keys(item, &["content", "id", "role", "status", "type"])?;
-    if required_string(item, "type")? != "message"
-        || required_string(item, "status")? != "in_progress"
-        || required_string(item, "role")? != "assistant"
-        || !item
-            .get("content")
-            .and_then(Value::as_array)
-            .is_some_and(Vec::is_empty)
-    {
-        return Err(DeepSeekStreamError::UnknownEvent);
-    }
-    Ok(())
-}
-
-fn terminal_item_text<'a>(
-    item: &'a Map<String, Value>,
-    status: &str,
-) -> Result<&'a str, DeepSeekStreamError> {
-    require_keys(item, &["content", "id", "role", "status", "type"])?;
-    if required_string(item, "type")? != "message"
-        || required_string(item, "status")? != status
-        || required_string(item, "role")? != "assistant"
-    {
-        return Err(DeepSeekStreamError::UnknownEvent);
-    }
-    let content = item
-        .get("content")
-        .and_then(Value::as_array)
-        .ok_or(DeepSeekStreamError::MalformedEvent)?;
-    if content.len() != 1 {
-        return Err(DeepSeekStreamError::UnknownEvent);
-    }
-    let part = content[0]
-        .as_object()
-        .ok_or(DeepSeekStreamError::MalformedEvent)?;
-    require_keys(part, &["annotations", "text", "type"])?;
-    if required_string(part, "type")? != "output_text"
-        || !part
-            .get("annotations")
-            .and_then(Value::as_array)
-            .is_some_and(Vec::is_empty)
-    {
-        return Err(DeepSeekStreamError::UnknownEvent);
-    }
-    required_string(part, "text")
-}
-
-fn validate_completed_item(
-    item: &Map<String, Value>,
-    item_id: &str,
-    text: &str,
-    status: &str,
-) -> Result<(), DeepSeekStreamError> {
-    require_keys(item, &["content", "id", "role", "status", "type"])?;
-    if required_string(item, "id")? != item_id
-        || required_string(item, "type")? != "message"
-        || required_string(item, "status")? != status
-        || required_string(item, "role")? != "assistant"
-    {
-        return Err(DeepSeekStreamError::CorrelationMismatch);
-    }
-    let content = item
-        .get("content")
-        .and_then(Value::as_array)
-        .ok_or(DeepSeekStreamError::MalformedEvent)?;
-    if content.len() != 1 {
-        return Err(DeepSeekStreamError::UnknownEvent);
-    }
-    validate_part(
-        content[0]
-            .as_object()
-            .ok_or(DeepSeekStreamError::MalformedEvent)?,
-        text,
-        false,
-    )
-}
-
-fn validate_part(
-    part: &Map<String, Value>,
-    text: &str,
-    added: bool,
-) -> Result<(), DeepSeekStreamError> {
-    require_keys(part, &["annotations", "text", "type"])?;
-    if required_string(part, "type")? != "output_text"
-        || required_string(part, "text")? != text
-        || !part
-            .get("annotations")
-            .and_then(Value::as_array)
-            .is_some_and(Vec::is_empty)
-        || (added && !text.is_empty())
-    {
-        return Err(DeepSeekStreamError::UnknownEvent);
     }
     Ok(())
 }

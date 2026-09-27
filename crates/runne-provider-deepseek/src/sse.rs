@@ -1,4 +1,9 @@
+include!("sse_parts/types.rs");
+include!("sse_parts/diagnostics.rs");
 include!("sse_parts/part_01.rs");
+include!("sse_parts/lifecycle_initial.rs");
 include!("sse_parts/part_02.rs");
+include!("sse_parts/part_03_events.rs");
 include!("sse_parts/part_03.rs");
+include!("sse_parts/schema_validation.rs");
 include!("sse_parts/part_04.rs");

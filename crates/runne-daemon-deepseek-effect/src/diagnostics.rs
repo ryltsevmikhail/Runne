@@ -60,6 +60,11 @@ pub enum DeepSeekEffectDiagnostic {
     BodyComplete,
     ResponseConstructionFailed,
     DecodeFailed(DeepSeekStreamError),
+    #[cfg(feature = "linux-native-enrollment-qualification")]
+    DecodeDetail {
+        error: DeepSeekStreamError,
+        detail: runne_provider_deepseek::DeepSeekDecodeDiagnostic,
+    },
     Decoded,
     StreamStoreFailed,
     StreamStored,

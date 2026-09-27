@@ -5,6 +5,8 @@
 
 pub mod canary;
 mod credential;
+#[allow(missing_docs)]
+mod decode_diagnostic;
 mod profile;
 mod render;
 mod response_decode;
@@ -12,12 +14,19 @@ mod sse;
 mod transport;
 
 pub use credential::{DeepSeekCredentialError, DeepSeekCredentialMaterializer};
+#[cfg(feature = "qualification-diagnostics")]
+pub use decode_diagnostic::{
+    DeepSeekDecodeDiagnostic, DeepSeekDecodeEventKind, DeepSeekDecodeField, DeepSeekDecodeIssue,
+    DeepSeekDecodePhase, DeepSeekDecodeSchemaNode,
+};
 pub use profile::{
     DEEPSEEK_MODEL_ID, DEEPSEEK_MODEL_REVISION, DEEPSEEK_REQUEST_MODEL,
     DEEPSEEK_RESPONSES_PROFILE_ID, DeepSeekProfileError, DeepSeekResponsesTextProfile,
 };
 pub use render::{DeepSeekRenderError, DeepSeekResponsesTextRenderer};
 pub use response_decode::decode_transport_response;
+#[cfg(feature = "qualification-diagnostics")]
+pub use response_decode::decode_transport_response_with_diagnostic;
 pub use sse::{DeepSeekSseDecoder, DeepSeekStreamError};
 pub use transport::{
     DEEPSEEK_MAX_DECODED_STREAM_BYTES, DEEPSEEK_MAX_NORMALIZED_TEXT_BYTES, DEEPSEEK_MAX_SSE_EVENTS,

@@ -6,7 +6,10 @@ async fn adapter_fails_closed_on_chat_done_terminal_frame() {
     #[cfg(feature = "linux-native-enrollment-qualification")]
     assert!(_diagnostics.iter().any(|item| matches!(
         item,
-        runne_daemon_deepseek_effect::DeepSeekEffectDiagnostic::DecodeFailed(_)
+        runne_daemon_deepseek_effect::DeepSeekEffectDiagnostic::DecodeDetail {
+            detail,
+            ..
+        } if detail.issue == runne_provider_deepseek::DeepSeekDecodeIssue::MissingEventName
     )));
     #[cfg(feature = "linux-native-enrollment-qualification")]
     assert!(!format!("{_diagnostics:?}").contains("BODY_MARKER_NOT_FOR_DIAGNOSTICS"));

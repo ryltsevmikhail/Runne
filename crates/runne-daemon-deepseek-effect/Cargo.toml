@@ -7,7 +7,7 @@ publish = false
 
 [features]
 default = []
-linux-native-enrollment-qualification = []
+linux-native-enrollment-qualification = ["runne-provider-deepseek/qualification-diagnostics"]
 
 [dependencies]
 bytes = "1"
