@@ -197,13 +197,19 @@ impl AuthenticatedRuntimeClient {
         let response = self
             .command_request(self.client.post(url), &request.identity)?
             .header(CONTENT_TYPE, "application/json")
-            .body(body)
-            .send()
-            .await
-            .map_err(map_transport)?;
-        let wire: ConversationTextResultWire = read_success_json(response, &[200]).await?;
-        let result = ConversationTextResult::try_from(wire)?;
+            .body(body);
+        let wire: ConversationTextResultWire =
+            diagnostic_json(response, "conversation_generate_text", &[200]).await?;
+        let result = ConversationTextResult::try_from(wire).inspect_err(|error| {
+            report_api_error("conversation_generate_text", "decode", None, error);
+        })?;
         if result.conversation_id != expected_conversation_id {
+            report_http_diagnostic(
+                "conversation_generate_text",
+                "validate",
+                Some(200),
+                "invalid_response",
+            );
             return Err(RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse));
         }
         Ok(result)

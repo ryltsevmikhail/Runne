@@ -58,3 +58,10 @@ fn release_finished(manager: &Weak<ManagerInner>, subscription_id: &str) {
     };
     let _ = remove_subscription(&mut registry, subscription_id);
 }
+
+async fn cancel_unfinished_source<T>(task: tokio::task::JoinHandle<T>, finished: bool) {
+    if !finished {
+        task.abort();
+        let _ = task.await;
+    }
+}
