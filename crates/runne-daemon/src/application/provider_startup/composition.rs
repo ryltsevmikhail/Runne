@@ -195,6 +195,10 @@ impl DaemonApplication {
             }
             None => Ok(None),
         };
+        composition_diagnostics::record_result(
+            matches!(&compose_result, Ok(Some(_))),
+            compose_result.as_ref().err(),
+        );
         let (provider_service, provider_readiness) = match compose_result {
             Ok(Some(service)) => {
                 let readiness = service.current_provider_readiness();

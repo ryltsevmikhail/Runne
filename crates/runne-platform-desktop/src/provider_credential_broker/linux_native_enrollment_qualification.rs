@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 pub const FIXTURE_ROOT_ENV: &str = "RUNNE_D1_1B_POST_DELETE_KILL_FIXTURE_ROOT";
 const DIAGNOSTIC_FILE: &str = "linux-enrollment-stage.log";
-const DIAGNOSTIC_STAGES: &str = "begin_snapshot|writer_launch|writer_claim_and_relay|writer_installed_spec|writer_endpoint_handoff|writer_release_tuple|writer_private_endpoint|writer_endpoint_offer_prepare|writer_child_spawn|writer_endpoint_send|writer_spawn_startup_handshake|writer_capability_before_spawn|writer_broker_handoff|writer_spawn_and_handshake|writer_post_spawn_revalidation|writer_channel_binding|writer_process_claim_facts|writer_claim_measurements|writer_claim_preflight|writer_peer_remeasurement|writer_peer_release_match|writer_live_session|writer_ticket_claim_pipeline|claim_issue_context|claim_ticket_authority|claim_issue_ticket|claim_ticket_accept|recovery_mark_native_effect|recovery_readback|recovery_bind_readback|recovery_lifecycle_snapshot|recovery_completion_preflight|recovery_complete|recovery_readback_access_denied|recovery_readback_unsupported|recovery_readback_corrupt|recovery_readback_conflict|recovery_readback_unavailable|recovery_readback_operation_failed|recovery_readback_invalid|recovery_readback_not_found|recovery_readback_enrollment_incomplete|recovery_readback_migration_incomplete|recovery_readback_source_revision|recovery_readback_other_secure_store|writer_relay_encode|writer_relay_frame_write|writer_relay_peer_revalidation|writer_secret_relay_offer|writer_desktop_ack_read|writer_desktop_ack_accept|writer_terminal_readback_prepare|writer_terminal_readback|writer_terminal_live_session|writer_terminal_peer_revalidation|writer_terminal_snapshot_encode|writer_channel_terminate|writer_terminal_frame_write";
+const DIAGNOSTIC_STAGES: &str = "begin_snapshot|writer_launch|writer_claim_and_relay|writer_installed_spec|writer_endpoint_handoff|writer_release_tuple|writer_private_endpoint|writer_endpoint_offer_prepare|writer_child_spawn|writer_endpoint_send|writer_spawn_startup_handshake|writer_capability_before_spawn|writer_broker_handoff|writer_spawn_and_handshake|writer_post_spawn_revalidation|writer_channel_binding|writer_process_claim_facts|writer_claim_measurements|writer_claim_preflight|writer_peer_remeasurement|writer_peer_release_match|writer_live_session|writer_ticket_claim_pipeline|claim_issue_context|claim_ticket_authority|claim_issue_ticket|claim_ticket_accept|recovery_mark_native_effect|recovery_readback|recovery_bind_readback|recovery_lifecycle_snapshot|recovery_completion_preflight|recovery_complete|recovery_readback_access_denied|recovery_readback_unsupported|recovery_readback_corrupt|recovery_readback_conflict|recovery_readback_unavailable|recovery_readback_operation_failed|recovery_readback_invalid|recovery_readback_not_found|recovery_readback_enrollment_incomplete|recovery_readback_migration_incomplete|recovery_readback_source_revision|recovery_readback_other_secure_store|writer_relay_encode|writer_relay_frame_write|writer_relay_peer_revalidation|writer_secret_relay_offer|writer_desktop_ack_read|writer_desktop_ack_accept|writer_terminal_readback_prepare|writer_terminal_readback|writer_terminal_live_session|writer_terminal_peer_revalidation|writer_terminal_snapshot_encode|writer_channel_terminate|writer_terminal_frame_write|provider_compose_ready|provider_compose_none|provider_compose_profile_binding|provider_compose_provider_stores|provider_compose_recovery|provider_compose_authority|provider_compose_credential_reader|provider_compose_credential_recovery|provider_compose_journal_key|provider_compose_effect_proof|provider_compose_other|provider_trust_gate|provider_projection_ready|provider_projection_unavailable|provider_projection_conflict|provider_projection_other|provider_admission_repository|provider_admission_policy|provider_admission_authority|provider_admission_budget|provider_admission_prepare|provider_admission_conflict|provider_admission_uncertain|provider_admission_other|provider_dispatch_streaming|provider_dispatch_existing|provider_dispatch_rejected|provider_dispatch_uncertain";
 
 /// Records one fixed native Linux enrollment stage when qualification logging is opted in.
 ///
@@ -49,13 +49,17 @@ pub fn record_enrollment_stage(stage: &'static str) {
 }
 
 pub fn record_enrollment_stage_outcome(stage: &'static str, succeeded: bool) {
-    if !DIAGNOSTIC_STAGES.split('|').any(|allowed| allowed == stage) {
+    if !diagnostic_stage_allowed(stage) {
         return;
     }
     let Ok(Some(root)) = fixture_root_from_env() else {
         return;
     };
     append_diagnostic(&root, stage, Some(succeeded));
+}
+
+fn diagnostic_stage_allowed(stage: &'static str) -> bool {
+    DIAGNOSTIC_STAGES.split('|').any(|allowed| allowed == stage)
 }
 
 fn append_diagnostic(root: &Path, stage: &str, outcome: Option<bool>) {
@@ -268,7 +272,7 @@ mod tests {
         );
         assert_eq!(
             std::fs::read_to_string(root.join(DIAGNOSTIC_FILE)).unwrap(),
-            "stage=claim_issue_ticket outcome=failed\n"
+            "stage=claim_issue_ticket outcome=failed\nstage=provider_projection_ready outcome=ok\n"
         );
     }
 
@@ -276,6 +280,7 @@ mod tests {
     fn write_stage_child() {
         if std::env::var_os("RUNNE_QUALIFICATION_LOG_CHILD").is_some() {
             record_enrollment_stage_outcome("claim_issue_ticket", false);
+            record_enrollment_stage_outcome("provider_projection_ready", true);
             record_enrollment_stage_outcome("untrusted_payload", false);
         }
     }

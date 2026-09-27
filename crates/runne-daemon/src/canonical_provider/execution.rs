@@ -22,21 +22,36 @@ impl CanonicalProviderExecutionService for DaemonCanonicalProviderService {
                 // a retention gap carries no trust verdict here either —
                 // the projection below still needs the full stream, so a
                 // gapped stream fails the dispatch without delivering.
-                trust
+                if trust
                     .ensure_conversation_trusted(
                         job.context.principal_id.0.as_str(),
                         job.started.conversation_id,
                     )
-                    .map_err(|_| CanonicalProviderExecutionError::PolicyDenied)?;
+                    .is_err()
+                {
+                    execution_diagnostics::record("provider_trust_gate", false);
+                    return Err(CanonicalProviderExecutionError::PolicyDenied);
+                }
+                execution_diagnostics::record("provider_trust_gate", true);
             }
-            let call = project_call(
+            let call = match project_call(
                 &self.conversation_store,
                 &job,
                 self.profile.as_ref(),
                 &self.provider_id,
                 &self.model_id,
                 &self.model_revision,
-            )?;
+            ) {
+                Ok(call) => {
+                    execution_diagnostics::record("provider_projection_ready", true);
+                    call
+                }
+                Err(error) => {
+                    let stage = execution_diagnostics::projection_failure_stage(error);
+                    execution_diagnostics::record(stage, false);
+                    return Err(error);
+                }
+            };
             let requested_input_tokens = u64::try_from(self.profile.max_input_bytes())
                 .map_err(|_| CanonicalProviderExecutionError::Conflict)?;
             let maximum_usage = ProviderUsage::new(
@@ -83,8 +98,20 @@ impl CanonicalProviderExecutionService for DaemonCanonicalProviderService {
                     currency: self.profile.currency().to_owned(),
                     provider_idempotency_key: provider_idempotency_key(&job),
                 })
-                .await
-                .map_err(map_admission_error)?;
+                .await;
+            let outcome = match outcome {
+                Ok(outcome) => {
+                    let stage = execution_diagnostics::outcome_stage(&outcome);
+                    let succeeded = !matches!(&outcome, ProviderCoordinatorOutcome::Uncertain);
+                    execution_diagnostics::record(stage, succeeded);
+                    outcome
+                }
+                Err(error) => {
+                    let stage = execution_diagnostics::admission_failure_stage(&error);
+                    execution_diagnostics::record(stage, false);
+                    return Err(map_admission_error(error));
+                }
+            };
             let ProviderCoordinatorOutcome::Streaming { binding } = outcome else {
                 return Err(match outcome {
                     ProviderCoordinatorOutcome::Uncertain => {

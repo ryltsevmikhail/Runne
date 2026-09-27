@@ -52,6 +52,7 @@ mod dispatch_binding;
 mod dynamic_readiness;
 mod effect_adapter;
 mod execution;
+mod execution_diagnostics;
 mod loopback_tail;
 mod openai_profile;
 mod projection;
