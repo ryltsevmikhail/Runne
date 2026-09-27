@@ -92,6 +92,8 @@ pub mod linux_native_enrollment_qualification;
 #[cfg(unix)]
 pub use unix::observe_current_process_start;
 #[cfg(target_os = "linux")]
+pub(crate) use unix_daemon::ValidatedLinuxSessionBusAddress;
+#[cfg(target_os = "linux")]
 pub use unix_daemon::linux_spawn::{
     spawn_linux_pair_writer_from_prepared_handoff, spawn_linux_writer_from_prepared_handoff,
     spawn_linux_writer_with_sockets,

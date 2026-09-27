@@ -120,6 +120,25 @@ pub fn spawn_macos_verified_pair_writer_from_prepared_daemon_handoff(
 #[path = "linux_spawn.rs"]
 pub(super) mod linux_spawn;
 
+#[cfg(target_os = "linux")]
+pub struct ValidatedLinuxSessionBusAddress(linux_spawn::SessionBusAddress);
+
+#[cfg(target_os = "linux")]
+impl ValidatedLinuxSessionBusAddress {
+    pub fn for_production() -> Result<Self, BrokerHandoffError> {
+        linux_spawn::SessionBusAddress::for_production().map(Self)
+    }
+
+    #[cfg(test)]
+    pub fn for_tests(path: &std::path::Path) -> Result<Self, BrokerHandoffError> {
+        linux_spawn::SessionBusAddress::for_tests(path).map(Self)
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
 #[cfg(all(test, target_os = "linux"))]
 pub(super) fn test_spawn_linux_writer(
     spec: &VerifiedWriterLaunchSpec,

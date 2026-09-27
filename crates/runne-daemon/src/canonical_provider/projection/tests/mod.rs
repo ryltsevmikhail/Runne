@@ -18,6 +18,7 @@ use runne_security::SecretBroker;
 use runne_store::ProjectWorkspaceStore;
 
 mod manifest_negatives;
+mod text_only;
 
 fn source_pinned_command_vector() -> CanonicalProviderExecutionJob {
     CanonicalProviderExecutionJob {

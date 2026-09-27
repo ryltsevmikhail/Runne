@@ -59,6 +59,10 @@ impl DevelopmentBundledRuntimeLauncher {
             (None, None) => ActivationDispositionV1::FirstActivation,
         };
 
+        #[cfg(target_os = "linux")]
+        let provider_bus_address =
+            linux_provider_bus::address_for_launch(spec.provider_activation().is_some())?;
+
         let issued_at = unix_millis()?;
         let expires_at = issued_at
             .checked_add(
@@ -110,6 +114,12 @@ impl DevelopmentBundledRuntimeLauncher {
         let child_stdin = Stdio::from(OwnedFd::from(child_channel));
         let mut command = Command::new(&launch_executable_path);
         command.env_clear().stdin(child_stdin);
+        #[cfg(target_os = "linux")]
+        linux_provider_bus::apply_to_command(
+            &mut command,
+            spec.provider_activation().is_some(),
+            provider_bus_address.as_ref(),
+        )?;
         #[cfg(all(
             target_os = "linux",
             feature = "linux-native-enrollment-qualification"
