@@ -105,30 +105,45 @@ where
             return Err(ProviderCredentialEnrollmentHostError::Unsupported);
         }
         if operation.state() == CredentialOperationState::Claimed {
-            self.store
+            let marked = self
+                .store
                 .mark_native_effect_observed(ObserveNativeEffect::new(
                     operation.operation_id(),
                     CredentialNativeEffectDisposition::PossibleEffect,
-                ))
-                .map_err(map_store)?;
+                ));
+            super::recovery_diagnostics::record_result(
+                "recovery_mark_native_effect",
+                marked.is_ok(),
+            );
+            marked.map_err(map_store)?;
         }
         let readback = match operation.state() {
             CredentialOperationState::Claimed | CredentialOperationState::NativeEffectObserved => {
                 let command = work
                     .command()
                     .ok_or(ProviderCredentialEnrollmentHostError::InvariantViolation)?;
-                match self.reader.observe_recovery(operation, command)? {
+                let observed = self.reader.observe_recovery(operation, command);
+                super::recovery_diagnostics::record_result("recovery_readback", observed.is_ok());
+                match observed? {
                     CredentialRecoveryReadback::Bound(readback) => {
-                        let bound = self.store.bind_readback(readback).map_err(map_store)?;
+                        let bound = self.store.bind_readback(readback);
+                        super::recovery_diagnostics::record_result(
+                            "recovery_bind_readback",
+                            bound.is_ok(),
+                        );
+                        let bound = bound.map_err(map_store)?;
                         if bound.state() == CredentialOperationState::Failed {
                             return Ok(());
                         }
                         readback::persisted(&bound)?
                     }
                     CredentialRecoveryReadback::VerifiedAbsence(absence) => {
-                        self.store
-                            .fail_with_verified_absence(absence)
-                            .map_err(map_store)?;
+                        let failed = self.store.fail_with_verified_absence(absence);
+                        super::recovery_diagnostics::record_result(
+                            "recovery_bind_readback",
+                            failed.is_ok(),
+                        );
+                        failed.map_err(map_store)?;
                         return Ok(());
                     }
                 }
@@ -136,15 +151,21 @@ where
             CredentialOperationState::ReadbackVerified => readback::persisted(operation)?,
             _ => return Err(ProviderCredentialEnrollmentHostError::InvariantViolation),
         };
-        let lifecycle = self
-            .store
-            .lifecycle_snapshot(operation.provider())
-            .map_err(map_store)?;
-        let completion = readback::completion(operation, readback, lifecycle, now_high_water)?;
-        let completed = self
-            .store
-            .complete_with_receipt(completion)
-            .map_err(map_store)?;
+        let lifecycle = self.store.lifecycle_snapshot(operation.provider());
+        super::recovery_diagnostics::record_result(
+            "recovery_lifecycle_snapshot",
+            lifecycle.is_ok(),
+        );
+        let lifecycle = lifecycle.map_err(map_store)?;
+        let completion = readback::completion(operation, readback, lifecycle, now_high_water);
+        super::recovery_diagnostics::record_result(
+            "recovery_completion_preflight",
+            completion.is_ok(),
+        );
+        let completion = completion?;
+        let completed = self.store.complete_with_receipt(completion);
+        super::recovery_diagnostics::record_result("recovery_complete", completed.is_ok());
+        let completed = completed.map_err(map_store)?;
         if completed.action() == CredentialOperationAction::Pair
             && let Some(local_reader) = self.local_reader
         {

@@ -16,6 +16,7 @@ mod operation_projection;
 mod projection;
 mod readback;
 mod recovery;
+mod recovery_diagnostics;
 mod resume;
 mod status;
 mod verified_frames;

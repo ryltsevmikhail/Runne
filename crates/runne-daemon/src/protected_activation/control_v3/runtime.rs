@@ -5,6 +5,8 @@ mod completion;
 pub(in crate::protected_activation) use completion::with_control;
 #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
 mod linux_writer;
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+mod linux_writer_diagnostics;
 #[cfg(target_os = "macos")]
 mod writer_driver;
 #[cfg(all(target_os = "linux", feature = "desktop-protected"))]

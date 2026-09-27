@@ -113,23 +113,7 @@ fn observe_exact<R: ProviderCredentialReadback + ?Sized>(
 }
 
 fn map_readback_error(error: SecureStoreError) -> ProviderCredentialEnrollmentHostError {
-    match error {
-        SecureStoreError::CredentialAccessDenied
-        | SecureStoreError::CredentialIdentityMismatch
-        | SecureStoreError::CredentialAclMigrationRequired => {
-            ProviderCredentialEnrollmentHostError::AccessDenied
-        }
-        SecureStoreError::UnsupportedSecureStoreBackend => {
-            ProviderCredentialEnrollmentHostError::Unsupported
-        }
-        SecureStoreError::CorruptProviderCredential => {
-            ProviderCredentialEnrollmentHostError::InvariantViolation
-        }
-        SecureStoreError::ProviderCredentialOperationFailed => {
-            ProviderCredentialEnrollmentHostError::Conflict
-        }
-        _ => ProviderCredentialEnrollmentHostError::Unavailable,
-    }
+    super::recovery_diagnostics::map_readback_error(error)
 }
 
 pub(super) fn persisted(

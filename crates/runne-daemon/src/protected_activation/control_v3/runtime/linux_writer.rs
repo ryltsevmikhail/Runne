@@ -1,3 +1,5 @@
+use super::linux_writer_diagnostics::stage_result;
+mod drive_claimed;
 use super::*;
 use crate::application::provider_credential_enrollment::DaemonProtectedCredentialEnrollmentSession;
 use crate::application::provider_credential_enrollment::broker::{
@@ -29,122 +31,6 @@ pub(crate) struct LinuxEnrollmentWriter {
 impl LinuxEnrollmentWriter {
     pub(in crate::protected_activation::control_v3) fn in_flight(&self) -> bool {
         self.channel.is_some() || self.claim_measurements.is_some()
-    }
-
-    pub(in crate::protected_activation::control_v3) fn drive_claimed_writer(
-        &mut self,
-        protected: &mut crate::protected_activation::ProtectedActivationChannel,
-        sessions: &std::sync::Mutex<runne_application::local_session::LocalSessionService>,
-        keys: &runne_api::ProtectedActivationKeys,
-        session: &mut DaemonProtectedCredentialEnrollmentSession,
-        live: &super::super::live_session::LiveEnrollmentSession,
-    ) -> Result<(), runne_api::LaunchAuthorityError> {
-        if self.channel.is_none() || self.claim_measurements.is_none() {
-            pair_diag("writer_claim_preflight", false);
-            return Err(runne_api::LaunchAuthorityError::OwnershipMismatch);
-        }
-        if !self
-            .capability
-            .revalidate_for_authenticated_desktop_peer(protected.unix_stream())
-        {
-            pair_diag("writer_claim_preflight", false);
-            return Err(runne_api::LaunchAuthorityError::OwnershipMismatch);
-        }
-        let current = self.capability.measurement_facts(protected.unix_stream());
-        pair_diag("writer_peer_remeasurement", current.is_some());
-        let current = current.ok_or(runne_api::LaunchAuthorityError::OwnershipMismatch)?;
-        if !same_release(&self.installed, &current) {
-            pair_diag("writer_peer_release_match", false);
-            return Err(runne_api::LaunchAuthorityError::OwnershipMismatch);
-        }
-        pair_diag("writer_peer_release_match", true);
-        if self.channel_binding == [0; 32] || self.publication_key == [0; 32] {
-            pair_diag("writer_claim_preflight", false);
-            return Err(runne_api::LaunchAuthorityError::OwnershipMismatch);
-        }
-        let live_result = live.with_current(sessions, || Ok(()));
-        pair_diag("writer_live_session", live_result.is_ok());
-        live_result?;
-        let (measurements, continuation) = self
-            .claim_measurements
-            .take()
-            .ok_or(runne_api::LaunchAuthorityError::InvalidContract)?;
-        let broker_channel = self
-            .channel
-            .as_mut()
-            .ok_or(runne_api::LaunchAuthorityError::InvalidContract)?;
-        pair_diag("writer_claim_preflight", true);
-        let claim = live.with_current(sessions, || {
-            session
-                .claim_writer(measurements, continuation, broker_channel)
-                .map_err(map_enrollment_error)
-        });
-        pair_diag("writer_ticket_claim_pipeline", claim.is_ok());
-        let pending = claim?;
-        let released = if let Some(relay_bytes) = pending.relay().map(<[u8]>::to_vec) {
-            let frame = session
-                .encode_relay(&relay_bytes)
-                .map_err(map_enrollment_error)?;
-            protected.write_control_frame(&frame)?;
-            if !self
-                .capability
-                .revalidate_for_authenticated_desktop_peer(protected.unix_stream())
-                || self
-                    .capability
-                    .measurement_facts(protected.unix_stream())
-                    .is_none_or(|facts| !same_release(&self.installed, &facts))
-            {
-                return Err(runne_api::LaunchAuthorityError::OwnershipMismatch);
-            }
-            let secret_relay = self
-                .relay
-                .take()
-                .ok_or(runne_api::LaunchAuthorityError::OwnershipMismatch)?;
-            let offer_auth =
-                runne_api::LinuxPairSecretRelayOfferAuthenticator::from_protected_activation(keys);
-            secret_relay
-                .offer_linux_over_protected_stream(protected.unix_stream(), &offer_auth, &frame)
-                .map_err(|_| runne_api::LaunchAuthorityError::OwnershipMismatch)?;
-            let acknowledgement = protected.read_control_frame()?;
-            live.with_current(sessions, || {
-                session
-                    .accept_relay_ack(&acknowledgement, &relay_bytes, pending, broker_channel)
-                    .map_err(map_enrollment_error)
-            })?
-        } else {
-            if self.relay.is_some() {
-                return Err(runne_api::LaunchAuthorityError::OwnershipMismatch);
-            }
-            live.with_current(sessions, || {
-                session
-                    .release_control_only(pending, broker_channel)
-                    .map_err(map_enrollment_error)
-            })?
-        };
-        let now = unix_now_millis()? / 1_000;
-        let now =
-            i64::try_from(now).map_err(|_| runne_api::LaunchAuthorityError::InvalidContract)?;
-        let readback = session
-            .prepare_writer_readback(released, broker_channel, now)
-            .map_err(map_enrollment_error)?;
-        let terminal = readback().map_err(map_enrollment_error)?;
-        live.with_current(sessions, || Ok(()))?;
-        if !self
-            .capability
-            .revalidate_for_authenticated_desktop_peer(protected.unix_stream())
-        {
-            return Err(runne_api::LaunchAuthorityError::OwnershipMismatch);
-        }
-        let frame = session
-            .encode_terminal_snapshot(terminal)
-            .map_err(map_enrollment_error)?;
-        self.channel
-            .take()
-            .ok_or(runne_api::LaunchAuthorityError::InvalidContract)?
-            .terminate_exact_writer()
-            .map_err(map_enrollment_error)?;
-        protected.write_control_frame(&frame)?;
-        Ok(())
     }
 
     pub(super) fn terminate(
