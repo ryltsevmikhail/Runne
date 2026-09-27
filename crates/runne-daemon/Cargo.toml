@@ -12,6 +12,7 @@ desktop-protected = ["dep:runne-platform-desktop", "runne-platform-desktop/prote
 linux-native-enrollment-qualification = [
     "desktop-protected",
     "runne-platform-desktop/linux-native-enrollment-qualification",
+    "runne-secure-store/linux-native-enrollment-qualification",
 ]
 persistent-reference-probe = [
     "test-support",

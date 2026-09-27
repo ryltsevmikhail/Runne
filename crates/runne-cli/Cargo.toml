@@ -23,6 +23,7 @@ persistent-reference-probe = [
 linux-native-enrollment-qualification = [
     "nix/signal",
     "runne-platform-desktop/linux-native-enrollment-qualification",
+    "runne-secure-store/linux-native-enrollment-qualification",
 ]
 
 [dependencies]

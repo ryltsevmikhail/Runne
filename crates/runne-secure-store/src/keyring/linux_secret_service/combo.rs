@@ -223,13 +223,15 @@ pub enum DualHalfRevoke {
 pub fn provider_identity(
     provider: crate::provider_credential::ProviderCredentialId,
 ) -> EntryIdentity {
-    let (service, account) = super::super::provider::provider_key(provider);
+    let (service, account) = super::super::provider::provider_key(provider)
+        .expect("test namespace is configured for qualification tests");
     EntryIdentity::new(service, account)
 }
 
 /// Version-entry identity matching `version_key` in `keyring/provider.rs`.
 #[cfg(test)]
 pub fn version_identity(reference: &runne_provider::CredentialVersionRef) -> EntryIdentity {
-    let (service, account) = super::super::provider::version_key(reference);
+    let (service, account) = super::super::provider::version_key(reference)
+        .expect("test namespace is configured for qualification tests");
     EntryIdentity::new(service, account)
 }

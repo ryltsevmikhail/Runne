@@ -11,7 +11,9 @@ use runne_provider::{
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
+mod namespace;
 mod versioned;
+use namespace::service_prefix;
 
 const ACCESS_DIGEST_DOMAIN: &[u8] = b"runne/keyring-provider-access/v1\0";
 impl ProviderCredentialStore for NativeKeyringStore {
@@ -137,7 +139,7 @@ impl NativeKeyringStore {
     fn read_provider(
         provider: ProviderCredentialId,
     ) -> Result<Option<Zeroizing<Vec<u8>>>, SecureStoreError> {
-        let (service, account) = provider_key(provider);
+        let (service, account) = provider_key(provider)?;
         Self::read_secret(&service, &account)
     }
 
@@ -145,19 +147,19 @@ impl NativeKeyringStore {
         provider: ProviderCredentialId,
         encoded: &[u8],
     ) -> Result<(), SecureStoreError> {
-        let (service, account) = provider_key(provider);
+        let (service, account) = provider_key(provider)?;
         Self::write_secret(&service, &account, encoded)
     }
 
     fn delete_provider(provider: ProviderCredentialId) -> Result<(), SecureStoreError> {
-        let (service, account) = provider_key(provider);
+        let (service, account) = provider_key(provider)?;
         Self::delete_secret(&service, &account)
     }
 
     fn read_version(
         reference: &CredentialVersionRef,
     ) -> Result<Option<Zeroizing<Vec<u8>>>, SecureStoreError> {
-        let (service, account) = version_key(reference);
+        let (service, account) = version_key(reference)?;
         Self::read_secret(&service, &account)
     }
 
@@ -165,33 +167,34 @@ impl NativeKeyringStore {
         reference: &CredentialVersionRef,
         encoded: &[u8],
     ) -> Result<(), SecureStoreError> {
-        let (service, account) = version_key(reference);
+        let (service, account) = version_key(reference)?;
         Self::write_secret(&service, &account, encoded)
     }
 
     fn delete_version_ref(reference: &CredentialVersionRef) -> Result<(), SecureStoreError> {
-        let (service, account) = version_key(reference);
+        let (service, account) = version_key(reference)?;
         Self::delete_secret(&service, &account)
     }
 }
 
-pub(super) fn provider_key(provider: ProviderCredentialId) -> (String, String) {
-    (
-        crate::PROVIDER_CREDENTIAL_SERVICE.to_owned(),
-        provider.account().to_owned(),
-    )
+pub(super) fn provider_key(
+    provider: ProviderCredentialId,
+) -> Result<(String, String), SecureStoreError> {
+    Ok((service_prefix()?, provider.account().to_owned()))
 }
 
-pub(super) fn version_key(reference: &CredentialVersionRef) -> (String, String) {
+pub(super) fn version_key(
+    reference: &CredentialVersionRef,
+) -> Result<(String, String), SecureStoreError> {
     let mut ref_hex = String::with_capacity(64);
     for byte in reference.ref_digest() {
         use core::fmt::Write as _;
         let _ = write!(&mut ref_hex, "{byte:02x}");
     }
-    (
+    Ok((
         format!(
             "{}.version.{}.{}",
-            crate::PROVIDER_CREDENTIAL_SERVICE,
+            service_prefix()?,
             reference.version(),
             ref_hex
         ),
@@ -199,7 +202,7 @@ pub(super) fn version_key(reference: &CredentialVersionRef) -> (String, String) 
             |_| "invalid".to_owned(),
             |provider| provider.account().to_owned(),
         ),
-    )
+    ))
 }
 
 fn provider_id(reference: &CredentialVersionRef) -> Result<ProviderCredentialId, SecureStoreError> {

@@ -233,6 +233,12 @@ fn invalidate_cache_half_reports_outcomes() {
 fn identity_bridge_matches_provider_and_version_key_formats() {
     let provider = crate::provider_credential::ProviderCredentialId::DeepSeek;
     let provider_entry = provider_identity(provider);
+    #[cfg(all(target_os = "linux", feature = "linux-native-enrollment-qualification"))]
+    assert!(provider_entry.service.starts_with(&format!(
+        "{}.qualification.",
+        crate::PROVIDER_CREDENTIAL_SERVICE
+    )));
+    #[cfg(not(all(target_os = "linux", feature = "linux-native-enrollment-qualification")))]
     assert_eq!(provider_entry.service, crate::PROVIDER_CREDENTIAL_SERVICE);
     assert_eq!(provider_entry.account, provider.account());
     let provider_id = runne_provider::ProviderId::new(provider.account()).expect("provider id");

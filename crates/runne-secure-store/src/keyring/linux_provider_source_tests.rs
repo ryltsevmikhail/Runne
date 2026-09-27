@@ -5,7 +5,7 @@ use zeroize::Zeroizing;
 
 static SERIAL: TestOnceLock<TestMutex<()>> = TestOnceLock::new();
 
-fn serial() -> std::sync::MutexGuard<'static, ()> {
+pub(super) fn serial() -> std::sync::MutexGuard<'static, ()> {
     let lock = SERIAL.get_or_init(|| TestMutex::new(()));
     lock.lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -30,6 +30,10 @@ use crate::SecureStoreError;
 const PROVIDER_SERVICE: &str = crate::PROVIDER_CREDENTIAL_SERVICE;
 const VERSION_SERVICE: &str = "dev.runne.provider-credential.v1.version.1.ab";
 const OTHER_SERVICE: &str = "dev.runne.security-anchor.v1";
+
+#[cfg(feature = "linux-native-enrollment-qualification")]
+#[path = "linux_provider_namespace_tests.rs"]
+mod qualification_namespace_tests;
 
 #[test]
 #[ignore = "requires a live, unlocked Linux Secret Service and keyutils session"]
