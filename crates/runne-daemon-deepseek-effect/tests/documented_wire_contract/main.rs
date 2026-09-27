@@ -11,6 +11,21 @@ use runne_provider::{
     StreamCursor, StreamError,
 };
 use serde_json::Value;
+#[cfg(feature = "linux-native-enrollment-qualification")]
+use std::sync::Mutex;
+
+#[cfg(feature = "linux-native-enrollment-qualification")]
+#[derive(Default)]
+struct RecordingObserver(Mutex<Vec<runne_daemon_deepseek_effect::DeepSeekEffectDiagnostic>>);
+
+#[cfg(feature = "linux-native-enrollment-qualification")]
+impl runne_daemon_deepseek_effect::DeepSeekEffectObserver for RecordingObserver {
+    fn observe(&self, diagnostic: runne_daemon_deepseek_effect::DeepSeekEffectDiagnostic) {
+        self.0.lock().expect("diagnostics lock").push(diagnostic);
+    }
+}
+
+include!("dispatch.rs");
 
 struct Captured {
     path: String,
@@ -74,7 +89,7 @@ impl DocumentedServer {
                 WireResponse::ChatDone => (
                     200,
                     "text/event-stream",
-                    "data: {\"choices\":[{}]}\n\ndata: [DONE]\n\n".to_owned(),
+                    "data: {\"choices\":[{}],\"marker\":\"BODY_MARKER_NOT_FOR_DIAGNOSTICS\"}\n\ndata: [DONE]\n\n".to_owned(),
                 ),
             };
             let wire = http::Response::builder()
@@ -112,53 +127,10 @@ fn profile() -> DeepSeekResponsesTextProfile {
     .expect("exact profile")
 }
 
-async fn dispatch_on(
-    server: DocumentedServer,
-) -> (
-    Captured,
-    Result<Vec<runne_provider::ProviderStreamEvent>, DispatchError>,
-    runne_daemon_deepseek_effect::FixtureRequestAuthenticator,
-) {
-    let profile = profile();
-    let policy = DeepSeekTransportPolicy::for_profile(&profile).expect("exact policy");
-    let client = loopback_fixture_client(&policy, server.address, &server.certificate_der)
-        .expect("loopback client");
-    let (effect, authenticator) = effect_from_loopback_fixture(client).expect("fixture effect");
-    let (request, receipt, credential) = durable_dispatch(&profile, effect.as_ref());
-    let ready = effect
-        .stage_effect(request, credential)
-        .await
-        .expect("stage admitted effect");
-    let dispatch = effect.dispatch_effect(ready, receipt).await;
-    let events = match dispatch {
-        Ok(stream) => {
-            let mut events = Vec::new();
-            let mut cursor = StreamCursor::new(0);
-            loop {
-                match ProviderPort::next(effect.as_ref(), &stream, cursor).await {
-                    Ok(item) => {
-                        events.push(item.event().clone());
-                        cursor = StreamCursor::new(cursor.sequence() + 1);
-                    }
-                    Err(StreamError::Closed) => break,
-                    Err(error) => panic!("unexpected stream error: {error}"),
-                }
-            }
-            Ok(events)
-        }
-        Err(error) => Err(error),
-    };
-    (
-        server.task.await.expect("server task"),
-        events,
-        authenticator,
-    )
-}
-
 #[tokio::test]
 async fn adapter_sends_documented_request_and_decodes_documented_sse() {
     let server = DocumentedServer::start(WireResponse::Sse(documented_sse())).await;
-    let (captured, events, authenticator) = dispatch_on(server).await;
+    let (captured, events, authenticator, _diagnostics) = dispatch_on(server).await;
     let events = events.expect("documented dispatch");
 
     assert_eq!(captured.method, "POST");
@@ -201,13 +173,28 @@ async fn adapter_sends_documented_request_and_decodes_documented_sse() {
     let evidence = format!("{events:?}");
     assert!(!evidence.contains("fixture-credential"));
     assert!(!evidence.contains("Bearer "));
+    #[cfg(feature = "linux-native-enrollment-qualification")]
+    assert!(_diagnostics.contains(
+        &runne_daemon_deepseek_effect::DeepSeekEffectDiagnostic::ResponseStatus(
+            runne_daemon_deepseek_effect::DeepSeekHttpStatusClass::Ok200
+        )
+    ));
+    #[cfg(feature = "linux-native-enrollment-qualification")]
+    assert!(
+        _diagnostics.contains(&runne_daemon_deepseek_effect::DeepSeekEffectDiagnostic::Decoded)
+    );
+    #[cfg(feature = "linux-native-enrollment-qualification")]
+    assert!(
+        _diagnostics
+            .contains(&runne_daemon_deepseek_effect::DeepSeekEffectDiagnostic::StreamStored)
+    );
 }
 
 #[tokio::test]
 async fn adapter_closes_documented_json_rejection_without_leaking_the_credential() {
-    let rejection = r#"{"error":{"message":"Authentication Fails; wrong API key","type":"authentication_error"}}"#.to_owned();
+    let rejection = r#"{"error":{"message":"Authentication Fails; wrong API key BODY_MARKER_NOT_FOR_DIAGNOSTICS","type":"authentication_error"}}"#.to_owned();
     let server = DocumentedServer::start(WireResponse::JsonRejection(401, rejection)).await;
-    let (captured, events, authenticator) = dispatch_on(server).await;
+    let (captured, events, authenticator, _diagnostics) = dispatch_on(server).await;
     let events = events.expect("documented rejection dispatch");
 
     assert_eq!(captured.path, "/responses");
@@ -228,25 +215,31 @@ async fn adapter_closes_documented_json_rejection_without_leaking_the_credential
     let evidence = format!("{events:?}");
     assert!(!evidence.contains("fixture-credential"));
     assert!(!evidence.contains("Bearer "));
+    #[cfg(feature = "linux-native-enrollment-qualification")]
+    let diagnostic_text = format!("{_diagnostics:?}");
+    #[cfg(feature = "linux-native-enrollment-qualification")]
+    assert!(diagnostic_text.contains("Unauthorized401"));
+    #[cfg(feature = "linux-native-enrollment-qualification")]
+    assert!(!diagnostic_text.contains("BODY_MARKER_NOT_FOR_DIAGNOSTICS"));
 }
 
-#[tokio::test]
-async fn adapter_fails_closed_on_chat_done_terminal_frame() {
-    let server = DocumentedServer::start(WireResponse::ChatDone).await;
-    let (_, events, _) = dispatch_on(server).await;
-    assert_eq!(events, Err(DispatchError::MaybeDispatched));
-}
+include!("diagnostic_failure.rs");
 
 #[tokio::test]
 async fn adapter_decodes_documented_sse_without_in_progress_wrapper() {
     let server =
         DocumentedServer::start(WireResponse::Sse(documented_sse_without_in_progress())).await;
-    let (captured, events, authenticator) = dispatch_on(server).await;
+    let (captured, events, authenticator, _diagnostics) = dispatch_on(server).await;
     let events = events.expect("documented dispatch without in_progress");
 
     assert_eq!(captured.path, "/responses");
     assert!(authenticator.matches(captured.authorization.as_bytes()));
     assert_eq!(events.len(), 5);
+    #[cfg(feature = "linux-native-enrollment-qualification")]
+    assert!(
+        _diagnostics
+            .contains(&runne_daemon_deepseek_effect::DeepSeekEffectDiagnostic::StreamStored)
+    );
     assert!(matches!(events[0].kind(), ProviderStreamEventKind::Started));
     assert_eq!(
         events

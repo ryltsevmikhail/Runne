@@ -19,6 +19,8 @@ use runne_store::provider::SqliteProviderCredentialLifecycleStore;
 use std::borrow::Cow;
 
 mod cloud;
+#[cfg(all(target_os = "linux", feature = "linux-native-enrollment-qualification"))]
+mod deepseek_diagnostics;
 mod native;
 mod radius;
 

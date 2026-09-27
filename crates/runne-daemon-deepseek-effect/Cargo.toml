@@ -5,6 +5,10 @@ edition = "2024"
 rust-version = "1.95"
 publish = false
 
+[features]
+default = []
+linux-native-enrollment-qualification = []
+
 [dependencies]
 bytes = "1"
 runne-provider = { path = "../runne-provider" }

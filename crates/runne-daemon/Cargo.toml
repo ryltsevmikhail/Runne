@@ -11,6 +11,7 @@ test-support = ["runne-platform-desktop?/test-support", "runne-native-qualificat
 desktop-protected = ["dep:runne-platform-desktop", "runne-platform-desktop/protected-channel-integration", "dep:nix"]
 linux-native-enrollment-qualification = [
     "desktop-protected",
+    "runne-daemon-deepseek-effect/linux-native-enrollment-qualification",
     "runne-platform-desktop/linux-native-enrollment-qualification",
     "runne-secure-store/linux-native-enrollment-qualification",
 ]

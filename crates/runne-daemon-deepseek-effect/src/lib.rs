@@ -19,9 +19,14 @@ use zeroize::Zeroizing;
 
 mod bounds;
 mod client;
+mod diagnostics;
 mod offline_canary;
 mod port_impl;
 mod response;
+
+#[cfg(feature = "linux-native-enrollment-qualification")]
+#[doc(hidden)]
+pub use diagnostics::{DeepSeekEffectDiagnostic, DeepSeekEffectObserver, DeepSeekHttpStatusClass};
 
 #[doc(hidden)]
 pub use client::FixtureRequestAuthenticator;
@@ -69,13 +74,30 @@ pub fn production_effect() -> Result<Arc<dyn DeepSeekEffect>, DeepSeekEffectErro
 pub fn effect_from_loopback_fixture(
     client: reqwest::Client,
 ) -> Result<(Arc<dyn DeepSeekEffect>, client::FixtureRequestAuthenticator), DeepSeekEffectError> {
+    effect_from_loopback_fixture_inner(client, None)
+}
+
+#[cfg(feature = "linux-native-enrollment-qualification")]
+#[doc(hidden)]
+pub fn effect_from_loopback_fixture_with_observer(
+    client: reqwest::Client,
+    observer: Arc<dyn DeepSeekEffectObserver>,
+) -> Result<(Arc<dyn DeepSeekEffect>, client::FixtureRequestAuthenticator), DeepSeekEffectError> {
+    effect_from_loopback_fixture_inner(client, Some(observer))
+}
+
+fn effect_from_loopback_fixture_inner(
+    client: reqwest::Client,
+    observer: Option<Arc<dyn diagnostics::DeepSeekEffectObserver>>,
+) -> Result<(Arc<dyn DeepSeekEffect>, client::FixtureRequestAuthenticator), DeepSeekEffectError> {
     let credential = client::FixtureCredential::new();
     let authenticator = credential.request_authenticator();
     let effect = Arc::new(
-        Sender::new(
+        Sender::new_with_observer(
             profile().map_err(|_| DeepSeekEffectError)?,
             credential,
             client,
+            observer,
         )
         .map_err(|_| DeepSeekEffectError)?,
     );
@@ -112,6 +134,7 @@ struct Sender<C> {
     policy: DeepSeekTransportPolicy,
     credential: C,
     client: reqwest::Client,
+    observer: Option<Arc<dyn diagnostics::DeepSeekEffectObserver>>,
     streams: Mutex<BTreeMap<ProviderStreamId, VecDeque<ProviderStreamEvent>>>,
 }
 
@@ -121,6 +144,15 @@ impl<C: DeepSeekCredentialMaterializer> Sender<C> {
         credential: C,
         client: reqwest::Client,
     ) -> Result<Self, ()> {
+        Self::new_with_observer(profile, credential, client, None)
+    }
+
+    fn new_with_observer(
+        profile: DeepSeekResponsesTextProfile,
+        credential: C,
+        client: reqwest::Client,
+        observer: Option<Arc<dyn diagnostics::DeepSeekEffectObserver>>,
+    ) -> Result<Self, ()> {
         let policy = DeepSeekTransportPolicy::for_profile(&profile).map_err(|_| ())?;
         Ok(Self {
             renderer: DeepSeekResponsesTextRenderer::new(profile.clone()),
@@ -128,6 +160,7 @@ impl<C: DeepSeekCredentialMaterializer> Sender<C> {
             policy,
             credential,
             client,
+            observer,
             streams: Mutex::new(BTreeMap::new()),
         })
     }
@@ -202,6 +235,14 @@ impl<C: DeepSeekCredentialMaterializer> Sender<C> {
         timeout_at(receipt.deadline().into(), effect)
             .await
             .map_err(|_| DispatchError::MaybeDispatched)?
+    }
+}
+
+impl<C> Sender<C> {
+    fn observe(&self, diagnostic: diagnostics::DeepSeekEffectDiagnostic) {
+        if let Some(observer) = &self.observer {
+            observer.observe(diagnostic);
+        }
     }
 }
 

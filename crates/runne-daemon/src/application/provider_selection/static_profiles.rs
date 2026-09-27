@@ -30,7 +30,20 @@ pub(super) fn deepseek_runtime() -> Result<SelectedProviderRuntime, DaemonError>
     Ok(SelectedProviderRuntime {
         profile: Arc::new(SharedTextProviderProfile::new(Arc::new(profile))),
         adapter_factory: Arc::new(|authority, _budget_store| {
-            <dyn runne_daemon_deepseek_effect::DeepSeekEffect>::production(authority)
+            let effect = {
+                #[cfg(all(target_os = "linux", feature = "linux-native-enrollment-qualification"))]
+                {
+                    deepseek_diagnostics::production_effect(authority)
+                }
+                #[cfg(not(all(
+                    target_os = "linux",
+                    feature = "linux-native-enrollment-qualification"
+                )))]
+                {
+                    <dyn runne_daemon_deepseek_effect::DeepSeekEffect>::production(authority)
+                }
+            };
+            effect
                 .map(deepseek_effect_adapter)
                 .map_err(|_| DaemonError::Bootstrap("provider adapter unavailable".into()))
         }),

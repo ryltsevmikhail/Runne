@@ -4,7 +4,8 @@ use std::sync::Arc;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue};
 use runne_provider::{DispatchError, DispatchRequest, ProviderStreamId};
 use runne_provider_deepseek::{
-    DeepSeekCredentialMaterializer, DeepSeekTransportPolicy, DeepSeekTransportResponse,
+    DeepSeekCredentialError, DeepSeekCredentialMaterializer, DeepSeekTransportPolicy,
+    DeepSeekTransportResponse,
 };
 use runne_secure_store::ProviderCredentialDispatchMaterializer;
 use runne_store::provider::{
@@ -16,6 +17,7 @@ use crate::bounds::{
     ResponseContract, accepted_response_contract, append_bounded, bearer_header, record_chunk,
     wait_for_chunk,
 };
+use crate::diagnostics::{DeepSeekEffectDiagnostic as Diagnostic, DeepSeekHttpStatusClass};
 use crate::{DeepSeekEffect, DeepSeekEffectError, REQUEST_ID, Sender, client, profile};
 
 pub(super) struct AuthorizedReady {
@@ -34,15 +36,32 @@ impl dyn DeepSeekEffect {
     pub fn production(
         materializer: Arc<dyn ProviderCredentialDispatchMaterializer>,
     ) -> Result<Arc<dyn DeepSeekEffect>, DeepSeekEffectError> {
+        Self::production_inner(materializer, None)
+    }
+
+    #[cfg(feature = "linux-native-enrollment-qualification")]
+    #[doc(hidden)]
+    pub fn production_with_observer(
+        materializer: Arc<dyn ProviderCredentialDispatchMaterializer>,
+        observer: Arc<dyn crate::diagnostics::DeepSeekEffectObserver>,
+    ) -> Result<Arc<dyn DeepSeekEffect>, DeepSeekEffectError> {
+        Self::production_inner(materializer, Some(observer))
+    }
+
+    fn production_inner(
+        materializer: Arc<dyn ProviderCredentialDispatchMaterializer>,
+        observer: Option<Arc<dyn crate::diagnostics::DeepSeekEffectObserver>>,
+    ) -> Result<Arc<dyn DeepSeekEffect>, DeepSeekEffectError> {
         let profile = profile().map_err(|_| DeepSeekEffectError)?;
         let policy =
             DeepSeekTransportPolicy::for_profile(&profile).map_err(|_| DeepSeekEffectError)?;
         let credential = client::NativeCredential::from_materializer(materializer);
         Ok(Arc::new(
-            Sender::new(
+            Sender::new_with_observer(
                 profile,
                 credential,
                 client::production_client(&policy).map_err(|_| DeepSeekEffectError)?,
+                observer,
             )
             .map_err(|_| DeepSeekEffectError)?,
         ))
@@ -59,11 +78,18 @@ impl<C: DeepSeekCredentialMaterializer> Sender<C> {
             || !receipt.matches_credential(&ready.credential)
             || ready.request.claim().profile_digest != self.profile.profile_digest()
         {
+            self.observe(Diagnostic::ReceiptRejected);
             return Err(DispatchError::MaybeDispatched);
         }
-        let request_id = HeaderValue::from_str(ready.request.provider_idempotency_key())
-            .map_err(|_| DispatchError::MaybeDispatched)?;
+        let request_id = match HeaderValue::from_str(ready.request.provider_idempotency_key()) {
+            Ok(value) => value,
+            Err(_) => {
+                self.observe(Diagnostic::RequestIdRejected);
+                return Err(DispatchError::MaybeDispatched);
+            }
+        };
         let receipt_digest = receipt.credential_read_receipt_digest();
+        self.observe(Diagnostic::MaterializationStarted);
         let material = match ready.credential.point_of_use_revisions() {
             Ok((lifecycle, fence)) => {
                 self.credential
@@ -83,12 +109,32 @@ impl<C: DeepSeekCredentialMaterializer> Sender<C> {
                     )
                     .await
             }
-        }
-        .map_err(super::map_credential)?;
-        let credential = bearer_header(&material)?;
+        };
+        let material = match material {
+            Ok(material) => {
+                self.observe(Diagnostic::Materialized);
+                material
+            }
+            Err(DeepSeekCredentialError::Missing) => {
+                self.observe(Diagnostic::MaterializationMissing);
+                return Err(super::map_credential(DeepSeekCredentialError::Missing));
+            }
+            Err(DeepSeekCredentialError::AccessDenied) => {
+                self.observe(Diagnostic::MaterializationAccessDenied);
+                return Err(super::map_credential(DeepSeekCredentialError::AccessDenied));
+            }
+        };
+        let credential = match bearer_header(&material) {
+            Ok(credential) => credential,
+            Err(error) => {
+                self.observe(Diagnostic::AuthorizationHeaderRejected);
+                return Err(error);
+            }
+        };
         let url = format!("{}{}", self.policy.origin(), self.policy.path());
         let effect = async {
-            let response = self
+            self.observe(Diagnostic::RequestSendStarted);
+            let response = match self
                 .client
                 .post(url)
                 .header(REQUEST_ID, request_id)
@@ -97,16 +143,38 @@ impl<C: DeepSeekCredentialMaterializer> Sender<C> {
                 .body(ready.request.prepared().rendered_bytes().to_vec())
                 .send()
                 .await
-                .map_err(|_| DispatchError::MaybeDispatched)?;
-            let contract = accepted_response_contract(
+            {
+                Ok(response) => response,
+                Err(_) => {
+                    self.observe(Diagnostic::RequestSendFailed);
+                    return Err(DispatchError::MaybeDispatched);
+                }
+            };
+            let status = response.status().as_u16();
+            self.observe(Diagnostic::ResponseStatus(
+                DeepSeekHttpStatusClass::from_status(status),
+            ));
+            let contract = match accepted_response_contract(
                 response.url().as_str(),
-                response.status().as_u16(),
+                status,
                 response
                     .headers()
                     .get(CONTENT_TYPE)
                     .and_then(|value| value.to_str().ok()),
-            )
-            .ok_or(DispatchError::MaybeDispatched)?;
+            ) {
+                Some(ResponseContract::Sse) => {
+                    self.observe(Diagnostic::ResponseContractSse);
+                    ResponseContract::Sse
+                }
+                Some(ResponseContract::JsonRejection(status)) => {
+                    self.observe(Diagnostic::ResponseContractJsonRejection);
+                    ResponseContract::JsonRejection(status)
+                }
+                None => {
+                    self.observe(Diagnostic::ResponseContractRejected);
+                    return Err(DispatchError::MaybeDispatched);
+                }
+            };
             let maximum = match contract {
                 ResponseContract::Sse => self.policy.max_decoded_bytes(),
                 ResponseContract::JsonRejection(_) => self.policy.max_frame_bytes(),
@@ -115,31 +183,55 @@ impl<C: DeepSeekCredentialMaterializer> Sender<C> {
             let mut body = Vec::new();
             let mut chunks = 0;
             loop {
-                let chunk = wait_for_chunk(self.policy.idle_timeout(), response.chunk())
-                    .await
-                    .map_err(|_| DispatchError::MaybeDispatched)?
-                    .map_err(|_| DispatchError::MaybeDispatched)?;
+                let chunk = match wait_for_chunk(self.policy.idle_timeout(), response.chunk()).await
+                {
+                    Err(_) => {
+                        self.observe(Diagnostic::BodyIdleTimeout);
+                        return Err(DispatchError::MaybeDispatched);
+                    }
+                    Ok(Err(_)) => {
+                        self.observe(Diagnostic::BodyReadFailed);
+                        return Err(DispatchError::MaybeDispatched);
+                    }
+                    Ok(Ok(chunk)) => chunk,
+                };
                 let Some(chunk) = chunk else { break };
-                record_chunk(&mut chunks, self.policy.max_transport_chunks())
-                    .map_err(|_| DispatchError::MaybeDispatched)?;
-                append_bounded(&mut body, &chunk, maximum)
-                    .map_err(|_| DispatchError::MaybeDispatched)?;
+                if record_chunk(&mut chunks, self.policy.max_transport_chunks()).is_err() {
+                    self.observe(Diagnostic::BodyChunkLimitExceeded);
+                    return Err(DispatchError::MaybeDispatched);
+                }
+                if append_bounded(&mut body, &chunk, maximum).is_err() {
+                    self.observe(Diagnostic::BodyByteLimitExceeded);
+                    return Err(DispatchError::MaybeDispatched);
+                }
             }
             if body.is_empty() {
+                self.observe(Diagnostic::BodyEmpty);
                 return Err(DispatchError::MaybeDispatched);
             }
+            self.observe(Diagnostic::BodyComplete);
             let response = match contract {
                 ResponseContract::Sse => DeepSeekTransportResponse::sse(vec![body]),
                 ResponseContract::JsonRejection(status) => {
                     DeepSeekTransportResponse::json_rejection(status, body)
                 }
-            }
-            .map_err(|_| DispatchError::MaybeDispatched)?;
+            };
+            let response = match response {
+                Ok(response) => response,
+                Err(_) => {
+                    self.observe(Diagnostic::ResponseConstructionFailed);
+                    return Err(DispatchError::MaybeDispatched);
+                }
+            };
             self.store_response(ready.request.attempt_id(), response)
         };
-        timeout_at(receipt.deadline().into(), effect)
-            .await
-            .map_err(|_| DispatchError::MaybeDispatched)?
+        match timeout_at(receipt.deadline().into(), effect).await {
+            Ok(result) => result,
+            Err(_) => {
+                self.observe(Diagnostic::DeadlineExpired);
+                Err(DispatchError::MaybeDispatched)
+            }
+        }
     }
 }
 
