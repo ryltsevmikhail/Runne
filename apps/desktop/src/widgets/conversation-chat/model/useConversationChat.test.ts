@@ -18,10 +18,14 @@ function snapshot(recovery: ConversationSnapshot['recovery']): ConversationSnaps
   }
 }
 
-function mountChat(options: ConversationChatOptions, sessionConnect?: (allowRetry: boolean) => Promise<RuntimeConnectionState>) {
+function mountChat(
+  options: ConversationChatOptions,
+  sessionConnect?: (allowRetry: boolean) => Promise<RuntimeConnectionState>,
+  sessionReady?: () => boolean,
+) {
   const Component = defineComponent({
     setup() {
-      const chat = useConversationChat(options, sessionConnect)
+      const chat = useConversationChat(options, sessionConnect, sessionReady)
       return { chat }
     },
     template: '<div />',
@@ -68,9 +72,8 @@ describe('conversation chat recovery projection', () => {
     await Promise.resolve()
     await Promise.resolve()
     expect(openConversation).toHaveBeenCalledTimes(2)
-    // The only connector call is the mount probe (allowRetry=false); the
-    // coalesced reload reused the proven session without re-arming anything.
-    expect(sessionConnect).toHaveBeenCalledTimes(1)
+    // The mount and coalesced reload both revalidate the proven session.
+    expect(sessionConnect).toHaveBeenCalledTimes(2)
     expect(sessionConnect).toHaveBeenCalledWith(false)
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(openConversation).toHaveBeenCalledTimes(2)
@@ -130,6 +133,64 @@ describe('conversation chat recovery projection', () => {
     expect(attempts).toBe(afterRefilled)
   })
 
+  it('rearms one bounded recovery cycle only after a fresh session-ready edge', async () => {
+    let failSubscribe = true
+    let attempts = 0
+    const state = reactive({ ready: true })
+    const options: ConversationChatOptions = reactive({
+      workspaceId: WORKSPACE,
+      openConversation: async () => snapshot('live'),
+      subscribeConversation: async () => {
+        attempts += 1
+        if (failSubscribe) throw new Error('subscription unavailable')
+        return {
+          sendMessage: async () => snapshot('live'),
+          resync: async () => snapshot('live'),
+          unsubscribe: async () => {},
+        }
+      },
+    })
+    const wrapper = mountChat(options, async () => 'live', () => state.ready)
+    await vi.waitFor(() => expect(attempts).toBe(3))
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(attempts).toBe(3)
+
+    // A newly proven runtime session permits one fresh bounded cycle; stable
+    // live polls alone do not repeatedly reset its failure budget.
+    failSubscribe = false
+    state.ready = false
+    await Promise.resolve()
+    state.ready = true
+    await vi.waitFor(() => expect(attempts).toBe(4))
+    await vi.waitFor(() => expect(wrapper.vm.chat.snapshot.value?.recovery).toBe('live'))
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(attempts).toBe(4)
+  })
+
+  it('does not clear a conversation resync requirement on a runtime edge', async () => {
+    const state = reactive({ ready: true })
+    const openConversation = vi.fn(async () => snapshot('resync_required'))
+    const options: ConversationChatOptions = reactive({
+      workspaceId: WORKSPACE,
+      openConversation,
+      subscribeConversation: async () => ({
+        sendMessage: async () => snapshot('live'),
+        resync: async () => snapshot('live'),
+        unsubscribe: async () => {},
+      }),
+    })
+    const wrapper = mountChat(options, async () => 'live', () => state.ready)
+    await vi.waitFor(() => expect(wrapper.vm.chat.snapshot.value?.recovery).toBe('resync_required'))
+
+    state.ready = false
+    await Promise.resolve()
+    state.ready = true
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    expect(openConversation).toHaveBeenCalledTimes(1)
+    expect(wrapper.vm.chat.snapshot.value?.recovery).toBe('resync_required')
+  })
+
   it('reloads the conversation when the session becomes mutable again', async () => {
     let listener: ((value: ConversationSnapshot) => void) | undefined
     const openConversation = vi.fn(async (): Promise<ConversationSnapshot> => snapshot('live'))
@@ -168,15 +229,14 @@ describe('conversation chat recovery projection', () => {
     await Promise.resolve()
     options.disabled = false
     await vi.waitFor(() => expect(openConversation).toHaveBeenCalledTimes(2))
-    // The only connector call is the mount probe without retry rights; the
-    // recovery reload reused the proven session directly.
-    expect(sessionConnect).toHaveBeenCalledTimes(1)
+    // Recovery reloads verify the current session without retry rights.
+    expect(sessionConnect).toHaveBeenCalledTimes(2)
     expect(sessionConnect).toHaveBeenCalledWith(false)
     await vi.waitFor(() => {
       expect(wrapper.vm.chat.snapshot.value?.recovery).toBe('live')
     })
-    // The recovery edge reuses the proven session: the raw connect fallback
-    // stays untouched and the session connector never retries.
+    // The session connector is rechecked, while the raw handshake fallback
+    // stays untouched and no automatic retry capability is requested.
     expect(connect).not.toHaveBeenCalled()
     expect(sessionConnect).toHaveBeenCalledWith(false)
   })

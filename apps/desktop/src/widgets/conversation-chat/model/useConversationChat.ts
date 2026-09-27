@@ -9,7 +9,7 @@ import {
   subscribeWorkspaceConversation,
 } from '@/entities/conversation'
 import type { RuntimeConnectionState } from '@/shared/api/platform/bootstrap'
-import { translate } from '@/shared/i18n'
+import { conversationRecoveryCopy } from './recovery-copy'
 
 export type Connect = () => Promise<RuntimeConnectionState>
 export type OpenConversation = (workspaceId: string) => Promise<ConversationSnapshot>
@@ -55,6 +55,7 @@ async function defaultSubscribeConversation(
 export function useConversationChat(
   options: ConversationChatOptions,
   sessionConnect?: (allowRetry: boolean) => Promise<RuntimeConnectionState>,
+  sessionReady?: () => boolean,
 ) {
   const snapshot = ref<ConversationSnapshot | null>(null)
   const runtimeState = ref<RuntimeConnectionState>('unconfigured')
@@ -63,6 +64,7 @@ export function useConversationChat(
   const resyncing = ref(false)
   const unavailable = ref(false)
   const draft = ref('')
+  const sessionIsReady = computed(() => sessionReady?.() ?? true)
   let session: ConversationSession | null = null
   let loadGeneration = 0
   let loadInFlight = false
@@ -71,6 +73,7 @@ export function useConversationChat(
   const recovery = computed(() => snapshot.value?.recovery ?? 'live')
   const canCompose = computed(() => (
     options.disabled !== true
+    && sessionIsReady.value
     && runtimeState.value === 'live'
     && recovery.value === 'live'
     && !loading.value
@@ -83,31 +86,18 @@ export function useConversationChat(
   ))
   const canResync = computed(() => (
     options.disabled !== true
+    && sessionIsReady.value
     && recovery.value === 'resync_required'
     && session !== null
     && !loading.value
     && !resyncing.value
   ))
-  const statusCopy = computed(() => {
-    switch (recovery.value) {
-      case 'live':
-        return null
-      case 'reconnecting':
-        return translate('conversation.reconnecting')
-      case 'incompatible':
-        return translate('conversation.incompatible')
-      case 'revoked':
-        return translate('conversation.revoked')
-      case 'resync_required':
-        return translate('conversation.resyncRequired')
-      case 'fatal':
-        return translate('conversation.recoveryFailed')
-      default:
-        return null
-    }
-  })
+  const statusCopy = computed(() => conversationRecoveryCopy(recovery.value))
+  const canAutomaticallyReload = () => snapshot.value === null
+    || recovery.value === 'live'
+    || recovery.value === 'reconnecting'
 
-  onMounted(() => { void loadConversation(false, false) })
+  onMounted(() => { void loadConversation(false) })
   // A read-only window must refresh once the session turns mutable again;
   // reloads coalesce single-flight instead of stacking per runtime cycle.
   watch(() => options.disabled, (disabled, wasDisabled) => {
@@ -115,24 +105,31 @@ export function useConversationChat(
       pendingReload = false
       return
     }
-    if (wasDisabled === true && sessionConnect) {
+    if (wasDisabled === true && sessionConnect && canAutomaticallyReload()) {
       if (loading.value) {
         pendingReload = true
         return
       }
-      void loadConversation(true, false)
+      void loadConversation(false)
     }
   })
 
   // Bounded recovery: at most two consecutive resubscribes when the
   // conversation subscription drops; a live subscription refills the budget.
   let recoveryReloads = 0
-  watch(recovery, (value, was) => {
-    if (value !== 'reconnecting' || was === 'reconnecting') return
-    if (!sessionConnect || options.disabled === true || recoveryReloads >= 2) return
-    recoveryReloads += 1
-    void loadConversation(true, false)
-  })
+  watch(
+    () => [recovery.value, sessionIsReady.value] as const,
+    ([value, ready], [was, wasReady]) => {
+      const sessionRecovered = ready && !wasReady && canAutomaticallyReload()
+      const streamDropped = value === 'reconnecting' && was !== 'reconnecting'
+      if ((!sessionRecovered && !streamDropped) || !ready) return
+      if (!sessionConnect || options.disabled === true) return
+      if (sessionRecovered) recoveryReloads = 0
+      if (recoveryReloads >= 2) return
+      recoveryReloads += 1
+      void loadConversation(false)
+    },
+  )
 
   onBeforeUnmount(() => {
     disposed = true
@@ -144,7 +141,7 @@ export function useConversationChat(
     }
   })
 
-  async function loadConversation(skipConnect = false, allowRetry = false) {
+  async function loadConversation(allowRetry = false) {
     // Single-flight: in-flight open/subscribe coalesces into one pending reload.
     if (loadInFlight) {
       pendingReload = true
@@ -164,19 +161,13 @@ export function useConversationChat(
     }
     unavailable.value = false
     try {
-      // The recovery edge must not re-run the raw handshake: it would replace
-      // the authoritative client and rotate mutation gates behind the
-      // controller's back. The proven session connector wins over injected
-      // test connectors; the bare-options default fails closed. An automatic
-      // (mount/reload) edge never re-arms a terminal session: only an
-      // explicit user retry may.
-      runtimeState.value = skipConnect
-        ? 'live'
-        : await (sessionConnect
-          ? sessionConnect(allowRetry)
-          : options.connect
-            ? options.connect()
-            : defaultConnect())
+      // Every reload revalidates the injected authoritative session. It must
+      // not infer readiness from a stale conversation snapshot.
+      runtimeState.value = await (sessionConnect
+        ? sessionConnect(allowRetry)
+        : options.connect
+          ? options.connect()
+          : defaultConnect())
       if (runtimeState.value !== 'live') throw new Error('runtime unavailable')
       const initial = options.textOnly === true
         ? await openTextOnlyConversation()
@@ -218,7 +209,7 @@ export function useConversationChat(
         // A reload requested mid-flight runs once now, never accumulating.
         if (pendingReload && sessionConnect) {
           pendingReload = false
-          void loadConversation(true, false)
+          if (canAutomaticallyReload()) void loadConversation(false)
         }
       }
     }
