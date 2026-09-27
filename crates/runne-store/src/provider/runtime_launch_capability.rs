@@ -16,11 +16,17 @@ pub struct ProviderRuntimeLaunchCapability {
     fence: u64,
     owner: String,
     state_revision: u64,
+    lease_ttl_seconds: u64,
 }
 
 impl ProviderRuntimeLaunchCapability {
+    pub(super) const fn lease_ttl_seconds(&self) -> u64 {
+        self.lease_ttl_seconds
+    }
+
     pub(super) fn from_state(
         state: &RuntimeAuthorityState,
+        lease_ttl_seconds: u64,
     ) -> Result<Self, ProviderAdmissionError> {
         if !state.active
             || state.runtime_authority_id == [0; 16]
@@ -29,6 +35,7 @@ impl ProviderRuntimeLaunchCapability {
             || state.expected_fencing_token == 0
             || state.owner_id.is_empty()
             || state.state_revision == 0
+            || lease_ttl_seconds != 600
         {
             return Err(ProviderAdmissionError::AuthorityDenied);
         }
@@ -39,6 +46,7 @@ impl ProviderRuntimeLaunchCapability {
             fence: state.expected_fencing_token,
             owner: state.owner_id.clone(),
             state_revision: state.state_revision,
+            lease_ttl_seconds,
         })
     }
 

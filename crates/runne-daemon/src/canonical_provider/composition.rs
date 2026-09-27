@@ -21,10 +21,7 @@ pub struct DaemonCanonicalProviderService {
     pub(super) execution_store: Arc<SqliteProviderExecutionStore>,
     pub(super) credential_store: Arc<SqliteProviderCredentialLifecycleStore>,
     pub(super) quota_store: Arc<runne_provider_quota::QuotaStateStore>,
-    #[allow(
-        dead_code,
-        reason = "the protected macOS remote verification path is its only reader"
-    )]
+    #[allow(dead_code, reason = "used by protected macOS verification")]
     pub(super) enrollment_store_authority:
         Option<runne_provider::CredentialEnrollmentStoreAuthority>,
     pub(super) credential_readback: Option<Arc<dyn ProviderCredentialReadback>>,
@@ -48,6 +45,7 @@ pub struct DaemonCanonicalProviderService {
     pub(super) runtime_generation: u64,
     pub(super) fencing_token: u64,
     pub(super) launch_capability: ProviderRuntimeLaunchCapability,
+    pub(super) renewal_dispatch_gate: super::dispatch_gate::ProviderDispatchGate,
     pub(super) recovery_registry: Arc<runne_observability::operational::RecoveryObservationRegistry>,
 }
 impl DaemonCanonicalProviderService {
@@ -276,6 +274,7 @@ impl DaemonCanonicalProviderService {
             runtime_generation,
             fencing_token,
             launch_capability,
+            renewal_dispatch_gate: super::dispatch_gate::ProviderDispatchGate::default(),
             recovery_registry: registry,
         });
         #[cfg(any(

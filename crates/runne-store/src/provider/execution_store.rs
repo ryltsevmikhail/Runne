@@ -3,6 +3,8 @@ mod authority_admission_tests;
 #[cfg(test)]
 mod authority_lease_tests;
 #[cfg(test)]
+mod authority_renewal_tests;
+#[cfg(test)]
 mod authority_replay_provider_tests;
 #[cfg(test)]
 mod authority_test_support;

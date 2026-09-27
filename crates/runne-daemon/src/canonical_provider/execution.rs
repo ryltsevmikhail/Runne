@@ -1,6 +1,23 @@
 use super::projection::*;
 use super::*;
 
+impl DaemonCanonicalProviderService {
+    pub(super) async fn acquire_dispatch_gate(&self) -> tokio::sync::OwnedMutexGuard<()> {
+        self.renewal_dispatch_gate.lock().await
+    }
+
+    pub(super) fn renew_launch_authority(&self) -> Result<(), CanonicalProviderExecutionError> {
+        self.execution_store
+            .renew_runtime_launch_lease(&self.launch_capability)
+            .map(|_| ())
+            .map_err(|error| {
+                let stage = execution_diagnostics::admission_failure_stage(&error);
+                execution_diagnostics::record(stage, false);
+                map_admission_error(error)
+            })
+    }
+}
+
 impl CanonicalProviderExecutionService for DaemonCanonicalProviderService {
     fn execute(
         &self,
@@ -10,6 +27,9 @@ impl CanonicalProviderExecutionService for DaemonCanonicalProviderService {
         Result<runne_application::ports::TextGenerationReceipt, CanonicalProviderExecutionError>,
     > {
         Box::pin(async move {
+            // Recheck trust only after any prior operation has settled; the
+            // gate stays held through terminal application below.
+            let _dispatch_guard = self.acquire_dispatch_gate().await;
             // NM-06: re-check the CURRENT trust revision right before any
             // provider delivery. Revocations and authority failures deny the
             // dispatch before the coordinator runs (fail-closed, no durable
@@ -83,6 +103,9 @@ impl CanonicalProviderExecutionService for DaemonCanonicalProviderService {
                 runne_api::is_subscription_provider(self.provider_id.as_ref()),
                 Some(self.credential_store.clone()),
             );
+            // Keep the launch lease stable from admission through terminal
+            // application; renewal cannot change an in-flight admission's expiry.
+            self.renew_launch_authority()?;
             let outcome = coordinator
                 .dispatch(ProviderCoordinatorRequest {
                     call,

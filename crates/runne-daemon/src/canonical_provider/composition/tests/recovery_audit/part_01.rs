@@ -41,3 +41,59 @@ async fn reopen_with_pending_outbox_changes_only_lifecycle_columns() {
         .unwrap();
     assert_completed_receipt(&receipt, &started);
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn live_service_renews_expired_launch_and_keeps_lease_stable_through_settlement() {
+    let harness = Harness::new().await;
+    let service = harness.compose().await;
+    let (_, started) = harness.begin();
+    rusqlite::Connection::open(&harness.db_path)
+        .unwrap()
+        .execute(
+            "UPDATE provider_runtime_authority_state
+             SET capability_expires_at = 1, approval_expires_at = 1 WHERE id = 1",
+            [],
+        )
+        .unwrap();
+
+    let _dispatch_guard = service.acquire_dispatch_gate().await;
+    service.renew_launch_authority().unwrap();
+    let expiry = rusqlite::Connection::open(&harness.db_path)
+        .unwrap()
+        .query_row(
+            "SELECT capability_expires_at FROM provider_runtime_authority_state WHERE id = 1",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert!(expiry > 1);
+
+    super::super::pending::create(&service, started, harness.writer_connection()).await;
+    let queued_service = std::sync::Arc::clone(&service);
+    let (entered_tx, mut entered_rx) = tokio::sync::oneshot::channel();
+    let queued = tokio::spawn(async move {
+        let _guard = queued_service.acquire_dispatch_gate().await;
+        let _ = entered_tx.send(());
+        queued_service.renew_launch_authority().unwrap();
+    });
+    tokio::task::yield_now().await;
+    assert!(matches!(
+        entered_rx.try_recv(),
+        Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+    ));
+    service.recover_pending().await.unwrap();
+    let settled_state = rusqlite::Connection::open(&harness.db_path)
+        .unwrap()
+        .query_row(
+            "SELECT dispatch.state, runtime.capability_expires_at
+             FROM provider_dispatch_attempts dispatch
+             JOIN provider_runtime_authority_state runtime ON runtime.id = 1",
+            [],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .unwrap();
+    assert_eq!(settled_state, (5, expiry));
+    drop(_dispatch_guard);
+    entered_rx.await.unwrap();
+    queued.await.unwrap();
+}
