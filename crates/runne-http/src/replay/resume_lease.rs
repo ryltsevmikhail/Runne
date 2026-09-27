@@ -240,6 +240,13 @@ impl ReplayHttpState {
                     self.release_session_permit(&session_id);
                     return;
                 }
+                Err(ReplayError::AuthorizationRevoked) => {
+                    // This lease is permanently stale after a generation or
+                    // epoch rotation. The session is fenced by replay auth;
+                    // retain no local quota while durable expiry reclaims it.
+                    self.release_session_permit(&session_id);
+                    return;
+                }
                 Err(_) => tokio::time::sleep(std::time::Duration::from_secs(1)).await,
             }
         }

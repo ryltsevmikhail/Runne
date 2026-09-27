@@ -74,4 +74,5 @@ include!("replay/router.rs");
 mod tests {
     include!("replay/tests.rs");
     include!("replay/request_binding_tests.rs");
+    include!("replay/resume_lease_tests.rs");
 }
