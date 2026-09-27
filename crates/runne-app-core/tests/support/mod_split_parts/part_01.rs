@@ -42,7 +42,9 @@ struct MockState {
     retention_gap_once: AtomicBool,
     retention_v2_gap_once: AtomicBool,
     reconnectable_open_failure_once: AtomicBool,
+    block_open_session: AtomicBool,
     open_changed: Notify,
+    release_open_session: Notify,
     live_changed: Notify,
     generate_changed: Notify,
     release_generate: Notify,
@@ -77,7 +79,9 @@ impl MockRuntime {
             retention_gap_once: AtomicBool::new(false),
             retention_v2_gap_once: AtomicBool::new(false),
             reconnectable_open_failure_once: AtomicBool::new(false),
+            block_open_session: AtomicBool::new(false),
             open_changed: Notify::new(),
+            release_open_session: Notify::new(),
             live_changed: Notify::new(),
             generate_changed: Notify::new(),
             release_generate: Notify::new(),
@@ -268,5 +272,14 @@ impl MockRuntime {
         self.state
             .reconnectable_open_failure_once
             .store(true, Ordering::SeqCst);
+    }
+
+    pub fn block_open_session(&self) {
+        self.state.block_open_session.store(true, Ordering::SeqCst);
+    }
+
+    pub fn release_open_session(&self) {
+        self.state.block_open_session.store(false, Ordering::SeqCst);
+        self.state.release_open_session.notify_one();
     }
 }

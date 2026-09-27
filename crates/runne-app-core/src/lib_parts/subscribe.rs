@@ -90,7 +90,14 @@ impl AppCore {
                 self.set_runtime_failure(RuntimeAvailability::Fatal)?;
                 return Err(AppCoreError::RuntimeIdentityConflict);
             }
+            let prior_availability = self.runtime_availability()?;
             self.transition_runtime(RuntimeAvailability::Reconciling)?;
+            // Cancellation during catch-up must not leave global availability
+            // stuck there. This operation still holds runtime_operation, so
+            // its authenticated client cannot be replaced before Drop restores
+            // the prior availability. The next subscription replays its cursor.
+            let mut recovery_fence =
+                RuntimeAvailabilityRecoveryFence::new(self, prior_availability);
             let scope_key = context.identity.scope(&reference);
             let checkpoint = {
                 let mut store = self
@@ -174,6 +181,7 @@ impl AppCore {
                 }
             };
             self.transition_runtime(RuntimeAvailability::Live)?;
+            recovery_fence.disarm();
             drop(operation);
 
             let live_started = Instant::now();

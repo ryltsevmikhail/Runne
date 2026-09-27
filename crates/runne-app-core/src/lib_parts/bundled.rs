@@ -198,6 +198,35 @@ struct RuntimeRecoveryFence<'a> {
     armed: bool,
 }
 
+struct RuntimeAvailabilityRecoveryFence<'a> {
+    core: &'a AppCore,
+    prior: RuntimeAvailability,
+    armed: bool,
+}
+
+impl<'a> RuntimeAvailabilityRecoveryFence<'a> {
+    const fn new(core: &'a AppCore, prior: RuntimeAvailability) -> Self {
+        Self { core, prior, armed: true }
+    }
+
+    const fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for RuntimeAvailabilityRecoveryFence<'_> {
+    fn drop(&mut self) {
+        if self.armed
+            && self
+                .core
+                .runtime_availability()
+                .is_ok_and(|state| state == RuntimeAvailability::Reconciling)
+        {
+            let _ = self.core.set_runtime_availability(self.prior);
+        }
+    }
+}
+
 impl<'a> RuntimeRecoveryFence<'a> {
     const fn new(core: &'a AppCore) -> Self {
         Self { core, armed: true }

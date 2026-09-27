@@ -54,3 +54,43 @@ async fn mutation_remains_live_while_subscription_reconcile_waits_and_race_appli
     primary_subscription.abort();
     second_subscription.abort();
 }
+
+#[tokio::test]
+async fn abort_during_replay_catch_up_restores_previous_runtime() {
+    let fixture = Fixture::opened().await;
+    let before = fixture.runtime.open_count();
+    fixture.runtime.block_open_session();
+    let subscription = fixture.subscribe(Arc::new(Mutex::new(Vec::new())));
+
+    fixture.runtime.wait_for_open(before + 1).await;
+    assert_eq!(
+        fixture.core.bootstrap().expect("bootstrap").runtime,
+        RuntimeAvailability::Reconciling
+    );
+    subscription.abort();
+    let _ = subscription.await;
+    assert_eq!(
+        fixture.core.bootstrap().expect("bootstrap").runtime,
+        RuntimeAvailability::Live
+    );
+    fixture.runtime.release_open_session();
+    fixture
+        .core
+        .open_project_conversation(fixture.project_id)
+        .await
+        .expect("fresh replay catch-up after cancellation");
+}
+
+#[tokio::test]
+async fn abort_during_live_stream_does_not_fence_another_operation() {
+    let fixture = Fixture::opened().await;
+    let subscription = fixture.subscribe(Arc::new(Mutex::new(Vec::new())));
+    fixture.runtime.wait_for_live(1).await;
+
+    subscription.abort();
+    let _ = subscription.await;
+    assert_eq!(
+        fixture.core.bootstrap().expect("bootstrap").runtime,
+        RuntimeAvailability::Live
+    );
+}

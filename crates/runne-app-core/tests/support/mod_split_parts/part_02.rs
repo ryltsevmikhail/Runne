@@ -113,6 +113,9 @@ async fn open_session(
 ) -> Response<Body> {
     state.open_count.fetch_add(1, Ordering::SeqCst);
     state.open_changed.notify_waiters();
+    if state.block_open_session.load(Ordering::SeqCst) {
+        state.release_open_session.notified().await;
+    }
     if state
         .reconnectable_open_failure_once
         .swap(false, Ordering::SeqCst)
