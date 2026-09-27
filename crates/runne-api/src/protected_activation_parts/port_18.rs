@@ -46,7 +46,9 @@ fn decode_provider_binding(
         return Err(DecodeError::UnknownField { key: 3 });
     }
     expect_key(decoder, 1)?;
-    let mode = ProviderActivationModeV1::from_wire_code(decoder.read_unsigned(2)?)?;
+    let mode = ProviderActivationModeV1::from_wire_code(
+        decoder.read_unsigned(ProviderActivationModeV1::MAX_WIRE_CODE)?,
+    )?;
     expect_key(decoder, 2)?;
     let profile_id = decoder.read_text_string(MAX_PROFILE_ID_BYTES)?.to_owned();
     expect_key(decoder, 3)?;

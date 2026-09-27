@@ -56,6 +56,9 @@ mod enrollment_launch_v3_post_sign_tests;
 #[cfg(test)]
 #[path = "protected_activation/enrollment_launch_v3_tests.rs"]
 mod enrollment_launch_v3_tests;
+#[cfg(test)]
+#[path = "protected_activation/provider_binding_codec_tests.rs"]
+mod provider_binding_codec_tests;
 include!("protected_activation/root_handle_control.rs");
 include!("protected_activation/credential_enrollment_control.rs");
 include!("protected_activation/credential_enrollment_lifecycle.rs");

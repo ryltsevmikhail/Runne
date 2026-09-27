@@ -220,6 +220,9 @@ impl ProviderActivationModeV1 {
         }
     }
 
+    /// Highest currently assigned closed-set provider mode code on the wire.
+    const MAX_WIRE_CODE: u64 = 11;
+
     fn from_wire_code(code: u64) -> Result<Self, DecodeError> {
         match code {
             1 => Ok(Self::DeterministicV1),
