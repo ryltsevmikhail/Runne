@@ -264,3 +264,5 @@ include!("conversation_channel_parts/manager.rs");
 include!("conversation_channel_parts/spawn.rs");
 include!("conversation_channel_parts/run.rs");
 include!("conversation_channel_parts/helpers.rs");
+#[cfg(test)]
+include!("conversation_channel_parts/tests.rs");
