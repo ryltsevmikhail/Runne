@@ -25,7 +25,14 @@ pub(crate) const fn commands_admission_error(error: &IpcError) -> IpcRuntimeErro
 
 #[must_use]
 pub fn bootstrap_runtime_error(state: &runne_app_core::AppCore) -> IpcRuntimeError {
-    let disposition = runtime_error_disposition(state.runtime_availability().ok());
+    bootstrap_runtime_error_for(state.runtime_availability().ok())
+}
+
+#[must_use]
+pub const fn bootstrap_runtime_error_for(
+    availability: Option<RuntimeAvailability>,
+) -> IpcRuntimeError {
+    let disposition = runtime_error_disposition(availability);
     IpcRuntimeError { code: "bootstrap_unavailable", disposition }
 }
 

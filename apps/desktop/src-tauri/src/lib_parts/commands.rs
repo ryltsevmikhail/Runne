@@ -22,9 +22,34 @@ fn get_bootstrap(
     lifecycle: State<'_, RuntimeLifecycleManager>,
 ) -> Result<BootstrapState, IpcRuntimeError> {
     if lifecycle.is_shutting_down() {
+        crate::runtime_status_qualification::record(
+            crate::runtime_status_qualification::Operation::Bootstrap,
+            crate::runtime_status_qualification::Outcome::Rejected,
+            crate::runtime_status_qualification::Disposition::Terminal,
+            None,
+        );
         return Err(IpcRuntimeError { code: "runtime_shutdown_in_progress", disposition: "terminal" });
     }
-    state.bootstrap().map_err(|_| bootstrap_runtime_error(&state))
+    if let Ok(bootstrap) = state.bootstrap() {
+        let runtime = bootstrap.runtime;
+        crate::runtime_status_qualification::record(
+            crate::runtime_status_qualification::Operation::Bootstrap,
+            crate::runtime_status_qualification::Outcome::State,
+            crate::runtime_status_qualification::disposition_for(Some(runtime)),
+            Some(runtime),
+        );
+        Ok(bootstrap)
+    } else {
+        let runtime = state.runtime_availability().ok();
+        let error = bootstrap_runtime_error_for(runtime);
+        crate::runtime_status_qualification::record(
+            crate::runtime_status_qualification::Operation::Bootstrap,
+            crate::runtime_status_qualification::Outcome::Rejected,
+            crate::runtime_status_qualification::disposition_from_ipc(error.disposition),
+            runtime,
+        );
+        Err(error)
+    }
 }
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]

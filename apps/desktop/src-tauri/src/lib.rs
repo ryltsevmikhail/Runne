@@ -12,6 +12,7 @@ mod prepare_workspace_request;
 mod prepared_workspace;
 pub(crate) mod provider_credential_enrollment;
 mod renderer_generation;
+mod runtime_status_qualification;
 pub mod task_run_channel;
 mod tray;
 mod updater_config;
@@ -130,7 +131,6 @@ impl RuntimeLifecycleManager {
             shutting_down: AtomicBool::new(false),
         }
     }
-
     #[must_use]
     pub fn bundled(owned_runtime: Arc<dyn OwnedRuntimeLifecycle>) -> Self {
         Self {
