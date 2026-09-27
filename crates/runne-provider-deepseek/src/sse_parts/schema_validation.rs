@@ -2,12 +2,8 @@ fn validate_added_item(
     item: &Map<String, Value>,
     trace: &mut DecodeTrace,
 ) -> Result<(), DeepSeekStreamError> {
-    traced_exact_keys(
-        trace,
-        item,
-        &["content", "id", "role", "status", "type"],
-        DeepSeekDecodeSchemaNode::AddedItem,
-    )?;
+    traced_message_item_keys(trace, item, DeepSeekDecodeSchemaNode::AddedItem)?;
+    validate_optional_message_phase(trace, item, DeepSeekDecodeSchemaNode::AddedItem)?;
     if required_string(item, "type")? != "message"
         || required_string(item, "status")? != "in_progress"
         || required_string(item, "role")? != "assistant"
@@ -23,12 +19,8 @@ fn terminal_item_text<'a>(
     status: &str,
     trace: &mut DecodeTrace,
 ) -> Result<&'a str, DeepSeekStreamError> {
-    traced_exact_keys(
-        trace,
-        item,
-        &["content", "id", "role", "status", "type"],
-        DeepSeekDecodeSchemaNode::CompletedItem,
-    )?;
+    traced_message_item_keys(trace, item, DeepSeekDecodeSchemaNode::CompletedItem)?;
+    validate_optional_message_phase(trace, item, DeepSeekDecodeSchemaNode::CompletedItem)?;
     if required_string(item, "type")? != "message"
         || required_string(item, "status")? != status
         || required_string(item, "role")? != "assistant"
@@ -47,12 +39,8 @@ fn terminal_item_text<'a>(
     let part = content[0]
         .as_object()
         .ok_or(DeepSeekStreamError::MalformedEvent)?;
-    traced_exact_keys(
-        trace,
-        part,
-        &["annotations", "text", "type"],
-        DeepSeekDecodeSchemaNode::OutputTextPart,
-    )?;
+    traced_output_text_part_keys(trace, part)?;
+    validate_optional_empty_logprobs(trace, part)?;
     if required_string(part, "type")? != "output_text"
         || !traced_array_is_empty(
             trace,
@@ -73,12 +61,8 @@ fn validate_completed_item(
     status: &str,
     trace: &mut DecodeTrace,
 ) -> Result<(), DeepSeekStreamError> {
-    traced_exact_keys(
-        trace,
-        item,
-        &["content", "id", "role", "status", "type"],
-        DeepSeekDecodeSchemaNode::CompletedItem,
-    )?;
+    traced_message_item_keys(trace, item, DeepSeekDecodeSchemaNode::CompletedItem)?;
+    validate_optional_message_phase(trace, item, DeepSeekDecodeSchemaNode::CompletedItem)?;
     if required_string(item, "id")? != item_id
         || required_string(item, "type")? != "message"
         || required_string(item, "status")? != status
@@ -111,12 +95,8 @@ fn validate_part(
     added: bool,
     trace: &mut DecodeTrace,
 ) -> Result<(), DeepSeekStreamError> {
-    traced_exact_keys(
-        trace,
-        part,
-        &["annotations", "text", "type"],
-        DeepSeekDecodeSchemaNode::OutputTextPart,
-    )?;
+    traced_output_text_part_keys(trace, part)?;
+    validate_optional_empty_logprobs(trace, part)?;
     if required_string(part, "type")? != "output_text"
         || required_string(part, "text")? != text
         || !traced_array_is_empty(
@@ -130,4 +110,77 @@ fn validate_part(
         return Err(DeepSeekStreamError::UnknownEvent);
     }
     Ok(())
+}
+
+fn validate_optional_message_phase(
+    trace: &mut DecodeTrace,
+    object: &Map<String, Value>,
+    node: DeepSeekDecodeSchemaNode,
+) -> Result<(), DeepSeekStreamError> {
+    let Some(value) = object.get("phase") else {
+        return Ok(());
+    };
+    if object.get("type").and_then(Value::as_str) != Some("message") {
+        trace.record(
+            DeepSeekDecodePhase::EventSchema,
+            node,
+            DeepSeekDecodeField::Phase,
+            DeepSeekDecodeIssue::ValueMismatch,
+        );
+        return Err(DeepSeekStreamError::MalformedEvent);
+    }
+    if value.is_null() || matches!(value.as_str(), Some("commentary" | "final_answer")) {
+        return Ok(());
+    }
+    trace.record(
+        DeepSeekDecodePhase::EventSchema,
+        node,
+        DeepSeekDecodeField::Phase,
+        if value.is_string() {
+            DeepSeekDecodeIssue::ValueMismatch
+        } else {
+            DeepSeekDecodeIssue::WrongType
+        },
+    );
+    Err(DeepSeekStreamError::MalformedEvent)
+}
+
+fn validate_optional_empty_logprobs(
+    trace: &mut DecodeTrace,
+    object: &Map<String, Value>,
+) -> Result<(), DeepSeekStreamError> {
+    let Some(value) = object.get("logprobs") else {
+        return Ok(());
+    };
+    if object.get("type").and_then(Value::as_str) != Some("output_text") {
+        trace.record(
+            DeepSeekDecodePhase::EventSchema,
+            DeepSeekDecodeSchemaNode::OutputTextPart,
+            DeepSeekDecodeField::Logprobs,
+            DeepSeekDecodeIssue::ValueMismatch,
+        );
+        return Err(DeepSeekStreamError::MalformedEvent);
+    }
+    if value.is_null() {
+        return Ok(());
+    }
+    let Some(values) = value.as_array() else {
+        trace.record(
+            DeepSeekDecodePhase::EventSchema,
+            DeepSeekDecodeSchemaNode::OutputTextPart,
+            DeepSeekDecodeField::Logprobs,
+            DeepSeekDecodeIssue::WrongType,
+        );
+        return Err(DeepSeekStreamError::MalformedEvent);
+    };
+    if values.is_empty() {
+        return Ok(());
+    }
+    trace.record(
+        DeepSeekDecodePhase::EventSchema,
+        DeepSeekDecodeSchemaNode::OutputTextPart,
+        DeepSeekDecodeField::Logprobs,
+        DeepSeekDecodeIssue::ValueMismatch,
+    );
+    Err(DeepSeekStreamError::MalformedEvent)
 }

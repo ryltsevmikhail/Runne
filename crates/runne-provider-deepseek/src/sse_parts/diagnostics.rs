@@ -38,7 +38,14 @@ fn traced_subset_keys(
     required: &[&str],
     node: DeepSeekDecodeSchemaNode,
 ) -> Result<(), DeepSeekStreamError> {
-    if !object.keys().all(|key| allowed.contains(&key.as_str())) {
+    if let Some(field) = required.iter().find(|key| !object.contains_key(**key)) {
+        trace.record(
+            DeepSeekDecodePhase::EventSchema,
+            node,
+            DeepSeekDecodeField::from_wire(field),
+            DeepSeekDecodeIssue::MissingField,
+        );
+    } else if !object.keys().all(|key| allowed.contains(&key.as_str())) {
         let field = object
             .keys()
             .map(String::as_str)
@@ -50,15 +57,35 @@ fn traced_subset_keys(
             field,
             DeepSeekDecodeIssue::UnexpectedField,
         );
-    } else if let Some(field) = required.iter().find(|key| !object.contains_key(**key)) {
-        trace.record(
-            DeepSeekDecodePhase::EventSchema,
-            node,
-            DeepSeekDecodeField::from_wire(field),
-            DeepSeekDecodeIssue::MissingField,
-        );
     }
     require_keys_subset(object, allowed, required)
+}
+
+fn traced_message_item_keys(
+    trace: &mut DecodeTrace,
+    object: &Map<String, Value>,
+    node: DeepSeekDecodeSchemaNode,
+) -> Result<(), DeepSeekStreamError> {
+    traced_subset_keys(
+        trace,
+        object,
+        &["content", "id", "phase", "role", "status", "type"],
+        &["content", "id", "role", "status", "type"],
+        node,
+    )
+}
+
+fn traced_output_text_part_keys(
+    trace: &mut DecodeTrace,
+    object: &Map<String, Value>,
+) -> Result<(), DeepSeekStreamError> {
+    traced_subset_keys(
+        trace,
+        object,
+        &["annotations", "logprobs", "text", "type"],
+        &["annotations", "text", "type"],
+        DeepSeekDecodeSchemaNode::OutputTextPart,
+    )
 }
 
 fn traced_required_string<'a>(

@@ -37,7 +37,7 @@ fn distinguishes_nested_message_phase_from_outer_response_id() {
     let detail = detail.expect("closed nested key detail");
     assert_eq!(detail.node as u8, 5);
     assert_eq!(detail.field as u8, 42);
-    assert!(detail.issue == DeepSeekDecodeIssue::UnexpectedField);
+    assert_eq!(detail.issue, DeepSeekDecodeIssue::ValueMismatch);
     assert!(!format!("{detail:?}").contains("private-phase-value"));
 
     let outer = "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"response_id\":\"private-response-id\",\"item\":{\"content\":[],\"id\":\"m\",\"role\":\"assistant\",\"status\":\"in_progress\",\"type\":\"message\"}}\n\n";
@@ -48,6 +48,14 @@ fn distinguishes_nested_message_phase_from_outer_response_id() {
     assert_eq!(detail.field as u8, 44);
     assert_eq!(detail.issue, DeepSeekDecodeIssue::UnexpectedField);
     assert!(!format!("{detail:?}").contains("private-response-id"));
+
+    let outer_phase = outer.replace("response_id", "phase");
+    let (result, detail) = decode_wire(format!("{header}{outer_phase}"));
+    assert_eq!(result, Err(DeepSeekStreamError::MalformedEvent));
+    let detail = detail.expect("outer phase remains rejected");
+    assert_eq!(detail.node as u8, 2);
+    assert_eq!(detail.field as u8, 42);
+    assert_eq!(detail.issue, DeepSeekDecodeIssue::UnexpectedField);
 }
 
 fn decode_wire(

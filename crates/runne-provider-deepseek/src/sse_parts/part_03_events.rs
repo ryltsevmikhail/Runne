@@ -23,12 +23,8 @@ impl Lifecycle {
             "part",
             DeepSeekDecodeSchemaNode::OutputTextPart,
         )?;
-        traced_exact_keys(
-            &mut self.trace,
-            part,
-            &["annotations", "text", "type"],
-            DeepSeekDecodeSchemaNode::OutputTextPart,
-        )?;
+        traced_output_text_part_keys(&mut self.trace, part)?;
+        validate_optional_empty_logprobs(&mut self.trace, part)?;
         validate_part(part, &self.text, false, &mut self.trace)?;
         self.stage = LifecycleStage::PartDone;
         Ok(())
@@ -51,10 +47,9 @@ impl Lifecycle {
             "item",
             DeepSeekDecodeSchemaNode::CompletedItem,
         )?;
-        traced_exact_keys(
+        traced_message_item_keys(
             &mut self.trace,
             item,
-            &["content", "id", "role", "status", "type"],
             DeepSeekDecodeSchemaNode::CompletedItem,
         )?;
         let item_id = self.item_id()?.to_owned();

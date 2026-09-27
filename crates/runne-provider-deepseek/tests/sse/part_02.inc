@@ -78,6 +78,48 @@ fn unsupported_events_output_and_annotations_fail_closed() {
 }
 
 #[test]
+fn accepts_only_documented_message_phase_and_empty_output_logprobs_metadata() {
+    let base = String::from_utf8(successful_sse()).expect("fixture");
+    let with_metadata = base
+        .replace(
+            "\"type\":\"message\"",
+            "\"type\":\"message\",\"phase\":\"final_answer\"",
+        )
+        .replace(
+            "\"annotations\":[]",
+            "\"annotations\":[],\"logprobs\":[]",
+        );
+    assert_eq!(decode(with_metadata.as_bytes()).unwrap().len(), 5);
+
+    let nullable_metadata = with_metadata
+        .replace("\"phase\":\"final_answer\"", "\"phase\":null")
+        .replacen("\"logprobs\":[]", "\"logprobs\":null", 1);
+    assert_eq!(decode(nullable_metadata.as_bytes()).unwrap().len(), 5);
+
+    for invalid in [
+        with_metadata.replace("\"phase\":\"final_answer\"", "\"phase\":\"analysis\""),
+        with_metadata.replace("\"phase\":\"final_answer\"", "\"phase\":7"),
+        with_metadata.replace("\"logprobs\":[]", "\"logprobs\":[{}]"),
+        with_metadata.replace("\"logprobs\":[]", "\"logprobs\":true"),
+        with_metadata.replace("\"logprobs\":[]", "\"logprobs\":[],\"future\":1"),
+        with_metadata.replacen(
+            "\"type\":\"message\",\"phase\":\"final_answer\"",
+            "\"type\":\"reasoning\",\"phase\":null",
+            1,
+        ),
+    ] {
+        assert!(decode(invalid.as_bytes()).is_err());
+    }
+
+    let outer_phase = base.replacen(
+        "\"type\":\"response.output_item.added\"",
+        "\"type\":\"response.output_item.added\",\"phase\":null",
+        1,
+    );
+    assert!(decode(outer_phase.as_bytes()).is_err());
+}
+
+#[test]
 fn bounds_missing_usage_and_eof_without_terminal_fail_closed() {
     let oversized = format!(
         "event: error\ndata: {{\"type\":\"error\",\"code\":\"x\",\"message\":\"{}\",\"param\":null,\"sequence_number\":0}}\n\n",
