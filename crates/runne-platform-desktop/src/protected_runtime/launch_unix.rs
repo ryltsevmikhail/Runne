@@ -6,6 +6,7 @@ impl DevelopmentBundledRuntimeLauncher {
         spec: &ProtectedBundledRuntimeLaunchSpec,
         controls: &mut LaunchTestControls,
     ) -> Result<ProtectedBundledRuntimeProcess, ProtectedBundledRuntimeError> {
+        let mut diagnostic = ProtectedLaunchDiagnostic::new();
         let executable_path = validate_executable_path(spec.executable())?;
         if executable_path != spec.executable() {
             return Err(ProtectedBundledRuntimeError::ExecutableIdentityMismatch);
@@ -141,9 +142,12 @@ impl DevelopmentBundledRuntimeLauncher {
         } else {
             command.stdout(Stdio::null()).stderr(Stdio::null());
         }
-        let child = command
-            .spawn()
-            .map_err(|_| ProtectedBundledRuntimeError::SpawnFailed)?;
+        let Ok(child) = command.spawn() else {
+            let error = ProtectedBundledRuntimeError::SpawnFailed;
+            diagnostic.at("spawn");
+            diagnostic.report(error);
+            return Err(error);
+        };
         // `Command` retains the parent-side configuration. Drop it before
         // waiting for a frame so an early child exit closes the inherited
         // protected channel instead of being misreported as a readiness
@@ -155,13 +159,16 @@ impl DevelopmentBundledRuntimeLauncher {
         #[cfg(feature = "test-support")]
         let captured_stderr = child.as_mut().and_then(|child| child.stderr.take());
 
+        diagnostic.at("child_identity");
         let result = (|| {
             let spawned_identity = ExecutableIdentityV1::measure(&launch_executable_path)
                 .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
             if spawned_identity != *request.executable() {
                 return Err(ProtectedBundledRuntimeError::ExecutableIdentityMismatch);
             }
+            diagnostic.at("launch_request_encode");
             let launch_frame = Zeroizing::new(request.encode_frame()?);
+            diagnostic.at("launch_request_write");
             write_frame(&mut parent_channel, &launch_frame)?;
             let mut keys = request.derive_keys_and_forget();
 
@@ -169,12 +176,14 @@ impl DevelopmentBundledRuntimeLauncher {
                 request.activation_disposition(),
                 ActivationDispositionV1::FirstActivation
             ) {
+                diagnostic.at("first_activation_prepare_read");
                 let prepared_frame = read_frame(&mut parent_channel)?;
                 let prepared = ProtectedFirstActivationPreparedV1::decode_frame(&prepared_frame)
                     .map_err(|_| LaunchAuthorityError::FirstActivationPreparationMismatch)?;
                 let request_v1 = request
                     .compatibility()
                     .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
+                diagnostic.at("first_activation_prepare_verify");
                 prepared.verify_exact(request_v1, &keys)?;
                 controls.checkpoint(ActivationCheckpoint::BeforePreparePersistence)?;
                 state_store.persist_pending_exact(prepared.pending(), controls)?;
@@ -186,12 +195,14 @@ impl DevelopmentBundledRuntimeLauncher {
                     request_v1.desktop_host_instance_id(),
                     pending.clone(),
                 );
+                diagnostic.at("first_activation_commit_encode");
                 commit.sign(&keys);
                 let commit_frame = Zeroizing::new(
                     commit
                         .encode_frame()
                         .map_err(|_| LaunchAuthorityError::InvalidContract)?,
                 );
+                diagnostic.at("first_activation_commit_write");
                 write_frame(&mut parent_channel, &commit_frame)?;
                 controls.checkpoint(ActivationCheckpoint::AfterCommit)?;
                 Some(pending)
@@ -199,8 +210,11 @@ impl DevelopmentBundledRuntimeLauncher {
                 None
             };
 
+            diagnostic.at("ready_read");
             let ready_frame = read_frame(&mut parent_channel)?;
+            diagnostic.at("ready_decode_verify");
             let ready = request.decode_ready(&ready_frame, &keys)?;
+            diagnostic.at("provider_readiness");
             if let Some(readiness) = ready.provider_readiness()
                 && provider_readiness_blocks_launch(readiness)
             {
@@ -217,8 +231,10 @@ impl DevelopmentBundledRuntimeLauncher {
                     LaunchAuthorityError::FirstActivationPreparationMismatch,
                 ));
             }
+            diagnostic.at("runtime_profile_create");
             let runtime_profile = request.runtime_profile(&ready, unix_millis()?, &keys)?;
             keys.forget_bootstrap_key();
+            diagnostic.at("final_pin");
             controls.checkpoint(ActivationCheckpoint::BeforeFinalPin)?;
             match &rebind_previous {
                 Some(previous) => {
@@ -228,6 +244,7 @@ impl DevelopmentBundledRuntimeLauncher {
             }
             controls.checkpoint(ActivationCheckpoint::AfterFinalPin)?;
             state_store.remove_pending()?;
+            diagnostic.at("process_activation");
             let activation = ready.into_process_activation(request)?;
             Ok(ProtectedBundledRuntimeProcess {
                 child: child
@@ -255,6 +272,9 @@ impl DevelopmentBundledRuntimeLauncher {
             })
         })();
 
+        if let Err(error) = &result {
+            diagnostic.report(*error);
+        }
         if result.is_err()
             && let Some(child) = child.as_mut()
         {

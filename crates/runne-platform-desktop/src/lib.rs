@@ -62,7 +62,7 @@ pub use protected_runtime::{
 pub use protected_runtime::{
     DevelopmentBundledRuntimeLauncher, ProtectedBundledRuntimeError,
     ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeProcess,
-    ProtectedBundledRuntimeSupervisor, discover_bundled_runtime,
+    ProtectedBundledRuntimeSupervisor, discover_bundled_runtime, protected_launch_failure_code,
 };
 #[cfg(any(
     target_os = "macos",

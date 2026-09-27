@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicI64, Ordering};
 
 struct RotatingReplayAuthorization {
     epoch: Arc<AtomicI64>,
+    generation: Arc<AtomicI64>,
     runtime_authority: [u8; 16],
-    generation: i64,
 }
 
 impl ReplayAuthorizationPort for RotatingReplayAuthorization {
@@ -14,7 +14,7 @@ impl ReplayAuthorizationPort for RotatingReplayAuthorization {
         request: &ReplayAuthorizationRequest,
     ) -> Result<ReplayAuthorizationLease, ReplayError> {
         if request.authority_id != self.runtime_authority
-            || request.session_generation != self.generation
+            || request.session_generation != self.generation.load(Ordering::Acquire)
         {
             return Err(ReplayError::AuthorizationRevoked);
         }
@@ -69,21 +69,22 @@ fn authenticated_epoch(generation: u64, epoch: u64) -> AuthenticatedRuntimeSessi
 }
 
 #[tokio::test]
-async fn replay_http_uses_rotated_authenticated_epoch_and_fences_old_epoch() {
+async fn replay_http_uses_authenticated_generation_and_epoch_and_fences_stale_sessions() {
     const AUTHORITY: [u8; 16] = [0x44; 16];
     const GENERATION: i64 = 7;
     let connection =
         open_managed_connection(std::path::Path::new(":memory:"), ConnectionMode::Writer).unwrap();
     apply_migrations(&connection).unwrap();
     let epoch = Arc::new(AtomicI64::new(1));
+    let generation = Arc::new(AtomicI64::new(8));
     let service = ReplayService::new(
         Arc::new(ReplayStore::new(connection)),
         [11; 32],
         EventLogLineageId::from_bytes(uuid_v7(2)),
         Arc::new(RotatingReplayAuthorization {
             epoch: Arc::clone(&epoch),
+            generation: Arc::clone(&generation),
             runtime_authority: AUTHORITY,
-            generation: GENERATION,
         }),
     );
     let state = ReplayHttpState::new(
@@ -93,7 +94,7 @@ async fn replay_http_uses_rotated_authenticated_epoch_and_fences_old_epoch() {
         Arc::new(AllowContent),
     );
     let old = authenticated_epoch(GENERATION as u64, 0);
-    let current = authenticated_epoch(GENERATION as u64, 1);
+    let current = authenticated_epoch(8, 1);
     let scope_id = uuid_v7(9);
     let service = Arc::clone(&state.service);
     let open = move |binding: ReplayHttpBinding| {
@@ -124,18 +125,21 @@ async fn replay_http_uses_rotated_authenticated_epoch_and_fences_old_epoch() {
     ));
     let current_binding = state.binding_for_authenticated(&current).unwrap();
     assert_eq!(current_binding.authority_id, AUTHORITY);
+    assert_eq!(current_binding.session_generation, 8);
+    assert_eq!(current_binding.authorization_epoch, 1);
     let (session, _) = open(current_binding)
         .await
         .expect("rotated epoch opens replay");
 
     epoch.store(2, Ordering::Release);
+    generation.store(9, Ordering::Release);
     assert!(matches!(
         state
             .service
             .read_page(
                 &session.session_id,
                 "local-owner",
-                GENERATION,
+                current_binding.session_generation,
                 &AUTHORITY,
                 current_binding.authorization_epoch,
                 10,
@@ -146,9 +150,16 @@ async fn replay_http_uses_rotated_authenticated_epoch_and_fences_old_epoch() {
     ));
     assert!(
         state
-            .binding_for_authenticated(&authenticated_epoch(8, 1))
-            .is_err()
+            .binding_for_authenticated(&authenticated_epoch(7, 1))
+            .is_ok()
     );
+    let stale_binding = state
+        .binding_for_authenticated(&authenticated_epoch(7, 1))
+        .unwrap();
+    assert!(matches!(
+        open(stale_binding).await,
+        Err(ReplayError::AuthorizationRevoked)
+    ));
 
     let wrong_authority = ReplayHttpBinding::new([0x45; 16], GENERATION, 1).unwrap();
     assert!(matches!(

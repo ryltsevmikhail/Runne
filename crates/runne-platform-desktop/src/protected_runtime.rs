@@ -18,6 +18,7 @@ include!("protected_runtime/process.rs");
 #[cfg(test)]
 include!("protected_runtime/provider_readiness_tests.rs");
 include!("protected_runtime/supervisor.rs");
+include!("protected_runtime/launch_diagnostics.rs");
 include!("protected_runtime/launch_unix.rs");
 include!("protected_runtime/helpers.rs");
 include!("protected_runtime/native_enrollment.rs");

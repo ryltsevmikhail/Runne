@@ -71,6 +71,10 @@ impl BundledRuntimeController {
             .run_supervisor(ProtectedBundledRuntimeSupervisor::start)
             .await
         {
+            eprintln!(
+                "runne-protected-startup phase=supervisor_start reason={}",
+                runne_platform_desktop::protected_launch_failure_code(error)
+            );
             self.core
                 .mark_bundled_runtime_failed(map_protected_failure(error))
                 .await?;
@@ -91,7 +95,8 @@ impl BundledRuntimeController {
             .map_err(|_| AppCoreError::RuntimeUnavailable)
             .map(|marker| *marker)?;
         #[cfg(target_os = "linux")]
-        let Ok(signed_v3_was_active) = linux_v3_latch::load(&self.signed_linux_v3_latch_path) else {
+        let Ok(signed_v3_was_active) = linux_v3_latch::load(&self.signed_linux_v3_latch_path)
+        else {
             return self.reject_linux_startup_at("latch_load").await;
         };
         #[cfg(target_os = "linux")]

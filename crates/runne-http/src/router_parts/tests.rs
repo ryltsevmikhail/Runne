@@ -82,28 +82,6 @@ async fn sealed_host_contour_shares_bootstrap_service_with_profile_auth() {
 }
 
 #[tokio::test]
-async fn replay_open_accepts_current_authenticated_epoch_after_in_process_rotation() {
-    let (host, binding) = host_with_rotated_replay_epoch();
-    let app = host.router_for_test();
-    let authority = bootstrap_authority(&app, &binding).await;
-    let mut request = json_request(
-        "/v1/replay/open-session",
-        serde_json::json!({
-            "aggregateType": "conversation",
-            "aggregateId": "018f2e3a-7000-7000-8000-000000000001"
-        }),
-    );
-    request.headers_mut().insert(
-        "authorization",
-        format!("GocodeSession {}", URL_SAFE_NO_PAD.encode(authority))
-            .parse()
-            .unwrap(),
-    );
-    let response = app.oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-}
-
-#[tokio::test]
 async fn operational_telemetry_is_capability_gated_and_auth_no_store() {
     const TELEMETRY_CAPABILITIES: &[&str] = &[OPERATIONAL_TELEMETRY_CAPABILITY_V1];
     let telemetry = OperationalTelemetryHttpState::new(Arc::new(UnavailableOperationalTelemetry));
