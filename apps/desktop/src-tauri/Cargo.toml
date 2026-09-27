@@ -11,6 +11,7 @@ custom-protocol = ["tauri/custom-protocol"]
 dev-loopback-updater = ["runne-platform-desktop/dev-loopback-updater"]
 test-support = ["runne-app-core/test-support"]
 linux-native-enrollment-qualification = [
+    "runne-app-core/linux-native-enrollment-qualification",
     "runne-platform-desktop/linux-native-enrollment-qualification",
 ]
 

@@ -29,6 +29,7 @@ use runne_secure_store::SecureStore;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+mod qualification_diagnostics;
 mod replay;
 #[cfg(any(test, feature = "test-support"))]
 #[doc(hidden)]

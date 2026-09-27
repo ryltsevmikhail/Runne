@@ -68,10 +68,19 @@ impl AppCore {
         lease: BundledRuntimeActivationLease,
         client: AuthenticatedRuntimeClient,
     ) -> Result<RuntimeAvailability, AppCoreError> {
+        crate::qualification_diagnostics::record(
+            crate::qualification_diagnostics::Stage::InstallStarted,
+        );
         let _operation = self.runtime_operation.lock().await;
         self.require_bundled_mode()?;
         self.consume_bundled_activation_lease(lease)?;
+        crate::qualification_diagnostics::record(
+            crate::qualification_diagnostics::Stage::ActivationLeaseConsumed,
+        );
         if client.transport_kind() != RuntimeTransportKind::ProtectedBundled {
+            crate::qualification_diagnostics::record(
+                crate::qualification_diagnostics::Stage::ProtectedTransportRejected,
+            );
             self.replace_runtime_client(None)?;
             self.set_runtime_availability(RuntimeAvailability::Incompatible)?;
             self.set_runtime_lifecycle(RuntimeLifecycleStatus::Failed)?;
@@ -79,20 +88,51 @@ impl AppCore {
             return Err(AppCoreError::RuntimeUnavailable);
         }
 
+        crate::qualification_diagnostics::record(
+            crate::qualification_diagnostics::Stage::ProtectedTransportAccepted,
+        );
         self.set_runtime_availability(RuntimeAvailability::Reconnecting)?;
         self.transition_runtime(RuntimeAvailability::ProfileLoaded)?;
+        crate::qualification_diagnostics::record(
+            crate::qualification_diagnostics::Stage::ProfileLoaded,
+        );
         self.transition_runtime(RuntimeAvailability::PeerVerified)?;
+        crate::qualification_diagnostics::record(
+            crate::qualification_diagnostics::Stage::PeerVerified,
+        );
         self.transition_runtime(RuntimeAvailability::BootstrapProved)?;
+        crate::qualification_diagnostics::record(
+            crate::qualification_diagnostics::Stage::BootstrapProved,
+        );
         self.transition_runtime(RuntimeAvailability::Authenticated)?;
+        crate::qualification_diagnostics::record(
+            crate::qualification_diagnostics::Stage::Authenticated,
+        );
         self.replace_runtime_client(Some(client))?;
+        crate::qualification_diagnostics::record(
+            crate::qualification_diagnostics::Stage::ClientInstalled,
+        );
         self.transition_runtime(RuntimeAvailability::Reconciling)?;
+        crate::qualification_diagnostics::record(
+            crate::qualification_diagnostics::Stage::Reconciling,
+        );
         let mut recovery_fence = RuntimeRecoveryFence::new(self);
-        if self.recover_anchored_mutations_v7_under_operation().await.is_err() {
+        if self
+            .recover_anchored_mutations_v7_under_operation()
+            .await
+            .is_err()
+        {
+            crate::qualification_diagnostics::record(
+                crate::qualification_diagnostics::Stage::InstallRecoveryFailed,
+            );
             return Err(AppCoreError::RuntimeUnavailable);
         }
         self.transition_runtime(RuntimeAvailability::Live)?;
         self.set_runtime_failure_code(None)?;
         recovery_fence.disarm();
+        crate::qualification_diagnostics::record(
+            crate::qualification_diagnostics::Stage::InstallLive,
+        );
         Ok(RuntimeAvailability::Live)
     }
 
