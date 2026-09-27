@@ -26,6 +26,42 @@ fn reports_closed_nested_field_without_including_wire_values() {
 }
 
 #[test]
+fn distinguishes_nested_message_phase_from_outer_response_id() {
+    let header = "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"r\",\"object\":\"response\",\"model\":\"deepseek-flash\",\"status\":\"in_progress\",\"output\":[]}}\n\n";
+    let nested = format!(
+        "event: response.output_item.added\ndata: {{\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":{{\"content\":[],\"id\":\"m\",\"role\":\"assistant\",\"status\":\"in_progress\",\"type\":\"message\",\"phase\":\"{marker}\"}}}}\n\n",
+        marker = "private-phase-value"
+    );
+    let (result, detail) = decode_wire(format!("{header}{nested}"));
+    assert_eq!(result, Err(DeepSeekStreamError::MalformedEvent));
+    let detail = detail.expect("closed nested key detail");
+    assert_eq!(detail.node as u8, 5);
+    assert_eq!(detail.field as u8, 42);
+    assert!(detail.issue == DeepSeekDecodeIssue::UnexpectedField);
+    assert!(!format!("{detail:?}").contains("private-phase-value"));
+
+    let outer = "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"response_id\":\"private-response-id\",\"item\":{\"content\":[],\"id\":\"m\",\"role\":\"assistant\",\"status\":\"in_progress\",\"type\":\"message\"}}\n\n";
+    let (result, detail) = decode_wire(format!("{header}{outer}"));
+    assert_eq!(result, Err(DeepSeekStreamError::MalformedEvent));
+    let detail = detail.expect("closed outer key detail");
+    assert_eq!(detail.node as u8, 2);
+    assert_eq!(detail.field as u8, 44);
+    assert_eq!(detail.issue, DeepSeekDecodeIssue::UnexpectedField);
+    assert!(!format!("{detail:?}").contains("private-response-id"));
+}
+
+fn decode_wire(
+    wire: String,
+) -> (
+    Result<Vec<runne_provider::ProviderStreamEvent>, DeepSeekStreamError>,
+    Option<crate::DeepSeekDecodeDiagnostic>,
+) {
+    let response =
+        DeepSeekTransportResponse::sse(vec![wire.into_bytes()]).expect("bounded response");
+    decode_transport_response_with_diagnostic(&response)
+}
+
+#[test]
 fn successful_frame_does_not_leak_event_kind_into_next_line_error() {
     let wire = b"event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"r\",\"object\":\"response\",\"model\":\"deepseek-flash\",\"status\":\"in_progress\",\"output\":[]}}\n\nx-private-field: ignored\n";
     let response = DeepSeekTransportResponse::sse(vec![wire.to_vec()]).expect("bounded response");

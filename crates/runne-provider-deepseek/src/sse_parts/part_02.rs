@@ -4,7 +4,7 @@ impl Lifecycle {
             &mut self.trace,
             event,
             &["item", "output_index", "sequence_number", "type"],
-            DeepSeekDecodeSchemaNode::AddedItem,
+            DeepSeekDecodeSchemaNode::EventEnvelope,
         )?;
         if !matches!(
             self.stage,

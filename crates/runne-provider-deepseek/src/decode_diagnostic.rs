@@ -116,6 +116,12 @@ pub enum DeepSeekDecodeField {
     Store = 39,
     Background = 40,
     Tools = 41,
+    Phase = 42,
+    Obfuscation = 43,
+    ResponseId = 44,
+    CallId = 45,
+    Name = 46,
+    Arguments = 47,
 }
 
 impl DeepSeekDecodeField {
@@ -162,6 +168,12 @@ impl DeepSeekDecodeField {
             "store" => Self::Store,
             "background" => Self::Background,
             "tools" => Self::Tools,
+            "phase" => Self::Phase,
+            "obfuscation" => Self::Obfuscation,
+            "response_id" => Self::ResponseId,
+            "call_id" => Self::CallId,
+            "name" => Self::Name,
+            "arguments" => Self::Arguments,
             _ => Self::Unknown,
         }
     }
