@@ -99,6 +99,7 @@ fn committed_history_order_and_roles_are_preserved_without_hidden_prompt() {
         vec![
             text(ProviderInputRole::User, "first"),
             text(ProviderInputRole::Assistant, "answer"),
+            text(ProviderInputRole::User, "retry after failure"),
             text(ProviderInputRole::User, "последний\nline"),
         ],
         64,
@@ -110,18 +111,48 @@ fn committed_history_order_and_roles_are_preserved_without_hidden_prompt() {
         .unwrap();
     let value: Value = serde_json::from_slice(prepared.rendered_bytes()).unwrap();
 
-    assert_eq!(value["input"].as_array().unwrap().len(), 3);
+    assert_eq!(value["input"].as_array().unwrap().len(), 4);
     assert_eq!(value["input"][0]["role"], "user");
     assert_eq!(value["input"][0]["content"][0]["type"], "input_text");
     assert_eq!(value["input"][1]["role"], "assistant");
     assert_eq!(value["input"][1]["content"][0]["type"], "output_text");
-    assert_eq!(value["input"][2]["content"][0]["text"], "последний\nline");
+    assert_eq!(
+        value["input"][2]["content"][0]["text"],
+        "retry after failure"
+    );
+    assert_eq!(value["input"][3]["content"][0]["text"], "последний\nline");
     assert!(
         !prepared
             .rendered_bytes()
             .windows(b"developer".len())
             .any(|window| window == b"developer")
     );
+}
+
+#[test]
+fn consecutive_failed_user_turns_are_preserved_in_full_history_order() {
+    let profile = profile();
+    let call = call_with(
+        vec![
+            text(ProviderInputRole::User, "first failed turn"),
+            text(ProviderInputRole::User, "second failed turn"),
+            text(ProviderInputRole::User, "current turn"),
+        ],
+        64,
+        vec![ProviderCapability::Streaming],
+        profile.binding_extension(),
+    );
+
+    let prepared = DeepSeekResponsesTextRenderer::new(profile)
+        .prepare(&call)
+        .expect("committed user turns remain in the stateless history");
+    let value: Value = serde_json::from_slice(prepared.rendered_bytes()).unwrap();
+    let input = value["input"].as_array().unwrap();
+
+    assert_eq!(input.len(), 3);
+    assert_eq!(input[0]["content"][0]["text"], "first failed turn");
+    assert_eq!(input[1]["content"][0]["text"], "second failed turn");
+    assert_eq!(input[2]["content"][0]["text"], "current turn");
 }
 
 #[test]
@@ -137,7 +168,17 @@ fn empty_wrong_sequence_developer_and_output_overflow_fail_before_render() {
         (
             vec![
                 text(ProviderInputRole::User, "one"),
-                text(ProviderInputRole::User, "two"),
+                text(ProviderInputRole::Assistant, "answer"),
+                text(ProviderInputRole::Assistant, "orphan"),
+                text(ProviderInputRole::User, "last"),
+            ],
+            1,
+            DeepSeekRenderError::InvalidCommittedContext,
+        ),
+        (
+            vec![
+                text(ProviderInputRole::User, "one"),
+                text(ProviderInputRole::Assistant, "answer"),
             ],
             1,
             DeepSeekRenderError::InvalidCommittedContext,

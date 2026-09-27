@@ -111,13 +111,18 @@ impl DeepSeekResponsesTextRenderer {
             return Err(DeepSeekRenderError::ContextLimitExceeded);
         }
         let mut aggregate_bytes = 0usize;
-        let mut expected = ProviderInputRole::User;
+        let mut previous_role = None;
         let mut rendered = Vec::with_capacity(inputs.len());
         for input in inputs {
             if input.role() == ProviderInputRole::Developer {
                 return Err(DeepSeekRenderError::DeveloperPromptForbidden);
             }
-            if input.role() != expected {
+            let valid_role = match input.role() {
+                ProviderInputRole::User => true,
+                ProviderInputRole::Assistant => previous_role == Some(ProviderInputRole::User),
+                ProviderInputRole::Developer => unreachable!("rejected above"),
+            };
+            if !valid_role {
                 return Err(DeepSeekRenderError::InvalidCommittedContext);
             }
             if input.text().len() > self.profile.max_input_entry_bytes() {
@@ -141,11 +146,7 @@ impl DeepSeekResponsesTextRenderer {
                     text: input.text(),
                 }],
             });
-            expected = match expected {
-                ProviderInputRole::User => ProviderInputRole::Assistant,
-                ProviderInputRole::Assistant => ProviderInputRole::User,
-                ProviderInputRole::Developer => unreachable!("never expected"),
-            };
+            previous_role = Some(input.role());
         }
         if inputs.last().map(runne_provider::ProviderTextInput::role)
             != Some(ProviderInputRole::User)
