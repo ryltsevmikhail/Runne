@@ -114,9 +114,7 @@ fn wrong_type_annotations_keeps_unknown_event_error() {
 
 #[test]
 fn wrong_type_terminal_annotations_keeps_unknown_event_error() {
-    let wire = concat!(
-        "event: response.failed\ndata: {\"type\":\"response.failed\",\"sequence_number\":0,\"response\":{\"id\":\"r\",\"object\":\"response\",\"model\":\"deepseek-flash\",\"status\":\"failed\",\"output\":[{\"id\":\"i\",\"role\":\"assistant\",\"status\":\"failed\",\"type\":\"message\",\"content\":[{\"annotations\":\"wrong-type\",\"text\":\"partial\",\"type\":\"output_text\"}]}],\"error\":{\"code\":\"failed\",\"message\":\"failed\"}}}\n\n",
-    );
+    let wire = "event: response.failed\ndata: {\"type\":\"response.failed\",\"sequence_number\":0,\"response\":{\"id\":\"r\",\"object\":\"response\",\"model\":\"deepseek-flash\",\"status\":\"failed\",\"output\":[{\"id\":\"i\",\"role\":\"assistant\",\"status\":\"failed\",\"type\":\"message\",\"content\":[{\"annotations\":\"wrong-type\",\"text\":\"partial\",\"type\":\"output_text\"}]}],\"error\":{\"code\":\"failed\",\"message\":\"failed\"}}}\n\n";
     let response =
         DeepSeekTransportResponse::sse(vec![wire.as_bytes().to_vec()]).expect("bounded response");
     let (result, detail) = decode_transport_response_with_diagnostic(&response);
