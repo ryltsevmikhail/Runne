@@ -4,16 +4,11 @@ import {
 } from '@/shared/api/platform/bootstrap'
 import { REVOKED_STATES, TRANSIENT_STATES } from './runtime-session-states'
 import { connectThroughTransientWindow } from './transient-connect'
+import { snapshot, statusFor } from './runtime-session-snapshot'
+import type { RuntimeSessionSnapshot } from './runtime-session-snapshot'
+import { createAutomaticRecoveryBudget } from './automatic-recovery-budget'
 
-export type RuntimeSessionStatus =
-  | 'empty' | 'loading' | 'live' | 'stale' | 'reconnecting'
-  | 'incompatible' | 'revoked' | 'fatal' | 'unavailable'
-
-export interface RuntimeSessionSnapshot {
-  readonly runtime: RuntimeConnectionState | null
-  readonly status: RuntimeSessionStatus
-  readonly canMutate: boolean
-}
+export type { RuntimeSessionStatus, RuntimeSessionSnapshot } from './runtime-session-snapshot'
 
 export interface RuntimeSessionPort {
   snapshot(): RuntimeSessionSnapshot
@@ -33,7 +28,6 @@ interface RuntimeSessionDependencies {
   readonly loadBootstrap: () => Promise<unknown>
 }
 
-const MAX_AUTOMATIC_RECOVERIES = 3
 const SETTLE_WAITS = 20
 const SETTLE_DELAY_MS = 500
 
@@ -51,7 +45,7 @@ export function createRuntimeSessionController(
   let recovery: Promise<RuntimeSessionSnapshot> | null = null
   let recoveryOwner: Promise<RuntimeSessionSnapshot> | null = null
   let recoveryCancel: { cancelled: boolean } | null = null
-  let automaticFailures = 0
+  const recoveryBudget = createAutomaticRecoveryBudget()
   let latestManualId = 0
   const pendingManuals = new Set<number>()
   let proofResetGeneration = 0
@@ -128,7 +122,9 @@ export function createRuntimeSessionController(
           : connectKlass === 'revoked' || connectKlass === 'unknown' || !recoverableBootstrap
             ? 'terminal'
             : 'transient'
-      if (manual && (proven || lastResetClass === 'transient')) automaticFailures = 0
+      if (manual && (proven || lastResetClass === 'transient')) {
+        recoveryBudget.resetForManual()
+      }
       return publish(snapshot(runtime, statusFor(runtime, authenticated)))
     }
     catch (error) {
@@ -136,14 +132,14 @@ export function createRuntimeSessionController(
       authenticated = false
       const disposition = (error as { disposition?: unknown } | null | undefined)?.disposition
       if (disposition === 'transient') {
-        if (manual) automaticFailures = 0
+        if (manual) recoveryBudget.resetForManual()
         return manual ? publish(snapshot(null, 'unavailable')) : current
       }
       lastResetClass = 'terminal'
       return publish(snapshot(null, manual ? 'unavailable' : 'fatal'))
     }
     finally {
-      if (proven && epoch === sessionEpoch) automaticFailures = 0
+      if (proven && epoch === sessionEpoch) recoveryBudget.resetAfterProof()
     }
   }
 
@@ -151,6 +147,7 @@ export function createRuntimeSessionController(
     const manualId = ++latestManualId
     pendingManuals.add(manualId)
     lastResetClass = null
+    recoveryBudget.cancelPending()
     const closeSeq = closeSequence
     const resetSeq = proofResetGeneration
     if (recovery !== null) {
@@ -179,7 +176,7 @@ export function createRuntimeSessionController(
       closed
       || newestManualPending()
       || recovery !== null
-      || automaticFailures >= MAX_AUTOMATIC_RECOVERIES
+      || !recoveryBudget.canRecover()
       || (lastResetClass !== null && lastResetClass !== 'transient')
     ) {
       return
@@ -202,10 +199,15 @@ export function createRuntimeSessionController(
     recovery = run
     recoveryOwner = run
     recoveryCancel = cancel
+    let restartAfterWindow = false
     void run
       .then((result) => {
-        if (recoveryOwner === run && cancel.started && result.status !== 'live') {
-          automaticFailures += 1
+        if (recoveryOwner === run && cancel.started) {
+          restartAfterWindow = recoveryBudget.finishWindow(
+            result.status === 'live',
+            !closed && !newestManualPending()
+              && (lastResetClass === null || lastResetClass === 'transient'),
+          )
         }
       })
       .finally(() => {
@@ -213,6 +215,7 @@ export function createRuntimeSessionController(
           recovery = null
           recoveryOwner = null
           recoveryCancel = null
+          if (restartAfterWindow) scheduleRecovery()
         }
       })
   }
@@ -231,6 +234,7 @@ export function createRuntimeSessionController(
       closed = true
       authenticated = false
       lastResetClass = null
+      recoveryBudget.cancelPending()
       recovery = recoveryOwner = recoveryCancel = null
       publish(snapshot(null, 'unavailable'))
     },
@@ -240,6 +244,13 @@ export function createRuntimeSessionController(
         return current
       }
       const klass = observationClass(runtime)
+      const rearmed = recoveryBudget.observeBootstrap(
+        runtime,
+        !newestManualPending()
+          && (lastResetClass === null || lastResetClass === 'transient'),
+        recovery !== null,
+      )
+      if (rearmed) scheduleRecovery()
       if (klass === 'live') {
         if (!authenticated) {
           scheduleRecovery()
@@ -267,34 +278,4 @@ function runtimeFrom(value: unknown): RuntimeConnectionState | null {
     ? (value as Record<string, unknown>).runtime
     : null
   return isRuntimeConnectionState(runtime) ? runtime : null
-}
-
-function statusFor(
-  runtime: RuntimeConnectionState | null,
-  authenticated: boolean,
-): RuntimeSessionStatus {
-  if (runtime === 'live') {
-    return authenticated ? 'live' : 'stale'
-  }
-  switch (runtime) {
-    case 'unconfigured': return 'empty'
-    case 'reconnecting': return 'reconnecting'
-    case 'incompatible': return 'incompatible'
-    case 'revoked': return 'revoked'
-    case 'fatal': return 'fatal'
-    case 'profile_loaded':
-    case 'peer_verified':
-    case 'bootstrap_proved':
-    case 'authenticated':
-    case 'reconciling':
-    case 'resync_required': return 'stale'
-    case null: return 'fatal'
-  }
-}
-
-function snapshot(
-  runtime: RuntimeConnectionState | null,
-  status: RuntimeSessionStatus,
-): RuntimeSessionSnapshot {
-  return { runtime, status, canMutate: status === 'live' }
 }

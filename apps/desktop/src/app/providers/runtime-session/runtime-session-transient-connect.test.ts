@@ -141,4 +141,120 @@ describe('runtime session transient connect settling', () => {
       vi.useRealTimers()
     }
   })
+
+  it('re-arms one window for a fresh transient-to-live edge after exhaustion', async () => {
+    vi.useFakeTimers()
+    try {
+      let connects = 0
+      let fail = false
+      const port = createRuntimeSessionController({
+        connect: async () => {
+          connects += 1
+          if (fail) throw transientError()
+          return 'live'
+        },
+        loadBootstrap: async () => bootstrap('live'),
+      })
+
+      await port.connect()
+      fail = true
+      port.observeBootstrap(bootstrap('reconnecting'))
+      port.observeBootstrap(bootstrap('live'))
+      await vi.advanceTimersByTimeAsync(10_000)
+      for (let window = 1; window < 3; window += 1) {
+        // Repeated live polls consume the remaining bounded windows without
+        // manufacturing another transient-to-live edge.
+        port.observeBootstrap(bootstrap('live'))
+        await vi.advanceTimersByTimeAsync(10_000)
+      }
+      expect(connects).toBe(64)
+
+      // A repeated live poll alone does not reset the exhausted budget.
+      port.observeBootstrap(bootstrap('live'))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(connects).toBe(64)
+
+      fail = false
+      port.observeBootstrap(bootstrap('reconnecting'))
+      port.observeBootstrap(bootstrap('live'))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(connects).toBe(65)
+      expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('preserves a recovery edge observed while the final window is in flight', async () => {
+    vi.useFakeTimers()
+    try {
+      let connects = 0
+      const port = createRuntimeSessionController({
+        connect: async () => {
+          connects += 1
+          if (connects < 65) throw transientError()
+          return 'live'
+        },
+        loadBootstrap: async () => bootstrap('live'),
+      })
+
+      await port.connect()
+      port.observeBootstrap(bootstrap('reconnecting'))
+      port.observeBootstrap(bootstrap('live'))
+      await vi.advanceTimersByTimeAsync(10_000)
+      port.observeBootstrap(bootstrap('live'))
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      port.observeBootstrap(bootstrap('live'))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(connects).toBe(44)
+      // This new authoritative edge lands before the third window fails.
+      port.observeBootstrap(bootstrap('reconnecting'))
+      port.observeBootstrap(bootstrap('live'))
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      expect(connects).toBe(65)
+      expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not re-arm after terminal observation followed by transient and live polls', async () => {
+    vi.useFakeTimers()
+    try {
+      let connects = 0
+      const port = createRuntimeSessionController({
+        connect: async () => {
+          connects += 1
+          if (connects > 1) throw transientError()
+          return 'live'
+        },
+        loadBootstrap: async () => bootstrap('live'),
+      })
+
+      await port.connect()
+      port.observeBootstrap(bootstrap('reconnecting'))
+      port.observeBootstrap(bootstrap('live'))
+      await vi.advanceTimersByTimeAsync(10_000)
+      for (let window = 1; window < 3; window += 1) {
+        port.observeBootstrap(bootstrap('live'))
+        await vi.advanceTimersByTimeAsync(10_000)
+      }
+      expect(connects).toBe(64)
+
+      port.observeBootstrap(bootstrap('revoked'))
+      port.observeBootstrap(bootstrap('reconnecting'))
+      port.observeBootstrap(bootstrap('live'))
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      expect(connects).toBe(64)
+      expect(port.snapshot().canMutate).toBe(false)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
 })
