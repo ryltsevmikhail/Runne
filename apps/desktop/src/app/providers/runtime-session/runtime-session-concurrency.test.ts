@@ -199,9 +199,12 @@ describe('runtime session concurrency', () => {
       canMutate: false,
     })
     for (let observation = 0; observation < 8; observation += 1) {
+      const previousConnects = connects
       port.observeBootstrap(bootstrap('live'))
-      await Promise.resolve()
-      await Promise.resolve()
+      if (previousConnects < 4) {
+        await vi.waitFor(() => expect(connects).toBe(previousConnects + 1))
+        await vi.waitFor(() => expect(port.snapshot().status).not.toBe('loading'))
+      }
     }
     await vi.waitFor(() => {
       expect(connects).toBe(1 + 3)

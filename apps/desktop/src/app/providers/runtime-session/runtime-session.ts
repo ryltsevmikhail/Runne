@@ -3,6 +3,7 @@ import {
   type RuntimeConnectionState,
 } from '@/shared/api/platform/bootstrap'
 import { REVOKED_STATES, TRANSIENT_STATES } from './runtime-session-states'
+import { connectThroughTransientWindow } from './transient-connect'
 
 export type RuntimeSessionStatus =
   | 'empty' | 'loading' | 'live' | 'stale' | 'reconnecting'
@@ -84,8 +85,14 @@ export function createRuntimeSessionController(
     authenticated = false
     if (manual) publish(snapshot(null, 'loading'))
     try {
-      const connected = runtimeFrom(await dependencies.connect())
-      if (epoch !== sessionEpoch) return current
+      const connection = await connectThroughTransientWindow(
+        dependencies.connect,
+        () => epoch === sessionEpoch,
+        () => new Promise(resolve => setTimeout(resolve, SETTLE_DELAY_MS)),
+        manual ? 0 : SETTLE_WAITS,
+      )
+      if (epoch !== sessionEpoch || connection.kind === 'cancelled') return current
+      const connected = runtimeFrom(connection.value)
       if (connected === null) {
         lastResetClass = 'terminal'
         return publish(snapshot(null, 'fatal'))

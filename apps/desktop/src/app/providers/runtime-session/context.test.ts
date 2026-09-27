@@ -23,26 +23,35 @@ describe('runtime session context', () => {
   })
 
   it('never publishes a stale live over a revocation arriving mid-operation', async () => {
-    let releaseBootstrap: (value: unknown) => void = () => {}
-    const deferredBootstrap = new Promise(resolve => {
-      releaseBootstrap = resolve
-    })
     const port = createRuntimeSessionController({
       connect: async () => 'live',
-      loadBootstrap: () => deferredBootstrap,
+      loadBootstrap: async () => bootstrap('live'),
     })
+    const controllerConnect = port.connect.bind(port)
+    let releaseResponse: () => void = () => {}
+    let signalControllerLive: () => void = () => {}
+    const responseHeld = new Promise<void>(resolve => {
+      releaseResponse = resolve
+    })
+    const controllerLive = new Promise<void>(resolve => {
+      signalControllerLive = resolve
+    })
+    port.connect = async () => {
+      const result = await controllerConnect()
+      signalControllerLive()
+      await responseHeld
+      return result
+    }
     const context = createRuntimeSessionContext(port)
 
     const pending = context.connect()
-    await Promise.resolve() // reach the deferred loadBootstrap
-    releaseBootstrap(bootstrap('live'))
-    await Promise.resolve() // establish resumes and publishes live
+    await controllerLive
     expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
 
-    // A revocation arrives before the operation settles externally: the context
-    // must publish the controller's current (read-only) state, not the stale
-    // live return value.
+    // The controller is live, but its operation response is still held. A
+    // revocation must remain authoritative when that stale response is released.
     context.observeBootstrap(bootstrap('revoked'))
+    releaseResponse()
     await pending
     expect(context.snapshot.value).toMatchObject({
       status: 'revoked',
@@ -51,21 +60,32 @@ describe('runtime session context', () => {
   })
 
   it('never publishes over a close arriving mid-operation', async () => {
-    let releaseBootstrap: (value: unknown) => void = () => {}
-    const deferredBootstrap = new Promise(resolve => {
-      releaseBootstrap = resolve
-    })
     const port = createRuntimeSessionController({
       connect: async () => 'live',
-      loadBootstrap: () => deferredBootstrap,
+      loadBootstrap: async () => bootstrap('live'),
     })
+    const controllerConnect = port.connect.bind(port)
+    let releaseResponse: () => void = () => {}
+    let signalControllerLive: () => void = () => {}
+    const responseHeld = new Promise<void>(resolve => {
+      releaseResponse = resolve
+    })
+    const controllerLive = new Promise<void>(resolve => {
+      signalControllerLive = resolve
+    })
+    port.connect = async () => {
+      const result = await controllerConnect()
+      signalControllerLive()
+      await responseHeld
+      return result
+    }
     const context = createRuntimeSessionContext(port)
 
     const pending = context.connect()
-    await Promise.resolve() // reach the deferred loadBootstrap
-    releaseBootstrap(bootstrap('live'))
-    await Promise.resolve() // establish resumes and publishes live
+    await controllerLive
+    expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
     await context.close()
+    releaseResponse()
     await pending
     expect(context.snapshot.value).toMatchObject({
       status: 'unavailable',

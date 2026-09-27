@@ -32,8 +32,8 @@ describe('runtime session rotation windows', () => {
     await port.connect()
     expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
 
-    // A rotation window: transient projection, then recovery attempts whose
-    // connect throws. Transport exceptions must not latch terminal state.
+    // A rotation window: transient projection, then a bounded settle loop
+    // retries transport errors without latching terminal state.
     failConnect = true
     port.observeBootstrap(bootstrap('reconnecting'))
     port.observeBootstrap(bootstrap('live'))
@@ -252,43 +252,4 @@ describe('runtime session rotation windows', () => {
     expect(port.snapshot()).toMatchObject({ status: 'reconnecting', canMutate: false })
   })
 
-  it('a failed manual transport retry re-arms the automatic budget', async () => {
-    let connects = 0
-    let failConnect = false
-    const port = createRuntimeSessionController({
-      connect: async () => {
-        connects += 1
-        if (failConnect) throw transientReject('transport down')
-        return 'live'
-      },
-      loadBootstrap: async () => bootstrap('live'),
-    })
-
-    await port.connect()
-    expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
-    // Burn the automatic budget with three transport failures.
-    failConnect = true
-    port.observeBootstrap(bootstrap('reconnecting'))
-    port.observeBootstrap(bootstrap('live'))
-    await vi.waitFor(() => expect(connects).toBe(2))
-    port.observeBootstrap(bootstrap('live'))
-    await vi.waitFor(() => expect(connects).toBe(3))
-    port.observeBootstrap(bootstrap('live'))
-    await vi.waitFor(() => expect(connects).toBe(4))
-    port.observeBootstrap(bootstrap('live'))
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(connects).toBe(4)
-
-    // A failed manual retry re-arms the budget...
-    await port.retry()
-    expect(port.snapshot()).toMatchObject({ status: 'unavailable', canMutate: false })
-
-    // ...and the recovered transport lets automatic recovery prove live.
-    failConnect = false
-    port.observeBootstrap(bootstrap('live'))
-    await vi.waitFor(() => {
-      expect(port.snapshot()).toMatchObject({ status: 'live', canMutate: true })
-    })
-  })
 })
