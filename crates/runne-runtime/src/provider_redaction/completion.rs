@@ -4,6 +4,9 @@ use runne_provider::{
 };
 use zeroize::Zeroizing;
 
+use super::diagnostics::{
+    RedactionFailureSite, recovery_failure_kind, scanner_failure_kind, tail_failure_kind,
+};
 use super::{ProviderRedactionError, ProviderRedactionRecovery, ScannerRecoveryPersistence};
 
 impl<T, P, M> ProviderRedactionRecovery<'_, T, P, M>
@@ -26,7 +29,11 @@ where
                 .load_tail(&checkpoint.tail_reference(), self.binding)
             {
                 Ok(bytes) => bytes,
-                Err(_) => {
+                Err(error) => {
+                    self.observe_failure(
+                        RedactionFailureSite::CompleteTailLoad,
+                        tail_failure_kind(error),
+                    );
                     self.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
                     return Ok(());
                 }
@@ -40,6 +47,10 @@ where
                 return Ok(());
             }
             Err(error) => {
+                self.observe_failure(
+                    RedactionFailureSite::CompleteScannerClassification,
+                    scanner_failure_kind(error),
+                );
                 self.terminate_scanner_error(error)?;
                 return Ok(());
             }
@@ -51,6 +62,10 @@ where
                 return Ok(());
             }
             Err(error) => {
+                self.observe_failure(
+                    RedactionFailureSite::CompleteScannerClassification,
+                    scanner_failure_kind(error),
+                );
                 self.terminate_scanner_error(error)?;
                 return Ok(());
             }
@@ -61,7 +76,11 @@ where
             .put_tail(self.binding, Zeroizing::new(Vec::new()))
         {
             Ok(reference) => reference,
-            Err(_) => {
+            Err(error) => {
+                self.observe_failure(
+                    RedactionFailureSite::CompleteTailPut,
+                    tail_failure_kind(error),
+                );
                 self.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
                 return Ok(());
             }
@@ -77,28 +96,40 @@ where
         ) {
             Ok(checkpoint) => checkpoint,
             Err(error) => {
+                self.observe_failure(
+                    RedactionFailureSite::CompleteCheckpointConstruction,
+                    scanner_failure_kind(error),
+                );
                 let _ = self.tail_store.delete_tail(&reference);
                 self.terminate_scanner_error(error)?;
                 return Ok(());
             }
         };
-        if self.persistence.persist_checkpoint(checkpoint).is_err() {
+        if let Err(error) = self.persistence.persist_checkpoint(checkpoint) {
+            self.observe_failure(
+                RedactionFailureSite::CompleteCheckpointPersist,
+                recovery_failure_kind(error),
+            );
             let _ = self.tail_store.delete_tail(&reference);
             self.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
             return Err(ProviderRedactionError::PersistenceUnavailable);
         }
-        if self
-            .persistence
-            .advance_final_checkpoint(checkpoint)
-            .is_err()
-        {
+        if let Err(error) = self.persistence.advance_final_checkpoint(checkpoint) {
+            self.observe_failure(
+                RedactionFailureSite::CompleteCheckpointAdvance,
+                recovery_failure_kind(error),
+            );
             let terminal = self.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable);
             let _ = self.tail_store.delete_tail(&reference);
             terminal?;
             return Err(ProviderRedactionError::PersistenceUnavailable);
         }
         self.checkpoint = Some(checkpoint);
-        if self.purge_all_tails().is_err() {
+        if let Err(error) = self.tail_store.purge_orphaned_tails(self.binding, None) {
+            self.observe_failure(
+                RedactionFailureSite::CompleteTailPurge,
+                tail_failure_kind(error),
+            );
             self.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
             return Ok(());
         }

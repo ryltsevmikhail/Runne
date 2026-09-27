@@ -7,6 +7,7 @@ use runne_provider::{
 };
 use zeroize::Zeroizing;
 
+use super::diagnostics::ProviderRedactionObserver;
 use super::surfaces::inspect_event_surfaces;
 use super::{ProviderRedactionError, ProviderRedactionRecovery, ScannerRecoveryPersistence};
 use crate::provider_execution::ProviderEventJournalContext;
@@ -42,6 +43,7 @@ pub struct ProviderEventRedactionBoundary<'a, T: ?Sized, P: ?Sized, M: ?Sized> {
     tails: &'a T,
     persistence: &'a P,
     matcher: &'a M,
+    observer: Option<&'a dyn ProviderRedactionObserver>,
 }
 
 impl<'a, T: ?Sized, P: ?Sized, M: ?Sized> ProviderEventRedactionBoundary<'a, T, P, M> {
@@ -51,7 +53,14 @@ impl<'a, T: ?Sized, P: ?Sized, M: ?Sized> ProviderEventRedactionBoundary<'a, T, 
             tails,
             persistence,
             matcher,
+            observer: None,
         }
+    }
+
+    /// Attaches an optional sink for fixed, non-secret qualification codes.
+    pub const fn with_observer(mut self, observer: &'a dyn ProviderRedactionObserver) -> Self {
+        self.observer = Some(observer);
+        self
     }
 }
 
@@ -141,17 +150,19 @@ where
         )
         .map_err(|_| ProviderRedactionError::PersistenceUnavailable)?;
         match self.persistence.load(context.attempt_id) {
-            Ok(Some(_)) => ProviderRedactionRecovery::restart(
+            Ok(Some(_)) => ProviderRedactionRecovery::restart_with_observer(
                 expected,
                 self.tails,
                 self.persistence,
                 self.matcher,
+                self.observer,
             ),
-            Ok(None) | Err(_) => ProviderRedactionRecovery::start(
+            Ok(None) | Err(_) => ProviderRedactionRecovery::start_with_observer(
                 expected,
                 self.tails,
                 self.persistence,
                 self.matcher,
+                self.observer,
             ),
         }
     }

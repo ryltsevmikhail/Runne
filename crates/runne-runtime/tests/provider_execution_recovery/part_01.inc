@@ -8,8 +8,8 @@ use runne_application::prohibited_content::{
 use runne_application::provider::{
     ProviderAuthorityIssueRequest, ProviderExecutionError, ProviderExecutionStore,
     ProviderJournalAppendOutcome, ProviderJournalAppendRequest, ProviderJournalKeyBinding,
-    ProviderPollRequest, ProviderTerminalCommitOutcome, ProviderTerminalOutboxRecord,
-    ProviderTerminalPricingBinding, ProviderRecoveryObserver, ProviderRecoveryObserverError,
+    ProviderPollRequest, ProviderRecoveryObserver, ProviderRecoveryObserverError,
+    ProviderTerminalCommitOutcome, ProviderTerminalOutboxRecord, ProviderTerminalPricingBinding,
 };
 use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{
@@ -29,14 +29,15 @@ use runne_runtime::provider_execution::{
 };
 use runne_runtime::provider_redaction::{
     PreJournalProviderEvent, ProviderEventRedaction, ProviderRedactionError,
+    ProviderRedactionObserver, RedactionFailureKind, RedactionFailureSite,
 };
 use runne_secure_store::{
     ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
     ProviderJournalKeyStatus, ProviderJournalKeyring, SecureStoreError,
 };
 use runne_store::provider::{
-    PreparedProviderRecord,
-    ProviderRuntimeAuthorityConfig, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
+    PreparedProviderRecord, ProviderRuntimeAuthorityConfig, SqliteProviderDispatchStore,
+    SqliteProviderExecutionStore,
 };
 
 struct AllowingRedaction;

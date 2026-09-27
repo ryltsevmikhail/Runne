@@ -14,6 +14,8 @@ type ExecutionTail = (TailBinding, Zeroizing<Vec<u8>>);
 struct ExecutionTailStore {
     next: Mutex<u8>,
     tails: Mutex<HashMap<NativeSecretRef, ExecutionTail>>,
+    fail_put: AtomicBool,
+    fail_load: AtomicBool,
 }
 
 impl WithheldTailStore for ExecutionTailStore {
@@ -22,6 +24,9 @@ impl WithheldTailStore for ExecutionTailStore {
         binding: TailBinding,
         bytes: Zeroizing<Vec<u8>>,
     ) -> Result<NativeSecretRef, TailStoreError> {
+        if self.fail_put.load(Ordering::SeqCst) {
+            return Err(TailStoreError::Unavailable);
+        }
         let mut next = self.next.lock().unwrap();
         *next += 1;
         let mut id = [0_u8; 16];
@@ -39,6 +44,9 @@ impl WithheldTailStore for ExecutionTailStore {
         reference: &NativeSecretRef,
         binding: TailBinding,
     ) -> Result<Zeroizing<Vec<u8>>, TailStoreError> {
+        if self.fail_load.load(Ordering::SeqCst) {
+            return Err(TailStoreError::Unavailable);
+        }
         let tails = self.tails.lock().unwrap();
         let (stored, bytes) = tails.get(reference).ok_or(TailStoreError::NotFound)?;
         if *stored != binding {
@@ -128,7 +136,11 @@ async fn authoritative_append_boundary_releases_clean_tail_only_after_completed(
     }
 
     assert_eq!(
-        recovery.load(fixture.attempt_id).unwrap().unwrap().disposition(),
+        recovery
+            .load(fixture.attempt_id)
+            .unwrap()
+            .unwrap()
+            .disposition(),
         Some(ScannerTerminalDisposition::Completed)
     );
     assert_eq!(
@@ -177,7 +189,12 @@ async fn authoritative_append_boundary_blocks_split_secret_before_text_journal()
     let stream = ProviderStreamId::from_bytes([9; 16]);
     for sequence in 0..2 {
         let item = runtime
-            .next_and_commit(&provider, &stream, StreamCursor::new(sequence), &context(&fixture))
+            .next_and_commit(
+                &provider,
+                &stream,
+                StreamCursor::new(sequence),
+                &context(&fixture),
+            )
             .await
             .unwrap();
         if sequence == 1 {
@@ -194,13 +211,26 @@ async fn authoritative_append_boundary_blocks_split_secret_before_text_journal()
         Err(RuntimeProviderExecutionError::PolicyDenied)
     );
     assert_eq!(
-        recovery.load(fixture.attempt_id).unwrap().unwrap().disposition(),
+        recovery
+            .load(fixture.attempt_id)
+            .unwrap()
+            .unwrap()
+            .disposition(),
         Some(ScannerTerminalDisposition::Uncertain(
             ScannerUncertainReason::SecretDetected,
         ))
     );
     let recovered = runtime.recover_events(fixture.attempt_id).unwrap();
     let bytes = serde_json::to_vec(&recovered).unwrap();
-    assert!(!bytes.windows(EXECUTION_SECRET.len()).any(|window| window == EXECUTION_SECRET));
-    assert!(runtime.recover_pending_terminal_outputs().unwrap().is_empty());
+    assert!(
+        !bytes
+            .windows(EXECUTION_SECRET.len())
+            .any(|window| window == EXECUTION_SECRET)
+    );
+    assert!(
+        runtime
+            .recover_pending_terminal_outputs()
+            .unwrap()
+            .is_empty()
+    );
 }

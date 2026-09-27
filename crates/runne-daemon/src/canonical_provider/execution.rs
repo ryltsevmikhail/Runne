@@ -159,7 +159,8 @@ impl CanonicalProviderExecutionService for DaemonCanonicalProviderService {
                 self.tail_store.as_ref(),
                 self.scanner_store.as_ref(),
                 &matcher,
-            );
+            )
+            .with_observer(&super::redaction_diagnostics::QUALIFICATION_OBSERVER);
             let execution = RuntimeProviderExecution::new(
                 self.keyring.as_ref(),
                 self.runtime_store.as_ref(),

@@ -59,6 +59,7 @@ mod openai_profile;
 mod projection;
 pub(crate) mod readiness;
 mod recovery;
+mod redaction_diagnostics;
 mod runtime_launch;
 mod runtime_store;
 mod selected_provider;

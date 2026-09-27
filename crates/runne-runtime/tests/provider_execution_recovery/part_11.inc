@@ -13,8 +13,7 @@ async fn pending_outbox_is_not_decrypted_or_applied_without_scanner_completed() 
     writer.finalize_terminal_output(&context(&fixture)).unwrap();
 
     let recovery = SqliteProviderRecoveryStore::open(&fixture.path, [1; 16]).unwrap();
-    let binding = TailBinding::new(fixture.attempt_id, fixture.fencing_token, 1, 1, 1, 0)
-        .unwrap();
+    let binding = TailBinding::new(fixture.attempt_id, fixture.fencing_token, 1, 1, 1, 0).unwrap();
     recovery
         .commit_terminal(
             binding,
@@ -113,7 +112,11 @@ async fn every_provider_string_surface_is_scanned_before_journal() {
             Err(RuntimeProviderExecutionError::PolicyDenied)
         );
         assert_eq!(
-            recovery.load(fixture.attempt_id).unwrap().unwrap().disposition(),
+            recovery
+                .load(fixture.attempt_id)
+                .unwrap()
+                .unwrap()
+                .disposition(),
             Some(ScannerTerminalDisposition::Uncertain(
                 ScannerUncertainReason::SecretDetected,
             ))
@@ -128,19 +131,94 @@ async fn every_provider_string_surface_is_scanned_before_journal() {
 }
 
 #[test]
-fn boundary_rejects_checkpoint_from_stale_context_authority() {
+fn redaction_failure_observer_reports_only_fixed_site_and_kind() {
+    #[derive(Default)]
+    struct Observer(Mutex<Vec<(RedactionFailureSite, RedactionFailureKind)>>);
+    impl ProviderRedactionObserver for Observer {
+        fn observe_failure(&self, site: RedactionFailureSite, kind: RedactionFailureKind) {
+            self.0.lock().unwrap().push((site, kind));
+        }
+    }
+
+    let restart_fixture = fixture();
     let fixture = fixture();
     let recovery = SqliteProviderRecoveryStore::open(&fixture.path, [1; 16]).unwrap();
     let tails = ExecutionTailStore::default();
-    let stale_binding = TailBinding::new(
-        fixture.attempt_id,
-        fixture.fencing_token + 1,
+    tails.fail_put.store(true, Ordering::SeqCst);
+    let observer = Observer::default();
+    let boundary = ProviderEventRedactionBoundary::new(&tails, &recovery, &ExecutionMatcher)
+        .with_observer(&observer);
+    let event = ProviderStreamEvent::new(
+        0,
+        ProviderStreamEventKind::TextDelta {
+            text: "fixture".into(),
+        },
+    )
+    .unwrap();
+
+    assert!(matches!(
+        boundary.scan_before_journal(&context(&fixture), &event),
+        Ok(PreJournalProviderEvent::Terminal(
+            ScannerTerminalDisposition::Uncertain(
+                ScannerUncertainReason::CheckpointSecretStateUnavailable
+            )
+        ))
+    ));
+    assert_eq!(
+        observer.0.lock().unwrap().as_slice(),
+        &[(
+            RedactionFailureSite::IngestTailPut,
+            RedactionFailureKind::NativeUnavailable
+        )]
+    );
+
+    let restart_recovery =
+        SqliteProviderRecoveryStore::open(&restart_fixture.path, [1; 16]).unwrap();
+    let restart_tails = ExecutionTailStore::default();
+    let binding = TailBinding::new(
+        restart_fixture.attempt_id,
+        restart_fixture.fencing_token,
         1,
         1,
         1,
         0,
     )
     .unwrap();
+    let mut session =
+        runne_runtime::provider_redaction::ProviderRedactionRecovery::start(
+            binding,
+            &restart_tails,
+            &restart_recovery,
+            &ExecutionMatcher,
+        )
+        .unwrap();
+    session.ingest(b"checkpoint", &mut Zeroizing::new(Vec::new())).unwrap();
+    restart_tails.fail_load.store(true, Ordering::SeqCst);
+    let restart_observer = Observer::default();
+    runne_runtime::provider_redaction::ProviderRedactionRecovery::restart_with_observer(
+        binding,
+        &restart_tails,
+        &restart_recovery,
+        &ExecutionMatcher,
+        Some(&restart_observer),
+    )
+    .unwrap();
+    assert_eq!(
+        restart_observer.0.lock().unwrap().as_slice(),
+        &[(
+            RedactionFailureSite::RestartTailLoad,
+            RedactionFailureKind::NativeUnavailable
+        )]
+    );
+}
+
+#[test]
+fn boundary_rejects_checkpoint_from_stale_context_authority() {
+    let fixture = fixture();
+    let recovery = SqliteProviderRecoveryStore::open(&fixture.path, [1; 16]).unwrap();
+    let tails = ExecutionTailStore::default();
+    let stale_binding =
+        TailBinding::new(fixture.attempt_id, fixture.fencing_token + 1, 1, 1, 1, 0).unwrap();
     let mut staged = zeroize::Zeroizing::new(Vec::new());
     let mut stale = runne_runtime::provider_redaction::ProviderRedactionRecovery::start(
         stale_binding,
@@ -168,7 +246,11 @@ fn boundary_rejects_checkpoint_from_stale_context_authority() {
         ))
     ));
     assert_eq!(
-        recovery.load(fixture.attempt_id).unwrap().unwrap().disposition(),
+        recovery
+            .load(fixture.attempt_id)
+            .unwrap()
+            .unwrap()
+            .disposition(),
         Some(ScannerTerminalDisposition::Uncertain(
             ScannerUncertainReason::CheckpointSecretStateUnavailable,
         ))

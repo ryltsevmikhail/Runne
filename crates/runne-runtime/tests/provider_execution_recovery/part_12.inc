@@ -146,3 +146,134 @@ fn runne_outbox_alias_is_rejected_without_rewrite() {
     ));
     assert_eq!(database.snapshot(), before);
 }
+#[test]
+fn redaction_failure_observer_distinguishes_checkpoint_persist_and_advance() {
+    #[derive(Clone, Copy)]
+    enum FailAt {
+        Persist,
+        Advance,
+    }
+    struct FailingPersistence {
+        inner: SqliteProviderRecoveryStore,
+        fail_at: FailAt,
+    }
+    impl ScannerRecoveryPersistence for FailingPersistence {
+        fn persist_checkpoint(
+            &self,
+            checkpoint: runne_provider::ScannerCheckpoint,
+        ) -> Result<(), runne_runtime::provider_redaction::ScannerRecoveryPersistenceError> {
+            if matches!(self.fail_at, FailAt::Persist) {
+                return Err(
+                    runne_runtime::provider_redaction::ScannerRecoveryPersistenceError::Unavailable,
+                );
+            }
+            self.inner.persist_checkpoint(checkpoint)
+        }
+
+        fn advance_checkpoint(
+            &self,
+            checkpoint: runne_provider::ScannerCheckpoint,
+        ) -> Result<(), runne_runtime::provider_redaction::ScannerRecoveryPersistenceError> {
+            if matches!(self.fail_at, FailAt::Advance) {
+                return Err(
+                    runne_runtime::provider_redaction::ScannerRecoveryPersistenceError::Conflict,
+                );
+            }
+            self.inner.advance_checkpoint(checkpoint)
+        }
+
+        fn advance_final_checkpoint(
+            &self,
+            checkpoint: runne_provider::ScannerCheckpoint,
+        ) -> Result<(), runne_runtime::provider_redaction::ScannerRecoveryPersistenceError> {
+            self.inner.advance_final_checkpoint(checkpoint)
+        }
+
+        fn commit_terminal(
+            &self,
+            binding: TailBinding,
+            disposition: ScannerTerminalDisposition,
+        ) -> Result<
+            ScannerTerminalDisposition,
+            runne_runtime::provider_redaction::ScannerRecoveryPersistenceError,
+        > {
+            self.inner.commit_terminal(binding, disposition)
+        }
+
+        fn terminalize_corrupt_checkpoint(
+            &self,
+            binding: TailBinding,
+        ) -> Result<
+            ScannerTerminalDisposition,
+            runne_runtime::provider_redaction::ScannerRecoveryPersistenceError,
+        > {
+            self.inner.terminalize_corrupt_checkpoint(binding)
+        }
+
+        fn load(
+            &self,
+            attempt_id: runne_provider::DispatchAttemptId,
+        ) -> Result<
+            Option<runne_runtime::provider_redaction::ScannerRecoveryRecord>,
+            runne_runtime::provider_redaction::ScannerRecoveryPersistenceError,
+        > {
+            self.inner.load(attempt_id)
+        }
+    }
+    #[derive(Default)]
+    struct Observer(Mutex<Vec<(RedactionFailureSite, RedactionFailureKind)>>);
+    impl ProviderRedactionObserver for Observer {
+        fn observe_failure(&self, site: RedactionFailureSite, kind: RedactionFailureKind) {
+            self.0.lock().unwrap().push((site, kind));
+        }
+    }
+
+    for (fail_at, expected_site, expected_kind) in [
+        (
+            FailAt::Persist,
+            RedactionFailureSite::IngestCheckpointPersist,
+            RedactionFailureKind::RecoveryUnavailable,
+        ),
+        (
+            FailAt::Advance,
+            RedactionFailureSite::IngestCheckpointAdvance,
+            RedactionFailureKind::RecoveryConflict,
+        ),
+    ] {
+        let fixture = fixture();
+        let persistence = FailingPersistence {
+            inner: SqliteProviderRecoveryStore::open(&fixture.path, [1; 16]).unwrap(),
+            fail_at,
+        };
+        let tails = ExecutionTailStore::default();
+        let observer = Observer::default();
+        let boundary = ProviderEventRedactionBoundary::new(&tails, &persistence, &ExecutionMatcher)
+            .with_observer(&observer);
+        let event = ProviderStreamEvent::new(
+            0,
+            ProviderStreamEventKind::TextDelta {
+                text: "checkpoint".into(),
+            },
+        )
+        .unwrap();
+
+        assert!(matches!(
+            boundary.scan_before_journal(&context(&fixture), &event),
+            Err(ProviderRedactionError::PersistenceUnavailable)
+        ));
+        assert_eq!(
+            observer.0.lock().unwrap().as_slice(),
+            &[(expected_site, expected_kind)]
+        );
+        assert_eq!(
+            persistence
+                .load(fixture.attempt_id)
+                .unwrap()
+                .unwrap()
+                .disposition(),
+            Some(ScannerTerminalDisposition::Uncertain(
+                ScannerUncertainReason::CheckpointSecretStateUnavailable
+            ))
+        );
+    }
+}
