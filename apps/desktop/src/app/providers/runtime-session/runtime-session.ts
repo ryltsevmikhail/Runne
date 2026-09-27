@@ -2,6 +2,7 @@ import {
   isRuntimeConnectionState,
   type RuntimeConnectionState,
 } from '@/shared/api/platform/bootstrap'
+import { REVOKED_STATES, TRANSIENT_STATES } from './runtime-session-states'
 
 export type RuntimeSessionStatus =
   | 'empty' | 'loading' | 'live' | 'stale' | 'reconnecting'
@@ -34,9 +35,6 @@ interface RuntimeSessionDependencies {
 const MAX_AUTOMATIC_RECOVERIES = 3
 const SETTLE_WAITS = 20
 const SETTLE_DELAY_MS = 500
-
-const TRANSIENT_STATES = new Set(['reconnecting'])
-const REVOKED_STATES = new Set(['incompatible', 'revoked', 'fatal'])
 
 export function createRuntimeSessionPort(
   dependencies: RuntimeSessionDependencies,
@@ -101,11 +99,11 @@ export function createRuntimeSessionController(
       }
       let runtime = runtimeFrom(await dependencies.loadBootstrap())
       if (epoch !== sessionEpoch) return current
-      // connect_runtime itself rotates the daemon session, so the bootstrap read
-      // right after connect can observe Reconciling while that rotation settles;
-      // re-read bounded instead of burning the recovery budget on our own window.
+      // The protected host may expose any valid handshake/recovery stage while
+      // a session rotation settles. Re-read bounded before deciding readiness.
       let waits = 0
-      while (runtime === 'reconnecting' && waits < SETTLE_WAITS && epoch === sessionEpoch) {
+      while (runtime !== null && TRANSIENT_STATES.has(runtime)
+        && waits < SETTLE_WAITS && epoch === sessionEpoch) {
         waits += 1
         await new Promise(resolve => setTimeout(resolve, SETTLE_DELAY_MS))
         if (epoch !== sessionEpoch) return current
