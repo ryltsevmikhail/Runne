@@ -171,8 +171,8 @@ pub(super) fn compose(
 /// TaskRun exact-model admission (D1.4b); `None` without a provider service.
 pub(super) fn pinned_task_run_model(
     provider_service: &Option<Arc<DaemonCanonicalProviderService>>,
-) -> Option<String> {
+) -> Option<&str> {
     provider_service
         .as_ref()
-        .map(|service| service.pinned_model_id().to_owned())
+        .map(|service| service.pinned_model_id())
 }
