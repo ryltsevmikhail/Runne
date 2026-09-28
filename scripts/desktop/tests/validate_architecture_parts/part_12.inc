@@ -190,7 +190,7 @@ class MacOsProcessIdentityDependencyTest(unittest.TestCase):
                         kind="dev",
                         target=writer,
                         req="=1.1.4",
-                        features=["net", "pipe"],
+                        features=["net", "pipe", "process"],
                         source=architecture.CRATES_IO_REGISTRY_SOURCE,
                     ),
                 ],
