@@ -175,7 +175,7 @@ async fn check_runtime_health(profile_path: &Path) -> Result<(String, String), (
 pub fn format_diagnostic_report(report: &DiagnosticReport, format: OutputFormat) -> CommandOutput {
     match format {
         OutputFormat::Text => CommandOutput::Text(format_diagnostic_text(report)),
-        OutputFormat::Json => CommandOutput::Typed {
+        OutputFormat::Json | OutputFormat::Jsonl => CommandOutput::Typed {
             text: format_diagnostic_text(report),
             data: diagnostic_json_data(report),
         },

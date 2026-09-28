@@ -30,6 +30,7 @@ pub enum OutputFormat {
     #[default]
     Text,
     Json,
+    Jsonl,
 }
 
 impl OutputFormat {
@@ -39,6 +40,7 @@ impl OutputFormat {
         match value {
             "text" => Some(Self::Text),
             "json" => Some(Self::Json),
+            "jsonl" => Some(Self::Jsonl),
             _ => None,
         }
     }
@@ -61,6 +63,10 @@ pub enum CommandOutput {
         text: String,
         data: serde_json::Value,
     },
+    /// Streaming line-delimited payload: one JSON object per line under
+    /// [`OutputFormat::Jsonl`], a JSON array in `data` under
+    /// [`OutputFormat::Json`], joined lines under [`OutputFormat::Text`].
+    Jsonl(Vec<serde_json::Value>),
 }
 
 impl CommandOutput {
@@ -81,9 +87,14 @@ impl CommandOutput {
 
     /// Returns the text-format rendering without the trailing newline.
     #[must_use]
-    pub fn render_text(&self) -> &str {
+    pub fn render_text(&self) -> String {
         match self {
-            Self::Text(text) | Self::Typed { text, .. } => text,
+            Self::Text(text) | Self::Typed { text, .. } => text.clone(),
+            Self::Jsonl(lines) => lines
+                .iter()
+                .map(|line| serde_json::to_string(line).unwrap_or_default())
+                .collect::<Vec<_>>()
+                .join("\n"),
         }
     }
 
@@ -93,6 +104,7 @@ impl CommandOutput {
         match self {
             Self::Text(text) => serde_json::json!({ "output": text }),
             Self::Typed { data, .. } => data.clone(),
+            Self::Jsonl(lines) => serde_json::Value::Array(lines.clone()),
         }
     }
 }

@@ -147,7 +147,7 @@ fn process_outcome(
 
             let (stdout, stderr) = match format {
                 OutputFormat::Text => (String::new(), format!("{error}\n")),
-                OutputFormat::Json => {
+                OutputFormat::Json | OutputFormat::Jsonl => {
                     let code = error.error_code().unwrap_or(ErrorCode::ApiError);
                     let envelope = ErrorEnvelope::new(code, error.to_string());
                     let json = serde_json::to_string(&envelope).unwrap_or_default();
@@ -165,8 +165,8 @@ fn process_outcome(
 }
 
 /// The single render point for command output: each command payload is
-/// rendered exactly once, either as text or as the typed `data` of the JSON
-/// envelope.
+/// rendered exactly once, either as text, as the typed `data` of the JSON
+/// envelope, or as one JSON object per JSONL line.
 fn render_command_output(output: &CommandOutput, format: OutputFormat) -> String {
     match format {
         OutputFormat::Text => format!("{}\n", output.render_text()),
@@ -174,6 +174,22 @@ fn render_command_output(output: &CommandOutput, format: OutputFormat) -> String
             let envelope = SuccessEnvelope::new(output.data_value());
             format!("{}\n", serde_json::to_string(&envelope).unwrap_or_default())
         }
+        OutputFormat::Jsonl => match output {
+            CommandOutput::Jsonl(lines) => {
+                let mut rendered = String::new();
+                for line in lines {
+                    rendered.push_str(&serde_json::to_string(line).unwrap_or_default());
+                    rendered.push('\n');
+                }
+                rendered
+            }
+            // A single-object payload stays one JSON document; JSONL clients
+            // parse it as a one-line stream.
+            other => format!(
+                "{}\n",
+                serde_json::to_string(&other.data_value()).unwrap_or_default()
+            ),
+        },
     }
 }
 
@@ -221,6 +237,8 @@ mod release;
 
 #[cfg(test)]
 pub mod credential_test_support;
+#[cfg(test)]
+mod output_tests;
 #[cfg(test)]
 mod provider_credential_legacy_tests;
 #[cfg(test)]
