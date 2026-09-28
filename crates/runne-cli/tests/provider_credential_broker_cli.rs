@@ -186,18 +186,18 @@ fn recursive_coverage_path_matching_uses_native_components() {
 
 #[test]
 fn broker_manifest_has_only_reviewed_macos_native_dependencies() {
+    const ENROLLMENT_LINE: &str =
+        "runne-native-enrollment-authority = { path = \"../runne-native-enrollment-authority\" }";
+    const NIX_LINE: &str =
+        "nix = { version = \"=0.31.3\", default-features = false, features = [\"fs\", \"poll\"] }";
+    const RUSTIX_LINE: &str =
+        "rustix = { version = \"=1.1.4\", features = [\"net\", \"pipe\", \"process\"] }";
     let manifest = include_str!("../Cargo.toml");
     assert!(!manifest.contains("runne-macos-process-identity"));
     assert!(manifest.contains("[target.'cfg(target_os = \"macos\")'.dependencies]"));
-    const ENROLLMENT_LINE: &str =
-        "runne-native-enrollment-authority = { path = \"../runne-native-enrollment-authority\" }";
     assert!(manifest.contains(ENROLLMENT_LINE));
-    const NIX_LINE: &str =
-        "nix = { version = \"=0.31.3\", default-features = false, features = [\"fs\", \"poll\"] }";
     assert!(manifest.contains(NIX_LINE));
     // Reviewed rustix dev-dep; SIGINT adds test-only "process" (D1.4b).
-    const RUSTIX_LINE: &str =
-        "rustix = { version = \"=1.1.4\", features = [\"net\", \"pipe\", \"process\"] }";
     assert!(manifest.contains(RUSTIX_LINE));
     assert!(manifest.contains(
         "[target.'cfg(any(target_os = \"macos\", target_os = \"linux\"))'.dev-dependencies]"

@@ -4,13 +4,8 @@
 
 #![cfg(unix)]
 
-#[path = "../task_cli_parts/support.rs"]
-mod task_support;
-
-use task_support::{connect_client, seed_conversation, start_test_daemon, stop_daemon};
-
 pub mod sigint_scenario {
-    use super::task_support::{connect_client, seed_conversation, start_test_daemon, stop_daemon};
+    use crate::support::{connect_client, seed_conversation, start_test_daemon, stop_daemon};
     use std::process::Stdio;
     use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, BufReader};
 
