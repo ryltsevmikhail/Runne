@@ -55,4 +55,5 @@ mod tests {
     include!("router_parts/bootstrap_test_support.rs");
     include!("router_parts/replay_epoch_support.rs");
     include!("router_parts/tests.rs");
+    include!("router_parts/tests_admission.rs");
 }

@@ -1,6 +1,5 @@
 mod profile;
 use super::*;
-use runne_security::project_trust_policy::ProjectTrustPolicyAuthority;
 mod command_hosts;
 mod enrollment;
 mod linux_enrollment_control;
@@ -19,7 +18,7 @@ pub(super) async fn start_http_and_runtime(
     conversation_text_service: Arc<dyn ConversationTextCommandService>,
     secret_broker: Arc<Mutex<SecretBroker>>,
     prohibited_content: Arc<dyn ProhibitedContentPort>,
-    trust_authority: Option<Arc<ProjectTrustPolicyAuthority>>,
+    trust_authority: Option<Arc<runne_security::project_trust_policy::ProjectTrustPolicyAuthority>>,
     provider_activation: ProviderActivation,
     provider_service: Option<Arc<DaemonCanonicalProviderService>>,
     protected_activation: bool,
@@ -196,6 +195,7 @@ pub(super) async fn start_http_and_runtime(
         provider_readiness,
         enrollment.runtime_capabilities,
     );
+    let pinned_model = command_hosts::pinned_task_run_model(&provider_service);
     let http_host = LocalRuntimeTlsHost::bind_with_project_workspace_and_command_reconciliation(
         &config.http_bind,
         Arc::clone(bootstrap.launch_identity.server_config()),
@@ -208,11 +208,7 @@ pub(super) async fn start_http_and_runtime(
         protected_activation,
         Arc::clone(&clock),
         runtime_profile_state,
-        TaskRunHttpState::new(
-            task_run_host,
-            actor.clone(),
-            command_hosts::pinned_task_run_model(&provider_service),
-        ),
+        TaskRunHttpState::new(task_run_host, actor.clone(), pinned_model),
         ConversationHttpState::new(conversation_host, actor.clone()),
         runne_http::project_workspace::ProjectWorkspaceHttpState::new(
             command_hosts.project_workspace,

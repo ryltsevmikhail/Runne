@@ -231,6 +231,7 @@ include!("cli/completion.rs");
 include!("cli/conversation.rs");
 include!("cli/task.rs");
 include!("cli/task_run.rs");
+include!("cli/task_run_poll.rs");
 include!("cli/session.rs");
 include!("cli/task_help.rs");
 include!("cli/provider_credential.rs");
