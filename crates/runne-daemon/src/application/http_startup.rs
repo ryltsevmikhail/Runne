@@ -208,7 +208,11 @@ pub(super) async fn start_http_and_runtime(
         protected_activation,
         Arc::clone(&clock),
         runtime_profile_state,
-        TaskRunHttpState::new(task_run_host, actor.clone(), pinned_model),
+        TaskRunHttpState::new(
+            task_run_host,
+            actor.clone(),
+            pinned_model.map(str::to_owned),
+        ),
         ConversationHttpState::new(conversation_host, actor.clone()),
         runne_http::project_workspace::ProjectWorkspaceHttpState::new(
             command_hosts.project_workspace,
