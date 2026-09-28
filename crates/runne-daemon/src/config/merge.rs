@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 /// 1. `$XDG_RUNTIME_DIR` or equivalent via `dirs::runtime_dir()`
 /// 2. `$XDG_DATA_HOME` or equivalent via `dirs::data_local_dir()`
 /// 3. `$HOME/.local/share` (or `%LOCALAPPDATA%` on Windows)
-fn resolve_runtime_dir() -> PathBuf {
+pub(crate) fn resolve_runtime_dir() -> PathBuf {
     dirs::runtime_dir()
         .or_else(dirs::data_local_dir)
         .unwrap_or_else(|| {

@@ -11,6 +11,7 @@ use crate::provider_activation::ProviderActivation;
 mod active_provider;
 mod config_problem;
 mod provider_credentials;
+mod readiness;
 use active_provider::active_provider_info;
 use config_problem::{ConfigProblem, classify_config_error};
 use provider_credentials::credential_disposition;
@@ -181,6 +182,7 @@ pub fn doctor_checks(report: &DoctorReport) -> Vec<DoctorCheck> {
             "fail"
         },
     });
+    checks.extend(readiness::collect());
     checks
 }
 
@@ -291,7 +293,28 @@ pub fn format_report(report: &DoctorReport) -> String {
             "no"
         }
     );
+    for check in readiness::collect() {
+        let _ = writeln!(
+            output,
+            "readiness: {} {} [{}]",
+            detail_of(&check),
+            check.status,
+            check.id
+        );
+    }
     output
+}
+
+/// Closed single-word fact for a readiness check line.
+fn detail_of(check: &DoctorCheck) -> &'static str {
+    match check.id {
+        "readiness.db_integrity" => "database",
+        "readiness.terminal_outbox" => "terminal outbox",
+        "readiness.uncertain_attempts" => "uncertain attempts",
+        "readiness.text_only_path" => "text-only path",
+        "readiness.tools_disabled" => "tools disabled",
+        _ => "check",
+    }
 }
 
 #[cfg(test)]
