@@ -120,7 +120,9 @@ def find_native_writer_bootstrap_dependency_violations(
             "dev",
             NATIVE_WRITER_TARGET,
             "=1.1.4",
-            ("net", "pipe"),
+            # The test-only "process" feature covers the headless SIGINT tests'
+            # safe kill_process wrapper (D1.4b, 2026-09-28; unsafe_code=forbid).
+            ("net", "pipe", "process"),
             "registry",
             None,
         ),
