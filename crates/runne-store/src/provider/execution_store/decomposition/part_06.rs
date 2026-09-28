@@ -136,6 +136,8 @@ impl ProviderTerminalPersistence for SqliteProviderExecutionStore {
         if changed != 1 {
             return Err(ProviderExecutionError::StaleGeneration);
         }
+        #[cfg(feature = "test-support")]
+        crate::store::commit_gate::note_kill_boundary("b5_pre_settlement_commit");
         transaction
             .commit()
             .map_err(|_| ProviderExecutionError::StoreUnavailable)?;

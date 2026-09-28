@@ -48,3 +48,42 @@ pub(crate) fn note_durable_commit(command_id: &str) {
         std::thread::sleep(Duration::from_millis(1));
     }
 }
+
+/// Test-support-only kill-boundary handshake for the D1.6 real-kill matrix.
+///
+/// Same contract as [`note_durable_commit`], keyed by boundary name
+/// (`RUNNE_TEST_KILL_BOUNDARY`) instead of command id: when the boundary is
+/// armed (arm file exists), the daemon writes the marker file at the exact
+/// boundary and blocks until the release file appears (bounded, so an aborted
+/// test cannot hang a child forever).
+#[cfg(feature = "test-support")]
+pub(crate) fn note_kill_boundary(boundary: &str) {
+    use std::time::{Duration, Instant};
+    let Ok(target) = std::env::var("RUNNE_TEST_KILL_BOUNDARY") else {
+        return;
+    };
+    if target != boundary {
+        return;
+    }
+    let Some(arm_file) = std::env::var_os("RUNNE_TEST_KILL_BOUNDARY_ARM") else {
+        return;
+    };
+    if !std::path::Path::new(&arm_file).exists() {
+        return;
+    }
+    let Some(marker) = std::env::var_os("RUNNE_TEST_KILL_BOUNDARY_MARKER") else {
+        return;
+    };
+    // Best-effort marker: the observing test owns existence checks.
+    let _ = std::fs::write(&marker, boundary.as_bytes());
+    let Some(release) = std::env::var_os("RUNNE_TEST_KILL_BOUNDARY_RELEASE") else {
+        return;
+    };
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while !std::path::Path::new(&release).exists() {
+        if Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}

@@ -50,6 +50,20 @@ fn preserve_local_process_environment(
         {
             command.env("RUNNE_TEST_T1_TRUST_TRANSPORT_LOSS", "1");
         }
+        // D1.6 kill-matrix handshake: the boundary name and its three file
+        // paths pass through only under the same T1 fixture selector gate.
+        if let Some(boundary) = std::env::var_os("RUNNE_TEST_KILL_BOUNDARY") {
+            command.env("RUNNE_TEST_KILL_BOUNDARY", boundary);
+        }
+        if let Some(arm) = std::env::var_os("RUNNE_TEST_KILL_BOUNDARY_ARM") {
+            command.env("RUNNE_TEST_KILL_BOUNDARY_ARM", arm);
+        }
+        if let Some(marker) = std::env::var_os("RUNNE_TEST_KILL_BOUNDARY_MARKER") {
+            command.env("RUNNE_TEST_KILL_BOUNDARY_MARKER", marker);
+        }
+        if let Some(release) = std::env::var_os("RUNNE_TEST_KILL_BOUNDARY_RELEASE") {
+            command.env("RUNNE_TEST_KILL_BOUNDARY_RELEASE", release);
+        }
     }
     if runne_api::test_support::local_native_enrollment_enabled() {
         let home = std::env::var_os("HOME")

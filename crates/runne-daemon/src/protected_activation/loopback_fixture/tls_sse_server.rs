@@ -79,6 +79,9 @@ impl TlsSseServer {
             {
                 return;
             }
+            // D1.6 kill matrix: hold the request in flight (b4) after the
+            // provider has received it but before any response byte returns.
+            hold_for_kill_boundary("b4_dispatch_in_flight").await;
             let response = format!(
                 "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
                 SSE_RESPONSE.len(),
@@ -97,6 +100,11 @@ impl TlsSseServer {
                 match stream.write(&response.as_bytes()[response_written..]).await {
                     Ok(0) | Err(_) => break,
                     Ok(written) => response_written += written,
+                }
+                // D1.6 kill matrix: hold between stream events (b6) once part
+                // of the event stream reached the daemon journal.
+                if response_written < response.len() {
+                    hold_for_kill_boundary("b6_between_stream_events").await;
                 }
             }
             if scan_wire
@@ -239,4 +247,38 @@ fn increment_named_count(path: &Path, name: &str) -> Result<(), ()> {
 
 fn temporary_path(path: &Path) -> PathBuf {
     path.with_extension(format!("{}.tmp", uuid::Uuid::now_v7()))
+}
+
+/// D1.6 kill-matrix handshake inside the loopback fixture: mirrors the store
+/// boundary gate (marker write, bounded release wait) so a test can SIGKILL
+/// the daemon while the provider request is in flight or between stream
+/// events. Test-support-only module.
+async fn hold_for_kill_boundary(boundary: &str) {
+    use std::time::{Duration, Instant};
+    let Ok(target) = std::env::var("RUNNE_TEST_KILL_BOUNDARY") else {
+        return;
+    };
+    if target != boundary {
+        return;
+    }
+    let Some(arm_file) = std::env::var_os("RUNNE_TEST_KILL_BOUNDARY_ARM") else {
+        return;
+    };
+    if !std::path::Path::new(&arm_file).exists() {
+        return;
+    }
+    let Some(marker) = std::env::var_os("RUNNE_TEST_KILL_BOUNDARY_MARKER") else {
+        return;
+    };
+    let _ = tokio::fs::write(&marker, boundary.as_bytes()).await;
+    let Some(release) = std::env::var_os("RUNNE_TEST_KILL_BOUNDARY_RELEASE") else {
+        return;
+    };
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while !std::path::Path::new(&release).exists() {
+        if Instant::now() >= deadline {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
 }

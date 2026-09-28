@@ -65,9 +65,13 @@ impl SqliteProviderDispatchStore {
                 ],
             )
             .map_err(|_| ProviderStoreError::Unavailable)?;
+        #[cfg(feature = "test-support")]
+        crate::store::commit_gate::note_kill_boundary("b1_pre_prepare_commit");
         transaction
             .commit()
             .map_err(|_| ProviderStoreError::Unavailable)?;
+        #[cfg(feature = "test-support")]
+        crate::store::commit_gate::note_kill_boundary("b2_post_prepare_commit");
         Ok(PersistPreparedOutcome::Inserted)
     }
 

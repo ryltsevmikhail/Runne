@@ -111,7 +111,7 @@ fn now_micros() -> i64 {
 mod append_helpers;
 mod clock;
 #[cfg(feature = "test-support")]
-mod commit_gate;
+pub(crate) mod commit_gate;
 mod component_guard;
 mod conversation;
 pub use conversation::ConversationStreamHealth;
