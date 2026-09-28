@@ -126,6 +126,80 @@ pub fn run_doctor() -> DoctorReport {
     }
 }
 
+/// One doctor check with a stable id and closed outcome, shared by the text
+/// and JSON renderings (D1.5 format parity, 2026-09-28).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DoctorCheck {
+    /// Stable bracketed id, identical in both renderings.
+    pub id: &'static str,
+    /// Closed outcome: `pass`, `warn`, or `fail`.
+    pub status: &'static str,
+}
+
+/// The full check list of the report; the text rendering carries the same
+/// ids as bracketed line suffixes.
+#[must_use]
+pub fn doctor_checks(report: &DoctorReport) -> Vec<DoctorCheck> {
+    let mut checks = vec![DoctorCheck {
+        id: if report.config_present {
+            "config.present"
+        } else {
+            "config.absent"
+        },
+        status: "pass",
+    }];
+    if let Some(problem) = &report.config_problem {
+        checks.push(DoctorCheck {
+            id: problem.id,
+            status: "fail",
+        });
+    }
+    checks.push(DoctorCheck {
+        id: "provider.active",
+        status: if report.active_provider.is_some() {
+            "pass"
+        } else {
+            "warn"
+        },
+    });
+    for (id, disposition) in [
+        ("credential.openai", &report.openai_credential),
+        ("credential.deepseek", &report.deepseek_credential),
+    ] {
+        let status = match disposition {
+            CredentialDisposition::Configured => "pass",
+            CredentialDisposition::Missing => "warn",
+            _ => "fail",
+        };
+        checks.push(DoctorCheck { id, status });
+    }
+    checks.push(DoctorCheck {
+        id: "execution.ready",
+        status: if report.execution_ready() {
+            "pass"
+        } else {
+            "fail"
+        },
+    });
+    checks
+}
+
+/// Formats the report as one redacted JSON object with the same check ids as
+/// the text rendering.
+#[must_use]
+pub fn format_report_json(report: &DoctorReport) -> String {
+    let checks: Vec<serde_json::Value> = doctor_checks(report)
+        .into_iter()
+        .map(|check| serde_json::json!({ "id": check.id, "status": check.status }))
+        .collect();
+    let document = serde_json::json!({
+        "schemaVersion": 1,
+        "executionReady": report.execution_ready(),
+        "checks": checks,
+    });
+    format!("{document}")
+}
+
 /// Formats the report as stable text without secret material.
 #[must_use]
 pub fn format_report(report: &DoctorReport) -> String {
@@ -147,12 +221,15 @@ pub fn format_report(report: &DoctorReport) -> String {
     );
     match &report.active_provider {
         None => {
-            let _ = writeln!(output, "active provider: none (deterministic_v1)");
+            let _ = writeln!(
+                output,
+                "active provider: none (deterministic_v1) [provider.active]"
+            );
         }
         Some(info) => {
             let _ = writeln!(
                 output,
-                "active provider: {} ({})",
+                "active provider: {} ({} [provider.active])",
                 info.activation.binding().mode().as_str(),
                 match &info.activation {
                     ProviderActivation::Deterministic(_) => "deterministic",
@@ -190,13 +267,13 @@ pub fn format_report(report: &DoctorReport) -> String {
     }
     let _ = writeln!(
         output,
-        "credential openai: {} (source: {})",
+        "credential openai: {} (source: {}) [credential.openai]",
         report.openai_credential.as_str(),
         credential_source()
     );
     let _ = writeln!(
         output,
-        "credential deepseek: {} (source: {})",
+        "credential deepseek: {} (source: {}) [credential.deepseek]",
         report.deepseek_credential.as_str(),
         credential_source()
     );
@@ -207,7 +284,7 @@ pub fn format_report(report: &DoctorReport) -> String {
     }
     let _ = writeln!(
         output,
-        "execution ready: {}",
+        "execution ready: {} [execution.ready]",
         if report.execution_ready() {
             "yes"
         } else {

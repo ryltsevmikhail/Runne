@@ -163,3 +163,76 @@ fn failure_cause_ids_stay_pairwise_distinct() {
     ids.dedup();
     assert_eq!(ids.len(), count, "integration ids must stay distinct");
 }
+
+mod format_parity {
+    use super::*;
+
+    /// Extracts `[id]` markers from the text rendering.
+    fn text_ids(output: &str) -> Vec<String> {
+        let mut ids = Vec::new();
+        for line in output.lines() {
+            let start = match line.rfind(" [") {
+                Some(index) => index + 2,
+                None => continue,
+            };
+            let end = line.rfind(']').expect("closed marker");
+            ids.push(line[start..end].to_owned());
+        }
+        ids.sort();
+        ids
+    }
+
+    fn run_doctor_format(dir: &tempfile::TempDir, format: &[&str]) -> Output {
+        isolated_command(dir)
+            .args(format)
+            .output()
+            .expect("run daemon doctor")
+    }
+
+    #[test]
+    fn doctor_text_and_json_expose_the_same_check_ids_and_outcomes() {
+        let dir = isolated();
+        let text = run_doctor_format(&dir, &["doctor"]);
+        let text_out = stdout(&text);
+
+        let json = run_doctor_format(&dir, &["doctor", "--format", "json"]);
+        let json_out = stdout(&json);
+        let value: serde_json::Value = serde_json::from_str(json_out.trim())
+            .expect("doctor --format json emits one JSON object");
+        assert_eq!(value["schemaVersion"], 1);
+        let checks = value["checks"].as_array().expect("checks array");
+        let mut json_ids: Vec<String> = checks
+            .iter()
+            .map(|check| check["id"].as_str().expect("check id").to_owned())
+            .collect();
+        json_ids.sort();
+        assert_eq!(json_ids, text_ids(&text_out), "identical check id sets");
+        assert_eq!(value["executionReady"], true);
+        assert_eq!(json.status.code(), text.status.code());
+        assert!(!json_out.contains(dir.path().to_str().unwrap()));
+        assert_common_redaction(&dir, &json);
+    }
+
+    #[test]
+    fn doctor_json_reports_the_broken_config_like_text() {
+        let dir = isolated();
+        write_config(&dir, "schema_version = 999\n", 0o600);
+        let text = run_doctor_format(&dir, &["doctor"]);
+        let text_out = stdout(&text);
+        assert!(text_out.contains("[config.schema_version]"), "{text_out}");
+
+        let json = run_doctor_format(&dir, &["doctor", "--format", "json"]);
+        let json_out = stdout(&json);
+        let value: serde_json::Value = serde_json::from_str(json_out.trim()).unwrap();
+        let ids: Vec<&str> = value["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|check| check["id"].as_str().unwrap())
+            .collect();
+        assert!(ids.contains(&"config.schema_version"), "{json_out}");
+        assert_eq!(value["executionReady"], false);
+        assert_eq!(json.status.code(), text.status.code());
+        assert!(!json_out.contains("schema_version = 999"));
+    }
+}

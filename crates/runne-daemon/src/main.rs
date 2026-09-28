@@ -3,7 +3,7 @@
 use std::ffi::OsString;
 
 use runne_daemon::application::DaemonApplication;
-use runne_daemon::doctor::{format_report, run_doctor};
+use runne_daemon::doctor::{format_report, format_report_json, run_doctor};
 #[cfg(any(unix, windows))]
 use runne_daemon::protected_activation::{
     ProtectedActivationChannel, run_verified_protected_channel,
@@ -31,7 +31,7 @@ enum Invocation {
     Run,
     Help,
     Version,
-    Doctor,
+    Doctor { json: bool },
     Invalid(String),
 }
 
@@ -43,11 +43,32 @@ fn parse_invocation(arguments: &[OsString]) -> Invocation {
         [one] => match one.to_str() {
             Some("-h" | "--help") => Invocation::Help,
             Some("-V" | "--version") => Invocation::Version,
-            Some("doctor") => Invocation::Doctor,
+            Some("doctor") => Invocation::Doctor { json: false },
             Some(_) | None => {
                 Invocation::Invalid("unknown argument (run 'runned --help' for usage)".to_owned())
             }
         },
+        [one, two, three] if one.to_str() == Some("doctor") && two.to_str() == Some("--format") => {
+            match three.to_str() {
+                Some("json") => Invocation::Doctor { json: true },
+                Some("text") => Invocation::Doctor { json: false },
+                _ => Invocation::Invalid(
+                    "unknown doctor format (run 'runned --help' for usage)".to_owned(),
+                ),
+            }
+        }
+        [one, two] if one.to_str() == Some("doctor") => {
+            match two
+                .to_str()
+                .and_then(|value| value.strip_prefix("--format="))
+            {
+                Some("json") => Invocation::Doctor { json: true },
+                Some("text") => Invocation::Doctor { json: false },
+                _ => Invocation::Invalid(
+                    "unknown doctor format (run 'runned --help' for usage)".to_owned(),
+                ),
+            }
+        }
         [_, ..] => Invocation::Invalid(
             "unexpected extra arguments (run 'runned --help' for usage)".to_owned(),
         ),
@@ -70,9 +91,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("runned {}", env!("CARGO_PKG_VERSION"));
             return Ok(());
         }
-        Invocation::Doctor => {
+        Invocation::Doctor { json } => {
             let report = run_doctor();
-            print!("{}", format_report(&report));
+            let rendered = if json {
+                format_report_json(&report)
+            } else {
+                format_report(&report)
+            };
+            println!("{rendered}");
             if !report.execution_ready() {
                 std::process::exit(1);
             }
