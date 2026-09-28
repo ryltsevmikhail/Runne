@@ -186,6 +186,10 @@ pub enum ErrorCode {
 
     // Admission errors (exit 1)
     ModelMismatch,
+
+    // Session errors (exit 1)
+    SessionNotFound,
+    SessionWorkspaceMismatch,
 }
 
 impl ErrorCode {
@@ -195,7 +199,11 @@ impl ErrorCode {
         match self {
             Self::InvalidArguments | Self::UnknownCommand => 2,
             Self::ProfileUnavailable | Self::ProfileIncompatible => 3,
-            Self::RuntimeUnavailable | Self::ApiError | Self::ModelMismatch => 1,
+            Self::RuntimeUnavailable
+            | Self::ApiError
+            | Self::ModelMismatch
+            | Self::SessionNotFound
+            | Self::SessionWorkspaceMismatch => 1,
             Self::CredentialOperationFailed | Self::CredentialBackendUnsupported => 4,
             Self::TaskUncertain => 5,
         }

@@ -60,6 +60,8 @@ fn taskrun_snapshot_uses_closed_state_and_terminal_values() {
     let attempt_id = ATTEMPT_ID.parse::<AttemptId>().unwrap();
     let snapshot = TaskRunSnapshot {
         taskrun_id,
+        conversation_id: None,
+        workspace_id: None,
         state: CanonicalTaskRunState::Succeeded,
         stream_version: 5,
         active_attempt_id: Some(attempt_id),

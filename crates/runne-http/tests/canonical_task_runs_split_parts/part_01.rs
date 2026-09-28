@@ -169,6 +169,8 @@ impl TaskRunQueryHostPort for RecordingHost {
         self.record(Call::Get(taskrun_id))?;
         Ok(TaskRunSnapshot {
             taskrun_id,
+            conversation_id: None,
+            workspace_id: None,
             state: CanonicalTaskRunState::Running,
             stream_version: 4,
             active_attempt_id: Some(ATTEMPT_ID.parse().unwrap()),

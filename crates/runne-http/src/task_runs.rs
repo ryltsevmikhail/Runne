@@ -101,6 +101,10 @@ struct TaskRunAckWire {
 #[serde(rename_all = "camelCase")]
 struct TaskRunSnapshotWire {
     task_run_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    conversation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_id: Option<String>,
     state: &'static str,
     stream_version: u64,
     active_attempt_id: Option<String>,

@@ -18,6 +18,8 @@ Commands:
   conversation     Manage conversations
   task             Inspect runtime task runs (read-only)
   exec             Submit one headless task run and stream events
+  session          List accessible sessions (runtime-derived)
+  resume           Resume a session and print its committed projection
   provider         Manage provider credentials
   status           Show runtime connection status
   health           Check runtime health status
@@ -181,6 +183,8 @@ pub fn help_for(command_path: &[&str]) -> &'static str {
         ["task", "list"] => TASK_LIST_HELP,
         ["task", "get"] => TASK_GET_HELP,
         ["exec"] => EXEC_HELP,
+        ["session"] => SESSION_HELP,
+        ["resume"] => RESUME_HELP,
         ["provider"] => PROVIDER_HELP,
         ["provider", "credential"] => PROVIDER_CREDENTIAL_HELP,
         ["provider", "credential", "set"] => PROVIDER_CREDENTIAL_SET_HELP,

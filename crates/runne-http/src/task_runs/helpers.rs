@@ -64,6 +64,8 @@ fn ack_to_wire(ack: TaskRunCommandAck) -> TaskRunAckWire {
 fn snapshot_to_wire(snapshot: TaskRunSnapshot) -> TaskRunSnapshotWire {
     TaskRunSnapshotWire {
         task_run_id: snapshot.taskrun_id.to_string(),
+        conversation_id: snapshot.conversation_id.map(|id| id.to_string()),
+        workspace_id: snapshot.workspace_id.map(|id| id.to_string()),
         state: state_name(snapshot.state),
         stream_version: snapshot.stream_version,
         active_attempt_id: snapshot.active_attempt_id.map(|id| id.to_string()),

@@ -6,9 +6,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use runne_runtime_client::{
-    CanonicalId, CommandIdentity, ConversationContextScope, CreateConversationRequest,
-    GenerateTextRequest, LocalProfileError, LocalRuntimeProfile, RuntimeApiError,
-    RuntimeApiErrorKind, SubmitTaskRunRequest, TaskRunSnapshot, TaskRunState,
+    AuthenticatedRuntimeClient, CanonicalId, CommandIdentity, ConversationContextScope,
+    CreateConversationRequest, GenerateTextRequest, LocalProfileError, LocalRuntimeProfile,
+    RuntimeApiError, RuntimeApiErrorKind, SubmitTaskRunRequest, TaskRunSnapshot, TaskRunState,
     TaskRunTerminalResult, default_local_profile_path,
 };
 use runne_secure_store::{
@@ -230,6 +230,7 @@ include!("cli/completion.rs");
 include!("cli/conversation.rs");
 include!("cli/task.rs");
 include!("cli/task_run.rs");
+include!("cli/session.rs");
 include!("cli/task_help.rs");
 include!("cli/provider_credential.rs");
 include!("cli/provider_credential_broker.rs");

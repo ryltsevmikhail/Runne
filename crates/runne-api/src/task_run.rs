@@ -185,6 +185,10 @@ impl CanonicalTaskRunState {
 pub struct TaskRunSnapshot {
     /// Queried TaskRun.
     pub taskrun_id: TaskRunId,
+    /// Conversation bound at creation, when the run carries one.
+    pub conversation_id: Option<ConversationId>,
+    /// Workspace bound at creation, when the run carries one.
+    pub workspace_id: Option<WorkspaceId>,
     /// Reconstructed lifecycle state.
     pub state: CanonicalTaskRunState,
     /// Current committed stream version.

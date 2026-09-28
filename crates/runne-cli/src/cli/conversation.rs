@@ -89,6 +89,8 @@ async fn dispatch_command(
         // the split into distinct run/exec semantics lands with the X2
         // terminal path (slice plan ruling, 2026-09-28).
         "exec" | "run" => run_exec(profile_path, arguments, format).await,
+        "session" => run_session(profile_path, arguments, format).await,
+        "resume" => run_resume(profile_path, arguments, format).await,
         "status" => run_status_command(profile_path, arguments).await.map(CommandOutput::text),
         "health" => run_health_command(profile_path, arguments).await,
         "doctor" => run_doctor_command(profile_path, arguments, format).await,

@@ -31,6 +31,8 @@ pub enum TaskRunTerminalResult {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TaskRunSnapshot {
     task_run_id: CanonicalId,
+    conversation_id: Option<CanonicalId>,
+    workspace_id: Option<CanonicalId>,
     state: TaskRunState,
     stream_version: u64,
     active_attempt_id: Option<CanonicalId>,
@@ -66,6 +68,18 @@ impl TaskRunSnapshot {
         self.task_run_id
     }
 
+    /// The conversation bound at creation, when the run carries one.
+    #[must_use]
+    pub const fn conversation_id(&self) -> Option<CanonicalId> {
+        self.conversation_id
+    }
+
+    /// The workspace bound at creation, when the run carries one.
+    #[must_use]
+    pub const fn workspace_id(&self) -> Option<CanonicalId> {
+        self.workspace_id
+    }
+
     #[must_use]
     pub const fn state(&self) -> TaskRunState {
         self.state
@@ -91,6 +105,10 @@ impl TaskRunSnapshot {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct TaskRunSnapshotWire {
     task_run_id: CanonicalId,
+    #[serde(default)]
+    conversation_id: PresentOption<CanonicalId>,
+    #[serde(default)]
+    workspace_id: PresentOption<CanonicalId>,
     state: TaskRunStateWire,
     stream_version: u64,
     #[serde(default)]
@@ -182,6 +200,14 @@ impl TryFrom<TaskRunSnapshotWire> for TaskRunSnapshot {
         if wire.stream_version == 0 {
             return Err(invalid_task_run_response());
         }
+        let conversation_id = match wire.conversation_id {
+            PresentOption::Present(Some(value)) => Some(value),
+            _ => None,
+        };
+        let workspace_id = match wire.workspace_id {
+            PresentOption::Present(Some(value)) => Some(value),
+            _ => None,
+        };
         let PresentOption::Present(active_attempt_id) = wire.active_attempt_id else {
             return Err(invalid_task_run_response());
         };
@@ -213,6 +239,8 @@ impl TryFrom<TaskRunSnapshotWire> for TaskRunSnapshot {
         }
         Ok(Self {
             task_run_id: wire.task_run_id,
+            conversation_id,
+            workspace_id,
             state,
             stream_version: wire.stream_version,
             active_attempt_id,

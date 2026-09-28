@@ -75,3 +75,37 @@ Examples:
   echo \"Fix the test\" | runne --format jsonl exec \\
     --conversation-id 018f2e3a-7000-7000-8000-000000000001 \\
     --workspace-id 018f2e3a-7000-7000-8000-000000000002";
+
+/// Help text for `session list`.
+pub const SESSION_HELP: &str = "\
+List accessible sessions derived from the runtime TaskRun list.
+
+Usage:
+  runne [--profile PATH] session list
+
+Each session row: conversation id, workspace id, task run count, last state,
+last terminal result. The runtime order is authoritative; the CLI stores no
+session registry.
+
+Examples:
+  runne session list
+  runne --format json session list";
+
+/// Help text for `resume`.
+pub const RESUME_HELP: &str = "\
+Resume a session: print its authoritative committed projection (task run
+terminal receipts and messages). Resume never creates a new TaskRun.
+
+Usage:
+  runne [--profile PATH] resume <conversation-id>
+  runne [--profile PATH] resume --last [--workspace-id UUID]
+
+Options:
+  --last              Resume the most recent accessible session (authoritative
+                      runtime order); optionally filtered by --workspace-id
+  --workspace-id UUID Assert the session's workspace; a mismatch is a typed
+                      refusal (error code `session_workspace_mismatch`)
+
+Examples:
+  runne resume 018f2e3a-7000-7000-8000-000000000001
+  runne --format json resume --last";

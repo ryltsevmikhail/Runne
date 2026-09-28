@@ -90,6 +90,16 @@ impl TaskRun {
         &self.id
     }
 
+    /// Return the conversation this run belongs to, when bound.
+    pub fn conversation_id(&self) -> Option<&ConversationId> {
+        self.conversation_id.as_ref()
+    }
+
+    /// Return the workspace this run belongs to, when bound.
+    pub fn workspace_id(&self) -> Option<&WorkspaceId> {
+        self.workspace_id.as_ref()
+    }
+
     /// Return the current state.
     pub fn state(&self) -> TaskRunState {
         self.state

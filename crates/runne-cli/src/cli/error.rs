@@ -27,6 +27,10 @@ enum CliError {
     /// uncertain, never reported as success. The observed event stream goes to
     /// stdout while the typed envelope goes to stderr.
     TaskUncertain(CommandOutput),
+    /// No accessible session matches the resume request.
+    SessionNotFound,
+    /// The session belongs to a different workspace than asserted.
+    SessionWorkspaceMismatch,
     AuthorityUsage,
     #[cfg(not(target_os = "macos"))]
     AuthorityUnsupportedPlatform,
@@ -82,6 +86,8 @@ impl CliError {
             Self::Api(error) if error.kind() == RuntimeApiErrorKind::ModelMismatch => {
                 Some(ErrorCode::ModelMismatch)
             }
+            Self::SessionNotFound => Some(ErrorCode::SessionNotFound),
+            Self::SessionWorkspaceMismatch => Some(ErrorCode::SessionWorkspaceMismatch),
             _ => Some(ErrorCode::ApiError),
         }
     }
@@ -117,7 +123,14 @@ impl fmt::Display for CliError {
                 formatter.write_str("task run reached a non-success terminal outcome")
             }
             Self::TaskUncertain(_) => {
-                formatter.write_str("task run did not reach a terminal outcome within the bounded wait")
+                formatter
+                    .write_str("task run did not reach a terminal outcome within the bounded wait")
+            }
+            Self::SessionNotFound => {
+                formatter.write_str("no accessible session matches the resume request")
+            }
+            Self::SessionWorkspaceMismatch => {
+                formatter.write_str("session belongs to a different workspace")
             }
             Self::AuthorityUsage => formatter.write_str("USAGE"),
             #[cfg(not(target_os = "macos"))]

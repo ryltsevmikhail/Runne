@@ -22,6 +22,8 @@ where
                 TaskRun::replay(&stream.events).map_err(|_| TaskRunHostError::Unavailable)?;
             Ok(TaskRunSnapshot {
                 taskrun_id,
+                conversation_id: aggregate.conversation_id().copied(),
+                workspace_id: aggregate.workspace_id().copied(),
                 state: state_to_canonical(aggregate.state()),
                 stream_version: stream.current_version,
                 active_attempt_id: aggregate.active_attempt().copied(),
@@ -57,6 +59,8 @@ where
                         .map_err(|_| TaskRunHostError::Unavailable)?;
                     Ok(TaskRunSnapshot {
                         taskrun_id,
+                        conversation_id: aggregate.conversation_id().copied(),
+                        workspace_id: aggregate.workspace_id().copied(),
                         state: state_to_canonical(aggregate.state()),
                         stream_version: stream.current_version,
                         active_attempt_id: aggregate.active_attempt().copied(),
