@@ -139,6 +139,116 @@ fn trusted_capture_requires_the_exact_builtin_default_before_private_access() {
     assert!(initialize < default && default < named && named < equality && equality < immutable);
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn opened_identity_inspection_preserves_live_sqlite_wal_locks() {
+    use rusqlite::Connection;
+    use std::time::SystemTime;
+
+    let _registry = VFS_REGISTRY.lock().unwrap();
+    let stamp = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "sqlite-identity-lock-{}-{stamp}",
+        std::process::id(),
+    ));
+    std::fs::create_dir(&root).unwrap();
+    let path = root.join("database.sqlite");
+    let connection = Connection::open(&path).unwrap();
+    connection
+        .execute_batch(
+            "PRAGMA journal_mode=WAL;
+             CREATE TABLE lock_probe (value INTEGER NOT NULL);
+             INSERT INTO lock_probe VALUES (1);
+             BEGIN IMMEDIATE;
+             INSERT INTO lock_probe VALUES (2);",
+        )
+        .unwrap();
+
+    let identity = super::opened_database_identity(&connection).unwrap();
+    assert_eq!(super::path_database_identity(&path), Ok(identity));
+    assert!(run_lock_probe("lock", &path).contains("lock-probe: blocked"));
+    connection.execute_batch("COMMIT;").unwrap();
+    let readback = run_lock_probe("read", &path);
+    assert!(readback.contains("read-count:2"), "{readback}");
+    drop(connection);
+    assert!(run_lock_probe("read", &path).contains("read-count:2"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "subprocess helper for opened_identity_inspection_preserves_live_sqlite_wal_locks"]
+fn linux_sqlite_lock_probe_child() {
+    let Some(path) = std::env::var_os("RUNNE_SQLITE_IDENTITY_LOCK_PATH") else {
+        return;
+    };
+    let mode = std::env::var("RUNNE_SQLITE_IDENTITY_LOCK_MODE").unwrap();
+    let connection = rusqlite::Connection::open(path).unwrap();
+    if mode == "lock" {
+        connection
+            .busy_timeout(std::time::Duration::from_millis(150))
+            .unwrap();
+        match connection.execute_batch("BEGIN IMMEDIATE;") {
+            Ok(()) => {
+                println!("lock-probe: acquired");
+                connection.execute_batch("ROLLBACK;").unwrap();
+            }
+            Err(rusqlite::Error::SqliteFailure(error, _))
+                if matches!(
+                    error.code,
+                    rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+                ) =>
+            {
+                println!("lock-probe: blocked");
+            }
+            Err(error) => {
+                let _error_variant = std::mem::discriminant(&error);
+                panic!("lock probe returned an unexpected SQLite error variant");
+            }
+        }
+    } else {
+        let count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM lock_probe", [], |row| row.get(0))
+            .unwrap();
+        println!("read-count:{count}");
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn run_lock_probe(mode: &str, path: &std::path::Path) -> String {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "identity_tests::linux_sqlite_lock_probe_child",
+            "--ignored",
+            "--nocapture",
+        ])
+        .env("RUNNE_SQLITE_IDENTITY_LOCK_PATH", path)
+        .env("RUNNE_SQLITE_IDENTITY_LOCK_MODE", mode)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("SQLite identity child probe timed out");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "SQLite identity child failed");
+    String::from_utf8(output.stdout).unwrap()
+}
+
 fn rust_sources(root: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut sources = Vec::new();
     for entry in std::fs::read_dir(root).expect("read crate root") {

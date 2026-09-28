@@ -26,3 +26,10 @@ fn test_tag(
     hasher.update(previous_anchor_digest);
     hasher.finalize().into()
 }
+
+fn test_payload_key(profile: [u8; 32]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"test-only/runne/mutation-payload-key/v1\0");
+    hasher.update(profile);
+    hasher.finalize().into()
+}

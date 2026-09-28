@@ -10,7 +10,7 @@ impl LocalStore {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         transaction.execute_batch(&format!(
-            "DROP TABLE mutation_ledger; {}; {}; {}; {}; PRAGMA user_version=8;",
+            "DROP TABLE mutation_ledger; {}; {}; {}; {}; PRAGMA user_version=9;",
             crate::security_schema_v7::LEDGER_SQL,
             crate::security_schema_v6::TRANSACTIONS_SQL,
             crate::security_schema_v6::PROFILE_SQL,
@@ -32,7 +32,7 @@ impl LocalStore {
                 anchor.sealed_transaction.as_bytes()
             ],
         )?;
-        transaction.execute("UPDATE meta SET schema_version=8,last_transaction_digest=?1,commit_marker=1 WHERE singleton=1", [hex(&anchor.transaction_digest)])?;
+        transaction.execute("UPDATE meta SET schema_version=9,last_transaction_digest=?1,commit_marker=1 WHERE singleton=1", [hex(&anchor.transaction_digest)])?;
         transaction.commit()?;
         Ok(())
     }

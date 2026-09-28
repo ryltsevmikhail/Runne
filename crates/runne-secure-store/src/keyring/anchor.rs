@@ -49,6 +49,28 @@ impl SecurityProfileLockBackend for NativeSecurityLock {
         )
         .map_err(|_| SecureStoreError::InvalidSeal)
     }
+
+    fn encrypt_mutation_payload(
+        &self,
+        database: [u8; 32],
+        aad: &[u8],
+        plaintext: &[u8],
+    ) -> Result<Vec<u8>, SecureStoreError> {
+        crate::payload_crypto::encrypt(&self.key, self.profile, database, aad, plaintext)
+    }
+
+    fn decrypt_mutation_payload(
+        &self,
+        database: [u8; 32],
+        aad: &[u8],
+        envelope: &[u8],
+    ) -> Result<zeroize::Zeroizing<Vec<u8>>, SecureStoreError> {
+        crate::payload_crypto::decrypt(&self.key, self.profile, database, aad, envelope)
+    }
+
+    fn supports_mutation_payload_encryption(&self) -> bool {
+        true
+    }
 }
 
 impl SecureStore for NativeKeyringStore {

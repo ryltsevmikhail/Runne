@@ -5,6 +5,8 @@ use sha2::{Digest, Sha256};
 async fn real_linux_baseline_v2_remains_usable_without_installed_enrollment() {
     let _guard = PROCESS_FAULT_AUDIT_LOCK.lock().await;
     let temporary = owner_private::tempdir();
+    let session_bus_socket =
+        super::t1_support::fixture_session_bus(temporary.path(), "session-bus.sock");
     let executable =
         owner_private::ControlledExecutable::copy_with_writer_from(env!("CARGO_BIN_EXE_runned"));
     let spec = ProtectedBundledRuntimeLaunchSpec::new(
@@ -12,7 +14,9 @@ async fn real_linux_baseline_v2_remains_usable_without_installed_enrollment() {
         &temporary.path().join("bundled-runtime"),
     )
     .unwrap()
-    .with_openai_provider_activation();
+    .with_openai_provider_activation()
+    .with_validated_session_bus_address(&session_bus_socket)
+    .unwrap();
     let mut supervisor =
         ProtectedBundledRuntimeSupervisor::new(DevelopmentBundledRuntimeLauncher::new(), spec);
     supervisor.start().unwrap();
@@ -37,6 +41,8 @@ async fn real_linux_baseline_v2_remains_usable_without_installed_enrollment() {
 async fn linux_gate_facts_follow_live_v2_authority_and_deny_after_stop() {
     let _guard = PROCESS_FAULT_AUDIT_LOCK.lock().await;
     let temporary = owner_private::tempdir();
+    let session_bus_socket =
+        super::t1_support::fixture_session_bus(temporary.path(), "session-bus.sock");
     let executable =
         owner_private::ControlledExecutable::copy_with_writer_from(env!("CARGO_BIN_EXE_runned"));
     let spec = ProtectedBundledRuntimeLaunchSpec::new(
@@ -44,7 +50,9 @@ async fn linux_gate_facts_follow_live_v2_authority_and_deny_after_stop() {
         &temporary.path().join("runtime"),
     )
     .unwrap()
-    .with_openai_provider_activation();
+    .with_openai_provider_activation()
+    .with_validated_session_bus_address(&session_bus_socket)
+    .unwrap();
     let root = spec.runtime_root().to_path_buf();
     let mut supervisor =
         ProtectedBundledRuntimeSupervisor::new(DevelopmentBundledRuntimeLauncher::new(), spec);

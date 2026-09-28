@@ -19,7 +19,8 @@ use runne_application::ports::{
     EventStoreError, ProjectWorkspaceRepository, ProjectWorkspaceRepositoryError,
 };
 use runne_application::project_trust::{
-    PermissionMode, ProjectTrustProjectId, SourceAdmissionRequest, SourceChannel,
+    PermissionMode, ProjectTrustEffectLease, ProjectTrustProjectId, SourceAdmissionRequest,
+    SourceChannel,
 };
 use runne_domain::conversation::Conversation;
 use runne_domain::id::ConversationId;
@@ -133,9 +134,14 @@ impl DeliveryTrustGate {
     /// admitted trust record. A missing marker is unknown provenance and
     /// follows the stricter (b) path; the former absence-based allows
     /// (unregistered workspace, never-governed project) are removed.
-    /// Read/decode failures and corrupted streams deny (fail-closed); a
-    /// genuine retention gap carries no trust verdict and falls through so
-    /// the store's recovery contract answers (410 + baseline).
+    /// Read/decode failures and corrupted streams deny (fail-closed). A
+    /// retention gap is decided here, never handed to baseline recovery:
+    /// delivery proceeds only on an explicit durable TextOnly marker. A
+    /// workspace-scoped or unmarked gap denies even for a currently Trusted
+    /// project — a gap need not be a lost sequence 1 (the header can
+    /// disagree for other reasons), but either way the
+    /// conversation→workspace binding is unproven, and the aggregate
+    /// snapshot used by recovery is not authenticated trust evidence.
     pub(crate) fn ensure_conversation_trusted(
         &self,
         principal: &str,
@@ -151,10 +157,26 @@ impl DeliveryTrustGate {
             // Confirmed absence: live-only sessions (open before the first
             // message) carry no captured material.
             Err(EventStoreError::NotFound) => return Ok(()),
-            // Standard retention gap: every present row is intact and only
-            // the header disagrees. No trust verdict — the store's
-            // open_session answers with its recovery contract.
-            Ok(runne_store::store::ConversationStreamHealth::RetentionGap { .. }) => return Ok(()),
+            // A gap may have lost the sequence-1 event that binds this
+            // conversation to its workspace, or disagree with the header
+            // for another reason; either way the binding is unproven. Do
+            // not infer trust from the unauthenticated aggregate snapshot
+            // used by baseline recovery. An explicit durable TextOnly
+            // marker is independent of that event and carries no
+            // project-controlled content.
+            Ok(runne_store::store::ConversationStreamHealth::RetentionGap { .. }) => {
+                return if inner
+                    .conversations
+                    .conversation_context_scope(conversation_id)
+                    .is_ok_and(|scope| {
+                        scope
+                            == Some(runne_domain::conversation::ConversationContextScope::TextOnly)
+                    }) {
+                    Ok(())
+                } else {
+                    Err(TrustDeliveryDenied)
+                };
+            }
             // Corrupt or unreadable streams and other read failures block
             // delivery: they are never classified as "nothing to deliver".
             Ok(runne_store::store::ConversationStreamHealth::Intact(stream)) => stream,
@@ -196,6 +218,58 @@ impl DeliveryTrustGate {
             Ok(false) => Err(TrustDeliveryDenied),
             Err(_) => Err(TrustDeliveryDenied),
         }
+    }
+
+    /// Holds the current governed-project revision across the durable
+    /// provider-effect start transition. The lease is released before network
+    /// dispatch; text-only conversations retain their explicit bypass.
+    pub(crate) fn acquire_provider_effect_lease(
+        &self,
+        principal: &str,
+        conversation_id: ConversationId,
+    ) -> Result<Option<Box<dyn ProjectTrustEffectLease>>, TrustDeliveryDenied> {
+        let Some(inner) = self.active()? else {
+            return Ok(None);
+        };
+        let stream = match inner
+            .conversations
+            .diagnose_conversation_stream(conversation_id)
+        {
+            Ok(runne_store::store::ConversationStreamHealth::Intact(stream)) => stream,
+            _ => return Err(TrustDeliveryDenied),
+        };
+        if stream.events.is_empty() {
+            return Err(TrustDeliveryDenied);
+        }
+        let scope = inner
+            .conversations
+            .conversation_context_scope(conversation_id)
+            .map_err(|_| TrustDeliveryDenied)?;
+        if scope == Some(runne_domain::conversation::ConversationContextScope::TextOnly) {
+            return Ok(None);
+        }
+        let aggregate = Conversation::replay(&stream.events).map_err(|_| TrustDeliveryDenied)?;
+        let workspace = inner
+            .workspaces
+            .get_workspace(principal, aggregate.workspace_id)
+            .map_err(|_| TrustDeliveryDenied)?;
+        let project = ProjectTrustProjectId::from_bytes(*workspace.project_id().as_bytes());
+        // FilesList + Ask is the inherited delivery-gate convention: a
+        // managed FilesList deny intentionally blocks provider delivery
+        // too (over-deny); a dedicated channel is only a new policy revision.
+        inner
+            .authority
+            .acquire_effect_lease(
+                project,
+                SourceAdmissionRequest {
+                    channel: SourceChannel::FilesList,
+                    path: None,
+                    observed_token: None,
+                    permission_mode: PermissionMode::Ask,
+                },
+            )
+            .map(Some)
+            .map_err(|_| TrustDeliveryDenied)
     }
 
     /// Current-revision admission for an already-identified project. The

@@ -32,10 +32,17 @@ CREATE TABLE replay_active_generations (
 ) STRICT;";
 
 pub(crate) fn validate_v8_schema(connection: &Connection) -> Result<(), SecurityStateError> {
+    validate_schema_version(connection, 8)
+}
+
+pub(crate) fn validate_schema_version(
+    connection: &Connection,
+    expected: i64,
+) -> Result<(), SecurityStateError> {
     let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
     let meta: (i64, i64, Option<String>, i64) = connection.query_row("SELECT schema_version,db_generation,last_transaction_digest,commit_marker FROM meta WHERE singleton=1", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
-    if version != 8
-        || meta.0 != 8
+    if version != expected
+        || meta.0 != expected
         || meta.1 < 1
         || meta.2.as_deref().is_none_or(|value| !digest(value))
         || meta.3 != 1

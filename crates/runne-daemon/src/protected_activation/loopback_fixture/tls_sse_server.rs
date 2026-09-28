@@ -11,6 +11,7 @@ use tokio_rustls::TlsAcceptor;
 
 use super::fixed_response::SSE_RESPONSE;
 use super::request_validation::{FixtureRequestKind, matches_expected_request, request_length_for};
+use super::t1_scan_receipt::write_t1_scan_receipt;
 
 /// One-use loopback HTTPS endpoint serving the fixture's fixed SSE response.
 pub struct TlsSseServer {
@@ -25,21 +26,54 @@ impl TlsSseServer {
         authenticator: FixtureRequestAuthenticator,
         request_kind: FixtureRequestKind,
     ) -> Result<Self, ()> {
+        Self::start_with_scan(runtime_root, authenticator, request_kind, false, false).await
+    }
+
+    #[cfg(all(target_os = "linux", feature = "test-support", not(test)))]
+    pub(super) async fn start_t1(
+        runtime_root: &Path,
+        authenticator: FixtureRequestAuthenticator,
+        drop_response: bool,
+    ) -> Result<Self, ()> {
+        Self::start_with_scan(
+            runtime_root,
+            authenticator,
+            FixtureRequestKind::ServicePointOfUse,
+            true,
+            drop_response,
+        )
+        .await
+    }
+
+    async fn start_with_scan(
+        runtime_root: &Path,
+        authenticator: FixtureRequestAuthenticator,
+        request_kind: FixtureRequestKind,
+        scan_wire: bool,
+        drop_response: bool,
+    ) -> Result<Self, ()> {
         let listener = TcpListener::bind("127.0.0.1:0").await.map_err(|_| ())?;
         let address = listener.local_addr().map_err(|_| ())?;
         let (certificate_der, config) = tls_config()?;
         let count_path = runtime_root.join("fixture-provider-request-count");
+        let scan_receipt_path = runtime_root.join("fixture-provider-wire-scan-receipt.json");
         let task = tokio::spawn(async move {
             let Ok((stream, _)) = listener.accept().await else {
                 return;
             };
+            if scan_wire
+                && increment_named_count(&count_path, "fixture-provider-connection-count").is_err()
+            {
+                return;
+            }
             let Ok(mut stream) = TlsAcceptor::from(config).accept(stream).await else {
                 return;
             };
             let Ok(request) = read_request(&mut stream, request_kind).await else {
                 return;
             };
-            if increment_named_count(&count_path, "fixture-provider-connection-count").is_err()
+            if (!scan_wire
+                && increment_named_count(&count_path, "fixture-provider-connection-count").is_err())
                 || !matches_expected_request(&request, &authenticator, request_kind)
                 || increment_request_count(&count_path).is_err()
             {
@@ -50,7 +84,32 @@ impl TlsSseServer {
                 SSE_RESPONSE.len(),
                 SSE_RESPONSE
             );
-            let _ = stream.write_all(response.as_bytes()).await;
+            if drop_response {
+                if scan_wire
+                    && write_t1_scan_receipt(&scan_receipt_path, &request, &[], false).is_err()
+                {
+                    return;
+                }
+                return;
+            }
+            let mut response_written = 0;
+            while response_written < response.len() {
+                match stream.write(&response.as_bytes()[response_written..]).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(written) => response_written += written,
+                }
+            }
+            if scan_wire
+                && write_t1_scan_receipt(
+                    &scan_receipt_path,
+                    &request,
+                    &response.as_bytes()[..response_written],
+                    response_written == response.len(),
+                )
+                .is_err()
+            {
+                return;
+            }
             let _ = stream.shutdown().await;
         });
         Ok(Self {

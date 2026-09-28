@@ -21,10 +21,12 @@ mod taskrun_audit;
 mod taskrun_fence;
 mod taskrun_origins;
 mod taskrun_replay;
+mod trust_metadata;
 mod workspace_mutations;
 
 use project_mutations::*;
 use queries::*;
+pub use trust_metadata::OwnedWorkspaceTrustMetadata;
 use workspace_mutations::*;
 
 /// Durable repository composed over the same writer as TaskRun persistence.

@@ -146,8 +146,7 @@ pub(super) async fn start_http_and_runtime(
     )
     .map_err(|_| DaemonError::Bootstrap("build local session binding".into()))?;
     let launched_at = Instant::now();
-    let session_clock: Arc<dyn Fn() -> Duration + Send + Sync> =
-        Arc::new(move || launched_at.elapsed());
+    let clock: Arc<dyn Fn() -> Duration + Send + Sync> = Arc::new(move || launched_at.elapsed());
     let enrollment_routes = enrollment.routes;
     let local_session_service = session::compose(
         binding.clone(),
@@ -207,7 +206,7 @@ pub(super) async fn start_http_and_runtime(
         Arc::clone(&local_session_service),
         binding.clone(),
         protected_activation,
-        Arc::clone(&session_clock),
+        Arc::clone(&clock),
         runtime_profile_state,
         TaskRunHttpState::new(task_run_host, actor.clone()),
         ConversationHttpState::new(conversation_host, actor.clone()),
@@ -215,6 +214,7 @@ pub(super) async fn start_http_and_runtime(
             command_hosts.project_workspace,
             actor.clone(),
         ),
+        command_hosts.trust_control_routes,
         runne_http::workspace_files::WorkspaceFileHttpState::new(command_hosts.workspace_files),
         runne_http::workspace_diffs::WorkspaceDiffHttpState::new(command_hosts.workspace_diffs),
         runne_http::processes::ProcessHttpState::new(command_hosts.process, actor.clone()),
@@ -280,7 +280,7 @@ pub(super) async fn start_http_and_runtime(
         client_profile,
         binding,
         local_session_service,
-        session_clock,
+        session_clock: clock,
         protected_activation,
         provider_activation,
         provider_readiness,

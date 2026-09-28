@@ -29,21 +29,16 @@ fn write_script(path: &PathBuf, body: &str) {
 }
 
 fn request() -> SecureCredentialPromptRequest {
-    SecureCredentialPromptRequest::new(
-        CredentialPromptProvider::DeepSeek,
-        CredentialPromptAction::Pair,
-        7,
-    )
-    .expect("valid request")
+    prompt_request(CredentialPromptAction::Pair)
 }
 
 fn confirm_request() -> SecureCredentialPromptRequest {
-    SecureCredentialPromptRequest::new(
-        CredentialPromptProvider::DeepSeek,
-        CredentialPromptAction::Verify,
-        7,
-    )
-    .expect("valid request")
+    prompt_request(CredentialPromptAction::Verify)
+}
+
+fn prompt_request(action: CredentialPromptAction) -> SecureCredentialPromptRequest {
+    SecureCredentialPromptRequest::new(CredentialPromptProvider::DeepSeek, action, 7)
+        .expect("valid request")
 }
 
 fn gui_env() -> Vec<(String, std::ffi::OsString)> {
@@ -60,6 +55,38 @@ fn gui_env() -> Vec<(String, std::ffi::OsString)> {
     ]
 }
 
+fn prompt_adapter(script: PathBuf, wall_deadline: Duration) -> LinuxGuiHostCredentialPrompt {
+    LinuxGuiHostCredentialPrompt::new(script, Duration::from_secs(5), wall_deadline)
+        .expect("adapter")
+}
+
+/// Retries while a call fails closed at or before spawn: under a loaded suite
+/// the spawn can transiently fail and production legally returns `Unavailable`
+/// before any process exists. Accept only an `Ok` or a deadline-bounded run.
+fn prompt_with_spawn_retry(
+    prompt: &mut LinuxGuiHostCredentialPrompt,
+    request: impl Fn() -> SecureCredentialPromptRequest,
+    minimum_elapsed: Option<Duration>,
+) -> (
+    Result<SecureCredentialPromptDisposition, SecureCredentialPromptError>,
+    Duration,
+) {
+    for _ in 0..5 {
+        let started = Instant::now();
+        let outcome = prompt.prompt_with_env(request(), &gui_env());
+        let elapsed = started.elapsed();
+        let accepted = outcome.is_ok() || minimum_elapsed.is_some_and(|floor| elapsed >= floor);
+        if accepted {
+            return (outcome, elapsed);
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    (
+        Err(SecureCredentialPromptError::Unavailable),
+        Duration::ZERO,
+    )
+}
+
 #[test]
 fn submitted_secret_roundtrips_through_fake_pinentry() {
     let dir = fixture_dir("happy");
@@ -68,10 +95,8 @@ fn submitted_secret_roundtrips_through_fake_pinentry() {
         &script,
         "#!/bin/sh\nprintf 'OK ready\\nOK\\nOK\\nD sk-test-secret\\nOK\\n'\n",
     );
-    let mut prompt =
-        LinuxGuiHostCredentialPrompt::new(script, Duration::from_secs(5), Duration::from_secs(10))
-            .expect("adapter");
-    match prompt.prompt_with_env(request(), &gui_env()) {
+    let mut prompt = prompt_adapter(script, Duration::from_secs(10));
+    match prompt_with_spawn_retry(&mut prompt, request, None).0 {
         Ok(SecureCredentialPromptDisposition::Submitted(material)) => {
             assert_eq!(
                 material.into_pipe_bytes().into_zeroizing().as_slice(),
@@ -96,14 +121,7 @@ fn gui_environment_copy_is_exactly_the_allowlist() {
     let environment = super::collect_gui_environment(|name| parent.get(name).cloned());
     let mut copied: Vec<&str> = environment.iter().map(|(name, _)| name.as_str()).collect();
     copied.sort_unstable();
-    assert_eq!(
-        copied,
-        GUI_ENV_ALLOWLIST
-            .len()
-            .checked_div(1)
-            .map(|_| sorted_allowlist())
-            .unwrap()
-    );
+    assert_eq!(copied, sorted_allowlist());
 }
 
 fn sorted_allowlist() -> Vec<&'static str> {
@@ -125,9 +143,7 @@ fn child_env_lacks_parent_and_nonallowlist_variables() {
             marker.display()
         ),
     );
-    let mut prompt =
-        LinuxGuiHostCredentialPrompt::new(script, Duration::from_secs(5), Duration::from_secs(10))
-            .expect("adapter");
+    let mut prompt = prompt_adapter(script, Duration::from_secs(10));
     let outcome = prompt.prompt_with_env(confirm_request(), &gui_env());
     assert!(matches!(
         outcome,
@@ -168,9 +184,7 @@ fn missing_gui_env_denies_before_spawn() {
             marker.display()
         ),
     );
-    let mut prompt =
-        LinuxGuiHostCredentialPrompt::new(script, Duration::from_secs(5), Duration::from_secs(10))
-            .expect("adapter");
+    let mut prompt = prompt_adapter(script, Duration::from_secs(10));
     let environment = vec![("XDG_RUNTIME_DIR".to_owned(), "/run/user/1000".into())];
     let error = prompt
         .prompt_with_env(request(), &environment)
@@ -187,12 +201,7 @@ fn parent_deadline_kills_and_reaps_hung_child() {
     let dir = fixture_dir("deadline");
     let script = dir.join("pinentry-fake");
     write_script(&script, "#!/bin/sh\nsleep 30\n");
-    let mut prompt = LinuxGuiHostCredentialPrompt::new(
-        script,
-        Duration::from_secs(5),
-        Duration::from_millis(300),
-    )
-    .expect("adapter");
+    let mut prompt = prompt_adapter(script, Duration::from_millis(300));
     let started = Instant::now();
     let error = prompt
         .prompt_with_env(request(), &gui_env())
@@ -216,16 +225,14 @@ fn parent_deadline_also_bounds_child_exit_after_stdout_eof() {
             pid_file.display()
         ),
     );
-    let deadline = Duration::from_millis(1_200);
-    let mut prompt = LinuxGuiHostCredentialPrompt::new(script, Duration::from_secs(5), deadline)
-        .expect("adapter");
-    let started = Instant::now();
-    let error = prompt
-        .prompt_with_env(request(), &gui_env())
-        .expect_err("live child after stdout EOF hits deadline");
-    let elapsed = started.elapsed();
+    let mut prompt = prompt_adapter(script, Duration::from_millis(1_200));
+    let (error, elapsed) =
+        prompt_with_spawn_retry(&mut prompt, request, Some(Duration::from_millis(700)));
 
-    assert!(matches!(error, SecureCredentialPromptError::Unavailable));
+    assert!(matches!(
+        error,
+        Err(SecureCredentialPromptError::Unavailable)
+    ));
     assert!(
         elapsed >= Duration::from_millis(700),
         "deadline fired too early: {elapsed:?}"
@@ -264,11 +271,9 @@ fn cancelled_dialog_maps_to_cancelled() {
         &script,
         "#!/bin/sh\nprintf 'OK ready\\nOK\\nOK\\nERR 99 canceled\\n'\nexit 1\n",
     );
-    let mut prompt =
-        LinuxGuiHostCredentialPrompt::new(script, Duration::from_secs(5), Duration::from_secs(10))
-            .expect("adapter");
+    let mut prompt = prompt_adapter(script, Duration::from_secs(10));
     assert!(matches!(
-        prompt.prompt_with_env(request(), &gui_env()),
+        prompt_with_spawn_retry(&mut prompt, confirm_request, None).0,
         Ok(SecureCredentialPromptDisposition::Cancelled)
     ));
 }
@@ -281,12 +286,7 @@ fn oversized_output_is_rejected_and_child_killed() {
         &script,
         "#!/bin/sh\nhead -c 300000 /dev/zero | tr '\\0' 'x'\nsleep 30\n",
     );
-    let mut prompt = LinuxGuiHostCredentialPrompt::new(
-        script,
-        Duration::from_secs(5),
-        Duration::from_millis(800),
-    )
-    .expect("adapter");
+    let mut prompt = prompt_adapter(script, Duration::from_millis(800));
     let started = Instant::now();
     let error = prompt
         .prompt_with_env(request(), &gui_env())

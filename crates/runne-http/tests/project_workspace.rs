@@ -131,6 +131,8 @@ fn authorized(request: http::request::Builder) -> http::request::Builder {
 
 #[path = "project_workspace/rename.rs"]
 mod rename;
+#[path = "project_workspace/trust_claims.rs"]
+mod trust_claims;
 
 #[tokio::test]
 async fn project_workspace_routes_reject_invalid_pages_and_unknown_bodies() {

@@ -13,7 +13,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use rand::RngCore;
-use runne_application::project_trust::TrustPersistenceError;
+use runne_application::project_trust::{
+    ProjectTrustEffectLease, ProjectTrustRecord, TrustPersistenceError,
+};
 use rusqlite::{Connection, TransactionBehavior, params};
 
 use crate::schema::{self, ConnectionMode, ManagedConnection};
@@ -50,6 +52,8 @@ pub enum ProjectTrustStoreError {
 pub struct ProjectTrustStore {
     connection: Arc<Mutex<ManagedConnection>>,
     instance_epoch: u64,
+    sidecar_path: PathBuf,
+    authority_id: [u8; 16],
 }
 
 impl ProjectTrustStore {
@@ -117,6 +121,8 @@ impl ProjectTrustStore {
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
             instance_epoch,
+            sidecar_path: path.to_path_buf(),
+            authority_id,
         })
     }
 
@@ -127,6 +133,8 @@ impl ProjectTrustStore {
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
             instance_epoch,
+            sidecar_path: path.to_path_buf(),
+            authority_id,
         })
     }
 
@@ -138,7 +146,29 @@ impl ProjectTrustStore {
             .connection
             .lock()
             .map_err(|_| TrustPersistenceError::Unavailable)?;
+        connection
+            .verify_retained_identity()
+            .map_err(|_| TrustPersistenceError::Unavailable)?;
         operation(&connection)
+    }
+}
+
+struct StoreProjectTrustEffectLease {
+    connection: Option<ManagedConnection>,
+    record: ProjectTrustRecord,
+}
+
+impl ProjectTrustEffectLease for StoreProjectTrustEffectLease {
+    fn record(&self) -> ProjectTrustRecord {
+        self.record
+    }
+}
+
+impl Drop for StoreProjectTrustEffectLease {
+    fn drop(&mut self) {
+        if let Some(mut connection) = self.connection.take() {
+            let _ = connection.with_connection_mut(|raw| raw.execute_batch("ROLLBACK"));
+        }
     }
 }
 
@@ -152,7 +182,13 @@ fn masked_epoch(raw: u64) -> Option<u64> {
     (candidate != 0).then_some(candidate)
 }
 
+mod control;
 mod persistence;
+
+#[cfg(all(test, unix))]
+mod control_tests;
+#[cfg(all(test, unix))]
+mod effect_lease_tests;
 
 #[cfg(test)]
 mod tests {

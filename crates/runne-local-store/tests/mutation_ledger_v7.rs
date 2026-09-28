@@ -267,7 +267,12 @@ fn v7_prepare_binds_the_exact_command_to_the_identity() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(NormalizedMutationCommand::decode(&bytes).unwrap(), command);
+    assert!(bytes.starts_with(b"RNV9"));
+    assert!(
+        !bytes
+            .windows(b"Project".len())
+            .any(|window| window == b"Project")
+    );
     let wrong = NormalizedMutationCommand::create_project(id(WORKSPACE), "Project".into()).unwrap();
     assert!(
         store

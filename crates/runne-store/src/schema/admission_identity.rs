@@ -12,6 +12,9 @@ fn descriptor_identity(file: &fs::File) -> Result<FileIdentity, SchemaOpenDiagno
     let metadata = file
         .metadata()
         .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
+    if !metadata.is_file() {
+        return Err(SchemaOpenDiagnostic::FileIdentityUncertain);
+    }
     Ok(FileIdentity {
         volume: metadata.dev(),
         file: metadata.ino(),
@@ -82,6 +85,11 @@ impl RetainedFileIdentity {
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt as _;
+            #[cfg(target_os = "linux")]
+            // O_PATH anchors support metadata checks without closing an fd
+            // that would release SQLite's process-wide POSIX locks.
+            options.custom_flags(libc::O_PATH | libc::O_CLOEXEC | libc::O_NOFOLLOW);
+            #[cfg(not(target_os = "linux"))]
             options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
         }
         let file = options
@@ -115,6 +123,7 @@ impl ConnectionIdentityGuard {
         })
     }
 
+    #[cfg(not(target_os = "linux"))]
     fn from_created(path: &Path, file: fs::File) -> Result<Self, SchemaOpenDiagnostic> {
         Ok(Self {
             database: RetainedFileIdentity::from_file(path, file)?,

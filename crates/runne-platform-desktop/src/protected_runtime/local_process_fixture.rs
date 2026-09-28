@@ -37,6 +37,20 @@ fn select_launch_artifact(
 fn preserve_local_process_environment(
     command: &mut Command,
 ) -> Result<(), ProtectedBundledRuntimeError> {
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("RUNNE_TEST_T1_TRUST_COMPOSITION").as_deref()
+        == Some(std::ffi::OsStr::new("1"))
+    {
+        command.env("RUNNE_TEST_T1_TRUST_COMPOSITION", "1");
+        if let Some(barrier) = std::env::var_os("RUNNE_TEST_T1_TRUST_BARRIER_DIR") {
+            command.env("RUNNE_TEST_T1_TRUST_BARRIER_DIR", barrier);
+        }
+        if std::env::var_os("RUNNE_TEST_T1_TRUST_TRANSPORT_LOSS").as_deref()
+            == Some(std::ffi::OsStr::new("1"))
+        {
+            command.env("RUNNE_TEST_T1_TRUST_TRANSPORT_LOSS", "1");
+        }
+    }
     if runne_api::test_support::local_native_enrollment_enabled() {
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)

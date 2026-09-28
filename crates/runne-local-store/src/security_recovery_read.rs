@@ -20,13 +20,13 @@ impl LocalStore {
         binding: MutationRecoveryBinding,
         limit: MutationRecoveryLimit,
     ) -> Result<MutationRecoveryBatch, SecurityStateError> {
-        self.admitted_recovery_read(secure, |connection| {
+        self.admitted_recovery_read(secure, |connection, lock, profile, database| {
             let identities = identities_for_binding(connection, &binding, Some(limit.0 + 1))?;
             let has_more = identities.len() > limit.0;
             let records = identities
                 .into_iter()
                 .take(limit.0)
-                .map(|identity| recovery_evidence(connection, identity))
+                .map(|identity| recovery_evidence(connection, identity, lock, profile, database))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(MutationRecoveryBatch { records, has_more })
         })
@@ -44,9 +44,9 @@ impl LocalStore {
         idempotency_key: &str,
     ) -> Result<Option<MutationRecoveryEvidence>, SecurityStateError> {
         let key = BoundedIdempotencyKey::parse(idempotency_key.to_owned())?;
-        self.admitted_recovery_read(secure, |connection| {
+        self.admitted_recovery_read(secure, |connection, lock, profile, database| {
             identity_for_key(connection, &binding, key.as_str())?
-                .map(|identity| recovery_evidence(connection, identity))
+                .map(|identity| recovery_evidence(connection, identity, lock, profile, database))
                 .transpose()
         })
     }
@@ -54,19 +54,23 @@ impl LocalStore {
     fn admitted_recovery_read<T>(
         &mut self,
         secure: &dyn SecureStore,
-        read: impl FnOnce(&rusqlite::Connection) -> Result<T, SecurityStateError>,
+        read: impl FnOnce(
+            &rusqlite::Connection,
+            &runne_secure_store::SecurityProfileLock<'_>,
+            [u8; 32],
+            [u8; 32],
+        ) -> Result<T, SecurityStateError>,
     ) -> Result<T, SecurityStateError> {
-        let profile = self
+        let context = self
             .security
-            .as_ref()
-            .ok_or(SecurityStateError::AdmissionFailed)?
-            .profile;
-        let lock = secure.acquire_security_profile_lock(profile)?;
+            .clone()
+            .ok_or(SecurityStateError::AdmissionFailed)?;
+        let lock = secure.acquire_security_profile_lock(context.profile)?;
         // The same profile lock is acquired by every anchored writer before its
         // SQLite transaction. Holding it through both checks serializes recovery
         // with writes, so a writer cannot land between the query and post-check.
         self.verify_anchored_admission(secure, &lock)?;
-        let result = read(&self.connection);
+        let result = read(&self.connection, &lock, context.profile, context.database);
         self.verify_anchored_admission(secure, &lock)?;
         result
     }
@@ -177,9 +181,13 @@ fn identity_from_raw(raw: RawIdentity) -> Result<MutationIdentity, SecurityState
 fn recovery_evidence(
     connection: &rusqlite::Connection,
     identity: MutationIdentity,
+    lock: &runne_secure_store::SecurityProfileLock<'_>,
+    profile: [u8; 32],
+    database: [u8; 32],
 ) -> Result<MutationRecoveryEvidence, SecurityStateError> {
-    let record = crate::security_record::load_record(connection, identity)?
-        .ok_or(SecurityStateError::IdentityConflict)?;
+    let record =
+        crate::security_record::load_record(connection, identity, lock, profile, database)?
+            .ok_or(SecurityStateError::IdentityConflict)?;
     nonterminal(record)
 }
 
@@ -208,7 +216,7 @@ fn nonterminal(record: MutationRecord) -> Result<MutationRecoveryEvidence, Secur
     })
 }
 
-fn operation_from_name(value: &str) -> Result<MutationOperation, SecurityStateError> {
+pub fn operation_from_name(value: &str) -> Result<MutationOperation, SecurityStateError> {
     match value {
         "project_rename" => Ok(MutationOperation::ProjectRename),
         "project_create" => Ok(MutationOperation::ProjectCreate),
@@ -220,15 +228,27 @@ fn operation_from_name(value: &str) -> Result<MutationOperation, SecurityStateEr
         "conversation_create" => Ok(MutationOperation::ConversationCreate),
         "conversation_generate_text" => Ok(MutationOperation::ConversationGenerateText),
         "task_run_submit" => Ok(MutationOperation::TaskRunSubmit),
+        "task_run_cancel" => Ok(MutationOperation::TaskRunCancel),
+        "approval_respond" => Ok(MutationOperation::ApprovalRespond),
+        "device_revoke" => Ok(MutationOperation::DeviceRevoke),
+        "runtime_stop" => Ok(MutationOperation::RuntimeStop),
+        "update_install" => Ok(MutationOperation::UpdateInstall),
+        "domain_reset" => Ok(MutationOperation::DomainReset),
         _ => Err(SecurityStateError::IdentityConflict),
     }
 }
 
-fn target_from_name(value: &str) -> Result<MutationTargetKind, SecurityStateError> {
+pub fn target_from_name(value: &str) -> Result<MutationTargetKind, SecurityStateError> {
     match value {
         "project" => Ok(MutationTargetKind::Project),
         "workspace" => Ok(MutationTargetKind::Workspace),
         "conversation" => Ok(MutationTargetKind::Conversation),
+        "task_run" => Ok(MutationTargetKind::TaskRun),
+        "approval" => Ok(MutationTargetKind::Approval),
+        "device" => Ok(MutationTargetKind::Device),
+        "runtime" => Ok(MutationTargetKind::Runtime),
+        "update" => Ok(MutationTargetKind::Update),
+        "domain" => Ok(MutationTargetKind::Domain),
         _ => Err(SecurityStateError::IdentityConflict),
     }
 }

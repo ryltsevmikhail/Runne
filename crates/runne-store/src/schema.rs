@@ -71,6 +71,8 @@ fn diagnostic_error(diagnostic: SchemaOpenDiagnostic) -> rusqlite::Error {
 }
 
 include!("schema/admission_identity.rs");
+#[cfg(target_os = "linux")]
+include!("schema/admission_identity_linux.rs");
 include!("schema/admission_open.rs");
 include!("schema/admission_recovery.rs");
 include!("schema/admission_classification.rs");
@@ -202,6 +204,7 @@ mod tests {
 
     include!("schema/tests/admission.rs");
     include!("schema/tests/actual_handle_identity.rs");
+    include!("schema/tests/linux_wal_identity_locks.rs");
     include!("schema/tests/windows_live_wal.rs");
     include!("schema/tests/dacl_isolation_windows.rs");
     include!("schema/tests/windows_v39_v40_live_wal.rs");

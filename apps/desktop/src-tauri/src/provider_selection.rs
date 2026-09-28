@@ -100,10 +100,62 @@ mod tests {
         assert!(provider_selection([OsString::from("--bundled-runtime")]).is_ok());
     }
 
+    /// Stages a copy of the current test binary inside an owner-private
+    /// directory, mirroring the daemon suite's `ControlledExecutable`
+    /// precedent. The protected launch spec must only ever trust a directory
+    /// chain the test fully controls: hosted CI workspaces carry a foreign
+    /// owner uid and umask-dependent group-write bits under `target/`, which
+    /// the production trusted-directory-chain checks correctly refuse to
+    /// trust. The copy itself runs the unchanged `validate_executable_path`.
+    fn stage_current_executable_owner_private() -> (tempfile::TempDir, std::path::PathBuf) {
+        let root = owner_private_staging_directory();
+        let staged = root.path().join("controlled-executable");
+        std::fs::copy(
+            std::env::current_exe().expect("current test executable"),
+            &staged,
+        )
+        .expect("copy current executable into owner-private staging");
+        set_owner_only_permissions(root.path());
+        set_owner_only_permissions(&staged);
+        (root, staged)
+    }
+
+    fn owner_private_staging_directory() -> tempfile::TempDir {
+        let mut binding = tempfile::Builder::new();
+        let builder = binding.prefix("provider-selection-spec-");
+        #[cfg(unix)]
+        {
+            std::env::var_os("XDG_RUNTIME_DIR")
+                .map(std::path::PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .and_then(|directory| builder.tempdir_in(directory).ok())
+                .unwrap_or_else(|| {
+                    builder
+                        .tempdir_in(std::path::PathBuf::from("/tmp"))
+                        .expect("owner-private staging directory")
+                })
+        }
+        #[cfg(not(unix))]
+        builder.tempdir().expect("owner-private staging directory")
+    }
+
+    /// Explicit 0700 regardless of the ambient umask, like
+    /// `tests/support/owner_private.rs::secure_directory`.
+    fn set_owner_only_permissions(path: &std::path::Path) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+                .expect("owner-only permissions");
+        }
+        #[cfg(not(unix))]
+        let _ = path;
+    }
+
     #[test]
     fn selected_binding_is_carried_by_the_protected_launch_spec() {
         let temporary = tempfile::tempdir().unwrap();
-        let executable = std::env::current_exe().unwrap();
+        let (_staging, executable) = stage_current_executable_owner_private();
         let selection = parse(&["--provider=deepseek"]).unwrap();
         let spec = runne_platform_desktop::ProtectedBundledRuntimeLaunchSpec::new(
             &executable,

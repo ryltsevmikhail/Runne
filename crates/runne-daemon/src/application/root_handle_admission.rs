@@ -23,6 +23,7 @@ include!("root_handle_admission/files.rs");
 include!("root_handle_admission/editor.rs");
 include!("root_handle_admission/diffs.rs");
 include!("root_handle_admission/process.rs");
+include!("root_handle_admission/trust_control.rs");
 include!("root_handle_admission/verdict.rs");
 mod diff_baseline;
 mod trust_gate;

@@ -1,12 +1,17 @@
-use std::sync::Mutex;
+use std::sync::{
+    Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 
 use sha2::{Digest, Sha256};
 
-use crate::security_anchor::SecurityProfileLockBackend;
 use crate::{
     SealedTransactionTag, SecureStore, SecureStoreError, SecurityAnchorV1, SecurityProfileLock,
     StoredSecurityAnchor,
 };
+
+mod test_support_lock;
+use test_support_lock::TestLock;
 
 mod provider_credential;
 pub use provider_credential::prove_current_reader_can_load_exact;
@@ -18,43 +23,6 @@ pub fn local_writer_death_after_release_enabled() -> bool {
         == Some(runne_api::test_support::LocalNativeEnrollmentCase::DeathReleased)
 }
 
-struct TestLock<'a> {
-    profile: [u8; 32],
-    _guard: std::sync::MutexGuard<'a, ()>,
-}
-
-impl SecurityProfileLockBackend for TestLock<'_> {
-    fn seal(
-        &self,
-        database: [u8; 32],
-        generation: u64,
-        transaction: [u8; 32],
-        previous: [u8; 32],
-    ) -> Result<SealedTransactionTag, SecureStoreError> {
-        SealedTransactionTag::from_test_bytes(test_tag(
-            self.profile,
-            database,
-            generation,
-            transaction,
-            previous,
-        ))
-    }
-    fn verify(
-        &self,
-        database: [u8; 32],
-        generation: u64,
-        transaction: [u8; 32],
-        previous: [u8; 32],
-        seal: &[u8],
-    ) -> Result<(), SecureStoreError> {
-        if seal == test_tag(self.profile, database, generation, transaction, previous) {
-            Ok(())
-        } else {
-            Err(SecureStoreError::InvalidSeal)
-        }
-    }
-}
-
 /// Deterministic test double only; it is not an OS-backed production secure store.
 pub struct DeterministicSecureStore {
     profile_identity_digest: [u8; 32],
@@ -63,6 +31,7 @@ pub struct DeterministicSecureStore {
     fail_advance: Mutex<bool>,
     fail_read_after: Mutex<Option<usize>>,
     fail_legacy_migration: Mutex<bool>,
+    payload_encryption_enabled: AtomicBool,
 }
 
 impl DeterministicSecureStore {
@@ -75,7 +44,24 @@ impl DeterministicSecureStore {
             fail_advance: Mutex::new(false),
             fail_read_after: Mutex::new(None),
             fail_legacy_migration: Mutex::new(false),
+            payload_encryption_enabled: AtomicBool::new(true),
         }
+    }
+
+    /// Test double for a platform backend that cannot encrypt ledger payloads.
+    #[must_use]
+    pub fn without_mutation_payload_encryption(profile_identity_digest: [u8; 32]) -> Self {
+        let store = Self::new(profile_identity_digest);
+        store
+            .payload_encryption_enabled
+            .store(false, Ordering::Relaxed);
+        store
+    }
+
+    #[allow(clippy::missing_panics_doc)]
+    pub fn disable_mutation_payload_encryption(&self) {
+        self.payload_encryption_enabled
+            .store(false, Ordering::Relaxed);
     }
 
     #[allow(clippy::missing_panics_doc)]
@@ -117,6 +103,7 @@ impl SecureStore for DeterministicSecureStore {
             TestLock {
                 profile: profile_identity_digest,
                 _guard: guard,
+                payload_encryption_enabled: self.payload_encryption_enabled.load(Ordering::Relaxed),
             },
         ))
     }

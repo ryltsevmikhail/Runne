@@ -25,6 +25,10 @@ use runne_runtime_client::{
     WorkspaceDiffHunkDto, WorkspaceDiffLineDto, WorkspaceDiffLineKindDto, WorkspaceFileEntryDto,
     WorkspaceFileKindDto, default_local_profile_path,
 };
+pub use runne_runtime_client::{
+    ProjectTrustControlRequestDto, ProjectTrustControlSnapshotDto, ProjectTrustDecisionDto,
+    ProjectTrustStatusDto,
+};
 use runne_secure_store::SecureStore;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -48,6 +52,7 @@ include!("lib_parts/bundled.rs");
 include!("lib_parts/connect.rs");
 include!("lib_parts/subscribe.rs");
 include!("lib_parts/projects.rs");
+include!("lib_parts/project_trust_control.rs");
 include!("lib_parts/settings.rs");
 include!("lib_parts/shortcuts.rs");
 include!("lib_parts/device.rs");
@@ -101,6 +106,9 @@ mod tests {
     include!("lib_parts/mutation_capability_tests.rs");
     include!("lib_parts/mutation_reconciliation_tests.rs");
     include!("lib_parts/mutation_v7_transition_tests.rs");
+    mod prohibited_input_transition_tests {
+        include!("lib_parts/prohibited_input_transition_tests.rs");
+    }
     include!("lib_parts/mutation_reconcile_state_tests.rs");
     include!("lib_parts/mutation_restart_recovery_tests.rs");
     include!("lib_parts/mutation_rename_tests.rs");

@@ -1,8 +1,6 @@
-//! NM-06 delivery-gate gap/corruption/text-only scenarios: a genuine
-//! retention gap falls through WITHOUT a trust verdict (the store's recovery
-//! contract answers), while corruption — including a deleted prefix combined
-//! with a corrupted survivor — denies. The positive explicitly-text-only
-//! scenario delivers from the durable marker alone.
+//! A retention gap may recover only when provenance is explicit TextOnly.
+//! Workspace gaps lack the sequence-1 workspace binding and fail closed
+//! before the replay store can issue a recovery baseline.
 
 use super::nm06_delivery_gate_fixture::{
     AUTHORITY, Composed, composition_with, reopen_gate, set_status,
@@ -73,6 +71,17 @@ fn corrupt_event_payload(db_path: &std::path::Path, sequence: i64) {
     assert_eq!(changed, 1, "survivor row must exist");
 }
 
+fn delete_context_marker(db_path: &std::path::Path, conversation_id: ConversationId) {
+    let conn = rusqlite::Connection::open(db_path).unwrap();
+    let changed = conn
+        .execute(
+            "DELETE FROM conversation_context_scope WHERE conversation_id = ?1",
+            rusqlite::params![conversation_id.as_bytes()],
+        )
+        .unwrap();
+    assert_eq!(changed, 1, "conversation context marker must exist");
+}
+
 #[test]
 fn nm06_delivery_gate_text_only_marker_allows_without_trust() {
     let Composed {
@@ -116,7 +125,7 @@ fn nm06_delivery_gate_text_only_marker_allows_without_trust() {
 }
 
 #[test]
-fn nm06_delivery_gate_gap_falls_through_and_corruption_denies() {
+fn nm06_workspace_retention_gaps_fail_closed_for_trusted_revoked_and_unknown() {
     let Composed {
         directory: _directory,
         db_path,
@@ -139,23 +148,98 @@ fn nm06_delivery_gate_gap_falls_through_and_corruption_denies() {
             .is_err()
     );
 
-    // Fresh stream: DELETE the prefix row while the header says version 2 —
-    // a standard retention gap. The gate must NOT convert it into a trust
-    // denial: the store's open_session answers with its recovery contract.
+    for status in [ProjectTrustStatus::Trusted, ProjectTrustStatus::Untrusted] {
+        let Composed {
+            // The fixture owns its directory: keep the TempDir alive for the
+            // whole iteration, or the identity guard fails closed on the
+            // unlinked sidecar path before the gap is even created.
+            directory: gap_directory,
+            db_path: gap_db,
+            gate: gap_gate,
+            sidecar: gap_sidecar,
+            store: gap_store,
+            conversation_id: gap_conversation,
+        } = composition_with(ConversationContextScope::Workspace, true);
+        set_status(&gap_sidecar, status);
+        append_text(&gap_store, gap_conversation, 1);
+        delete_first_conversation_event(&gap_db, gap_conversation);
+        assert!(
+            gap_gate
+                .ensure_conversation_trusted("local-owner", gap_conversation)
+                .is_err(),
+            "workspace gap must deny for {status:?}"
+        );
+        drop(gap_directory);
+    }
+
     let Composed {
-        directory: gap_directory,
-        db_path: gap_db,
-        gate: gap_gate,
-        sidecar: gap_sidecar,
-        store: gap_store,
-        conversation_id: gap_conversation,
+        directory: _unknown_directory,
+        db_path: unknown_db,
+        gate: unknown_gate,
+        store: unknown_store,
+        conversation_id: unknown_conversation,
+        ..
     } = composition_with(ConversationContextScope::Workspace, true);
-    set_status(&gap_sidecar, ProjectTrustStatus::Untrusted);
-    append_text(&gap_store, gap_conversation, 1);
-    delete_first_conversation_event(&gap_db, gap_conversation);
-    gap_gate
-        .ensure_conversation_trusted("local-owner", gap_conversation)
-        .expect("retention gap falls through without a trust verdict");
+    append_text(&unknown_store, unknown_conversation, 1);
+    delete_first_conversation_event(&unknown_db, unknown_conversation);
+    delete_context_marker(&unknown_db, unknown_conversation);
+    assert!(
+        unknown_gate
+            .ensure_conversation_trusted("local-owner", unknown_conversation)
+            .is_err()
+    );
+
+    // The first row supplies the only workspace binding. Once it is gone,
+    // even a current trusted revision cannot authorize the 410 baseline.
+    let Composed {
+        directory: restart_directory,
+        db_path: restart_db,
+        gate: restart_gate,
+        sidecar: restart_sidecar,
+        store: restart_store,
+        conversation_id: restart_conversation,
+    } = composition_with(ConversationContextScope::Workspace, true);
+    set_status(&restart_sidecar, ProjectTrustStatus::Trusted);
+    append_text(&restart_store, restart_conversation, 1);
+    delete_first_conversation_event(&restart_db, restart_conversation);
+    drop(restart_gate);
+    drop(restart_sidecar);
+    drop(restart_store);
+    let (_reopened_store, reopened_gate) = reopen_gate(&restart_db);
+    assert!(
+        reopened_gate
+            .ensure_conversation_trusted("local-owner", restart_conversation)
+            .is_err(),
+        "workspace gap must still deny on the reopened composition"
+    );
+    drop(restart_directory);
+
+    // The immutable context marker is sufficient for bounded TextOnly
+    // recovery; corruption still outranks the gap classification.
+    let Composed {
+        directory: text_directory,
+        db_path: text_db,
+        gate: text_gate,
+        sidecar: text_sidecar,
+        store: text_store,
+        conversation_id: text_conversation,
+    } = composition_with(ConversationContextScope::TextOnly, false);
+    append_text(&text_store, text_conversation, 1);
+    delete_first_conversation_event(&text_db, text_conversation);
+    text_gate
+        .ensure_conversation_trusted("local-owner", text_conversation)
+        .expect("explicit TextOnly marker permits gap recovery");
+    corrupt_event_payload(&text_db, 2);
+    assert!(
+        text_gate
+            .ensure_conversation_trusted("local-owner", text_conversation)
+            .is_err(),
+        "corrupt retained rows must still deny"
+    );
+    drop(text_gate);
+    drop(text_sidecar);
+    drop(text_store);
+    drop(text_directory);
 
     // Combined negative: deleted prefix AND corrupted survivor — the gap
     // must never mask a broken row. Row integrity outranks the header.
@@ -176,7 +260,5 @@ fn nm06_delivery_gate_gap_falls_through_and_corruption_denies() {
             .is_err()
     );
     drop(gate);
-    drop(gap_gate);
     drop(combined_gate);
-    drop(gap_directory);
 }

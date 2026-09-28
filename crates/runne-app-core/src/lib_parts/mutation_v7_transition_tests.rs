@@ -16,6 +16,7 @@ fn project_outcome(id: CanonicalId) -> runne_local_store::CanonicalMutationOutco
     }
 }
 
+
 #[tokio::test]
 async fn v7_helpers_apply_only_closed_transitions_and_one_resend() {
     let (_directory, core) = v7_test_core();

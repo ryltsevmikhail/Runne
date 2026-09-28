@@ -19,6 +19,8 @@ pub mod middleware;
 pub mod opencode;
 pub mod operational_telemetry;
 pub mod processes;
+/// Protected, runtime-owned Project Trust metadata and explicit decision path.
+pub mod project_trust_control;
 pub mod project_workspace;
 pub(crate) mod provider_credential_enrollment;
 pub use provider_credential_enrollment::{

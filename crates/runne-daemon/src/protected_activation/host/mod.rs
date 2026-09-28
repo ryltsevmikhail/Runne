@@ -15,6 +15,15 @@ pub fn run_verified_protected_channel(
 ) -> Result<(), DaemonError> {
     #[cfg(feature = "desktop-protected")]
     {
+        #[cfg(all(target_os = "linux", feature = "test-support", not(test)))]
+        if std::env::var_os("RUNNE_TEST_T1_TRUST_COMPOSITION").as_deref()
+            == Some(std::ffi::OsStr::new("1"))
+        {
+            return run_verified_protected_channel_with_fixture(channel, |runtime_root| {
+                let runtime_root = runtime_root.to_path_buf();
+                async move { super::loopback_fixture::t1_dependencies(&runtime_root).await }
+            });
+        }
         #[cfg(all(unix, feature = "test-support", not(test)))]
         if runne_api::test_support::local_credential_service_fixture_enabled() {
             return run_verified_protected_channel_with_fixture(channel, |runtime_root| {

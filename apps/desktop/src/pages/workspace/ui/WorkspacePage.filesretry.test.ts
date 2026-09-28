@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { defineComponent, h, shallowRef, type Ref } from 'vue'
-import type { CanonicalWorkspace } from '@/entities/project'
+import { markProjectTrustChanged, type CanonicalWorkspace } from '@/entities/project'
 import { describe, expect, it, vi } from 'vitest'
 
 import { provideRuntimeSession, type RuntimeSessionContext, type RuntimeSessionSnapshot } from '@/app/providers/runtime-session'
@@ -77,6 +77,43 @@ async function mountPageWith(
 }
 
 describe('workspace page bounded file retry', () => {
+  it('clears revoked workspace files and diffs, then reloads the selected project', async () => {
+    let fileLoad = 0
+    let changeLoad = 0
+    const { wrapper } = await mountPageWith({
+      loadProject: async () => projectA,
+      loadFiles: async () => ({ items: ++fileLoad === 1 ? [{ path: 'before.txt', kind: 'file' as const, sizeBytes: 1 }] : [] }),
+      loadChanges: async () => ({ items: ++changeLoad === 1 ? [{ path: 'before.txt', kind: 'modified' as const, additions: 0, deletions: 0 }] : [] }),
+      loadDiff: async () => ({ path: 'before.txt', kind: 'modified' as const, hunks: [], truncated: false }),
+    })
+    expect(wrapper.text()).toContain('before.txt')
+
+    markProjectTrustChanged(projectA.projectId)
+    await flushPromises()
+    expect(fileLoad).toBe(2)
+    expect(changeLoad).toBe(2)
+    expect(wrapper.text()).not.toContain('before.txt')
+  })
+
+  it('discards a pre-trust file response and performs a fresh read after trust changes', async () => {
+    let releaseOld!: (value: { items: readonly { path: string; kind: 'file'; sizeBytes: number }[] }) => void
+    let fileLoad = 0
+    const { wrapper } = await mountPageWith({
+      loadProject: async () => projectA,
+      loadFiles: async () => {
+        fileLoad += 1
+        if (fileLoad === 1) return new Promise(resolve => { releaseOld = resolve })
+        return { items: [{ path: 'after.txt', kind: 'file' as const, sizeBytes: 1 }] }
+      },
+    })
+    markProjectTrustChanged(projectA.projectId)
+    releaseOld({ items: [{ path: 'before.txt', kind: 'file', sizeBytes: 1 }] })
+    await flushPromises()
+    expect(fileLoad).toBe(2)
+    expect(wrapper.text()).toContain('after.txt')
+    expect(wrapper.text()).not.toContain('before.txt')
+  })
+
   it('retries a failed file load once while the session stays live', async () => {
     vi.useFakeTimers()
     try {

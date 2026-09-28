@@ -6,6 +6,9 @@ fn require_runtime_admission(lifecycle: &RuntimeLifecycleManager) -> Result<(), 
 }
 
 include!("runtime_ipc_error.rs");
+#[path = "project_trust_confirmation.rs"]
+mod project_trust_confirmation;
+include!("project_trust_control_commands.rs");
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]

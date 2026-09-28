@@ -1,6 +1,9 @@
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
+#[cfg(unix)]
+use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use runne_api::ProviderActivationBindingV1;
@@ -11,6 +14,29 @@ use runne_platform_desktop::{
 use runne_runtime_client::AuthenticatedRuntimeClient;
 
 const PROTECTED_CLIENT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Monotonic suffix so repeated launches into one fixture root never collide
+/// with a stale fixture socket file.
+#[cfg(unix)]
+static SESSION_BUS_SEQUENCE: AtomicU32 = AtomicU32::new(0);
+
+/// Binds one real session-bus fixture socket inside the owner-private fixture
+/// root and returns its strictly valid socket path.
+///
+/// The listener is dropped immediately: the socket file survives (absolute
+/// path, socket type, own-euid ownership), while connections to it are
+/// refused instantly — the exact fast-fail a host without a session bus
+/// produces, so Linux provider-bound launches do not depend on a real bus.
+/// `with_validated_session_bus_address` re-validates the path through the
+/// strict production checks before injecting it into the launch spec.
+#[cfg(unix)]
+fn fixture_session_bus(root: &Path) -> PathBuf {
+    let sequence = SESSION_BUS_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let socket_path = root.join(format!("session-bus-{sequence}.sock"));
+    let listener = UnixListener::bind(&socket_path).expect("fixture session bus socket");
+    drop(listener);
+    socket_path
+}
 
 pub fn executable(name: &str, fixture_root: &Path) -> PathBuf {
     let source = match name {
@@ -37,9 +63,18 @@ pub fn executable(name: &str, fixture_root: &Path) -> PathBuf {
 }
 
 fn openai_spec(executable: &Path, runtime_root: &Path) -> ProtectedBundledRuntimeLaunchSpec {
-    ProtectedBundledRuntimeLaunchSpec::new(executable, runtime_root)
+    // The fixture root (runtime_root's parent) is the owner-private tempdir.
+    #[cfg(unix)]
+    let session_bus_socket =
+        fixture_session_bus(runtime_root.parent().expect("owner-private fixture root"));
+    let spec = ProtectedBundledRuntimeLaunchSpec::new(executable, runtime_root)
         .expect("owner-private protected fixture spec")
-        .with_provider_activation(ProviderActivationBindingV1::openai_responses_text_v1())
+        .with_provider_activation(ProviderActivationBindingV1::openai_responses_text_v1());
+    #[cfg(unix)]
+    let spec = spec
+        .with_validated_session_bus_address(&session_bus_socket)
+        .expect("fixture session bus address");
+    spec
 }
 
 pub async fn protected_client(

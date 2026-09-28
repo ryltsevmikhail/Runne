@@ -211,11 +211,14 @@ async fn read_error(response: reqwest::Response) -> RuntimeApiError {
         ) => RuntimeApiErrorKind::InvalidRequest,
         (401, "unauthorized")
         | (403, "forbidden" | "provider_credential_forbidden") => RuntimeApiErrorKind::Unauthorized,
+        (403, "managed_trust_policy") => RuntimeApiErrorKind::ManagedPolicy,
         (404, "conversation_not_found" | "task_run_not_found" | "project_workspace_not_found" | "process_not_found") => RuntimeApiErrorKind::NotFound,
-        (409, "conversation_conflict" | "task_run_conflict" | "project_workspace_conflict" | "command_conflict" | "process_conflict" | "provider_credential_conflict") => RuntimeApiErrorKind::Conflict,
+        (409, "conversation_conflict" | "task_run_conflict" | "project_workspace_conflict" | "command_conflict" | "process_conflict" | "provider_credential_conflict" | "trust_control_conflict") => RuntimeApiErrorKind::Conflict,
+        (409, "trust_root_unavailable") => RuntimeApiErrorKind::RootUnavailable,
         (413, "process_output_too_large") => RuntimeApiErrorKind::ResponseTooLarge,
+        (422, "prohibited_secret_material") => RuntimeApiErrorKind::ProhibitedInputRejected,
         (429, "runtime_backpressure") => RuntimeApiErrorKind::Backpressure,
-        (503, "runtime_unavailable" | "provider_credential_unsupported" | "provider_credential_unavailable") => RuntimeApiErrorKind::Unavailable,
+        (503, "runtime_unavailable" | "provider_credential_unsupported" | "provider_credential_unavailable" | "trust_control_unavailable") => RuntimeApiErrorKind::Unavailable,
         _ => RuntimeApiErrorKind::InvalidResponse,
     };
     if kind == RuntimeApiErrorKind::InvalidResponse {

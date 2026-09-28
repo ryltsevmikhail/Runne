@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { createCanonicalWorkspace, getCanonicalProject, openCanonicalWorkspace, type CanonicalProject, type CanonicalWorkspace } from '@/entities/project'
 import { openProjectWorkspace, ProjectWorkspaceOpenError } from '@/features/open-project-workspace'
 import { ProjectManagement } from '@/features/manage-project'
+import ProjectTrustControl from './ProjectTrustControl.vue'
 import { translate } from '@/shared/i18n'
 
 const props = defineProps<{
@@ -135,6 +136,8 @@ async function removed() { if (props.active) await router.push('/') }
               @click="open(workspace)">
               <MessageSquare :size="13" aria-hidden="true" /><span>{{ workspace.displayName }}</span>
             </button>
+            <ProjectTrustControl v-if="route.params.workspaceId === workspace.workspaceId && workspace.open && !project.archived"
+              :project-id="project.projectId" :workspace-id="workspace.workspaceId" :disabled="disabled || busy" />
           </li>
         </ul>
         <button type="button" class="project-tree-create" :disabled="disabled || busy" @click="create">

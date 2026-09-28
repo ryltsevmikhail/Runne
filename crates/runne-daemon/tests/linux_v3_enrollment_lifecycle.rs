@@ -7,6 +7,8 @@
 #[path = "support/owner_private.rs"]
 mod owner_private;
 
+use std::os::unix::net::UnixListener;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,9 +18,25 @@ use runne_platform_desktop::{
     ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeSupervisor,
 };
 
+/// Binds one real session-bus fixture socket inside the owner-private
+/// fixture root and returns its strictly valid socket path.
+///
+/// The listener is dropped immediately, so the socket file survives while
+/// connections to it are refused instantly — the exact fast-fail a host
+/// without a session bus produces, mirroring hosted CI. The path is
+/// validated through the strict production checks by
+/// `with_validated_session_bus_address`.
+fn fixture_session_bus(root: &Path, name: &str) -> std::path::PathBuf {
+    let socket_path = root.join(name);
+    let listener = UnixListener::bind(&socket_path).expect("fixture session bus socket");
+    drop(listener);
+    socket_path
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn linux_baseline_v2_connects_and_installs_without_signed_enrollment() {
     let temporary = owner_private::tempdir();
+    let session_bus_socket = fixture_session_bus(temporary.path(), "session-bus.sock");
     let profile_directory = temporary.path().join("com.runne.desktop");
     std::fs::create_dir(&profile_directory).expect("profile directory");
     owner_private::secure_directory(&profile_directory);
@@ -30,7 +48,9 @@ async fn linux_baseline_v2_connects_and_installs_without_signed_enrollment() {
     let spec = ProtectedBundledRuntimeLaunchSpec::new(executable.path(), &runtime_root)
         .expect("protected launch spec")
         // Provider activation preserves the baseline protected V2 runtime path.
-        .with_openai_provider_activation();
+        .with_openai_provider_activation()
+        .with_validated_session_bus_address(&session_bus_socket)
+        .expect("fixture session bus address");
     let mut supervisor =
         ProtectedBundledRuntimeSupervisor::new(DevelopmentBundledRuntimeLauncher::new(), spec);
 

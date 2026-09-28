@@ -65,6 +65,32 @@ async fn file_routes_reject_path_escape_before_runtime_provider() {
 }
 
 #[tokio::test]
+async fn file_routes_reject_frozen_traversal_shapes_before_runtime_provider() {
+    for encoded_path in [
+        "..%2Fsecret",
+        ".%2Fsecret",
+        "%2Fetc%2Fpasswd",
+        "dir%2F%2Fsecret",
+        "dir%2F.%2Fsecret",
+        "~%2F..%2Fsecret",
+        "..%5Csecret",
+    ] {
+        let request = authorized(Request::builder().uri(format!(
+            "/v1/workspaces/{ID}/files/content?path={encoded_path}"
+        )))
+        .body(Body::empty())
+        .unwrap();
+        let response = app().oneshot(request).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "path shape was not rejected before host call"
+        );
+        assert!(response.headers().contains_key("x-request-id"));
+    }
+}
+
+#[tokio::test]
 async fn file_routes_require_authentication() {
     let request = Request::builder()
         .uri(format!("/v1/workspaces/{ID}/files"))

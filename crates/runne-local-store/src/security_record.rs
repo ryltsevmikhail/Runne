@@ -2,10 +2,14 @@ use crate::{
     ClientMutationDisposition, CommandRef, MutationIdentity, MutationRecord, OptionalExtension,
     OutcomeRef, SecurityStateError,
 };
+use runne_secure_store::SecurityProfileLock;
 
 pub(crate) fn load_record(
     connection: &rusqlite::Connection,
     identity: MutationIdentity,
+    lock: &SecurityProfileLock<'_>,
+    profile: [u8; 32],
+    database: [u8; 32],
 ) -> Result<Option<MutationRecord>, SecurityStateError> {
     let row: Option<(String,String,Vec<u8>,i64,Vec<u8>,Option<Vec<u8>>,Option<Vec<u8>>,i64,String,Option<String>,Option<Vec<u8>>,Option<Vec<u8>>,String,i64,i64)> = connection.query_row("SELECT operation_kind,target_kind,target_id,expected_version,semantic_digest,normalized_command,canonical_outcome,resend_count,client_disposition,runtime_disposition,command_ref,outcome_ref,recovery_summary,created_at,updated_at FROM mutation_ledger WHERE runtime_authority_digest=?1 AND principal_digest=?2 AND idempotency_key=?3", rusqlite::params![identity.runtime().to_vec(),identity.principal().to_vec(),identity.idempotency_key()], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?,row.get(8)?,row.get(9)?,row.get(10)?,row.get(11)?,row.get(12)?,row.get(13)?,row.get(14)?))).optional()?;
     let Some((
@@ -58,28 +62,28 @@ pub(crate) fn load_record(
             )
         })
         .transpose()?;
-    let normalized_command = command_bytes
-        .map(|bytes| {
-            let reference = crate::security_ledger_v7::digest::command(&bytes);
-            (command.as_ref() == Some(&reference))
-                .then(|| crate::NormalizedMutationCommand::decode(&bytes))
-                .ok_or(SecurityStateError::IdentityConflict)?
-        })
-        .transpose()?;
+    let normalized_command = decode_command(
+        command_bytes,
+        command.as_ref(),
+        lock,
+        profile,
+        database,
+        &identity,
+    )?;
     if normalized_command
         .as_ref()
         .is_some_and(|command| !command.matches_identity(&identity))
     {
         return Err(SecurityStateError::IdentityConflict);
     }
-    let canonical_outcome = outcome_bytes
-        .map(|bytes| {
-            let reference = crate::security_ledger_v7::digest::outcome(&bytes);
-            (outcome.as_ref() == Some(&reference))
-                .then(|| crate::CanonicalMutationOutcome::decode(&bytes))
-                .ok_or(SecurityStateError::IdentityConflict)?
-        })
-        .transpose()?;
+    let canonical_outcome = decode_outcome(
+        outcome_bytes,
+        outcome.as_ref(),
+        lock,
+        profile,
+        database,
+        &identity,
+    )?;
     let resend_count = u8::try_from(resend).map_err(|_| SecurityStateError::InvalidTransition)?;
     let record = MutationRecord {
         identity,
@@ -94,8 +98,58 @@ pub(crate) fn load_record(
         created_at: created,
         updated_at: updated,
     };
-    validate_record(&record)?;
+    crate::security_record_validate::validate_record(&record)?;
     Ok(Some(record))
+}
+
+fn decode_command(
+    bytes: Option<Vec<u8>>,
+    reference: Option<&CommandRef>,
+    lock: &SecurityProfileLock<'_>,
+    profile: [u8; 32],
+    database: [u8; 32],
+    identity: &MutationIdentity,
+) -> Result<Option<crate::NormalizedMutationCommand>, SecurityStateError> {
+    bytes
+        .map(|bytes| {
+            let expected = reference.ok_or(SecurityStateError::IdentityConflict)?;
+            let plaintext = crate::security_mutation_payload::open(
+                lock,
+                profile,
+                database,
+                identity,
+                crate::security_mutation_payload::PayloadKind::Command,
+                &bytes,
+                expected.as_bytes(),
+            )?;
+            crate::NormalizedMutationCommand::decode(&plaintext)
+        })
+        .transpose()
+}
+
+fn decode_outcome(
+    bytes: Option<Vec<u8>>,
+    reference: Option<&OutcomeRef>,
+    lock: &SecurityProfileLock<'_>,
+    profile: [u8; 32],
+    database: [u8; 32],
+    identity: &MutationIdentity,
+) -> Result<Option<crate::CanonicalMutationOutcome>, SecurityStateError> {
+    bytes
+        .map(|bytes| {
+            let expected = reference.ok_or(SecurityStateError::IdentityConflict)?;
+            let plaintext = crate::security_mutation_payload::open(
+                lock,
+                profile,
+                database,
+                identity,
+                crate::security_mutation_payload::PayloadKind::Outcome,
+                &bytes,
+                expected.as_bytes(),
+            )?;
+            crate::CanonicalMutationOutcome::decode(&plaintext)
+        })
+        .transpose()
 }
 pub(crate) fn prepared_record_v7(
     identity: MutationIdentity,
@@ -119,6 +173,9 @@ pub(crate) fn prepared_record_v7(
 pub(crate) fn update_v7_record(
     transaction: &rusqlite::Transaction<'_>,
     previous: &MutationRecord,
+    lock: &SecurityProfileLock<'_>,
+    profile: [u8; 32],
+    database: [u8; 32],
     update: V7RecordUpdate,
 ) -> Result<(MutationRecord, bool), SecurityStateError> {
     let V7RecordUpdate {
@@ -129,13 +186,27 @@ pub(crate) fn update_v7_record(
         timestamp,
         increment_resend,
     } = update;
-    let outcome_bytes = canonical_outcome
+    let outcome_plain = canonical_outcome
         .as_ref()
         .map(crate::CanonicalMutationOutcome::encode)
-        .transpose()?;
-    let outcome_ref = outcome_bytes
+        .transpose()?
+        .map(zeroize::Zeroizing::new);
+    let outcome_ref = outcome_plain
         .as_deref()
-        .map(crate::security_ledger_v7::digest::outcome);
+        .map(|bytes| crate::security_ledger_v7::digest::outcome(bytes));
+    let outcome_bytes = outcome_plain
+        .as_ref()
+        .map(|bytes| {
+            crate::security_mutation_payload::seal(
+                lock,
+                profile,
+                database,
+                &previous.identity,
+                crate::security_mutation_payload::PayloadKind::Outcome,
+                bytes,
+            )
+        })
+        .transpose()?;
     let resend_count = previous
         .resend_count
         .checked_add(u8::from(increment_resend))
@@ -153,7 +224,7 @@ pub(crate) fn update_v7_record(
         created_at: previous.created_at,
         updated_at: timestamp,
     };
-    validate_record(&record)?;
+    crate::security_record_validate::validate_record(&record)?;
     transaction.execute(
         "UPDATE mutation_ledger SET client_disposition=?1,runtime_disposition=?2,canonical_outcome=?3,resend_count=?4,outcome_ref=?5,recovery_summary=?6,updated_at=?7 WHERE runtime_authority_digest=?8 AND principal_digest=?9 AND idempotency_key=?10",
         rusqlite::params![crate::security_mutation::state_name(state), runtime.map(runtime_name), outcome_bytes, i64::from(resend_count), record.outcome_ref.as_ref().map(|value| value.as_bytes().to_vec()), record.recovery_summary, timestamp, record.identity.runtime().to_vec(), record.identity.principal().to_vec(), record.identity.idempotency_key()],
@@ -188,86 +259,4 @@ pub(crate) struct V7RecordUpdate {
     pub(crate) summary: String,
     pub(crate) timestamp: i64,
     pub(crate) increment_resend: bool,
-}
-fn validate_record(record: &MutationRecord) -> Result<(), SecurityStateError> {
-    let runtime = record.runtime_disposition;
-    let command = record.command_ref.is_some();
-    let normalized = record.normalized_command.is_some();
-    let outcome = record.outcome_ref.is_some();
-    let canonical = record.canonical_outcome.is_some();
-    let summary = record.recovery_summary.as_str();
-    let valid = match record.client_state {
-        ClientMutationDisposition::Prepared => {
-            runtime.is_none()
-                && command
-                && normalized
-                && !outcome
-                && !canonical
-                && record.resend_count == 0
-                && summary == "prepared"
-                && record.updated_at == 0
-        }
-        ClientMutationDisposition::Dispatching => {
-            runtime.is_none() && normalized && command && !outcome && !canonical
-        }
-        ClientMutationDisposition::Observing => {
-            matches!(
-                runtime,
-                None | Some(crate::RuntimeCommitDisposition::Indeterminate)
-            ) && normalized
-                && command
-                && !outcome
-                && !canonical
-        }
-        ClientMutationDisposition::Retryable => {
-            matches!(
-                runtime,
-                None | Some(
-                    crate::RuntimeCommitDisposition::NotCommittedRetryable
-                        | crate::RuntimeCommitDisposition::Indeterminate
-                )
-            ) && normalized
-                && command
-                && !outcome
-                && !canonical
-                && record.resend_count <= 1
-        }
-        ClientMutationDisposition::Reconciling => {
-            matches!(
-                runtime,
-                None | Some(crate::RuntimeCommitDisposition::Indeterminate)
-            ) && normalized
-                && command
-                && !outcome
-                && !canonical
-        }
-        ClientMutationDisposition::CanonicalOutcome => {
-            runtime == Some(crate::RuntimeCommitDisposition::DurablyRecorded)
-                && normalized
-                && command
-                && outcome
-                && canonical
-                && record.canonical_outcome.as_ref().is_some_and(|outcome| {
-                    outcome.correlates_to_command(
-                        record.normalized_command.as_ref().expect("validated"),
-                    )
-                })
-                && !summary.is_empty()
-        }
-        ClientMutationDisposition::ManualResolution => {
-            runtime == Some(crate::RuntimeCommitDisposition::Indeterminate)
-                && !outcome
-                && !canonical
-                && ((normalized && command && !summary.is_empty())
-                    || (!normalized
-                        && !command
-                        && record.resend_count == 0
-                        && summary == "v6_unrecoverable"))
-        }
-    };
-    if valid {
-        Ok(())
-    } else {
-        Err(SecurityStateError::InvalidTransition)
-    }
 }

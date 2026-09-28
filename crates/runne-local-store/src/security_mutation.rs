@@ -11,39 +11,71 @@ impl LocalStore {
         identity: MutationIdentity,
         transition: V7MutationTransition,
     ) -> Result<AnchoredMutationPermit, SecurityStateError> {
-        let (next, runtime, outcome, summary, timestamp) = transition_parts(transition)?;
-        let (record, anchor) = self.commit_anchored_security_write(secure, |transaction| {
-            let previous = crate::security_record::load_record(transaction, identity.clone())?
+        let prohibited_refusal = matches!(
+            &transition,
+            V7MutationTransition::ProhibitedInputRejectedBeforeAdmission { .. }
+        );
+        let (next, runtime, outcome, summary, timestamp) =
+            crate::security_mutation_parts::transition_parts(transition)?;
+        let context = self
+            .security
+            .clone()
+            .ok_or(SecurityStateError::AdmissionFailed)?;
+        let (record, anchor) =
+            self.commit_anchored_security_write_with_lock(secure, |transaction, lock| {
+                let previous = crate::security_record::load_record(
+                    transaction,
+                    identity.clone(),
+                    lock,
+                    context.profile,
+                    context.database,
+                )?
                 .ok_or(SecurityStateError::IdentityConflict)?;
-            let command = previous
-                .normalized_command
-                .as_ref()
-                .ok_or(SecurityStateError::InvalidTransition)?;
-            if !generic_transition_allowed(previous.client_state, next)
-                || !valid_runtime(next, runtime)
-            {
-                return Err(SecurityStateError::InvalidTransition);
-            }
-            if let Some(outcome) = outcome.as_ref() {
-                if !outcome.correlates_to_command(command) {
-                    return Err(SecurityStateError::IdentityConflict);
+                let command = previous
+                    .normalized_command
+                    .as_ref()
+                    .ok_or(SecurityStateError::InvalidTransition)?;
+                if prohibited_refusal
+                    && (previous.client_state != ClientMutationDisposition::Dispatching
+                        || previous.resend_count != 0
+                        || !matches!(
+                            command,
+                            crate::NormalizedMutationCommand::GenerateText { .. }
+                        ))
+                {
+                    return Err(SecurityStateError::InvalidTransition);
                 }
-            } else if next == ClientMutationDisposition::CanonicalOutcome {
-                return Err(SecurityStateError::InvalidTransition);
-            }
-            crate::security_record::update_v7_record(
-                transaction,
-                &previous,
-                crate::security_record::V7RecordUpdate {
-                    state: next,
-                    runtime,
-                    canonical_outcome: outcome,
-                    summary,
-                    timestamp,
-                    increment_resend: false,
-                },
-            )
-        })?;
+                let transition_allowed = if prohibited_refusal {
+                    previous.client_state == ClientMutationDisposition::Dispatching
+                } else {
+                    generic_transition_allowed(previous.client_state, next)
+                };
+                if !transition_allowed || !valid_runtime(next, runtime) {
+                    return Err(SecurityStateError::InvalidTransition);
+                }
+                if let Some(outcome) = outcome.as_ref() {
+                    if !outcome.correlates_to_command(command) {
+                        return Err(SecurityStateError::IdentityConflict);
+                    }
+                } else if next == ClientMutationDisposition::CanonicalOutcome {
+                    return Err(SecurityStateError::InvalidTransition);
+                }
+                crate::security_record::update_v7_record(
+                    transaction,
+                    &previous,
+                    lock,
+                    context.profile,
+                    context.database,
+                    crate::security_record::V7RecordUpdate {
+                        state: next,
+                        runtime,
+                        canonical_outcome: outcome,
+                        summary,
+                        timestamp,
+                        increment_resend: false,
+                    },
+                )
+            })?;
         Ok(AnchoredMutationPermit { record, anchor })
     }
 
@@ -53,28 +85,42 @@ impl LocalStore {
         identity: MutationIdentity,
         timestamp: u64,
     ) -> Result<AnchoredMutationPermit, SecurityStateError> {
-        let (record, anchor) = self.commit_anchored_security_write(secure, |transaction| {
-            let previous = crate::security_record::load_record(transaction, identity.clone())?
+        let context = self
+            .security
+            .clone()
+            .ok_or(SecurityStateError::AdmissionFailed)?;
+        let (record, anchor) =
+            self.commit_anchored_security_write_with_lock(secure, |transaction, lock| {
+                let previous = crate::security_record::load_record(
+                    transaction,
+                    identity.clone(),
+                    lock,
+                    context.profile,
+                    context.database,
+                )?
                 .ok_or(SecurityStateError::IdentityConflict)?;
-            if previous.client_state != ClientMutationDisposition::Retryable
-                || previous.resend_count != 0
-            {
-                return Err(SecurityStateError::InvalidTransition);
-            }
-            crate::security_record::update_v7_record(
-                transaction,
-                &previous,
-                crate::security_record::V7RecordUpdate {
-                    state: ClientMutationDisposition::Dispatching,
-                    runtime: None,
-                    canonical_outcome: None,
-                    summary: "resend".into(),
-                    timestamp: i64::try_from(timestamp)
-                        .map_err(|_| SecurityStateError::InvalidTransition)?,
-                    increment_resend: true,
-                },
-            )
-        })?;
+                if previous.client_state != ClientMutationDisposition::Retryable
+                    || previous.resend_count != 0
+                {
+                    return Err(SecurityStateError::InvalidTransition);
+                }
+                crate::security_record::update_v7_record(
+                    transaction,
+                    &previous,
+                    lock,
+                    context.profile,
+                    context.database,
+                    crate::security_record::V7RecordUpdate {
+                        state: ClientMutationDisposition::Dispatching,
+                        runtime: None,
+                        canonical_outcome: None,
+                        summary: "resend".into(),
+                        timestamp: i64::try_from(timestamp)
+                            .map_err(|_| SecurityStateError::InvalidTransition)?,
+                        increment_resend: true,
+                    },
+                )
+            })?;
         Ok(AnchoredMutationPermit { record, anchor })
     }
 
@@ -134,78 +180,6 @@ impl LocalStore {
     }
 }
 
-fn transition_parts(
-    transition: V7MutationTransition,
-) -> Result<
-    (
-        ClientMutationDisposition,
-        Option<RuntimeCommitDisposition>,
-        Option<crate::CanonicalMutationOutcome>,
-        String,
-        i64,
-    ),
-    SecurityStateError,
-> {
-    let (next, runtime, outcome, summary, timestamp) = match transition {
-        V7MutationTransition::Dispatching { timestamp } => (
-            ClientMutationDisposition::Dispatching,
-            None,
-            None,
-            "dispatching".into(),
-            timestamp,
-        ),
-        V7MutationTransition::Observing { timestamp } => (
-            ClientMutationDisposition::Observing,
-            None,
-            None,
-            "observing".into(),
-            timestamp,
-        ),
-        V7MutationTransition::NotCommittedRetryable { timestamp } => (
-            ClientMutationDisposition::Retryable,
-            Some(RuntimeCommitDisposition::NotCommittedRetryable),
-            None,
-            "not_committed_retryable".into(),
-            timestamp,
-        ),
-        V7MutationTransition::Indeterminate { timestamp } => (
-            ClientMutationDisposition::Reconciling,
-            Some(RuntimeCommitDisposition::Indeterminate),
-            None,
-            "indeterminate".into(),
-            timestamp,
-        ),
-        V7MutationTransition::ManualResolution { summary, timestamp } => (
-            ClientMutationDisposition::ManualResolution,
-            Some(RuntimeCommitDisposition::Indeterminate),
-            None,
-            summary,
-            timestamp,
-        ),
-        V7MutationTransition::CanonicalOutcome {
-            outcome,
-            summary,
-            timestamp,
-        } => (
-            ClientMutationDisposition::CanonicalOutcome,
-            Some(RuntimeCommitDisposition::DurablyRecorded),
-            Some(*outcome),
-            summary,
-            timestamp,
-        ),
-    };
-    if summary.is_empty() || summary.len() > 256 || timestamp > i64::MAX as u64 {
-        return Err(SecurityStateError::InvalidTransition);
-    }
-    Ok((
-        next,
-        runtime,
-        outcome,
-        summary,
-        i64::try_from(timestamp).map_err(|_| SecurityStateError::InvalidTransition)?,
-    ))
-}
-
 fn valid_runtime(
     next: ClientMutationDisposition,
     runtime: Option<RuntimeCommitDisposition>,
@@ -219,8 +193,14 @@ fn valid_runtime(
             ClientMutationDisposition::Retryable,
             Some(RuntimeCommitDisposition::NotCommittedRetryable)
         ) | (
-            ClientMutationDisposition::Reconciling | ClientMutationDisposition::ManualResolution,
+            ClientMutationDisposition::Reconciling,
             Some(RuntimeCommitDisposition::Indeterminate)
+        ) | (
+            ClientMutationDisposition::ManualResolution,
+            Some(
+                RuntimeCommitDisposition::Indeterminate
+                    | RuntimeCommitDisposition::NotCommittedRetryable
+            )
         ) | (
             ClientMutationDisposition::CanonicalOutcome,
             Some(RuntimeCommitDisposition::DurablyRecorded)

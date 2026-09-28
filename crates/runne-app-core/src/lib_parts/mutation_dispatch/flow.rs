@@ -54,7 +54,7 @@ impl AppCore {
                 )?;
                 if Self::can_resend_bind(lease) {
                     Self::mark_possible_send(&mut possible_send);
-                    let _ = self.send_exact_command(lease, recovery).await;
+                    self.send_or_classify_prohibited_input(lease, recovery).await?;
                 }
             }
             State::Retryable => {
@@ -85,8 +85,37 @@ impl AppCore {
         }
         self.resend_v7_under_operation(lease, unix_timestamp())?;
         Self::mark_possible_send(possible_send);
-        let _ = self.send_exact_command(lease, recovery).await;
+        self.send_or_classify_prohibited_input(lease, recovery).await?;
         Ok(())
+    }
+
+    async fn send_or_classify_prohibited_input(
+        &self,
+        lease: &mut PreparedMutationLease,
+        recovery: bool,
+    ) -> Result<(), AppCoreError> {
+        match self.send_exact_command(lease, recovery).await {
+            Err(AppCoreError::ProhibitedInputRejected)
+                if lease.anchored_record.disposition()
+                    == runne_local_store::ClientMutationDisposition::Dispatching
+                    && lease.anchored_record.resend_count() == 0
+                    && matches!(&lease.request.semantic_command, CanonicalMutationCommand::GenerateText { .. }) =>
+            {
+                self.transition_v7_under_operation(
+                    lease,
+                    runne_local_store::V7MutationTransition::ProhibitedInputRejectedBeforeAdmission {
+                        timestamp: unix_timestamp(),
+                    },
+                )?;
+                Err(AppCoreError::ProhibitedInputRejected)
+            }
+            // A resend (resend_count > 0) is past the one valid refusal
+            // transition; the pre-effect provider rejection is still an
+            // error and is never swallowed into a successful dispatch.
+            Err(AppCoreError::ProhibitedInputRejected) => Err(AppCoreError::ProhibitedInputRejected),
+            // A previous send may have committed, so keep the normal reconciliation path.
+            _ => Ok(()),
+        }
     }
 
     async fn finish_dispatch(

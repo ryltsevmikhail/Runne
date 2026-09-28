@@ -249,3 +249,7 @@ fn safe_relative_path(path: &Path) -> bool {
             )
         })
 }
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "root_handle_broker/linux_post_open_replacement_tests.rs"]
+mod linux_post_open_replacement_tests;

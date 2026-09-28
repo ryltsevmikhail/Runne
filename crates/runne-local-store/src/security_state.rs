@@ -146,6 +146,7 @@ pub enum V7MutationTransition {
     NotCommittedRetryable { timestamp: u64 },
     Indeterminate { timestamp: u64 },
     ManualResolution { summary: String, timestamp: u64 },
+    ProhibitedInputRejectedBeforeAdmission { timestamp: u64 },
     CanonicalOutcome { outcome: Box<crate::CanonicalMutationOutcome>, summary: String, timestamp: u64 },
 }
 #[derive(Clone, Debug, Eq, PartialEq)]

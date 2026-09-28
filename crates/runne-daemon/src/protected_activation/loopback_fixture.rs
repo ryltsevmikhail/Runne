@@ -4,6 +4,7 @@ mod ack_failure_store;
 mod bootstrap;
 mod fixed_response;
 mod request_validation;
+mod t1_scan_receipt;
 mod tls_sse_server;
 
 use std::path::Path;
@@ -57,6 +58,39 @@ pub(crate) async fn dependencies(
             acknowledgement_failure_decorator(),
             #[cfg(test)]
             Arc::new(crate::canonical_provider::credential_versions::fixture_native),
+        ),
+        server,
+    ))
+}
+
+/// Clean Linux T1 provider fixture: real TLS/OpenAI adapter with ordinary
+/// durable stores and no acknowledgement fault decorator.
+#[cfg(all(target_os = "linux", feature = "test-support", not(test)))]
+pub(crate) async fn t1_dependencies(
+    runtime_root: &Path,
+) -> Result<(ProtectedProviderDependencyCapsule, TlsSseServer), DaemonError> {
+    let server = TlsSseServer::start_t1(
+        runtime_root,
+        runne_daemon_openai_effect::loopback_fixture_request_authenticator(),
+        std::env::var_os("RUNNE_TEST_T1_TRUST_TRANSPORT_LOSS").as_deref()
+            == Some(std::ffi::OsStr::new("1")),
+    )
+    .await
+    .map_err(|_| DaemonError::Bootstrap("fixture server".into()))?;
+    let keyring = Arc::new(
+        RetainedFixtureKeyring::open(runtime_root)
+            .map_err(|_| DaemonError::Bootstrap("fixture keyring".into()))?,
+    );
+    let client = server
+        .client()
+        .map_err(|_| DaemonError::Bootstrap("fixture client".into()))?;
+    let (effect, _) = runne_daemon_openai_effect::effect_from_loopback_fixture(client)
+        .map_err(|_| DaemonError::Bootstrap("fixture effect".into()))?;
+    Ok((
+        ProtectedProviderDependencyCapsule::from_loopback_fixture(
+            openai_effect_adapter(effect),
+            keyring,
+            passthrough_decorator(),
         ),
         server,
     ))

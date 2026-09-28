@@ -3,6 +3,9 @@ use std::{
     thread::ThreadId,
 };
 
+pub use crate::security_open_test_support_v8::downgrade_to_v8_for_test;
+pub use crate::security_open_test_support_v8::fail_after_v8_payload_scrub_once_for_test;
+
 type OpenHook = Box<dyn FnOnce() + Send>;
 
 struct OpenHooks {

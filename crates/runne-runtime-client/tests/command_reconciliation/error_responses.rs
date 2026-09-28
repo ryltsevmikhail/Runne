@@ -34,6 +34,80 @@ async fn reconciliation_maps_only_the_closed_error_status_code_pairs() {
 }
 
 #[tokio::test]
+async fn prohibited_input_requires_exact_422_code_and_correlated_canonical_envelope() {
+    let (origin, server) = serve_generation(
+        422,
+        &headers(REQUEST_ID),
+        &body("prohibited_secret_material", REQUEST_ID),
+    )
+    .await;
+    let error = mock_authenticated_runtime_client(&origin, super::session())
+        .unwrap()
+        .generate_text(generation_request())
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeApiErrorKind::ProhibitedInputRejected);
+    assert_eq!(error.request_id(), Some(REQUEST_ID));
+    server.await.unwrap();
+
+    for (status, code, response_id, header_id) in [
+        (422, "other_error", REQUEST_ID, REQUEST_ID),
+        (400, "prohibited_secret_material", REQUEST_ID, REQUEST_ID),
+        (
+            422,
+            "prohibited_secret_material",
+            REQUEST_ID,
+            OTHER_REQUEST_ID,
+        ),
+    ] {
+        assert_generation_invalid(status, &headers(header_id), &body(code, response_id)).await;
+    }
+    assert_generation_invalid(422, &headers(REQUEST_ID), "not-json").await;
+}
+
+async fn assert_generation_invalid(status: u16, headers: &str, body: &str) {
+    let (origin, server) = serve_generation(status, headers, body).await;
+    let error = mock_authenticated_runtime_client(&origin, super::session())
+        .unwrap()
+        .generate_text(generation_request())
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeApiErrorKind::InvalidResponse);
+    assert_eq!(error.request_id(), None);
+    server.await.unwrap();
+}
+
+fn generation_request() -> runne_runtime_client::GenerateTextRequest {
+    runne_runtime_client::GenerateTextRequest::new(
+        super::identity(),
+        runne_runtime_client::CanonicalId::parse("018f2e3a-7000-7000-8000-000000000303").unwrap(),
+        1,
+        "safe fixture",
+    )
+    .unwrap()
+}
+
+async fn serve_generation(
+    status: u16,
+    headers: &str,
+    body: &str,
+) -> (String, tokio::task::JoinHandle<()>) {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let headers = headers.to_owned();
+    let body = body.to_owned();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let request = read_request(&mut stream).await;
+        assert!(request.starts_with(
+            "POST /v1/conversations/018f2e3a-7000-7000-8000-000000000303/messages HTTP/1.1"
+        ));
+        write_response(&mut stream, status, &headers, &body).await;
+    });
+    (origin, server)
+}
+
+#[tokio::test]
 async fn reconciliation_rejects_invalid_error_status_code_pairs() {
     for (status, code) in [
         (409, "conversation_conflict"),

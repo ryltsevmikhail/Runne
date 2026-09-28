@@ -42,7 +42,8 @@ pub use canonical::{
 pub use canonical::{
     BindWorkspaceRootRequest, CreateProjectRequest, CreateWorkspaceRequest, ExistingProjectRequest,
     ExistingWorkspaceRequest, ProjectCommandAcknowledgement, ProjectPageCursor, ProjectPageDto,
-    ProjectSnapshotDto, ProtectedRootAdmission, RenameProjectRequest,
+    ProjectSnapshotDto, ProjectTrustControlRequestDto, ProjectTrustControlSnapshotDto,
+    ProjectTrustDecisionDto, ProjectTrustStatusDto, ProtectedRootAdmission, RenameProjectRequest,
     WorkspaceCommandAcknowledgement, WorkspacePageCursor, WorkspacePageDto, WorkspaceSnapshotDto,
 };
 pub use canonical::{CommandReconciliationDisposition, CommandReconciliationRequest};

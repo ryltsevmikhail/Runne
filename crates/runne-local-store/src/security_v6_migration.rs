@@ -40,10 +40,11 @@ impl LocalStore {
         });
         let migrated = store.migrate_v7_to_v8(secure, lock, anchor)?;
         secure.compare_and_advance_anchor(lock, anchor, &migrated)?;
-        if secure.read_security_anchor(lock)? != StoredSecurityAnchor::V1(migrated) {
+        if secure.read_security_anchor(lock)? != StoredSecurityAnchor::V1(migrated.clone()) {
             return Err(SecurityStateError::AnchorAdvanceFailed);
         }
-        Ok(store)
+        drop(store);
+        Self::migrate_v8(path, secure, profile, lock, &migrated)
     }
 
     pub(crate) fn migrate_v6(

@@ -255,15 +255,27 @@ fn nm03_unicode_case_mapped_deny_forms_stay_denied() {
         "RUNNE_T1_FAKE_CANARY_zq71\n",
     )
     .expect("homoglyph key fixture");
+    std::fs::write(
+        directory.path().join("id_rſa"),
+        "RUNNE_T1_FAKE_CANARY_zq71\n",
+    )
+    .expect("long-s key fixture");
+    std::fs::write(
+        directory.path().join("host.Key"),
+        "RUNNE_T1_FAKE_CANARY_zq71\n",
+    )
+    .expect("kelvin key fixture");
 
     let files = &fixture;
-    let error = files
-        .read_file(PRINCIPAL, &read(workspace(), "ıd_rsa"))
-        .expect_err("case-mapped deny form must stay denied");
-    assert!(
-        !format!("{error:?}").contains("RUNNE_T1_FAKE_CANARY_zq71"),
-        "no canary text in the denial"
-    );
+    for path in ["ıd_rsa", "id_rſa", "host.Key"] {
+        let error = files
+            .read_file(PRINCIPAL, &read(workspace(), path))
+            .expect_err("case-mapped deny form must stay denied");
+        assert!(
+            !format!("{error:?}").contains("RUNNE_T1_FAKE_CANARY_zq71"),
+            "no canary text in the denial"
+        );
+    }
 
     // The exact ASCII name stays denied as before, and the policy revision is
     // what the admission carries.

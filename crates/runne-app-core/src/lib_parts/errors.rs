@@ -20,6 +20,14 @@ pub enum AppCoreError {
     Diagnostics(#[from] SecurityTransactionError),
     #[error("runtime is unavailable")]
     RuntimeUnavailable,
+    #[error("trust decision outcome is unknown; refresh trust state before asking again")]
+    TrustControlUnknownAfterSend,
+    #[error("trust state changed; refresh before confirming")]
+    TrustControlConflict,
+    #[error("managed trust policy cannot be changed by the user")]
+    TrustControlManagedPolicy,
+    #[error("a current admitted workspace root is required")]
+    TrustControlRootUnavailable,
     #[error("stored conversation reference is invalid")]
     InvalidConversationReference,
     #[error("project is unavailable")]

@@ -53,6 +53,21 @@ impl managed_authority::Sealed for ManagedConnection {}
 impl ManagedConnectionAuthority for ManagedConnection {}
 
 impl ManagedConnection {
+    /// Rechecks the factory-retained main database identity against its path.
+    pub(crate) fn verify_retained_identity(&self) -> SqliteResult<()> {
+        verify_connection_identity(&self.connection, self.identity.as_ref())
+    }
+
+    /// Rechecks and compares two factory-retained main-file identities.
+    pub(crate) fn same_database_identity(&self, other: &Self) -> SqliteResult<bool> {
+        self.verify_retained_identity()?;
+        other.verify_retained_identity()?;
+        match (&self.identity, &other.identity) {
+            (Some(left), Some(right)) => Ok(left.database.identity == right.database.identity),
+            _ => Ok(false),
+        }
+    }
+
     pub(crate) fn with_connection_mut<T>(
         &mut self,
         operation: impl FnOnce(&mut Connection) -> T,

@@ -96,8 +96,12 @@ async fn injected_production_open_is_anchored_and_configures_each_runtime_mode()
     for path in [&external_path, &bundled_path] {
         let connection = rusqlite::Connection::open(path).expect("open anchored database");
         let version: i64 = connection
-            .query_row("SELECT schema_version FROM meta WHERE singleton=1", [], |row| row.get(0))
+            .query_row(
+                "SELECT schema_version FROM meta WHERE singleton=1",
+                [],
+                |row| row.get(0),
+            )
             .expect("schema version");
-        assert_eq!(version, 8);
+        assert_eq!(version, 9);
     }
 }

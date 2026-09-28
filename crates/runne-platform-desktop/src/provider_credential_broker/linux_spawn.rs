@@ -76,6 +76,7 @@ fn opted_in_fixture_root() -> Result<Option<std::path::PathBuf>, BrokerHandoffEr
 /// euid-derived canonical socket; tests may validate a private fixture
 /// socket through the same strict checks (absolute path, socket type,
 /// own-euid ownership).
+#[derive(Clone, Eq, PartialEq)]
 pub struct SessionBusAddress(String);
 
 impl SessionBusAddress {
@@ -89,7 +90,7 @@ impl SessionBusAddress {
         Ok(Self(address))
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn for_tests(socket_path: &std::path::Path) -> Result<Self, BrokerHandoffError> {
         probe_path_socket(socket_path)?;
         Ok(Self(format!("unix:path={}", socket_path.to_string_lossy())))

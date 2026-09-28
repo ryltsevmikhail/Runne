@@ -7,7 +7,9 @@
 )]
 
 mod client;
+mod trust_control;
 mod types;
 mod wire;
 
+pub use trust_control::*;
 pub use types::*;

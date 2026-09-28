@@ -60,8 +60,7 @@ impl DevelopmentBundledRuntimeLauncher {
         };
 
         #[cfg(target_os = "linux")]
-        let provider_bus_address =
-            linux_provider_bus::address_for_launch(spec.provider_activation().is_some())?;
+        let provider_bus_address = linux_provider_bus::address_for_launch(spec)?;
 
         let issued_at = unix_millis()?;
         let expires_at = issued_at

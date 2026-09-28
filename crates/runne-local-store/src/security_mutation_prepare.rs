@@ -17,12 +17,16 @@ impl LocalStore {
         identity: MutationIdentity,
         command: crate::NormalizedMutationCommand,
     ) -> Result<AnchoredMutationPermit, SecurityStateError> {
-        let bytes = command.encode()?;
+        let bytes = zeroize::Zeroizing::new(command.encode()?);
         if !command.matches_identity(&identity) {
             return Err(SecurityStateError::IdentityConflict);
         }
         let reference = crate::security_ledger_v7::digest::command(&bytes);
-        let (record, anchor) = self.commit_anchored_security_write(secure, |transaction| {
+        let context = self
+            .security
+            .clone()
+            .ok_or(SecurityStateError::AdmissionFailed)?;
+        let (record, anchor) = self.commit_anchored_security_write_with_lock(secure, |transaction, lock| {
             let keys = transaction
                 .prepare(
                     "SELECT idempotency_key FROM mutation_ledger WHERE runtime_authority_digest=?1 AND principal_digest=?2 AND operation_kind=?3 AND target_kind=?4 AND target_id=?5 AND expected_version=?6 AND semantic_digest=?7",
@@ -47,7 +51,7 @@ impl LocalStore {
                     identity.target_kind(), crate::BoundedCanonicalId::parse(identity.target())?,
                     key, identity.expected_version(), identity.semantic_digest(),
                 )?;
-                let record = crate::security_record::load_record(transaction, existing)?
+                let record = crate::security_record::load_record(transaction, existing, lock, context.profile, context.database)?
                     .ok_or(SecurityStateError::IdentityConflict)?;
                 return (record.normalized_command.as_ref() == Some(&command))
                     .then_some((record, false))
@@ -63,9 +67,13 @@ impl LocalStore {
             {
                 return Err(SecurityStateError::InvalidTransition);
             }
+            let encrypted = crate::security_mutation_payload::seal(
+                lock, context.profile, context.database, &identity,
+                crate::security_mutation_payload::PayloadKind::Command, &bytes,
+            )?;
             transaction.execute(
                 "INSERT INTO mutation_ledger (runtime_authority_digest,principal_digest,operation_kind,target_kind,target_id,idempotency_key,expected_version,semantic_digest,normalized_command,canonical_outcome,resend_count,client_disposition,runtime_disposition,command_ref,outcome_ref,recovery_summary,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,NULL,0,'prepared',NULL,?10,NULL,'prepared',0,0)",
-                rusqlite::params![identity.runtime().to_vec(), identity.principal().to_vec(), identity.operation_name(), identity.target_name(), identity.target(), identity.idempotency_key(), i64::try_from(identity.expected_version()).map_err(|_| SecurityStateError::InvalidTransition)?, identity.semantic_digest().to_vec(), bytes, reference.as_bytes().to_vec()],
+                rusqlite::params![identity.runtime().to_vec(), identity.principal().to_vec(), identity.operation_name(), identity.target_name(), identity.target(), identity.idempotency_key(), i64::try_from(identity.expected_version()).map_err(|_| SecurityStateError::InvalidTransition)?, identity.semantic_digest().to_vec(), encrypted, reference.as_bytes().to_vec()],
             )?;
             Ok((crate::security_record::prepared_record_v7(identity, command, reference), true))
         })?;

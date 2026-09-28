@@ -11,6 +11,9 @@ use runne_runtime::{
 use runne_security::project_trust_policy::ProjectTrustPolicyAuthority;
 use runne_store::{ProjectWorkspaceStore, store::StoreTransaction};
 
+#[cfg(feature = "desktop-protected")]
+mod trust_control;
+
 #[cfg(not(feature = "desktop-protected"))]
 use super::super::process_unavailable::UnavailableProcessProvider;
 #[cfg(not(feature = "desktop-protected"))]
@@ -41,6 +44,7 @@ pub(super) struct CommandHosts {
     pub(super) process:
         RuntimeProcessHost<NativeProcessProvider<AuthoritativeProcessInvocationRegistry>>,
     pub(super) root_control: Option<Arc<ProtectedRootControl>>,
+    pub(super) trust_control_routes: Option<axum::Router>,
 }
 
 #[cfg(not(feature = "desktop-protected"))]
@@ -56,6 +60,7 @@ pub(super) struct CommandHosts {
     pub(super) workspace_diffs: RuntimeWorkspaceDiffHost<UnavailableRootAdmission>,
     pub(super) workspace_editor: RuntimeWorkspaceEditorHost<UnavailableRootAdmission>,
     pub(super) process: RuntimeProcessHost<UnavailableProcessProvider>,
+    pub(super) trust_control_routes: Option<axum::Router>,
 }
 
 #[cfg(feature = "desktop-protected")]
@@ -73,8 +78,8 @@ pub(super) fn compose(
     let _ = (canonical_db_path, runtime_authority_id, prohibited_content);
     // T1/NM-06: the shared process-wide authority (opened once in the
     // bootstrap flow). A missing authority keeps the gate closed.
-    let trust_gate = match trust_authority {
-        Some(authority) => TrustGate::open(authority),
+    let trust_gate = match trust_authority.as_ref() {
+        Some(authority) => TrustGate::open(Arc::clone(authority)),
         None => TrustGate::closed(),
     };
     let repository = ProjectWorkspaceStore::from_store(store.clone());
@@ -94,6 +99,17 @@ pub(super) fn compose(
         .map_or_else(RootAdmissionGateway::unavailable, |value| {
             RootAdmissionGateway::protected(Arc::clone(value))
         });
+    let trust_control_routes = trust_authority.as_ref().map(|trust| {
+        runne_http::project_trust_control::project_trust_control_router(
+            runne_http::project_trust_control::ProjectTrustControlHttpState::new(
+                trust_control::TrustControlHost::new(
+                    repository.clone(),
+                    Arc::clone(trust),
+                    gateway.clone(),
+                ),
+            ),
+        )
+    });
     let workspace_files = RuntimeWorkspaceFileHost::new(gateway.clone());
     let workspace_diffs = RuntimeWorkspaceDiffHost::new(gateway.clone());
     let workspace_editor = RuntimeWorkspaceEditorHost::new(gateway.clone());
@@ -116,6 +132,7 @@ pub(super) fn compose(
         workspace_editor,
         process,
         root_control: authority.map(ProtectedRootControl::new),
+        trust_control_routes,
     }
 }
 
@@ -144,5 +161,6 @@ pub(super) fn compose(
         workspace_diffs: RuntimeWorkspaceDiffHost::new(UnavailableRootAdmission),
         workspace_editor: RuntimeWorkspaceEditorHost::new(UnavailableRootAdmission),
         process: RuntimeProcessHost::new(UnavailableProcessProvider),
+        trust_control_routes: None,
     }
 }

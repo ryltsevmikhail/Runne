@@ -10,6 +10,11 @@ pub enum RuntimeApiErrorKind {
     ResponseTooLarge,
     InvalidResponse,
     Incompatible,
+    ProhibitedInputRejected,
+    /// A trust decision may have committed, but its response was lost.
+    UnknownAfterSend,
+    ManagedPolicy,
+    RootUnavailable,
 }
 
 /// Typed and redacted canonical client failure.
@@ -52,6 +57,10 @@ impl fmt::Display for RuntimeApiError {
             RuntimeApiErrorKind::ResponseTooLarge => "runtime response exceeds the allowed size",
             RuntimeApiErrorKind::InvalidResponse => "runtime response is invalid",
             RuntimeApiErrorKind::Incompatible => "runtime profile is incompatible",
+            RuntimeApiErrorKind::ProhibitedInputRejected => "runtime rejected prohibited input",
+            RuntimeApiErrorKind::UnknownAfterSend => "trust decision outcome is unknown; refresh state",
+            RuntimeApiErrorKind::ManagedPolicy => "managed trust policy cannot be changed by the user",
+            RuntimeApiErrorKind::RootUnavailable => "current workspace root is unavailable",
         };
         formatter.write_str(message)
     }
@@ -88,6 +97,10 @@ pub(crate) const fn diagnostic_error_kind(error: &RuntimeApiError) -> &'static s
         RuntimeApiErrorKind::ResponseTooLarge => "response_too_large",
         RuntimeApiErrorKind::InvalidResponse => "invalid_response",
         RuntimeApiErrorKind::Incompatible => "incompatible",
+        RuntimeApiErrorKind::ProhibitedInputRejected => "prohibited_input_rejected",
+        RuntimeApiErrorKind::UnknownAfterSend => "unknown_after_send",
+        RuntimeApiErrorKind::ManagedPolicy => "managed_policy",
+        RuntimeApiErrorKind::RootUnavailable => "root_unavailable",
     }
 }
 

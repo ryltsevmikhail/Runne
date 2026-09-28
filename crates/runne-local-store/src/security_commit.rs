@@ -56,6 +56,22 @@ impl LocalStore {
     where
         E: From<SecurityStateError>,
     {
+        self.commit_anchored_security_write_with_lock(secure, |transaction, _lock| {
+            write(transaction)
+        })
+    }
+
+    pub(crate) fn commit_anchored_security_write_with_lock<T, E>(
+        &mut self,
+        secure: &dyn SecureStore,
+        write: impl FnOnce(
+            &rusqlite::Transaction<'_>,
+            &runne_secure_store::SecurityProfileLock<'_>,
+        ) -> Result<(T, bool), E>,
+    ) -> Result<(T, SecurityAnchorV1), E>
+    where
+        E: From<SecurityStateError>,
+    {
         let context = self
             .security
             .clone()
@@ -67,6 +83,28 @@ impl LocalStore {
             .acquire_security_profile_lock(context.profile)
             .map_err(SecurityStateError::from)
             .map_err(E::from)?;
+        self.commit_anchored_security_write_under_lock(secure, &lock, write)
+    }
+
+    pub(crate) fn commit_anchored_security_write_under_lock<T, E>(
+        &mut self,
+        secure: &dyn SecureStore,
+        lock: &runne_secure_store::SecurityProfileLock<'_>,
+        write: impl FnOnce(
+            &rusqlite::Transaction<'_>,
+            &runne_secure_store::SecurityProfileLock<'_>,
+        ) -> Result<(T, bool), E>,
+    ) -> Result<(T, SecurityAnchorV1), E>
+    where
+        E: From<SecurityStateError>,
+    {
+        let context = self
+            .security
+            .clone()
+            .ok_or_else(|| E::from(SecurityStateError::AdmissionFailed))?;
+        if context.poisoned {
+            return Err(E::from(SecurityStateError::AnchorAdvanceFailed));
+        }
         validate_connection_identity(&self.connection, &context).map_err(E::from)?;
         let transaction = self
             .connection
@@ -74,8 +112,8 @@ impl LocalStore {
             .map_err(SecurityStateError::from)
             .map_err(E::from)?;
         let anchor =
-            authenticate_current_state(&transaction, secure, &lock, &context).map_err(E::from)?;
-        let (value, changed) = write(&transaction)?;
+            authenticate_current_state(&transaction, secure, lock, &context).map_err(E::from)?;
+        let (value, changed) = write(&transaction, lock)?;
         if !changed {
             transaction
                 .commit()
@@ -89,7 +127,7 @@ impl LocalStore {
             .checked_add(1)
             .ok_or_else(|| E::from(SecurityStateError::InvalidTransition))?;
         let seal = secure
-            .seal_security_transaction(&lock, context.database, generation, digest, anchor.digest())
+            .seal_security_transaction(lock, context.database, generation, digest, anchor.digest())
             .map_err(SecurityStateError::from)
             .map_err(E::from)?;
         let next = SecurityAnchorV1::new(
@@ -133,9 +171,9 @@ impl LocalStore {
             .map_err(SecurityStateError::from)
             .map_err(E::from)?;
         if secure
-            .compare_and_advance_anchor(&lock, &anchor, &next)
+            .compare_and_advance_anchor(lock, &anchor, &next)
             .is_err()
-            || secure.read_security_anchor(&lock).ok().as_ref()
+            || secure.read_security_anchor(lock).ok().as_ref()
                 != Some(&StoredSecurityAnchor::V1(next.clone()))
         {
             self.security.as_mut().expect("anchored").poisoned = true;
@@ -168,7 +206,12 @@ fn authenticate_current_state(
     lock: &runne_secure_store::SecurityProfileLock<'_>,
     context: &crate::SecurityContext,
 ) -> Result<SecurityAnchorV1, SecurityStateError> {
-    crate::security_schema_v8::validate_v8_schema(connection)?;
+    let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    match version {
+        8 => crate::security_schema_v8::validate_v8_schema(connection)?,
+        9 => crate::security_schema_v9::validate_v9_schema(connection)?,
+        _ => return Err(SecurityStateError::AdmissionFailed),
+    }
     let bound: (Vec<u8>, Vec<u8>) = connection.query_row(
         "SELECT profile_identity_digest,database_identity FROM security_profile WHERE singleton=1",
         [],

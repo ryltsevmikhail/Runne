@@ -25,6 +25,8 @@ pub mod operational_telemetry;
 pub mod principal;
 /// Runtime-owned process and bounded terminal-output contracts.
 pub mod process;
+/// Runtime-owned Project Trust read and explicit decision contract.
+pub mod project_trust_control;
 /// Canonical Project and Workspace command and query contracts.
 pub mod project_workspace;
 /// Protected bundled-runtime activation contracts.
@@ -72,6 +74,7 @@ pub use local_session::*;
 pub use operational_telemetry::*;
 pub use principal::*;
 pub use process::*;
+pub use project_trust_control::*;
 pub use project_workspace::*;
 pub use protected_activation::*;
 pub use provider_catalog::*;

@@ -2,12 +2,21 @@
 async fn provider_bound_v2_bundled_process_renews_and_stops_without_v1_downgrade() {
     let _process_guard = PROCESS_FAULT_AUDIT_LOCK.lock().await;
     let temporary = owner_private::tempdir();
+    // Linux-only seam: the fixture bus socket keeps the provider-bound V2
+    // launch independent of a host-provided `/run/user/<euid>/bus`.
+    #[cfg(target_os = "linux")]
+    let session_bus_socket =
+        t1_support::fixture_session_bus(temporary.path(), "session-bus.sock");
     let executable =
         owner_private::ControlledExecutable::copy_with_writer_from(env!("CARGO_BIN_EXE_runned"));
     let spec =
         ProtectedBundledRuntimeLaunchSpec::new(executable.path(), &temporary.path().join("runtime"))
             .expect("protected launch spec")
             .with_provider_activation(ProviderActivationBindingV1::deterministic_v1());
+    #[cfg(target_os = "linux")]
+    let spec = spec
+        .with_validated_session_bus_address(&session_bus_socket)
+        .expect("fixture session bus address");
     let mut process = DevelopmentBundledRuntimeLauncher::new()
         .launch(&spec)
         .expect("provider-bound V2 launch");

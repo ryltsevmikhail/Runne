@@ -1,4 +1,5 @@
 use std::fmt;
+use zeroize::Zeroizing;
 
 use sha2::{Digest, Sha256};
 
@@ -139,6 +140,25 @@ pub(crate) trait SecurityProfileLockBackend {
         previous: [u8; 32],
         seal: &[u8],
     ) -> Result<(), SecureStoreError>;
+    fn encrypt_mutation_payload(
+        &self,
+        _database: [u8; 32],
+        _aad: &[u8],
+        _plaintext: &[u8],
+    ) -> Result<Vec<u8>, SecureStoreError> {
+        Err(SecureStoreError::Unavailable)
+    }
+    fn decrypt_mutation_payload(
+        &self,
+        _database: [u8; 32],
+        _aad: &[u8],
+        _envelope: &[u8],
+    ) -> Result<Zeroizing<Vec<u8>>, SecureStoreError> {
+        Err(SecureStoreError::Unavailable)
+    }
+    fn supports_mutation_payload_encryption(&self) -> bool {
+        false
+    }
 }
 
 /// An opaque, profile-bound guard retained across the SQLite/security-store CAS.
@@ -201,5 +221,40 @@ impl<'a> SecurityProfileLock<'a> {
     ) -> Result<(), SecureStoreError> {
         self.held
             .verify(database, generation, transaction, previous, seal)
+    }
+
+    /// Encrypts a payload using the profile-bound secure-store key. Unsupported
+    /// platform backends fail closed and never return plaintext.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backend cannot encrypt or the operation fails.
+    pub fn encrypt_mutation_payload(
+        &self,
+        database: [u8; 32],
+        aad: &[u8],
+        plaintext: &[u8],
+    ) -> Result<Vec<u8>, SecureStoreError> {
+        self.held.encrypt_mutation_payload(database, aad, plaintext)
+    }
+
+    /// Authenticates and decrypts a profile-bound mutation payload.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when authentication fails or the backend cannot decrypt.
+    pub fn decrypt_mutation_payload(
+        &self,
+        database: [u8; 32],
+        aad: &[u8],
+        envelope: &[u8],
+    ) -> Result<Zeroizing<Vec<u8>>, SecureStoreError> {
+        self.held.decrypt_mutation_payload(database, aad, envelope)
+    }
+
+    /// Whether this backend can encrypt mutation payloads without plaintext fallback.
+    #[must_use]
+    pub fn supports_mutation_payload_encryption(&self) -> bool {
+        self.held.supports_mutation_payload_encryption()
     }
 }

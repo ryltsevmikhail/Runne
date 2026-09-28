@@ -21,6 +21,14 @@ impl DaemonApplication {
         )?;
         let authority = RuntimeAuthorityId(hex::encode(bootstrap.authority_id));
         let secret_broker = Arc::new(Mutex::new(SecretBroker::new()));
+        #[cfg(all(target_os = "linux", feature = "test-support", not(test)))]
+        {
+            let mut broker = secret_broker
+                .lock()
+                .map_err(|_| DaemonError::Bootstrap("initialize T1 fixture registry".into()))?;
+            super::t1_fixture_secret::register_if_selected(&mut broker)
+                .map_err(|_| DaemonError::Bootstrap("register T1 fixture canary".into()))?;
+        }
         let prohibited_content: Arc<dyn ProhibitedContentPort> = Arc::new(
             secret_broker
                 .lock()

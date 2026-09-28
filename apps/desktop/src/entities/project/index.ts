@@ -34,3 +34,12 @@ export {
   type CanonicalProjectDestructiveOperation,
   type CanonicalProjectDestructiveOutcome,
 } from './api/destructive'
+export {
+  getProjectTrustControl,
+  projectTrustRevision,
+  markProjectTrustChanged,
+  requestProjectTrustControl,
+  type ProjectTrustControlSnapshot,
+  type ProjectTrustControlResult,
+  type ProjectTrustAction,
+} from './api/projectTrustControl'

@@ -114,6 +114,21 @@ async fn prepare_canonical_conversation_workspace(
     local_project_id: i64,
     daemon_database: &Path,
 ) {
+    prepare_canonical_conversation_workspace_inner(core, local_project_id, Some(daemon_database)).await;
+}
+
+async fn prepare_canonical_conversation_workspace_without_trust(
+    core: &AppCore,
+    local_project_id: i64,
+) -> (runne_runtime_client::CanonicalId, runne_runtime_client::CanonicalId) {
+    prepare_canonical_conversation_workspace_inner(core, local_project_id, None).await
+}
+
+async fn prepare_canonical_conversation_workspace_inner(
+    core: &AppCore,
+    local_project_id: i64,
+    daemon_database: Option<&Path>,
+) -> (runne_runtime_client::CanonicalId, runne_runtime_client::CanonicalId) {
     let runtime_project_id = CanonicalId::now_v7();
     let workspace_id = CanonicalId::now_v7();
     core.create_runtime_project(runtime_project_id, "protected audit".into())
@@ -131,7 +146,10 @@ async fn prepare_canonical_conversation_workspace(
     .expect("install canonical audit conversation reference");
     // NM-06 context-scope contract: a project-scoped conversation delivers
     // only through an explicit trust record on the daemon's authority.
-    grant_daemon_project_trust(daemon_database);
+    if let Some(daemon_database) = daemon_database {
+        grant_daemon_project_trust(daemon_database);
+    }
+    (runtime_project_id, workspace_id)
 }
 
 fn grant_daemon_project_trust(daemon_database: &Path) {

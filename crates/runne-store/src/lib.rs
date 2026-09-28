@@ -27,4 +27,5 @@ pub mod schema;
 pub mod store;
 pub mod verification;
 pub use project_trust_store::{ProjectTrustStore, ProjectTrustStoreError};
+pub use project_workspace::OwnedWorkspaceTrustMetadata;
 pub use project_workspace::ProjectWorkspaceStore;

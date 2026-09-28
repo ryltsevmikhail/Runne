@@ -9,6 +9,7 @@
 use std::fmt;
 use thiserror::Error;
 
+mod payload_crypto;
 #[cfg(feature = "project-owner-key-store")]
 mod project_owner_key;
 #[cfg(feature = "project-owner-key-store")]

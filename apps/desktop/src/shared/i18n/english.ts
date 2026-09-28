@@ -3,6 +3,7 @@ import conversationTarget from './english-conversation-target'
 import targetSurfaces from './english-target-surfaces'
 import runtimeEnglish from './english-runtime'
 import providerSurfaces from './provider-surfaces'
+import projectTrustControl from './project-trust-control-en'
 
 const english = {
   'settings.title': 'Settings',
@@ -283,6 +284,7 @@ const english = {
   ...conversationTarget,
   ...targetSurfaces,
   ...providerSurfaces,
+  ...projectTrustControl,
 } as const
 
 export default english

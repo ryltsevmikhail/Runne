@@ -261,7 +261,7 @@ async fn real_process_wrong_authority_db_closes_fatal_without_local_mutation() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn real_process_retention_gap_closes_fatal_without_local_mutation() {
+async fn real_process_retention_gap_closes_fail_closed_without_local_mutation() {
     let _process_guard = process_e2e_guard().await;
     let mut fixture = ProcessFaultFixture::open().await;
     let before = local_projection_state(&fixture.desktop_database);
@@ -275,11 +275,26 @@ async fn real_process_retention_gap_closes_fatal_without_local_mutation() {
         .open_project_conversation(fixture.project_id)
         .await
         .expect_err("retention gap must fail closed");
-
-    assert_eq!(error.to_string(), "runtime_identity_conflict");
-    assert_eq!(
-        core.bootstrap().expect("bootstrap").runtime,
-        RuntimeAvailability::Fatal
-    );
+    #[cfg(feature = "desktop-protected")]
+    {
+        // T1 NM-06: in the protected composition the delivery gate denies
+        // a workspace retention gap before any recovery contract runs, so
+        // the closed classification is the authorization revocation.
+        assert_eq!(error.to_string(), "runtime_revoked");
+        assert_eq!(
+            core.bootstrap().expect("bootstrap").runtime,
+            RuntimeAvailability::Revoked
+        );
+    }
+    #[cfg(not(feature = "desktop-protected"))]
+    {
+        // Non-protected builds keep the legacy recovery classification:
+        // the delivery trust gate does not exist there.
+        assert_eq!(error.to_string(), "runtime_identity_conflict");
+        assert_eq!(
+            core.bootstrap().expect("bootstrap").runtime,
+            RuntimeAvailability::Fatal
+        );
+    }
     assert_eq!(local_projection_state(&fixture.desktop_database), before);
 }

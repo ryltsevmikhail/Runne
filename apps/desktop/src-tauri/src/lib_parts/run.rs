@@ -251,6 +251,8 @@ pub fn run() {
             rename_runtime_project,
             get_workspace,
             get_canonical_workspace,
+            get_project_trust_control,
+            request_project_trust_control,
             list_workspace_files,
             read_workspace_file,
             list_workspace_changes,

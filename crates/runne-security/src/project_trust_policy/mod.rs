@@ -16,9 +16,9 @@ use runne_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ContentGuardError, ProhibitedContentPort,
 };
 use runne_application::project_trust::{
-    FROZEN_POLICY_VERSION, ProjectTrustPersistence, ProjectTrustProjectId, ProjectTrustRecord,
-    ProjectTrustStatus, SourceAdmission, SourceAdmissionRequest, SourceChannel, SourceDenyReason,
-    TrustAdmissionError,
+    FROZEN_POLICY_VERSION, ProjectTrustControlLease, ProjectTrustEffectLease,
+    ProjectTrustPersistence, ProjectTrustProjectId, ProjectTrustRecord, ProjectTrustStatus,
+    SourceAdmission, SourceAdmissionRequest, SourceChannel, SourceDenyReason, TrustAdmissionError,
 };
 use std::sync::Arc;
 
@@ -55,6 +55,16 @@ impl ProjectTrustPolicyAuthority {
             .map_err(|_| TrustAdmissionError::AuthorityUnavailable)
     }
 
+    /// Acquires the runtime-owned user trust-control writer fence.
+    pub fn acquire_control_lease(
+        &self,
+        project: ProjectTrustProjectId,
+    ) -> Result<Box<dyn ProjectTrustControlLease>, TrustAdmissionError> {
+        self.persistence
+            .acquire_control_lease(project)
+            .map_err(|_| TrustAdmissionError::AuthorityUnavailable)
+    }
+
     fn load_record(
         &self,
         project: ProjectTrustProjectId,
@@ -71,6 +81,38 @@ impl ProjectTrustPolicyAuthority {
         request: SourceAdmissionRequest<'_>,
     ) -> Result<SourceAdmission, TrustAdmissionError> {
         let record = self.load_record(project)?;
+        Self::admit_record(record, request)
+    }
+
+    /// Acquires the durable project-trust write fence and admits the current
+    /// record with the ordinary source policy. The returned owned lease must
+    /// be held only through the canonical effect-start commit, then dropped
+    /// before any external I/O. Lock order is trust-sidecar lease followed by
+    /// the short canonical effect-start transaction; no canonical transaction
+    /// may be held while acquiring this lease.
+    pub fn acquire_effect_lease(
+        &self,
+        project: ProjectTrustProjectId,
+        request: SourceAdmissionRequest<'_>,
+    ) -> Result<Box<dyn ProjectTrustEffectLease>, TrustAdmissionError> {
+        let lease = self
+            .persistence
+            .acquire_effect_lease(project)
+            .map_err(|_| TrustAdmissionError::AuthorityUnavailable)?;
+        let record = lease.record();
+        if record.revision == 0 {
+            return Err(TrustAdmissionError::DeniedByPolicy {
+                reason: SourceDenyReason::Untrusted,
+            });
+        }
+        Self::admit_record(record, request)?;
+        Ok(lease)
+    }
+
+    fn admit_record(
+        record: ProjectTrustRecord,
+        request: SourceAdmissionRequest<'_>,
+    ) -> Result<SourceAdmission, TrustAdmissionError> {
         if let Some(observed) = request.observed_token {
             // F1: foreign epochs are rejected before any revision logic, so
             // tokens from a deleted sidecar can never admit a recreated one.
@@ -175,3 +217,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod effect_lease_tests;

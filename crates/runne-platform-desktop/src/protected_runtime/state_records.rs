@@ -199,6 +199,15 @@ pub struct ProtectedBundledRuntimeLaunchSpec {
     runtime_root: PathBuf,
     trusted_source_identity: ExecutableIdentityV1,
     provider_activation: Option<ProviderActivationBindingV1>,
+    // Test-support seam: a session-bus address already validated through the
+    // strict production checks, injected so hosted-CI Linux tests do not
+    // depend on a real `/run/user/<euid>/bus`. Absent from production builds.
+    #[cfg(all(
+        target_os = "linux",
+        any(test, feature = "test-support")
+    ))]
+    validated_session_bus_address:
+        Option<crate::provider_credential_broker::ValidatedLinuxSessionBusAddress>,
 }
 
 impl fmt::Debug for ProtectedBundledRuntimeLaunchSpec {
@@ -238,6 +247,11 @@ impl ProtectedBundledRuntimeLaunchSpec {
                 runtime_root,
                 trusted_source_identity,
                 provider_activation: None,
+                #[cfg(all(
+                    target_os = "linux",
+                    any(test, feature = "test-support")
+                ))]
+                validated_session_bus_address: None,
             })
         }
     }

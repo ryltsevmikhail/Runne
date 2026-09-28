@@ -13,7 +13,7 @@
 //! scans are live.
 
 #[path = "../support/secret_scan.rs"]
-mod secret_scan;
+pub(super) mod secret_scan;
 
 use std::io::Cursor;
 

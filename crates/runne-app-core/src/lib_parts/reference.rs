@@ -126,12 +126,17 @@ const fn map_connect_state(error: &LocalRuntimeConnectError) -> RuntimeAvailabil
             RuntimeApiErrorKind::Incompatible | RuntimeApiErrorKind::InvalidResponse => {
                 RuntimeAvailability::Incompatible
             }
-            RuntimeApiErrorKind::InvalidRequest
+            RuntimeApiErrorKind::ProhibitedInputRejected
+            | RuntimeApiErrorKind::InvalidRequest
             | RuntimeApiErrorKind::NotFound
             | RuntimeApiErrorKind::Conflict
             | RuntimeApiErrorKind::Backpressure
             | RuntimeApiErrorKind::Unavailable
-            | RuntimeApiErrorKind::ResponseTooLarge => RuntimeAvailability::Reconnecting,
+            | RuntimeApiErrorKind::ResponseTooLarge
+            | RuntimeApiErrorKind::UnknownAfterSend => RuntimeAvailability::Reconnecting,
+            RuntimeApiErrorKind::ManagedPolicy | RuntimeApiErrorKind::RootUnavailable => {
+                RuntimeAvailability::Live
+            }
         },
     }
 }

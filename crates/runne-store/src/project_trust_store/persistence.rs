@@ -8,7 +8,7 @@ use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
 use super::ProjectTrustStore;
 
-fn status_to_int(status: ProjectTrustStatus) -> i64 {
+pub(super) fn status_to_int(status: ProjectTrustStatus) -> i64 {
     match status {
         ProjectTrustStatus::Untrusted => 1,
         ProjectTrustStatus::Trusted => 2,
@@ -16,7 +16,7 @@ fn status_to_int(status: ProjectTrustStatus) -> i64 {
     }
 }
 
-fn status_from_int(value: i64) -> Option<ProjectTrustStatus> {
+pub(super) fn status_from_int(value: i64) -> Option<ProjectTrustStatus> {
     match value {
         1 => Some(ProjectTrustStatus::Untrusted),
         2 => Some(ProjectTrustStatus::Trusted),
@@ -25,7 +25,7 @@ fn status_from_int(value: i64) -> Option<ProjectTrustStatus> {
     }
 }
 
-fn row_to_record(
+pub(super) fn row_to_record(
     instance_epoch: u64,
     status: i64,
     mask: i64,
@@ -40,6 +40,16 @@ fn row_to_record(
 }
 
 impl ProjectTrustPersistence for ProjectTrustStore {
+    fn acquire_control_lease(
+        &self,
+        project: ProjectTrustProjectId,
+    ) -> Result<
+        Box<dyn runne_application::project_trust::ProjectTrustControlLease>,
+        TrustPersistenceError,
+    > {
+        super::control::acquire_control_lease(self, project)
+    }
+
     fn has_explicit_record(
         &self,
         project: ProjectTrustProjectId,
@@ -72,7 +82,6 @@ impl ProjectTrustPersistence for ProjectTrustStore {
                 .optional()
                 .map_err(|_| TrustPersistenceError::Unavailable)?;
             match row {
-                // Absent projects read as the epoch-scoped untrusted default.
                 None => Ok(ProjectTrustRecord::untrusted_default(self.instance_epoch)),
                 Some((status, mask, revision)) => {
                     row_to_record(self.instance_epoch, status, mask, revision)
@@ -83,7 +92,73 @@ impl ProjectTrustPersistence for ProjectTrustStore {
     }
 
     fn instance_epoch(&self) -> Result<u64, TrustPersistenceError> {
-        Ok(self.instance_epoch)
+        self.with_connection(|_| Ok(self.instance_epoch))
+    }
+
+    fn acquire_effect_lease(
+        &self,
+        project: ProjectTrustProjectId,
+    ) -> Result<
+        Box<dyn runne_application::project_trust::ProjectTrustEffectLease>,
+        TrustPersistenceError,
+    > {
+        let (mut connection, epoch) = crate::schema::reopen_managed_project_trust_sidecar(
+            &self.sidecar_path,
+            self.authority_id,
+        )
+        .map_err(|_| TrustPersistenceError::Unavailable)?;
+        if epoch != self.instance_epoch {
+            return Err(TrustPersistenceError::Unavailable);
+        }
+        let original = self
+            .connection
+            .lock()
+            .map_err(|_| TrustPersistenceError::Unavailable)?;
+        if !connection
+            .same_database_identity(&original)
+            .map_err(|_| TrustPersistenceError::Unavailable)?
+        {
+            return Err(TrustPersistenceError::Unavailable);
+        }
+        drop(original);
+        connection
+            .with_connection_mut(|raw| raw.execute_batch("BEGIN IMMEDIATE"))
+            .map_err(|_| TrustPersistenceError::Unavailable)?;
+        connection
+            .verify_retained_identity()
+            .map_err(|_| TrustPersistenceError::Unavailable)?;
+        let (current_epoch, authority): (i64, Vec<u8>) = connection
+            .query_row(
+                "SELECT instance_epoch, authority_id FROM project_trust_schema WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|_| TrustPersistenceError::Unavailable)?;
+        if u64::try_from(current_epoch).ok() != Some(self.instance_epoch)
+            || authority.as_slice() != self.authority_id
+        {
+            return Err(TrustPersistenceError::Unavailable);
+        }
+        let row: Option<(i64, i64, i64)> = connection
+            .query_row(
+                "SELECT status, managed_deny_mask, revision
+                 FROM project_trust WHERE project_id = ?1",
+                params![project.as_bytes().as_slice()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()
+            .map_err(|_| TrustPersistenceError::Unavailable)?;
+        let record = match row {
+            None => ProjectTrustRecord::untrusted_default(self.instance_epoch),
+            Some((status, mask, revision)) => {
+                row_to_record(self.instance_epoch, status, mask, revision)
+                    .ok_or(TrustPersistenceError::Unavailable)?
+            }
+        };
+        Ok(Box::new(super::StoreProjectTrustEffectLease {
+            connection: Some(connection),
+            record,
+        }))
     }
 
     fn commit(
@@ -93,8 +168,6 @@ impl ProjectTrustPersistence for ProjectTrustStore {
         managed_deny_mask: u32,
         expected: TrustToken,
     ) -> Result<ProjectTrustRecord, TrustPersistenceError> {
-        // F1: a CAS token from a foreign epoch can never write here, so stale
-        // grants cannot mutate a recreated sidecar regardless of revision.
         let instance_epoch = self.instance_epoch;
         if expected.instance_epoch != instance_epoch {
             return Err(TrustPersistenceError::ForeignEpoch {
@@ -105,6 +178,9 @@ impl ProjectTrustPersistence for ProjectTrustStore {
         let mut connection = self
             .connection
             .lock()
+            .map_err(|_| TrustPersistenceError::Unavailable)?;
+        connection
+            .verify_retained_identity()
             .map_err(|_| TrustPersistenceError::Unavailable)?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -171,6 +247,9 @@ impl ProjectTrustPersistence for ProjectTrustStore {
         };
         transaction
             .commit()
+            .map_err(|_| TrustPersistenceError::Unavailable)?;
+        connection
+            .verify_retained_identity()
             .map_err(|_| TrustPersistenceError::Unavailable)?;
         Ok(record)
     }

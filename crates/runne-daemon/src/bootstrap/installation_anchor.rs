@@ -95,13 +95,12 @@ fn open_file(
     dirfd: impl rustix::fd::AsFd,
     name: impl rustix::path::Arg,
 ) -> Result<OwnedFd, DaemonError> {
-    fs::openat(
-        dirfd,
-        name,
-        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-        Mode::empty(),
-    )
-    .map_err(|_| error())
+    // A regular read fd can drop process-wide SQLite POSIX locks on close.
+    #[cfg(target_os = "linux")]
+    let flags = OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    #[cfg(not(target_os = "linux"))]
+    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    fs::openat(dirfd, name, flags, Mode::empty()).map_err(|_| error())
 }
 
 fn checked_directory(fd: &OwnedFd) -> Result<FileIdentity, DaemonError> {

@@ -106,3 +106,38 @@ fn nm06_replay_authorization_resolves_trust_per_call_not_per_session() {
 fn reopened_gate_gate(gate: DeliveryTrustGate) -> DeliveryTrustGate {
     gate
 }
+
+#[test]
+fn nm06_replay_authorization_denies_workspace_gap_before_baseline_open() {
+    let composed = composition_with(
+        runne_domain::conversation::ConversationContextScope::Workspace,
+        true,
+    );
+    set_status(&composed.sidecar, ProjectTrustStatus::Trusted);
+    let connection = rusqlite::Connection::open(&composed.db_path).unwrap();
+    let removed = connection
+        .execute(
+            "DELETE FROM events WHERE aggregate_type = 2 AND aggregate_id = ?1 AND sequence = 1",
+            rusqlite::params![composed.conversation_id.as_bytes()],
+        )
+        .unwrap();
+    assert_eq!(removed, 1);
+
+    let local_session = Arc::new(Mutex::new(LocalSessionService::new(
+        replay_binding(),
+        [0x88; 32],
+    )));
+    let authorization = DaemonReplayAuthorization::new(
+        [0x77; 16],
+        local_session,
+        Some(DeliveryTrustGate::open(
+            open_authority(&composed.db_path),
+            &composed.store,
+        )),
+    );
+    let request = conversation_scope_request(&composed.conversation_id);
+    assert!(
+        authorization.current_lease(&request).is_err(),
+        "workspace retention gap must be rejected before ReplayStore can create a 410 baseline"
+    );
+}

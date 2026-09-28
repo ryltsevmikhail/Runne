@@ -15,6 +15,9 @@
 
 use thiserror::Error;
 
+mod persistence;
+pub use persistence::{ProjectTrustControlLease, ProjectTrustEffectLease, ProjectTrustPersistence};
+
 /// Frozen deny-policy version implemented by `runne-security`.
 /// Policy revision 2 (2026-09-19): Unicode case-mapped over-deny keys, the
 /// extended frozen deny set (OpenSSH defaults, `.git-credentials`, dotenv
@@ -257,38 +260,4 @@ pub enum TrustPersistenceError {
     /// Store is unavailable, unverified or corrupt; fail closed.
     #[error("trust persistence unavailable")]
     Unavailable,
-}
-
-/// Runtime-owned durable trust persistence port.
-pub trait ProjectTrustPersistence: Send + Sync {
-    /// Loads the durable record; absent rows read as
-    /// [`ProjectTrustRecord::untrusted_default`] bound to the current
-    /// instance epoch.
-    fn load(
-        &self,
-        project: ProjectTrustProjectId,
-    ) -> Result<ProjectTrustRecord, TrustPersistenceError>;
-
-    /// Whether the project has an explicitly committed trust row (i.e. it is
-    /// under T1 delivery governance). Projects without any committed row keep
-    /// pre-T1 delivery behavior until the grant path ships.
-    fn has_explicit_record(
-        &self,
-        project: ProjectTrustProjectId,
-    ) -> Result<bool, TrustPersistenceError>;
-
-    /// Instance epoch of the durable sidecar (0 only when unavailable).
-    fn instance_epoch(&self) -> Result<u64, TrustPersistenceError>;
-
-    /// Compare-and-set status/mask with an epoch-scoped monotonic revision.
-    ///
-    /// `expected.revision == 0` inserts the first row as revision `1` and
-    /// is only valid while `expected.instance_epoch` is the current epoch.
-    fn commit(
-        &self,
-        project: ProjectTrustProjectId,
-        status: ProjectTrustStatus,
-        managed_deny_mask: u32,
-        expected: TrustToken,
-    ) -> Result<ProjectTrustRecord, TrustPersistenceError>;
 }

@@ -1,5 +1,33 @@
 use super::*;
 use runne_api::provider_credential_enrollment::linux_activation_policy::LinuxInstallationLayout;
+use std::time::{Duration, Instant};
+
+/// `Command::spawn` returns after fork, before the child's `execve` completes:
+/// reads of `/proc/<pid>/exe` can still observe the pre-exec image, and a
+/// transient writer on the freshly copied executable fails `execve` with
+/// `ETXTBSY`. Seed the child, wait until its image resolves to the staged
+/// path, and retry a busy spawn instead of failing the fixture.
+fn spawn_seeded_child(image: &Path) -> (std::process::Child, PathBuf) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let child = match std::process::Command::new(image).arg("60").spawn() {
+            Ok(child) => child,
+            Err(error) if error.raw_os_error() == Some(26) && Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(5));
+                continue;
+            }
+            Err(error) => panic!("spawn {image:?} failed: {error}"),
+        };
+        let pid_image = PathBuf::from(format!("/proc/{}/exe", child.id()));
+        while Instant::now() < deadline {
+            if std::fs::canonicalize(&pid_image).is_ok_and(|resolved| resolved == image) {
+                return (child, pid_image);
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        return (child, pid_image);
+    }
+}
 
 #[test]
 fn staged_daemon_facts_use_the_signed_desktop_package_writer() {
@@ -27,16 +55,8 @@ fn staged_daemon_facts_use_the_signed_desktop_package_writer() {
     std::os::unix::fs::symlink(&staged_writer, &staged_writer_alias).unwrap();
     std::fs::write(&machine, b"test machine").unwrap();
 
-    let mut desktop_process = std::process::Command::new(&desktop)
-        .arg("60")
-        .spawn()
-        .unwrap();
-    let desktop_image = PathBuf::from(format!("/proc/{}/exe", desktop_process.id()));
-    let mut daemon_process = std::process::Command::new(&staged_daemon)
-        .arg("60")
-        .spawn()
-        .unwrap();
-    let daemon_image = PathBuf::from(format!("/proc/{}/exe", daemon_process.id()));
+    let (mut desktop_process, desktop_image) = spawn_seeded_child(&desktop);
+    let (mut daemon_process, daemon_image) = spawn_seeded_child(&staged_daemon);
     let writer = package_writer_for_desktop(&desktop_image).unwrap();
     assert_eq!(writer, package_writer);
     let facts = LinuxInstallationLayout {

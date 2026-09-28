@@ -1,9 +1,7 @@
 use crate::security_open_hash::{database_identity, digest, hex};
 use crate::{Connection, LocalStore, Path, SecurityContext, SecurityStateError};
 use runne_secure_store::{SecureStore, SecurityAnchorV1, StoredSecurityAnchor};
-use runne_sqlite_native_identity::{
-    DatabaseFileIdentity, opened_database_identity, path_database_identity,
-};
+use runne_sqlite_native_identity::{opened_database_identity, path_database_identity};
 impl LocalStore {
     pub fn open_anchored(
         path: &Path,
@@ -13,6 +11,9 @@ impl LocalStore {
         let absent = std::fs::symlink_metadata(path)
             .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound);
         let lock = secure.acquire_security_profile_lock(profile)?;
+        if !lock.supports_mutation_payload_encryption() {
+            return Err(runne_secure_store::SecureStoreError::Unavailable.into());
+        }
         let stored = secure.read_security_anchor(&lock)?;
         if !absent {
             return match stored {
@@ -84,7 +85,11 @@ impl LocalStore {
             drop(read_only);
             return Self::migrate_v7(path, secure, profile, lock, &anchor);
         }
-        crate::security_schema_v8::validate_v8_schema(&read_only)?;
+        if version == 8 {
+            drop(read_only);
+            return Self::migrate_v8(path, secure, profile, lock, &anchor);
+        }
+        crate::security_schema_v9::validate_v9_schema(&read_only)?;
         let bound: (Vec<u8>, Vec<u8>) = read_only.query_row("SELECT profile_identity_digest, database_identity FROM security_profile WHERE singleton=1", [], |row| Ok((row.get(0)?, row.get(1)?)))?;
         if bound != (profile.to_vec(), anchor.database_identity.to_vec()) {
             return Err(SecurityStateError::AnchorMismatch);
@@ -145,31 +150,6 @@ impl LocalStore {
         });
         store.verify_anchored_admission(secure, lock)?;
         Ok(store)
-    }
-
-    pub(crate) fn open_admitted(
-        path: &Path,
-        expected: Option<DatabaseFileIdentity>,
-    ) -> Result<Self, SecurityStateError> {
-        #[cfg(feature = "test-support")]
-        crate::security_open_test_support::before_admitted_open();
-        let opened = Connection::open(path);
-        #[cfg(feature = "test-support")]
-        crate::security_open_test_support::after_admitted_open();
-        let connection = opened?;
-        if expected.is_some_and(|identity| {
-            path_database_identity(path).ok() != Some(identity)
-                || opened_database_identity(&connection).ok() != Some(identity)
-        }) {
-            return Err(SecurityStateError::AdmissionFailed);
-        }
-        connection.execute_batch(
-            "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;",
-        )?;
-        Ok(Self {
-            connection,
-            security: None,
-        })
     }
 
     #[allow(clippy::too_many_lines)]
@@ -237,17 +217,7 @@ impl LocalStore {
             if secure.read_security_anchor(lock)? != StoredSecurityAnchor::V1(persisted.clone()) {
                 return Err(SecurityStateError::AnchorAdvanceFailed);
             }
-            let mut store = Self::open_admitted(path, Some(read_only_identity))?;
-            store.security = Some(SecurityContext {
-                profile,
-                database,
-                path: path.to_path_buf(),
-                file_identity: opened_database_identity(&store.connection)
-                    .map_err(|_| SecurityStateError::AdmissionFailed)?,
-                poisoned: false,
-            });
-            store.verify_anchored_admission(secure, lock)?;
-            return Ok(store);
+            return Self::migrate_v6(path, secure, profile, lock, &persisted);
         }
         crate::recent_root_schema::validate_v5_schema(&read_only)
             .map_err(SecurityStateError::Open)?;
@@ -287,14 +257,7 @@ impl LocalStore {
         if secure.read_security_anchor(lock)? != StoredSecurityAnchor::V1(anchor.clone()) {
             return Err(SecurityStateError::AnchorAdvanceFailed);
         }
-        store.security = Some(SecurityContext {
-            profile,
-            database,
-            path: path.to_path_buf(),
-            file_identity: opened_database_identity(&store.connection)
-                .map_err(|_| SecurityStateError::AdmissionFailed)?,
-            poisoned: false,
-        });
-        Ok(store)
+        drop(store);
+        Self::migrate_v7(path, secure, profile, lock, &anchor)
     }
 }

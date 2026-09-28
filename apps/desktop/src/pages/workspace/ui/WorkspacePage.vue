@@ -4,7 +4,7 @@ import { Folder } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, ref, shallowRef, watch, type PropType } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { listWorkspaceChanges, readWorkspaceDiff } from '@/entities/diff'
-import { getCanonicalWorkspace, isCanonicalRuntimeId } from '@/entities/project'
+import { getCanonicalWorkspace, isCanonicalRuntimeId, markProjectTrustChanged } from '@/entities/project'
 import { listWorkspaceFiles } from '@/entities/file-tree'
 import { openWorkspaceEditor } from '@/features/open-editor'
 import { RetryableWorkspaceOpen } from '@/features/open-local-project'
@@ -28,6 +28,7 @@ import {
   createFilesRetryController,
   createSingleFlightLoader,
 } from '../model/workspace-retry'
+import { useWorkspaceProjectTrustRefresh } from '../model/workspace-project-trust-refresh'
 type OpenEditor = (id: string, path: string) => Promise<unknown>
 const props = defineProps({
   loadProject: {
@@ -57,10 +58,8 @@ const runtimeSession = tryUseRuntimeSession()
 const runtimeStatus = computed(() => runtimeSession?.snapshot.value.status ?? 'unavailable')
 const readOnly = computed(() => runtimeStatus.value !== 'live'
   || runtimeSession?.snapshot.value.canMutate !== true)
-const processId = computed(() => {
-  const value = route.query.processId
-  return typeof value === 'string' && isCanonicalRuntimeId(value) ? value : null
-})
+const processId = computed(() => typeof route.query.processId === 'string'
+  && isCanonicalRuntimeId(route.query.processId) ? route.query.processId : null)
 const { chunks: processChunks, loading: processLoading, error: processError } = useProcessOutput(processId, runtimeStatus)
 const workspaceId = computed(() => typeof route.params.workspaceId === 'string' ? route.params.workspaceId : '')
 const refresh = createWorkspaceRefreshController({
@@ -84,13 +83,11 @@ const activePendingReconnect = computed(() => pendingReconnectWorkspaceId.value 
 
 function clearPendingReconnect(): void {
   pendingReconnect.value = null
-  pendingReconnectWorkspaceId.value = null
-  pendingReconnectGeneration.value = null
+  pendingReconnectWorkspaceId.value = pendingReconnectGeneration.value = null
 }
 
 function onReconnectRetryable(value: RetryableWorkspaceOpen, id: string, viewGeneration: number): void {
-  if (id !== workspaceId.value || viewGeneration !== reconnectViewGeneration.value
-    || value.binding.workspaceId !== id) return
+  if (id !== workspaceId.value || viewGeneration !== reconnectViewGeneration.value || value.binding.workspaceId !== id) return
   pendingReconnect.value = value
   pendingReconnectWorkspaceId.value = id
   pendingReconnectGeneration.value = viewGeneration
@@ -99,13 +96,12 @@ function onReconnectRetryable(value: RetryableWorkspaceOpen, id: string, viewGen
 function onReconnectConnected(id: string, viewGeneration: number): void {
   if (id !== workspaceId.value || viewGeneration !== reconnectViewGeneration.value) return
   clearPendingReconnect()
-  pageLoads.request(id)
+  if (project.value?.projectId) markProjectTrustChanged(project.value.projectId)
+  else pageLoads.request(id)
 }
 
 function onReconnectFailed(id: string, viewGeneration: number): void {
-  if (id === workspaceId.value && viewGeneration === reconnectViewGeneration.value) {
-    clearPendingReconnect()
-  }
+  if (id === workspaceId.value && viewGeneration === reconnectViewGeneration.value) clearPendingReconnect()
 }
 
 async function openFile(path: string) {
@@ -119,10 +115,16 @@ const pageLoads = createSingleFlightLoader(
   async (id: string) => { await refresh.load(id) },
   (id) => id === workspaceId.value && runtimeStatus.value === 'live',
 )
+const projectTrustRefresh = useWorkspaceProjectTrustRefresh(project, workspaceId, runtimeStatus, id => {
+  if (!isCanonicalRuntimeId(id)) return
+  refresh.invalidate()
+  pageLoads.request(id)
+})
 watch([runtimeStatus, workspaceId], ([status, id]) => {
   if (previousWorkspaceId !== undefined && previousWorkspaceId !== id) {
     reconnectViewGeneration.value += 1
     clearPendingReconnect()
+    projectTrustRefresh.reset()
     refresh.invalidate()
   }
   previousWorkspaceId = id

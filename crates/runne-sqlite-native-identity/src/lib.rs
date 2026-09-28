@@ -107,14 +107,13 @@ pub fn opened_database_identity(
 fn identity_from_descriptor(
     descriptor: std::ffi::c_int,
 ) -> Result<DatabaseFileIdentity, IdentityError> {
-    let duplicate = unsafe { dup(descriptor) };
-    if duplicate < 0 {
-        return Err(IdentityError);
-    }
-    // SAFETY: `dup` returned an owned descriptor.
-    let meta = unsafe { std::fs::File::from_raw_fd(duplicate) }
-        .metadata()
-        .map_err(|_| IdentityError)?;
+    // SQLite owns this live descriptor for the duration of the borrowed
+    // connection. Closing even a duplicate can release this process's POSIX
+    // record locks on the inode, so inspect it without taking ownership.
+    // SAFETY: FILE_POINTER supplied the descriptor from the live SQLite file;
+    // the connection borrow keeps it open, and ManuallyDrop prevents close.
+    let borrowed = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(descriptor) });
+    let meta = borrowed.metadata().map_err(|_| IdentityError)?;
     if !meta.file_type().is_file() || meta.nlink() != 1 || meta.dev() == 0 || meta.ino() == 0 {
         return Err(IdentityError);
     }
@@ -193,10 +192,6 @@ fn exact_unix_file(file: &UnixFilePrefix, trusted: &TrustedUnixConnection) -> bo
         return false;
     }
     true
-}
-#[cfg(unix)]
-unsafe extern "C" {
-    fn dup(fd: std::ffi::c_int) -> std::ffi::c_int;
 }
 
 #[cfg(all(test, unix))]

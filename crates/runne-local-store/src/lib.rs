@@ -37,6 +37,8 @@ mod security_legacy_v7_recovery;
 )]
 #[allow(clippy::redundant_pub_crate)]
 mod security_mutation;
+mod security_mutation_parts;
+mod security_mutation_payload;
 mod security_mutation_prepare;
 #[allow(
     clippy::missing_errors_doc,
@@ -45,6 +47,7 @@ mod security_mutation_prepare;
     clippy::format_collect
 )]
 mod security_open;
+mod security_open_admitted;
 mod security_open_hash;
 #[allow(
     clippy::redundant_pub_crate,
@@ -52,6 +55,7 @@ mod security_open_hash;
     clippy::needless_pass_by_value
 )]
 mod security_record;
+mod security_record_validate;
 #[allow(clippy::redundant_pub_crate)]
 mod security_recovery;
 mod security_recovery_read;
@@ -61,9 +65,12 @@ mod security_schema_v6;
 mod security_schema_v7;
 #[allow(clippy::redundant_pub_crate)]
 mod security_schema_v8;
+mod security_schema_v9;
 #[allow(clippy::redundant_pub_crate)]
 mod security_state_root;
 mod security_v6_migration;
+mod security_v8_migration;
+mod security_v8_payload_migration;
 
 pub use security_ledger_v7::{
     ApprovalDecisionKind, ApprovalOutcomeState, CanonicalMutationOutcome, GenerationAssistant,
@@ -77,6 +84,8 @@ pub use security_recovery_read_types::{
 
 #[cfg(feature = "test-support")]
 pub mod security_open_test_support;
+#[cfg(feature = "test-support")]
+mod security_open_test_support_v8;
 #[cfg(feature = "test-support")]
 pub mod security_v6_test_support;
 

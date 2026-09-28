@@ -38,10 +38,10 @@ impl CanonicalProviderExecutionService for DaemonCanonicalProviderService {
                 // NM-06: the gate consults the conversation's durable
                 // context marker and, for workspace-scoped conversations,
                 // the governed project's CURRENT revision. Revocations
-                // between preparation (begin_text) and dispatch deny here;
-                // a retention gap carries no trust verdict here either —
-                // the projection below still needs the full stream, so a
-                // gapped stream fails the dispatch without delivering.
+                // between preparation (begin_text) and dispatch deny here.
+                // A workspace/unmarked retention gap denies here too
+                // (fail-closed); only an explicit TextOnly gap passes the
+                // gate and then fails the projection on its partial stream.
                 if trust
                     .ensure_conversation_trusted(
                         job.context.principal_id.0.as_str(),
@@ -92,6 +92,13 @@ impl CanonicalProviderExecutionService for DaemonCanonicalProviderService {
             let effect = super::dispatch_binding::OnlineDispatchFence::new(
                 credential,
                 self.adapter.as_ref(),
+                self.trust.as_ref().map(|trust| {
+                    (
+                        trust.clone(),
+                        job.context.principal_id.0.clone(),
+                        job.started.conversation_id,
+                    )
+                }),
             );
             let coordinator = SqliteProviderDispatchCoordinator::new_with_budget(
                 self.dispatch_store.as_ref(),

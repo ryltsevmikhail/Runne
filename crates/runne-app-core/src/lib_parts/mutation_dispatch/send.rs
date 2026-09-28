@@ -32,7 +32,7 @@ impl AppCore {
         match &lease.request.semantic_command {
             CanonicalMutationCommand::CreateConversation { conversation_id, workspace_id } => client.create_conversation(CreateConversationRequest::new(lease.request.command_identity.clone(), *conversation_id, *workspace_id, runne_api::ConversationContextScope::Workspace)).await.map(MutationDispatchResult::ConversationCreated).map_err(unavailable),
             CanonicalMutationCommand::CreateTextOnlyConversation { conversation_id, workspace_id } => client.create_conversation(CreateConversationRequest::new(lease.request.command_identity.clone(), *conversation_id, *workspace_id, runne_api::ConversationContextScope::TextOnly)).await.map(MutationDispatchResult::ConversationCreated).map_err(unavailable),
-            CanonicalMutationCommand::GenerateText { conversation_id, text } => client.generate_text(GenerateTextRequest::new(lease.request.command_identity.clone(), *conversation_id, lease.request.expected_version, text).map_err(|_| AppCoreError::InvalidMutation)?).await.map(MutationDispatchResult::TextGenerated).map_err(unavailable),
+            CanonicalMutationCommand::GenerateText { conversation_id, text } => client.generate_text(GenerateTextRequest::new(lease.request.command_identity.clone(), *conversation_id, lease.request.expected_version, text).map_err(|_| AppCoreError::InvalidMutation)?).await.map(MutationDispatchResult::TextGenerated).map_err(|error| if error.kind() == runne_runtime_client::RuntimeApiErrorKind::ProhibitedInputRejected { AppCoreError::ProhibitedInputRejected } else { AppCoreError::RuntimeUnavailable }),
             _ => Err(AppCoreError::InvalidMutation),
         }
     }

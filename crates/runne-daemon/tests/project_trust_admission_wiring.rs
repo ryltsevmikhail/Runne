@@ -13,10 +13,15 @@ mod channels;
 mod diffs_canary;
 #[path = "project_trust_admission_wiring/harness.rs"]
 mod harness;
+#[path = "project_trust_admission_wiring/nm01_nm11_hostile.rs"]
+mod nm01_nm11_hostile;
 #[path = "support/nm10_rules.rs"]
 mod nm10_rules;
 #[path = "project_trust_admission_wiring/nm10_scan.rs"]
 mod nm10_scan;
+#[cfg(target_os = "linux")]
+#[path = "project_trust_admission_wiring/nm12_gateway_vectors.rs"]
+mod nm12_gateway_vectors;
 #[path = "project_trust_admission_wiring/nm_matrix.rs"]
 mod nm_matrix;
 #[path = "project_trust_admission_wiring/nm_restart.rs"]

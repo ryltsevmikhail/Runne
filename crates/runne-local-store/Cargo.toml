@@ -12,12 +12,13 @@ runne-sqlite-native-identity = { path = "../runne-sqlite-native-identity" }
 rusqlite.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
+zeroize.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 runne-windows-native-handle = { path = "../runne-windows-native-handle" }
 
 [features]
-test-support = []
+test-support = ["runne-secure-store/test-support"]
 
 [dev-dependencies]
 tempfile = "=3.27.0"

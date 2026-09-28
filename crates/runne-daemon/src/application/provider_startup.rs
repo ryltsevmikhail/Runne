@@ -9,6 +9,8 @@ mod composition;
 mod composition_diagnostics;
 #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
 mod installed_candidate;
+#[cfg(all(target_os = "linux", feature = "test-support"))]
+mod t1_fixture_secret;
 pub(super) struct StartupProvider {
     activation: ProviderActivation,
     provenance: Option<DaemonActivationProvenance>,

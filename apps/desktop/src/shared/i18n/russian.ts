@@ -4,6 +4,7 @@ import conversationTarget from './russian-conversation-target'
 import targetSurfaces from './russian-target-surfaces'
 import runtimeRussian from './russian-runtime'
 import providerSurfaces from './provider-surfaces-ru'
+import projectTrustControl from './project-trust-control-ru'
 
 const russian: Record<keyof typeof english, string> = {
   'settings.title': 'Настройки',
@@ -284,6 +285,7 @@ const russian: Record<keyof typeof english, string> = {
   ...conversationTarget,
   ...targetSurfaces,
   ...providerSurfaces,
+  ...projectTrustControl,
 }
 
 export default russian
