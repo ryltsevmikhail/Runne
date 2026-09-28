@@ -133,7 +133,8 @@ const fn map_connect_state(error: &LocalRuntimeConnectError) -> RuntimeAvailabil
             | RuntimeApiErrorKind::Backpressure
             | RuntimeApiErrorKind::Unavailable
             | RuntimeApiErrorKind::ResponseTooLarge
-            | RuntimeApiErrorKind::UnknownAfterSend => RuntimeAvailability::Reconnecting,
+            | RuntimeApiErrorKind::UnknownAfterSend
+            | RuntimeApiErrorKind::ModelMismatch => RuntimeAvailability::Reconnecting,
             RuntimeApiErrorKind::ManagedPolicy | RuntimeApiErrorKind::RootUnavailable => {
                 RuntimeAvailability::Live
             }

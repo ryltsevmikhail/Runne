@@ -13,6 +13,9 @@ include!("protected_bundled_runtime_process_split_parts/part_03.rs");
 include!("protected_bundled_runtime_process_split_parts/part_04.rs");
 include!("protected_bundled_runtime_process_split_parts/part_05.rs");
 #[cfg(target_os = "linux")]
+#[path = "protected_bundled_runtime_process_split_parts/d14b_hostile.rs"]
+mod d14b_hostile;
+#[cfg(target_os = "linux")]
 #[path = "protected_bundled_runtime_process_split_parts/linux_activation_context.rs"]
 mod linux_activation_context;
 #[cfg(target_os = "linux")]
