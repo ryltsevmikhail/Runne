@@ -109,6 +109,7 @@ include!("protected_runtime/enrollment_lifecycle_tests.rs");
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 mod qualification_relay_tests;
 include!("protected_runtime/tests.rs");
+include!("protected_runtime/test_support_kill_matrix.rs");
 #[cfg(all(test, unix))]
 include!("protected_runtime/native_enrollment_tests.rs");
 include!("protected_runtime/renewal.rs");

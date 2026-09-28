@@ -211,9 +211,7 @@ pub(super) async fn start_http_and_runtime(
         TaskRunHttpState::new(
             task_run_host,
             actor.clone(),
-            provider_service
-                .as_ref()
-                .map(|service| service.pinned_model_id().to_owned()),
+            command_hosts::pinned_task_run_model(&provider_service),
         ),
         ConversationHttpState::new(conversation_host, actor.clone()),
         runne_http::project_workspace::ProjectWorkspaceHttpState::new(

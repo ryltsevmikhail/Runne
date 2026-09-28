@@ -13,6 +13,7 @@ mod enrollment_control;
 #[cfg(all(feature = "test-support", not(test)))]
 mod fixture_credentials;
 mod input;
+mod model_pin;
 mod policy;
 pub(crate) use input::DaemonCanonicalProviderComposition;
 pub(super) use policy::*;
@@ -49,12 +50,6 @@ pub struct DaemonCanonicalProviderService {
     pub(super) recovery_registry: Arc<runne_observability::operational::RecoveryObservationRegistry>,
 }
 impl DaemonCanonicalProviderService {
-    /// The provider model pinned by this composition; exact-model admission
-    /// compares requested models against it (D1.4b, 2026-09-28).
-    pub fn pinned_model_id(&self) -> &str {
-        &self.model_id
-    }
-
     pub(crate) async fn compose(
         c: DaemonCanonicalProviderComposition,
     ) -> Result<Arc<Self>, DaemonError> {

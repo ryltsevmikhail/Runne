@@ -1,6 +1,8 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use crate::canonical_provider::DaemonCanonicalProviderService;
+
 use runne_application::local_session::LocalSessionService;
 use runne_application::prohibited_content::ProhibitedContentPort;
 use runne_runtime::{
@@ -163,4 +165,14 @@ pub(super) fn compose(
         process: RuntimeProcessHost::new(UnavailableProcessProvider),
         trust_control_routes: None,
     }
+}
+
+/// The exact provider model pinned by the canonical provider composition, for
+/// TaskRun exact-model admission (D1.4b); `None` without a provider service.
+pub(super) fn pinned_task_run_model(
+    provider_service: &Option<Arc<DaemonCanonicalProviderService>>,
+) -> Option<String> {
+    provider_service
+        .as_ref()
+        .map(|service| service.pinned_model_id().to_owned())
 }

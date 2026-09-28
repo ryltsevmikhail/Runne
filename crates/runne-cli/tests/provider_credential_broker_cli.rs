@@ -32,7 +32,6 @@ fn broker_mode_with_extra_argument_is_rejected_before_stdin_bootstrap() {
     assert!(output.stdout.is_empty());
     assert!(String::from_utf8_lossy(&output.stderr).starts_with("Runne command-line interface."));
 }
-
 #[test]
 #[cfg(target_os = "macos")]
 fn broker_mode_without_inherited_endpoint_is_closed() {
@@ -190,21 +189,18 @@ fn broker_manifest_has_only_reviewed_macos_native_dependencies() {
     let manifest = include_str!("../Cargo.toml");
     assert!(!manifest.contains("runne-macos-process-identity"));
     assert!(manifest.contains("[target.'cfg(target_os = \"macos\")'.dependencies]"));
-    assert!(manifest.contains(
-        "runne-native-enrollment-authority = { path = \"../runne-native-enrollment-authority\" }"
-    ));
-    assert!(manifest.contains(
-        "nix = { version = \"=0.31.3\", default-features = false, features = [\"fs\", \"poll\"] }"
-    ));
-    // The Linux writer fixture needs the same reviewed rustix dev-dep;
-    // the headless SIGINT tests add the test-only "process" feature for the
-    // safe kill_process wrapper (D1.4b review, 2026-09-28). Still never
-    // unconditional (below).
+    const ENROLLMENT_LINE: &str =
+        "runne-native-enrollment-authority = { path = \"../runne-native-enrollment-authority\" }";
+    assert!(manifest.contains(ENROLLMENT_LINE));
+    const NIX_LINE: &str =
+        "nix = { version = \"=0.31.3\", default-features = false, features = [\"fs\", \"poll\"] }";
+    assert!(manifest.contains(NIX_LINE));
+    // Reviewed rustix dev-dep; SIGINT adds test-only "process" (D1.4b).
+    const RUSTIX_LINE: &str =
+        "rustix = { version = \"=1.1.4\", features = [\"net\", \"pipe\", \"process\"] }";
+    assert!(manifest.contains(RUSTIX_LINE));
     assert!(manifest.contains(
         "[target.'cfg(any(target_os = \"macos\", target_os = \"linux\"))'.dev-dependencies]"
-    ));
-    assert!(manifest.contains(
-        "rustix = { version = \"=1.1.4\", features = [\"net\", \"pipe\", \"process\"] }"
     ));
     assert!(!manifest.contains("[target.'cfg(unix)'.dependencies]"));
 }
