@@ -25,10 +25,11 @@ impl ProtectedBundledRuntimeSupervisor {
         &mut self,
         timeout: Duration,
     ) -> Result<BundledRuntimeProcessStatus, ProtectedBundledRuntimeError> {
-        match self.process.as_mut() {
-            Some(process) => process.wait_for_exit(timeout),
-            None => Ok(BundledRuntimeProcessStatus::Exited),
-        }
+        self.process
+            .as_mut()
+            .map_or(Ok(BundledRuntimeProcessStatus::Exited), |process| {
+                process.wait_for_exit(timeout)
+            })
     }
 
     /// Takes the captured daemon output for diagnosis, test-support only.
