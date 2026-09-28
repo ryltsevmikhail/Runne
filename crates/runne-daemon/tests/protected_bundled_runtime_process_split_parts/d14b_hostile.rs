@@ -190,7 +190,7 @@ async fn exec_resume_replay_child() {
     super::t1_text_only_support::assert_no_project_trust_grants(&database);
     super::assert_tree_absent(
         "exec daemon database sinks",
-        &database.parent().expect("db dir"),
+        database.parent().expect("db dir"),
         &scanner,
     );
     super::t1_support::assert_profile_sqlite_absent(&scanner, "exec desktop profile", &desktop_db);
@@ -240,7 +240,7 @@ async fn exec_resume_replay_child() {
     super::t1_text_only_support::assert_no_project_trust_grants(&database);
     super::assert_tree_absent(
         "restart exec daemon sinks",
-        &database.parent().expect("db dir"),
+        database.parent().expect("db dir"),
         &scanner,
     );
     super::t1_support::assert_profile_sqlite_absent(
