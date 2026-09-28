@@ -249,7 +249,7 @@ async fn d16_kill_boundary_child() {
     super::t1_text_only_support::assert_no_project_trust_grants(&database);
     super::assert_tree_absent(
         "kill-matrix daemon sinks",
-        &database.parent().expect("db dir"),
+        database.parent().expect("db dir"),
         &scanner,
     );
     super::t1_support::assert_profile_sqlite_absent(
