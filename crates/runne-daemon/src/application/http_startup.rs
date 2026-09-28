@@ -244,21 +244,14 @@ pub(super) async fn start_http_and_runtime(
             .local_addr()
             .map_err(DaemonError::from)
             .and_then(|address| {
-                let directory = std::path::Path::new(&config.replay_integrity_key_path)
-                    .parent()
-                    .ok_or_else(|| {
-                        DaemonError::Bootstrap(
-                            "replay_integrity_key_path has no profile directory".into(),
-                        )
-                    })?;
-                PublishedClientProfileV3::publish(
-                    directory,
+                crate::client_profile::publish_for_startup(
                     address,
+                    &config.replay_integrity_key_path,
                     &bootstrap.launch_identity,
                     launch_authority_id,
                     executable_sha256,
                     bootstrap.local_session_authority_id,
-                    uuid::Uuid::from_bytes(*replay_lineage.as_bytes()),
+                    &replay_lineage,
                     session_id,
                     enrollment.runtime_capabilities,
                 )

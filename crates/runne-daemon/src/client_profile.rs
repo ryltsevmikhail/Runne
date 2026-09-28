@@ -265,3 +265,36 @@ mod tests {
         drop(published);
     }
 }
+
+/// Publishes the v3 client profile into the replay-key directory; a missing
+/// directory maps to the closed bootstrap error.
+pub fn publish_for_startup(
+    address: std::net::SocketAddr,
+    replay_integrity_key_path: &str,
+    launch_identity: &crate::launch_identity::LaunchIdentity,
+    launch_authority_id: [u8; 16],
+    executable_sha256: [u8; 32],
+    local_session_authority_id: [u8; 16],
+    replay_lineage: &runne_domain::id::EventLogLineageId,
+    session_id: [u8; 16],
+    runtime_capabilities: &'static [&'static str],
+) -> Result<PublishedClientProfileV3, crate::error::DaemonError> {
+    let directory = std::path::Path::new(replay_integrity_key_path)
+        .parent()
+        .ok_or_else(|| {
+            crate::error::DaemonError::Bootstrap(
+                "replay_integrity_key_path has no profile directory".into(),
+            )
+        })?;
+    PublishedClientProfileV3::publish(
+        directory,
+        address,
+        launch_identity,
+        launch_authority_id,
+        executable_sha256,
+        local_session_authority_id,
+        uuid::Uuid::from_bytes(*replay_lineage.as_bytes()),
+        session_id,
+        runtime_capabilities,
+    )
+}
