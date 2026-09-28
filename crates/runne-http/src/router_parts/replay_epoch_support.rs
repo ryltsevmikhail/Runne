@@ -110,6 +110,7 @@ fn host_with_protected_replay_session(
         TaskRunHttpState::new(
             UnavailableTaskRunHost,
             ApiActor::new("runne-http-test").unwrap(),
+            None,
         ),
         ConversationHttpState::new(
             UnavailableConversationHost,

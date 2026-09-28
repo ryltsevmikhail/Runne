@@ -183,6 +183,9 @@ pub enum ErrorCode {
 
     // Task outcome errors (exit 5)
     TaskUncertain,
+
+    // Admission errors (exit 1)
+    ModelMismatch,
 }
 
 impl ErrorCode {
@@ -192,7 +195,7 @@ impl ErrorCode {
         match self {
             Self::InvalidArguments | Self::UnknownCommand => 2,
             Self::ProfileUnavailable | Self::ProfileIncompatible => 3,
-            Self::RuntimeUnavailable | Self::ApiError => 1,
+            Self::RuntimeUnavailable | Self::ApiError | Self::ModelMismatch => 1,
             Self::CredentialOperationFailed | Self::CredentialBackendUnsupported => 4,
             Self::TaskUncertain => 5,
         }

@@ -8,8 +8,8 @@ use std::time::Duration;
 use runne_runtime_client::{
     CanonicalId, CommandIdentity, ConversationContextScope, CreateConversationRequest,
     GenerateTextRequest, LocalProfileError, LocalRuntimeProfile, RuntimeApiError,
-    SubmitTaskRunRequest, TaskRunSnapshot, TaskRunState, TaskRunTerminalResult,
-    default_local_profile_path,
+    RuntimeApiErrorKind, SubmitTaskRunRequest, TaskRunSnapshot, TaskRunState,
+    TaskRunTerminalResult, default_local_profile_path,
 };
 use runne_secure_store::{
     NativeProviderCredentialStore, ProviderCredentialAccessPolicy, ProviderCredentialId,

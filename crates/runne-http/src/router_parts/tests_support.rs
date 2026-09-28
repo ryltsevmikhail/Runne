@@ -223,6 +223,13 @@
     }
 
     fn host_with_capabilities(capabilities: &'static [&'static str]) -> SecureLocalHttpHost {
+        host_with_pinned_task_run_model(capabilities, None)
+    }
+
+    fn host_with_pinned_task_run_model(
+        capabilities: &'static [&'static str],
+        pinned_model: Option<&str>,
+    ) -> SecureLocalHttpHost {
         let binding = binding_with_capabilities(capabilities);
         let service = session_service(binding.clone());
         SecureLocalHttpHost::new(
@@ -239,6 +246,7 @@
             TaskRunHttpState::new(
                 UnavailableTaskRunHost,
                 ApiActor::new("runne-http-test").unwrap(),
+                pinned_model.map(str::to_owned),
             ),
             ConversationHttpState::new(
                 UnavailableConversationHost,
@@ -269,6 +277,7 @@
             TaskRunHttpState::new(
                 UnavailableTaskRunHost,
                 ApiActor::new("runne-http-test").unwrap(),
+                None,
             ),
             ConversationHttpState::new(
                 UnavailableConversationHost,

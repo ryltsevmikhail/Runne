@@ -59,6 +59,10 @@ Options:
   --workspace-id UUID      Owning workspace identifier (required)
   --prompt TEXT            Prompt text; when omitted, the prompt is read from
                            piped stdin (non-TTY headless path)
+  --model MODEL            Request the exact provider model; admission
+                           compares it against the runtime-pinned model and
+                           rejects a mismatch (error code `model_mismatch`)
+                           before any effect
 
 The command exits 0 only on a `succeeded` terminal outcome. Other terminal
 outcomes print the full event stream to stdout and exit non-zero. If the

@@ -236,3 +236,33 @@ async fn exec_without_daemon_is_runtime_unavailable() {
     let envelope = parse_json_error_envelope(&output, "exec dead daemon");
     assert_eq!(envelope["error"]["code"], "runtime_unavailable");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn exec_with_explicit_model_on_unpinned_runtime_is_typed_rejection() {
+    let mut daemon = start_test_daemon().await;
+    let profile_arg = daemon.profile.to_str().expect("profile path").to_owned();
+    let client = connect_client(&daemon.profile).await;
+    let (conversation_id, workspace_id) = seed_conversation(&client).await;
+
+    let output = run_cli(&[
+        "--format",
+        "json",
+        "--profile",
+        &profile_arg,
+        "exec",
+        "--conversation-id",
+        &conversation_id.to_string(),
+        "--workspace-id",
+        &workspace_id.to_string(),
+        "--model",
+        "any-model",
+        "--prompt",
+        "x",
+    ])
+    .await;
+    assert_eq!(exit_code(&output), 1, "model admission is the api class");
+    let envelope = parse_json_error_envelope(&output, "exec model mismatch");
+    assert_eq!(envelope["error"]["code"], "model_mismatch");
+
+    stop_daemon(&mut daemon).await;
+}

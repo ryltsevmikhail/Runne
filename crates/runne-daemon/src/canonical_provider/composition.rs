@@ -49,6 +49,12 @@ pub struct DaemonCanonicalProviderService {
     pub(super) recovery_registry: Arc<runne_observability::operational::RecoveryObservationRegistry>,
 }
 impl DaemonCanonicalProviderService {
+    /// The provider model pinned by this composition; exact-model admission
+    /// compares requested models against it (D1.4b, 2026-09-28).
+    pub fn pinned_model_id(&self) -> &str {
+        &self.model_id
+    }
+
     pub(crate) async fn compose(
         c: DaemonCanonicalProviderComposition,
     ) -> Result<Arc<Self>, DaemonError> {

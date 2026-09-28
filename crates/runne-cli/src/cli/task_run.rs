@@ -11,12 +11,14 @@ struct ExecCommand {
     conversation_id: CanonicalId,
     workspace_id: CanonicalId,
     prompt: Option<String>,
+    model: Option<String>,
 }
 
 fn parse_exec(mut arguments: VecDeque<OsString>) -> Result<ExecCommand, CliError> {
     let mut conversation_id = None;
     let mut workspace_id = None;
     let mut prompt = None;
+    let mut model = None;
 
     while let Some(arg) = arguments.pop_front() {
         match arg.to_str() {
@@ -28,6 +30,7 @@ fn parse_exec(mut arguments: VecDeque<OsString>) -> Result<ExecCommand, CliError
                 workspace_id = Some(parse_id(&pop_string(&mut arguments)?)?);
             }
             Some("--prompt") => prompt = Some(pop_string(&mut arguments)?),
+            Some("--model") => model = Some(pop_string(&mut arguments)?),
             _ => return Err(CliError::Usage),
         }
     }
@@ -36,6 +39,7 @@ fn parse_exec(mut arguments: VecDeque<OsString>) -> Result<ExecCommand, CliError
         conversation_id: conversation_id.ok_or(CliError::Usage)?,
         workspace_id: workspace_id.ok_or(CliError::Usage)?,
         prompt,
+        model,
     })
 }
 
@@ -92,6 +96,10 @@ async fn run_exec(
         prompt,
     )
     .map_err(CliError::Api)?;
+    let request = match command.model {
+        Some(model) => request.with_model(model),
+        None => request,
+    };
     let acknowledgement = client.submit_task_run(request).await.map_err(CliError::Api)?;
 
     let task_run_id = acknowledgement.task_run_id();

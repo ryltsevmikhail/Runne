@@ -95,6 +95,7 @@ pub struct SubmitTaskRunRequest {
     pub(crate) conversation_id: CanonicalId,
     pub(crate) workspace_id: CanonicalId,
     pub(crate) prompt: String,
+    pub(crate) model: Option<String>,
 }
 
 impl std::fmt::Debug for SubmitTaskRunRequest {
@@ -105,6 +106,7 @@ impl std::fmt::Debug for SubmitTaskRunRequest {
             .field("conversation_id", &self.conversation_id)
             .field("workspace_id", &self.workspace_id)
             .field("prompt", &"[REDACTED]")
+            .field("model", &self.model)
             .finish()
     }
 }
@@ -129,7 +131,16 @@ impl SubmitTaskRunRequest {
             conversation_id,
             workspace_id,
             prompt,
+            model: None,
         })
+    }
+
+    /// Requests the exact provider model. Admission compares it against the
+    /// runtime-pinned model; a mismatch is rejected before any effect.
+    #[must_use]
+    pub fn with_model(mut self, model: impl Into<String>) -> Self {
+        self.model = Some(model.into());
+        self
     }
 }
 

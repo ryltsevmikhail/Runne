@@ -66,7 +66,7 @@ impl CliError {
     }
 
     /// Returns the stable error code for JSON output.
-    const fn error_code(&self) -> Option<ErrorCode> {
+    fn error_code(&self) -> Option<ErrorCode> {
         match self {
             Self::Help(_) | Self::Version(_) => None,
             Self::Usage | Self::AuthorityUsage => Some(ErrorCode::InvalidArguments),
@@ -79,6 +79,9 @@ impl CliError {
             Self::CredentialOperation => Some(ErrorCode::CredentialOperationFailed),
             Self::UnsupportedCredentialBackend => Some(ErrorCode::CredentialBackendUnsupported),
             Self::TaskUncertain(_) => Some(ErrorCode::TaskUncertain),
+            Self::Api(error) if error.kind() == RuntimeApiErrorKind::ModelMismatch => {
+                Some(ErrorCode::ModelMismatch)
+            }
             _ => Some(ErrorCode::ApiError),
         }
     }

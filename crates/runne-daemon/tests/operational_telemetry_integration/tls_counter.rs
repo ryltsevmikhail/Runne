@@ -174,6 +174,7 @@ pub(super) async fn bind_with_counting_query(
         TaskRunHttpState::new(
             UnavailableTaskRunHost,
             ApiActor::new("runne-daemon-test").unwrap(),
+            None,
         ),
         ConversationHttpState::new(
             UnavailableConversationHost,

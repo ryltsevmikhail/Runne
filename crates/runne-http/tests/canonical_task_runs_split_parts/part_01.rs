@@ -184,7 +184,7 @@ fn app(host: RecordingHost) -> axum::Router {
             recovery_state: RecoveryState::Ready,
         },
         AdmissionState::new(RecoveryState::Ready),
-        TaskRunHttpState::new(host, ApiActor::new("runne-http-test").unwrap()),
+        TaskRunHttpState::new(host, ApiActor::new("runne-http-test").unwrap(), None),
         runne_http::runtime_profile::RuntimeProfileHttpState::new(
             "test", "test", "0.1.0-test", &["task_run.submit.v2"],
         ),

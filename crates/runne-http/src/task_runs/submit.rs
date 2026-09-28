@@ -4,6 +4,27 @@ struct SubmitTaskRunBody {
     conversation_id: String,
     workspace_id: String,
     prompt: String,
+    model: Option<String>,
+}
+
+/// Exact-model admission: a requested model must equal the runtime-pinned
+/// provider model; without a pinned model no explicit request can be honored.
+/// The check runs before any id validation, dispatch, or durable effect, and
+/// a rejected request never reaches the host.
+fn admit_requested_model(
+    state: &TaskRunHttpState<impl TaskRunCommandHostPort>,
+    requested: Option<&str>,
+    request_id: &RequestId,
+) -> Option<Response> {
+    let requested = requested?;
+    match state.pinned_model() {
+        Some(pinned) if pinned == requested => None,
+        _ => Some(canonical_error_response(
+            StatusCode::CONFLICT,
+            "model_mismatch",
+            request_id,
+        )),
+    }
 }
 
 /// Client-facing atomic submit: the runtime commits Created+Queued as one
@@ -18,13 +39,20 @@ async fn submit_task_run_v2<H>(
 where
     H: TaskRunCommandHostPort + TaskRunQueryHostPort,
 {
-    let context = match command_context(&headers, &principal, &state.actor) {
-        Ok(context) => context,
-        Err(code) => return bad_request(code, &request_id),
-    };
     let Json(body) = match body {
         Ok(body) => body,
         Err(_) => return bad_request("invalid_request", &request_id),
+    };
+    // Exact-model admission runs before command-context validation and any
+    // durable work: a rejected request consumes no command identity.
+    if let Some(response) =
+        admit_requested_model(&state, body.model.as_deref(), &request_id)
+    {
+        return response;
+    }
+    let context = match command_context(&headers, &principal, &state.actor) {
+        Ok(context) => context,
+        Err(code) => return bad_request(code, &request_id),
     };
     let conversation_id = match body.conversation_id.parse::<ConversationId>() {
         Ok(value) => value,

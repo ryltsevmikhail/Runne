@@ -29,6 +29,7 @@ const MAX_TASK_RUN_SUBMIT_BODY_BYTES: usize = MAX_TASK_RUN_PROMPT_BYTES * 6 + 10
 pub struct TaskRunHttpState<H> {
     host: Arc<H>,
     actor: ApiActor,
+    pinned_model: Option<String>,
 }
 
 impl<H> Clone for TaskRunHttpState<H> {
@@ -36,17 +37,26 @@ impl<H> Clone for TaskRunHttpState<H> {
         Self {
             host: Arc::clone(&self.host),
             actor: self.actor.clone(),
+            pinned_model: self.pinned_model.clone(),
         }
     }
 }
 
 impl<H> TaskRunHttpState<H> {
-    /// Wraps the canonical host and fixes the event actor for this adapter.
-    pub fn new(host: H, actor: ApiActor) -> Self {
+    /// Wraps the canonical host, fixes the event actor for this adapter, and
+    /// carries the runtime-pinned provider model for exact-model admission.
+    /// `None` means the runtime has no pinned provider model.
+    pub fn new(host: H, actor: ApiActor, pinned_model: Option<String>) -> Self {
         Self {
             host: Arc::new(host),
             actor,
+            pinned_model,
         }
+    }
+
+    /// The provider model pinned by the runtime composition, if any.
+    pub(crate) fn pinned_model(&self) -> Option<&str> {
+        self.pinned_model.as_deref()
     }
 }
 

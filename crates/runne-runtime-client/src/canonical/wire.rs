@@ -214,6 +214,7 @@ async fn read_error(response: reqwest::Response) -> RuntimeApiError {
         (403, "managed_trust_policy") => RuntimeApiErrorKind::ManagedPolicy,
         (404, "conversation_not_found" | "task_run_not_found" | "project_workspace_not_found" | "process_not_found") => RuntimeApiErrorKind::NotFound,
         (409, "conversation_conflict" | "task_run_conflict" | "project_workspace_conflict" | "command_conflict" | "process_conflict" | "provider_credential_conflict" | "trust_control_conflict") => RuntimeApiErrorKind::Conflict,
+        (409, "model_mismatch") => RuntimeApiErrorKind::ModelMismatch,
         (409, "trust_root_unavailable") => RuntimeApiErrorKind::RootUnavailable,
         (413, "process_output_too_large") => RuntimeApiErrorKind::ResponseTooLarge,
         (422, "prohibited_secret_material") => RuntimeApiErrorKind::ProhibitedInputRejected,

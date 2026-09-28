@@ -15,6 +15,8 @@ pub enum RuntimeApiErrorKind {
     UnknownAfterSend,
     ManagedPolicy,
     RootUnavailable,
+    /// The requested model does not match the runtime-pinned provider model.
+    ModelMismatch,
 }
 
 /// Typed and redacted canonical client failure.
@@ -61,6 +63,9 @@ impl fmt::Display for RuntimeApiError {
             RuntimeApiErrorKind::UnknownAfterSend => "trust decision outcome is unknown; refresh state",
             RuntimeApiErrorKind::ManagedPolicy => "managed trust policy cannot be changed by the user",
             RuntimeApiErrorKind::RootUnavailable => "current workspace root is unavailable",
+            RuntimeApiErrorKind::ModelMismatch => {
+                "requested model does not match the runtime-pinned model"
+            }
         };
         formatter.write_str(message)
     }
@@ -101,6 +106,7 @@ pub(crate) const fn diagnostic_error_kind(error: &RuntimeApiError) -> &'static s
         RuntimeApiErrorKind::UnknownAfterSend => "unknown_after_send",
         RuntimeApiErrorKind::ManagedPolicy => "managed_policy",
         RuntimeApiErrorKind::RootUnavailable => "root_unavailable",
+        RuntimeApiErrorKind::ModelMismatch => "model_mismatch",
     }
 }
 

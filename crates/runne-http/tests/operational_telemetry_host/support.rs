@@ -179,6 +179,7 @@ pub(super) async fn bind_with_telemetry(
         TaskRunHttpState::new(
             UnavailableTaskRunHost,
             ApiActor::new("runne-http-test").unwrap(),
+            None,
         ),
         ConversationHttpState::new(
             UnavailableConversationHost,

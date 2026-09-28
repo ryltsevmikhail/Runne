@@ -74,7 +74,11 @@ fn app() -> axum::Router {
             recovery_state: RecoveryState::Ready,
         },
         AdmissionState::new(RecoveryState::Ready),
-        TaskRunHttpState::new(UnavailableHost, ApiActor::new("runne-http-test").unwrap()),
+        TaskRunHttpState::new(
+            UnavailableHost,
+            ApiActor::new("runne-http-test").unwrap(),
+            None,
+        ),
     )
 }
 

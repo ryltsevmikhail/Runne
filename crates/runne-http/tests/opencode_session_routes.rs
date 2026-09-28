@@ -228,7 +228,7 @@ async fn parent_router_applies_auth_and_admission_to_compatibility_routes() {
             recovery_state: RecoveryState::Ready,
         },
         AdmissionState::new(RecoveryState::Ready),
-        TaskRunHttpState::new(Host, ApiActor::new("runne-http-test").unwrap()),
+        TaskRunHttpState::new(Host, ApiActor::new("runne-http-test").unwrap(), None),
         state(),
     );
     let response = app

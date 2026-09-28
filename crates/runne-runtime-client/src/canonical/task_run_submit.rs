@@ -59,6 +59,8 @@ struct SubmitTaskRunWire {
     conversation_id: CanonicalId,
     workspace_id: CanonicalId,
     prompt: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -98,6 +100,7 @@ impl AuthenticatedRuntimeClient {
             conversation_id: request.conversation_id,
             workspace_id: request.workspace_id,
             prompt: request.prompt,
+            model: request.model,
         })
         .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest))?;
         let response = self
