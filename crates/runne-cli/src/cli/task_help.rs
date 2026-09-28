@@ -46,3 +46,28 @@ Options:
 Examples:
   runne task get --task-run-id 018f2e3a-7000-7000-8000-000000000001
   runne --format json task get --task-run-id 018f2e3a-7000-7000-8000-000000000001";
+
+/// Help text for the headless `exec` command.
+pub const EXEC_HELP: &str = "\
+Submit one headless task run and stream its lifecycle events.
+
+Usage:
+  runne [--profile PATH] exec --conversation-id UUID --workspace-id UUID [--prompt TEXT]
+
+Options:
+  --conversation-id UUID   Target conversation identifier (required)
+  --workspace-id UUID      Owning workspace identifier (required)
+  --prompt TEXT            Prompt text; when omitted, the prompt is read from
+                           piped stdin (non-TTY headless path)
+
+The command exits 0 only on a `succeeded` terminal outcome. Other terminal
+outcomes print the full event stream to stdout and exit non-zero. If the
+bounded wait expires without a terminal outcome, the run stays uncertain
+(error code `task_uncertain`, exit 5).
+
+Examples:
+  runne exec --conversation-id 018f2e3a-7000-7000-8000-000000000001 \\
+    --workspace-id 018f2e3a-7000-7000-8000-000000000002 --prompt \"Fix the test\"
+  echo \"Fix the test\" | runne --format jsonl exec \\
+    --conversation-id 018f2e3a-7000-7000-8000-000000000001 \\
+    --workspace-id 018f2e3a-7000-7000-8000-000000000002";

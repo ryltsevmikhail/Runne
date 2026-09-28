@@ -12,6 +12,7 @@ use visitor::{SourceVisitor, SurfaceCounts};
 const PROVIDER_CREDENTIAL: &str = "cli/provider_credential.rs";
 const BROKER: &str = "cli/provider_credential_broker.rs";
 const PERSISTENT_REFERENCE_PROBE: &str = "persistent_reference_probe.rs";
+const TASK_RUN: &str = "cli/task_run.rs";
 const RAW_RECEIVER_IDENTIFIERS: &[&str] = &[
     "recvmsg",
     "RecvMsg",
@@ -35,9 +36,11 @@ pub fn source_tree_violations(root: &Path) -> Vec<String> {
     for path in paths {
         audit_file(root, &path, &mut counts, &mut violations);
     }
-    if counts.stdin != 2 {
+    // Two provider-credential prompt paths plus two headless exec prompt
+    // paths (TTY check and piped read), reviewed for D1.4b on 2026-09-28.
+    if counts.stdin != 4 {
         violations.push(format!(
-            "expected exactly two reviewed std::io::stdin paths, found {}",
+            "expected exactly four reviewed std::io::stdin paths, found {}",
             counts.stdin
         ));
     }

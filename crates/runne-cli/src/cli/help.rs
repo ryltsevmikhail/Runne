@@ -17,6 +17,7 @@ Options:
 Commands:
   conversation     Manage conversations
   task             Inspect runtime task runs (read-only)
+  exec             Submit one headless task run and stream events
   provider         Manage provider credentials
   status           Show runtime connection status
   health           Check runtime health status
@@ -179,6 +180,7 @@ pub fn help_for(command_path: &[&str]) -> &'static str {
         ["task"] => TASK_HELP,
         ["task", "list"] => TASK_LIST_HELP,
         ["task", "get"] => TASK_GET_HELP,
+        ["exec"] => EXEC_HELP,
         ["provider"] => PROVIDER_HELP,
         ["provider", "credential"] => PROVIDER_CREDENTIAL_HELP,
         ["provider", "credential", "set"] => PROVIDER_CREDENTIAL_SET_HELP,

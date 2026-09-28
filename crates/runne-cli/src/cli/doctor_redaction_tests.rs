@@ -23,7 +23,7 @@ async fn doctor_channels(profile_path: &Path) -> (DiagnosticReport, String, Stri
     let json = format_diagnostic_report(&report, OutputFormat::Json);
     let envelope =
         serde_json::to_string(&SuccessEnvelope::new(json.data_value())).expect("envelope");
-    (report, text.render_text().to_owned(), envelope)
+    (report, text.render_text(), envelope)
 }
 
 /// Synthetic private canaries: the invented temp location, user dir, token

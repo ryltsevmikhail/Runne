@@ -20,6 +20,13 @@ enum CliError {
     UnsupportedCredentialBackend,
     HealthNonHealthy(CommandOutput),
     DoctorNonHealthy(CommandOutput),
+    /// The task run reached a non-success terminal outcome; the full output
+    /// (including the terminal receipt) goes to stdout, exit stays non-zero.
+    TaskNonHealthy(CommandOutput),
+    /// The bounded wait expired without a terminal outcome; the run stays
+    /// uncertain, never reported as success. The observed event stream goes to
+    /// stdout while the typed envelope goes to stderr.
+    TaskUncertain(CommandOutput),
     AuthorityUsage,
     #[cfg(not(target_os = "macos"))]
     AuthorityUnsupportedPlatform,
@@ -53,6 +60,7 @@ impl CliError {
             Self::Usage | Self::UnknownCommand(_) | Self::AuthorityUsage => 2,
             Self::Profile | Self::ProfileIncompatible => 3,
             Self::CredentialOperation | Self::UnsupportedCredentialBackend => 4,
+            Self::TaskUncertain(_) => 5,
             _ => 1,
         }
     }
@@ -70,6 +78,7 @@ impl CliError {
             }
             Self::CredentialOperation => Some(ErrorCode::CredentialOperationFailed),
             Self::UnsupportedCredentialBackend => Some(ErrorCode::CredentialBackendUnsupported),
+            Self::TaskUncertain(_) => Some(ErrorCode::TaskUncertain),
             _ => Some(ErrorCode::ApiError),
         }
     }
@@ -101,6 +110,12 @@ impl fmt::Display for CliError {
             }
             Self::HealthNonHealthy(_) => formatter.write_str("runtime health check failed"),
             Self::DoctorNonHealthy(_) => formatter.write_str("diagnostics found failing checks"),
+            Self::TaskNonHealthy(_) => {
+                formatter.write_str("task run reached a non-success terminal outcome")
+            }
+            Self::TaskUncertain(_) => {
+                formatter.write_str("task run did not reach a terminal outcome within the bounded wait")
+            }
             Self::AuthorityUsage => formatter.write_str("USAGE"),
             #[cfg(not(target_os = "macos"))]
             Self::AuthorityUnsupportedPlatform => formatter.write_str("UNSUPPORTED_PLATFORM"),

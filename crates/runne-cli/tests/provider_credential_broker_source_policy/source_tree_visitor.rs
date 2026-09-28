@@ -1,7 +1,9 @@
 use syn::visit::{self, Visit};
 use syn::{Attribute, Expr, ExprCall, ExprMethodCall, ExprPath, Ident, Macro, UseTree};
 
-use super::{BROKER, PERSISTENT_REFERENCE_PROBE, PROVIDER_CREDENTIAL, RAW_RECEIVER_IDENTIFIERS};
+use super::{
+    BROKER, PERSISTENT_REFERENCE_PROBE, PROVIDER_CREDENTIAL, RAW_RECEIVER_IDENTIFIERS, TASK_RUN,
+};
 use crate::source_reference_audit::{
     include_reference_violation, macro_token_source_reference_violation, path_attribute_violation,
 };
@@ -77,6 +79,11 @@ impl<'ast> Visit<'ast> for SourceVisitor<'_> {
                 && path_is(&function.path, &["std", "io", "stdin"])
             {
                 self.counts.probe_output_channel += 1;
+            } else if self.relative == TASK_RUN
+                && call.args.is_empty()
+                && path_is(&function.path, &["std", "io", "stdin"])
+            {
+                self.counts.stdin += 1;
             } else {
                 self.reject("stdin call path");
             }

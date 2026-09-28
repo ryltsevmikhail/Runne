@@ -24,7 +24,7 @@ fn channels(check: DiagnosticCheck) -> (DiagnosticReport, String, String) {
     let json = format_diagnostic_report(&report, OutputFormat::Json);
     let envelope =
         serde_json::to_string(&SuccessEnvelope::new(json.data_value())).expect("envelope");
-    (report, text.render_text().to_owned(), envelope)
+    (report, text.render_text(), envelope)
 }
 
 fn all_runtime_builders(version: &str) -> Vec<DiagnosticCheck> {

@@ -85,6 +85,10 @@ async fn dispatch_command(
     match command.as_str() {
         "conversation" => run_conversation(profile_path, arguments).await,
         "task" => run_task(profile_path, arguments).await,
+        // `run` is the session-oriented spelling of the same headless surface;
+        // the split into distinct run/exec semantics lands with the X2
+        // terminal path (slice plan ruling, 2026-09-28).
+        "exec" | "run" => run_exec(profile_path, arguments, format).await,
         "status" => run_status_command(profile_path, arguments).await.map(CommandOutput::text),
         "health" => run_health_command(profile_path, arguments).await,
         "doctor" => run_doctor_command(profile_path, arguments, format).await,

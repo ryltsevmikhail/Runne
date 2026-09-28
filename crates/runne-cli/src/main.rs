@@ -7,8 +7,9 @@ use std::time::Duration;
 
 use runne_runtime_client::{
     CanonicalId, CommandIdentity, ConversationContextScope, CreateConversationRequest,
-    GenerateTextRequest, LocalProfileError, LocalRuntimeProfile, RuntimeApiError, TaskRunSnapshot,
-    TaskRunState, TaskRunTerminalResult, default_local_profile_path,
+    GenerateTextRequest, LocalProfileError, LocalRuntimeProfile, RuntimeApiError,
+    SubmitTaskRunRequest, TaskRunSnapshot, TaskRunState, TaskRunTerminalResult,
+    default_local_profile_path,
 };
 use runne_secure_store::{
     NativeProviderCredentialStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
@@ -135,10 +136,27 @@ fn process_outcome(
                 }
                 // Non-healthy reports always print the full report to stdout;
                 // only the exit code signals the failing outcome.
-                CliError::HealthNonHealthy(output) | CliError::DoctorNonHealthy(output) => {
+                CliError::HealthNonHealthy(output)
+                | CliError::DoctorNonHealthy(output)
+                | CliError::TaskNonHealthy(output) => {
                     return ProcessOutcome {
                         stdout: render_command_output(output, format),
                         stderr: String::new(),
+                        exit_code,
+                    };
+                }
+                // The uncertain task outcome is lossless: the observed event
+                // stream stays on stdout while the typed envelope goes to
+                // stderr.
+                CliError::TaskUncertain(output) => {
+                    let code = error.error_code().unwrap_or(ErrorCode::ApiError);
+                    let envelope = ErrorEnvelope::new(code, error.to_string());
+                    return ProcessOutcome {
+                        stdout: render_command_output(output, format),
+                        stderr: format!(
+                            "{}\n",
+                            serde_json::to_string(&envelope).unwrap_or_default()
+                        ),
                         exit_code,
                     };
                 }
@@ -211,6 +229,7 @@ include!("cli/format.rs");
 include!("cli/completion.rs");
 include!("cli/conversation.rs");
 include!("cli/task.rs");
+include!("cli/task_run.rs");
 include!("cli/task_help.rs");
 include!("cli/provider_credential.rs");
 include!("cli/provider_credential_broker.rs");

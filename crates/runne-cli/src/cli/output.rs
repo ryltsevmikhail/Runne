@@ -180,6 +180,9 @@ pub enum ErrorCode {
     // Credential errors (exit 4)
     CredentialOperationFailed,
     CredentialBackendUnsupported,
+
+    // Task outcome errors (exit 5)
+    TaskUncertain,
 }
 
 impl ErrorCode {
@@ -191,6 +194,7 @@ impl ErrorCode {
             Self::ProfileUnavailable | Self::ProfileIncompatible => 3,
             Self::RuntimeUnavailable | Self::ApiError => 1,
             Self::CredentialOperationFailed | Self::CredentialBackendUnsupported => 4,
+            Self::TaskUncertain => 5,
         }
     }
 }
