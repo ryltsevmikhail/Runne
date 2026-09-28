@@ -196,12 +196,16 @@ fn broker_manifest_has_only_reviewed_macos_native_dependencies() {
     assert!(manifest.contains(
         "nix = { version = \"=0.31.3\", default-features = false, features = [\"fs\", \"poll\"] }"
     ));
-    // The Linux writer fixture needs the same reviewed rustix dev-dep:
-    // scope widened to macos+linux, still never unconditional (below).
+    // The Linux writer fixture needs the same reviewed rustix dev-dep;
+    // the headless SIGINT tests add the test-only "process" feature for the
+    // safe kill_process wrapper (D1.4b review, 2026-09-28). Still never
+    // unconditional (below).
     assert!(manifest.contains(
         "[target.'cfg(any(target_os = \"macos\", target_os = \"linux\"))'.dev-dependencies]"
     ));
-    assert!(manifest.contains("rustix = { version = \"=1.1.4\", features = [\"net\", \"pipe\"] }"));
+    assert!(manifest.contains(
+        "rustix = { version = \"=1.1.4\", features = [\"net\", \"pipe\", \"process\"] }"
+    ));
     assert!(!manifest.contains("[target.'cfg(unix)'.dependencies]"));
 }
 

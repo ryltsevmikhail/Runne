@@ -183,6 +183,7 @@ pub enum ErrorCode {
 
     // Task outcome errors (exit 5)
     TaskUncertain,
+    CancelPending,
 
     // Admission errors (exit 1)
     ModelMismatch,
@@ -205,7 +206,7 @@ impl ErrorCode {
             | Self::SessionNotFound
             | Self::SessionWorkspaceMismatch => 1,
             Self::CredentialOperationFailed | Self::CredentialBackendUnsupported => 4,
-            Self::TaskUncertain => 5,
+            Self::TaskUncertain | Self::CancelPending => 5,
         }
     }
 }

@@ -27,6 +27,9 @@ enum CliError {
     /// uncertain, never reported as success. The observed event stream goes to
     /// stdout while the typed envelope goes to stderr.
     TaskUncertain(CommandOutput),
+    /// A cancellation was requested but no terminal outcome arrived within
+    /// the grace window; never reported as "cancelled".
+    CancelPending(CommandOutput),
     /// No accessible session matches the resume request.
     SessionNotFound,
     /// The session belongs to a different workspace than asserted.
@@ -64,7 +67,7 @@ impl CliError {
             Self::Usage | Self::UnknownCommand(_) | Self::AuthorityUsage => 2,
             Self::Profile | Self::ProfileIncompatible => 3,
             Self::CredentialOperation | Self::UnsupportedCredentialBackend => 4,
-            Self::TaskUncertain(_) => 5,
+            Self::TaskUncertain(_) | Self::CancelPending(_) => 5,
             _ => 1,
         }
     }
@@ -83,6 +86,7 @@ impl CliError {
             Self::CredentialOperation => Some(ErrorCode::CredentialOperationFailed),
             Self::UnsupportedCredentialBackend => Some(ErrorCode::CredentialBackendUnsupported),
             Self::TaskUncertain(_) => Some(ErrorCode::TaskUncertain),
+            Self::CancelPending(_) => Some(ErrorCode::CancelPending),
             Self::Api(error) if error.kind() == RuntimeApiErrorKind::ModelMismatch => {
                 Some(ErrorCode::ModelMismatch)
             }
@@ -126,6 +130,9 @@ impl fmt::Display for CliError {
                 formatter
                     .write_str("task run did not reach a terminal outcome within the bounded wait")
             }
+            Self::CancelPending(_) => formatter.write_str(
+                "cancellation was requested but no terminal outcome arrived within the grace window",
+            ),
             Self::SessionNotFound => {
                 formatter.write_str("no accessible session matches the resume request")
             }

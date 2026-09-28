@@ -6,10 +6,11 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use runne_runtime_client::{
-    AuthenticatedRuntimeClient, CanonicalId, CommandIdentity, ConversationContextScope,
-    CreateConversationRequest, GenerateTextRequest, LocalProfileError, LocalRuntimeProfile,
-    RuntimeApiError, RuntimeApiErrorKind, SubmitTaskRunRequest, TaskRunSnapshot, TaskRunState,
-    TaskRunTerminalResult, default_local_profile_path,
+    AuthenticatedRuntimeClient, CancelTaskRunRequest, CanonicalId, CommandIdentity,
+    ConversationContextScope, CreateConversationRequest, GenerateTextRequest, LocalProfileError,
+    LocalRuntimeProfile, RuntimeApiError, RuntimeApiErrorKind, SubmitTaskRunRequest,
+    TaskRunSnapshot, TaskRunState, TaskRunSubmitAcknowledgement, TaskRunTerminalResult,
+    default_local_profile_path,
 };
 use runne_secure_store::{
     NativeProviderCredentialStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
@@ -148,7 +149,7 @@ fn process_outcome(
                 // The uncertain task outcome is lossless: the observed event
                 // stream stays on stdout while the typed envelope goes to
                 // stderr.
-                CliError::TaskUncertain(output) => {
+                CliError::TaskUncertain(output) | CliError::CancelPending(output) => {
                     let code = error.error_code().unwrap_or(ErrorCode::ApiError);
                     let envelope = ErrorEnvelope::new(code, error.to_string());
                     return ProcessOutcome {
