@@ -19,6 +19,7 @@ pub mod integrity;
 pub mod local_session;
 pub mod migration_codec;
 pub mod migration_store;
+pub mod orphan_settlement;
 pub mod project_trust_store;
 pub mod project_workspace;
 pub mod provider;

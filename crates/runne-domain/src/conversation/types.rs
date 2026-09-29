@@ -69,6 +69,9 @@ pub enum ConversationEventKind {
 pub enum GenerationFailureReason {
     /// Provider input or output contained registered prohibited material.
     ProviderOutputRejected,
+    /// The owning runtime died mid-generation after the durable start with
+    /// no provable external effect; restart settled the orphaned run.
+    InterruptedByRestart,
 }
 
 impl GenerationFailureReason {
@@ -77,6 +80,7 @@ impl GenerationFailureReason {
     pub const fn as_code(self) -> &'static str {
         match self {
             Self::ProviderOutputRejected => "provider_output_rejected",
+            Self::InterruptedByRestart => "interrupted_by_restart",
         }
     }
 }

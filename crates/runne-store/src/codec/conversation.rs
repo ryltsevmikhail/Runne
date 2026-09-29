@@ -9,6 +9,7 @@ pub(super) const TAG_USER_MESSAGE_APPENDED: u8 = 0x22;
 pub(super) const TAG_ASSISTANT_MESSAGE_APPENDED: u8 = 0x23;
 pub(super) const TAG_GENERATION_FAILED: u8 = 0x24;
 pub(super) const REASON_PROVIDER_OUTPUT_REJECTED: u8 = 0x00;
+pub(super) const REASON_INTERRUPTED_BY_RESTART: u8 = 0x01;
 
 /// Codec for [`ConversationEvent`] payload BLOBs.
 pub struct ConversationEventCodec;
@@ -55,6 +56,7 @@ impl StoreCodec<ConversationEvent> for ConversationEventCodec {
                     GenerationFailureReason::ProviderOutputRejected => {
                         REASON_PROVIDER_OUTPUT_REJECTED
                     }
+                    GenerationFailureReason::InterruptedByRestart => REASON_INTERRUPTED_BY_RESTART,
                 });
             }
         }
@@ -117,6 +119,7 @@ impl StoreCodec<ConversationEvent> for ConversationEventCodec {
                     REASON_PROVIDER_OUTPUT_REJECTED => {
                         GenerationFailureReason::ProviderOutputRejected
                     }
+                    REASON_INTERRUPTED_BY_RESTART => GenerationFailureReason::InterruptedByRestart,
                     tag => {
                         return Err(StoreCodecError::UnknownTag {
                             tag,

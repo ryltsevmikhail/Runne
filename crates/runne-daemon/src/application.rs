@@ -100,6 +100,7 @@ pub(crate) mod root_handle_admission;
 mod runtime_connection;
 mod shutdown;
 mod startup;
+mod startup_settlement;
 #[cfg(test)]
 mod tests;
 pub(crate) mod trust_delivery;

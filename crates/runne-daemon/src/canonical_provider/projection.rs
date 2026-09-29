@@ -11,6 +11,7 @@
 
 use super::composition::PROVIDER_POLICY_V1_REVISION;
 use super::*;
+use runne_domain::id::{AttemptId, TaskRunId};
 
 pub(super) fn project_call(
     store: &StoreTransaction,
@@ -27,6 +28,11 @@ pub(super) fn project_call(
         return Err(CanonicalProviderExecutionError::Conflict);
     }
     let mut inputs = Vec::new();
+    // The failed turn's user message, tracked so a GenerationFailed can drop
+    // it: a retry's user message replaces the failed turn instead of
+    // stacking a second consecutive user input (strict user/assistant
+    // alternation downstream).
+    let mut failed_turn_user: Option<(TaskRunId, AttemptId)> = None;
     let mut manifest = Sha256::new();
     manifest.update(b"GOCODE_CONVERSATION_TEXT_PATH_V2\0");
     manifest.update(job.started.conversation_id.as_bytes());
@@ -36,17 +42,37 @@ pub(super) fn project_call(
         manifest.update(event.event_id().as_bytes());
         manifest.update(event.integrity_digest().as_bytes());
         match event.payload() {
-            ConversationEvent::UserMessageAppended { text, .. } => inputs.push(
-                ProviderTextInput::new(ProviderInputRole::User, text.as_str().to_owned())
-                    .map_err(|_| CanonicalProviderExecutionError::Conflict)?,
-            ),
-            ConversationEvent::AssistantMessageAppended { text, .. } => inputs.push(
-                ProviderTextInput::new(ProviderInputRole::Assistant, text.as_str().to_owned())
-                    .map_err(|_| CanonicalProviderExecutionError::Conflict)?,
-            ),
+            ConversationEvent::UserMessageAppended {
+                taskrun_id,
+                attempt_id,
+                text,
+                ..
+            } => {
+                failed_turn_user = Some((*taskrun_id, *attempt_id));
+                inputs.push(
+                    ProviderTextInput::new(ProviderInputRole::User, text.as_str().to_owned())
+                        .map_err(|_| CanonicalProviderExecutionError::Conflict)?,
+                );
+            }
+            ConversationEvent::AssistantMessageAppended { text, .. } => {
+                failed_turn_user = None;
+                inputs.push(
+                    ProviderTextInput::new(ProviderInputRole::Assistant, text.as_str().to_owned())
+                        .map_err(|_| CanonicalProviderExecutionError::Conflict)?,
+                );
+            }
+            ConversationEvent::GenerationFailed {
+                taskrun_id,
+                attempt_id,
+                ..
+            } => {
+                if failed_turn_user == Some((*taskrun_id, *attempt_id)) {
+                    inputs.pop();
+                    failed_turn_user = None;
+                }
+            }
             ConversationEvent::ConversationCreated { .. }
-            | ConversationEvent::ConversationClosed
-            | ConversationEvent::GenerationFailed { .. } => {}
+            | ConversationEvent::ConversationClosed => {}
         }
     }
     let call_id = ProviderCallId::from_bytes(derived_bytes16(

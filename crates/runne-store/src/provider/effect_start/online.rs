@@ -1,3 +1,4 @@
+use super::online_helpers::{encode_hex, online_clock_error, online_sql_error};
 use super::online_proof::verify_issuance;
 use super::online_receipt::{OnlineEffectReadback, ProviderOnlineEffectStartReceipt};
 use crate::provider::ProviderRuntimeLaunchCapability;
@@ -7,9 +8,8 @@ use crate::provider::execution_store::online_effect_proof::{
 use crate::provider::{OnlineEffectStartBinding, credential_lifecycle};
 use crate::schema::ManagedConnection;
 use runne_application::provider::{ProviderAdmissionError, ProviderJournalKeyBinding};
-use runne_provider::{CredentialLifecycleError, ProviderDispatchClaim};
-use rusqlite::{Error as SqliteError, ErrorCode, OptionalExtension, TransactionBehavior, params};
-const ONLINE_BINDING_STALE_TRIGGER: &str = "online credential effect binding is stale or fenced";
+use runne_provider::ProviderDispatchClaim;
+use rusqlite::{OptionalExtension, TransactionBehavior, params};
 pub(crate) fn start_online_effect(
     connection: &mut ManagedConnection,
     launch: &ProviderRuntimeLaunchCapability,
@@ -167,6 +167,8 @@ pub(crate) fn start_online_effect(
     transaction
         .commit()
         .map_err(|_| ProviderAdmissionError::PostClaimUncertain)?;
+    #[cfg(feature = "test-support")]
+    crate::store::commit_gate::note_kill_boundary("b3_post_effect_start_commit");
     if fail_readback {
         return Err(ProviderAdmissionError::PostClaimUncertain);
     }
@@ -269,32 +271,4 @@ pub(crate) fn start_online_effect(
         }
         Ok(ProviderOnlineEffectStartReceipt::from_readback(readback, remaining))
     })
-}
-
-fn online_clock_error(error: CredentialLifecycleError) -> ProviderAdmissionError {
-    match error {
-        CredentialLifecycleError::StaleLease => ProviderAdmissionError::AuthorityDenied,
-        _ => ProviderAdmissionError::RepositoryFailure,
-    }
-}
-
-fn online_sql_error(error: SqliteError) -> ProviderAdmissionError {
-    match error {
-        SqliteError::SqliteFailure(code, Some(message))
-            if code.code == ErrorCode::ConstraintViolation
-                && message == ONLINE_BINDING_STALE_TRIGGER =>
-        {
-            ProviderAdmissionError::AuthorityDenied
-        }
-        _ => ProviderAdmissionError::RepositoryFailure,
-    }
-}
-
-fn encode_hex(bytes: &[u8]) -> String {
-    let mut output = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        use std::fmt::Write as _;
-        let _ = write!(output, "{byte:02x}");
-    }
-    output
 }

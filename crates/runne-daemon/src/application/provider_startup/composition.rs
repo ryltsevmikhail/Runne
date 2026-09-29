@@ -92,6 +92,18 @@ impl DaemonApplication {
                 authority,
                 Arc::clone(&prohibited_content),
             ));
+        // X2 restart settlement: close provably effect-free generations the
+        // dead instance left in Started before any client can attach.
+        let settled = super::startup_settlement::settle_interrupted_text_generations(
+            &bootstrap.db_conn,
+            &conversation_text_service,
+        )?;
+        if settled > 0 {
+            tracing::info!(
+                generations = settled,
+                "settled interrupted text generations at restart"
+            );
+        }
         let mut session_id = *uuid::Uuid::now_v7().as_bytes();
         while session_id == bootstrap.launch_identity.daemon_instance_id().into_bytes() {
             session_id = *uuid::Uuid::now_v7().as_bytes();

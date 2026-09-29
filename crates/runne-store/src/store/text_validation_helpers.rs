@@ -115,22 +115,25 @@ pub(super) fn validate_reject_text_payload(
             && *conversation_id == payload.receipt.conversation_id
     );
     let conversation_event = &payload.conversation_events[0];
-    let rejection_matches = matches!(
-        conversation_event.payload(),
+    let rejection_reason = match conversation_event.payload() {
         ConversationEvent::GenerationFailed {
             taskrun_id,
             attempt_id,
-            reason: runne_domain::conversation::GenerationFailureReason::ProviderOutputRejected,
+            reason,
         } if *taskrun_id == payload.receipt.taskrun_id
-            && *attempt_id == payload.receipt.attempt_id
-    );
+            && *attempt_id == payload.receipt.attempt_id =>
+        {
+            Some(*reason)
+        }
+        _ => None,
+    };
     let taskrun_event = &payload.taskrun_events[0];
     if !scope_matches
-        || !rejection_matches
+        || rejection_reason.is_none()
         || !matches!(
             taskrun_event.payload(),
             TaskRunEvent::TaskRunFailed { reason }
-                if reason == "provider_output_rejected"
+                if rejection_reason.is_some_and(|closed| *reason == closed.as_code())
         )
         || !valid_event_context(
             conversation_event,

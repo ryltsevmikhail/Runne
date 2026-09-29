@@ -18,7 +18,6 @@ const KILL_BOUNDARIES: &[&str] = &[
 ];
 
 #[test]
-#[ignore = "blocked on the X2 restart-after-SIGKILL finding; see the child test note"]
 fn d16_real_kill_matrix_recovers_every_provider_boundary() {
     use std::process::{Command, Stdio};
     use std::time::Instant;
@@ -84,7 +83,7 @@ fn d16_real_kill_matrix_recovers_every_provider_boundary() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "D1.6 kill matrix is instrumented but blocked on the X2 restart finding: after a real SIGKILL at any armed boundary the supervisor relaunch completes and publishes a profile, yet the bounded AppCore install handshake stays fail-closed (RuntimeUnavailable) for the whole retry window - crash-sim recovery never covers this path. The boundary hooks, fixture holds and this scenario stay in place for the X2 recovery/terminal-path slice; see backlog/reports/2026-09-28-d1.6.md."]
+#[ignore = "launched per boundary with the exact isolated fixture selector by the parent"]
 async fn d16_kill_boundary_child() {
     let boundary = std::env::var("RUNNE_TEST_KILL_BOUNDARY").expect("kill boundary env");
     let arm =
@@ -107,6 +106,7 @@ async fn d16_kill_boundary_child() {
         &runtime_root,
         &session_bus_socket,
     );
+    let _ = &supervisor;
     let client = super::t1_text_only_support::install_text_only_client(&mut supervisor).await;
     let profile_key = [0x7d; 32];
     let secure =
@@ -189,9 +189,14 @@ async fn d16_kill_boundary_child() {
         &session_bus_socket,
     );
     let client = super::t1_text_only_support::install_text_only_client(&mut restarted).await;
-    // After a SIGKILL the recovered daemon finishes crash recovery and
-    // admission gating asynchronously: retry the bounded install handshake
-    // instead of assuming instant readiness.
+    // X2 restart contract: provably effect-free kills (b1/b2 — no dispatch
+    // attempt) settle at boot, so the install converges and one explicit
+    // retry settles exactly once; dispatch-attempt kills (b3-b6) leave the
+    // outcome uncertain and the install stays fail-closed by design.
+    let provably_effect_free = matches!(
+        boundary.as_str(),
+        "b1_pre_prepare_commit" | "b2_post_prepare_commit"
+    );
     let mut installed = None;
     for _ in 0..20 {
         let reopened = AppCore::open_bundled_anchored(&desktop_db, secure.clone(), profile_key)
@@ -210,47 +215,48 @@ async fn d16_kill_boundary_child() {
             Err(_) => tokio::time::sleep(Duration::from_millis(300)).await,
         }
     }
-    let reopened = installed.unwrap_or_else(|| {
-        eprintln!(
-            "RESTART DAEMON OUTPUT: {}",
-            restarted.test_take_captured_output().unwrap_or_default()
-        );
-        panic!("install restarted runtime after recovery never succeeded");
-    });
-    let replayed = reopened
-        .open_text_only_conversation()
-        .await
-        .expect("resume kill-matrix conversation");
-    assert_eq!(replayed.conversation_id, conversation.conversation_id);
-
-    if matches!(
-        boundary.as_str(),
-        "b1_pre_prepare_commit" | "b2_post_prepare_commit" | "b3_post_effect_start_commit"
-    ) {
-        // The killed attempt never reached the provider: one retry settles
-        // exactly once.
+    if provably_effect_free {
+        let reopened = installed.unwrap_or_else(|| {
+            panic!("settle-boundary restart install never succeeded ({boundary})");
+        });
+        let replayed = reopened
+            .open_text_only_conversation()
+            .await
+            .expect("resume settled kill-matrix conversation");
+        assert_eq!(replayed.conversation_id, conversation.conversation_id);
         let completed = reopened
             .send_text_only_message("fixture input")
             .await
-            .expect("retry generation after early-boundary kill");
+            .expect("retry generation after settle-boundary kill");
         super::t1_text_only_support::assert_fixture_response(&completed.messages);
         super::t1_support::assert_one_settled_dispatch(&database);
         assert_eq!(
             std::fs::read_to_string(runtime_root.join("fixture-provider-request-count"))
                 .expect("request count"),
             "1",
-            "exactly one provider request across kill and retry ({boundary})"
+            "exactly one provider request across kill, settlement and retry ({boundary})"
         );
     } else {
-        // The provider already received the request: the uncertain effect
-        // stays frozen — no blind re-dispatch after restart.
-        super::t1_support::assert_uncertain_provider_effect(&database);
-        assert_eq!(
-            std::fs::read_to_string(runtime_root.join("fixture-provider-request-count"))
-                .expect("request count"),
-            "1",
-            "the provider saw the request exactly once ({boundary})"
+        assert!(
+            installed.is_none(),
+            "uncertain-boundary restart must stay fail-closed ({boundary})"
         );
+        super::t1_support::assert_uncertain_provider_effect(&database);
+        let request_count = runtime_root.join("fixture-provider-request-count");
+        if boundary == "b3_post_effect_start_commit" {
+            // Killed after the effect-start commit but before dispatch: the
+            // provider never saw a request at all.
+            assert!(
+                !request_count.exists(),
+                "no provider request may exist at {boundary}"
+            );
+        } else {
+            assert_eq!(
+                std::fs::read_to_string(&request_count).expect("request count"),
+                "1",
+                "the provider saw the request exactly once ({boundary})"
+            );
+        }
     }
 
     super::t1_text_only_support::assert_text_only_scope(&database, conversation_id);

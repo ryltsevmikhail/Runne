@@ -96,15 +96,23 @@ impl TlsSseServer {
                 return;
             }
             let mut response_written = 0;
+            // D1.6 kill matrix: serve the stream in two chunks so the b6
+            // boundary can hold the daemon BETWEEN received stream events —
+            // a single full-write would let the client complete first.
+            let first_chunk = response.len() / 2;
             while response_written < response.len() {
-                match stream.write(&response.as_bytes()[response_written..]).await {
+                if response_written > 0 {
+                    hold_for_kill_boundary("b6_between_stream_events").await;
+                }
+                let remaining = &response.as_bytes()[response_written..];
+                let limit = if response_written == 0 && first_chunk > 0 {
+                    first_chunk
+                } else {
+                    remaining.len()
+                };
+                match stream.write(&remaining[..limit]).await {
                     Ok(0) | Err(_) => break,
                     Ok(written) => response_written += written,
-                }
-                // D1.6 kill matrix: hold between stream events (b6) once part
-                // of the event stream reached the daemon journal.
-                if response_written < response.len() {
-                    hold_for_kill_boundary("b6_between_stream_events").await;
                 }
             }
             if scan_wire
