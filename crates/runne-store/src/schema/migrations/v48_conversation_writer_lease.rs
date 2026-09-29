@@ -1,5 +1,3 @@
-use rusqlite::OptionalExtension as _;
-
 pub(super) const MIGRATION_V48: &str = r#"
 CREATE TABLE conversation_writer_leases (
  conversation_id BLOB PRIMARY KEY CHECK(length(conversation_id)=16),

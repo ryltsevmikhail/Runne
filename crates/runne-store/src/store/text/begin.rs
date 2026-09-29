@@ -46,7 +46,7 @@ impl StoreTransaction {
         )
         .map_err(|error| match error {
             crate::conversation_writer_lease::WriterLeaseError::FencedByOtherWriter => {
-                storage_failure(StorageFailureKind::IntegrityViolation)
+                storage_failure(StorageFailureKind::WriterFenced)
             }
             _ => storage_failure(StorageFailureKind::Unavailable),
         })?;

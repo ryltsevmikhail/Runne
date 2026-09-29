@@ -143,6 +143,9 @@ fn map_runtime_error(error: RuntimeError) -> ConversationHostError {
                 ConversationHostError::ProhibitedSecretMaterial
             }
             ConversationTextServiceError::ConversationNotFound => ConversationHostError::NotFound,
+            ConversationTextServiceError::WriterFenced => {
+                ConversationHostError::WriterFenced
+            }
             ConversationTextServiceError::Conflict
             | ConversationTextServiceError::ConversationDomain(_) => {
                 ConversationHostError::Conflict

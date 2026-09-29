@@ -25,6 +25,8 @@ use crate::prohibited_content::{
 /// Typed failures from [`ConversationTextService`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConversationTextServiceError {
+    /// Another principal holds the conversation's writer lease.
+    WriterFenced,
     /// Input contained material registered as prohibited or could not be
     /// inspected safely.
     ProhibitedSecretMaterial,

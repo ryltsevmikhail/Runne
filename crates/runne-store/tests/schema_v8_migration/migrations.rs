@@ -41,6 +41,7 @@ fn v6_to_v8_migration() {
          DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_update;
          DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_delete;
          DROP TABLE IF EXISTS conversation_context_scope;
+         DROP TABLE IF EXISTS conversation_writer_leases;
          DELETE FROM schema_version WHERE version >= 7;",
     )
     .unwrap();

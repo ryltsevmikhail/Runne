@@ -72,6 +72,7 @@ fn host_error_response(error: ConversationHostError, request_id: &RequestId) -> 
         ConversationHostError::ProviderOutputRejected => StatusCode::BAD_GATEWAY,
         ConversationHostError::NotFound => StatusCode::NOT_FOUND,
         ConversationHostError::Conflict => StatusCode::CONFLICT,
+        ConversationHostError::WriterFenced => StatusCode::CONFLICT,
         ConversationHostError::Backpressure | ConversationHostError::Unavailable => {
             StatusCode::SERVICE_UNAVAILABLE
         }
