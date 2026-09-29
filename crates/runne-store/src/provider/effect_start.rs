@@ -199,11 +199,11 @@ pub(super) fn start_effect(
             [&intent_id],
         )
         .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-    #[cfg(feature = "test-support")]
-    crate::store::commit_gate::note_kill_boundary("b3_post_effect_start_commit");
     transaction
         .commit()
         .map_err(|_| ProviderAdmissionError::PostClaimUncertain)?;
+    #[cfg(feature = "test-support")]
+    crate::store::commit_gate::note_kill_boundary("b3_post_effect_start_commit");
     if fail_readback {
         return Err(ProviderAdmissionError::PostClaimUncertain);
     }
