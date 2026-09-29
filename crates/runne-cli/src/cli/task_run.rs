@@ -109,6 +109,14 @@ async fn run_exec(
         Some(model) => request.with_model(model),
         None => request,
     };
+    // The signal stream is installed BEFORE the submit so a SIGINT arriving
+    // immediately after the submitted event can never hit the default
+    // disposition (observed as a signal exit on slow hosted workers).
+    let Ok(mut sigint) =
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+    else {
+        return Err(CliError::Runtime);
+    };
     let acknowledgement = client.submit_task_run(request).await.map_err(CliError::Api)?;
 
     let task_run_id = acknowledgement.task_run_id();
@@ -124,7 +132,7 @@ async fn run_exec(
     )?;
 
     let (snapshot, _sigints_received, mut events) =
-        poll_until_terminal(&client, &acknowledgement, events, format).await?;
+        poll_until_terminal(&client, &acknowledgement, events, format, &mut sigint).await?;
 
 
     record_event(&mut events, format, terminal_event(&snapshot))?;

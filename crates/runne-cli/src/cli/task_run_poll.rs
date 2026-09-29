@@ -36,13 +36,9 @@ async fn poll_until_terminal(
     acknowledgement: &TaskRunSubmitAcknowledgement,
     mut events: Vec<serde_json::Value>,
     format: OutputFormat,
+    sigint: &mut tokio::signal::unix::Signal,
 ) -> Result<(TaskRunSnapshot, u32, Vec<serde_json::Value>), CliError> {
     let task_run_id = acknowledgement.task_run_id();
-    let Ok(mut sigint) =
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
-    else {
-        return Err(CliError::Runtime);
-    };
     let mut sigints_received = 0u32;
     let mut cancel_deadline = None::<tokio::time::Instant>;
 
