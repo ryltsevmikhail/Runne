@@ -204,7 +204,7 @@ impl NativeClient {
         &self,
         request: &Zeroizing<Vec<u8>>,
         context: &CredentialServiceCallContext,
-    ) -> Result<(oneshot::Receiver<ReplyResult>, ReplySlot), CredentialServiceXpcError> {
+    ) -> Result<(tokio::sync::oneshot::Receiver<ReplyResult>, ReplySlot), CredentialServiceXpcError> {
         if context.cancellation().is_cancelled() {
             return Err(CredentialServiceXpcError::Cancelled);
         }
