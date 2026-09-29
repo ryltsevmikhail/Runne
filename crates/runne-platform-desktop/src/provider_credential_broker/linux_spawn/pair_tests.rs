@@ -28,27 +28,23 @@ fn pair_plan_keeps_only_fd3_in_addition_to_standard_streams() {
 #[cfg(feature = "test-support")]
 #[test]
 fn post_delete_fixture_is_forwarded_only_from_a_private_root() {
-    let runtime = std::env::var_os("XDG_RUNTIME_DIR").expect("private XDG runtime directory");
-    let directory = tempfile::Builder::new()
-        .prefix("runne-d1-1b-plan-")
-        .tempdir_in(runtime)
-        .unwrap();
-    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-    let bus = directory.path().join("bus");
+    // Hermetic private chain (hosted CI has no ambient XDG_RUNTIME_DIR): a
+    // 0700 tempfile base plus a nested 0700 fixture directory satisfies the
+    // root+parent privacy invariants without environment assumptions.
+    let base = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(base.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let directory = base.path().canonicalize().unwrap().join("fixture");
+    std::fs::create_dir(&directory).unwrap();
+    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let bus = directory.join("bus");
     let _listener = UnixListener::bind(&bus).unwrap();
     let address = SessionBusAddress::for_tests(&bus).unwrap();
     let spec = VerifiedWriterLaunchSpec::new(
         VerifiedWriterArtifact::new("/bundle/runne".into(), [1; 32], [2; 32]).unwrap(),
     );
-    let plan = plan::build_plan_for_tests_with_fixture_root(
-        &spec,
-        &address,
-        10,
-        11,
-        12,
-        Some(directory.path()),
-    )
-    .unwrap();
+    let plan =
+        plan::build_plan_for_tests_with_fixture_root(&spec, &address, 10, 11, 12, Some(&directory))
+            .unwrap();
     assert_eq!(plan.environment.len(), 2);
     assert!(plan.environment.iter().any(|entry| {
         entry

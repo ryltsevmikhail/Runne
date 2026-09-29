@@ -48,8 +48,22 @@ fn staged_running_daemon_is_bound_by_signed_bytes_child_identity_and_stable_imag
     std::fs::copy(&paths[2], &staged).unwrap();
     std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o500)).unwrap();
     let launched = File::open(&staged).unwrap();
+    let staged_image = staged.canonicalize().unwrap();
     let mut child = Command::new(&staged).arg("60").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
     let pid = child.id();
+    // Close the fork->execve window (wave-5 race class): the positive confirm
+    // digests /proc/<pid>/exe, which points at the test binary until the
+    // child execs the staged image.
+    let canonical_deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !std::fs::canonicalize(format!("/proc/{pid}/exe"))
+        .is_ok_and(|resolved| resolved == staged_image)
+    {
+        assert!(
+            std::time::Instant::now() < canonical_deadline,
+            "child never exec'd the staged image"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
     let start = super::linux::process_start_ticks(pid).unwrap();
     retained.confirm_daemon_process(pid, start, &launched, &runtime, digest).unwrap();
     assert!(retained.confirm_daemon_process(pid, start + 1, &launched, &runtime, digest).is_err());
