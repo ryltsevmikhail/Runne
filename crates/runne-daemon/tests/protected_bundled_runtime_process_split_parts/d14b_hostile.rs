@@ -59,8 +59,13 @@ async fn exec_resume_replay_child() {
     let executable =
         owner_private::ControlledExecutable::copy_with_writer_from(env!("CARGO_BIN_EXE_runned"));
     let runtime_root = temporary.path().join("runtime");
-    let mut supervisor =
-        super::t1_text_only_support::start_text_only_runtime(executable.path(), &runtime_root);
+    let session_bus_socket =
+        super::t1_support::fixture_session_bus(temporary.path(), "session-bus.sock");
+    let mut supervisor = super::t1_text_only_support::start_text_only_runtime(
+        executable.path(),
+        &runtime_root,
+        &session_bus_socket,
+    );
     let client = super::t1_text_only_support::install_text_only_client(&mut supervisor).await;
     let profile_key = [0x7b; 32];
     let secure =
@@ -200,8 +205,11 @@ async fn exec_resume_replay_child() {
 
     // Restart and replay: same conversation, run stays Queued, still zero
     // provider dispatch, hostile content still absent from every sink.
-    let mut restarted =
-        super::t1_text_only_support::start_text_only_runtime(executable.path(), &runtime_root);
+    let mut restarted = super::t1_text_only_support::start_text_only_runtime(
+        executable.path(),
+        &runtime_root,
+        &session_bus_socket,
+    );
     let client = super::t1_text_only_support::install_text_only_client(&mut restarted).await;
     let reopened = AppCore::open_bundled_anchored(&desktop_db, secure, profile_key)
         .expect("reopen anchored exec AppCore");

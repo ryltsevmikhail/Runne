@@ -100,8 +100,13 @@ async fn d16_kill_boundary_child() {
     let executable =
         owner_private::ControlledExecutable::copy_with_writer_from(env!("CARGO_BIN_EXE_runned"));
     let runtime_root = temporary.path().join("runtime");
-    let mut supervisor =
-        super::t1_text_only_support::start_text_only_runtime(executable.path(), &runtime_root);
+    let session_bus_socket =
+        super::t1_support::fixture_session_bus(temporary.path(), "session-bus.sock");
+    let mut supervisor = super::t1_text_only_support::start_text_only_runtime(
+        executable.path(),
+        &runtime_root,
+        &session_bus_socket,
+    );
     let client = super::t1_text_only_support::install_text_only_client(&mut supervisor).await;
     let profile_key = [0x7d; 32];
     let secure =
@@ -178,8 +183,11 @@ async fn d16_kill_boundary_child() {
     std::fs::write(&release, b"released").expect("release kill boundary");
 
     let scanner = super::t1_support::frozen_scanner();
-    let mut restarted =
-        super::t1_text_only_support::start_text_only_runtime(executable.path(), &runtime_root);
+    let mut restarted = super::t1_text_only_support::start_text_only_runtime(
+        executable.path(),
+        &runtime_root,
+        &session_bus_socket,
+    );
     let client = super::t1_text_only_support::install_text_only_client(&mut restarted).await;
     // After a SIGKILL the recovered daemon finishes crash recovery and
     // admission gating asynchronously: retry the bounded install handshake
