@@ -170,6 +170,7 @@ fn map_conversation_terminal_error(
         ConversationTextServiceError::ProhibitedSecretMaterial
         | ConversationTextServiceError::ConversationNotFound
         | ConversationTextServiceError::Conflict
+        | ConversationTextServiceError::WriterFenced
         | ConversationTextServiceError::ConversationDomain(_)
         | ConversationTextServiceError::TaskRunDomain
         | ConversationTextServiceError::IdGeneration(_)

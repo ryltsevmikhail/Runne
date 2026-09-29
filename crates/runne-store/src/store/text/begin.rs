@@ -35,6 +35,22 @@ impl StoreTransaction {
             return Ok(TextGenerationCommitResult::Duplicate { stored_result });
         }
 
+        // X2 writer lease v1: the first durable mutation acquires the
+        // conversation's writer lease; any other principal is fenced until an
+        // authenticated take-control rotates it.
+        crate::conversation_writer_lease::ensure_writer_lease(
+            &transaction,
+            conversation_id.as_bytes(),
+            payload.idempotency_scope.principal_id.0.as_str(),
+            unix_now(),
+        )
+        .map_err(|error| match error {
+            crate::conversation_writer_lease::WriterLeaseError::FencedByOtherWriter => {
+                storage_failure(StorageFailureKind::WriterFenced)
+            }
+            _ => storage_failure(StorageFailureKind::Unavailable),
+        })?;
+
         crate::project_workspace::lineage::record_text_taskrun_lineage(
             &transaction,
             taskrun_id,
@@ -246,4 +262,11 @@ impl StoreTransaction {
             result: payload.receipt,
         })
     }
+}
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or(0)
 }

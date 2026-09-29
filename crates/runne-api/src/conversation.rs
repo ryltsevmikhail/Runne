@@ -179,6 +179,9 @@ pub enum ConversationHostError {
     NotFound,
     /// Version, lifecycle, command identity, or idempotency conflicted.
     Conflict,
+    /// Another principal holds the conversation's writer lease; an
+    /// authenticated take-control is required before this principal mutates.
+    WriterFenced,
     /// A bounded runtime queue rejected the request.
     Backpressure,
     /// Runtime or persistence is unavailable.
@@ -196,6 +199,7 @@ impl ConversationHostError {
             Self::ProviderOutputRejected => "provider_output_rejected",
             Self::NotFound => "conversation_not_found",
             Self::Conflict => "conversation_conflict",
+            Self::WriterFenced => "conversation_writer_fenced",
             Self::Backpressure => "runtime_backpressure",
             Self::Unavailable => "runtime_unavailable",
             Self::InvariantViolation => "runtime_invariant_violation",

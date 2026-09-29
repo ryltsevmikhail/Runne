@@ -207,6 +207,7 @@ fn production_terminal_application_reconstructs_started_command_and_finishes_onc
          DROP TRIGGER IF EXISTS schema_v12_fence_execution_nodes_update;
          DROP TRIGGER IF EXISTS schema_v12_fence_execution_nodes_delete;
          DROP TABLE IF EXISTS execution_nodes;
+         DROP TABLE IF EXISTS conversation_writer_leases;
          DELETE FROM schema_version WHERE version >= 19;",
     )
         .unwrap();

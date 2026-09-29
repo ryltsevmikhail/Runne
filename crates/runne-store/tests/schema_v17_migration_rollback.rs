@@ -103,6 +103,7 @@ fn v16_fixture(
          DROP TRIGGER IF EXISTS schema_v12_fence_aggregate_state_snapshots_delete;
          DROP INDEX IF EXISTS idx_aggregate_state_snapshots_head_position;
          DROP TABLE IF EXISTS aggregate_state_snapshots;
+         DROP TABLE IF EXISTS conversation_writer_leases;
          DROP TABLE IF EXISTS process_output;
          DROP INDEX IF EXISTS idx_process_registry_owner;
          DROP TABLE IF EXISTS process_registry;

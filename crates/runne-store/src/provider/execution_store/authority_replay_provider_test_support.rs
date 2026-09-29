@@ -102,6 +102,7 @@ pub(super) fn upgraded_v25_for_provider(
              DROP TRIGGER schema_v12_fence_text_only_taskrun_lineage_update;
              DROP TRIGGER schema_v12_fence_text_only_taskrun_lineage_delete;
              DROP TABLE text_only_taskrun_lineage;
+             DROP TABLE conversation_writer_leases;
              DROP TABLE taskrun_dispatch_intents;
              DROP TRIGGER global_command_id_from_release_v45;
              DROP TRIGGER global_command_id_from_command_receipts_v45;

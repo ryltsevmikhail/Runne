@@ -127,6 +127,8 @@ pub enum StorageFailureKind {
     UnsupportedSchema,
     /// A storage-level integrity check failed.
     IntegrityViolation,
+    /// Another principal holds the durable writer lease for the aggregate.
+    WriterFenced,
     /// The store is temporarily unavailable.
     Unavailable,
 }

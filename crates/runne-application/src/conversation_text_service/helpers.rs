@@ -63,6 +63,9 @@ fn map_commit(error: CommitError) -> ConversationTextServiceError {
         CommitError::VersionConflict { .. } | CommitError::IdempotencyConflict { .. } => {
             ConversationTextServiceError::Conflict
         }
+        CommitError::StorageFailure(crate::ports::StorageFailureKind::WriterFenced) => {
+            ConversationTextServiceError::WriterFenced
+        }
         error => ConversationTextServiceError::Commit(error),
     }
 }

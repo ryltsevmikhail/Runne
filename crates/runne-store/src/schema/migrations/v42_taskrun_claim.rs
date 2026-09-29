@@ -80,7 +80,7 @@ pub(super) fn v42_structure_matches(
         [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     )?;
     let marker_matches = if include_v43_extensions {
-        matches!(marker, (43, 1, 42, 927) | (43, 1, 43, 946) | (44, 1, 43, 971) | (44, 1, 44, 990) | (45, 1, 44, 1016) | (45, 1, 45, 1035) | (46, 1, 45, 1062) | (46, 1, 46, 1081) | (47, 1, 46, 1109) | (47, 1, 47, 1128))
+        matches!(marker, (43, 1, 42, 927) | (43, 1, 43, 946) | (44, 1, 43, 971) | (44, 1, 44, 990) | (45, 1, 44, 1016) | (45, 1, 45, 1035) | (46, 1, 45, 1062) | (46, 1, 46, 1081) | (47, 1, 46, 1109) | (47, 1, 47, 1128) | (48, 1, 47, 1157) | (48, 1, 48, 1176))
     } else {
         matches!(marker, (42, 1, 41, 884) | (42, 1, 42, 903))
     };
@@ -133,6 +133,9 @@ pub(super) fn v42_structure_matches(
             ("taskrun_provider_bindings_immutable", "CREATE TRIGGER taskrun_provider_bindings_immutable BEFORE UPDATE ON taskrun_provider_bindings BEGIN SELECT RAISE(ABORT,'TaskRun provider binding is append only'); END"),
             ("taskrun_provider_bindings_no_delete", "CREATE TRIGGER taskrun_provider_bindings_no_delete BEFORE DELETE ON taskrun_provider_bindings BEGIN SELECT RAISE(ABORT,'TaskRun provider binding is append only'); END"),
         ]);
+    }
+    if marker.0 >= 48 {
+        tables.push("conversation_writer_leases");
     }
     if marker.0 >= 47 {
         tables.push("text_only_taskrun_lineage");

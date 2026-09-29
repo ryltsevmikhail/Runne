@@ -14,6 +14,7 @@
 
 pub mod atomic_pre_effect;
 pub mod codec;
+pub mod conversation_writer_lease;
 pub mod execution_node;
 pub mod integrity;
 pub mod local_session;

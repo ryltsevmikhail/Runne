@@ -28,9 +28,13 @@ pub(super) fn apply_v46_migration(connection: &Connection) -> SqliteResult<()> {
 }
 
 pub(super) fn v46_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if !matches!(version, 46 | 47) || !v45_matches(connection, version)? { return Ok(false); }
+    if !matches!(version, 46..=48) || !v45_matches(connection, version)? {
+        return Ok(false);
+    }
     let marker: (i64,i64,i64,i64) = connection.query_row("SELECT COALESCE(MAX(version),0),COALESCE(MIN(version),0),COUNT(*),COALESCE(SUM(version),0) FROM schema_version", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
-    if !matches!(marker,(46,1,45,1062) | (46,1,46,1081) | (47,1,46,1109) | (47,1,47,1128)) { return Ok(false); }
+    if !matches!(marker,(46,1,45,1062) | (46,1,46,1081) | (47,1,46,1109) | (47,1,47,1128) | (48,1,47,1157) | (48,1,48,1176)) {
+        return Ok(false);
+    }
     let expected = MIGRATION_V46.split(';').map(str::trim).find(|s| s.starts_with("CREATE TABLE taskrun_provider_bindings ")).unwrap();
     let actual: Option<String> = connection.query_row("SELECT sql FROM sqlite_master WHERE type='table' AND name='taskrun_provider_bindings'", [], |r| r.get(0)).optional()?;
     if actual.is_none_or(|sql| normalize_ddl(&sql)!=normalize_ddl(expected)) { return Ok(false); }
