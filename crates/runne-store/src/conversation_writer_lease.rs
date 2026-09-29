@@ -8,7 +8,7 @@
 //! own — expiry does not prove the old writer died (plan 18 §D1.3/X2), only
 //! take-control changes ownership.
 
-use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
+use rusqlite::{Connection, OptionalExtension, Transaction};
 
 /// Snapshot of one durable writer lease.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -153,6 +153,7 @@ mod tests {
     }
 
     fn tx(connection: &Connection) -> Transaction<'_> {
+        use rusqlite::TransactionBehavior;
         Transaction::new_unchecked(connection, TransactionBehavior::Immediate).expect("tx")
     }
 
