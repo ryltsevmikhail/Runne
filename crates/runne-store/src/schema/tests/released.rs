@@ -36,7 +36,7 @@ fn released_v8_upgrades_atomically_through_provider_v11() {
 
     apply_migrations(&conn).unwrap();
 
-    assert_eq!(CURRENT_SCHEMA_VERSION, 47);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 48);
     assert_eq!(
         conn.query_row("SELECT MAX(version) FROM schema_version", [], |row| row
             .get::<_, i64>(0))
@@ -67,7 +67,7 @@ fn every_supported_schema_upgrades_to_current() {
             CURRENT_SCHEMA_VERSION,
             "source V{source}"
         );
-        assert!(v46_matches(&conn, 46).unwrap(), "source V{source}");
+        assert!(v48_matches(&conn, 48).unwrap(), "source V{source}");
     }
 }
 

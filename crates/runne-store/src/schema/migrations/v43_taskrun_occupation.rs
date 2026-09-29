@@ -68,14 +68,14 @@ pub(super) fn apply_v43_migration(connection: &Connection) -> SqliteResult<()> {
 }
 
 pub(super) fn v43_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if !(43..=47).contains(&version) {
+    if !(43..=48).contains(&version) {
         return Ok(false);
     }
     if !v42_structure_matches(connection, true)? {
         return Ok(false);
     }
     let marker: (i64,i64,i64,i64) = connection.query_row("SELECT COALESCE(MAX(version),0),COALESCE(MIN(version),0),COUNT(*),COALESCE(SUM(version),0) FROM schema_version", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
-    if !matches!(marker, (43, 1, 42, 927) | (43, 1, 43, 946) | (44, 1, 43, 971) | (44, 1, 44, 990) | (45, 1, 44, 1016) | (45, 1, 45, 1035) | (46, 1, 45, 1062) | (46, 1, 46, 1081) | (47, 1, 46, 1109) | (47, 1, 47, 1128)) {
+    if !matches!(marker, (43, 1, 42, 927) | (43, 1, 43, 946) | (44, 1, 43, 971) | (44, 1, 44, 990) | (45, 1, 44, 1016) | (45, 1, 45, 1035) | (46, 1, 45, 1062) | (46, 1, 46, 1081) | (47, 1, 46, 1109) | (47, 1, 47, 1128) | (48, 1, 47, 1157) | (48, 1, 48, 1176)) {
         return Ok(false);
     }
     for table in [

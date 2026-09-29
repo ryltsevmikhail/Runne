@@ -41,14 +41,14 @@ pub(super) fn apply_v47_migration(connection: &Connection) -> SqliteResult<()> {
 }
 
 pub(super) fn v47_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if version != 47 || !v46_matches(connection, version)? {
+    if !matches!(version, 47 | 48) || !v46_matches(connection, version)? {
         return Ok(false);
     }
     let marker: (i64, i64, i64, i64) = connection.query_row(
         "SELECT COALESCE(MAX(version),0),COALESCE(MIN(version),0),COUNT(*),COALESCE(SUM(version),0) FROM schema_version",
         [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     )?;
-    if !matches!(marker, (47, 1, 46, 1109) | (47, 1, 47, 1128)) {
+    if !matches!(marker, (47, 1, 46, 1109) | (47, 1, 47, 1128) | (48, 1, 47, 1157) | (48, 1, 48, 1176)) {
         return Ok(false);
     }
     let expected = MIGRATION_V47
@@ -66,7 +66,10 @@ pub(super) fn v47_matches(connection: &Connection, version: i64) -> SqliteResult
     if actual.is_none_or(|sql| normalize_ddl(&sql) != normalize_ddl(expected)) {
         return Ok(false);
     }
-    if !v47_triggers_match(connection)? || !v47_rows_match(connection)? {
+    if !v47_triggers_match(connection)? {
+        return Ok(false);
+    }
+    if !v47_rows_match(connection)? {
         return Ok(false);
     }
     Ok(true)
