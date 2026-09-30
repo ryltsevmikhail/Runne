@@ -115,6 +115,7 @@ pub(crate) mod commit_gate;
 mod component_guard;
 mod conversation;
 pub use conversation::ConversationStreamHealth;
+mod conversation_writer_lease_host;
 mod core;
 mod correlation;
 mod enrollment_launch;

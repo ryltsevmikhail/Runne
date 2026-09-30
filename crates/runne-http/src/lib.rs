@@ -8,6 +8,7 @@ pub mod approvals;
 pub mod auth;
 pub mod command_reconciliation;
 pub mod commands;
+pub mod conversation_writer_lease;
 pub mod conversations;
 pub mod editors;
 pub mod error;

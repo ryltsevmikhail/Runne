@@ -141,6 +141,13 @@ pub fn load_writer_lease(
         .map_err(|_| WriterLeaseError::Unavailable)
 }
 
+pub(crate) fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
