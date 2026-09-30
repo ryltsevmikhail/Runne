@@ -13,6 +13,7 @@ impl SecureLocalHttpHost {
         conversation_state: ConversationHttpState<C>,
         project_workspace_state: crate::project_workspace::ProjectWorkspaceHttpState<P>,
         trust_control_routes: Option<Router>,
+        writer_lease_routes: Option<Router>,
         workspace_file_state: crate::workspace_files::WorkspaceFileHttpState<F>,
         workspace_diff_state: crate::workspace_diffs::WorkspaceDiffHttpState<D>,
         process_state: ProcessHttpState<Q>,
@@ -70,6 +71,7 @@ impl SecureLocalHttpHost {
                 project_workspace_state,
             ))
             .merge(trust_control_routes.unwrap_or_default())
+            .merge(writer_lease_routes.unwrap_or_default())
             .merge(approval_router(approval_state))
             .merge(crate::workspace_files::workspace_file_router(
                 workspace_file_state,

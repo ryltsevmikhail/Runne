@@ -147,6 +147,7 @@ pub(super) async fn start_http_and_runtime(
     let launched_at = Instant::now();
     let clock: Arc<dyn Fn() -> Duration + Send + Sync> = Arc::new(move || launched_at.elapsed());
     let enrollment_routes = enrollment.routes;
+    let writer_lease_routes = command_hosts::writer_lease_routes(&store);
     let local_session_service = session::compose(
         binding.clone(),
         launch_authority_id,
@@ -219,6 +220,7 @@ pub(super) async fn start_http_and_runtime(
             actor.clone(),
         ),
         command_hosts.trust_control_routes,
+        Some(writer_lease_routes),
         runne_http::workspace_files::WorkspaceFileHttpState::new(command_hosts.workspace_files),
         runne_http::workspace_diffs::WorkspaceDiffHttpState::new(command_hosts.workspace_diffs),
         runne_http::processes::ProcessHttpState::new(command_hosts.process, actor.clone()),
@@ -293,5 +295,6 @@ pub(super) async fn start_http_and_runtime(
         credential_enrollment_control: enrollment.control,
     })
 }
+
 #[cfg(test)]
 mod tests;

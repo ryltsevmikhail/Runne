@@ -176,3 +176,15 @@ pub(super) fn pinned_task_run_model(
         .as_ref()
         .map(|service| service.pinned_model_id())
 }
+
+pub(super) fn writer_lease_routes(store: &runne_store::store::StoreTransaction) -> axum::Router {
+    runne_http::conversation_writer_lease::conversation_writer_lease_router(
+        runne_http::conversation_writer_lease::ConversationWriterLeaseHttpState::new(
+            std::sync::Arc::new(
+                runne_http::conversation_writer_lease::StoreConversationWriterLeaseHost::new(
+                    store.clone(),
+                ),
+            ),
+        ),
+    )
+}
