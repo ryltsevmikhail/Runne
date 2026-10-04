@@ -10,7 +10,10 @@ mod online_stream_fixture;
 mod provider_credential_fixture;
 #[path = "provider_recovery_full_audit_parts/runtime_config.rs"]
 mod runtime_config;
+#[path = "provider_recovery_full_audit_parts/sql_snapshot.rs"]
+mod sql_snapshot;
 use runtime_config::runtime_config;
+use sql_snapshot::{SqlSnapshot, sql_snapshot, sql_table_rows};
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 

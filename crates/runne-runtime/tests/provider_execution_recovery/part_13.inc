@@ -1,5 +1,4 @@
-use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
-use std::time::Duration;
+use std::{sync::mpsc::{Receiver, SyncSender, sync_channel}, time::Duration};
 
 struct PausedAppendStore {
     inner: Arc<SqliteProviderExecutionStore>,

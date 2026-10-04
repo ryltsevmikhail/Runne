@@ -20,6 +20,9 @@ use runne_secure_store::{
 use zeroize::Zeroizing;
 
 pub(super) const SECRET: &[u8] = b"credential-token";
+#[path = "task5_support/runtime_authority.rs"]
+mod runtime_authority;
+pub(super) use self::runtime_authority::runtime_authority;
 
 #[derive(Default)]
 pub(super) struct SecretProvider {

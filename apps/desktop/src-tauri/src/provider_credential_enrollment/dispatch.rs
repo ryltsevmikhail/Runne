@@ -163,7 +163,6 @@ async fn dispatch_enrollment_inner(
         .map_err(|_: crate::AppCoreError| {
             DispatchFailure::Closed("provider_credential_runtime_unavailable")
         })?;
-
     // Native sheet on a worker thread; the renderer never observes material.
     let prompt_request = request
         .prompt_request()
@@ -182,7 +181,6 @@ async fn dispatch_enrollment_inner(
     if matches!(disposition, SecureCredentialPromptDisposition::Cancelled) {
         return Err(DispatchFailure::Cancelled);
     }
-
     // Confirm the retained installed admission against the exact live daemon.
     let prepared = updater_lease
         .take_prepared()
